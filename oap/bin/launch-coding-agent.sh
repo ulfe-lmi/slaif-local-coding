@@ -12,7 +12,7 @@ source "$RUNTIME_ENV"
 REPO_ROOT=${OAP_REPO_ROOT:-$DEFAULT_REPO}
 STRATEGIC_HOME=${OAP_STRATEGIC_HOME:-$STRATEGIC_HOME}
 CODEX_BIN=${CODEX_BIN:-codex}
-CODING_CODEX_PROFILE=${CODING_CODEX_PROFILE:-qwen38-vision}
+CODING_CODEX_PROFILE=${CODING_CODEX_PROFILE:-}
 CONTROL_FIFO="$STRATEGIC_HOME/control.fifo"
 RESPONSE_FIFO="$STRATEGIC_HOME/response.fifo"
 
@@ -26,7 +26,11 @@ RESPONSE_FIFO="$STRATEGIC_HOME/response.fifo"
 
 cd "$REPO_ROOT"
 
-echo "Coding OAP loop ready; profile=$CODING_CODEX_PROFILE; waiting on $CONTROL_FIFO" >&2
+if [[ -n "$CODING_CODEX_PROFILE" ]]; then
+  echo "Coding OAP loop ready; profile=$CODING_CODEX_PROFILE; waiting on $CONTROL_FIFO" >&2
+else
+  echo "Coding OAP loop ready; profile=DEFAULT; waiting on $CONTROL_FIFO" >&2
+fi
 while true; do
   "$REPO_ROOT/oap/bin/oap_fifo.py" wait --fifo "$CONTROL_FIFO"
   "$REPO_ROOT/oap/bin/check_state.py" \
@@ -37,9 +41,9 @@ You are the OAP coding Codex. The external wrapper has already consumed one exac
 strategic FIFO OK. Work in $REPO_ROOT. Read AGENTS.md,
 OAP-COMMUNICATION-coding-agent.md, ARCHITECTURE-for-agents.md, SECURITY.md,
 TESTING.md, oap/active, and the one exact matching order. Reconcile GitHub before
-mutation. Execute only that order. Obey the protected live-host boundary: discover and preserve the current Codex
-vision provider path; no pre-existing image proxy is assumed. Never alter
-protected model/Codex/network state unless the active order explicitly authorizes
+mutation. Execute only that order. Obey the protected live-host boundary: discover and preserve the current
+Qwen/vLLM vision service; no pre-existing image proxy is assumed. Never alter
+protected model/vLLM/network state unless the active order explicitly authorizes
 it. Create/amend the
 correct PR, never merge. Publish the immutable report as the final report-only
 SELF commit, verify it remotely, then send exactly two bytes OK with:
@@ -52,8 +56,13 @@ PROMPT_EOF
 )
 
   set +e
-  "$CODEX_BIN" exec --profile "$CODING_CODEX_PROFILE" \
-    --dangerously-bypass-approvals-and-sandbox "$PROMPT"
+  CODEX_ARGS=(exec)
+  if [[ -n "$CODING_CODEX_PROFILE" ]]; then
+    CODEX_ARGS+=(--profile "$CODING_CODEX_PROFILE")
+  fi
+  CODEX_ARGS+=(--dangerously-bypass-approvals-and-sandbox "$PROMPT")
+
+  "$CODEX_BIN" "${CODEX_ARGS[@]}"
   rc=$?
   set -e
   if [[ "$rc" -ne 0 ]]; then

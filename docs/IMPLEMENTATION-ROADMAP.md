@@ -12,7 +12,7 @@ state and review outcomes control actual sequencing.
 - integrate route-scoped newest-image-only policy from the proven prototype;
 - preserve SSE and ordinary function tools;
 - add health/readiness/metrics and fake-upstream plus bounded live tests;
-- do not implement constitution compilation or cut over the current Codex/Qwen path.
+- do not implement constitution compilation or cut over the live Qwen/vLLM service.
 
 ## Objective 001 — constitution observation and deterministic discovery
 

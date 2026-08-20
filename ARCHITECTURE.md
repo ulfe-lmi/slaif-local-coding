@@ -163,11 +163,11 @@ diagnose behavior without storing customer prompts, code, or images.
 
 ### 4.7 Development must not destroy its own control path
 
-No pre-existing image-cap proxy is assumed on the reference host. The strategic
-agent first discovers the coding Codex's actual current vision profile/provider
-endpoint. New adapter code runs on development port 18031 so implementation and
-live tests cannot replace the endpoint through which the coding agent is currently
-reasoning.
+No pre-existing image-cap proxy is assumed on the reference host. Both OAP
+agents normally use the default Codex provider. The strategic agent independently
+discovers the live Qwen/vLLM service under test. New adapter code runs on
+development port 18031 so implementation and live tests cannot disturb the
+protected model service.
 
 ## 5. Deployment topologies
 
@@ -181,24 +181,28 @@ All development occurs on the machine that currently hosts Qwen/vLLM.
 ├── codex-work/slaif-local-coding/        coding-agent repository
 └── codex-supervision/slaif-local-coding/ strategic-agent workspace
 
-Existing coding-agent model path (discover live; reference expectation):
-  Codex(qwen38-vision)
-    -> current configured Qwen/vLLM vision endpoint
-    -> historically 10.8.132.76:18020 live vLLM
+OAP control plane:
+  Strategic Codex -> default Codex provider
+  Coding Codex    -> default Codex provider
+
+Protected live system under test:
+  Qwen/vLLM vision service
+    -> discover live; currently 10.8.132.76:18020
 
 New adapter development path:
   tests/curl
     -> 127.0.0.1:18031 development adapter
-    -> 10.8.132.76:18020 live vLLM
+    -> live Qwen/vLLM service
 
 Internal compiler path:
   development adapter
     -> 10.8.132.76:18020 directly
 ```
 
-This topology enables real live-model tests while preserving the coding model's
-stable endpoint. Objective 000 must verify the actual current service/process/
-profile facts; historical paths and ports are not accepted without inspection.
+This topology enables real live-model tests while keeping both OAP Codex agents
+independent of the constrained local model under test. Objective 000 must verify
+the actual current service/process/model facts; historical paths and ports are
+not accepted without inspection.
 
 ### 5.2 SME packaged topology
 

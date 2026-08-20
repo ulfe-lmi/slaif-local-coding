@@ -37,19 +37,21 @@ The supplied workaround prototype listened on `127.0.0.1:18021` in its original
 environment. It is **reference code only** for this project; no such service is
 assumed to be deployed on the target machine. The prototype recursively detects
 `input_image` and `image_url` objects in Responses/Chat JSON and forwards only
-the newest image to an upstream vLLM endpoint. Codex
-vision profiles point to it. It must remain available while a coding Codex uses
-that profile.
+the newest image to an upstream vLLM endpoint. Its newest-image retention algorithm is reference material for the common
+server-side adapter; no OAP Codex agent depends on this prototype.
 
 ## Development topology
 
 ```text
-coding Codex control path:
-  Codex qwen38-vision -> current configured vision-mode Qwen/vLLM endpoint
-  (discover live; historically vLLM :18020)
+OAP control path:
+  strategic Codex -> default Codex provider
+  coding Codex    -> default Codex provider
+
+live system under test:
+  Qwen/vLLM vision service -> discover live; currently :18020
 
 new adapter test path:
-  curl/tests -> 127.0.0.1:18031 -> live vLLM :18020
+  curl/tests -> 127.0.0.1:18031 -> live Qwen/vLLM
 
 internal compiler path:
   adapter process -> live vLLM :18020 directly
@@ -58,7 +60,7 @@ internal compiler path:
 Rules:
 
 - use `18031` for candidate development unless live reconnaissance requires another verified-free loopback port;
-- do not stop/replace the current Codex/Qwen path during ordinary development;
+- do not stop/replace the live Qwen/vLLM service during ordinary development;
 - do not restart or reconfigure `qwen-serving`;
 - do not change firewall/VPN/network binding;
 - use low-concurrency live tests and the existing key through its environment;
@@ -80,7 +82,7 @@ nvidia-smi
 curl authenticated /health and /v1/models
 ```
 
-Do not redirect the active coding Codex through a recorder during objective 000.
-Use the proven reference proxy, synthetic OpenAI envelopes, and bounded direct
-API tests. Sanitized real Codex envelope capture belongs in a later explicit E2E
+Do not route either OAP Codex agent through the experimental adapter during
+objective 000. Use synthetic OpenAI envelopes, the reference proxy algorithm,
+and bounded direct API tests. Sanitized real Codex envelope capture belongs in a later explicit E2E
 objective unless it can be obtained without changing the active profile/path.

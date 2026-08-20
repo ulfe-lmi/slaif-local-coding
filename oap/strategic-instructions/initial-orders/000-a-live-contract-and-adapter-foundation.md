@@ -18,8 +18,8 @@ slice:
    disconnect semantics;
 5. validate with fake upstream and bounded live calls to the current vision-mode
    vLLM REST API;
-6. leave the model, vLLM, current Codex vision path, network, keys, and active
-   profiles unchanged.
+6. leave the model, vLLM service, network, keys, and Codex configuration
+   unchanged.
 
 Do not implement constitutional compilation/cache/injection in objective 000.
 
