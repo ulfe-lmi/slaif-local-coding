@@ -1,0 +1,53 @@
+# Example only. Never place secrets in this file.
+
+[server]
+listen_host = "127.0.0.1"
+listen_port = 18031
+request_body_max_bytes = 67108864
+stream_idle_timeout_seconds = 300
+
+[upstream]
+base_url = "http://10.8.132.76:18020/v1"
+api_key_env = "QWEN3090_API_KEY"
+model = "qwen3.8-27b"
+connect_timeout_seconds = 10
+request_timeout_seconds = 300
+
+[compiler]
+# Objective 000 keeps this disabled; later OAP objectives implement it.
+enabled = false
+# Compiler calls go directly to upstream and never traverse the adapter again.
+reasoning_effort = "low"
+max_output_tokens = 3000
+max_parallel_calls = 1
+schema_version = "constitution-v1"
+
+[cache]
+backend = "filesystem"
+root = "/dev/shm/slaif-local-coding"
+fallback_root = "~/.cache/slaif-local-coding"
+max_total_bytes = 67108864
+max_entry_bytes = 65536
+ttl_seconds = 604800
+
+[constitution]
+# Objective 000 keeps this disabled; later OAP objectives implement it.
+enabled = false
+max_injected_bytes = 16384
+candidate_max_count = 128
+# Optimization failure preserves the original governance-bearing request.
+compile_failure_policy = "preserve_original"
+
+[[routes]]
+name = "qwen38-vision-codex"
+model = "qwen3.8-27b"
+endpoints = ["/v1/responses", "/v1/chat/completions"]
+max_images_per_request = 1
+image_overflow_policy = "retain_newest"
+constitution_enabled = false
+
+[observability]
+log_level = "INFO"
+log_raw_payloads = false
+metrics_enabled = true
+metrics_host = "127.0.0.1"

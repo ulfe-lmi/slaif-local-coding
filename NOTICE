@@ -1,0 +1,16 @@
+SLAIF Local Coding
+Copyright 2026 University of Ljubljana, Faculty of Electrical Engineering
+
+This product is developed in the Slovenian AI Factory (SLAIF) context.
+
+The project acknowledges the authors and contributors of:
+
+  syv-ai/qwen38-27b-rtx3090
+  https://github.com/syv-ai/qwen38-27b-rtx3090
+
+for the Apache-2.0-licensed work that makes Qwen3.8-27B practical on a single
+RTX 3090, including serving, quantization, patching, verification, and
+performance guidance. See THIRD_PARTY_NOTICES.md for scope and provenance.
+
+The OAP governance workflow is adapted from the Orchestrated Agentic Programming
+manual and the Apache-2.0 ulfe-lmi/slaif-agent-site reference repository.
