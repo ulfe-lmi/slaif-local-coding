@@ -58,13 +58,17 @@ changing the model-bound request.
 ## Request-only constitution observation
 
 Observation is independently enabled on each explicit route and runs after image
-policy enforcement. A synthetic supplemental project shape is accepted only as a
-top-level Responses developer message containing an `input_text` item; fresh Codex
-0.149.0 runs have not reproduced that shape or established a stable replacement.
+policy enforcement. The captured Codex 0.149.0 project shape is accepted only as
+one uniquely delimited top-level Responses user/`input_text` item. Three fresh
+disposable captures normalized to byte-identical fixtures; top-level `instructions`
+was absent and is therefore optional corroboration, not a prerequisite.
 Synthetic supplements accept explicit `input_file` items in top-level
 Responses/Chat content positions and exact `exec_command` calls paired one-to-one
 with output by call ID;
 the read grammar is limited to exact `cat`, `head`, `tail`, or bounded `sed -n`.
+For the captured shape, a matching parseable `instructions` block adds evidence;
+a mismatch or duplicate makes the observation incomplete with no project root.
+The bounded environment tail is discarded before hashing and candidate extraction.
 Wrong roles/types/tool names, metadata, arbitrary nesting, tool descriptions,
 assistant claims, ambiguous commands, and duplicate/unpaired IDs do not establish
 a root. Every evidence class uses one repository-relative POSIX `AGENTS.md` path
@@ -85,6 +89,8 @@ Finite configuration bounds cover roots, bytes per source, candidates, evidence
 per candidate, total evidence, and path bytes. Overflow produces a typed incomplete
 result and safe fixed-reason metrics; the original governance-bearing request is
 still forwarded unchanged except for any earlier authorized image transformation.
+An exactly constructed supported user envelope is intentionally evidence because
+this is a client-supplied effective-governance trust boundary, not plain prose.
 The observation result exists only for the current request. Client identity and
 session headers are stripped and are not trusted reuse keys. There is no compiler,
 model ranking, semantic score, cache, acquisition, injection, replacement, or

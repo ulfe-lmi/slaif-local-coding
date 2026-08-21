@@ -24,9 +24,12 @@ from .references import extract_references
 
 _PROJECT = re.compile(
     r"^# AGENTS\.md instructions for (?P<directory>[^\r\n]+)\r?\n\r?\n"
-    r"<INSTRUCTIONS>\r?\n(?P<content>.*?)\r?\n</INSTRUCTIONS>(?:\r?\n)?$",
+    r"<INSTRUCTIONS>\r?\n(?P<content>.*?)\r?\n</INSTRUCTIONS>"
+    r"(?P<tail>(?:\r?\n)?(?:<environment_context>\r?\n.*\r?\n"
+    r"</environment_context>\r?\n?)?)$",
     re.DOTALL,
 )
+_PROJECT_MARKER = "# AGENTS.md instructions for "
 _READ = re.compile(
     r"^(?:cat|head(?:\s+-n\s+\d+)?|tail(?:\s+-n\s+\d+)?|"
     r"sed\s+-n\s+['\"]?\d+(?:,\d+)?p['\"]?)\s+(?P<path>[^\s]+)$"
@@ -94,31 +97,60 @@ def _content_items(payload: dict[str, Any]) -> list[tuple[dict[str, Any], str, s
 
 def _project_sources(
     payload: dict[str, Any], policy: ObservationPolicy
-) -> tuple[list[_Found], bool]:
-    result: list[_Found] = []
+) -> tuple[list[_Found], bool, bool]:
     invalid_path = False
-    for item, location, role in _content_items(payload):
+    malformed = False
+    supported: list[tuple[re.Match[str], str]] = []
+    inputs = payload.get("input")
+    if isinstance(inputs, list):
+        for input_index, parent in enumerate(inputs):
+            if not isinstance(parent, dict) or parent.get("role") != "user":
+                continue
+            content = parent.get("content")
+            if not isinstance(content, list):
+                continue
+            for content_index, item in enumerate(content):
+                if not isinstance(item, dict) or item.get("type") != "input_text":
+                    continue
+                text = item.get("text")
+                if not isinstance(text, str) or _PROJECT_MARKER not in text:
+                    continue
+                match = _PROJECT.fullmatch(text)
+                if match is None or "</INSTRUCTIONS>" in match.group("content"):
+                    malformed = True
+                    continue
+                supported.append((match, f"$.input[{input_index}].content[{content_index}]"))
+    if len(supported) != 1:
+        return [], invalid_path, malformed or len(supported) > 1
+    match, location = supported[0]
+    logical = _logical_agents_path(
+        match.group("directory").strip(), policy.max_path_bytes, project_directory=True
+    )
+    if logical is None:
+        return [], True, malformed
+    content = match.group("content")
+    result = [_Found(logical, content, EvidenceType.PROJECT_INSTRUCTIONS, location)]
+
+    instructions = payload.get("instructions")
+    if isinstance(instructions, str) and instructions.startswith(_PROJECT_MARKER):
+        corroboration = _PROJECT.fullmatch(instructions)
         if (
-            not location.startswith("$.input[")
-            or role != "developer"
-            or item.get("type") != "input_text"
+            corroboration is None
+            or corroboration.group("tail") not in ("", "\n", "\r\n")
+            or "</INSTRUCTIONS>" in corroboration.group("content")
         ):
-            continue
-        text = item.get("text")
-        match = _PROJECT.fullmatch(text) if isinstance(text, str) else None
-        if match is None:
-            continue
-        content = match.group("content")
-        if "</INSTRUCTIONS>" in content:
-            continue
-        logical = _logical_agents_path(
-            match.group("directory").strip(), policy.max_path_bytes, project_directory=True
+            return [], invalid_path, True
+        corroborating_logical = _logical_agents_path(
+            corroboration.group("directory").strip(),
+            policy.max_path_bytes,
+            project_directory=True,
         )
-        if logical is not None:
-            result.append(_Found(logical, content, EvidenceType.PROJECT_INSTRUCTIONS, location))
-        else:
-            invalid_path = True
-    return result, invalid_path
+        if corroborating_logical is None:
+            return [], True, malformed
+        if corroborating_logical != logical or corroboration.group("content") != content:
+            return [], invalid_path, True
+        result.append(_Found(logical, content, EvidenceType.PROJECT_INSTRUCTIONS, "$.instructions"))
+    return result, invalid_path, malformed
 
 
 def _input_files(payload: dict[str, Any], policy: ObservationPolicy) -> tuple[list[_Found], bool]:
@@ -243,12 +275,14 @@ def observe_request(
     payload: dict[str, Any], context: ObservationContext, policy: ObservationPolicy
 ) -> ObservationResult:
     reasons: list[IncompleteReason] = []
-    project, invalid_project = _project_sources(payload, policy)
+    project, invalid_project, malformed_project = _project_sources(payload, policy)
     input_files, invalid_input = _input_files(payload, policy)
     tools, invalid_tool = _tool_sources(payload, policy)
     found = project + input_files + tools
     if invalid_project or invalid_input or invalid_tool:
         reasons.append(IncompleteReason.INVALID_ROOT_PATH)
+    if malformed_project:
+        reasons.append(IncompleteReason.PARSING_ERROR)
     if len(found) > policy.max_roots:
         found = found[: policy.max_roots]
         reasons.append(IncompleteReason.TOO_MANY_ROOTS)

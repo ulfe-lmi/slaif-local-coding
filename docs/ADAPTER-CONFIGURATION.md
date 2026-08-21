@@ -36,20 +36,27 @@ reason labels, counts, and duration—not source paths/content/hashes, identity 
 tool text, queries, or authorization. Current external identity/session headers are
 spoofable and stripped; signed gateway identity remains future work.
 
-Supported evidence is deliberately structural: the synthetic supplemental project
-marker must be in a top-level developer/`input_text` Responses item; fresh Codex
-0.149.0 captures have not established a stable current replacement rule. Synthetic
+Supported evidence is deliberately structural: the captured project marker must
+occur exactly once in a top-level user/`input_text` Responses item. Three fresh
+Codex 0.149.0 captures produced the same canonical user-only fixture; optional
+top-level `instructions` corroboration was absent in all three. When present it
+must match the safe label and exact inner bytes or the project root is rejected.
+Synthetic
 input files require an explicit `input_file` item in a documented top-level content position; and tool
 evidence requires a one-to-one `exec_command` call/output pair. Arbitrary recursive
 dictionaries, wrong roles/types/names, malformed arguments, and duplicate call IDs
 are ignored. Root labels share one bounded POSIX repository-relative validator;
 unsafe root labels produce only fixed `invalid_root_path` incomplete telemetry.
 The project marker is a complete envelope, not a detectable prefix: the closing
-`</INSTRUCTIONS>` may be followed by no newline, one LF, or one CRLF and then must
-end the item. The newline immediately before the closing delimiter belongs to the
+`</INSTRUCTIONS>` may be followed by no newline, one terminal newline, or the
+captured bounded `<environment_context>` structural tail. Tail bytes are excluded
+from source hashes and candidates. The newline immediately before the closing delimiter belongs to the
 envelope and is not observed content; an additional newline is content. No line
 ending, trailing whitespace, Unicode, or other content normalization occurs before
-UTF-8 length and SHA-256 calculation. Unsupported or extra-text forms do not detect.
+UTF-8 length and SHA-256 calculation. Unsupported prefix/suffix, malformed or
+duplicate blocks, wrong parent/role/type, and unsafe labels do not detect. An exact
+client-supplied supported envelope intentionally crosses the effective-governance
+trust boundary; arbitrary mentions and examples do not.
 
 The adapter preserves the complete opaque query string upstream
 without exposing query values in logs, errors, or metrics. It removes standard

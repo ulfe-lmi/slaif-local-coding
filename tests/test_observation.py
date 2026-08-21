@@ -212,7 +212,7 @@ def test_every_limit_marks_manifest_incomplete(
     assert not result.complete and reason in result.incomplete_reasons
 
 
-def project_item(role: str = "developer", directory: str = "repo") -> dict[str, Any]:
+def project_item(role: str = "user", directory: str = "repo") -> dict[str, Any]:
     return {
         "role": role,
         "content": [
@@ -283,8 +283,8 @@ def test_project_envelope_preserves_exact_content_hash_and_length(content: str) 
     assert root.content_sha256 == hashlib.sha256(encoded).hexdigest()
 
 
-@pytest.mark.parametrize("role", ["assistant", "tool", "user"])
-def test_project_envelope_requires_developer_role(role: str) -> None:
+@pytest.mark.parametrize("role", ["assistant", "tool", "developer", "system"])
+def test_project_envelope_requires_user_role(role: str) -> None:
     assert (
         observe_request({"input": [project_item(role)]}, context(), ObservationPolicy()).roots == ()
     )
@@ -297,7 +297,7 @@ def test_project_envelope_requires_developer_role(role: str) -> None:
         {
             "input": [
                 {
-                    "role": "developer",
+                    "role": "user",
                     "content": [
                         {"type": "output_text", "text": project_item()["content"][0]["text"]}
                     ],
@@ -307,7 +307,7 @@ def test_project_envelope_requires_developer_role(role: str) -> None:
         {
             "input": [
                 {
-                    "role": "developer",
+                    "role": "user",
                     "content": [{"type": "input_text", "filename": "AGENTS.md", "text": "rules"}],
                 }
             ]
@@ -382,6 +382,67 @@ def test_safe_nested_root_normalizes_separators_and_absolute_project_is_private(
         {"input": [project_item(directory="/synthetic/private")]}, context(), ObservationPolicy()
     )
     assert project_result.roots[0].logical_path == "AGENTS.md"
+
+
+def test_project_user_environment_tail_is_excluded_from_hash_and_candidates() -> None:
+    content = "MUST read SECURITY.md."
+    item = project_item()
+    item["content"][0]["text"] = (
+        f"# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\n{content}\n</INSTRUCTIONS>"
+        "\n<environment_context>\n<synthetic />\n</environment_context>"
+    )
+    root = observe_request({"input": [item]}, context(), ObservationPolicy()).roots[0]
+    assert root.content_sha256 == hashlib.sha256(content.encode()).hexdigest()
+    assert [candidate.path for candidate in root.candidates] == ["SECURITY.md"]
+
+
+def test_matching_optional_instructions_is_corroborating_evidence() -> None:
+    item = project_item()
+    text = item["content"][0]["text"]
+    result = observe_request(
+        {"instructions": text, "input": [item]}, context(), ObservationPolicy()
+    )
+    assert len(result.roots) == 1
+    assert [evidence.location for evidence in result.roots[0].evidence] == [
+        "$.input[0].content[0]",
+        "$.instructions",
+    ]
+
+
+def test_arbitrary_instructions_mention_does_not_invalidate_user_root() -> None:
+    item = project_item()
+    result = observe_request(
+        {
+            "instructions": "Example: '# AGENTS.md instructions for repo' is only a quote.",
+            "input": [item],
+        },
+        context(),
+        ObservationPolicy(),
+    )
+    assert len(result.roots) == 1 and result.complete
+
+
+@pytest.mark.parametrize("variant", ["instructions_only", "mismatch", "duplicate"])
+def test_instructions_cannot_replace_or_conflict_with_user_root(variant: str) -> None:
+    item = project_item()
+    text = item["content"][0]["text"]
+    if variant == "instructions_only":
+        payload = {"instructions": text, "input": []}
+    elif variant == "mismatch":
+        payload = {"instructions": text.replace("MUST", "NEVER"), "input": [item]}
+    else:
+        payload = {"instructions": text + "\n" + text, "input": [item]}
+    result = observe_request(payload, context(), ObservationPolicy())
+    assert result.roots == ()
+    if variant != "instructions_only":
+        assert IncompleteReason.PARSING_ERROR in result.incomplete_reasons
+
+
+def test_duplicate_supported_user_blocks_are_rejected() -> None:
+    item = project_item()
+    result = observe_request({"input": [item, item]}, context(), ObservationPolicy())
+    assert result.roots == ()
+    assert IncompleteReason.PARSING_ERROR in result.incomplete_reasons
 
 
 def tool_pair(

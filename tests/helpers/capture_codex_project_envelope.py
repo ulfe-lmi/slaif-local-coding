@@ -23,6 +23,8 @@ PROJECT_PATTERN = re.compile(
     r"<INSTRUCTIONS>\r?\n(?P<content>.*?)\r?\n</INSTRUCTIONS>",
     re.DOTALL,
 )
+SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 
 
 class CaptureServer(ThreadingHTTPServer):
@@ -104,45 +106,45 @@ def _one_block(text: str, *, allow_environment_tail: bool) -> tuple[str, str]:
             re.DOTALL,
         ):
             raise RuntimeError("unsupported material follows project block")
-    return matches[0].group("label"), matches[0].group("content")
-
-
-def minimize(payload: dict[str, Any]) -> dict[str, Any]:
-    marker_paths = _all_marker_paths(payload)
+    label = matches[0].group("label")
     if (
-        len(marker_paths) != 2
-        or marker_paths[0] != "$.instructions"
-        or not re.fullmatch(r"\$\.input\[\d+\]\.content\[\d+\]\.text", marker_paths[1])
+        not label
+        or any(ord(char) < 32 for char in label)
+        or any(char in label for char in ("%", "?", "#", "\\"))
+        or SCHEME.match(label)
+        or DRIVE.match(label)
+        or ".." in label.split("/")
     ):
-        instructions_value = payload.get("instructions")
-        instruction_facts = {
-            "is_string": isinstance(instructions_value, str),
-            "contains_agents": isinstance(instructions_value, str)
-            and "AGENTS.md" in instructions_value,
-            "contains_project_phrase": isinstance(instructions_value, str)
-            and "instructions for" in instructions_value,
-            "contains_open_delimiter": isinstance(instructions_value, str)
-            and "<INSTRUCTIONS>" in instructions_value,
-            "contains_synthetic_rule": isinstance(instructions_value, str)
-            and "MUST read [security](docs/SECURITY.md)." in instructions_value,
-        }
+        raise RuntimeError("project label is not privacy-safe")
+    return label, matches[0].group("content")
+
+
+def minimize_with_facts(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    marker_paths = _all_marker_paths(payload)
+    user_paths = [
+        path
+        for path in marker_paths
+        if re.fullmatch(r"\$\.input\[\d+\]\.content\[\d+\]\.text", path)
+    ]
+    allowed_paths = set(user_paths) | (
+        {"$.instructions"} if "$.instructions" in marker_paths else set()
+    )
+    if (
+        len(user_paths) != 1
+        or set(marker_paths) != allowed_paths
+        or len(marker_paths) != len(allowed_paths)
+    ):
         raise RuntimeError(
-            "unsupported marker locations/count; "
-            f"count={len(marker_paths)} paths={marker_paths!r} instructions={instruction_facts!r}"
+            f"unsupported marker locations/count; count={len(marker_paths)} paths={marker_paths!r}"
         )
     location_match = re.fullmatch(
-        r"\$\.input\[(?P<input>\d+)\]\.content\[(?P<content>\d+)\]\.text", marker_paths[1]
+        r"\$\.input\[(?P<input>\d+)\]\.content\[(?P<content>\d+)\]\.text", user_paths[0]
     )
     assert location_match is not None
     input_index = int(location_match.group("input"))
     content_index = int(location_match.group("content"))
-    instructions = payload.get("instructions")
     inputs = payload.get("input")
-    if (
-        not isinstance(instructions, str)
-        or not isinstance(inputs, list)
-        or input_index >= len(inputs)
-    ):
+    if not isinstance(inputs, list) or input_index >= len(inputs):
         raise RuntimeError("missing supported top-level positions")
     parent = inputs[input_index]
     if not isinstance(parent, dict) or parent.get("role") != "user":
@@ -156,19 +158,26 @@ def minimize(payload: dict[str, Any]) -> dict[str, Any]:
     user_text = item.get("text")
     if not isinstance(user_text, str):
         raise RuntimeError("supported user text is missing")
-    instruction_label, instruction_content = _one_block(instructions, allow_environment_tail=False)
     user_label, user_content = _one_block(user_text, allow_environment_tail=True)
-    if instruction_label != user_label or instruction_content != user_content:
-        raise RuntimeError("paired logical label/content does not agree")
-    encoded = instruction_content.encode("utf-8")
+    instructions = payload.get("instructions")
+    corroborated = False
+    if "$.instructions" in marker_paths:
+        if not isinstance(instructions, str):
+            raise RuntimeError("top-level instructions is not text")
+        instruction_label, instruction_content = _one_block(
+            instructions, allow_environment_tail=False
+        )
+        if instruction_label != user_label or instruction_content != user_content:
+            raise RuntimeError("optional corroborating logical label/content does not agree")
+        corroborated = True
+    encoded = user_content.encode("utf-8")
     digest = hashlib.sha256(encoded).hexdigest()
     envelope = (
         f"# AGENTS.md instructions for {LOGICAL_LABEL}\n\n"
-        f"<INSTRUCTIONS>\n{instruction_content}\n</INSTRUCTIONS>"
+        f"<INSTRUCTIONS>\n{user_content}\n</INSTRUCTIONS>"
     )
     return {
         "model": MODEL,
-        "instructions": envelope,
         "input": [
             {
                 "role": "user",
@@ -183,13 +192,25 @@ def minimize(payload: dict[str, Any]) -> dict[str, Any]:
             }
         ],
         "sanitized_provenance": {
-            "marker_occurrences": 2,
+            "marker_occurrences": 1,
             "logical_label": LOGICAL_LABEL,
             "content_byte_length": len(encoded),
             "content_sha256": digest,
-            "occurrences_agree": True,
         },
+    }, {
+        "endpoint_completed": True,
+        "user_marker_location": "$.input[0].content[0].text",
+        "user_role": "user",
+        "user_item_type": "input_text",
+        "instructions_corroborated": corroborated,
+        "content_byte_length": len(encoded),
+        "content_sha256": digest,
+        "occurrences_agree": True,
     }
+
+
+def minimize(payload: dict[str, Any]) -> dict[str, Any]:
+    return minimize_with_facts(payload)[0]
 
 
 def parse_args() -> argparse.Namespace:
@@ -280,8 +301,9 @@ def main() -> None:
             raise RuntimeError(f"Codex exited with status {completed.returncode}")
         if server.captured is None:
             raise RuntimeError("fake endpoint received no request")
-        minimized = minimize(server.captured)
+        minimized, facts = minimize_with_facts(server.captured)
         args.output.write_text(json.dumps(minimized, indent=2, ensure_ascii=False) + "\n")
+        print(json.dumps(facts, sort_keys=True))
 
 
 if __name__ == "__main__":

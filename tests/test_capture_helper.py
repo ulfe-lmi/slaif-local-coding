@@ -44,20 +44,43 @@ def raw_like() -> dict[str, Any]:
 
 def test_minimizer_emits_only_synthetic_paired_structure() -> None:
     minimized = capture.minimize(raw_like())
-    assert set(minimized) == {"model", "instructions", "input", "sanitized_provenance"}
+    assert set(minimized) == {"model", "input", "sanitized_provenance"}
     assert minimized["model"] == capture.MODEL
     assert "disposable/random" not in str(minimized)
     assert "unrelated sensitive" not in str(minimized)
     assert "discarded request" not in str(minimized)
-    assert minimized["sanitized_provenance"]["marker_occurrences"] == 2
-    assert minimized["sanitized_provenance"]["occurrences_agree"] is True
+    assert minimized["sanitized_provenance"]["marker_occurrences"] == 1
+
+
+def test_optional_instructions_does_not_change_canonical_fixture() -> None:
+    paired = raw_like()
+    user_only = raw_like()
+    user_only["instructions"] = "ordinary instructions"
+    paired_fixture, paired_facts = capture.minimize_with_facts(paired)
+    user_fixture, user_facts = capture.minimize_with_facts(user_only)
+    assert paired_fixture == user_fixture
+    assert paired_facts["instructions_corroborated"] is True
+    assert user_facts["instructions_corroborated"] is False
+
+
+@pytest.mark.parametrize("label", ["../outside", "https://example.test", "C:\\private"])
+def test_minimizer_rejects_unsafe_label(label: str) -> None:
+    payload = raw_like()
+    payload["instructions"] = payload["instructions"].replace(
+        "/disposable/random/repository", label
+    )
+    payload["input"][1]["content"][0]["text"] = payload["input"][1]["content"][0]["text"].replace(
+        "/disposable/random/repository", label
+    )
+    with pytest.raises(RuntimeError, match="privacy-safe"):
+        capture.minimize(payload)
 
 
 @pytest.mark.parametrize("mutation", ["missing", "duplicate", "relocated", "mismatch"])
 def test_minimizer_rejects_unproved_pair(mutation: str) -> None:
     payload = raw_like()
     if mutation == "missing":
-        payload["instructions"] = "ordinary instructions"
+        payload["input"][1]["content"][0]["text"] = "ordinary instructions"
     elif mutation == "duplicate":
         payload["instructions"] += "\n" + ENVELOPE
     elif mutation == "relocated":

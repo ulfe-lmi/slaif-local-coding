@@ -1,54 +1,47 @@
 # Sanitized Codex 0.149.0 fixtures
 
-`project_instructions_responses.json` is a synthetic supplemental developer-item
-shape. It is retained as a conservative compatibility test, but it has no current
-capture-provenance claim. The immutable `001-a` report's earlier captured-shape
-claim was not reproduced in `001-c` and must not be treated as current wire truth.
+`project_instructions_responses.json` is the canonical minimized current-Codex
+fixture. Three fresh disposable Codex CLI 0.149.0 runs on 2026-08-21 each completed
+the fake Responses endpoint, placed exactly one project block in a top-level
+user/`input_text` item, omitted a project block from top-level `instructions`, and
+normalized to byte-identical fixture bytes. The logical repository label and
+environment tail are synthetic privacy mappings; only exact inner instruction
+bytes are hashed and enumerated.
 
-The input-file and paired-tool fixtures are synthetic supplemental supported
-shapes; the capture did not exercise them. These fixtures document tested shapes,
-not universal or future Codex wire stability.
+This corrects, without rewriting immutable reports, the historical `001-a`
+captured-developer claim. The old developer project fixture is removed. The
+input-file and paired-tool JSON fixtures remain synthetic supplemental tested
+shapes, not captured or future-version compatibility claims.
 
-Two fresh disposable validations on 2026-08-21 with `codex-cli 0.149.0` failed to
-establish a stable replacement contract. The `001-c` run reported a marker in
-top-level instructions plus a user/`input_text` item. The new `001-d` run found one
-marker only, at a top-level user/`input_text` item; top-level instructions contained
-no AGENTS label, project phrase, delimiter, or synthetic rule. The helper failed
-closed and wrote no fixture in both cases. No detector support is inferred from
-either unreproduced shape.
+The detector requires one exact block at a top-level Responses user/`input_text`
+position: `# AGENTS.md instructions for <label>`, a blank line, `<INSTRUCTIONS>`,
+exact UTF-8 inner bytes, and `</INSTRUCTIONS>`. Only a terminal newline or the
+captured structural `<environment_context>` tail may follow; tail bytes are not
+source bytes. A parseable top-level `instructions` block is optional corroboration
+and must match the safe logical label and exact inner content. Plain mentions,
+wrong roles/types/parents, malformed/duplicate blocks, unsupported tails, and
+unsafe labels do not establish a root. A manually constructed exact supported
+user envelope intentionally has the same effective-governance meaning and is
+therefore evidence; this is a client-supplied trust boundary.
 
-To refresh safely, use the executable helper from the repository root. It creates a
-new temporary `CODEX_HOME` and Git repository, writes only a synthetic `AGENTS.md`,
-starts an ephemeral loopback fake Responses endpoint, and invokes the requested
-Codex binary. It never reads or modifies the real Codex home, login, catalog,
-profiles, sessions, compaction settings, or a non-disposable repository:
+To refresh safely from the repository root:
 
 ```bash
 python3 tests/helpers/capture_codex_project_envelope.py \
   --codex-bin codex --output /tmp/project_instructions_responses.json
 ```
 
-The helper's fully quoted invocation uses synthetic model
-`synthetic-capture-model`, provider `synthetic_capture`, loopback
-`base_url=http://127.0.0.1:<ephemeral-port>/v1`, `wire_api="responses"`, and
-`env_key="SLAIF_CAPTURE_KEY"`. It sets that variable to the throwaway value
-`synthetic-only`. A one-model temporary `model_catalog_json`, derived from the
-CLI's bundled `gpt-5.4` entry with a synthetic slug/name/description, makes the
-selected synthetic model behavior explicit. The command passes `--ephemeral`,
-`--ignore-user-config`, and `-C` with the disposable repository. The fake endpoint
-requires `POST /v1/responses` and
-`stream: true`, then terminates the CLI with one `response.completed` SSE event
-containing a synthetic completed Response with empty `output`.
+The helper creates a temporary `CODEX_HOME`, Git repository, model catalog, and
+loopback fake Responses endpoint. It uses only synthetic `AGENTS.md` bytes, model,
+credential, response, and prompt. The raw request remains in memory. Before writing,
+the minimizer allowlists exactly one supported user occurrence, zero or one matching
+instructions occurrence, and the captured suffix grammar. Output contains only the
+synthetic model, canonical user item, privacy-mapped label/content, synthetic tail,
+and safe length/hash facts. Optional corroboration is printed only as a sanitized
+run fact, so it cannot alter fixture bytes. Raw bodies, internal instructions,
+host paths, IDs, tools, user prompts, environment content, auth, headers, and
+responses are never written or printed.
 
-The raw request exists only in the helper process. Its minimizer requires exactly
-one top-level instructions envelope corroborated by one top-level user/`input_text`
-envelope with the same logical label and exact inner bytes. It replaces the random
-disposable directory with `repo`, permits only the captured environment-context
-tail boundary, and emits a synthetic two-position fixture plus safe counts/hash/
-length facts. It rejects a missing, relocated, duplicate, mismatched, or unsupported
-pair rather than rewriting evidence. It discards authorization and all headers,
-IDs, loopback/host paths, internal prompts, tools, unrelated input, user/session/
-account values, and response content before writing. Review the minimized output;
-never commit a raw capture. The direct `input_file` and Responses
-`function_call`/`function_call_output` fixtures are synthetic supplements, not
-shapes observed in that CLI capture or claims of universal compatibility.
+This remains observation-only and request-only. It provides no compiler, ranking,
+cache, acquisition, injection, rehydration, semantic-governance, compaction, or
+future Codex-version guarantee.

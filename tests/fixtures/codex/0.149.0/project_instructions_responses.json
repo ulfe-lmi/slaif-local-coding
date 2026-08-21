@@ -2,17 +2,19 @@
   "model": "synthetic-capture-model",
   "input": [
     {
-      "role": "developer",
+      "role": "user",
       "content": [
         {
           "type": "input_text",
-          "text": "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nMUST read [security](docs/SECURITY.md).\nNEVER skip `TESTING.md`.\n</INSTRUCTIONS>"
+          "text": "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nMUST read [security](docs/SECURITY.md).\nNEVER skip `TESTING.md`.\n\n</INSTRUCTIONS>\n<environment_context>\n<synthetic-discarded />\n</environment_context>"
         }
       ]
-    },
-    {
-      "role": "user",
-      "content": [{"type": "input_text", "text": "synthetic request"}]
     }
-  ]
+  ],
+  "sanitized_provenance": {
+    "marker_occurrences": 1,
+    "logical_label": "repo",
+    "content_byte_length": 65,
+    "content_sha256": "69aad5416bfe1218597355bf6968a04ce15327fe99bdd181e3171603f1ab5445"
+  }
 }
