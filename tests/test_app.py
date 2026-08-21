@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 import pytest
 
+import slaif_local_coding.app as app_module
 from slaif_local_coding.app import create_app
 from slaif_local_coding.config import RouteConfig, ServerConfig, Settings, UpstreamConfig
 
@@ -194,6 +195,92 @@ async def test_zero_one_forward_exact_body(settings: Settings) -> None:
             headers={"content-type": "application/json"},
         )
     ).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_route_scoped_observation_preserves_bytes_and_emits_safe_counts(
+    settings: Settings,
+) -> None:
+    raw = (
+        b'{"model":"qwen","input":[{"type":"input_file","filename":"AGENTS.md",'
+        b'"content":"MUST read private/synthetic-policy.md"}]}'
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert await request.aread() == raw
+        return httpx.Response(200, json={})
+
+    settings.routes[0].observation_enabled = True
+    app = create_app(settings, httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        response = await client.post(
+            "/v1/responses",
+            content=raw,
+            headers={
+                "content-type": "application/json",
+                "x-slaif-principal": "spoofed-private-principal",
+                "x-slaif-session": "spoofed-private-session",
+            },
+        )
+        metrics = (await client.get("/metrics")).text
+    assert response.status_code == 200
+    assert 'evidence_type="input_file"' in metrics
+    assert 'route="vision"' in metrics
+    assert "private/synthetic-policy.md" not in metrics
+    assert "spoofed-private" not in metrics
+
+
+@pytest.mark.asyncio
+async def test_observation_disabled_has_no_observation_or_extra_upstream_call(
+    settings: Settings,
+) -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={})
+
+    response = await call(
+        settings,
+        handler,
+        "POST",
+        "/v1/responses",
+        json={"model": "qwen", "input": [{"filename": "AGENTS.md", "content": "rules"}]},
+    )
+    assert response.status_code == 200 and calls == 1
+
+
+@pytest.mark.asyncio
+async def test_observation_last_resort_fallback_preserves_one_unchanged_request(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    raw = b'{"model":"qwen","input":"synthetic"}'
+    calls = 0
+
+    def injected_failure(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("synthetic observation failure")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        assert await request.aread() == raw
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(app_module, "observe_request", injected_failure)
+    settings.routes[0].observation_enabled = True
+    app = create_app(settings, httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        response = await client.post(
+            "/v1/responses", content=raw, headers={"content-type": "application/json"}
+        )
+        metrics = (await client.get("/metrics")).text
+    assert response.status_code == 200 and calls == 1
+    assert 'reason="parsing_error"' in metrics
 
 
 @pytest.mark.asyncio

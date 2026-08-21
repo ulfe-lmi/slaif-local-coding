@@ -48,10 +48,59 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objective `000` provides a private, loopback-only candidate
+Current status: objectives `000`–`001` provide a private, loopback-only candidate
 adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
-and applies an explicit per-model image policy.
+applies an explicit per-model image policy; and can observe evidenced effective
+`AGENTS.md` content and enumerate syntactic repository-file candidates without
+changing the model-bound request.
+
+## Request-only constitution observation
+
+Observation is independently enabled on each explicit route and runs after image
+policy enforcement. The captured Codex 0.149.0 project shape is accepted only as
+one uniquely delimited top-level Responses user/`input_text` item. Three fresh
+disposable captures placed that item at the actual path `$.input[1].content[0].text`
+and normalized it to the canonical fixture path `$.input[0].content[0].text` with
+byte-identical request-only fixtures; top-level `instructions` was absent and is
+therefore optional corroboration, not a prerequisite.
+Synthetic supplements accept explicit `input_file` items in top-level
+Responses/Chat content positions and exact `exec_command` calls paired one-to-one
+with output by call ID;
+the read grammar is limited to exact `cat`, `head`, `tail`, or bounded `sed -n`.
+For the captured shape, a matching parseable `instructions` block adds evidence;
+a mismatch, duplicate, or any malformed supported marker makes the observation
+incomplete with no project root.
+The bounded environment tail is discarded before hashing and candidate extraction.
+Wrong roles/types/tool names, metadata, arbitrary nesting, tool descriptions,
+assistant claims, ambiguous commands, and duplicate/unpaired IDs do not establish
+a root. Every evidence class uses one repository-relative POSIX `AGENTS.md` path
+validator; unsafe labels yield only a fixed incomplete status. Exact UTF-8 content
+bytes are hashed without normalization; raw content and hashes are not logged or
+persisted.
+
+Candidate enumeration is mechanical and precedes any future semantic stage. It
+recognizes Markdown links/reference definitions, backticks, quotes, and file-like
+paths on lines containing normative neighbor terms. It retains duplicate evidence
+in stable first-seen order and reports half-open UTF-8 byte spans. Paths become
+normalized POSIX repository-relative labels. Absolute/Windows/UNC paths, URLs and
+schemes, traversal, controls, percent/query ambiguity, directories, unsupported
+basenames, and overlength paths are rejected without filesystem or network access.
+An otherwise valid Markdown fragment is stripped while the raw span remains.
+
+Finite configuration bounds cover roots, bytes per source, candidates, evidence
+per candidate, total evidence, and path bytes. Overflow produces a typed incomplete
+result and safe fixed-reason metrics; the original governance-bearing request is
+still forwarded unchanged except for any earlier authorized image transformation.
+An exactly constructed supported user envelope is intentionally evidence because
+this is a client-supplied effective-governance trust boundary, not plain prose.
+The observation result exists only for the current request. Client identity and
+session headers are stripped and are not trusted reuse keys. There is no compiler,
+model ranking, semantic score, cache, acquisition, injection, replacement, or
+cross-request state in this slice. Unsupported current/future wire shapes fail
+conservatively. Fixture provenance and safe refresh guidance
+are in `tests/fixtures/codex/0.149.0/README.md`; fixtures describe tested shapes,
+not future wire compatibility.
 
 ## Candidate quickstart
 

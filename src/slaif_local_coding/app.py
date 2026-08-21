@@ -17,6 +17,8 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 
 from .config import RouteConfig, Settings
+from .constitution import ObservationContext, observe_request
+from .constitution.models import IncompleteReason, TrustClass
 from .image_policy import AmbiguousImageShape, apply_retain_newest, count_images
 from .json_structure import JsonNestingTooDeep, enforce_json_nesting
 
@@ -127,6 +129,36 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
     readiness = Gauge(
         "slaif_readiness_state",
         "Last readiness result (1 ready, 0 not ready)",
+        registry=registry,
+    )
+    observed_roots = Counter(
+        "slaif_constitution_roots_total",
+        "Observed constitutional roots by fixed evidence class",
+        ["endpoint", "route", "evidence_type"],
+        registry=registry,
+    )
+    observed_candidates = Counter(
+        "slaif_constitution_candidates_total",
+        "Syntactically accepted candidate references",
+        ["endpoint", "route"],
+        registry=registry,
+    )
+    observed_rejections = Counter(
+        "slaif_constitution_candidate_rejections_total",
+        "Rejected candidate tokens by fixed safe reason",
+        ["endpoint", "route", "reason"],
+        registry=registry,
+    )
+    observation_status = Counter(
+        "slaif_constitution_observations_total",
+        "Request-only observation outcomes",
+        ["endpoint", "route", "status", "reason"],
+        registry=registry,
+    )
+    observation_duration = Histogram(
+        "slaif_constitution_observation_duration_seconds",
+        "Bounded request-only observation time",
+        ["endpoint", "route", "status"],
         registry=registry,
     )
 
@@ -259,6 +291,44 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                         )
             image_count.labels(route_name, "seen").inc(seen)
             image_count.labels(route_name, "removed").inc(removed)
+            if route.observation_enabled:
+                observation_started = time.monotonic()
+                try:
+                    observation = observe_request(
+                        payload,
+                        ObservationContext(
+                            endpoint=endpoint,
+                            route_id=route_name,
+                            model=model,
+                            streaming=stream,
+                            # Client hints are intentionally neither trusted nor copied.
+                            discriminator_trust=TrustClass.ABSENT,
+                        ),
+                        settings.observation,
+                    )
+                    for root in observation.roots:
+                        for evidence_type in {item.type for item in root.evidence}:
+                            observed_roots.labels(endpoint, route_name, evidence_type.value).inc()
+                    observed_candidates.labels(endpoint, route_name).inc(
+                        observation.accepted_candidates
+                    )
+                    for rejection in observation.rejection_counts:
+                        observed_rejections.labels(
+                            endpoint, route_name, rejection.reason.value
+                        ).inc(rejection.count)
+                    status = "complete" if observation.complete else "incomplete"
+                    reasons = observation.incomplete_reasons or (None,)
+                    for reason in reasons:
+                        label = reason.value if isinstance(reason, IncompleteReason) else "none"
+                        observation_status.labels(endpoint, route_name, status, label).inc()
+                except Exception:  # observation is optional and semantics-preserving
+                    status = "error"
+                    observation_status.labels(
+                        endpoint, route_name, status, IncompleteReason.PARSING_ERROR.value
+                    ).inc()
+                observation_duration.labels(endpoint, route_name, status).observe(
+                    time.monotonic() - observation_started
+                )
 
         try:
             key = settings.upstream.api_key()

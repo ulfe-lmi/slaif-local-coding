@@ -25,6 +25,42 @@ at this narrow boundary receives the same sanitized response. Brackets and brace
 inside JSON strings do not count. The setting accepts 1 through 256, so configuration
 cannot move recursive application work near interpreter recursion exhaustion.
 
+The `[observation]` table validates conservative finite limits and version labels.
+Each `[[routes]]` entry opts in with `observation_enabled`; disabled routes perform
+no constitution work. Enabled observation runs after image policy and produces an
+ephemeral typed manifest only. It never reads paths, persists source, calls an
+internal/model service, caches state, or rewrites/injects governance. An overflow
+marks the manifest incomplete with a fixed reason while preserving forwarding
+semantics. Metrics expose only endpoint, configured route, fixed evidence/status/
+reason labels, counts, and duration—not source paths/content/hashes, identity hints,
+tool text, queries, or authorization. Current external identity/session headers are
+spoofable and stripped; signed gateway identity remains future work.
+
+Supported evidence is deliberately structural: the captured project marker must
+occur exactly once in a top-level user/`input_text` Responses item. Three fresh
+Codex 0.149.0 captures reported the actual path `$.input[1].content[0].text` and
+produced the same request-only fixture normalized to canonical path
+`$.input[0].content[0].text`; optional top-level `instructions` corroboration was
+absent in all three. When present it
+must match the safe label and exact inner bytes or the project root is rejected.
+Synthetic
+input files require an explicit `input_file` item in a documented top-level content position; and tool
+evidence requires a one-to-one `exec_command` call/output pair. Arbitrary recursive
+dictionaries, wrong roles/types/names, malformed arguments, and duplicate call IDs
+are ignored. Root labels share one bounded POSIX repository-relative validator;
+unsafe root labels produce only fixed `invalid_root_path` incomplete telemetry.
+The project marker is a complete envelope, not a detectable prefix: the closing
+`</INSTRUCTIONS>` may be followed by no newline, one terminal newline, or the
+captured bounded `<environment_context>` structural tail. Tail bytes are excluded
+from source hashes and candidates. The newline immediately before the closing delimiter belongs to the
+envelope and is not observed content; an additional newline is content. No line
+ending, trailing whitespace, Unicode, or other content normalization occurs before
+UTF-8 length and SHA-256 calculation. Unsupported prefix/suffix, malformed or
+duplicate blocks, any malformed supported marker alongside a valid marker, wrong
+parent/role/type, and unsafe labels do not detect. An exact
+client-supplied supported envelope intentionally crosses the effective-governance
+trust boundary; arbitrary mentions and examples do not.
+
 The adapter preserves the complete opaque query string upstream
 without exposing query values in logs, errors, or metrics. It removes standard
 hop-by-hop headers plus every header nominated by `Connection` in each direction,

@@ -40,6 +40,16 @@ candidate_max_count = 128
 # Optimization failure preserves the original governance-bearing request.
 compile_failure_policy = "preserve_original"
 
+[observation]
+schema_version = "observation-v1"
+policy_version = "references-v1"
+max_roots = 8
+max_source_bytes = 262144
+max_candidates = 128
+max_evidence_per_candidate = 16
+max_total_evidence = 1024
+max_path_bytes = 512
+
 [[routes]]
 name = "qwen38-vision-codex"
 model = "qwen3.8-27b"
@@ -47,6 +57,7 @@ max_images_per_request = 1
 image_overflow_policy = "retain_newest"
 enable_responses = true
 enable_chat_completions = true
+observation_enabled = true
 
 [observability]
 log_level = "INFO"

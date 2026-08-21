@@ -1,0 +1,14 @@
+{
+  "model": "synthetic-capture-model",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nMUST read [security](docs/SECURITY.md).\nNEVER skip `TESTING.md`.\n\n</INSTRUCTIONS>\n<environment_context>\n<synthetic-discarded />\n</environment_context>"
+        }
+      ]
+    }
+  ]
+}

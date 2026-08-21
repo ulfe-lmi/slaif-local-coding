@@ -1,0 +1,10 @@
+{
+  "model": "synthetic-capture-model",
+  "input": [
+    {
+      "type": "input_file",
+      "filename": "services/api/AGENTS.md",
+      "content": "REQUIRED before work: services/api/policy.toml"
+    }
+  ]
+}
