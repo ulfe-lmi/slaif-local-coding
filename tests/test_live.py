@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from typing import Any
 
 import httpx
@@ -13,6 +14,8 @@ pytestmark = pytest.mark.skipif(os.getenv("SLAIF_LIVE_TEST") != "1", reason="set
 def test_live_health_models_and_text() -> None:
     with httpx.Client(base_url="http://127.0.0.1:18031", timeout=90) as client:
         assert client.get("/healthz").status_code == 200
+        assert client.get("/readyz").status_code == 200
+        assert client.get("/health").status_code == 200
         models = client.get("/v1/models")
         assert models.status_code == 200
         assert any(item["id"] == "qwen3.8-27b" for item in models.json()["data"])
@@ -141,15 +144,29 @@ def test_live_automatic_and_streaming_tool_calls() -> None:
 
 
 def test_live_one_and_two_image_requests() -> None:
-    # Public-domain-style synthetic 1x1 PNG fixture; no user/customer image data.
-    image = (
-        "data:image/png;base64,"
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
-    )
+    # Two distinguishable synthetic 1x1 PNG fixtures; no user/customer image data.
+    images = [
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII=",
+    ]
+
+    def metric_value(text: str, result: str) -> float:
+        match = re.search(
+            rf'slaif_image_items_total\{{result="{result}",'
+            rf'route="qwen38-vision-codex"\}} ([0-9.]+)',
+            text,
+        )
+        return float(match.group(1)) if match else 0.0
+
     with httpx.Client(base_url="http://127.0.0.1:18031", timeout=120) as client:
+        before = client.get("/metrics").text
+        before_seen = metric_value(before, "seen")
+        before_removed = metric_value(before, "removed")
         for count in (1, 2):
             content: list[dict[str, Any]] = [{"type": "text", "text": "Answer OK only."}]
-            content.extend({"type": "image_url", "image_url": {"url": image}} for _ in range(count))
+            content.extend(
+                {"type": "image_url", "image_url": {"url": image}} for image in images[:count]
+            )
             response = client.post(
                 "/v1/chat/completions",
                 json={
@@ -159,3 +176,6 @@ def test_live_one_and_two_image_requests() -> None:
                 },
             )
             assert response.status_code == 200
+        after = client.get("/metrics").text
+        assert metric_value(after, "seen") - before_seen == 3
+        assert metric_value(after, "removed") - before_removed == 1

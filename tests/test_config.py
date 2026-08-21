@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from slaif_local_coding.config import RouteConfig, ServerConfig, load_settings
+from slaif_local_coding.config import (
+    RouteConfig,
+    ServerConfig,
+    Settings,
+    UpstreamConfig,
+    load_settings,
+)
 
 
 def test_non_loopback_and_unknown_policy_fail_closed() -> None:
@@ -30,3 +36,23 @@ image_overflow_policy = "passthrough"
         path.write_text(base + unsafe)
         with pytest.raises(ValueError):
             load_settings(path)
+
+
+def test_route_matches_must_be_unique_per_model_and_endpoint() -> None:
+    upstream = UpstreamConfig(base_url="http://upstream.test", api_key_env="KEY", model="m")
+    first = RouteConfig(name="first", model="m", image_overflow_policy="passthrough")
+    with pytest.raises(ValidationError, match="uniquely match"):
+        Settings(
+            server=ServerConfig(),
+            upstream=upstream,
+            routes=[first, first.model_copy(update={"name": "second"})],
+        )
+
+    responses = first.model_copy(update={"enable_chat_completions": False})
+    chat = first.model_copy(
+        update={"name": "chat", "enable_responses": False, "enable_chat_completions": True}
+    )
+    assert (
+        len(Settings(server=ServerConfig(), upstream=upstream, routes=[responses, chat]).routes)
+        == 2
+    )

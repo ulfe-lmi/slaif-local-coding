@@ -69,13 +69,24 @@ The candidate never retries proxy requests: once a request could have reached
 upstream, replay might duplicate model work or tool calls. Upstream connection
 failures are sanitized as 502; timeouts/readiness failures as 503. Responses
 marked `stream=true` are forwarded incrementally and the upstream response is
-closed on completion or downstream disconnect.
+closed on completion or downstream disconnect. The request body is consumed in
+chunks and rejected as soon as it exceeds `request_body_max_bytes`; an oversized
+declared `Content-Length` is rejected before body consumption, while actual bytes
+remain the authoritative bound.
 
 Configuration is strict. Each supported model/endpoint must match exactly one
 route with `retain_newest`, `reject`, or `passthrough`. The Qwen vision example
 retains the newest supported image content item when more than one occurs.
 This supports a full-image followed by crop history, but deliberately does not
 preserve the semantics of explicit multi-image comparison.
+
+Proxy requests retain the opaque query string without logging or metric-labeling
+its values. Standard hop-by-hop headers and headers named by `Connection` are
+removed in both directions. Caller compression preferences are replaced with
+`Accept-Encoding: identity`; if upstream still sends an encoded response, its raw
+bytes and safe `Content-Encoding` are retained consistently. Bounded compatibility
+metadata includes `Content-Type`, `Content-Encoding`, `Cache-Control`,
+`OpenAI-Processing-Ms`, `Retry-After`, and request IDs.
 
 Run the complete local gate with:
 

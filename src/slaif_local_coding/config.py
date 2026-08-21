@@ -82,6 +82,15 @@ class Settings(BaseModel):
         names = [route.name for route in self.routes]
         if len(names) != len(set(names)):
             raise ValueError("route names must be unique")
+        matches: set[tuple[str, str]] = set()
+        for route in self.routes:
+            for endpoint in ("/v1/responses", "/v1/chat/completions"):
+                if not route.enables(endpoint):
+                    continue
+                match = (route.model, endpoint)
+                if match in matches:
+                    raise ValueError("routes must uniquely match each (model, endpoint) pair")
+                matches.add(match)
         return self
 
 
