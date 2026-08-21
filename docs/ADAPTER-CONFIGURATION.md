@@ -38,8 +38,10 @@ spoofable and stripped; signed gateway identity remains future work.
 
 Supported evidence is deliberately structural: the captured project marker must
 occur exactly once in a top-level user/`input_text` Responses item. Three fresh
-Codex 0.149.0 captures produced the same canonical user-only fixture; optional
-top-level `instructions` corroboration was absent in all three. When present it
+Codex 0.149.0 captures reported the actual path `$.input[1].content[0].text` and
+produced the same request-only fixture normalized to canonical path
+`$.input[0].content[0].text`; optional top-level `instructions` corroboration was
+absent in all three. When present it
 must match the safe label and exact inner bytes or the project root is rejected.
 Synthetic
 input files require an explicit `input_file` item in a documented top-level content position; and tool
@@ -54,7 +56,8 @@ from source hashes and candidates. The newline immediately before the closing de
 envelope and is not observed content; an additional newline is content. No line
 ending, trailing whitespace, Unicode, or other content normalization occurs before
 UTF-8 length and SHA-256 calculation. Unsupported prefix/suffix, malformed or
-duplicate blocks, wrong parent/role/type, and unsafe labels do not detect. An exact
+duplicate blocks, any malformed supported marker alongside a valid marker, wrong
+parent/role/type, and unsafe labels do not detect. An exact
 client-supplied supported envelope intentionally crosses the effective-governance
 trust boundary; arbitrary mentions and examples do not.
 

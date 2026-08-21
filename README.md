@@ -60,14 +60,17 @@ changing the model-bound request.
 Observation is independently enabled on each explicit route and runs after image
 policy enforcement. The captured Codex 0.149.0 project shape is accepted only as
 one uniquely delimited top-level Responses user/`input_text` item. Three fresh
-disposable captures normalized to byte-identical fixtures; top-level `instructions`
-was absent and is therefore optional corroboration, not a prerequisite.
+disposable captures placed that item at the actual path `$.input[1].content[0].text`
+and normalized it to the canonical fixture path `$.input[0].content[0].text` with
+byte-identical request-only fixtures; top-level `instructions` was absent and is
+therefore optional corroboration, not a prerequisite.
 Synthetic supplements accept explicit `input_file` items in top-level
 Responses/Chat content positions and exact `exec_command` calls paired one-to-one
 with output by call ID;
 the read grammar is limited to exact `cat`, `head`, `tail`, or bounded `sed -n`.
 For the captured shape, a matching parseable `instructions` block adds evidence;
-a mismatch or duplicate makes the observation incomplete with no project root.
+a mismatch, duplicate, or any malformed supported marker makes the observation
+incomplete with no project root.
 The bounded environment tail is discarded before hashing and candidate extraction.
 Wrong roles/types/tool names, metadata, arbitrary nesting, tool descriptions,
 assistant claims, ambiguous commands, and duplicate/unpaired IDs do not establish

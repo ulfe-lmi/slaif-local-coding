@@ -445,6 +445,48 @@ def test_duplicate_supported_user_blocks_are_rejected() -> None:
     assert IncompleteReason.PARSING_ERROR in result.incomplete_reasons
 
 
+@pytest.mark.parametrize(
+    "invalid_text",
+    [
+        "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nmissing close",
+        "# AGENTS.md instructions for ../unsafe\n\n<INSTRUCTIONS>\nrules\n</INSTRUCTIONS>",
+        project_item()["content"][0]["text"],
+    ],
+)
+def test_valid_project_marker_plus_invalid_supported_marker_rejects_all(
+    invalid_text: str,
+) -> None:
+    invalid = project_item()
+    invalid["content"][0]["text"] = invalid_text
+    result = observe_request({"input": [project_item(), invalid]}, context(), ObservationPolicy())
+    assert result.roots == ()
+    assert not result.complete
+    assert IncompleteReason.PARSING_ERROR in result.incomplete_reasons
+
+
+def test_unsupported_position_marker_does_not_poison_valid_user_marker() -> None:
+    result = observe_request(
+        {
+            "input": [project_item(), project_item(role="assistant")],
+            "metadata": {"example": project_item()},
+        },
+        context(),
+        ObservationPolicy(),
+    )
+    assert len(result.roots) == 1
+    assert result.complete
+
+
+def test_malformed_only_supported_marker_has_no_root() -> None:
+    result = observe_request(
+        project_payload("# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nrules"),
+        context(),
+        ObservationPolicy(),
+    )
+    assert result.roots == ()
+    assert result.incomplete_reasons == (IncompleteReason.PARSING_ERROR,)
+
+
 def tool_pair(
     name: str = "exec_command", command: str = "cat AGENTS.md", call_id: str = "c"
 ) -> dict[str, Any]:

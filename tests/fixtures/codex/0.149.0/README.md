@@ -37,7 +37,10 @@ credential, response, and prompt. The raw request remains in memory. Before writ
 the minimizer allowlists exactly one supported user occurrence, zero or one matching
 instructions occurrence, and the captured suffix grammar. Output contains only the
 synthetic model, canonical user item, privacy-mapped label/content, synthetic tail,
-and safe length/hash facts. Optional corroboration is printed only as a sanitized
+with no provenance-only fields. Safe synthetic provenance is stored separately in
+`project_instructions_provenance.json`; its fixed schema contains only marker count,
+logical label, content byte length/hash, and a synthetic-only flag, and it is never
+passed to `observe_request` or an upstream. Optional corroboration is printed only as a sanitized
 run fact, so it cannot alter fixture bytes. Raw bodies, internal instructions,
 host paths, IDs, tools, user prompts, environment content, auth, headers, and
 responses are never written or printed.

@@ -120,7 +120,7 @@ def _project_sources(
                     malformed = True
                     continue
                 supported.append((match, f"$.input[{input_index}].content[{content_index}]"))
-    if len(supported) != 1:
+    if malformed or len(supported) != 1:
         return [], invalid_path, malformed or len(supported) > 1
     match, location = supported[0]
     logical = _logical_agents_path(

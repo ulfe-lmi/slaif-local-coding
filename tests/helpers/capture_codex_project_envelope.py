@@ -176,7 +176,7 @@ def minimize_with_facts(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[s
         f"# AGENTS.md instructions for {LOGICAL_LABEL}\n\n"
         f"<INSTRUCTIONS>\n{user_content}\n</INSTRUCTIONS>"
     )
-    return {
+    minimized = {
         "model": MODEL,
         "input": [
             {
@@ -191,21 +191,20 @@ def minimize_with_facts(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[s
                 ],
             }
         ],
-        "sanitized_provenance": {
-            "marker_occurrences": 1,
-            "logical_label": LOGICAL_LABEL,
-            "content_byte_length": len(encoded),
-            "content_sha256": digest,
-        },
-    }, {
+    }
+    canonical_bytes = (json.dumps(minimized, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    return minimized, {
         "endpoint_completed": True,
-        "user_marker_location": "$.input[0].content[0].text",
+        "actual_user_marker_location": user_paths[0],
+        "canonical_user_marker_location": "$.input[0].content[0].text",
         "user_role": "user",
         "user_item_type": "input_text",
+        "marker_occurrences": 1,
         "instructions_corroborated": corroborated,
         "content_byte_length": len(encoded),
         "content_sha256": digest,
         "occurrences_agree": True,
+        "canonical_request_sha256": hashlib.sha256(canonical_bytes).hexdigest(),
     }
 
 
