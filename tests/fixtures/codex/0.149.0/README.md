@@ -12,7 +12,18 @@ shapes; the capture did not exercise them. These fixtures document tested shapes
 not universal or future Codex wire stability.
 
 To refresh safely, create a disposable repository containing only synthetic data,
-run the target CLI with `--ephemeral --ignore-user-config` and command-line provider
-overrides against a temporary loopback fake endpoint, and minimize the received
-JSON in memory to only the matching project-instruction item. Use a throwaway
-credential environment variable and never commit the raw capture.
+start a loopback fake endpoint which returns a minimal successful Responses JSON
+object (`id`, `object`, `status`, and an empty `output`), then run the target CLI
+with this command skeleton (placeholders are not credential literals):
+
+```text
+CODEX_HOME=<temporary-home> CODEX_API_KEY=<throwaway-value> codex exec \
+  --ephemeral --ignore-user-config -c model_provider=<temporary-provider> \
+  -c model_providers.<temporary-provider>.base_url=http://127.0.0.1:<port>/v1 \
+  <synthetic-request>
+```
+
+Minimize the received JSON in memory to the matching developer/`input_text`
+project-instruction item. Never commit the raw capture. The direct `input_file`
+and Responses `function_call`/`function_call_output` fixtures are synthetic
+supplements, not shapes observed in that CLI capture.

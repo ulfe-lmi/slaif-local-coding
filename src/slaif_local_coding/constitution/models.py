@@ -24,6 +24,7 @@ class IncompleteReason(StrEnum):
     TOO_MANY_CANDIDATES = "too_many_candidates"
     EVIDENCE_BUDGET_EXCEEDED = "evidence_budget_exceeded"
     PATH_TOO_LONG = "path_too_long"
+    INVALID_ROOT_PATH = "invalid_root_path"
     PARSING_ERROR = "parsing_error"
 
 
@@ -67,7 +68,7 @@ class CandidateReference(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     path: str
     first_seen: int = Field(ge=0)
-    evidence: tuple[EvidenceRecord, ...]
+    evidence: tuple[EvidenceRecord, ...] = Field(min_length=1)
     complete: bool = True
 
 

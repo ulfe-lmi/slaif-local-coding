@@ -102,11 +102,18 @@ def extract_references(text: str, policy: ObservationPolicy) -> Extraction:
             continue
         for match in _BARE_PATH.finditer(line):
             start, end = match.span("path")
+            raw = match.group("path")
+            # Prose punctuation terminates a bare token. Structured destination
+            # forms retain their exact spans and are not trimmed here.
+            trimmed = raw.rstrip(".,;:!?")
+            end -= len(raw) - len(trimmed)
+            if not trimmed:
+                continue
             matches.append(
                 (
                     line_match.start() + start,
                     line_match.start() + end,
-                    match.group("path"),
+                    trimmed,
                     EvidenceType.NORMATIVE_NEIGHBOR,
                 )
             )
@@ -130,6 +137,12 @@ def extract_references(text: str, policy: ObservationPolicy) -> Extraction:
             if len(order) >= policy.max_candidates:
                 if IncompleteReason.TOO_MANY_CANDIDATES not in reasons:
                     reasons.append(IncompleteReason.TOO_MANY_CANDIDATES)
+                continue
+            # A retained candidate must be born with evidence, even when the
+            # global budget makes the overall manifest incomplete.
+            if total_evidence >= policy.max_total_evidence:
+                if IncompleteReason.EVIDENCE_BUDGET_EXCEEDED not in reasons:
+                    reasons.append(IncompleteReason.EVIDENCE_BUDGET_EXCEEDED)
                 continue
             paths[normalized] = []
             order.append(normalized)

@@ -58,13 +58,17 @@ changing the model-bound request.
 ## Request-only constitution observation
 
 Observation is independently enabled on each explicit route and runs after image
-policy enforcement. It recognizes captured Codex 0.149.0 project-instruction
-blocks, structurally paired input files whose exact basename is `AGENTS.md`, and
-allowlisted exact `cat`, `head`, `tail`, or bounded `sed -n` reads paired to tool
-output by call ID. Mentions, examples, tool descriptions, assistant claims,
-substring filenames, ambiguous commands, and unpaired outputs do not establish a
-root. Exact UTF-8 content bytes are hashed with SHA-256 without newline, whitespace,
-or Unicode normalization; raw content and hashes are not logged or persisted.
+policy enforcement. The captured Codex 0.149.0 project shape is accepted only as
+a top-level Responses developer message containing an `input_text` item. Synthetic
+supplements accept explicit `input_file` items in top-level Responses/Chat content
+positions and exact `exec_command` calls paired one-to-one with output by call ID;
+the read grammar is limited to exact `cat`, `head`, `tail`, or bounded `sed -n`.
+Wrong roles/types/tool names, metadata, arbitrary nesting, tool descriptions,
+assistant claims, ambiguous commands, and duplicate/unpaired IDs do not establish
+a root. Every evidence class uses one repository-relative POSIX `AGENTS.md` path
+validator; unsafe labels yield only a fixed incomplete status. Exact UTF-8 content
+bytes are hashed without normalization; raw content and hashes are not logged or
+persisted.
 
 Candidate enumeration is mechanical and precedes any future semantic stage. It
 recognizes Markdown links/reference definitions, backticks, quotes, and file-like

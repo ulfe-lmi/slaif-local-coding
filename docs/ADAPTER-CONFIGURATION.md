@@ -36,6 +36,14 @@ reason labels, counts, and duration—not source paths/content/hashes, identity 
 tool text, queries, or authorization. Current external identity/session headers are
 spoofable and stripped; signed gateway identity remains future work.
 
+Supported evidence is deliberately structural: the captured project marker must be
+in a top-level developer/`input_text` Responses item; synthetic input files require
+an explicit `input_file` item in a documented top-level content position; and tool
+evidence requires a one-to-one `exec_command` call/output pair. Arbitrary recursive
+dictionaries, wrong roles/types/names, malformed arguments, and duplicate call IDs
+are ignored. Root labels share one bounded POSIX repository-relative validator;
+unsafe root labels produce only fixed `invalid_root_path` incomplete telemetry.
+
 The adapter preserves the complete opaque query string upstream
 without exposing query values in logs, errors, or metrics. It removes standard
 hop-by-hop headers plus every header nominated by `Connection` in each direction,
