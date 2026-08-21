@@ -1,0 +1,56 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slaif-local-coding"
+version = "0.1.0"
+description = "Private OpenAI-compatible adapter for constrained local models"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+  "fastapi>=0.116,<1",
+  "httpx>=0.28,<1",
+  "prometheus-client>=0.22,<1",
+  "pydantic>=2.11,<3",
+  "uvicorn>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.3,<2",
+  "mypy>=1.17,<2",
+  "pytest>=8.4,<9",
+  "pytest-asyncio>=1.1,<2",
+  "ruff>=0.12,<1",
+]
+
+[project.scripts]
+slaif-local-coding = "slaif_local_coding.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/slaif_local_coding"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"oap/bin/check_state.py" = ["E501", "UP022"]
+"references/qwen38_vision_image_cap_proxy.py" = ["E501"]
+
+[tool.ruff.format]
+exclude = ["oap/bin/check_state.py", "references/qwen38_vision_image_cap_proxy.py"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["slaif_local_coding"]

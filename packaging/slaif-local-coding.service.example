@@ -1,0 +1,15 @@
+[Unit]
+Description=SLAIF Local Coding candidate adapter
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/path/to/slaif-local-coding
+EnvironmentFile=/path/to/protected/adapter.env
+ExecStart=/path/to/slaif-local-coding/.venv/bin/slaif-local-coding --config /path/to/slaif-local-coding/config/adapter.example.toml
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

@@ -60,6 +60,11 @@ vLLM, Codex CLI, FastAPI/Starlette, HTTPX, Pydantic, Uvicorn, Prometheus client,
 and their transitive dependencies retain their own licenses. The implementation
 must generate an exact dependency/license inventory before release.
 
+Objective 000 uses FastAPI (MIT), Starlette (BSD-3-Clause), HTTPX (BSD-3-Clause),
+Pydantic (MIT), Uvicorn (BSD-3-Clause), and Prometheus client_python
+(Apache-2.0). Exact versions and transitive packages are fixed by `uv.lock`;
+this review is dependency provenance, not a relicensing of those projects.
+
 ## SLAIF API Gateway
 
 `ulfe-lmi/slaif-api-gateway` remains a separate Apache-2.0 repository. This

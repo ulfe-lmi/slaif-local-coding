@@ -48,5 +48,51 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: architecture and OAP bootstrap; implementation begins with OAP
-objective `000`.
+Current status: objective `000` provides a private, loopback-only candidate
+adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
+`/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
+and applies an explicit per-model image policy.
+
+## Candidate quickstart
+
+Python 3.12 and `uv` are required. The example intentionally obtains the
+upstream credential only from `QWEN3090_API_KEY`; never write it into TOML.
+
+```bash
+uv sync --frozen --extra dev
+uv run --frozen slaif-local-coding --config config/adapter.example.toml
+curl --fail http://127.0.0.1:18031/healthz
+curl --fail http://127.0.0.1:18031/readyz
+```
+
+The candidate never retries proxy requests: once a request could have reached
+upstream, replay might duplicate model work or tool calls. Upstream connection
+failures are sanitized as 502; timeouts/readiness failures as 503. Responses
+marked `stream=true` are forwarded incrementally and the upstream response is
+closed on completion or downstream disconnect.
+
+Configuration is strict. Each supported model/endpoint must match exactly one
+route with `retain_newest`, `reject`, or `passthrough`. The Qwen vision example
+retains the newest supported image content item when more than one occurs.
+This supports a full-image followed by crop history, but deliberately does not
+preserve the semantics of explicit multi-image comparison.
+
+Run the complete local gate with:
+
+```bash
+uv lock --check
+uv sync --frozen --extra dev
+uv run --frozen ruff check .
+uv run --frozen ruff format --check .
+uv run --frozen mypy src tests
+uv run --frozen pytest -q
+uv build
+```
+
+Live checks are opt-in and serial. Start the foreground candidate, then run
+`SLAIF_LIVE_TEST=1 uv run --frozen pytest -q tests/test_live.py`. They use only
+synthetic prompts and bounded outputs. Stop the foreground process to roll back;
+the protected vLLM service, model, network, and Codex profiles are untouched.
+The systemd file in `packaging/` is an uninstalled example only. Public service
+authentication, signed identity, quotas, and TLS remain the separate gateway's
+responsibility.

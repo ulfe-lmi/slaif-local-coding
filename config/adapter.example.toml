@@ -4,7 +4,6 @@
 listen_host = "127.0.0.1"
 listen_port = 18031
 request_body_max_bytes = 67108864
-stream_idle_timeout_seconds = 300
 
 [upstream]
 base_url = "http://10.8.132.76:18020/v1"
@@ -12,6 +11,8 @@ api_key_env = "QWEN3090_API_KEY"
 model = "qwen3.8-27b"
 connect_timeout_seconds = 10
 request_timeout_seconds = 300
+write_timeout_seconds = 30
+pool_timeout_seconds = 10
 
 [compiler]
 # Objective 000 keeps this disabled; later OAP objectives implement it.
@@ -41,10 +42,10 @@ compile_failure_policy = "preserve_original"
 [[routes]]
 name = "qwen38-vision-codex"
 model = "qwen3.8-27b"
-endpoints = ["/v1/responses", "/v1/chat/completions"]
 max_images_per_request = 1
 image_overflow_policy = "retain_newest"
-constitution_enabled = false
+enable_responses = true
+enable_chat_completions = true
 
 [observability]
 log_level = "INFO"
