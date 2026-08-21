@@ -219,6 +219,120 @@ async def test_reject_passthrough_unknown_and_bounds(settings: Settings) -> None
     ).status_code == 413
 
 
+def nested_input(depth: int, *, image: bool = False) -> dict[str, Any]:
+    value: Any = {"type": "input_image", "image_url": "private-depth-sentinel"} if image else "x"
+    leaf_depth = 1 if image else 0
+    for index in range(depth - 1 - leaf_depth):
+        value = [value] if index % 2 else {"item": value}
+    return {"model": "qwen", "input": value}
+
+
+@pytest.mark.asyncio
+async def test_json_depth_exact_limit_and_plus_one_have_deterministic_boundary(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    settings.server.json_max_nesting_depth = 8
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={})
+
+    assert (
+        await call(settings, handler, "POST", "/v1/responses", json=nested_input(8))
+    ).status_code == 200
+    with caplog.at_level(logging.INFO):
+        rejected = await call(
+            settings, handler, "POST", "/v1/responses", json=nested_input(9, image=True)
+        )
+    assert rejected.status_code == 400
+    assert rejected.json() == {
+        "error": {
+            "message": "request JSON exceeds configured nesting limit",
+            "type": "invalid_request_error",
+            "code": "json_nesting_too_deep",
+        }
+    }
+    assert calls == 1
+    assert "private-depth-sentinel" not in rejected.text
+    assert "private-depth-sentinel" not in caplog.text
+    assert "RecursionError" not in rejected.text + caplog.text
+
+
+@pytest.mark.asyncio
+async def test_depth_reject_has_bounded_metric_and_no_private_content(settings: Settings) -> None:
+    settings.server.json_max_nesting_depth = 4
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200)
+
+    app = create_app(settings, httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        rejected = await client.post("/v1/responses", json=nested_input(5, image=True))
+        metrics = (await client.get("/metrics")).text
+    assert rejected.status_code == 400
+    assert calls == 0
+    assert 'endpoint="/v1/responses",route="passthrough",status="400",stream="false"' in metrics
+    assert "private-depth-sentinel" not in metrics
+
+
+@pytest.mark.asyncio
+async def test_depth_600_reproducer_and_deep_non_image_never_reach_upstream(
+    settings: Settings,
+) -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200)
+
+    for image in (False, True):
+        response = await call(
+            settings, handler, "POST", "/v1/responses", json=nested_input(600, image=image)
+        )
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "json_nesting_too_deep"
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_representative_nested_responses_and_chat_remain_compatible(
+    settings: Settings,
+) -> None:
+    bodies: list[dict[str, Any]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(await request.aread()))
+        return httpx.Response(200, json={})
+
+    responses = {
+        "model": "qwen",
+        "input": [{"content": [{"type": "input_image", "image_url": "one"}]}],
+        "tools": [{"type": "function", "function": {"name": "f", "parameters": {}}}],
+    }
+    chat = {
+        "model": "qwen",
+        "messages": [
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "one"}}]}
+        ],
+        "tools": [{"type": "function", "function": {"name": "f", "parameters": {}}}],
+    }
+    assert (
+        await call(settings, handler, "POST", "/v1/responses", json=responses)
+    ).status_code == 200
+    assert (
+        await call(settings, handler, "POST", "/v1/chat/completions", json=chat)
+    ).status_code == 200
+    assert bodies == [responses, chat]
+
+
 @pytest.mark.asyncio
 async def test_incremental_body_bound_stops_consuming_remaining_chunks(settings: Settings) -> None:
     settings.server.request_body_max_bytes = 64

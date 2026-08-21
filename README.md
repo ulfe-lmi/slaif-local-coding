@@ -72,7 +72,11 @@ marked `stream=true` are forwarded incrementally and the upstream response is
 closed on completion or downstream disconnect. The request body is consumed in
 chunks and rejected as soon as it exceeds `request_body_max_bytes`; an oversized
 declared `Content-Length` is rejected before body consumption, while actual bytes
-remain the authoritative bound.
+remain the authoritative byte bound. Independently, POST JSON is scanned iteratively
+before decoding and rejected with sanitized HTTP 400 code
+`json_nesting_too_deep` when container nesting exceeds
+`json_max_nesting_depth` (128 by default). The configured depth itself is allowed;
+depth 129 is rejected by the example configuration without an upstream call.
 
 Configuration is strict. Each supported model/endpoint must match exactly one
 route with `retain_newest`, `reject`, or `passthrough`. The Qwen vision example

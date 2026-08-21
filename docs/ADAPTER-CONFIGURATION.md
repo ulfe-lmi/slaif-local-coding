@@ -16,7 +16,16 @@ and image-count labels only; raw bodies and secrets are excluded.
 The adapter incrementally consumes each request body and stops once the hard
 `request_body_max_bytes` cap is exceeded. It rejects a known oversized
 `Content-Length` early but still counts actual streamed bytes when the header is
-missing or misleading. It preserves the complete opaque query string upstream
+missing or misleading. Body size and structure are independent resource limits:
+before JSON decoding or recursive image work, a string/escape-aware iterative scan
+enforces `json_max_nesting_depth`. The example limit is 128 containers, inclusive;
+an object or array that would enter depth 129 returns API-shaped HTTP 400 code
+`json_nesting_too_deep`, with no upstream call. Parser or transformation recursion
+at this narrow boundary receives the same sanitized response. Brackets and braces
+inside JSON strings do not count. The setting accepts 1 through 256, so configuration
+cannot move recursive application work near interpreter recursion exhaustion.
+
+The adapter preserves the complete opaque query string upstream
 without exposing query values in logs, errors, or metrics. It removes standard
 hop-by-hop headers plus every header nominated by `Connection` in each direction,
 replaces caller authorization, and forces `Accept-Encoding: identity`. If an

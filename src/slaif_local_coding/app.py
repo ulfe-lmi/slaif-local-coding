@@ -18,6 +18,7 @@ from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, gene
 
 from .config import RouteConfig, Settings
 from .image_policy import AmbiguousImageShape, apply_retain_newest, count_images
+from .json_structure import JsonNestingTooDeep, enforce_json_nesting
 
 LOGGER = logging.getLogger("slaif.adapter")
 HOP_BY_HOP = frozenset(
@@ -191,9 +192,22 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
 
         if request.method == "POST":
             try:
+                enforce_json_nesting(body, settings.server.json_max_nesting_depth)
                 payload: Any = json.loads(body)
+            except JsonNestingTooDeep:
+                return local_error(
+                    400,
+                    "request JSON exceeds configured nesting limit",
+                    "json_nesting_too_deep",
+                )
             except (UnicodeDecodeError, json.JSONDecodeError):
                 return local_error(400, "request body must be valid JSON", "invalid_json")
+            except RecursionError:
+                return local_error(
+                    400,
+                    "request JSON exceeds configured nesting limit",
+                    "json_nesting_too_deep",
+                )
             if not isinstance(payload, dict):
                 return local_error(400, "request body must be a JSON object", "invalid_json")
             model = payload.get("model")
@@ -210,6 +224,12 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                 seen = count_images(payload)
             except AmbiguousImageShape:
                 return local_error(422, "ambiguous image content shape", "ambiguous_image_shape")
+            except RecursionError:
+                return local_error(
+                    400,
+                    "request JSON exceeds configured nesting limit",
+                    "json_nesting_too_deep",
+                )
             maximum = route.max_images_per_request
             removed = 0
             if maximum is not None and seen > maximum:
@@ -219,13 +239,24 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                         422, "request exceeds route image limit", "image_limit_exceeded"
                     )
                 if route.image_overflow_policy == "retain_newest":
-                    result = apply_retain_newest(payload, maximum)
-                    payload, removed = result.value, result.removed
-                    if count_images(payload) > maximum:
+                    try:
+                        result = apply_retain_newest(payload, maximum)
+                        payload, removed = result.value, result.removed
+                        if count_images(payload) > maximum:
+                            return local_error(
+                                422,
+                                "image policy could not enforce route limit",
+                                "image_policy_failed",
+                            )
+                        body = json.dumps(
+                            payload, separators=(",", ":"), ensure_ascii=False
+                        ).encode()
+                    except RecursionError:
                         return local_error(
-                            422, "image policy could not enforce route limit", "image_policy_failed"
+                            400,
+                            "request JSON exceeds configured nesting limit",
+                            "json_nesting_too_deep",
                         )
-                    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
             image_count.labels(route_name, "seen").inc(seen)
             image_count.labels(route_name, "removed").inc(removed)
 

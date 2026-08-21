@@ -17,6 +17,8 @@ def test_non_loopback_and_unknown_policy_fail_closed() -> None:
         ServerConfig(listen_host="0.0.0.0")
     with pytest.raises(ValidationError):
         RouteConfig(name="x", model="m", image_overflow_policy="guess")  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        ServerConfig(json_max_nesting_depth=257)
 
 
 def test_future_feature_and_raw_logging_configuration_fail_closed(tmp_path: Path) -> None:

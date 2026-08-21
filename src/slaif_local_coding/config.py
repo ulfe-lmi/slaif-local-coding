@@ -16,6 +16,7 @@ class ServerConfig(BaseModel):
     listen_host: str = "127.0.0.1"
     listen_port: int = Field(default=18031, ge=1, le=65535)
     request_body_max_bytes: int = Field(default=67_108_864, gt=0)
+    json_max_nesting_depth: int = Field(default=128, ge=1, le=256)
 
     @model_validator(mode="after")
     def loopback_only(self) -> ServerConfig:
