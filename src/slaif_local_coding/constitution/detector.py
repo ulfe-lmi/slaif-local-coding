@@ -24,7 +24,7 @@ from .references import extract_references
 
 _PROJECT = re.compile(
     r"^# AGENTS\.md instructions for (?P<directory>[^\r\n]+)\r?\n\r?\n"
-    r"<INSTRUCTIONS>\r?\n(?P<content>.*?)\r?\n</INSTRUCTIONS>(?:\r?\n|$)",
+    r"<INSTRUCTIONS>\r?\n(?P<content>.*?)\r?\n</INSTRUCTIONS>(?:\r?\n)?$",
     re.DOTALL,
 )
 _READ = re.compile(
@@ -105,16 +105,17 @@ def _project_sources(
         ):
             continue
         text = item.get("text")
-        match = _PROJECT.match(text) if isinstance(text, str) else None
+        match = _PROJECT.fullmatch(text) if isinstance(text, str) else None
         if match is None:
+            continue
+        content = match.group("content")
+        if "</INSTRUCTIONS>" in content:
             continue
         logical = _logical_agents_path(
             match.group("directory").strip(), policy.max_path_bytes, project_directory=True
         )
         if logical is not None:
-            result.append(
-                _Found(logical, match.group("content"), EvidenceType.PROJECT_INSTRUCTIONS, location)
-            )
+            result.append(_Found(logical, content, EvidenceType.PROJECT_INSTRUCTIONS, location))
         else:
             invalid_path = True
     return result, invalid_path

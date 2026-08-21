@@ -43,6 +43,12 @@ evidence requires a one-to-one `exec_command` call/output pair. Arbitrary recurs
 dictionaries, wrong roles/types/names, malformed arguments, and duplicate call IDs
 are ignored. Root labels share one bounded POSIX repository-relative validator;
 unsafe root labels produce only fixed `invalid_root_path` incomplete telemetry.
+The project marker is a complete envelope, not a detectable prefix: the closing
+`</INSTRUCTIONS>` may be followed by no newline, one LF, or one CRLF and then must
+end the item. The newline immediately before the closing delimiter belongs to the
+envelope and is not observed content; an additional newline is content. No line
+ending, trailing whitespace, Unicode, or other content normalization occurs before
+UTF-8 length and SHA-256 calculation. Unsupported or extra-text forms do not detect.
 
 The adapter preserves the complete opaque query string upstream
 without exposing query values in logs, errors, or metrics. It removes standard

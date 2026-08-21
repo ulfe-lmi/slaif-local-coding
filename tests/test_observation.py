@@ -227,6 +227,62 @@ def project_item(role: str = "developer", directory: str = "repo") -> dict[str, 
     }
 
 
+def project_payload(text: str) -> dict[str, Any]:
+    item = project_item()
+    item["content"][0]["text"] = text
+    return {"input": [item]}
+
+
+def project_detects(text: str) -> bool:
+    roots = observe_request(project_payload(text), context(), ObservationPolicy()).roots
+    return bool(roots)
+
+
+@pytest.mark.parametrize("terminal_newline", ["", "\n", "\r\n"])
+def test_project_envelope_accepts_documented_terminal_newline(
+    terminal_newline: str,
+) -> None:
+    text = project_item()["content"][0]["text"] + terminal_newline
+    assert project_detects(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "prefix\n" + project_item()["content"][0]["text"],
+        project_item()["content"][0]["text"] + " same-line suffix",
+        project_item()["content"][0]["text"] + "\nsuffix",
+        project_item()["content"][0]["text"] + "\n\nsuffix",
+        project_item()["content"][0]["text"] * 2,
+        "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nrules",
+        "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nrules\n</INSTRUCTION>",
+        "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nrules\n<INSTRUCTIONS>",
+    ],
+)
+def test_project_envelope_rejects_incomplete_or_extra_text(text: str) -> None:
+    assert not project_detects(text)
+
+
+def test_project_envelope_closing_tag_text_never_prefix_matches() -> None:
+    text = (
+        "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nfirst\n"
+        "</INSTRUCTIONS>\nstill content\n</INSTRUCTIONS>"
+    )
+    assert not project_detects(text)
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["line\nfeed", "line\r\nfeed", "trailing newline\n", "trailing space ", "žluťoučký"],
+)
+def test_project_envelope_preserves_exact_content_hash_and_length(content: str) -> None:
+    text = "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\n" + content + "\n</INSTRUCTIONS>"
+    root = observe_request(project_payload(text), context(), ObservationPolicy()).roots[0]
+    encoded = content.encode("utf-8")
+    assert root.byte_length == len(encoded)
+    assert root.content_sha256 == hashlib.sha256(encoded).hexdigest()
+
+
 @pytest.mark.parametrize("role", ["assistant", "tool", "user"])
 def test_project_envelope_requires_developer_role(role: str) -> None:
     assert (

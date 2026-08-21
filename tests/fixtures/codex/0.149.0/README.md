@@ -11,19 +11,42 @@ The input-file and paired-tool fixtures are synthetic supplemental supported
 shapes; the capture did not exercise them. These fixtures document tested shapes,
 not universal or future Codex wire stability.
 
-To refresh safely, create a disposable repository containing only synthetic data,
-start a loopback fake endpoint which returns a minimal successful Responses JSON
-object (`id`, `object`, `status`, and an empty `output`), then run the target CLI
-with this command skeleton (placeholders are not credential literals):
+Validation on 2026-08-21 with `codex-cli 0.149.0` did not reproduce that exact
+parent/role shape: the synthetic project marker occurred in top-level instructions
+and a user/`input_text` item, not a developer item. The helper therefore wrote no
+fixture. This sanitized structural result does not change the accepted detector
+contract, but means the earlier developer-item capture provenance remains
+unreproduced and must not be generalized to the current custom-provider request.
 
-```text
-CODEX_HOME=<temporary-home> CODEX_API_KEY=<throwaway-value> codex exec \
-  --ephemeral --ignore-user-config -c model_provider=<temporary-provider> \
-  -c model_providers.<temporary-provider>.base_url=http://127.0.0.1:<port>/v1 \
-  <synthetic-request>
+To refresh safely, use the executable helper from the repository root. It creates a
+new temporary `CODEX_HOME` and Git repository, writes only a synthetic `AGENTS.md`,
+starts an ephemeral loopback fake Responses endpoint, and invokes the requested
+Codex binary. It never reads or modifies the real Codex home, login, catalog,
+profiles, sessions, compaction settings, or a non-disposable repository:
+
+```bash
+python3 tests/helpers/capture_codex_project_envelope.py \
+  --codex-bin codex --output /tmp/project_instructions_responses.json
 ```
 
-Minimize the received JSON in memory to the matching developer/`input_text`
-project-instruction item. Never commit the raw capture. The direct `input_file`
-and Responses `function_call`/`function_call_output` fixtures are synthetic
-supplements, not shapes observed in that CLI capture.
+The helper's fully quoted invocation uses synthetic model
+`synthetic-capture-model`, provider `synthetic_capture`, loopback
+`base_url=http://127.0.0.1:<ephemeral-port>/v1`, `wire_api="responses"`, and
+`env_key="SLAIF_CAPTURE_KEY"`. It sets that variable to the throwaway value
+`synthetic-only`. A one-model temporary `model_catalog_json`, derived from the
+CLI's bundled `gpt-5.4` entry with a synthetic slug/name/description, makes the
+selected synthetic model behavior explicit. The command passes `--ephemeral`,
+`--ignore-user-config`, and `-C` with the disposable repository. The fake endpoint
+requires `POST /v1/responses` and
+`stream: true`, then terminates the CLI with one `response.completed` SSE event
+containing a synthetic completed Response with empty `output`.
+
+The raw request exists only in the helper process. Its minimizer retains exactly
+the synthetic model plus the developer/`input_text` project item, and rejects an
+unexpected, relocated, or duplicate project item rather than rewriting its role or
+claiming fixture equivalence. It discards authorization and all headers,
+IDs, loopback/host paths, internal prompts, tools, unrelated input, user/session/
+account values, and response content before writing. Review the minimized output;
+never commit a raw capture. The direct `input_file` and Responses
+`function_call`/`function_call_output` fixtures are synthetic supplements, not
+shapes observed in that CLI capture or claims of universal compatibility.
