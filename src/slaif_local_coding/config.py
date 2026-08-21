@@ -57,6 +57,20 @@ class UpstreamConfig(BaseModel):
         return value
 
 
+class ObservationPolicy(BaseModel):
+    """Finite request-only limits for constitutional observation."""
+
+    model_config = ConfigDict(extra="forbid")
+    schema_version: str = Field(default="observation-v1", min_length=1, max_length=64)
+    policy_version: str = Field(default="references-v1", min_length=1, max_length=64)
+    max_roots: int = Field(default=8, ge=1, le=64)
+    max_source_bytes: int = Field(default=262_144, ge=1, le=4_194_304)
+    max_candidates: int = Field(default=128, ge=1, le=4096)
+    max_evidence_per_candidate: int = Field(default=16, ge=1, le=128)
+    max_total_evidence: int = Field(default=1024, ge=1, le=16384)
+    max_path_bytes: int = Field(default=512, ge=1, le=4096)
+
+
 class RouteConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -65,6 +79,7 @@ class RouteConfig(BaseModel):
     image_overflow_policy: Literal["retain_newest", "reject", "passthrough"]
     enable_responses: bool = True
     enable_chat_completions: bool = True
+    observation_enabled: bool = False
 
     def enables(self, endpoint: str) -> bool:
         return (endpoint == "/v1/responses" and self.enable_responses) or (
@@ -77,6 +92,7 @@ class Settings(BaseModel):
     server: ServerConfig
     upstream: UpstreamConfig
     routes: list[RouteConfig] = Field(min_length=1)
+    observation: ObservationPolicy = Field(default_factory=lambda: ObservationPolicy())
 
     @model_validator(mode="after")
     def unique_routes(self) -> Settings:

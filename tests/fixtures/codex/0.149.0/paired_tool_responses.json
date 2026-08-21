@@ -1,0 +1,7 @@
+{
+  "model": "synthetic-capture-model",
+  "input": [
+    {"type": "function_call", "call_id": "call_synthetic", "name": "exec_command", "arguments": "{\"cmd\":\"sed -n '1,240p' services/api/AGENTS.md\"}"},
+    {"type": "function_call_output", "call_id": "call_synthetic", "output": "MUST read docs/OPERATIONS.md before deployment.\n"}
+  ]
+}

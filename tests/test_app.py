@@ -197,6 +197,62 @@ async def test_zero_one_forward_exact_body(settings: Settings) -> None:
 
 
 @pytest.mark.asyncio
+async def test_route_scoped_observation_preserves_bytes_and_emits_safe_counts(
+    settings: Settings,
+) -> None:
+    raw = (
+        b'{"model":"qwen","input":[{"filename":"AGENTS.md",'
+        b'"content":"MUST read private/synthetic-policy.md"}]}'
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert await request.aread() == raw
+        return httpx.Response(200, json={})
+
+    settings.routes[0].observation_enabled = True
+    app = create_app(settings, httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        response = await client.post(
+            "/v1/responses",
+            content=raw,
+            headers={
+                "content-type": "application/json",
+                "x-slaif-principal": "spoofed-private-principal",
+                "x-slaif-session": "spoofed-private-session",
+            },
+        )
+        metrics = (await client.get("/metrics")).text
+    assert response.status_code == 200
+    assert 'evidence_type="input_file"' in metrics
+    assert 'route="vision"' in metrics
+    assert "private/synthetic-policy.md" not in metrics
+    assert "spoofed-private" not in metrics
+
+
+@pytest.mark.asyncio
+async def test_observation_disabled_has_no_observation_or_extra_upstream_call(
+    settings: Settings,
+) -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={})
+
+    response = await call(
+        settings,
+        handler,
+        "POST",
+        "/v1/responses",
+        json={"model": "qwen", "input": [{"filename": "AGENTS.md", "content": "rules"}]},
+    )
+    assert response.status_code == 200 and calls == 1
+
+
+@pytest.mark.asyncio
 async def test_reject_passthrough_unknown_and_bounds(settings: Settings) -> None:
     calls = 0
 
