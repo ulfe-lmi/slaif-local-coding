@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import subprocess
 import tempfile
 import threading
@@ -15,6 +17,12 @@ from typing import Any
 MODEL = "synthetic-capture-model"
 PROVIDER = "synthetic_capture"
 PROJECT_PREFIX = "# AGENTS.md instructions for "
+LOGICAL_LABEL = "repo"
+PROJECT_PATTERN = re.compile(
+    r"# AGENTS\.md instructions for (?P<label>[^\r\n]+)\r?\n\r?\n"
+    r"<INSTRUCTIONS>\r?\n(?P<content>.*?)\r?\n</INSTRUCTIONS>",
+    re.DOTALL,
+)
 
 
 class CaptureServer(ThreadingHTTPServer):
@@ -66,68 +74,122 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def _all_marker_paths(value: Any, path: str = "$") -> list[str]:
+    if isinstance(value, str):
+        return [path] if "AGENTS.md instructions" in value else []
+    if isinstance(value, list):
+        return [
+            found
+            for index, child in enumerate(value)
+            for found in _all_marker_paths(child, f"{path}[{index}]")
+        ]
+    if isinstance(value, dict):
+        return [
+            found
+            for key, child in value.items()
+            for found in _all_marker_paths(child, f"{path}.{key}")
+        ]
+    return []
+
+
+def _one_block(text: str, *, allow_environment_tail: bool) -> tuple[str, str]:
+    matches = list(PROJECT_PATTERN.finditer(text))
+    if len(matches) != 1 or matches[0].start() != 0:
+        raise RuntimeError("project block is not unique at the supported boundary")
+    suffix = text[matches[0].end() :]
+    if suffix not in ("", "\n", "\r\n"):
+        if not allow_environment_tail or not re.fullmatch(
+            r"(?:\r?\n)?<environment_context>\r?\n.*\r?\n</environment_context>\r?\n?",
+            suffix,
+            re.DOTALL,
+        ):
+            raise RuntimeError("unsupported material follows project block")
+    return matches[0].group("label"), matches[0].group("content")
+
+
 def minimize(payload: dict[str, Any]) -> dict[str, Any]:
-    found: list[dict[str, Any]] = []
-    for parent in payload.get("input", []):
-        if not isinstance(parent, dict) or parent.get("role") != "developer":
-            continue
-        for item in parent.get("content", []):
-            if (
-                isinstance(item, dict)
-                and item.get("type") == "input_text"
-                and isinstance(item.get("text"), str)
-                and item["text"].startswith(PROJECT_PREFIX)
-            ):
-                found.append(
-                    {
-                        "role": "developer",
-                        "content": [{"type": "input_text", "text": item["text"]}],
-                    }
-                )
-    if len(found) != 1:
-
-        def marker_paths(value: Any, path: str = "$") -> list[str]:
-            if isinstance(value, str):
-                return [path] if "AGENTS.md instructions" in value else []
-            if isinstance(value, list):
-                return [
-                    found_path
-                    for index, child in enumerate(value)
-                    for found_path in marker_paths(child, f"{path}[{index}]")
-                ]
-            if isinstance(value, dict):
-                return [
-                    found_path
-                    for key, child in value.items()
-                    for found_path in marker_paths(child, f"{path}.{key}")
-                ]
-            return []
-
-        structure = [
-            (
-                parent.get("role"),
-                [item.get("type") for item in parent.get("content", []) if isinstance(item, dict)],
-            )
-            for parent in payload.get("input", [])
-            if isinstance(parent, dict)
-        ]
-        text_markers = [
-            {
-                "starts_project_prefix": item.get("text", "").startswith(PROJECT_PREFIX),
-                "contains_agents_marker": "AGENTS.md instructions" in item.get("text", ""),
-                "contains_open_delimiter": "<INSTRUCTIONS>" in item.get("text", ""),
-            }
-            for parent in payload.get("input", [])
-            if isinstance(parent, dict) and parent.get("role") == "developer"
-            for item in parent.get("content", [])
-            if isinstance(item, dict) and isinstance(item.get("text"), str)
-        ]
+    marker_paths = _all_marker_paths(payload)
+    if (
+        len(marker_paths) != 2
+        or marker_paths[0] != "$.instructions"
+        or not re.fullmatch(r"\$\.input\[\d+\]\.content\[\d+\]\.text", marker_paths[1])
+    ):
+        instructions_value = payload.get("instructions")
+        instruction_facts = {
+            "is_string": isinstance(instructions_value, str),
+            "contains_agents": isinstance(instructions_value, str)
+            and "AGENTS.md" in instructions_value,
+            "contains_project_phrase": isinstance(instructions_value, str)
+            and "instructions for" in instructions_value,
+            "contains_open_delimiter": isinstance(instructions_value, str)
+            and "<INSTRUCTIONS>" in instructions_value,
+            "contains_synthetic_rule": isinstance(instructions_value, str)
+            and "MUST read [security](docs/SECURITY.md)." in instructions_value,
+        }
         raise RuntimeError(
-            f"expected one project item, observed {len(found)}; "
-            f"sanitized role/type structure={structure!r}, markers={text_markers!r}, "
-            f"marker_paths={marker_paths(payload)!r}"
+            "unsupported marker locations/count; "
+            f"count={len(marker_paths)} paths={marker_paths!r} instructions={instruction_facts!r}"
         )
-    return {"model": MODEL, "input": found}
+    location_match = re.fullmatch(
+        r"\$\.input\[(?P<input>\d+)\]\.content\[(?P<content>\d+)\]\.text", marker_paths[1]
+    )
+    assert location_match is not None
+    input_index = int(location_match.group("input"))
+    content_index = int(location_match.group("content"))
+    instructions = payload.get("instructions")
+    inputs = payload.get("input")
+    if (
+        not isinstance(instructions, str)
+        or not isinstance(inputs, list)
+        or input_index >= len(inputs)
+    ):
+        raise RuntimeError("missing supported top-level positions")
+    parent = inputs[input_index]
+    if not isinstance(parent, dict) or parent.get("role") != "user":
+        raise RuntimeError("supported input parent is not top-level user")
+    content = parent.get("content")
+    if not isinstance(content, list) or content_index >= len(content):
+        raise RuntimeError("supported user content is missing")
+    item = content[content_index]
+    if not isinstance(item, dict) or item.get("type") != "input_text":
+        raise RuntimeError("supported user item is not input_text")
+    user_text = item.get("text")
+    if not isinstance(user_text, str):
+        raise RuntimeError("supported user text is missing")
+    instruction_label, instruction_content = _one_block(instructions, allow_environment_tail=False)
+    user_label, user_content = _one_block(user_text, allow_environment_tail=True)
+    if instruction_label != user_label or instruction_content != user_content:
+        raise RuntimeError("paired logical label/content does not agree")
+    encoded = instruction_content.encode("utf-8")
+    digest = hashlib.sha256(encoded).hexdigest()
+    envelope = (
+        f"# AGENTS.md instructions for {LOGICAL_LABEL}\n\n"
+        f"<INSTRUCTIONS>\n{instruction_content}\n</INSTRUCTIONS>"
+    )
+    return {
+        "model": MODEL,
+        "instructions": envelope,
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": envelope
+                        + "\n<environment_context>\n"
+                        + "<synthetic-discarded />\n</environment_context>",
+                    }
+                ],
+            }
+        ],
+        "sanitized_provenance": {
+            "marker_occurrences": 2,
+            "logical_label": LOGICAL_LABEL,
+            "content_byte_length": len(encoded),
+            "content_sha256": digest,
+            "occurrences_agree": True,
+        },
+    }
 
 
 def parse_args() -> argparse.Namespace:

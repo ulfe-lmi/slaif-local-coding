@@ -1,22 +1,21 @@
 # Sanitized Codex 0.149.0 fixtures
 
-`project_instructions_responses.json` is a minimized structural derivative of an
-actual provider-bound `codex-cli 0.149.0` capture made from a disposable Git
-repository with a synthetic `AGENTS.md`, an ephemeral CLI invocation, and a
-temporary loopback fake Responses endpoint. Only the synthetic project-instruction
-item and a synthetic user item remain. Authentication, IDs, host paths, internal
-prompts, tool schemas, and response content were discarded during capture.
+`project_instructions_responses.json` is a synthetic supplemental developer-item
+shape. It is retained as a conservative compatibility test, but it has no current
+capture-provenance claim. The immutable `001-a` report's earlier captured-shape
+claim was not reproduced in `001-c` and must not be treated as current wire truth.
 
 The input-file and paired-tool fixtures are synthetic supplemental supported
 shapes; the capture did not exercise them. These fixtures document tested shapes,
 not universal or future Codex wire stability.
 
-Validation on 2026-08-21 with `codex-cli 0.149.0` did not reproduce that exact
-parent/role shape: the synthetic project marker occurred in top-level instructions
-and a user/`input_text` item, not a developer item. The helper therefore wrote no
-fixture. This sanitized structural result does not change the accepted detector
-contract, but means the earlier developer-item capture provenance remains
-unreproduced and must not be generalized to the current custom-provider request.
+Two fresh disposable validations on 2026-08-21 with `codex-cli 0.149.0` failed to
+establish a stable replacement contract. The `001-c` run reported a marker in
+top-level instructions plus a user/`input_text` item. The new `001-d` run found one
+marker only, at a top-level user/`input_text` item; top-level instructions contained
+no AGENTS label, project phrase, delimiter, or synthetic rule. The helper failed
+closed and wrote no fixture in both cases. No detector support is inferred from
+either unreproduced shape.
 
 To refresh safely, use the executable helper from the repository root. It creates a
 new temporary `CODEX_HOME` and Git repository, writes only a synthetic `AGENTS.md`,
@@ -41,10 +40,13 @@ requires `POST /v1/responses` and
 `stream: true`, then terminates the CLI with one `response.completed` SSE event
 containing a synthetic completed Response with empty `output`.
 
-The raw request exists only in the helper process. Its minimizer retains exactly
-the synthetic model plus the developer/`input_text` project item, and rejects an
-unexpected, relocated, or duplicate project item rather than rewriting its role or
-claiming fixture equivalence. It discards authorization and all headers,
+The raw request exists only in the helper process. Its minimizer requires exactly
+one top-level instructions envelope corroborated by one top-level user/`input_text`
+envelope with the same logical label and exact inner bytes. It replaces the random
+disposable directory with `repo`, permits only the captured environment-context
+tail boundary, and emits a synthetic two-position fixture plus safe counts/hash/
+length facts. It rejects a missing, relocated, duplicate, mismatched, or unsupported
+pair rather than rewriting evidence. It discards authorization and all headers,
 IDs, loopback/host paths, internal prompts, tools, unrelated input, user/session/
 account values, and response content before writing. Review the minimized output;
 never commit a raw capture. The direct `input_file` and Responses

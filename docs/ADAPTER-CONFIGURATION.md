@@ -36,9 +36,10 @@ reason labels, counts, and duration—not source paths/content/hashes, identity 
 tool text, queries, or authorization. Current external identity/session headers are
 spoofable and stripped; signed gateway identity remains future work.
 
-Supported evidence is deliberately structural: the captured project marker must be
-in a top-level developer/`input_text` Responses item; synthetic input files require
-an explicit `input_file` item in a documented top-level content position; and tool
+Supported evidence is deliberately structural: the synthetic supplemental project
+marker must be in a top-level developer/`input_text` Responses item; fresh Codex
+0.149.0 captures have not established a stable current replacement rule. Synthetic
+input files require an explicit `input_file` item in a documented top-level content position; and tool
 evidence requires a one-to-one `exec_command` call/output pair. Arbitrary recursive
 dictionaries, wrong roles/types/names, malformed arguments, and duplicate call IDs
 are ignored. Root labels share one bounded POSIX repository-relative validator;

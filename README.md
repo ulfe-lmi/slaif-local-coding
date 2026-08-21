@@ -58,10 +58,12 @@ changing the model-bound request.
 ## Request-only constitution observation
 
 Observation is independently enabled on each explicit route and runs after image
-policy enforcement. The captured Codex 0.149.0 project shape is accepted only as
-a top-level Responses developer message containing an `input_text` item. Synthetic
-supplements accept explicit `input_file` items in top-level Responses/Chat content
-positions and exact `exec_command` calls paired one-to-one with output by call ID;
+policy enforcement. A synthetic supplemental project shape is accepted only as a
+top-level Responses developer message containing an `input_text` item; fresh Codex
+0.149.0 runs have not reproduced that shape or established a stable replacement.
+Synthetic supplements accept explicit `input_file` items in top-level
+Responses/Chat content positions and exact `exec_command` calls paired one-to-one
+with output by call ID;
 the read grammar is limited to exact `cat`, `head`, `tail`, or bounded `sed -n`.
 Wrong roles/types/tool names, metadata, arbitrary nesting, tool descriptions,
 assistant claims, ambiguous commands, and duplicate/unpaired IDs do not establish
@@ -86,7 +88,8 @@ still forwarded unchanged except for any earlier authorized image transformation
 The observation result exists only for the current request. Client identity and
 session headers are stripped and are not trusted reuse keys. There is no compiler,
 model ranking, semantic score, cache, acquisition, injection, replacement, or
-cross-request state in this slice. Fixture provenance and safe refresh guidance
+cross-request state in this slice. Unsupported current/future wire shapes fail
+conservatively. Fixture provenance and safe refresh guidance
 are in `tests/fixtures/codex/0.149.0/README.md`; fixtures describe tested shapes,
 not future wire compatibility.
 
