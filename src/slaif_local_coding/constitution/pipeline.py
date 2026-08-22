@@ -148,6 +148,12 @@ class ConstitutionPipeline:
             ["endpoint", "route"],
             registry=registry,
         )
+        self.selection_statuses = Counter(
+            "slaif_constitution_dependency_working_set_total",
+            "Bounded dependency states in rendered working sets",
+            ["endpoint", "route", "status"],
+            registry=registry,
+        )
         self.selection_failures = Counter(
             "slaif_constitution_selection_failures_total",
             "Typed working-set selection failures by fixed reason",
@@ -588,6 +594,10 @@ class ConstitutionPipeline:
         self.selection_inclusions.labels(endpoint, route_name).inc(
             sum(item.status.value == "included" for item in working_set.dependencies)
         )
+        for status in ("included", "missing", "omitted"):
+            self.selection_statuses.labels(endpoint, route_name, status).inc(
+                sum(item.status.value == status for item in working_set.dependencies)
+            )
         if endpoint == "/v1/responses":
             transformed, injection = inject_responses(
                 payload,

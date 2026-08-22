@@ -410,6 +410,14 @@ async def test_root_plus_dependency_compiles_then_reuses_both_indexes(
         for value in [line.rsplit(" ", 1)[-1]]
     }
     assert outcomes == {"cache_hit": 1.0, "cache_miss": 1.0}
+    for status, expected in (("included", 2.0), ("missing", 2.0), ("omitted", 0.0)):
+        matches = [
+            float(line.rsplit(" ", 1)[-1])
+            for line in metrics.splitlines()
+            if line.startswith("slaif_constitution_dependency_working_set_total{")
+            and f'status="{status}"' in line
+        ]
+        assert sum(matches) == expected
     assert RAW_DEPENDENCY_TOKEN not in metrics and ROOT_TEXT not in metrics
 
 
