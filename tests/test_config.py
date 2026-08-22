@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from slaif_local_coding.config import (
     CacheConfig,
     CompilerConfig,
+    ConstitutionIntegrationConfig,
     ObservationPolicy,
     RouteConfig,
     ServerConfig,
@@ -67,7 +68,7 @@ def test_route_matches_must_be_unique_per_model_and_endpoint() -> None:
     )
 
 
-def test_objective002_configuration_remains_public_integration_disabled(tmp_path: Path) -> None:
+def test_objective003a_configuration_remains_public_integration_disabled(tmp_path: Path) -> None:
     base = """
 [server]
 [upstream]
@@ -175,6 +176,28 @@ def test_cache_and_compiler_bounds_have_safe_defaults_and_finite_ranges(
     for invalid_call in invalid_cache_calls:
         with pytest.raises(ValidationError):
             invalid_call()
+
+    constitution = ConstitutionIntegrationConfig()
+    assert constitution.enabled is False
+    assert constitution.selector_schema_version == "working-set-v1"
+    assert constitution.render_version == "constitution-render-v1"
+    assert constitution.working_set_max_entries == 128
+    assert constitution.acquisition_max_count == 128
+    assert constitution.entry_render_max_bytes == 8192
+    assert constitution.injection_max_depth == 64
+    assert constitution.injection_max_nodes == 16384
+
+    invalid_constitution_calls: list[Callable[[], ConstitutionIntegrationConfig]] = [
+        lambda: ConstitutionIntegrationConfig(enabled=True),  # type: ignore[arg-type]
+        lambda: ConstitutionIntegrationConfig(entry_render_max_bytes=16385),
+        lambda: ConstitutionIntegrationConfig(working_set_max_entries=129),
+        lambda: ConstitutionIntegrationConfig(acquisition_max_count=129),
+        lambda: ConstitutionIntegrationConfig(injection_max_depth=257),
+        lambda: ConstitutionIntegrationConfig(injection_max_nodes=0),
+    ]
+    for invalid_constitution_call in invalid_constitution_calls:
+        with pytest.raises(ValidationError):
+            invalid_constitution_call()
 
     invalid_compiler_calls: list[Callable[[], CompilerConfig]] = [
         lambda: CompilerConfig(max_source_bytes=0),

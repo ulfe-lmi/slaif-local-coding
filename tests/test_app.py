@@ -672,16 +672,31 @@ async def test_metrics_have_bounded_labels(settings: Settings) -> None:
 
 
 @pytest.mark.asyncio
-async def test_normal_governed_request_makes_zero_compiler_calls(
+async def test_normal_governed_request_makes_zero_constitution_pipeline_calls(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Objective-002 is library-only: public handlers must not invoke compilation."""
-    from unittest.mock import AsyncMock
+    """Objective-003-a contracts stay library-only: public handlers remain inert."""
+    from unittest.mock import AsyncMock, MagicMock
 
+    from slaif_local_coding.constitution.cache import DerivedIndexCache
     from slaif_local_coding.constitution.compiler import ConstitutionalCompiler
 
     compiler_compile = AsyncMock(side_effect=AssertionError("public request invoked compiler"))
+    cache_put = MagicMock(side_effect=AssertionError("public request wrote derived cache"))
+    selector_call = MagicMock(side_effect=AssertionError("public request selected working set"))
+    responses_inject = MagicMock(side_effect=AssertionError("public Responses request injected"))
+    chat_inject = MagicMock(side_effect=AssertionError("public Chat request injected"))
     monkeypatch.setattr(ConstitutionalCompiler, "compile", compiler_compile)
+    monkeypatch.setattr(DerivedIndexCache, "put", cache_put)
+    monkeypatch.setattr(
+        "slaif_local_coding.constitution.working_set.select_working_set", selector_call
+    )
+    monkeypatch.setattr(
+        "slaif_local_coding.constitution.injection.inject_responses", responses_inject
+    )
+    monkeypatch.setattr(
+        "slaif_local_coding.constitution.injection.inject_chat_completions", chat_inject
+    )
     observed = settings.model_copy(
         update={
             "routes": [
@@ -714,3 +729,7 @@ async def test_normal_governed_request_makes_zero_compiler_calls(
     response = await call(observed, handler, "POST", "/v1/responses", json=governed)
     assert response.status_code == 200
     compiler_compile.assert_not_awaited()
+    cache_put.assert_not_called()
+    selector_call.assert_not_called()
+    responses_inject.assert_not_called()
+    chat_inject.assert_not_called()
