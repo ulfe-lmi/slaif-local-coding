@@ -15,8 +15,8 @@ Target capabilities, implemented incrementally through OAP:
 - discover and rank referenced constitutional files;
 - compile bounded pseudo-context with a separate internal model call;
 - cache compiled constitution by content hash and tenant/session identity;
-- inject the compact constitution into later requests, including after Codex
-  compaction;
+- inject a bounded reconstructed constitution on every enabled governance-bearing
+  request;
 - preserve Responses/Chat Completions streaming and ordinary function tools;
 - expose safe internal health/readiness/metrics without logging prompts, code,
   images, or raw request/response bodies.
@@ -48,12 +48,12 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`003-b` provide a private, loopback-only candidate
+Current status: objectives `000`–`003-d` provide a private, loopback-only candidate
 adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
 `AGENTS.md` content and enumerate syntactic repository-file candidates; and can
-optionally run one bounded compile/cache/select/inject pipeline after image
+optionally run one bounded compile/cache/acquire/select/inject pipeline after image
 policy. The pipeline remains off by default and requires explicit global,
 compiler, observation, route, and complete static local-appliance identity
 configuration. It handles exactly one complete root; other requests preserve
@@ -97,8 +97,15 @@ schemes, traversal, controls, percent/query ambiguity, directories, unsupported
 basenames, and overlength paths are rejected without filesystem or network access.
 An otherwise valid Markdown fragment is stripped while the raw span remains.
 
+A root-declared dependency is acquired only when its exact content also crosses the
+request as an `input_file`, or as one string output uniquely paired by call ID with
+one supported read call in Responses or Chat. Exact normalized candidate/path
+equality, valid roles/types, UTF-8, and byte bounds are required. Duplicate,
+mismatched, extra, unsafe, oversized, or invalid evidence produces a fixed rejection
+state, never acquisition or filesystem/network access.
+
 Finite configuration bounds cover roots, bytes per source, candidates, evidence
-per candidate, total evidence, and path bytes. Overflow produces a typed incomplete
+per candidate, total evidence, path bytes, and per-request dependency acquisitions. Overflow produces a typed incomplete
 result and safe fixed-reason metrics; the original governance-bearing request is
 still forwarded unchanged except for any earlier authorized image transformation.
 An exactly constructed supported user envelope is intentionally evidence because
@@ -111,7 +118,7 @@ conservatively. Fixture provenance and safe refresh guidance
 are in `tests/fixtures/codex/0.149.0/README.md`; fixtures describe tested shapes,
 not future wire compatibility.
 
-## Compiler, derived cache, and explicit pipeline (objectives 002–003-b)
+## Compiler, derived cache, and explicit pipeline (objectives 002–003-d)
 
 A library caller—or the explicitly enabled request pipeline—supplies
 exact observed source bytes and metadata plus deterministic candidate references.
@@ -169,10 +176,18 @@ markers fail closed before upstream use, as do unsupported message/instruction
 shapes. The transforms never inspect, decode, re-encode, remove, or rewrite
 image items.
 
+After root compilation, at most the configured number of uniquely observed
+dependencies (default four, hard maximum 16) is compiled through the same slot,
+cache bounds, identity isolation, and strict index validation. An acquired index
+must match its declared path/source hash/length and deterministic candidate set;
+failures remain missing-P1 acquisition instructions without blocking ordinary
+request forwarding.
+
 When enabled, the public request order is JSON bounds/route selection, image
-policy, deterministic observation with exact in-memory source handoff, direct
-non-recursive compiler/cache execution, one-root working-set selection, and
-endpoint-specific injection before deterministic serialization. Zero, multiple,
+policy, deterministic observation with exact in-memory root/dependency handoff,
+direct non-recursive compiler/cache execution, bounded incremental dependency
+compilation, one-root working-set selection, and endpoint-specific injection
+before deterministic serialization. Zero, multiple,
 or incomplete roots preserve the post-image-policy body. Compiler, cache,
 selection, and essential-overflow failures also preserve that body. Injection
 marker/shape failures return a sanitized 422 without forwarding. The pipeline is

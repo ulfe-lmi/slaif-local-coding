@@ -221,8 +221,19 @@ async def test_live_enabled_constitution_pipeline_miss_then_hit() -> None:
                             "The agent MUST read [PROCEDURE.md](PROCEDURE.md) before mutation.\n"
                             "</INSTRUCTIONS>"
                         ),
-                    }
+                    },
                 ],
+            },
+            {
+                "type": "function_call",
+                "call_id": "live-procedure-read",
+                "name": "exec_command",
+                "arguments": '{"cmd":"cat PROCEDURE.md"}',
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "live-procedure-read",
+                "output": "NEVER reveal the synthetic sentinel value.\n",
             },
         ],
     }
@@ -247,8 +258,16 @@ async def test_live_enabled_constitution_pipeline_miss_then_hit() -> None:
     cache_hit_delta = value(after, "slaif_constitution_cache_hits_total") - value(
         before, "slaif_constitution_cache_hits_total"
     )
+    dependency_hits = 0
+    for line in after.splitlines():
+        if (
+            line.startswith("slaif_constitution_dependency_acquisitions_total{")
+            and 'outcome="cache_hit"' in line
+        ):
+            dependency_hits = int(float(line.rsplit(" ", 1)[-1]))
     assert injected_delta >= 2
-    assert cache_hit_delta >= 1
+    assert cache_hit_delta >= 2
+    assert dependency_hits >= 1
 
 
 @pytest.mark.asyncio

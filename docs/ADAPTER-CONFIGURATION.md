@@ -84,7 +84,7 @@ requests retain their original bytes. `reject` returns an API-shaped 422 before
 calling upstream. `passthrough` does not rewrite. A recognized image marker in
 an ambiguous non-list position fails closed.
 
-### Objective-003-b optional one-root pipeline
+### Objective-003-b through 003-d optional one-root pipeline
 
 Integration remains disabled by every default. Enabling it requires all of:
 `compiler.enabled = true`; `constitution.enabled = true`; complete nonempty
@@ -97,20 +97,28 @@ never read from caller headers, bodies, models, or source content, and they are
 not signed multi-user production identity.
 
 On an enabled route, work runs after image policy in this order: deterministic
-observation with request-scoped exact source bytes, direct nonrecursive
-compiler/cache execution, working-set selection with no acquired dependencies,
-idempotent endpoint-specific injection, then deterministic JSON serialization.
+observation with request-scoped exact root/dependency bytes, direct nonrecursive
+compiler/cache execution, bounded incremental dependency compilation, working-set
+selection, idempotent endpoint-specific injection, then deterministic JSON serialization.
 Zero/multiple/incomplete roots and compiler/cache/selection/essential-overflow
 failures preserve the post-image-policy request. Injection conflicts or
-unsupported shapes return sanitized HTTP 422 before model forwarding. Safe
-pipeline metrics use fixed endpoint/route/state/reason/outcome labels and
-durations only—never source paths/content/hashes, prompts/output, images,
-identity values, cache keys, models' visible text, or request-derived
-high-cardinality data.
+unsupported shapes return sanitized HTTP 422 before model forwarding. Dependencies are acquired only from exact `input_file` content or a unique string
+output paired by call ID with one supported Responses/Chat local-tool read call.
+The observer validates exact declared-path equality, roles/types, repository path
+grammar, UTF-8, and byte bounds. Duplicate, mismatched, extra, unsafe, oversized,
+or invalid evidence is never acquired; root governance remains injected with a
+missing-P1 instruction where applicable. After root compilation, at most
+`constitution.max_dependency_acquisitions` (default 4, maximum 16) dependencies is
+compiled incrementally. Each result must match path/hash/length/candidates and all
+compiler/cache validation before selection.
 
-Acquisition instructions name unavailable files but do not fetch them. Tool-output
-ingestion beyond existing observation evidence, compaction rehydration, signed
-production identity, gateway integration, vision readiness, real Codex E2E
+Safe observation/pipeline metrics use fixed endpoint/route/state/reason/outcome
+labels and counts/durations only—never source paths/content/hashes,
+prompts/output, images, identity values, cache keys, models' visible text, or
+request-derived high-cardinality data.
+
+Acquisition instructions name unavailable files but do not fetch them. Arbitrary tool-output ingestion, recursive fetching, compaction rehydration,
+signed production identity, gateway integration, vision readiness, real Codex E2E
 support, and cutover remain excluded.
 
 The example user unit is not installed or enabled automatically. For candidate

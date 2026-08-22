@@ -84,6 +84,31 @@ class ConstitutionSourceObservation(BaseModel):
     incomplete_reasons: tuple[IncompleteReason, ...] = ()
 
 
+class DependencyObservationReason(StrEnum):
+    AMBIGUOUS = "ambiguous"
+    UNSAFE_PATH = "unsafe_path"
+    DUPLICATE_EVIDENCE = "duplicate_evidence"
+    MISMATCHED_PAIRING = "mismatched_pairing"
+    EXTRA_EVIDENCE = "extra_evidence"
+    CONTENT_TOO_LARGE = "content_too_large"
+    INVALID_CONTENT = "invalid_content"
+
+
+class ObservedDependency(BaseModel):
+    """A uniquely evidenced, bounded source crossing this request boundary."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    logical_path: str
+    byte_length: int = Field(ge=1)
+    evidence: tuple[EvidenceRecord, ...] = Field(min_length=1)
+
+
+class DependencyRejectionCount(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    reason: DependencyObservationReason
+    count: int = Field(ge=1)
+
+
 class RejectionCount(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     reason: RejectionReason
@@ -101,3 +126,5 @@ class ObservationResult(BaseModel):
     accepted_candidates: int = Field(ge=0)
     rejected_candidates: int = Field(ge=0)
     rejection_counts: tuple[RejectionCount, ...] = ()
+    dependencies: tuple[ObservedDependency, ...] = ()
+    dependency_rejections: tuple[DependencyRejectionCount, ...] = ()

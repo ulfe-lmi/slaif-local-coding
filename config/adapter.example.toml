@@ -58,6 +58,7 @@ render_version = "constitution-render-v1"
 working_set_policy_version = "foundation-v1"
 working_set_max_entries = 128
 acquisition_max_count = 128
+max_dependency_acquisitions = 4
 entry_render_max_bytes = 8192
 injection_max_depth = 64
 injection_max_nodes = 16384

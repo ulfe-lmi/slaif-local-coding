@@ -141,6 +141,7 @@ class ConstitutionIntegrationConfig(BaseModel):
     working_set_policy_version: str = Field(default="foundation-v1", min_length=1, max_length=64)
     working_set_max_entries: int = Field(default=128, ge=1, le=4096)
     acquisition_max_count: int = Field(default=128, ge=1, le=4096)
+    max_dependency_acquisitions: int = Field(default=4, ge=1, le=16)
     entry_render_max_bytes: int = Field(default=8192, ge=128, le=1048576)
     injection_max_depth: int = Field(default=64, ge=1, le=256)
     injection_max_nodes: int = Field(default=16384, ge=1, le=1048576)

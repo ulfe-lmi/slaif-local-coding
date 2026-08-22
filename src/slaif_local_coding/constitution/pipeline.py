@@ -11,7 +11,7 @@ from typing import Any, NoReturn
 import httpx
 from prometheus_client import CollectorRegistry, Counter, Histogram
 
-from ..config import ConstitutionIntegrationConfig, RouteConfig
+from ..config import ConstitutionIntegrationConfig, ObservationPolicy, RouteConfig
 from .cache import CacheIdentity, CachePolicy, DerivedIndexCache
 from .compiler import CompilerSettings, ConstitutionalCompiler, ObservedSourceMetadata
 from .injection import (
@@ -20,6 +20,7 @@ from .injection import (
     inject_responses,
 )
 from .models import ObservationResult
+from .references import extract_references
 from .working_set import (
     WorkingSetMetadata,
     WorkingSetPolicy,
@@ -68,6 +69,18 @@ class ConstitutionPipeline:
             "slaif_constitution_pipeline_requests_total",
             "Constitutional pipeline outcomes by fixed safe state and reason",
             ["endpoint", "route", "state", "reason"],
+            registry=registry,
+        )
+        self.dependency_outcomes = Counter(
+            "slaif_constitution_dependency_acquisitions_total",
+            "Bounded request-derived dependency acquisition outcomes",
+            ["endpoint", "route", "outcome"],
+            registry=registry,
+        )
+        self.selection_inclusions = Counter(
+            "slaif_constitution_dependency_selection_inclusions_total",
+            "Validated dependencies included in rendered working sets",
+            ["endpoint", "route"],
             registry=registry,
         )
         self.selection_failures = Counter(
@@ -147,12 +160,78 @@ class ConstitutionPipeline:
             reason="observation_failed",
         )
 
+    async def _compile_dependencies(
+        self,
+        *,
+        root_index: Any,
+        source_bytes_by_dependency: dict[str, bytes],
+        observation_policy: ObservationPolicy,
+        identity: CacheIdentity,
+        endpoint: str,
+        route_name: str,
+    ) -> dict[str, Any]:
+        """Compile at most the configured number of uniquely observed dependencies."""
+        declarations = {item.path: item for item in root_index.dependencies}
+        acquired: dict[str, Any] = {}
+        budget = self.constitution.max_dependency_acquisitions
+        for declaration in root_index.dependencies:
+            path = declaration.path
+            if path not in source_bytes_by_dependency:
+                continue
+            if len(acquired) >= budget:
+                self.dependency_outcomes.labels(endpoint, route_name, "budget_exceeded").inc()
+                continue
+            source = source_bytes_by_dependency[path]
+            digest = hashlib.sha256(source).hexdigest()
+            try:
+                extraction = extract_references(source.decode("utf-8"), observation_policy)
+            except (UnicodeError, RecursionError):
+                self.dependency_outcomes.labels(endpoint, route_name, "invalid").inc()
+                continue
+
+            def invalidate() -> None:
+                self.dependency_outcomes.labels(endpoint, route_name, "invalid").inc()
+
+            compiled = await self.compiler.compile(
+                source,
+                path,
+                ObservedSourceMetadata(
+                    logical_path=path,
+                    content_sha256=digest,
+                    byte_length=len(source),
+                ),
+                extraction.candidates,
+                identity,
+            )
+            index = compiled.index
+            if (
+                compiled.failure is not None
+                or index is None
+                or index.source_logical_path != path
+                or index.source_sha256 != digest
+                or index.source_byte_length != len(source)
+                or [item.path for item in index.dependencies]
+                != [item.path for item in extraction.candidates]
+            ):
+                invalidate()
+                continue
+            acquired[path] = index
+            outcome = "cache_hit" if compiled.cache_outcome == "hit" else "cache_miss"
+            self.dependency_outcomes.labels(endpoint, route_name, outcome).inc()
+        # Unknown/mismatched observation keys are rejected without exposing their values.
+        for path in source_bytes_by_dependency:
+            if path not in declarations:
+                self.dependency_outcomes.labels(endpoint, route_name, "invalid").inc()
+        return acquired
+
     async def process(
         self,
         *,
         payload: dict[str, Any],
         observation: ObservationResult,
         source_bytes_by_root: dict[tuple[str, str], bytes],
+        source_bytes_by_dependency: dict[str, bytes],
+        observation_policy: ObservationPolicy,
         route: RouteConfig,
         endpoint: str,
         post_image_body: bytes,
@@ -219,6 +298,14 @@ class ConstitutionPipeline:
             )
             return complete("degraded", f"compiler_{reason}", preserved)
 
+        acquired_dependencies = await self._compile_dependencies(
+            root_index=index,
+            source_bytes_by_dependency=source_bytes_by_dependency,
+            observation_policy=observation_policy,
+            identity=identity,
+            endpoint=endpoint,
+            route_name=route_name,
+        )
         working_set_policy = WorkingSetPolicy(
             max_rendered_bytes=self.constitution.max_injected_bytes,
             max_dependencies=self.constitution.candidate_max_count,
@@ -229,7 +316,7 @@ class ConstitutionPipeline:
         try:
             working_set = select_working_set(
                 index,
-                {},
+                acquired_dependencies,
                 policy=working_set_policy,
                 metadata=WorkingSetMetadata(
                     policy_version=self.constitution.working_set_policy_version
@@ -246,6 +333,10 @@ class ConstitutionPipeline:
                 reason=f"selection_{reason}",
             )
             return complete("degraded", f"selection_{reason}", preserved)
+
+        self.selection_inclusions.labels(endpoint, route_name).inc(
+            sum(item.status.value == "included" for item in working_set.dependencies)
+        )
 
         try:
             if endpoint == "/v1/responses":

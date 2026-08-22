@@ -19,7 +19,7 @@ from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, gene
 from .config import RouteConfig, Settings
 from .constitution import (
     ObservationContext,
-    observe_request_with_sources,
+    observe_request_for_pipeline,
 )
 from .constitution.cache import CachePolicy
 from .constitution.compiler import CompilerSettings
@@ -200,6 +200,12 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         ["endpoint", "route", "status"],
         registry=registry,
     )
+    dependency_observations = Counter(
+        "slaif_constitution_dependency_observations_total",
+        "Request-only constitutional dependency observation outcomes",
+        ["endpoint", "route", "state"],
+        registry=registry,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -338,10 +344,11 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
             post_image_body = body
             observation: ObservationResult | None = None
             observation_sources: dict[tuple[str, str], bytes] = {}
+            observation_dependencies: dict[str, bytes] = {}
             if route.observation_enabled:
                 observation_started = time.monotonic()
                 try:
-                    observed_result, source_bytes = observe_request_with_sources(
+                    observed_result, source_bytes, dependency_bytes = observe_request_for_pipeline(
                         payload,
                         ObservationContext(
                             endpoint=endpoint,
@@ -355,6 +362,7 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                     )
                     observation = observed_result
                     observation_sources = source_bytes
+                    observation_dependencies = dependency_bytes
                     for root in observation.roots:
                         for evidence_type in {item.type for item in root.evidence}:
                             observed_roots.labels(endpoint, route_name, evidence_type.value).inc()
@@ -365,6 +373,14 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                         observed_rejections.labels(
                             endpoint, route_name, rejection.reason.value
                         ).inc(rejection.count)
+
+                    dependency_observations.labels(endpoint, route_name, "observed").inc(
+                        len(observation.dependencies)
+                    )
+                    for dependency_rejection in observation.dependency_rejections:
+                        dependency_observations.labels(
+                            endpoint, route_name, dependency_rejection.reason.value
+                        ).inc(dependency_rejection.count)
                     status = "complete" if observation.complete else "incomplete"
                     reasons = observation.incomplete_reasons or (None,)
                     for reason in reasons:
@@ -393,6 +409,8 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                             payload=payload,
                             observation=observation,
                             source_bytes_by_root=observation_sources,
+                            source_bytes_by_dependency=observation_dependencies,
+                            observation_policy=settings.observation,
                             route=route,
                             endpoint=endpoint,
                             post_image_body=post_image_body,

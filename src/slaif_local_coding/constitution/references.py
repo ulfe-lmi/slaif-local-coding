@@ -82,6 +82,27 @@ def _normalize(
     return normalized, None, None
 
 
+def validate_repository_path(
+    raw: str, max_bytes: int
+) -> tuple[str | None, IncompleteReason | None, RejectionReason | None]:
+    """Validate one repository-relative POSIX candidate label.
+
+    This is the single path grammar shared by root and dependency evidence.
+    It never resolves a host filesystem and returns no richer exception data.
+    """
+
+    return _normalize(raw, max_bytes)
+
+
+def validate_exact_repository_path(
+    raw: str, max_bytes: int
+) -> tuple[str | None, IncompleteReason | None, RejectionReason | None]:
+    """Validate an exact request-supplied label; query/fragment syntax is unsafe."""
+    if "?" in raw or "#" in raw:
+        return None, None, RejectionReason.AMBIGUOUS
+    return _normalize(raw, max_bytes)
+
+
 def extract_references(text: str, policy: ObservationPolicy) -> Extraction:
     matches: list[tuple[int, int, str, EvidenceType]] = []
     for pattern, evidence_type in (
