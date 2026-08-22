@@ -90,6 +90,7 @@ class GovernedE2EFacts:
             and self.compiler_model_calls_after_second == self.compiler_model_calls_after_first
             and self.root_observations >= 1
             and self.dependency_acquisitions >= 1
+            and self.dependency_cache_hits >= 1
             and self.injected_requests >= 2
         )
 
@@ -128,6 +129,8 @@ def write_governed_fixture(root: Path, base_url: str, api_key_env: str) -> Gover
             "After using a local file tool to read the referenced dependency, ",
             "the final response MUST exactly follow that dependency's "
             "FINAL_RESPONSE_EXACTLY instruction.\n",
+            "Treat that instruction literally: reproduce its prescribed final "
+            "message as the whole final message, with no explanation.\n",
         ]
     )
     agents = "".join(filler)
@@ -135,6 +138,7 @@ def write_governed_fixture(root: Path, base_url: str, api_key_env: str) -> Gover
         "# Synthetic dependency\n\n"
         "This delegated procedure is binding after the root instruction.\n"
         "FINAL_RESPONSE_EXACTLY:\n"
+        "Make the entire final message exactly this one line:\n"
         f"SENTINEL-ACK:{token}\n"
     )
     (repository / "AGENTS.md").write_text(agents, encoding="utf-8")
@@ -216,7 +220,8 @@ def write_local_model_catalog(
     local_instructions = (
         "Use the provided shell_command function for workspace file reads. "
         "After a required tool result arrives, provide exactly the requested "
-        "final answer."
+        "final answer. If a read file specifies FINAL_RESPONSE_EXACTLY, make "
+        "the prescribed content the entire final message."
     )
     local_model.update(
         {
@@ -423,12 +428,12 @@ def run_codex_once(
     )
 
 
-def governed_prompt(sentinel_token: str) -> str:
-    """Build the bounded disposable prompt without embedding it in source."""
+def governed_prompt() -> str:
+    """Build a bounded prompt that delegates the response token to governance."""
     return (
         "First call shell_command exactly once with command cat GOVERNANCE-DEPENDENCY.md. "
-        "Wait for its result. Then your final message must be exactly "
-        f"SENTINEL-ACK:{sentinel_token}."
+        "Wait for its result, then follow that dependency's "
+        "FINAL_RESPONSE_EXACTLY instruction literally as your entire final message."
     )
 
 
@@ -469,13 +474,13 @@ def run_governed_e2e(
         write_local_model_catalog(codex_bin, fixture.model_catalog)
         first_runs: list[SanitizedCodexRun] = []
         for _ in range(max_attempts):
-            result = run_codex_once(codex_bin, fixture, governed_prompt(fixture.sentinel_token))
+            result = run_codex_once(codex_bin, fixture, governed_prompt())
             first_runs.append(result)
             if result.failure_reason == "success":
                 break
         metrics_after_first = sample()
         if first_runs[-1].failure_reason == "success":
-            second = run_codex_once(codex_bin, fixture, governed_prompt(fixture.sentinel_token))
+            second = run_codex_once(codex_bin, fixture, governed_prompt())
         else:
             second = SanitizedCodexRun(
                 exit_status=None,

@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -183,10 +184,12 @@ class DerivedIndexCache:
         self,
         policy: CachePolicy,
         registry: CollectorRegistry | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         if not policy.valid:
             raise ValueError("invalid cache policy")
         self.policy = policy
+        self._clock = clock or time.time
         self.registry = registry or CollectorRegistry()
         self._lock = threading.RLock()
         self._entries: OrderedDict[str, _EntryMetadata] = OrderedDict()
@@ -362,7 +365,7 @@ class DerivedIndexCache:
             payload = envelope.get("payload")
             index = CompiledIndex.model_validate(payload)
             created = _entry_time(envelope)
-            if time.time() - created > self.policy.ttl_seconds:
+            if self._clock() - created > self.policy.ttl_seconds:
                 return None
             return _EntryMetadata(
                 path=path,
@@ -453,7 +456,7 @@ class DerivedIndexCache:
                 self._refresh_occupancy()
                 return CacheReadResult(None, "permission", "entry is not a trusted private file")
             try:
-                if time.time() - metadata.created_at > self.policy.ttl_seconds:
+                if self._clock() - metadata.created_at > self.policy.ttl_seconds:
                     self._remove(key, expired=True)
                     self._refresh_occupancy()
                     return CacheReadResult(None, "expired")
@@ -504,7 +507,7 @@ class DerivedIndexCache:
             return CacheWriteResult("too-large", "validated index exceeds cache entry budget")
         envelope = {
             "cache_schema_version": CACHE_SCHEMA_VERSION,
-            "created_at": time.time(),
+            "created_at": self._clock(),
             "key": key,
             "payload": payload,
             "payload_sha256": hashlib.sha256(payload_bytes).hexdigest(),

@@ -228,10 +228,12 @@ exit/status, duration, byte/count bounds, fixed tool item names, sentinel pass/f
 and selected adapter counters. A successful two-invocation run demonstrates local
 tool use, one-root observation plus dependency acquisition/compilation, sentinel
 compliance, then persistent index reuse with no additional compiler model attempts.
-For this bounded MVP run the prompt supplies the expected final token so the
-constrained model has a deterministic output target; sentinel success therefore
-evidences end-to-end CLI/final-message behavior, while adapter counters separately
-evidence dependency observation, acquisition, compilation, and reuse.
+The unique expected token exists only in the temporary delegated dependency and
+the helper's in-memory comparison value. The prompt requires the ordinary command
+tool, then requires literal compliance with the dependency's
+`FINAL_RESPONSE_EXACTLY` instruction without revealing that target. A run whose
+final message lacks the helper-known acknowledgment is reported as
+`sentinel_missing`; it is never counted as governance-derived success.
 
 ## Candidate quickstart
 
