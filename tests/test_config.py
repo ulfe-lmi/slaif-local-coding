@@ -139,6 +139,12 @@ def test_current_host_capability_is_text_only_with_historical_vision_provenance(
     assert "Verified image capacity: zero images per request" in live_document
     assert "text-only" in live_document.lower()
     assert "language-model-only" in live_document
+    assert "Qwen/vLLM vision service" not in architecture
+    assert "Qwen/vLLM text-only service" in architecture
+    assert "http://10.8.132.75:18020/v1" in live_document
+    assert "10.8.132.76" in live_document
+    assert "prior vision deployment" in live_document
+    assert "historical provenance" in live_document
     assert "accepts zero images" in architecture
     assert "not live-vision" in readme
     assert "readiness" in readme

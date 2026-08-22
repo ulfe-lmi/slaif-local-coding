@@ -191,7 +191,7 @@ OAP control plane:
   Coding Codex    -> default Codex provider
 
 Protected live system under test:
-  Qwen/vLLM vision service
+  Qwen/vLLM text-only service
     -> discover live; currently hinton1 127.0.0.1:18020
 
 New adapter development path:
