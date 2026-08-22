@@ -109,10 +109,12 @@ L3 client repository/Git/GitHub authority
 ```
 
 Default protected cache `/dev/shm/slaif-local-coding`, fallback protected XDG
-cache; atomic files; dirs 0700/files 0600; content-addressed; hard total/per-entry
-bytes; TTL+LRU; separate bounded pinned P0/P1. Identity includes opaque principal,
+cache; atomic files; dirs 0700/files 0600; reject symlinks and foreign-owned
+paths; content-addressed; hard total/per-entry bytes; bounded startup scan;
+TTL+LRU; separate bounded pinned P0/P1. Identity includes opaque principal,
 session/repository discriminator, source hash, compiler/schema/model/policy/
-render versions. Never cross principals. Raw source persistence off by default.
+render versions, and all deterministic source/prompt/output/candidate/depth/
+reasoning bounds. Never cross principals. Raw source persistence off by default.
 Purge/rebuild must lose no authoritative information.
 
 Working-set order: P0 root; acquired P1; missing P1 acquisition list; relevant
@@ -143,12 +145,15 @@ Canonical paths:
 REPO=/synology/homes/janezp/codex-work/slaif-local-coding
 STRATEGIC=/synology/homes/janezp/codex-supervision/slaif-local-coding
 QWEN=/synology/homes/janezp/qwen-serving
-UPSTREAM=http://10.8.132.76:18020/v1
+UPSTREAM=http://127.0.0.1:18020/v1
 DEV_ADAPTER=127.0.0.1:18031
 ```
 
-Verify live facts first; historical docs are evidence only. No pre-existing image
-proxy or port-18021 service is assumed. Development/candidate service MUST use
+Verify live facts first; historical docs are evidence only. The canonical value
+above is the preferred same-host upstream on `hinton1`; `http://10.8.132.75`
+is the optional LAN alternative, while `http://10.8.132.76` is historical
+provenance. No pre-existing image proxy or port-18021 service is assumed.
+Development/candidate service MUST use
 18031 unless a work order explicitly selects another free port. Without explicit
 active service-mutation order NEVER stop/change `qwen-serving`, model/checkpoint/
 patches, API-key files, systemd units, VPN/firewall/network binding, port 18020,

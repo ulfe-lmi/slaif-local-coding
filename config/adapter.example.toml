@@ -7,7 +7,7 @@ request_body_max_bytes = 67108864
 json_max_nesting_depth = 128
 
 [upstream]
-base_url = "http://10.8.132.76:18020/v1"
+base_url = "http://127.0.0.1:18020/v1"
 api_key_env = "QWEN3090_API_KEY"
 model = "qwen3.8-27b"
 connect_timeout_seconds = 10
@@ -16,24 +16,36 @@ write_timeout_seconds = 30
 pool_timeout_seconds = 10
 
 [compiler]
-# Objective 000 keeps this disabled; later OAP objectives implement it.
+# Objective 002 provides the library implementation only; request integration
+# remains disabled until a separately ordered slice.
 enabled = false
 # Compiler calls go directly to upstream and never traverse the adapter again.
+schema_version = "constitution-index-v1"
+prompt_policy_version = "constitutional-rank-v1"
 reasoning_effort = "low"
+timeout_seconds = 120
+max_attempts = 2
 max_output_tokens = 3000
 max_parallel_calls = 1
-schema_version = "constitution-v1"
+max_source_bytes = 262144
+max_candidates = 128
+max_json_depth = 24
 
 [cache]
 backend = "filesystem"
+# The first run creates this private directory when /dev/shm permits it.
 root = "/dev/shm/slaif-local-coding"
-fallback_root = "~/.cache/slaif-local-coding"
+# Omit this setting to use the protected XDG user-cache default. An explicit
+# value must be an absolute path outside shared world-writable storage.
 max_total_bytes = 67108864
 max_entry_bytes = 65536
+max_pinned_bytes = 8388608
+max_entries = 4096
 ttl_seconds = 604800
+max_scan_entries = 4096
 
 [constitution]
-# Objective 000 keeps this disabled; later OAP objectives implement it.
+# Objective 002 keeps injection/acquisition/rehydration disabled.
 enabled = false
 max_injected_bytes = 16384
 candidate_max_count = 128
