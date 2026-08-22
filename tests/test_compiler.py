@@ -300,6 +300,7 @@ async def test_invalid_model_output_fails_closed_without_cache_write(
         max_pinned_bytes=100_000,
         max_entries=10,
         ttl_seconds=60,
+        max_scan_entries=32,
     )
     cache = DerivedIndexCache(policy)
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
@@ -318,7 +319,13 @@ async def test_invalid_model_output_fails_closed_without_cache_write(
         index_schema_version="constitution-index-v1",
         compiler_version="compiler-v1",
         prompt_policy_version="constitutional-rank-v1",
+        reasoning_effort="low",
+        max_source_bytes=262_144,
+        max_prompt_bytes=384_000,
         max_output_tokens=3000,
+        max_output_bytes=256_000,
+        max_candidates=128,
+        max_json_depth=24,
     )
     assert cache.get(key).index is None
 
@@ -425,6 +432,7 @@ async def test_absent_reliable_identity_disables_persistent_reuse(
         max_entry_bytes=100_000,
         max_pinned_bytes=100_000,
         max_entries=10,
+        max_scan_entries=32,
         ttl_seconds=60,
     )
     cache = DerivedIndexCache(policy)

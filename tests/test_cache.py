@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ def policy(root: Path, **changes: Any) -> CachePolicy:
         "max_pinned_bytes": 1_000_000,
         "max_entries": 16,
         "ttl_seconds": 60,
+        "max_scan_entries": 64,
     }
     values.update(changes)
     return CachePolicy(**values)
@@ -44,8 +46,28 @@ def key_for(
         index_schema_version=cache_index.schema_version,
         compiler_version=cache_index.compiler_version,
         prompt_policy_version=cache_index.prompt_policy_version,
+        reasoning_effort="low",
+        max_source_bytes=262_144,
+        max_prompt_bytes=384_000,
         max_output_tokens=3000,
+        max_output_bytes=256_000,
+        max_candidates=128,
+        max_json_depth=24,
     )
+
+
+def bounds(**changes: Any) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        "reasoning_effort": "low",
+        "max_source_bytes": 262_144,
+        "max_prompt_bytes": 384_000,
+        "max_output_tokens": 3000,
+        "max_output_bytes": 256_000,
+        "max_candidates": 128,
+        "max_json_depth": 24,
+    }
+    values.update(changes)
+    return values
 
 
 def write_cache(root: Path, **policy_changes: Any) -> DerivedIndexCache:
@@ -90,7 +112,7 @@ def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Pat
                 index_schema_version="i",
                 compiler_version="c",
                 prompt_policy_version="p",
-                max_output_tokens=1,
+                **bounds(max_output_tokens=1),
             ),
             cache_key(
                 identity(),
@@ -100,7 +122,7 @@ def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Pat
                 index_schema_version="constitution-index-v1",
                 compiler_version="compiler-v1",
                 prompt_policy_version="constitutional-rank-v1",
-                max_output_tokens=3000,
+                **bounds(),
             ),
             cache_key(
                 identity(),
@@ -110,7 +132,7 @@ def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Pat
                 index_schema_version="other",
                 compiler_version="compiler-v1",
                 prompt_policy_version="constitutional-rank-v1",
-                max_output_tokens=3000,
+                **bounds(),
             ),
             cache_key(
                 identity(),
@@ -120,7 +142,7 @@ def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Pat
                 index_schema_version="constitution-index-v1",
                 compiler_version="other",
                 prompt_policy_version="constitutional-rank-v1",
-                max_output_tokens=3000,
+                **bounds(),
             ),
             cache_key(
                 identity(),
@@ -130,7 +152,7 @@ def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Pat
                 index_schema_version="constitution-index-v1",
                 compiler_version="compiler-v1",
                 prompt_policy_version="other",
-                max_output_tokens=3000,
+                **bounds(),
             ),
             cache_key(
                 identity(),
@@ -140,7 +162,7 @@ def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Pat
                 index_schema_version="constitution-index-v1",
                 compiler_version="compiler-v1",
                 prompt_policy_version="constitutional-rank-v1",
-                max_output_tokens=2999,
+                **bounds(max_output_tokens=2999),
             ),
         ]
     )
@@ -154,7 +176,7 @@ def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Pat
             index_schema_version="i",
             compiler_version="c",
             prompt_policy_version="p",
-            max_output_tokens=1,
+            **bounds(max_output_tokens=1),
         )
 
 
@@ -261,7 +283,7 @@ def test_per_entry_total_lru_and_pinned_budgets(tmp_path: Path) -> None:
         index_schema_version=replacement.schema_version,
         compiler_version=replacement.compiler_version,
         prompt_policy_version=replacement.prompt_policy_version,
-        max_output_tokens=3000,
+        **bounds(),
     )
     assert pinned_cache.put(replacement_key, replacement).outcome == "written"
     assert pinned_cache.get(key_for(small)).outcome == "miss"
@@ -277,6 +299,148 @@ def test_primary_unavailable_uses_explicitly_degraded_fallback(tmp_path: Path) -
     assert cache.put(key, index()).outcome == "written"
     assert cache.get(key).outcome == "hit"
     assert any(fallback.rglob("*.json"))
+
+
+def test_symlinked_primary_is_rejected_and_protected_fallback_is_used(tmp_path: Path) -> None:
+    hostile_target = tmp_path / "hostile-target"
+    hostile_target.mkdir(mode=0o700)
+    primary = tmp_path / "primary"
+    primary.symlink_to(hostile_target, target_is_directory=True)
+    fallback = tmp_path / "protected-fallback"
+    cache = DerivedIndexCache(policy(primary, fallback_root=fallback))
+    assert cache.available and cache.degraded
+    assert cache.put(key_for(index()), index()).outcome == "written"
+    assert not any(hostile_target.iterdir())
+    assert any(fallback.rglob("*.json"))
+
+
+def test_foreign_owned_primary_is_rejected_without_adopting_untrusted_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    foreign_uid = os.geteuid() + 1
+    primary = tmp_path / "primary"
+    primary.mkdir(mode=0o700)
+    untrusted_fallback = tmp_path / "untrusted-fallback"
+    untrusted_fallback.mkdir(mode=0o755)
+    monkeypatch.setattr("slaif_local_coding.constitution.cache.os.geteuid", lambda: foreign_uid)
+    cache = DerivedIndexCache(policy(primary, fallback_root=untrusted_fallback))
+    assert not cache.available
+    assert cache.detail == "primary and fallback cache unavailable"
+
+
+def test_untrusted_shard_and_entry_types_modes_and_owners_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    foreign_uid = os.geteuid() + 1
+    type_root = tmp_path / "type"
+    type_root.mkdir(mode=0o700)
+    (type_root / "ab").write_text("not a shard")
+    assert not DerivedIndexCache(policy(type_root)).available
+
+    mode_root = tmp_path / "mode"
+    mode_root.mkdir(mode=0o700)
+    shard = mode_root / "ab"
+    shard.mkdir(mode=0o700)
+    shard.chmod(0o755)
+    assert not DerivedIndexCache(policy(mode_root)).available
+
+    owner_root = tmp_path / "owner"
+    owner_root.mkdir(mode=0o700)
+    (owner_root / "ab").mkdir(mode=0o700)
+    with monkeypatch.context() as context:
+        context.setattr("slaif_local_coding.constitution.cache.os.geteuid", lambda: foreign_uid)
+        assert not DerivedIndexCache(policy(owner_root)).available
+
+    entry_root = tmp_path / "entry"
+    first = write_cache(entry_root)
+    path = next(entry_root.rglob("*.json"))
+    path.chmod(0o644)
+    restarted = DerivedIndexCache(policy(entry_root))
+    assert restarted.available
+    assert not path.exists()
+    assert restarted.get(key_for(index())).outcome == "miss"
+    assert first.get(key_for(index())).outcome == "permission"
+
+
+def test_untrusted_fallback_is_never_adopted(tmp_path: Path) -> None:
+    primary = tmp_path / "missing-parent" / "primary"
+    fallback = tmp_path / "fallback"
+    fallback.mkdir(mode=0o755)
+    cache = DerivedIndexCache(policy(primary, fallback_root=fallback))
+    assert not cache.available
+    assert cache.detail == "primary and fallback cache unavailable"
+
+
+def test_restart_removes_expired_corrupt_and_invalid_artifacts(tmp_path: Path) -> None:
+    valid_root = tmp_path / "valid"
+    write_cache(valid_root)
+    restarted = DerivedIndexCache(policy(valid_root))
+    assert restarted.available and restarted.get(key_for(index())).outcome == "hit"
+
+    expired_root = tmp_path / "expired"
+    write_cache(expired_root, ttl_seconds=0.01)
+    time.sleep(0.02)
+    restarted = DerivedIndexCache(policy(expired_root, ttl_seconds=0.01))
+    assert restarted.available
+    assert not list(expired_root.rglob("*.json"))
+
+    corrupt_root = tmp_path / "corrupt"
+    write_cache(corrupt_root)
+    next(corrupt_root.rglob("*.json")).write_text("{truncated")
+    restarted = DerivedIndexCache(policy(corrupt_root))
+    assert restarted.available
+    assert not list(corrupt_root.rglob("*.json"))
+
+    invalid_root = tmp_path / "invalid"
+    write_cache(invalid_root)
+    shard = invalid_root / key_for(index())[:2]
+    (shard / "not-a-key.json").write_text("{}")
+    (shard / ".tmp-orphan.json").write_text("{}")
+    restarted = DerivedIndexCache(policy(invalid_root))
+    assert restarted.available
+    assert restarted.get(key_for(index())).outcome == "hit"
+    assert [path.name for path in shard.iterdir()] == [key_for(index()) + ".json"]
+
+
+def test_scan_overload_marks_entire_cache_unavailable(tmp_path: Path) -> None:
+    root = tmp_path / "overload"
+    root.mkdir(mode=0o700)
+    shard = root / "ab"
+    shard.mkdir(mode=0o700)
+    for index_number in range(2):
+        path = shard / f"{index_number:064x}.json"
+        path.write_text("{}")
+    cache = DerivedIndexCache(policy(root, max_scan_entries=2))
+    assert not cache.available
+    assert cache.detail == "cache startup scan limit exceeded"
+    assert cache.get(key_for(index())).outcome == "unavailable"
+
+
+def test_every_output_affecting_bound_changes_persistent_identity() -> None:
+    base = key_for(index())
+    changed_bounds = [
+        ("reasoning_effort", "high"),
+        ("max_source_bytes", 262_143),
+        ("max_prompt_bytes", 383_999),
+        ("max_output_tokens", 2999),
+        ("max_output_bytes", 255_999),
+        ("max_candidates", 127),
+        ("max_json_depth", 23),
+    ]
+    changed_keys = [
+        cache_key(
+            identity(),
+            source_logical_path=index().source_logical_path,
+            source_sha256=index().source_sha256,
+            model=index().model,
+            index_schema_version=index().schema_version,
+            compiler_version=index().compiler_version,
+            prompt_policy_version=index().prompt_policy_version,
+            **bounds(**{field: value}),
+        )
+        for field, value in changed_bounds
+    ]
+    assert len({base, *changed_keys}) == len(changed_keys) + 1
 
 
 def test_no_raw_source_or_prompt_persistence_and_purge_supports_reconstruction(
@@ -302,7 +466,7 @@ def test_no_raw_source_or_prompt_persistence_and_purge_supports_reconstruction(
         index_schema_version=governed_index.schema_version,
         compiler_version=governed_index.compiler_version,
         prompt_policy_version=governed_index.prompt_policy_version,
-        max_output_tokens=3000,
+        **bounds(),
     )
     assert cache.put(key, governed_index).outcome == "written"
     rogue_temp = tmp_path / "privacy" / "ab" / ".tmp-orphan.json"

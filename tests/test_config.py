@@ -1,10 +1,13 @@
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from slaif_local_coding.config import (
+    CacheConfig,
+    CompilerConfig,
     ObservationPolicy,
     RouteConfig,
     ServerConfig,
@@ -127,3 +130,53 @@ def test_current_endpoint_migration_and_historical_provenance() -> None:
     # This value is intentionally retained in the immutable reference prototype.
     reference = Path("references/qwen38_vision_image_cap_proxy.py").read_text()
     assert "10.8.132.76" in reference
+
+
+def test_current_host_capability_is_text_only_with_historical_vision_provenance() -> None:
+    live_document = Path("docs/LIVE-TEST-ENVIRONMENT.md").read_text()
+    architecture = Path("ARCHITECTURE.md").read_text()
+    readme = Path("README.md").read_text()
+    assert "Verified image capacity: zero images per request" in live_document
+    assert "text-only" in live_document.lower()
+    assert "language-model-only" in live_document
+    assert "accepts zero images" in architecture
+    assert "not live-vision" in readme
+    assert "readiness" in readme
+    assert "prior vision deployment" in live_document
+    assert "historical provenance" in live_document
+
+
+def test_cache_and_compiler_bounds_have_safe_defaults_and_finite_ranges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg-cache"))
+    cache = CacheConfig()
+    compiler = CompilerConfig()
+    assert cache.fallback_root == tmp_path / "xdg-cache" / "slaif-local-coding"
+    assert cache.fallback_root != Path("/tmp/slaif-local-coding-cache")
+    assert cache.fallback_root.is_relative_to(tmp_path / "xdg-cache")
+    assert cache.max_scan_entries == 4096
+    assert compiler.max_source_bytes == 262_144
+    assert compiler.max_candidates == 128
+    assert compiler.max_json_depth == 24
+
+    invalid_cache_calls: list[Callable[[], CacheConfig]] = [
+        lambda: CacheConfig(max_scan_entries=0),
+        lambda: CacheConfig(max_scan_entries=1_000_001),
+        lambda: CacheConfig(max_entry_bytes=0),
+        lambda: CacheConfig(max_total_bytes=1023),
+    ]
+    for invalid_call in invalid_cache_calls:
+        with pytest.raises(ValidationError):
+            invalid_call()
+
+    invalid_compiler_calls: list[Callable[[], CompilerConfig]] = [
+        lambda: CompilerConfig(max_source_bytes=0),
+        lambda: CompilerConfig(max_candidates=0),
+        lambda: CompilerConfig(max_json_depth=0),
+        lambda: CompilerConfig(max_output_tokens=127),
+        lambda: CompilerConfig(timeout_seconds=0),
+    ]
+    for invalid_compiler_call in invalid_compiler_calls:
+        with pytest.raises(ValidationError):
+            invalid_compiler_call()

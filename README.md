@@ -56,6 +56,11 @@ applies an explicit per-model image policy; can observe evidenced effective
 changing the model-bound request; and provides a library-only constitutional
 compiler with a validated disposable cache.
 
+The currently verified `hinton1` fixture serves text only and declares zero-image
+capacity. Image-policy code is covered by fake-upstream tests and objective 000
+historical evidence from the prior vision deployment; it is not live-vision
+readiness.
+
 ## Request-only constitution observation
 
 Observation is independently enabled on each explicit route and runs after image
@@ -115,15 +120,18 @@ remain separate scores.
 
 The filesystem cache stores only validated indexes. Its logical key includes
 opaque principal, route, reliable session/repository discriminators, source path
-and SHA-256, model, schema/compiler/prompt-policy versions, and output-token
-bound. Missing session or repository identity disables persistent reuse rather
-than guessing an identity. Entries are mode 0600 under mode-0700 directories,
-integrity checked, TTL/LRU bounded, and isolated by every key dimension. P0/P1
-entries have a separate cap. Corruption, expiry, permission errors, unavailable
-storage, oversized output, invalid schemas, timeouts, cancellation, or dropped
-candidates fail closed to a typed miss/failure; no valid result is cached. The
-cache is disposable and never persists raw source, prompts, images, tool output,
-bodies, credentials, or customer content.
+and SHA-256, model, schema/compiler/prompt-policy versions, reasoning effort,
+and source/prompt/output/candidate/nesting bounds. Missing session or repository
+identity disables persistent reuse rather than guessing an identity. Startup
+accepts only real current-user directories and files (directories mode 0700,
+files mode 0600), within a finite scan bound; expired/corrupt derived artifacts
+are removed, while excessive unknown state makes the disposable cache
+unavailable. Integrity checked, TTL/LRU bounded entries are isolated by every
+key dimension. P0/P1 entries have a separate cap. Corruption, expiry, permission
+errors, unavailable storage, oversized output, invalid schemas, timeouts,
+cancellation, or dropped candidates fail closed to a typed miss/failure; no
+valid result is cached. The cache is disposable and never persists raw source,
+prompts, images, tool output, bodies, credentials, or customer content.
 
 Objective 002 does not inject context into requests, acquire files, rehydrate
 history, expose compiler/cache endpoints, support signed multi-user production
@@ -155,8 +163,8 @@ before decoding and rejected with sanitized HTTP 400 code
 depth 129 is rejected by the example configuration without an upstream call.
 
 Configuration is strict. Each supported model/endpoint must match exactly one
-route with `retain_newest`, `reject`, or `passthrough`. The Qwen vision example
-retains the newest supported image content item when more than one occurs.
+route with `retain_newest`, `reject`, or `passthrough`. The designated Qwen Codex
+route retains the newest supported image content item when more than one occurs.
 This supports a full-image followed by crop history, but deliberately does not
 preserve the semantics of explicit multi-image comparison.
 

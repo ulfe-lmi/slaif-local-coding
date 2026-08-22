@@ -92,6 +92,9 @@ class CompilerConfig(BaseModel):
     max_output_tokens: int = Field(default=3000, ge=128, le=16000)
     max_output_bytes: int = Field(default=256000, ge=1024, le=4194304)
     max_prompt_bytes: int = Field(default=384000, ge=1024, le=4194304)
+    max_source_bytes: int = Field(default=262_144, ge=1, le=4_194_304)
+    max_candidates: int = Field(default=128, ge=1, le=4096)
+    max_json_depth: int = Field(default=24, ge=1, le=128)
 
 
 class CacheConfig(BaseModel):
@@ -100,12 +103,17 @@ class CacheConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     backend: Literal["filesystem"] = "filesystem"
     root: Path = Path("/dev/shm/slaif-local-coding")
-    fallback_root: Path | None = None
+    fallback_root: Path | None = Field(
+        default_factory=lambda: (
+            Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "slaif-local-coding"
+        )
+    )
     max_total_bytes: int = Field(default=67_108_864, ge=1024)
     max_entry_bytes: int = Field(default=65_536, ge=256)
     max_pinned_bytes: int = Field(default=8_388_608, ge=256)
     max_entries: int = Field(default=4096, ge=1)
     ttl_seconds: float = Field(default=604800, gt=0)
+    max_scan_entries: int = Field(default=4096, ge=1, le=1_000_000)
 
     @model_validator(mode="after")
     def bounded(self) -> CacheConfig:

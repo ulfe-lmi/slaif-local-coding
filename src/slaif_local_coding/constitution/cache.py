@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
 import tempfile
 import threading
 import time
@@ -24,7 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .compiler_models import CompiledIndex, ConstitutionalClass
 
-CACHE_SCHEMA_VERSION = "derived-cache-v1"
+CACHE_SCHEMA_VERSION = "derived-cache-v2"
 _KEY_FILENAME_LENGTH = 64
 
 
@@ -47,6 +48,7 @@ class CachePolicy:
     max_pinned_bytes: int
     max_entries: int
     ttl_seconds: float
+    max_scan_entries: int
 
     @property
     def valid(self) -> bool:
@@ -57,6 +59,7 @@ class CachePolicy:
             and self.max_pinned_bytes <= self.max_total_bytes
             and self.max_entries > 0
             and self.ttl_seconds > 0
+            and self.max_scan_entries > 0
         )
 
 
@@ -102,7 +105,13 @@ def cache_key(
     index_schema_version: str,
     compiler_version: str,
     prompt_policy_version: str,
+    reasoning_effort: str,
+    max_source_bytes: int,
+    max_prompt_bytes: int,
     max_output_tokens: int,
+    max_output_bytes: int,
+    max_candidates: int,
+    max_json_depth: int,
 ) -> str:
     """Build a collision-resistant logical key with every isolation dimension."""
     if not identity.session or not identity.repository:
@@ -111,10 +120,16 @@ def cache_key(
         "cache_schema_version": CACHE_SCHEMA_VERSION,
         "compiler_version": compiler_version,
         "index_schema_version": index_schema_version,
+        "max_candidates": max_candidates,
+        "max_json_depth": max_json_depth,
+        "max_output_bytes": max_output_bytes,
         "max_output_tokens": max_output_tokens,
+        "max_prompt_bytes": max_prompt_bytes,
+        "max_source_bytes": max_source_bytes,
         "model": model,
         "principal": identity.principal,
         "prompt_policy_version": prompt_policy_version,
+        "reasoning_effort": reasoning_effort,
         "repository": identity.repository,
         "route": identity.route,
         "session": identity.session,
@@ -131,19 +146,34 @@ def _entry_time(envelope: dict[str, object]) -> float:
     return float(value)
 
 
-def _mode_ok(path: Path, *, directory: bool) -> bool:
+def _trusted_path(path: Path, *, directory: bool) -> bool:
+    """Check type, owner, and mode without following a final symlink."""
     try:
-        return (path.stat().st_mode & 0o777) == (0o700 if directory else 0o600)
+        info = path.lstat()
     except OSError:
         return False
+    expected_type = stat.S_IFDIR if directory else stat.S_IFREG
+    expected_mode = 0o700 if directory else 0o600
+    return (
+        stat.S_IFMT(info.st_mode) == expected_type
+        and info.st_uid == os.geteuid()
+        and info.st_mode & 0o777 == expected_mode
+    )
 
 
 def _safe_prepare(path: Path) -> None:
-    path.mkdir(mode=0o700, parents=False, exist_ok=True)
-    if not path.is_dir() or not _mode_ok(path, directory=True):
-        raise CacheUnavailableError("cache root is not a private directory")
-    # Parent traversal is not needed after direct creation; parents=False prevents
-    # accidentally converting an unrelated tree into a cache root.
+    """Create or adopt only a real, current-user, private directory."""
+    try:
+        if (path.exists() or path.is_symlink()) and not _trusted_path(path, directory=True):
+            raise CacheUnavailableError("cache root already exists and is not trusted")
+        path.mkdir(mode=0o700, parents=False, exist_ok=True)
+        os.chmod(path, 0o700)
+    except CacheUnavailableError:
+        raise
+    except OSError as exc:
+        raise CacheUnavailableError("cache root could not be prepared") from exc
+    if not _trusted_path(path, directory=True):
+        raise CacheUnavailableError("cache root is not a current-user private directory")
 
 
 class DerivedIndexCache:
@@ -241,9 +271,11 @@ class DerivedIndexCache:
         self._root = root
         self._available = True
         try:
-            self._load_existing()
+            failure_reason = self._load_existing()
         except OSError:
-            self._set_unavailable("cache inventory is unavailable")
+            failure_reason = "cache inventory is unavailable"
+        if failure_reason is not None:
+            self._set_unavailable(failure_reason)
 
     def _set_unavailable(self, detail: str) -> None:
         self._available = False
@@ -258,31 +290,70 @@ class DerivedIndexCache:
         assert self._root is not None
         return self._root / key[:2] / f"{key}.json"
 
-    def _load_existing(self) -> None:
+    def _load_existing(self) -> str | None:
+        """Reconcile a bounded number of restart artifacts; return a fatal reason."""
         assert self._root is not None
-        candidates: list[tuple[float, Path, int]] = []
-        for path in self._root.rglob("*.json"):
-            try:
-                stat = path.stat()
-            except OSError:
+        root = self._root
+        pending = [root]
+        scanned = 0
+        discovered: list[tuple[float, Path, int]] = []
+        while pending:
+            scanned += 1
+            if scanned > self.policy.max_scan_entries:
+                return "cache startup scan limit exceeded"
+            current = pending.pop()
+            info = current.lstat()
+            if current != root and current.is_symlink():
+                current.unlink(missing_ok=True)
+                self.corruption.inc()
                 continue
-            candidates.append((stat.st_mtime_ns, path, stat.st_size))
-        candidates.sort(reverse=True)
-        for _, path, size in candidates[: self.policy.max_entries]:
-            key = path.stem
+            if current != root and current.parent == root and not stat.S_ISDIR(info.st_mode):
+                return "cache contains an unrecognized object"
+            if stat.S_IFMT(info.st_mode) == stat.S_IFDIR:
+                if not _trusted_path(current, directory=True):
+                    return "cache contains an untrusted directory"
+                pending.extend(current.iterdir())
+                continue
+            if not stat.S_IFMT(info.st_mode) == stat.S_IFREG:
+                return "cache contains an unrecognized object"
+            if not _trusted_path(current, directory=False):
+                if current.suffix == ".json" or current.name.startswith(".tmp-"):
+                    current.unlink(missing_ok=True)
+                    self.permission_failures.inc()
+                continue
+            if current.name.startswith(".tmp-"):
+                current.unlink(missing_ok=True)
+                self.corruption.inc()
+                continue
+            if current.suffix != ".json":
+                continue
+            size = info.st_size
+            key = current.stem
             if (
                 len(key) != _KEY_FILENAME_LENGTH
-                or path.parent.name != key[:2]
-                or not all(character in "0123456789abcdef" for character in key)
+                or current.parent.name != key[:2]
+                or any(character not in "0123456789abcdef" for character in key)
             ):
+                current.unlink(missing_ok=True)
+                self.corruption.inc()
                 continue
-            metadata = self._inspect(path, key, size)
-            if metadata is not None:
-                self._insert_metadata(metadata)
+            if self._inspect(current, key, size) is not None:
+                discovered.append((info.st_mtime_ns, current, size))
+            else:
+                current.unlink(missing_ok=True)
+        discovered.sort(reverse=True)
+        for _, path, _size in discovered[: self.policy.max_entries]:
+            key = path.stem
+            metadata = self._inspect(path, key, path.stat().st_size)
+            assert metadata is not None
+            self._insert_metadata(metadata)
+        for _, path, _size in discovered[self.policy.max_entries :]:
+            path.unlink(missing_ok=True)
         self._enforce_limits()
+        return None
 
     def _inspect(self, path: Path, key: str, size: int) -> _EntryMetadata | None:
-        if size > self.policy.max_entry_bytes or not _mode_ok(path, directory=False):
+        if size > self.policy.max_entry_bytes or not _trusted_path(path, directory=False):
             return None
         try:
             envelope = json.loads(path.read_text(encoding="utf-8"))
@@ -290,8 +361,8 @@ class DerivedIndexCache:
                 return None
             payload = envelope.get("payload")
             index = CompiledIndex.model_validate(payload)
-            created = float(envelope.get("created_at", 0))
-            if created <= 0 or time.time() - created > self.policy.ttl_seconds:
+            created = _entry_time(envelope)
+            if time.time() - created > self.policy.ttl_seconds:
                 return None
             return _EntryMetadata(
                 path=path,
@@ -364,16 +435,24 @@ class DerivedIndexCache:
             self.misses.labels("miss").inc()
             return CacheReadResult(None, "miss")
         with self._lock:
+            if not _trusted_path(self._root, directory=True):
+                self._set_unavailable("cache root became untrusted")
+                self.misses.labels("unavailable").inc()
+                return CacheReadResult(None, "unavailable", self._detail)
             metadata = self._entries.get(key)
             if metadata is None:
                 self.misses.labels("miss").inc()
                 return CacheReadResult(None, "miss")
+            if not _trusted_path(metadata.path.parent, directory=True):
+                self._set_unavailable("cache shard became untrusted")
+                self.misses.labels("unavailable").inc()
+                return CacheReadResult(None, "unavailable", self._detail)
+            if not _trusted_path(metadata.path, directory=False):
+                self.permission_failures.inc()
+                self._remove(key)
+                self._refresh_occupancy()
+                return CacheReadResult(None, "permission", "entry is not a trusted private file")
             try:
-                if not _mode_ok(metadata.path, directory=False):
-                    self.permission_failures.inc()
-                    self._remove(key)
-                    self._refresh_occupancy()
-                    return CacheReadResult(None, "permission", "entry is not mode 0600")
                 if time.time() - metadata.created_at > self.policy.ttl_seconds:
                     self._remove(key, expired=True)
                     self._refresh_occupancy()
@@ -498,9 +577,14 @@ class DerivedIndexCache:
         temporary: int | None = None
         temporary_path: Path | None = None
         try:
-            destination.parent.mkdir(mode=0o700, parents=False, exist_ok=True)
-            if not _mode_ok(destination.parent, directory=True):
-                raise OSError("cache shard is not private")
+            try:
+                destination.parent.mkdir(mode=0o700, parents=False, exist_ok=False)
+                os.chmod(destination.parent, 0o700)
+            except FileExistsError:
+                if not _trusted_path(destination.parent, directory=True):
+                    raise OSError("cache shard is not a current-user private directory") from None
+            if not _trusted_path(destination.parent, directory=True):
+                raise OSError("cache shard is not a current-user private directory")
             file_descriptor, temporary_file = tempfile.mkstemp(
                 prefix=".tmp-", suffix=".json", dir=destination.parent
             )
@@ -513,7 +597,11 @@ class DerivedIndexCache:
                 stream.flush()
                 os.fsync(stream.fileno())
             assert temporary_path is not None
+            if not _trusted_path(temporary_path, directory=False):
+                raise OSError("temporary cache file is untrusted")
             os.replace(temporary_path, destination)
+            if not _trusted_path(destination, directory=False):
+                raise OSError("cache entry is not trusted after atomic replace")
             try:
                 directory_fd = os.open(destination.parent, os.O_RDONLY | os.O_DIRECTORY)
                 try:
@@ -553,7 +641,12 @@ class DerivedIndexCache:
         with self._lock:
             assert self._root is not None
             for path in tuple(self._root.rglob("*")):
-                if not path.is_file():
+                try:
+                    info = path.lstat()
+                except OSError:
+                    self.corruption.inc()
+                    continue
+                if stat.S_IFMT(info.st_mode) != stat.S_IFREG:
                     continue
                 if path.suffix != ".json" and not path.name.startswith(".tmp-"):
                     continue
@@ -563,7 +656,12 @@ class DerivedIndexCache:
                 except OSError:
                     self.corruption.inc()
             for directory in tuple(self._root.rglob("*")):
-                if not directory.is_dir():
+                try:
+                    info = directory.lstat()
+                except OSError:
+                    self.corruption.inc()
+                    continue
+                if stat.S_IFMT(info.st_mode) != stat.S_IFDIR:
                     continue
                 try:
                     directory.rmdir()

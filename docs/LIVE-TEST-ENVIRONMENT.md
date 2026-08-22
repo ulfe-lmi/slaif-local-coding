@@ -20,6 +20,8 @@ Preferred same-host upstream: http://127.0.0.1:18020/v1
 Optional LAN upstream on hinton1: http://10.8.132.75:18020/v1
 Historical upstream (not operational): http://10.8.132.76:18020/v1
 Model ID: qwen3.8-27b
+Verified launch class (2026-08-22): language-model-only
+Verified image capacity: zero images per request
 Authentication env: QWEN3090_API_KEY
 vLLM: 0.27.1 in the recorded installation
 Context: 150000 physical; Codex compaction configured around 125000
@@ -35,10 +37,13 @@ the LAN value is a documented alternative for clients on that network. The
 historical `.76` address remains only in merged provenance/reference material
 and must not be silently rewritten there.
 
-The model is reported as running in vision mode. The exact current launch
-command, multimodal flags, model catalog, service state, API shape, image limit,
-and port ownership must be captured afresh before coding or release claims. Old
-text-mode logs are evidence of prior behavior only.
+The currently verified service is text-only and declares capacity for zero
+images. Do not describe it as a live vision service. Objective 000 previously
+passed one- and two-image policy tests against the prior vision deployment;
+that evidence remains historical provenance only. Objective 002's current live
+image assertion is skipped because of the verified zero-image capability. Any
+launch command, multimodal flag, catalog, service state, API shape, or port
+ownership claim still requires fresh read-only reconnaissance.
 
 ## Current compatibility path
 
@@ -57,7 +62,7 @@ OAP control path:
   coding Codex    -> default Codex provider
 
 live system under test:
-  Qwen/vLLM vision service -> hinton1 loopback :18020 (verify live)
+  Qwen/vLLM text-only service -> hinton1 loopback :18020 (verify live)
 
 new adapter test path:
   curl/tests -> 127.0.0.1:18031 -> live Qwen/vLLM

@@ -233,6 +233,7 @@ async def test_live_constitution_compiler_and_cache(tmp_path: Any) -> None:
         max_pinned_bytes=256 * 1024,
         max_entries=16,
         ttl_seconds=300,
+        max_scan_entries=64,
     )
     metrics_registry = CollectorRegistry()
     async with ConstitutionalCompiler(

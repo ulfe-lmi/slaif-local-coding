@@ -11,15 +11,17 @@ SLAIF Local Coding is a private model-compatibility and context-virtualization
 layer for running useful “mini ChatGPT” and “mini Codex” services on constrained
 local hardware.
 
-The immediate reference system is Qwen3.8-27B served by vLLM on a single RTX
-3090. It already provides a long context window, OpenAI-compatible Responses
-traffic, ordinary function tools, streaming, and vision. Two limitations remain
-material in real Codex use:
+The immediate reference deployment family is Qwen3.8-27B served by vLLM on a
+single RTX 3090. The prior vision deployment provided a long context window,
+OpenAI-compatible Responses traffic, ordinary function tools, streaming, and
+one-image vision. As verified on 2026-08-22, the current protected `hinton1`
+service is language-model-only and accepts zero images. Two limitations remain
+material for the intended real Codex use:
 
 1. Codex compacts long conversations. After compaction, a smaller local model can
    temporarily lose project/governance orientation and spend substantial context
    reconstructing it.
-2. The vision configuration can process at most one image in a request. Codex
+2. The prior vision configuration processed at most one image in a request. Codex
    retains prior “Viewed Image” entries in live conversation history and sends
    an old image again when it later sends a crop, causing the upstream model
    server to receive two images.
@@ -31,8 +33,10 @@ conversation according to the selected route's capabilities.
 For governance, it recognizes effective `AGENTS.md` content, finds explicitly
 referenced files, asks the model in a separate internal call to compile and rank
 constitutional material, caches bounded derived indexes, and reinjects the
-result into later requests. For vision, it enforces the physical route limit and
-retains only the newest image for the designated Codex workflow.
+result into later requests. For an explicitly configured one-image route, it
+enforces the physical limit and retains only the newest image for the designated
+Codex workflow. Current-host image behavior remains unavailable unless the
+protected fixture is separately changed through an explicitly ordered cutover.
 
 The client remains ordinary Codex or another OpenAI-compatible application. The
 client does not install or manage pseudo-context software. The SLAIF API Gateway
@@ -72,7 +76,8 @@ An SME should be able to deploy a private coding/chat service with:
 - local model inference on affordable hardware;
 - ordinary Codex file/shell/Git tools executed on the developer workstation;
 - long repository governance that remains operational after context compaction;
-- working image inspection despite a one-image physical model limit;
+- working image inspection when an explicitly configured route has a one-image
+  physical model limit;
 - explicit quotas/accounting through SLAIF API Gateway;
 - no silent dependency on a hosted AI control plane;
 - reproducible installation, verification, observability, and rollback.
@@ -1121,7 +1126,8 @@ certification.
 - Appropriate maximum source/injected sizes for latency and rule fidelity.
 - Whether the compiler should use the same Qwen route or a smaller dedicated
   local model in larger deployments.
-- Exact vision configuration and one-image failure envelope on the current host.
+- Current verified zero-image launch/capacity fact and any future vision-mode
+  configuration decision remain separate from the route-gated adapter design.
 - How compiler GPU overhead should be represented in gateway capacity/pricing.
 
 These are first-class test questions. The implementation must record evidence,

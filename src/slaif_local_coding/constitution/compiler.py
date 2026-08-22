@@ -26,6 +26,7 @@ from ..json_structure import JsonNestingTooDeep, enforce_json_nesting
 from .cache import CacheIdentity, DerivedIndexCache, cache_key
 from .compiler_models import (
     COMPILER_VERSION,
+    INDEX_SCHEMA_VERSION,
     PROMPT_POLICY_VERSION,
     CompilationFailure,
     CompiledIndex,
@@ -321,9 +322,14 @@ class ConstitutionalCompiler:
             "logical_path": logical_path,
             "settings": {
                 "max_candidates": self.settings.max_candidates,
+                "max_json_depth": self.settings.max_json_depth,
+                "max_output_bytes": self.settings.max_output_bytes,
+                "max_prompt_bytes": self.settings.max_prompt_bytes,
+                "max_source_bytes": self.settings.max_source_bytes,
                 "max_output_tokens": self.settings.max_output_tokens,
                 "model": self.settings.model,
                 "prompt_policy_version": PROMPT_POLICY_VERSION,
+                "reasoning_effort": self.settings.reasoning_effort,
                 "source_hash": source_hash,
             },
         }
@@ -426,10 +432,16 @@ class ConstitutionalCompiler:
                     source_logical_path=logical_path,
                     source_sha256=source_hash,
                     model=self.settings.model,
-                    index_schema_version="constitution-index-v1",
+                    index_schema_version=INDEX_SCHEMA_VERSION,
                     compiler_version=COMPILER_VERSION,
                     prompt_policy_version=PROMPT_POLICY_VERSION,
+                    max_source_bytes=self.settings.max_source_bytes,
+                    max_prompt_bytes=self.settings.max_prompt_bytes,
                     max_output_tokens=self.settings.max_output_tokens,
+                    max_output_bytes=self.settings.max_output_bytes,
+                    max_candidates=self.settings.max_candidates,
+                    max_json_depth=self.settings.max_json_depth,
+                    reasoning_effort=self.settings.reasoning_effort,
                 )
                 read = self.cache.get(persistent_key)
                 if read.index is not None:

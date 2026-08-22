@@ -27,18 +27,22 @@ timeout_seconds = 120
 max_attempts = 2
 max_output_tokens = 3000
 max_parallel_calls = 1
+max_source_bytes = 262144
+max_candidates = 128
+max_json_depth = 24
 
 [cache]
 backend = "filesystem"
 # The first run creates this private directory when /dev/shm permits it.
 root = "/dev/shm/slaif-local-coding"
-# Use an absolute path: configuration does not expand a shell ~ token.
-fallback_root = "/tmp/slaif-local-coding-cache"
+# Omit this setting to use the protected XDG user-cache default. An explicit
+# value must be an absolute path outside shared world-writable storage.
 max_total_bytes = 67108864
 max_entry_bytes = 65536
 max_pinned_bytes = 8388608
 max_entries = 4096
 ttl_seconds = 604800
+max_scan_entries = 4096
 
 [constitution]
 # Objective 002 keeps injection/acquisition/rehydration disabled.

@@ -109,10 +109,12 @@ L3 client repository/Git/GitHub authority
 ```
 
 Default protected cache `/dev/shm/slaif-local-coding`, fallback protected XDG
-cache; atomic files; dirs 0700/files 0600; content-addressed; hard total/per-entry
-bytes; TTL+LRU; separate bounded pinned P0/P1. Identity includes opaque principal,
+cache; atomic files; dirs 0700/files 0600; reject symlinks and foreign-owned
+paths; content-addressed; hard total/per-entry bytes; bounded startup scan;
+TTL+LRU; separate bounded pinned P0/P1. Identity includes opaque principal,
 session/repository discriminator, source hash, compiler/schema/model/policy/
-render versions. Never cross principals. Raw source persistence off by default.
+render versions, and all deterministic source/prompt/output/candidate/depth/
+reasoning bounds. Never cross principals. Raw source persistence off by default.
 Purge/rebuild must lose no authoritative information.
 
 Working-set order: P0 root; acquired P1; missing P1 acquisition list; relevant
