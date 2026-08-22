@@ -143,12 +143,15 @@ Canonical paths:
 REPO=/synology/homes/janezp/codex-work/slaif-local-coding
 STRATEGIC=/synology/homes/janezp/codex-supervision/slaif-local-coding
 QWEN=/synology/homes/janezp/qwen-serving
-UPSTREAM=http://10.8.132.76:18020/v1
+UPSTREAM=http://127.0.0.1:18020/v1
 DEV_ADAPTER=127.0.0.1:18031
 ```
 
-Verify live facts first; historical docs are evidence only. No pre-existing image
-proxy or port-18021 service is assumed. Development/candidate service MUST use
+Verify live facts first; historical docs are evidence only. The canonical value
+above is the preferred same-host upstream on `hinton1`; `http://10.8.132.75`
+is the optional LAN alternative, while `http://10.8.132.76` is historical
+provenance. No pre-existing image proxy or port-18021 service is assumed.
+Development/candidate service MUST use
 18031 unless a work order explicitly selects another free port. Without explicit
 active service-mutation order NEVER stop/change `qwen-serving`, model/checkpoint/
 patches, API-key files, systemd units, VPN/firewall/network binding, port 18020,

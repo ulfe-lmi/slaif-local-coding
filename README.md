@@ -48,12 +48,13 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`001` provide a private, loopback-only candidate
+Current status: objectives `000`–`002` provide a private, loopback-only candidate
 adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
-applies an explicit per-model image policy; and can observe evidenced effective
+applies an explicit per-model image policy; can observe evidenced effective
 `AGENTS.md` content and enumerate syntactic repository-file candidates without
-changing the model-bound request.
+changing the model-bound request; and provides a library-only constitutional
+compiler with a validated disposable cache.
 
 ## Request-only constitution observation
 
@@ -94,13 +95,39 @@ result and safe fixed-reason metrics; the original governance-bearing request is
 still forwarded unchanged except for any earlier authorized image transformation.
 An exactly constructed supported user envelope is intentionally evidence because
 this is a client-supplied effective-governance trust boundary, not plain prose.
-The observation result exists only for the current request. Client identity and
-session headers are stripped and are not trusted reuse keys. There is no compiler,
-model ranking, semantic score, cache, acquisition, injection, replacement, or
-cross-request state in this slice. Unsupported current/future wire shapes fail
+The observation result remains request-only. Client identity and session headers
+are stripped and are not trusted reuse keys. Observation itself performs no
+compiler call, semantic ranking, acquisition, injection, replacement, or
+cross-request state change. Unsupported current/future wire shapes fail
 conservatively. Fixture provenance and safe refresh guidance
 are in `tests/fixtures/codex/0.149.0/README.md`; fixtures describe tested shapes,
 not future wire compatibility.
+
+## Library-only compiler and derived cache (objective 002)
+
+Public request handlers do not call the compiler in this slice. A caller supplies
+exact observed source bytes and metadata plus deterministic candidate references.
+The compiler makes a bounded text-only request directly to the configured private
+vLLM endpoint—never through this adapter's public listener—and accepts only one
+strict JSON index schema. The model may rank/classify each supplied candidate but
+cannot omit or invent paths. Reference confidence and constitutional priority
+remain separate scores.
+
+The filesystem cache stores only validated indexes. Its logical key includes
+opaque principal, route, reliable session/repository discriminators, source path
+and SHA-256, model, schema/compiler/prompt-policy versions, and output-token
+bound. Missing session or repository identity disables persistent reuse rather
+than guessing an identity. Entries are mode 0600 under mode-0700 directories,
+integrity checked, TTL/LRU bounded, and isolated by every key dimension. P0/P1
+entries have a separate cap. Corruption, expiry, permission errors, unavailable
+storage, oversized output, invalid schemas, timeouts, cancellation, or dropped
+candidates fail closed to a typed miss/failure; no valid result is cached. The
+cache is disposable and never persists raw source, prompts, images, tool output,
+bodies, credentials, or customer content.
+
+Objective 002 does not inject context into requests, acquire files, rehydrate
+history, expose compiler/cache endpoints, support signed multi-user production
+identity, cut over traffic, or alter either OAP Codex profile.
 
 ## Candidate quickstart
 
@@ -153,10 +180,12 @@ uv run --frozen pytest -q
 uv build
 ```
 
-Live checks are opt-in and serial. Start the foreground candidate, then run
-`SLAIF_LIVE_TEST=1 uv run --frozen pytest -q tests/test_live.py`. They use only
-synthetic prompts and bounded outputs. Stop the foreground process to roll back;
-the protected vLLM service, model, network, and Codex profiles are untouched.
+Live checks are opt-in and serial. Start the foreground candidate for adapter
+checks, then run `SLAIF_LIVE_TEST=1 uv run --frozen pytest -q tests/test_live.py`.
+The compiler/cache live case calls the configured private upstream directly and
+does not require that foreground adapter. Tests use only synthetic prompts and
+bounded outputs. Stop the temporary adapter after testing; protected vLLM
+service, model, network, and Codex profiles remain untouched.
 The systemd file in `packaging/` is an uninstalled example only. Public service
 authentication, signed identity, quotas, and TLS remain the separate gateway's
 responsibility.

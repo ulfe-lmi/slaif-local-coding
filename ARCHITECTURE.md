@@ -187,7 +187,7 @@ OAP control plane:
 
 Protected live system under test:
   Qwen/vLLM vision service
-    -> discover live; currently 10.8.132.76:18020
+    -> discover live; currently hinton1 127.0.0.1:18020
 
 New adapter development path:
   tests/curl
@@ -196,8 +196,12 @@ New adapter development path:
 
 Internal compiler path:
   development adapter
-    -> 10.8.132.76:18020 directly
+    -> 127.0.0.1:18020 directly
 ```
+
+After the host migration, the same-host loopback is the preferred operational
+path on `hinton1`. The optional LAN endpoint is `http://10.8.132.75:18020/v1`;
+`http://10.8.132.76:18020/v1` is historical provenance, not a current default.
 
 This topology enables real live-model tests while keeping both OAP Codex agents
 independent of the constrained local model under test. Objective 000 must verify

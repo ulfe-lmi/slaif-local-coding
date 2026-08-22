@@ -669,3 +669,48 @@ async def test_metrics_have_bounded_labels(settings: Settings) -> None:
     assert 'status="400"' in metrics
     assert "slaif_readiness_state 0.0" in metrics
     assert "slaif_response_header_duration_seconds" in metrics
+
+
+@pytest.mark.asyncio
+async def test_normal_governed_request_makes_zero_compiler_calls(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Objective-002 is library-only: public handlers must not invoke compilation."""
+    from unittest.mock import AsyncMock
+
+    from slaif_local_coding.constitution.compiler import ConstitutionalCompiler
+
+    compiler_compile = AsyncMock(side_effect=AssertionError("public request invoked compiler"))
+    monkeypatch.setattr(ConstitutionalCompiler, "compile", compiler_compile)
+    observed = settings.model_copy(
+        update={
+            "routes": [
+                settings.routes[0].model_copy(update={"observation_enabled": True}),
+            ]
+        }
+    )
+    governed = {
+        "model": "qwen",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\n"
+                            "MUST stay unchanged.\n</INSTRUCTIONS>"
+                        ),
+                    }
+                ],
+            }
+        ],
+    }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content) == governed
+        return httpx.Response(200, json={"id": "unchanged"})
+
+    response = await call(observed, handler, "POST", "/v1/responses", json=governed)
+    assert response.status_code == 200
+    compiler_compile.assert_not_awaited()

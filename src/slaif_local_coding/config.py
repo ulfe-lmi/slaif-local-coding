@@ -71,6 +71,61 @@ class ObservationPolicy(BaseModel):
     max_path_bytes: int = Field(default=512, ge=1, le=4096)
 
 
+class CompilerConfig(BaseModel):
+    """Library-only objective-002 compiler settings.
+
+    ``enabled`` is deliberately false-only: public request handlers must not
+    invoke compilation or injection until a later ordered integration slice.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: Literal[False] = False
+    schema_version: str = Field(default="constitution-index-v1", min_length=1, max_length=64)
+    prompt_policy_version: str = Field(
+        default="constitutional-rank-v1", min_length=1, max_length=64
+    )
+    api_key_env: str = Field(default="QWEN3090_API_KEY", min_length=1)
+    reasoning_effort: Literal["low"] = "low"
+    timeout_seconds: float = Field(default=45, gt=0, le=300)
+    max_attempts: int = Field(default=2, ge=1, le=4)
+    max_parallel_calls: int = Field(default=1, ge=1, le=1)
+    max_output_tokens: int = Field(default=3000, ge=128, le=16000)
+    max_output_bytes: int = Field(default=256000, ge=1024, le=4194304)
+    max_prompt_bytes: int = Field(default=384000, ge=1024, le=4194304)
+
+
+class CacheConfig(BaseModel):
+    """Private disposable filesystem-cache bounds for validated indexes only."""
+
+    model_config = ConfigDict(extra="forbid")
+    backend: Literal["filesystem"] = "filesystem"
+    root: Path = Path("/dev/shm/slaif-local-coding")
+    fallback_root: Path | None = None
+    max_total_bytes: int = Field(default=67_108_864, ge=1024)
+    max_entry_bytes: int = Field(default=65_536, ge=256)
+    max_pinned_bytes: int = Field(default=8_388_608, ge=256)
+    max_entries: int = Field(default=4096, ge=1)
+    ttl_seconds: float = Field(default=604800, gt=0)
+
+    @model_validator(mode="after")
+    def bounded(self) -> CacheConfig:
+        if self.max_entry_bytes > self.max_total_bytes:
+            raise ValueError("cache entry budget cannot exceed total budget")
+        if self.max_pinned_bytes > self.max_total_bytes:
+            raise ValueError("cache pinned budget cannot exceed total budget")
+        return self
+
+
+class ConstitutionIntegrationConfig(BaseModel):
+    """Objective-002 keeps injection/acquisition/rehydration explicitly off."""
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: Literal[False] = False
+    max_injected_bytes: int = Field(default=16384, ge=256)
+    candidate_max_count: int = Field(default=128, ge=1, le=4096)
+    compile_failure_policy: Literal["preserve_original"] = "preserve_original"
+
+
 class RouteConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -93,6 +148,11 @@ class Settings(BaseModel):
     upstream: UpstreamConfig
     routes: list[RouteConfig] = Field(min_length=1)
     observation: ObservationPolicy = Field(default_factory=lambda: ObservationPolicy())
+    compiler: CompilerConfig = Field(default_factory=lambda: CompilerConfig())
+    cache: CacheConfig = Field(default_factory=lambda: CacheConfig())
+    constitution: ConstitutionIntegrationConfig = Field(
+        default_factory=lambda: ConstitutionIntegrationConfig()
+    )
 
     @model_validator(mode="after")
     def unique_routes(self) -> Settings:
@@ -115,13 +175,25 @@ def load_settings(path: Path) -> Settings:
     """Load a TOML file and reject unknown or invalid configuration."""
     with path.open("rb") as stream:
         raw = tomllib.load(stream)
-    # Future-objective sections are inert only when explicitly disabled.
-    for section in ("compiler", "constitution"):
-        future = raw.pop(section, {})
-        if future.get("enabled") is not False:
-            raise ValueError(f"{section} must be explicitly disabled in objective 000")
-    raw.pop("cache", None)
+    # Objective-002 modules are callable as a library, but public request
+    # integration remains explicitly disabled. Validate these bounded settings
+    # now so configuration errors fail at startup rather than during later work.
+    compiler_raw = raw.pop("compiler", {})
+    cache_raw = raw.pop("cache", {})
+    constitution_raw = raw.pop("constitution", {})
+    compiler_config = CompilerConfig.model_validate(compiler_raw)
+    cache_config = CacheConfig.model_validate(cache_raw)
+    constitution_config = ConstitutionIntegrationConfig.model_validate(constitution_raw)
+    if compiler_config.enabled or constitution_config.enabled:
+        raise ValueError("public compiler/injection integration is disabled in objective 002")
     observability = raw.pop("observability", {})
     if observability.get("log_raw_payloads") is not False:
         raise ValueError("raw payload logging must be explicitly disabled")
-    return Settings.model_validate(raw)
+    return Settings.model_validate(
+        {
+            **raw,
+            "compiler": compiler_config,
+            "cache": cache_config,
+            "constitution": constitution_config,
+        }
+    )
