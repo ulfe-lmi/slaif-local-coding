@@ -244,6 +244,7 @@ def test_constitution_metric_snapshot_exposes_fixed_counter_deltas() -> None:
         [
             "# HELP synthetic sanitized\n# TYPE synthetic counter",
             'slaif_constitution_roots_total{evidence_type="project_instructions",route="route"} 2',
+            'slaif_constitution_dependency_observations_total{route="route",state="observed"} 9',
             f'{acquisitions}{{route="route",outcome="cache_miss"}} 3',
             f'{acquisitions}{{route="route",outcome="cache_hit"}} 5',
             f'{acquisitions}{{route="route",outcome="invalid"}} 0.5',
@@ -260,12 +261,14 @@ def test_constitution_metric_snapshot_exposes_fixed_counter_deltas() -> None:
     deltas = after.subtract(before)
     assert deltas["root_observations"].before == 0
     assert deltas["dependency_cache_misses"].delta == 3
+    assert deltas["dependency_observations"].delta == 9
     assert deltas["dependency_invalid"].after == 0.5
     assert deltas["injected_requests"].delta == 7
     assert deltas["compiler_calls"].delta == 4
     assert deltas["working_set_included"].delta == 6
     assert set(deltas) == {
         "root_observations",
+        "dependency_observations",
         "dependency_cache_misses",
         "dependency_cache_hits",
         "dependency_invalid",
@@ -549,6 +552,8 @@ def test_one_invocation_diagnostic_reconciles_a_real_cache_miss(
             [
                 'slaif_constitution_roots_total{evidence_type="project_instructions",'
                 'route="qwen38-vision-codex"} 1',
+                "slaif_constitution_dependency_observations_total"
+                '{route="qwen38-vision-codex",state="observed"} 1',
                 "slaif_constitution_dependency_acquisitions_total"
                 '{route="qwen38-vision-codex",outcome="cache_miss"} 1',
                 "slaif_constitution_injection_total"
@@ -577,6 +582,7 @@ def test_one_invocation_diagnostic_reconciles_a_real_cache_miss(
     assert facts.run.command_event_counts == {"started": 1, "completed": 1}
     assert facts.fixture_hashes_stable_during_run
     assert facts.metric_deltas["dependency_cache_misses"].delta == 1
+    assert facts.metric_deltas["dependency_observations"].delta == 1
     assert facts.metric_deltas["working_set_included"].delta == 1
     assert len(facts.inventory_before.entries) == 0
     assert len(facts.inventory_after.entries) == 2

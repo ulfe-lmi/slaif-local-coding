@@ -127,6 +127,7 @@ class ConstitutionMetricsSnapshot:
     """Fixed sanitized counters; no payload, path, identity, or prompt facts."""
 
     root_observations: float
+    dependency_observations: float
     dependency_cache_misses: float
     dependency_cache_hits: float
     dependency_invalid: float
@@ -145,6 +146,7 @@ class ConstitutionMetricsSnapshot:
             )
             for field_name in (
                 "root_observations",
+                "dependency_observations",
                 "dependency_cache_misses",
                 "dependency_cache_hits",
                 "dependency_invalid",
@@ -616,6 +618,12 @@ def constitution_metric_snapshot(
             metrics_text,
             "slaif_constitution_roots_total",
             evidence_type="project_instructions",
+            route=route,
+        ),
+        dependency_observations=metric_value(
+            metrics_text,
+            "slaif_constitution_dependency_observations_total",
+            state="observed",
             route=route,
         ),
         dependency_cache_misses=metric_value(

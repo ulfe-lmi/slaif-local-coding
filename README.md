@@ -228,12 +228,13 @@ exit/status, duration, byte/count bounds, fixed tool item names, sentinel pass/f
 selected adapter counters, command lifecycle counts, and bounded cache diagnostics.
 A one-invocation diagnostic reads the explicitly supplied persistent adapter-cache
 boundary (not the disposable fixture cache) and can report fixture/root/dependency
-SHA-256 values, attempt counter deltas, working-set dependency states,
-persistent-cache inventory, hit/miss reconciliation errors, and a fixed outcome
-classification. Inventory contains only logical-key/source-hash 12-character
-prefixes, sizes/order buckets, index/model/schema/compiler metadata, and pinned
-state; it never contains raw source, prompts, events, model output, tokens,
-credentials, bodies, full private paths, or customer data. A successful
+SHA-256 values, root/dependency observation and cache-attempt counter deltas,
+working-set dependency states, persistent-cache inventory, hit/miss
+reconciliation errors, and a fixed outcome classification. Inventory contains
+only logical-key/source-hash 12-character prefixes, sizes/order buckets,
+index/model/schema/compiler metadata, and pinned state; it never contains raw
+source, prompts, events, model output, tokens, credentials, bodies, full private
+paths, or customer data. A successful
 two-invocation run demonstrates local
 tool use, one-root observation plus dependency acquisition/compilation, sentinel
 compliance, then persistent index reuse with no additional compiler model attempts.
