@@ -63,6 +63,14 @@ entry_render_max_bytes = 8192
 injection_max_depth = 64
 injection_max_nodes = 16384
 
+[constitution.rehydration]
+# Process-local only. State is intentionally lost on restart and never persists
+# prompts, source, images, tool output, or request bodies.
+ttl_seconds = 3600
+max_entries = 64
+max_entry_bytes = 262144
+max_total_bytes = 1048576
+
 [observation]
 schema_version = "observation-v1"
 policy_version = "references-v1"

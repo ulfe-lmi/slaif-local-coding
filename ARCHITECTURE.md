@@ -567,7 +567,7 @@ Preferred behavior:
 - preserve tool definitions, `previous_response_id`, metadata, reasoning, and
   streaming fields unless route policy explicitly changes them.
 
-### 7.14 Objective-003-b explicit one-root boundary
+### 7.14 Objective-003-b through 003-e explicit one-root boundary
 
 The selector and endpoint transforms are wired only when global/compiler/route/
 observation policy and complete static local-appliance identity are explicitly
@@ -578,8 +578,19 @@ serialization. Zero/multiple/incomplete roots preserve the post-image body, as d
 compiler/cache/selection/essential-overflow failures. Marker/shape failures fail
 closed before forwarding.
 
-The pipeline does not acquire missing files, ingest additional paired tool
-outputs, recover compacted history, expose admin/cache endpoints, introduce signed
+After successful injection, objective 003-e retains validated root/dependency
+indexes and inclusion metadata in a process-local map keyed by complete static
+identity/model/source/version/policy/bound data. On a later zero-root request
+with the exact same key, it reruns deterministic selection and endpoint-specific
+idempotent injection with no compiler call. The map is TTL/LRU/byte bounded,
+isolated by every key dimension, lost on restart, and never stores raw prompts,
+source, images, tool output, request bodies, credentials, or cache keys.
+Expired/corrupt/oversized/missing state safely preserves the original body.
+This implements adapter-boundary new-context rehydration, not real Codex
+compaction E2E.
+
+The pipeline still does not acquire missing files by fetching them, ingest
+additional unpaired tool outputs, expose admin/cache endpoints, introduce signed
 multi-user identity, or change traffic cutover. Its selection ordering is root P0;
 acquired P1 by path/source hash; missing-P1 acquisition by urgency/path; then
 acquired P2/P3 by independent constitutional priority descending, path, and

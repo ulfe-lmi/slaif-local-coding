@@ -246,18 +246,35 @@ async def test_live_enabled_constitution_pipeline_miss_then_hit() -> None:
         )
         return float(match.group(1)) if match else 0.0
 
+    compacted_payload = {
+        "model": "qwen3.8-27b",
+        "input": [
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Continue after history reduction."}],
+            }
+        ],
+    }
+
+    def compiler_attempts(text: str) -> float:
+        return value(text, "slaif_constitution_compiler_attempts_total")
+
     async with httpx.AsyncClient(base_url="http://127.0.0.1:18031", timeout=120) as client:
         before = (await client.get("/metrics")).text
         first = await client.post("/v1/responses", json=payload)
         second = await client.post("/v1/responses", json=payload)
+        middle = (await client.get("/metrics")).text
+        third = await client.post("/v1/responses", json=compacted_payload)
         after = (await client.get("/metrics")).text
     if 'state="injected"' not in after:
         pytest.skip("temporary adapter did not enable the objective-003-b pipeline")
-    assert first.status_code == second.status_code == 200
+    assert first.status_code == second.status_code == third.status_code == 200
     injected_delta = injected_value(after) - injected_value(before)
     cache_hit_delta = value(after, "slaif_constitution_cache_hits_total") - value(
         before, "slaif_constitution_cache_hits_total"
     )
+    assert compiler_attempts(after) - compiler_attempts(middle) == 0
+    assert 'state="hit"' in after
     dependency_hits = 0
     for line in after.splitlines():
         if (

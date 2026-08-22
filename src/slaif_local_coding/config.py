@@ -120,6 +120,22 @@ class CacheConfig(BaseModel):
         return self
 
 
+class RehydrationConfig(BaseModel):
+    """Process-local rehydration bounds; no persistent or cross-process state."""
+
+    model_config = ConfigDict(extra="forbid")
+    ttl_seconds: float = Field(default=3600, gt=0, le=86400)
+    max_entries: int = Field(default=64, ge=1, le=1024)
+    max_entry_bytes: int = Field(default=262_144, ge=1024)
+    max_total_bytes: int = Field(default=1_048_576, ge=1024)
+
+    @model_validator(mode="after")
+    def bounded(self) -> RehydrationConfig:
+        if self.max_entry_bytes > self.max_total_bytes:
+            raise ValueError("rehydration entry budget cannot exceed total budget")
+        return self
+
+
 class ConstitutionIntegrationConfig(BaseModel):
     """Explicit local single-user working-set/injection policy.
 
@@ -145,6 +161,7 @@ class ConstitutionIntegrationConfig(BaseModel):
     entry_render_max_bytes: int = Field(default=8192, ge=128, le=1048576)
     injection_max_depth: int = Field(default=64, ge=1, le=256)
     injection_max_nodes: int = Field(default=16384, ge=1, le=1048576)
+    rehydration: RehydrationConfig = Field(default_factory=lambda: RehydrationConfig())
 
     @model_validator(mode="after")
     def bounded(self) -> ConstitutionIntegrationConfig:

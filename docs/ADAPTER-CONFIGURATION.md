@@ -84,7 +84,7 @@ requests retain their original bytes. `reject` returns an API-shaped 422 before
 calling upstream. `passthrough` does not rewrite. A recognized image marker in
 an ambiguous non-list position fails closed.
 
-### Objective-003-b through 003-d optional one-root pipeline
+### Objective-003-b through 003-e optional one-root pipeline
 
 Integration remains disabled by every default. Enabling it requires all of:
 `compiler.enabled = true`; `constitution.enabled = true`; complete nonempty
@@ -100,8 +100,9 @@ On an enabled route, work runs after image policy in this order: deterministic
 observation with request-scoped exact root/dependency bytes, direct nonrecursive
 compiler/cache execution, bounded incremental dependency compilation, working-set
 selection, idempotent endpoint-specific injection, then deterministic JSON serialization.
-Zero/multiple/incomplete roots and compiler/cache/selection/essential-overflow
-failures preserve the post-image-policy request. Injection conflicts or
+Multiple/incomplete roots and compiler/cache/selection/essential-overflow
+failures preserve the post-image-policy request; a zero-root request attempts
+exact-key process-local rehydration and otherwise preserves that request. Injection conflicts or
 unsupported shapes return sanitized HTTP 422 before model forwarding. Dependencies are acquired only from exact `input_file` content or a unique string
 output paired by call ID with one supported Responses/Chat local-tool read call.
 The observer validates exact declared-path equality, roles/types, repository path
@@ -112,12 +113,33 @@ missing-P1 instruction where applicable. After root compilation, at most
 compiled incrementally. Each result must match path/hash/length/candidates and all
 compiler/cache validation before selection.
 
-Safe observation/pipeline metrics use fixed endpoint/route/state/reason/outcome
-labels and counts/durations only—never source paths/content/hashes,
-prompts/output, images, identity values, cache keys, models' visible text, or
-request-derived high-cardinality data.
+After a successful governed injection, the pipeline also records the validated
+root index, acquired dependency indexes, and dependency inclusion metadata in a
+process-local rehydration map. The key includes the complete configured static
+identity (principal/route/session/repository), model, root path/hash, compiler/
+index/prompt versions and bounds, observation policy/version/bounds, selector/
+render policy/version, and all working-set/injection bounds. A later zero-root
+request on an enabled route uses that exact key to rerun deterministic selection
+and endpoint-specific idempotent injection without a compiler call. Different
+identities, models, policies, versions, source hashes, or bounds never cross-hit.
 
-Acquisition instructions name unavailable files but do not fetch them. Arbitrary tool-output ingestion, recursive fetching, compaction rehydration,
+Rehydration state is process-local and intentionally lost on restart; it is not
+the persistent derived-index cache and is not a cross-process/session database.
+It stores no raw prompts/source/images/tool output/request bodies/secrets/cache
+keys. `[constitution.rehydration]` enforces TTL, LRU entry-count, per-entry-byte,
+and total-byte limits. Expired, invalid, oversized, or missing state is a safe
+miss that preserves the post-image-policy request. Multiple/incomplete roots and
+disabled/spoofed-header requests retain their existing semantics. This simulates
+new-context/compacted request behavior at the adapter boundary; actual Codex
+compaction E2E remains objective 004.
+
+Safe observation/pipeline/rehydration metrics use fixed endpoint/route/state/
+reason/outcome labels and counts/durations/gauges only—never source paths/
+content/hashes, prompts/output, images, identity values, cache keys, model-visible
+text, or request-derived high-cardinality data. Rehydration states include
+populated, hit, stale/expired, isolated miss, injected, skipped, and failure.
+
+Acquisition instructions name unavailable files but do not fetch them. Arbitrary tool-output ingestion, recursive fetching,
 signed production identity, gateway integration, vision readiness, real Codex E2E
 support, and cutover remain excluded.
 

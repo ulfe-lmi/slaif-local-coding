@@ -414,6 +414,7 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                             route=route,
                             endpoint=endpoint,
                             post_image_body=post_image_body,
+                            model=model,
                         )
                     except ConstitutionInjectionRejected as exc:
                         return local_error(

@@ -10,6 +10,7 @@ from slaif_local_coding.config import (
     CompilerConfig,
     ConstitutionIntegrationConfig,
     ObservationPolicy,
+    RehydrationConfig,
     RouteConfig,
     ServerConfig,
     Settings,
@@ -253,3 +254,20 @@ def test_cache_and_compiler_bounds_have_safe_defaults_and_finite_ranges(
     for invalid_compiler_call in invalid_compiler_calls:
         with pytest.raises(ValidationError):
             invalid_compiler_call()
+
+
+def test_rehydration_bounds_fail_closed() -> None:
+    with pytest.raises(ValidationError):
+        ConstitutionIntegrationConfig(
+            enabled=False,
+            rehydration=RehydrationConfig(max_entry_bytes=2000, max_total_bytes=1000),
+        )
+    valid = ConstitutionIntegrationConfig(
+        rehydration=RehydrationConfig(
+            ttl_seconds=1,
+            max_entries=1,
+            max_entry_bytes=1024,
+            max_total_bytes=1024,
+        )
+    )
+    assert valid.rehydration.max_total_bytes == 1024

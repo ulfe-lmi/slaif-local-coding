@@ -48,7 +48,7 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`003-d` provide a private, loopback-only candidate
+Current status: objectives `000`–`003-e` provide a private, loopback-only candidate
 adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
@@ -56,8 +56,9 @@ applies an explicit per-model image policy; can observe evidenced effective
 optionally run one bounded compile/cache/acquire/select/inject pipeline after image
 policy. The pipeline remains off by default and requires explicit global,
 compiler, observation, route, and complete static local-appliance identity
-configuration. It handles exactly one complete root; other requests preserve
-post-image-policy semantics.
+configuration. It handles exactly one complete root and can rehydrate the last validated
+working set for an exact configured identity on a later zero-root request;
+multiple/incomplete roots preserve post-image-policy semantics.
 
 The currently verified `hinton1` fixture serves text only and declares zero-image
 capacity. Image-policy code is covered by fake-upstream tests and objective 000
@@ -147,7 +148,7 @@ Compilation still never acquires files, rehydrates history, exposes
 compiler/cache endpoints, supports signed multi-user production identity, cuts
 over traffic, or alters either OAP Codex profile.
 
-## Explicit one-root working-set pipeline (objective 003-b)
+## Explicit one-root working-set pipeline (objective 003-b through 003-e)
 
 The selector accepts only already validated indexes. It deterministically orders
 P0 root first, acquired P1 by
@@ -183,19 +184,31 @@ must match its declared path/source hash/length and deterministic candidate set;
 failures remain missing-P1 acquisition instructions without blocking ordinary
 request forwarding.
 
+After a successful governed injection, the pipeline stores only the validated
+root/dependency indexes and inclusion metadata in a process-local rehydration
+map keyed by complete static identity/model/source/version/policy/bound data.
+On a later zero-root request with the same key, it reruns deterministic selection
+and endpoint-specific idempotent injection without a compiler call. The map is
+TTL/LRU/byte bounded, isolated by every key dimension, intentionally lost on
+restart, and stores no raw prompts/source/images/tool output/bodies/secrets.
+Expired/corrupt/oversized or missing state safely preserves the original body.
+This is adapter-boundary simulated/new-context rehydration, not real Codex
+compaction E2E.
+
 When enabled, the public request order is JSON bounds/route selection, image
 policy, deterministic observation with exact in-memory root/dependency handoff,
 direct non-recursive compiler/cache execution, bounded incremental dependency
-compilation, one-root working-set selection, and endpoint-specific injection
-before deterministic serialization. Zero, multiple,
-or incomplete roots preserve the post-image-policy body. Compiler, cache,
+compilation, one-root working-set selection or zero-root rehydration, and
+endpoint-specific injection before deterministic serialization. Multiple
+or incomplete roots preserve the post-image-policy body, as does unavailable/
+invalid rehydration state. Compiler, cache,
 selection, and essential-overflow failures also preserve that body. Injection
 marker/shape failures return a sanitized 422 without forwarding. The pipeline is
 local single-user MVP functionality only: configured principal/session/
 repository labels are not signed gateway identity and must never be represented
 as multi-user production isolation. Acquisition, tool-output ingestion,
-compaction rehydration, real Codex E2E operation, gateway integration, vision
-readiness, and cutover remain excluded.
+real Codex E2E operation, gateway integration, vision readiness, and cutover
+remain excluded.
 
 ## Candidate quickstart
 
