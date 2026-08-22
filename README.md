@@ -48,7 +48,7 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`003-e` provide a private, loopback-only candidate
+Current status: objectives `000`–`004-a` provide a private, loopback-only candidate
 adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
@@ -75,7 +75,8 @@ and normalized it to the canonical fixture path `$.input[0].content[0].text` wit
 byte-identical request-only fixtures; top-level `instructions` was absent and is
 therefore optional corroboration, not a prerequisite.
 Synthetic supplements accept explicit `input_file` items in top-level
-Responses/Chat content positions and exact `exec_command` calls paired one-to-one
+Responses/Chat content positions and exact bounded reads from `exec_command` or
+Codex 0.149.0 `shell_command` calls paired one-to-one
 with output by call ID;
 the read grammar is limited to exact `cat`, `head`, `tail`, or bounded `sed -n`.
 For the captured shape, a matching parseable `instructions` block adds evidence;
@@ -206,9 +207,27 @@ selection, and essential-overflow failures also preserve that body. Injection
 marker/shape failures return a sanitized 422 without forwarding. The pipeline is
 local single-user MVP functionality only: configured principal/session/
 repository labels are not signed gateway identity and must never be represented
-as multi-user production isolation. Acquisition, tool-output ingestion,
-real Codex E2E operation, gateway integration, vision readiness, and cutover
+as multi-user production isolation. Gateway integration, forced/equivalent compaction E2E,
+vision readiness, security hardening review, systemd candidate proof, and cutover
 remain excluded.
+
+## Isolated real-Codex governed E2E
+
+`slaif_local_coding.e2e` provides a repository-owned launcher for a disposable,
+bounded evidence run. It creates a private temporary Git fixture and temporary
+`CODEX_HOME`, writes a custom Responses provider at `http://127.0.0.1:18031/v1`,
+and never touches `~/.codex`, active profiles, auth files, hooks, or either OAP
+agent route. The provider references the protected credential only by environment
+name. Runs are serialized with process/output/time budgets; raw events remain in
+caller-owned temporary files and are deleted after extraction.
+
+The synthetic long root has one referenced dependency. The helper invokes Codex
+CLI 0.149.0 with `workspace-write`, approvals never, JSON events, and the stable
+built-in command tool (`--disable unified_exec`). It emits only sanitized facts:
+exit/status, duration, byte/count bounds, fixed tool item names, sentinel pass/fail,
+and selected adapter counters. A successful two-invocation run demonstrates local
+tool use, one-root observation plus dependency acquisition/compilation, sentinel
+compliance, then persistent index reuse with no additional compiler model attempts.
 
 ## Candidate quickstart
 

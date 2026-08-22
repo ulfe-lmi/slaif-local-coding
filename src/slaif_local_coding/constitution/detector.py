@@ -181,15 +181,30 @@ def _input_files(payload: dict[str, Any], policy: ObservationPolicy) -> tuple[li
 
 
 def _parsed_command(arguments: Any) -> str | None:
+    """Extract a bounded read command from supported Codex tool schemas."""
     if isinstance(arguments, str):
         try:
             arguments = json.loads(arguments)
         except (json.JSONDecodeError, RecursionError):
             return None
-    if not isinstance(arguments, dict) or set(arguments) != {"cmd"}:
+    if not isinstance(arguments, dict):
         return None
-    command = arguments.get("cmd")
-    return command if isinstance(command, str) else None
+    command: object = arguments.get("cmd", arguments.get("command"))
+    if isinstance(command, str):
+        return command
+    # Codex 0.149's stable shell_command schema uses an argv-style list.  Only
+    # direct reads and common explicit shell-wrapper forms are interpreted.
+    argv_object: object = arguments.get("command")
+    if not isinstance(argv_object, list) or not argv_object:
+        return None
+    argv = [part for part in argv_object if isinstance(part, str)]
+    if len(argv) != len(argv_object):
+        return None
+    if len(argv) == 1:
+        return argv[0]
+    if len(argv) >= 3 and argv[0] in {"bash", "sh", "zsh"} and argv[1] in {"-c", "-lc"}:
+        return argv[2]
+    return " ".join(argv)
 
 
 def _tool_sources(payload: dict[str, Any], policy: ObservationPolicy) -> tuple[list[_Found], bool]:
@@ -227,7 +242,7 @@ def _tool_sources(payload: dict[str, Any], policy: ObservationPolicy) -> tuple[l
             call_id = item.get("call_id")
             if item.get("type") == "function_call" and isinstance(call_id, str) and call_id:
                 call_occurrences[call_id] = call_occurrences.get(call_id, 0) + 1
-                if item.get("name") == "exec_command":
+                if item.get("name") in {"exec_command", "shell_command"}:
                     read_path(item.get("arguments"), location, call_id)
             if item.get("type") == "function_call_output" and isinstance(call_id, str) and call_id:
                 output = item.get("output")
@@ -248,7 +263,10 @@ def _tool_sources(payload: dict[str, Any], policy: ObservationPolicy) -> tuple[l
                     call_id = tool.get("id")
                     if isinstance(call_id, str) and call_id:
                         call_occurrences[call_id] = call_occurrences.get(call_id, 0) + 1
-                        if isinstance(function, dict) and function.get("name") == "exec_command":
+                        if isinstance(function, dict) and function.get("name") in {
+                            "exec_command",
+                            "shell_command",
+                        }:
                             read_path(
                                 function.get("arguments"),
                                 f"{location}.tool_calls[{_tool_index}]",
@@ -386,7 +404,7 @@ def _dependency_tool_results(
             call_id = item.get("call_id")
             if item.get("type") == "function_call" and isinstance(call_id, str) and call_id:
                 occurrences[call_id] = occurrences.get(call_id, 0) + 1
-                if item.get("name") == "exec_command":
+                if item.get("name") in {"exec_command", "shell_command"}:
                     read_call(item.get("arguments"), call_id)
             if item.get("type") == "function_call_output" and isinstance(call_id, str) and call_id:
                 outputs.setdefault(call_id, []).append((item.get("output"), f"$.input[{index}]"))
@@ -404,7 +422,10 @@ def _dependency_tool_results(
                     call_id = tool.get("id")
                     if isinstance(call_id, str) and call_id:
                         occurrences[call_id] = occurrences.get(call_id, 0) + 1
-                        if isinstance(function, dict) and function.get("name") == "exec_command":
+                        if isinstance(function, dict) and function.get("name") in {
+                            "exec_command",
+                            "shell_command",
+                        }:
                             read_call(
                                 function.get("arguments"),
                                 call_id,
