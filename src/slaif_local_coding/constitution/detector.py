@@ -271,9 +271,9 @@ def _tool_sources(payload: dict[str, Any], policy: ObservationPolicy) -> tuple[l
     return found, invalid_path
 
 
-def observe_request(
+def observe_request_with_sources(
     payload: dict[str, Any], context: ObservationContext, policy: ObservationPolicy
-) -> ObservationResult:
+) -> tuple[ObservationResult, dict[tuple[str, str], bytes]]:
     reasons: list[IncompleteReason] = []
     project, invalid_project, malformed_project = _project_sources(payload, policy)
     input_files, invalid_input = _input_files(payload, policy)
@@ -288,6 +288,7 @@ def observe_request(
         reasons.append(IncompleteReason.TOO_MANY_ROOTS)
     roots: list[ConstitutionSourceObservation] = []
     root_index: dict[tuple[str, str], int] = {}
+    sources: dict[tuple[str, str], bytes] = {}
     rejected = 0
     rejection_counts: dict[RejectionReason, int] = {}
     for item in found:
@@ -317,6 +318,7 @@ def observe_request(
             if reason not in reasons:
                 reasons.append(reason)
         root_index[key] = len(roots)
+        sources[key] = encoded
         roots.append(
             ConstitutionSourceObservation(
                 logical_path=item.path,
@@ -328,7 +330,7 @@ def observe_request(
                 incomplete_reasons=tuple(source_reasons),
             )
         )
-    return ObservationResult(
+    observation_result = ObservationResult(
         schema_version=policy.schema_version,
         policy_version=policy.policy_version,
         context=context,
@@ -342,3 +344,12 @@ def observe_request(
             for reason, count in sorted(rejection_counts.items(), key=lambda item: item[0].value)
         ),
     )
+    return observation_result, sources
+
+
+def observe_request(
+    payload: dict[str, Any], context: ObservationContext, policy: ObservationPolicy
+) -> ObservationResult:
+    """Observe without retaining exact source bytes beyond this synchronous call."""
+    result, _ = observe_request_with_sources(payload, context, policy)
+    return result

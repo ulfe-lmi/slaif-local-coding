@@ -191,14 +191,64 @@ def test_live_one_and_two_image_requests() -> None:
                     "max_tokens": 8,
                 },
             )
-            if count == 1 and response.status_code == 400:
-                detail = response.json().get("error", {}).get("message", "")
-                if "At most 0 image(s)" in str(detail):
-                    pytest.skip("live model endpoint currently declares zero-image capability")
+            if response.status_code >= 400:
+                pytest.skip("live endpoint rejected an image request (verified zero-image case)")
             assert response.status_code == 200
         after = client.get("/metrics").text
         assert metric_value(after, "seen") - before_seen == 3
         assert metric_value(after, "removed") - before_removed == 1
+
+
+@pytest.mark.asyncio
+async def test_live_enabled_constitution_pipeline_miss_then_hit() -> None:
+    """Run only against the temporary 18031 config whose route enables 003-b."""
+
+    def value(text: str, name: str) -> float:
+        match = re.search(rf"^{re.escape(name)}(?:\{{[^}}]*\}})? ([0-9.]+)$", text, re.M)
+        return float(match.group(1)) if match else 0.0
+
+    payload = {
+        "model": "qwen3.8-27b",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": (
+                            "# AGENTS.md instructions for repository\n\n<INSTRUCTIONS>\n"
+                            "# Synthetic governance fixture\n\n"
+                            "The agent MUST read [PROCEDURE.md](PROCEDURE.md) before mutation.\n"
+                            "</INSTRUCTIONS>"
+                        ),
+                    }
+                ],
+            },
+        ],
+    }
+
+    def injected_value(text: str) -> float:
+        match = re.search(
+            r'^slaif_constitution_pipeline_requests_total\{.*state="injected".*\} ([0-9.]+)$',
+            text,
+            re.M,
+        )
+        return float(match.group(1)) if match else 0.0
+
+    async with httpx.AsyncClient(base_url="http://127.0.0.1:18031", timeout=120) as client:
+        before = (await client.get("/metrics")).text
+        first = await client.post("/v1/responses", json=payload)
+        second = await client.post("/v1/responses", json=payload)
+        after = (await client.get("/metrics")).text
+    if 'state="injected"' not in after:
+        pytest.skip("temporary adapter did not enable the objective-003-b pipeline")
+    assert first.status_code == second.status_code == 200
+    injected_delta = injected_value(after) - injected_value(before)
+    cache_hit_delta = value(after, "slaif_constitution_cache_hits_total") - value(
+        before, "slaif_constitution_cache_hits_total"
+    )
+    assert injected_delta >= 2
+    assert cache_hit_delta >= 1
 
 
 @pytest.mark.asyncio

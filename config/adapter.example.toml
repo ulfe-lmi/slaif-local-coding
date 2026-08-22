@@ -16,12 +16,12 @@ write_timeout_seconds = 30
 pool_timeout_seconds = 10
 
 [compiler]
-# Objective 002 provides the library implementation only; request integration
-# remains disabled until a separately ordered slice.
+# Direct compiler calls remain disabled unless constitution integration is
+# explicitly enabled both here and on a route.
 enabled = false
 # Compiler calls go directly to upstream and never traverse the adapter again.
 schema_version = "constitution-index-v1"
-prompt_policy_version = "constitutional-rank-v1"
+prompt_policy_version = "constitutional-rank-v2"
 reasoning_effort = "low"
 timeout_seconds = 120
 max_attempts = 2
@@ -45,8 +45,10 @@ ttl_seconds = 604800
 max_scan_entries = 4096
 
 [constitution]
-# Objective 003-a validates pure working-set/injection contracts; public
-# request-handler injection/acquisition/rehydration remains disabled.
+# Explicit local-appliance single-user MVP integration. When enabling it, also
+# set compiler.enabled = true, nonempty principal/session/repository labels,
+# observation_enabled = true, and constitution_enabled = true on one route.
+# These labels are configuration values, never caller-supplied identity.
 enabled = false
 max_injected_bytes = 16384
 candidate_max_count = 128
@@ -78,6 +80,7 @@ image_overflow_policy = "retain_newest"
 enable_responses = true
 enable_chat_completions = true
 observation_enabled = true
+constitution_enabled = false
 
 [observability]
 log_level = "INFO"

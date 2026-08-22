@@ -48,15 +48,16 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`003-a` provide a private, loopback-only candidate
+Current status: objectives `000`–`003-b` provide a private, loopback-only candidate
 adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
-`AGENTS.md` content and enumerate syntactic repository-file candidates without
-changing the model-bound request; and provides a library-only constitutional
-compiler and validated disposable cache, plus pure working-set selection and
-idempotent injection contracts. Public request handlers remain disabled from
-compilation/cache/injection integration.
+`AGENTS.md` content and enumerate syntactic repository-file candidates; and can
+optionally run one bounded compile/cache/select/inject pipeline after image
+policy. The pipeline remains off by default and requires explicit global,
+compiler, observation, route, and complete static local-appliance identity
+configuration. It handles exactly one complete root; other requests preserve
+post-image-policy semantics.
 
 The currently verified `hinton1` fixture serves text only and declares zero-image
 capacity. Image-policy code is covered by fake-upstream tests and objective 000
@@ -110,9 +111,9 @@ conservatively. Fixture provenance and safe refresh guidance
 are in `tests/fixtures/codex/0.149.0/README.md`; fixtures describe tested shapes,
 not future wire compatibility.
 
-## Library-only compiler and derived cache (objective 002)
+## Compiler, derived cache, and explicit pipeline (objectives 002–003-b)
 
-Public request handlers do not call the compiler in this slice. A caller supplies
+A library caller—or the explicitly enabled request pipeline—supplies
 exact observed source bytes and metadata plus deterministic candidate references.
 The compiler makes a bounded text-only request directly to the configured private
 vLLM endpoint—never through this adapter's public listener—and accepts only one
@@ -135,15 +136,14 @@ cancellation, or dropped candidates fail closed to a typed miss/failure; no
 valid result is cached. The cache is disposable and never persists raw source,
 prompts, images, tool output, bodies, credentials, or customer content.
 
-Objective 002 does not inject context into requests, acquire files, rehydrate
-history, expose compiler/cache endpoints, support signed multi-user production
-identity, cut over traffic, or alter either OAP Codex profile.
+Compilation still never acquires files, rehydrates history, exposes
+compiler/cache endpoints, supports signed multi-user production identity, cuts
+over traffic, or alters either OAP Codex profile.
 
-## Objective-003-a working set and injection contracts
+## Explicit one-root working-set pipeline (objective 003-b)
 
-Objective `003-a` adds two library-only contracts; it does **not** connect them
-to the public proxy pipeline. `select_working_set` accepts only already
-validated indexes. It deterministically orders P0 root first, acquired P1 by
+The selector accepts only already validated indexes. It deterministically orders
+P0 root first, acquired P1 by
 path/source hash next, then missing-P1 acquisition instructions by urgency/path.
 Acquired P2/P3 entries follow when explicit byte/entry budgets permit, ordered by
 constitutional priority descending then path/source hash; P4 is omitted. The
@@ -168,6 +168,19 @@ injection idempotent. Conflicting, duplicate, malformed, shifted, or ambiguous
 markers fail closed before upstream use, as do unsupported message/instruction
 shapes. The transforms never inspect, decode, re-encode, remove, or rewrite
 image items.
+
+When enabled, the public request order is JSON bounds/route selection, image
+policy, deterministic observation with exact in-memory source handoff, direct
+non-recursive compiler/cache execution, one-root working-set selection, and
+endpoint-specific injection before deterministic serialization. Zero, multiple,
+or incomplete roots preserve the post-image-policy body. Compiler, cache,
+selection, and essential-overflow failures also preserve that body. Injection
+marker/shape failures return a sanitized 422 without forwarding. The pipeline is
+local single-user MVP functionality only: configured principal/session/
+repository labels are not signed gateway identity and must never be represented
+as multi-user production isolation. Acquisition, tool-output ingestion,
+compaction rehydration, real Codex E2E operation, gateway integration, vision
+readiness, and cutover remain excluded.
 
 ## Candidate quickstart
 

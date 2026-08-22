@@ -84,16 +84,34 @@ requests retain their original bytes. `reject` returns an API-shaped 422 before
 calling upstream. `passthrough` does not rewrite. A recognized image marker in
 an ambiguous non-list position fails closed.
 
-### Objective-003-a library settings
+### Objective-003-b optional one-root pipeline
 
-The `[constitution]` table remains false-only for public integration. New
-version labels and finite bounds validate the separate foundation libraries:
-working-set entry/render bytes, dependency/acquisition entry counts, and
-injection traversal depth/node bounds. These values do not activate compilation,
-cache writes, selection, or injection during normal requests. They prepare typed
-contracts for a later explicitly ordered pipeline slice; acquisition, compaction
-rehydration, signed production identity, gateway integration, vision readiness,
-real Codex E2E support, and cutover remain excluded.
+Integration remains disabled by every default. Enabling it requires all of:
+`compiler.enabled = true`; `constitution.enabled = true`; complete nonempty
+`principal`, `session`, and `repository` configuration; at least one route with
+both `observation_enabled = true` and `constitution_enabled = true`; supported
+schema versions; and all existing finite compiler/cache/selector/injection
+bounds. Invalid combinations fail settings validation/startup. The three identity
+values are static local-appliance labels for a private single-user MVP. They are
+never read from caller headers, bodies, models, or source content, and they are
+not signed multi-user production identity.
+
+On an enabled route, work runs after image policy in this order: deterministic
+observation with request-scoped exact source bytes, direct nonrecursive
+compiler/cache execution, working-set selection with no acquired dependencies,
+idempotent endpoint-specific injection, then deterministic JSON serialization.
+Zero/multiple/incomplete roots and compiler/cache/selection/essential-overflow
+failures preserve the post-image-policy request. Injection conflicts or
+unsupported shapes return sanitized HTTP 422 before model forwarding. Safe
+pipeline metrics use fixed endpoint/route/state/reason/outcome labels and
+durations only—never source paths/content/hashes, prompts/output, images,
+identity values, cache keys, models' visible text, or request-derived
+high-cardinality data.
+
+Acquisition instructions name unavailable files but do not fetch them. Tool-output
+ingestion beyond existing observation evidence, compaction rehydration, signed
+production identity, gateway integration, vision readiness, real Codex E2E
+support, and cutover remain excluded.
 
 The example user unit is not installed or enabled automatically. For candidate
 testing, prefer the README foreground command on `127.0.0.1:18031`. Stop it with
