@@ -567,6 +567,20 @@ Preferred behavior:
 - preserve tool definitions, `previous_response_id`, metadata, reasoning, and
   streaming fields unless route policy explicitly changes them.
 
+### 7.14 Objective-003-a foundation boundary
+
+The current slice implements the selector and endpoint-scoped transform contracts
+as pure libraries. It does not wire either into public handlers, acquire missing
+files, recover compacted history, expose admin/cache endpoints, introduce signed
+multi-user identity, or change traffic cutover. Its tested ordering is root P0;
+acquired P1 by path/source hash; missing-P1 acquisition by urgency/path; then
+acquired P2/P3 by independent constitutional priority descending, path, and
+source hash while finite UTF-8/entry budgets permit. P4 is omitted. Optional
+entries are omitted whole; essential overflow fails typed rather than truncating
+law. Injection is idempotent only for identical version/content at the stable
+Responses `instructions` field or earliest Chat system location, and any other
+marker collision fails closed.
+
 A marker/version enables idempotence and debugging without exposing cache IDs.
 
 ### 7.14 Observability

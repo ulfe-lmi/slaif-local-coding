@@ -45,12 +45,20 @@ ttl_seconds = 604800
 max_scan_entries = 4096
 
 [constitution]
-# Objective 002 keeps injection/acquisition/rehydration disabled.
+# Objective 003-a validates pure working-set/injection contracts; public
+# request-handler injection/acquisition/rehydration remains disabled.
 enabled = false
 max_injected_bytes = 16384
 candidate_max_count = 128
-# Optimization failure preserves the original governance-bearing request.
 compile_failure_policy = "preserve_original"
+selector_schema_version = "working-set-v1"
+render_version = "constitution-render-v1"
+working_set_policy_version = "foundation-v1"
+working_set_max_entries = 128
+acquisition_max_count = 128
+entry_render_max_bytes = 8192
+injection_max_depth = 64
+injection_max_nodes = 16384
 
 [observation]
 schema_version = "observation-v1"

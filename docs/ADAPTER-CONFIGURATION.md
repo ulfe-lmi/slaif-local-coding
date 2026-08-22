@@ -84,6 +84,17 @@ requests retain their original bytes. `reject` returns an API-shaped 422 before
 calling upstream. `passthrough` does not rewrite. A recognized image marker in
 an ambiguous non-list position fails closed.
 
+### Objective-003-a library settings
+
+The `[constitution]` table remains false-only for public integration. New
+version labels and finite bounds validate the separate foundation libraries:
+working-set entry/render bytes, dependency/acquisition entry counts, and
+injection traversal depth/node bounds. These values do not activate compilation,
+cache writes, selection, or injection during normal requests. They prepare typed
+contracts for a later explicitly ordered pipeline slice; acquisition, compaction
+rehydration, signed production identity, gateway integration, vision readiness,
+real Codex E2E support, and cutover remain excluded.
+
 The example user unit is not installed or enabled automatically. For candidate
 testing, prefer the README foreground command on `127.0.0.1:18031`. Stop it with
 Ctrl-C. If an operator separately installs the example, stop and remove only

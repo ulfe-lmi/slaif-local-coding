@@ -48,13 +48,15 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`002` provide a private, loopback-only candidate
+Current status: objectives `000`–`003-a` provide a private, loopback-only candidate
 adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
 `AGENTS.md` content and enumerate syntactic repository-file candidates without
 changing the model-bound request; and provides a library-only constitutional
-compiler with a validated disposable cache.
+compiler and validated disposable cache, plus pure working-set selection and
+idempotent injection contracts. Public request handlers remain disabled from
+compilation/cache/injection integration.
 
 The currently verified `hinton1` fixture serves text only and declares zero-image
 capacity. Image-policy code is covered by fake-upstream tests and objective 000
@@ -136,6 +138,36 @@ prompts, images, tool output, bodies, credentials, or customer content.
 Objective 002 does not inject context into requests, acquire files, rehydrate
 history, expose compiler/cache endpoints, support signed multi-user production
 identity, cut over traffic, or alter either OAP Codex profile.
+
+## Objective-003-a working set and injection contracts
+
+Objective `003-a` adds two library-only contracts; it does **not** connect them
+to the public proxy pipeline. `select_working_set` accepts only already
+validated indexes. It deterministically orders P0 root first, acquired P1 by
+path/source hash next, then missing-P1 acquisition instructions by urgency/path.
+Acquired P2/P3 entries follow when explicit byte/entry budgets permit, ordered by
+constitutional priority descending then path/source hash; P4 is omitted. The
+selector never reads files, acquires content, calls models, or touches cache
+internals.
+
+Rendering measures UTF-8 bytes against a finite cap and omits optional entries
+whole in deterministic priority order. It never truncates normative text. Root
+and all known/missing P1 material are essential: if they cannot fit, selection
+returns a typed failure instead of unsafe partial law. Dependency states retain
+reference confidence separately from constitutional priority. Missing-P1 output
+names exact repository-relative paths but never pretends unavailable content was
+read. Model-visible text marks reconstructed context as overridable by
+repository/Git/GitHub/source authority and contains no cache mechanics,
+timestamps, keys, credentials, raw prompts/images/tool output.
+
+Endpoint-specific transforms copy Responses and Chat envelopes. Responses uses
+top-level `instructions`, preserving existing instructions deterministically;
+Chat inserts one stable system message at the earliest position without moving
+or changing existing messages. A versioned marker makes same-version/same-content
+injection idempotent. Conflicting, duplicate, malformed, shifted, or ambiguous
+markers fail closed before upstream use, as do unsupported message/instruction
+shapes. The transforms never inspect, decode, re-encode, remove, or rewrite
+image items.
 
 ## Candidate quickstart
 

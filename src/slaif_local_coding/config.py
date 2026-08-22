@@ -125,13 +125,35 @@ class CacheConfig(BaseModel):
 
 
 class ConstitutionIntegrationConfig(BaseModel):
-    """Objective-002 keeps injection/acquisition/rehydration explicitly off."""
+    """Objective-003-a keeps public injection/acquisition explicitly disabled.
+
+    The extra fields validate the pure working-set/injection library contracts
+    now so a later pipeline slice cannot introduce unbounded defaults.
+    """
 
     model_config = ConfigDict(extra="forbid")
     enabled: Literal[False] = False
     max_injected_bytes: int = Field(default=16384, ge=256)
     candidate_max_count: int = Field(default=128, ge=1, le=4096)
     compile_failure_policy: Literal["preserve_original"] = "preserve_original"
+    selector_schema_version: Literal["working-set-v1"] = "working-set-v1"
+    render_version: Literal["constitution-render-v1"] = "constitution-render-v1"
+    working_set_policy_version: str = Field(default="foundation-v1", min_length=1, max_length=64)
+    working_set_max_entries: int = Field(default=128, ge=1, le=4096)
+    acquisition_max_count: int = Field(default=128, ge=1, le=4096)
+    entry_render_max_bytes: int = Field(default=8192, ge=128, le=1048576)
+    injection_max_depth: int = Field(default=64, ge=1, le=256)
+    injection_max_nodes: int = Field(default=16384, ge=1, le=1048576)
+
+    @model_validator(mode="after")
+    def bounded(self) -> ConstitutionIntegrationConfig:
+        if self.entry_render_max_bytes > self.max_injected_bytes:
+            raise ValueError("entry render budget cannot exceed injected-byte budget")
+        if self.working_set_max_entries > self.candidate_max_count:
+            raise ValueError("working-set entries cannot exceed candidate bound")
+        if self.acquisition_max_count > self.candidate_max_count:
+            raise ValueError("acquisitions cannot exceed candidate bound")
+        return self
 
 
 class RouteConfig(BaseModel):
@@ -193,7 +215,9 @@ def load_settings(path: Path) -> Settings:
     cache_config = CacheConfig.model_validate(cache_raw)
     constitution_config = ConstitutionIntegrationConfig.model_validate(constitution_raw)
     if compiler_config.enabled or constitution_config.enabled:
-        raise ValueError("public compiler/injection integration is disabled in objective 002")
+        raise ValueError(
+            "public compiler/injection integration remains disabled in objective 003-a"
+        )
     observability = raw.pop("observability", {})
     if observability.get("log_raw_payloads") is not False:
         raise ValueError("raw payload logging must be explicitly disabled")
