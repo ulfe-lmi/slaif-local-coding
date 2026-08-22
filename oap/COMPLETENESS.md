@@ -2,7 +2,7 @@
 
 Assessment target: full SME MVP represented by objectives 000–006.
 Current authoritative recovery-branch readiness: ~78%.
-Current merged `main` readiness before recovery merge: ~58%.
+PR #6's base `main`, including accepted objective 003, readiness: ~74%.
 Current fixture is text-only/zero-image; no vision or production readiness is claimed.
 
 | Objective | Weight | Complete | Evidence | Remaining gap |
@@ -14,4 +14,4 @@ Current fixture is text-only/zero-image; no vision or production readiness is cl
 | 004 real Codex E2E, security/operations hardening | 20% | 35% | Isolated Codex CLI 0.149.0 governed-tool/cache/sentinel E2E; metrics/security tests | Actual forced/equivalent long-session compaction, vision-capable E2E, security hardening review, and systemd candidate proof |
 | 005 gateway integration and controlled cutover | 7% | 5% | Interface documentation only | Signed identity, gateway PR, soak, rollback-proven cutover |
 | 006 reproducible SME package/release | 3% | 20% | Build/package/license/service example | Reproducible installer, capacity/runbook, tested release claims |
-| **Weighted total** | **100%** | **~74% on branch** | OAP orders/reports/CI | See rows above |
+| **Weighted total** | **100%** | **~78% on branch** | OAP orders/reports/CI | See rows above |
