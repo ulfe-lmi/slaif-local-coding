@@ -84,16 +84,64 @@ requests retain their original bytes. `reject` returns an API-shaped 422 before
 calling upstream. `passthrough` does not rewrite. A recognized image marker in
 an ambiguous non-list position fails closed.
 
-### Objective-003-a library settings
+### Objective-003-b through 003-e optional one-root pipeline
 
-The `[constitution]` table remains false-only for public integration. New
-version labels and finite bounds validate the separate foundation libraries:
-working-set entry/render bytes, dependency/acquisition entry counts, and
-injection traversal depth/node bounds. These values do not activate compilation,
-cache writes, selection, or injection during normal requests. They prepare typed
-contracts for a later explicitly ordered pipeline slice; acquisition, compaction
-rehydration, signed production identity, gateway integration, vision readiness,
-real Codex E2E support, and cutover remain excluded.
+Integration remains disabled by every default. Enabling it requires all of:
+`compiler.enabled = true`; `constitution.enabled = true`; complete nonempty
+`principal`, `session`, and `repository` configuration; at least one route with
+both `observation_enabled = true` and `constitution_enabled = true`; supported
+schema versions; and all existing finite compiler/cache/selector/injection
+bounds. Invalid combinations fail settings validation/startup. The three identity
+values are static local-appliance labels for a private single-user MVP. They are
+never read from caller headers, bodies, models, or source content, and they are
+not signed multi-user production identity.
+
+On an enabled route, work runs after image policy in this order: deterministic
+observation with request-scoped exact root/dependency bytes, direct nonrecursive
+compiler/cache execution, bounded incremental dependency compilation, working-set
+selection, idempotent endpoint-specific injection, then deterministic JSON serialization.
+Multiple/incomplete roots and compiler/cache/selection/essential-overflow
+failures preserve the post-image-policy request; a zero-root request attempts
+exact-key process-local rehydration and otherwise preserves that request. Injection conflicts or
+unsupported shapes return sanitized HTTP 422 before model forwarding. Dependencies are acquired only from exact `input_file` content or a unique string
+output paired by call ID with one supported Responses/Chat local-tool read call.
+The observer validates exact declared-path equality, roles/types, repository path
+grammar, UTF-8, and byte bounds. Duplicate, mismatched, extra, unsafe, oversized,
+or invalid evidence is never acquired; root governance remains injected with a
+missing-P1 instruction where applicable. After root compilation, at most
+`constitution.max_dependency_acquisitions` (default 4, maximum 16) dependencies is
+compiled incrementally. Each result must match path/hash/length/candidates and all
+compiler/cache validation before selection.
+
+After a successful governed injection, the pipeline also records the validated
+root index, acquired dependency indexes, and dependency inclusion metadata in a
+process-local rehydration map. The key includes the complete configured static
+identity (principal/route/session/repository), model, root path/hash, compiler/
+index/prompt versions and bounds, observation policy/version/bounds, selector/
+render policy/version, and all working-set/injection bounds. A later zero-root
+request on an enabled route uses that exact key to rerun deterministic selection
+and endpoint-specific idempotent injection without a compiler call. Different
+identities, models, policies, versions, source hashes, or bounds never cross-hit.
+
+Rehydration state is process-local and intentionally lost on restart; it is not
+the persistent derived-index cache and is not a cross-process/session database.
+It stores no raw prompts/source/images/tool output/request bodies/secrets/cache
+keys. `[constitution.rehydration]` enforces TTL, LRU entry-count, per-entry-byte,
+and total-byte limits. Expired, invalid, oversized, or missing state is a safe
+miss that preserves the post-image-policy request. Multiple/incomplete roots and
+disabled/spoofed-header requests retain their existing semantics. This simulates
+new-context/compacted request behavior at the adapter boundary; actual Codex
+compaction E2E remains objective 004.
+
+Safe observation/pipeline/rehydration metrics use fixed endpoint/route/state/
+reason/outcome labels and counts/durations/gauges only—never source paths/
+content/hashes, prompts/output, images, identity values, cache keys, model-visible
+text, or request-derived high-cardinality data. Rehydration states include
+populated, hit, stale/expired, isolated miss, injected, skipped, and failure.
+
+Acquisition instructions name unavailable files but do not fetch them. Arbitrary tool-output ingestion, recursive fetching,
+signed production identity, gateway integration, vision readiness, real Codex E2E
+support, and cutover remain excluded.
 
 The example user unit is not installed or enabled automatically. For candidate
 testing, prefer the README foreground command on `127.0.0.1:18031`. Stop it with

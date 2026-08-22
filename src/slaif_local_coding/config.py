@@ -72,17 +72,13 @@ class ObservationPolicy(BaseModel):
 
 
 class CompilerConfig(BaseModel):
-    """Library-only objective-002 compiler settings.
-
-    ``enabled`` is deliberately false-only: public request handlers must not
-    invoke compilation or injection until a later ordered integration slice.
-    """
+    """Bounded direct compiler settings for the explicitly enabled pipeline."""
 
     model_config = ConfigDict(extra="forbid")
-    enabled: Literal[False] = False
+    enabled: bool = False
     schema_version: str = Field(default="constitution-index-v1", min_length=1, max_length=64)
     prompt_policy_version: str = Field(
-        default="constitutional-rank-v1", min_length=1, max_length=64
+        default="constitutional-rank-v2", min_length=1, max_length=64
     )
     api_key_env: str = Field(default="QWEN3090_API_KEY", min_length=1)
     reasoning_effort: Literal["low"] = "low"
@@ -124,15 +120,35 @@ class CacheConfig(BaseModel):
         return self
 
 
-class ConstitutionIntegrationConfig(BaseModel):
-    """Objective-003-a keeps public injection/acquisition explicitly disabled.
+class RehydrationConfig(BaseModel):
+    """Process-local rehydration bounds; no persistent or cross-process state."""
 
-    The extra fields validate the pure working-set/injection library contracts
-    now so a later pipeline slice cannot introduce unbounded defaults.
+    model_config = ConfigDict(extra="forbid")
+    ttl_seconds: float = Field(default=3600, gt=0, le=86400)
+    max_entries: int = Field(default=64, ge=1, le=1024)
+    max_entry_bytes: int = Field(default=262_144, ge=1024)
+    max_total_bytes: int = Field(default=1_048_576, ge=1024)
+
+    @model_validator(mode="after")
+    def bounded(self) -> RehydrationConfig:
+        if self.max_entry_bytes > self.max_total_bytes:
+            raise ValueError("rehydration entry budget cannot exceed total budget")
+        return self
+
+
+class ConstitutionIntegrationConfig(BaseModel):
+    """Explicit local single-user working-set/injection policy.
+
+    Identity fields are configured static appliance labels for the private MVP.
+    They are never taken from caller headers, bodies, models, or source content,
+    and they do not provide signed multi-user production isolation.
     """
 
     model_config = ConfigDict(extra="forbid")
-    enabled: Literal[False] = False
+    enabled: bool = False
+    principal: str | None = Field(default=None, min_length=1, max_length=256)
+    session: str | None = Field(default=None, min_length=1, max_length=256)
+    repository: str | None = Field(default=None, min_length=1, max_length=256)
     max_injected_bytes: int = Field(default=16384, ge=256)
     candidate_max_count: int = Field(default=128, ge=1, le=4096)
     compile_failure_policy: Literal["preserve_original"] = "preserve_original"
@@ -141,12 +157,16 @@ class ConstitutionIntegrationConfig(BaseModel):
     working_set_policy_version: str = Field(default="foundation-v1", min_length=1, max_length=64)
     working_set_max_entries: int = Field(default=128, ge=1, le=4096)
     acquisition_max_count: int = Field(default=128, ge=1, le=4096)
+    max_dependency_acquisitions: int = Field(default=4, ge=1, le=16)
     entry_render_max_bytes: int = Field(default=8192, ge=128, le=1048576)
     injection_max_depth: int = Field(default=64, ge=1, le=256)
     injection_max_nodes: int = Field(default=16384, ge=1, le=1048576)
+    rehydration: RehydrationConfig = Field(default_factory=lambda: RehydrationConfig())
 
     @model_validator(mode="after")
     def bounded(self) -> ConstitutionIntegrationConfig:
+        if self.enabled and not all((self.principal, self.session, self.repository)):
+            raise ValueError("enabled constitution integration requires static local identity")
         if self.entry_render_max_bytes > self.max_injected_bytes:
             raise ValueError("entry render budget cannot exceed injected-byte budget")
         if self.working_set_max_entries > self.candidate_max_count:
@@ -165,6 +185,7 @@ class RouteConfig(BaseModel):
     enable_responses: bool = True
     enable_chat_completions: bool = True
     observation_enabled: bool = False
+    constitution_enabled: bool = False
 
     def enables(self, endpoint: str) -> bool:
         return (endpoint == "/v1/responses" and self.enable_responses) or (
@@ -183,6 +204,29 @@ class Settings(BaseModel):
     constitution: ConstitutionIntegrationConfig = Field(
         default_factory=lambda: ConstitutionIntegrationConfig()
     )
+
+    @model_validator(mode="after")
+    def safe_integration(self) -> Settings:
+        if self.constitution.enabled and not self.compiler.enabled:
+            raise ValueError("constitution integration requires direct compiler enablement")
+        if self.constitution.enabled and (
+            self.compiler.schema_version != "constitution-index-v1"
+            or self.constitution.selector_schema_version != "working-set-v1"
+            or self.constitution.render_version != "constitution-render-v1"
+        ):
+            raise ValueError("constitution integration requires supported schema versions")
+        if self.constitution.enabled and not any(
+            route.constitution_enabled for route in self.routes
+        ):
+            raise ValueError("global constitution integration requires an enabled route")
+        for route in self.routes:
+            if route.constitution_enabled and not (
+                self.constitution.enabled and route.observation_enabled
+            ):
+                raise ValueError(
+                    "route constitution integration requires global enablement and observation"
+                )
+        return self
 
     @model_validator(mode="after")
     def unique_routes(self) -> Settings:
@@ -205,19 +249,14 @@ def load_settings(path: Path) -> Settings:
     """Load a TOML file and reject unknown or invalid configuration."""
     with path.open("rb") as stream:
         raw = tomllib.load(stream)
-    # Objective-002 modules are callable as a library, but public request
-    # integration remains explicitly disabled. Validate these bounded settings
-    # now so configuration errors fail at startup rather than during later work.
+    # Objective-003 modules validate bounded settings before app construction;
+    # cross-feature safety is enforced by Settings itself.
     compiler_raw = raw.pop("compiler", {})
     cache_raw = raw.pop("cache", {})
     constitution_raw = raw.pop("constitution", {})
     compiler_config = CompilerConfig.model_validate(compiler_raw)
     cache_config = CacheConfig.model_validate(cache_raw)
     constitution_config = ConstitutionIntegrationConfig.model_validate(constitution_raw)
-    if compiler_config.enabled or constitution_config.enabled:
-        raise ValueError(
-            "public compiler/injection integration remains disabled in objective 003-a"
-        )
     observability = raw.pop("observability", {})
     if observability.get("log_raw_payloads") is not False:
         raise ValueError("raw payload logging must be explicitly disabled")

@@ -31,6 +31,7 @@ from .compiler_models import (
     CompilationFailure,
     CompiledIndex,
     CompilerResult,
+    ConstitutionalClass,
     FailureReason,
 )
 from .models import CandidateReference
@@ -163,6 +164,8 @@ def _build_prompt(
         "source-of-truth boundary, and reread trigger is required. "
         "Use the two independent scores separately and never add a combined score. "
         "Include every supplied candidate path exactly once and invent none."
+        " Only the supplied root may be P0; every dependency classification must "
+        "be P1, P2, P3, or P4."
     )
     user = (
         f"<source path={logical_path!r} sha256={source_hash} "
@@ -228,6 +231,8 @@ def _validate_index(
     if len({rule.rule_id for rule in index.rules}) != len(index.rules):
         return FailureReason.SCHEMA_INVALID
     for dependency in index.dependencies:
+        if dependency.classification == ConstitutionalClass.P0_ROOT:
+            return FailureReason.CONTRADICTORY_OUTPUT
         authoritative = (
             dependency.constitutional_priority >= 50
             or dependency.classification.value in {"P0", "P1"}

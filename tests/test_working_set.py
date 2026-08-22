@@ -32,8 +32,8 @@ def _index(path: str, **changes: Any) -> CompiledIndex:
     source = f"# synthetic {path}\n".encode()
     values: dict[str, Any] = {
         "schema_version": "constitution-index-v1",
-        "compiler_version": "compiler-v1",
-        "prompt_policy_version": "constitutional-rank-v1",
+        "compiler_version": "compiler-v2",
+        "prompt_policy_version": "constitutional-rank-v2",
         "model": "test-model",
         "source_logical_path": path,
         "source_sha256": hashlib.sha256(source).hexdigest(),

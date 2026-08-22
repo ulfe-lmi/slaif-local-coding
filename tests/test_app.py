@@ -269,7 +269,11 @@ async def test_observation_last_resort_fallback_preserves_one_unchanged_request(
         assert await request.aread() == raw
         return httpx.Response(200, json={})
 
-    monkeypatch.setattr(app_module, "observe_request", injected_failure)
+    def injected_sources_failure(*_args: Any, **_kwargs: Any) -> tuple[None, None]:
+        injected_failure()
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(app_module, "observe_request_for_pipeline", injected_sources_failure)
     settings.routes[0].observation_enabled = True
     app = create_app(settings, httpx.MockTransport(handler))
     async with httpx.AsyncClient(

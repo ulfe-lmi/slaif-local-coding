@@ -14,8 +14,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 INDEX_SCHEMA_VERSION = "constitution-index-v1"
-COMPILER_VERSION = "compiler-v1"
-PROMPT_POLICY_VERSION = "constitutional-rank-v1"
+COMPILER_VERSION = "compiler-v2"
+PROMPT_POLICY_VERSION = "constitutional-rank-v2"
 
 
 class RuleStrength(StrEnum):

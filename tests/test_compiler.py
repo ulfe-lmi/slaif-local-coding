@@ -88,8 +88,8 @@ def dependency(**changes: Any) -> CompiledDependency:
 def index(source: bytes = SOURCE, **changes: Any) -> CompiledIndex:
     values: dict[str, Any] = {
         "schema_version": "constitution-index-v1",
-        "compiler_version": "compiler-v1",
-        "prompt_policy_version": "constitutional-rank-v1",
+        "compiler_version": "compiler-v2",
+        "prompt_policy_version": "constitutional-rank-v2",
         "model": "test-model",
         "source_logical_path": "AGENTS.md",
         "source_sha256": hashlib.sha256(source).hexdigest(),
@@ -248,6 +248,13 @@ async def test_direct_success_preserves_candidates_and_uses_text_only_upstream(
         (
             lambda payload: {
                 **payload,
+                "dependencies": [{**payload["dependencies"][0], "classification": "P0"}],
+            },
+            FailureReason.CONTRADICTORY_OUTPUT,
+        ),
+        (
+            lambda payload: {
+                **payload,
                 "dependencies": [{**payload["dependencies"][0], "reference_confidence": 0.2}],
             },
             FailureReason.CONTRADICTORY_OUTPUT,
@@ -317,8 +324,8 @@ async def test_invalid_model_output_fails_closed_without_cache_write(
         source_sha256=SOURCE_HASH,
         model="test-model",
         index_schema_version="constitution-index-v1",
-        compiler_version="compiler-v1",
-        prompt_policy_version="constitutional-rank-v1",
+        compiler_version="compiler-v2",
+        prompt_policy_version="constitutional-rank-v2",
         reasoning_effort="low",
         max_source_bytes=262_144,
         max_prompt_bytes=384_000,

@@ -10,6 +10,7 @@ from slaif_local_coding.config import (
     CompilerConfig,
     ConstitutionIntegrationConfig,
     ObservationPolicy,
+    RehydrationConfig,
     RouteConfig,
     ServerConfig,
     Settings,
@@ -41,7 +42,7 @@ name = "r"
 model = "m"
 image_overflow_policy = "passthrough"
 """
-    for unsafe in ("[compiler]\nenabled = true\n", "[observability]\nlog_raw_payloads = true\n"):
+    for unsafe in "[observability]\nlog_raw_payloads = true\n":
         path = tmp_path / "unsafe.toml"
         path.write_text(base + unsafe)
         with pytest.raises(ValueError):
@@ -68,7 +69,7 @@ def test_route_matches_must_be_unique_per_model_and_endpoint() -> None:
     )
 
 
-def test_objective003a_configuration_remains_public_integration_disabled(tmp_path: Path) -> None:
+def test_objective003b_configuration_defaults_and_safe_enablement(tmp_path: Path) -> None:
     base = """
 [server]
 [upstream]
@@ -103,13 +104,57 @@ log_raw_payloads = false
     loaded = load_settings(path)
     assert loaded.compiler.enabled is False
     assert loaded.constitution.enabled is False
+    assert loaded.routes[0].constitution_enabled is False
     assert loaded.cache.max_pinned_bytes <= loaded.cache.max_total_bytes
 
-    for unsafe in (
-        base + "[compiler]\nenabled = true\n",
-        base + "[constitution]\nenabled = true\n",
-        base + "[cache]\nmax_total_bytes = 1000\nmax_entry_bytes = 2000\n",
-    ):
+    safe = (
+        base
+        + """
+[compiler]
+enabled = true
+max_parallel_calls = 1
+max_output_tokens = 3000
+[cache]
+root = "/dev/shm/slaif-local-coding-test"
+fallback_root = "/tmp/slaif-local-coding-fallback-test"
+[constitution]
+enabled = true
+principal = "local-principal"
+session = "local-session"
+repository = "local-repository"
+[[routes]]
+name = "enabled"
+model = "m2"
+image_overflow_policy = "passthrough"
+observation_enabled = true
+constitution_enabled = true
+[observability]
+log_raw_payloads = false
+"""
+    )
+    enabled_path = tmp_path / "enabled.toml"
+    enabled_path.write_text(safe)
+    enabled = load_settings(enabled_path)
+    assert enabled.constitution.principal == "local-principal"
+    assert enabled.routes[-1].constitution_enabled is True
+
+    unsafe_combinations = [
+        base + "[constitution]\nenabled = true\n[observability]\nlog_raw_payloads = false\n",
+        base
+        + "[compiler]\nenabled = true\n[constitution]\nenabled = true\n"
+        + 'principal = "p"\nsession = "s"\nrepository = "r"\n'
+        + "[observability]\nlog_raw_payloads = false\n",
+        base
+        + "[compiler]\nenabled = true\n[constitution]\nenabled = true\n"
+        + 'principal = "p"\nsession = "s"\nrepository = "r"\n'
+        + '[[routes]]\nname = "bad-route"\nmodel = "m"\n'
+        + 'image_overflow_policy = "passthrough"\nenable_responses = false\n'
+        + "constitution_enabled = true\n[observability]\nlog_raw_payloads = false\n",
+        base
+        + "[cache]\nmax_total_bytes = 1000\nmax_entry_bytes = 2000\n"
+        + "[observability]\nlog_raw_payloads = false\n",
+    ]
+    for unsafe in unsafe_combinations:
         (tmp_path / "unsafe.toml").write_text(unsafe)
         with pytest.raises(ValidationError):
             load_settings(tmp_path / "unsafe.toml")
@@ -188,7 +233,7 @@ def test_cache_and_compiler_bounds_have_safe_defaults_and_finite_ranges(
     assert constitution.injection_max_nodes == 16384
 
     invalid_constitution_calls: list[Callable[[], ConstitutionIntegrationConfig]] = [
-        lambda: ConstitutionIntegrationConfig(enabled=True),  # type: ignore[arg-type]
+        lambda: ConstitutionIntegrationConfig(enabled=True),
         lambda: ConstitutionIntegrationConfig(entry_render_max_bytes=16385),
         lambda: ConstitutionIntegrationConfig(working_set_max_entries=129),
         lambda: ConstitutionIntegrationConfig(acquisition_max_count=129),
@@ -209,3 +254,20 @@ def test_cache_and_compiler_bounds_have_safe_defaults_and_finite_ranges(
     for invalid_compiler_call in invalid_compiler_calls:
         with pytest.raises(ValidationError):
             invalid_compiler_call()
+
+
+def test_rehydration_bounds_fail_closed() -> None:
+    with pytest.raises(ValidationError):
+        ConstitutionIntegrationConfig(
+            enabled=False,
+            rehydration=RehydrationConfig(max_entry_bytes=2000, max_total_bytes=1000),
+        )
+    valid = ConstitutionIntegrationConfig(
+        rehydration=RehydrationConfig(
+            ttl_seconds=1,
+            max_entries=1,
+            max_entry_bytes=1024,
+            max_total_bytes=1024,
+        )
+    )
+    assert valid.rehydration.max_total_bytes == 1024

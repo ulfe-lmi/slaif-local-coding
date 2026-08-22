@@ -17,8 +17,14 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 
 from .config import RouteConfig, Settings
-from .constitution import ObservationContext, observe_request
-from .constitution.models import IncompleteReason, TrustClass
+from .constitution import (
+    ObservationContext,
+    observe_request_for_pipeline,
+)
+from .constitution.cache import CachePolicy
+from .constitution.compiler import CompilerSettings
+from .constitution.models import IncompleteReason, ObservationResult, TrustClass
+from .constitution.pipeline import ConstitutionInjectionRejected, ConstitutionPipeline
 from .image_policy import AmbiguousImageShape, apply_retain_newest, count_images
 from .json_structure import JsonNestingTooDeep, enforce_json_nesting
 
@@ -102,6 +108,39 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         base_url=settings.upstream.origin(), timeout=timeout, transport=transport
     )
     registry = CollectorRegistry()
+    constitution_pipeline: ConstitutionPipeline | None = None
+    if settings.constitution.enabled:
+        compiler_settings = CompilerSettings(
+            base_url=settings.upstream.base_url,
+            api_key_env=settings.compiler.api_key_env,
+            model=settings.upstream.model,
+            timeout_seconds=settings.compiler.timeout_seconds,
+            max_attempts=settings.compiler.max_attempts,
+            max_concurrency=settings.compiler.max_parallel_calls,
+            max_source_bytes=settings.compiler.max_source_bytes,
+            max_candidates=settings.compiler.max_candidates,
+            max_output_tokens=settings.compiler.max_output_tokens,
+            max_prompt_bytes=settings.compiler.max_prompt_bytes,
+            max_output_bytes=settings.compiler.max_output_bytes,
+            max_json_depth=settings.compiler.max_json_depth,
+        )
+        cache_policy = CachePolicy(
+            root=settings.cache.root,
+            fallback_root=settings.cache.fallback_root,
+            max_total_bytes=settings.cache.max_total_bytes,
+            max_entry_bytes=settings.cache.max_entry_bytes,
+            max_pinned_bytes=settings.cache.max_pinned_bytes,
+            max_entries=settings.cache.max_entries,
+            ttl_seconds=settings.cache.ttl_seconds,
+            max_scan_entries=settings.cache.max_scan_entries,
+        )
+        constitution_pipeline = ConstitutionPipeline(
+            constitution=settings.constitution,
+            compiler=compiler_settings,
+            cache_policy=cache_policy,
+            registry=registry,
+            client=client,
+        )
     request_count = Counter(
         "slaif_requests_total",
         "Adapter requests",
@@ -161,6 +200,12 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         ["endpoint", "route", "status"],
         registry=registry,
     )
+    dependency_observations = Counter(
+        "slaif_constitution_dependency_observations_total",
+        "Request-only constitutional dependency observation outcomes",
+        ["endpoint", "route", "state"],
+        registry=registry,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -168,10 +213,15 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
             settings.upstream.api_key()
         except ValueError:
             LOGGER.warning("upstream credential is unavailable")
-        yield
-        await client.aclose()
+        try:
+            yield
+        finally:
+            if constitution_pipeline is not None:
+                await constitution_pipeline.aclose()
+            await client.aclose()
 
     app = FastAPI(lifespan=lifespan)
+    app.state.constitution_pipeline = constitution_pipeline
 
     def route_for(endpoint: str, model: str) -> RouteConfig | None:
         matches = [
@@ -291,10 +341,14 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                         )
             image_count.labels(route_name, "seen").inc(seen)
             image_count.labels(route_name, "removed").inc(removed)
+            post_image_body = body
+            observation: ObservationResult | None = None
+            observation_sources: dict[tuple[str, str], bytes] = {}
+            observation_dependencies: dict[str, bytes] = {}
             if route.observation_enabled:
                 observation_started = time.monotonic()
                 try:
-                    observation = observe_request(
+                    observed_result, source_bytes, dependency_bytes = observe_request_for_pipeline(
                         payload,
                         ObservationContext(
                             endpoint=endpoint,
@@ -306,6 +360,9 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                         ),
                         settings.observation,
                     )
+                    observation = observed_result
+                    observation_sources = source_bytes
+                    observation_dependencies = dependency_bytes
                     for root in observation.roots:
                         for evidence_type in {item.type for item in root.evidence}:
                             observed_roots.labels(endpoint, route_name, evidence_type.value).inc()
@@ -316,6 +373,14 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                         observed_rejections.labels(
                             endpoint, route_name, rejection.reason.value
                         ).inc(rejection.count)
+
+                    dependency_observations.labels(endpoint, route_name, "observed").inc(
+                        len(observation.dependencies)
+                    )
+                    for dependency_rejection in observation.dependency_rejections:
+                        dependency_observations.labels(
+                            endpoint, route_name, dependency_rejection.reason.value
+                        ).inc(dependency_rejection.count)
                     status = "complete" if observation.complete else "incomplete"
                     reasons = observation.incomplete_reasons or (None,)
                     for reason in reasons:
@@ -329,6 +394,35 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                 observation_duration.labels(endpoint, route_name, status).observe(
                     time.monotonic() - observation_started
                 )
+
+            if constitution_pipeline is not None and route.constitution_enabled:
+                if observation is None:
+                    pipeline_result = constitution_pipeline.preserve_unobserved(
+                        payload=payload,
+                        body=post_image_body,
+                        endpoint=endpoint,
+                        route_name=route_name,
+                    )
+                else:
+                    try:
+                        pipeline_result = await constitution_pipeline.process(
+                            payload=payload,
+                            observation=observation,
+                            source_bytes_by_root=observation_sources,
+                            source_bytes_by_dependency=observation_dependencies,
+                            observation_policy=settings.observation,
+                            route=route,
+                            endpoint=endpoint,
+                            post_image_body=post_image_body,
+                            model=model,
+                        )
+                    except ConstitutionInjectionRejected as exc:
+                        return local_error(
+                            422,
+                            "constitutional injection failed",
+                            f"constitution_{exc.reason}",
+                        )
+                payload, body = pipeline_result.payload, pipeline_result.body
 
         try:
             key = settings.upstream.api_key()
