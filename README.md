@@ -234,15 +234,19 @@ verified by focused tests.
 
 The retained gates cover the synthetic long-root/dependency fixture, successful
 dependency-read lifecycle, sentinel attribution, bounded cache/metric
-reconciliation, and ordinary Codex command-path diagnostics. The 004-p control
-uses one fresh fixture and direct protected loopback `18020`, with the corrected
-global-option argv `codex --ask-for-approval never exec --sandbox <mode>` plus
-JSON/ephemeral mode and the same disabled `unified_exec` setting. It records the
-same normalized invocation fingerprint for danger-full-access and
-workspace-write. B runs first and A is gated on one exact `/usr/bin/true`
-command event with exit zero; the dependency read is gated after A and exact
-fingerprint equivalence. Raw bubblewrap, `unshare`, `codex sandbox`, retries,
-alternate prompts, and a third control are not used.
+reconciliation, and ordinary Codex command-path diagnostics. The 004-q
+qualification preserves 004-p's accepted danger-control baseline and uses one
+fresh workspace-write invocation against the direct protected loopback `18020`,
+with the corrected global-option argv `codex --ask-for-approval never exec
+--sandbox workspace-write` plus JSON/ephemeral mode and the same disabled
+`unified_exec` setting. Ordinary success is content-independent: it requires a
+recognized ordinary command with a completed exit-zero lifecycle, no failed
+command lifecycle, clean process exit, and no parser/startup/tool-boundary
+failure; exact command equality remains diagnostic. A was started once in
+004-q, but its sanitized result was not retrievable from that execution, so the
+dependency read and governed adapter stages were not run. Raw bubblewrap,
+`unshare`, `codex sandbox`, retries, alternate prompts, and a third control are
+not used.
 
 The historical raw probe is described narrowly as
 `raw_bwrap_unshare_all_loopback_bootstrap_failed`: it observed a handcrafted
@@ -252,10 +256,11 @@ sanitized evidence establishes that the OAP parent was host-direct/unsandboxed,
 so the result was not a nested-outer-sandbox artifact. The immutable 004-o
 recorded the original startup placement failure. In the corrected 004-p round,
 the ordinary B control reached Codex `0.149.0`, exited `0`, and emitted one
-successful shell command, but it was not the required exact `/usr/bin/true`
-(`command_equal=false`, origin `model_wrong_command`). The order therefore
-gated A, dependency `cat`, candidate adapter, compiler/model calls, and
-governed E2E. The implementation records only allowlisted
+successful shell command whose exact text differed from `/usr/bin/true`.
+004-q removed that over-strict equality gate and started one fresh
+workspace-write A invocation, but its sanitized result was not retrievable from
+this execution. The order therefore did not reach dependency `cat`, candidate
+adapter, compiler/model calls, or governed E2E. The implementation records only allowlisted
 config/environment/argv facts; it does not retain raw diagnostics or mutate
 the host configuration. Objective 004 remains at 15% and branch readiness at
 approximately 74%. No current host-wide command or sandbox capability

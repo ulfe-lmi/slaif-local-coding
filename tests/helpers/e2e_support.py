@@ -1576,21 +1576,25 @@ def run_ordinary_command_once(
 
 def ordinary_command_succeeded(run: SanitizedCodexRun) -> bool:
     diagnostics = run.command_diagnostics
+    lifecycle = diagnostics.lifecycle_counts
     return (
-        diagnostics.actual_command_count == 1
-        and diagnostics.actual_command_equal is True
+        diagnostics.actual_command_count >= 1
+        and lifecycle.get("completed", 0) >= 1
+        and lifecycle.get("failed", 0) == 0
         and diagnostics.command_status == "success"
         and diagnostics.command_exit_code == 0
         and run.exit_status == 0
         and diagnostics.process_status == "success"
         and not run.timed_out
+        and run.failure_origin
+        not in {"event_parser", "wrapper_exit_translation", "codex_startup", "tool_unavailable"}
     )
 
 
 def run_ordinary_command_pair(
     codex_bin: Path | str, fixture: GovernedFixturePaths
 ) -> tuple[SanitizedCodexRun, SanitizedCodexRun | None, bool | None]:
-    """Run B, then A only after B's exact command/process success."""
+    """Run B, then A only after B's successful ordinary command lifecycle."""
     danger = run_ordinary_command_once(codex_bin, fixture, "danger-full-access")
     if not ordinary_command_succeeded(danger):
         return danger, None, None

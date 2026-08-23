@@ -36,6 +36,7 @@ from tests.helpers.e2e_support import (
     constitution_metric_snapshot,
     governed_prompt,
     metric_value,
+    ordinary_command_succeeded,
     parse_codex_command_events,
     parse_codex_events,
     parse_command_diagnostics_events,
@@ -108,7 +109,9 @@ def _differential_probe(
     )
 
 
-def _fake_ordinary_codex(path: Path, *, fail_danger: bool = False) -> Path:
+def _fake_ordinary_codex(
+    path: Path, *, fail_danger: bool = False, command: str = "/usr/bin/true"
+) -> Path:
     failure = (
         "\nif mode == 'danger-full-access':\n"
         "    sys.stderr.write('startup failure\\n')\n"
@@ -135,7 +138,7 @@ def _fake_ordinary_codex(path: Path, *, fail_danger: bool = False) -> Path:
         "if '--version' in sys.argv:\n    print('codex-cli 0.149.0')\n    raise SystemExit(0)\n"
         "mode = sys.argv[sys.argv.index('--sandbox') + 1]\n"
         + failure
-        + "command = '/usr/bin/true'\n"
+        + f"command = {command!r}\n"
         + "events = [\n"
         + started
         + completed
@@ -401,19 +404,20 @@ def test_ordinary_command_parser_records_exactness_origin_and_rejections(
     assert "/usr/bin/false" not in str(asdict(facts))
 
 
-def test_ordinary_pair_fingerprint_matches_except_sandbox_and_gates_a(
+def test_ordinary_pair_fingerprint_matches_except_sandbox_and_accepts_successful_lifecycle(
     tmp_path: Path,
 ) -> None:
     fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
-    codex = _fake_ordinary_codex(tmp_path / "codex")
+    codex = _fake_ordinary_codex(tmp_path / "codex", command="/bin/true")
     danger, workspace, equivalent = run_ordinary_command_pair(codex, fixture)
     assert workspace is not None
     assert equivalent is True
     assert danger.sandbox_mode == "danger-full-access"
     assert workspace.sandbox_mode == "workspace-write"
     assert danger.invocation_fingerprint == workspace.invocation_fingerprint
-    assert danger.command_diagnostics.actual_command_equal is True
-    assert danger.failure_origin == "success"
+    assert danger.command_diagnostics.actual_command_equal is False
+    assert ordinary_command_succeeded(danger)
+    assert ordinary_command_succeeded(workspace)
     normalized_argv = dict(danger.invocation_fingerprint)["normalized_argv_template"].split("\0")
     assert normalized_argv.index("--ask-for-approval") < normalized_argv.index("exec")
 

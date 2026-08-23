@@ -118,13 +118,18 @@ approximately 74%; it is not a host-wide capability conclusion.
 
 The 004-o ordinary-command qualification supersedes that native helper as the
 decisive path. Its startup failure is retained as immutable history. The
-004-p correction places the global approval option before `exec`; its B control
-reached Codex `0.149.0`, exited `0`, and emitted one successful command, but
-not the required exact `/usr/bin/true` (`command_equal=false`, origin
-`model_wrong_command`). A was correctly gated, so dependency, adapter,
-compiler, and governed/cache calls remain `NOT RUN`; the first remaining
-blocker is outside Local Coding. The runner keeps raw streams temporary and
-reports only hashes, counts, fixed classes, fingerprints, and command equality.
+004-p correction places the global approval option before `exec`; its accepted
+B baseline reached Codex `0.149.0`, exited `0`, and emitted one successful
+command, although the model chose a different harmless command than the former
+literal `/usr/bin/true` gate (`command_equal=false`, origin
+`model_wrong_command`). 004-q accepts the successful lifecycle regardless of
+that diagnostic equality, while retaining the command hash/shape facts. Its one
+fresh workspace-write A invocation was started but did not return a retrievable
+sanitized result in this execution, so dependency, adapter, compiler, and
+governed/cache calls remain `NOT RUN`; no retry was made. The first remaining
+blocker is qualification evidence capture outside Local Coding. The runner
+keeps raw streams temporary and reports only hashes, counts, fixed classes,
+fingerprints, and command equality.
 
 ## CI and merge
 
