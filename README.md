@@ -234,19 +234,25 @@ verified by focused tests.
 
 The retained gates cover the synthetic long-root/dependency fixture, successful
 dependency-read lifecycle, sentinel attribution, bounded cache/metric
-reconciliation, and the final read-only sandbox-runtime boundary probe. The
-superseded intermediate preflight/differential/localization wrappers and their
-duplicated decision tables are not retained.
+reconciliation, and Codex's native workspace-write path. The no-model preflight
+uses the native `codex sandbox` command with `workspace-write`/`:workspace` and
+runs `true` followed by exact dependency `cat`; it never invokes raw bubblewrap,
+`unshare`, or a handcrafted sandbox approximation. Only after both probes pass
+may the candidate adapter and exactly two governed `codex exec` invocations run.
 
-The verified external result remains unchanged: the final helper probe returned
-fixed `not_found` evidence and the direct read-only bubblewrap probe returned
-fixed `sandbox_denied`/`bwrap_loopback_bootstrap` evidence. The deterministic
-classification is `bubblewrap_kernel_runtime_unsupported`; governed model
-calls are therefore gated to zero in this cleanup round. This is an external
-Codex/host runtime boundary, not a host repair or a portability claim.
-Objective 004 remains at 35% and branch readiness remains approximately 78%.
-No compaction, vision, production-readiness, cutover, or protected-service
-claim follows from this diagnostic.
+The historical raw probe is described narrowly as
+`raw_bwrap_unshare_all_loopback_bootstrap_failed`: it observed a handcrafted
+all-namespace loopback bootstrap failure. The earlier host/kernel inference was
+too broad because that probe was not the acceptance topology. Independently
+sanitized evidence establishes that the OAP parent was host-direct/unsandboxed,
+so the result was not a nested-outer-sandbox artifact. In the current round,
+Codex 0.149.0's native workspace-write preflight stopped at `true` with exit
+status 1 before dependency bytes crossed the boundary; the dependency `cat`,
+model calls, candidate adapter, and governed E2E were not run. Objective 004 is
+therefore reset to 15% and branch readiness to approximately 74%. No current
+host-wide bubblewrap capability conclusion follows. No compaction, vision,
+production-readiness, cutover, or protected-service claim follows from this
+preflight failure.
 
 ## Candidate quickstart
 

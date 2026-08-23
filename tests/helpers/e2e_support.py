@@ -64,8 +64,6 @@ DiagnosticFailureClass = Literal[
 ArgvShape = Literal["absent", "single_string", "argv_list", "shell_wrapped_list", "unsupported"]
 SandboxDiagnosticSubclass = Literal[
     "empty",
-    "bwrap_loopback_bootstrap",
-    "bwrap_bootstrap_denied",
     "permission",
     "not_found",
     "argument",
@@ -703,7 +701,7 @@ def _parsed_exit_code(value: object) -> int | None:
 
 
 _DIAGNOSTIC_PATTERNS: tuple[tuple[DiagnosticFailureClass, str], ...] = (
-    ("sandbox_denied", r"\b(bwrap|sandbox|blocked by policy|operation not permitted)\b"),
+    ("sandbox_denied", r"\b(sandbox|blocked by policy|operation not permitted)\b"),
     ("permission_denied", r"\b(permission denied|access denied|eacces|eperm)\b"),
     (
         "argv_unsupported",
@@ -748,10 +746,6 @@ def _classify_sandbox_diagnostic_subclass(text: str) -> SandboxDiagnosticSubclas
     lowered = first_line.lower()
     if not lowered:
         return "empty"
-    if "bwrap" in lowered and "rtm_newaddr" in lowered:
-        return "bwrap_loopback_bootstrap"
-    if "bwrap" in lowered:
-        return "bwrap_bootstrap_denied"
     if "permission denied" in lowered or "access denied" in lowered:
         return "permission"
     if "profile" in lowered and any(

@@ -93,15 +93,22 @@ Verify unchanged Codex client behavior, ordinary local tools, image full-view
 then crop, forced compaction or equivalent history reduction, cache reuse, and
 continued compliance.
 
-The real-Codex launcher and sandbox diagnostics are repository-only support in
-`tests/helpers/e2e_support.py` and `tests/helpers/sandbox_runtime.py`. They are
-not importable production modules and must not appear in the built wheel. The
-cleanup suite covers private fixture/config modes, fixed argv, bounded
-subprocess output/time, stdin closure, cleanup, sanitized lifecycle/provenance
-facts, sentinel/cache gates, and the final read-only sandbox-runtime decision.
-The verified `bubblewrap_kernel_runtime_unsupported` boundary remains an
-external test limitation; this cleanup does not run governed model calls or
-raise objective-004 completeness/readiness claims.
+The real-Codex launcher and native workspace-write preflight are repository-only
+support in `tests/helpers/e2e_support.py` and
+`tests/helpers/sandbox_runtime.py`. They are not importable production modules
+and must not appear in the built wheel. The suite covers private fixture/config
+modes, fixed native argv (`workspace-write`/`:workspace`), bounded subprocess
+output/time, stdin closure, cleanup, sanitized lifecycle/provenance facts,
+sentinel/cache gates, and strict no-model gating until exact dependency bytes
+are verified. It does not execute raw bubblewrap or `unshare` probes.
+
+The historical raw probe is retained only as the narrower
+`raw_bwrap_unshare_all_loopback_bootstrap_failed` audit description. The OAP
+parent is host-direct/unsandboxed; that evidence is distinct from the
+Codex-under-test policy. The current native Codex 0.149.0 preflight stopped at
+`true` with exit status 1, so dependency `cat`, governed model calls, and
+cache-reuse E2E were not run. This leaves objective 004 at 15% and branch
+readiness at approximately 74%; it is not a host-wide capability conclusion.
 
 ## CI and merge
 
