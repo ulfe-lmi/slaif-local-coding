@@ -266,6 +266,19 @@ tool, then requires literal compliance with the dependency's
 final message lacks the helper-known acknowledgment is reported as
 `sentinel_missing`; it is never counted as governance-derived success.
 
+Before a model-backed attempt, the command-failure diagnostic runs one direct,
+no-model `codex sandbox linux` preflight with the installed `workspace-write`
+permission profile. It reads the synthetic dependency through `/bin/cat` using
+a disposable `CODEX_HOME`, records only fixed platform/capability labels,
+process status, bounded stream hashes/counts, first-diagnostic class/subclass,
+root-containment booleans, and byte-equality facts, and never inherits API keys
+or other credentials. A failed preflight runs zero nested `codex exec` attempts;
+otherwise the existing two-attempt budget remains the hard maximum. Direct and
+nested evidence are classified as `workspace_sandbox_available`,
+`host_sandbox_bootstrap_unsupported`, `workspace_root_resolution_mismatch`,
+`invocation_config_precedence_error`, `command_event_schema_mismatch`, or
+`unresolved_with_fixed_evidence`.
+
 ## Candidate quickstart
 
 Python 3.12 and `uv` are required. The example intentionally obtains the

@@ -10,7 +10,7 @@ import tempfile
 import time
 import tomllib
 from collections import Counter
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Literal
 
@@ -24,14 +24,18 @@ from slaif_local_coding.e2e import (
     DependencyObservationFacts,
     GovernedFixturePaths,
     MetricDelta,
+    SandboxPreflightFacts,
     SanitizedCodexRun,
     _binary_stream_facts,
     _classify_dependency_cache_outcome,
     _classify_diagnostic_text,
+    _classify_sandbox_diagnostic_subclass,
     _final_agent_message_has_ack,
     _normalized_diagnostic_class,
     _reconcile_dependency_cache,
     _sentinel_failure_reason,
+    build_sandbox_preflight_argv,
+    classify_sandbox_boundary,
     constitution_metric_snapshot,
     governed_prompt,
     metric_value,
@@ -42,9 +46,40 @@ from slaif_local_coding.e2e import (
     read_persistent_cache_inventory,
     run_codex_once,
     run_command_failure_diagnostic,
+    run_sandbox_preflight,
     verify_direct_dependency_read,
     write_governed_fixture,
 )
+
+
+def _successful_sandbox_preflight(fixture: GovernedFixturePaths) -> SandboxPreflightFacts:
+    dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
+    dependency_hash = hashlib.sha256(dependency).hexdigest()
+    empty_hash = hashlib.sha256(b"").hexdigest()
+    return SandboxPreflightFacts(
+        cli_version="0.149.0",
+        platform="linux",
+        kernel_capabilities=("bwrap_present", "seccomp_probe_available"),
+        sandbox_mode="workspace-write",
+        permission_profile="workspace-write",
+        feature_labels=("direct_no_model", "workspace_write", "linux_bwrap_seccomp"),
+        policy_resolution="resolved",
+        working_directory_inside_repository=True,
+        target_inside_repository=True,
+        target_regular_file=True,
+        target_symlink=False,
+        target_byte_length=len(dependency),
+        target_sha256=dependency_hash,
+        observed_byte_length=len(dependency),
+        observed_sha256=dependency_hash,
+        byte_identical=True,
+        process_exit_status=0,
+        process_status="success",
+        timed_out=False,
+        stdout=BinaryStreamFacts(len(dependency), dependency_hash, "success", "other"),
+        stderr=BinaryStreamFacts(0, empty_hash, "unavailable"),
+        boundary_classification="workspace_sandbox_available",
+    )
 
 
 def test_fixture_is_isolated_private_and_governed() -> None:
@@ -411,6 +446,220 @@ def test_diagnostic_classes_and_stream_audit_do_not_retain_raw_text() -> None:
     assert "SECRET-FIRST-LINE" not in asdict(facts).values()
 
 
+def test_sandbox_preflight_command_is_explicit_and_in_root(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    target = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
+    command = build_sandbox_preflight_argv("codex", fixture.repository, target)
+    assert command[:5] == (
+        "codex",
+        "sandbox",
+        "linux",
+        "--permission-profile",
+        "workspace-write",
+    )
+    assert command[5] == "--cd"
+    assert command[7:] == ("--", "/bin/cat", "GOVERNANCE-DEPENDENCY.md")
+    assert all("danger" not in part for part in command)
+    with pytest.raises(ValueError, match="inside repository"):
+        build_sandbox_preflight_argv("codex", fixture.repository, tmp_path / "outside")
+
+
+def test_sandbox_preflight_sanitizes_bootstrap_diagnostic_and_bounds_output(
+    tmp_path: Path,
+) -> None:
+    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
+    fake_codex = tmp_path / "fake-codex.py"
+    fake_codex.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('codex-cli 0.149.0')\n"
+        "else:\n"
+        "    sys.stderr.write('bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\\n')\n"
+        "    sys.stderr.write('RAW-PRIVATE-DIAGNOSTIC\\n')\n"
+        "    raise SystemExit(1)\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o700)
+
+    facts = run_sandbox_preflight(fake_codex, fixture)
+
+    assert facts.cli_version == "0.149.0"
+    assert facts.sandbox_mode == "workspace-write"
+    assert facts.permission_profile == "workspace-write"
+    assert facts.policy_resolution == "resolved"
+    assert facts.target_inside_repository is True
+    assert facts.process_exit_status == 1
+    assert facts.stderr.first_line_class == "sandbox_denied"
+    assert facts.stderr.first_line_subclass == "bwrap_loopback_bootstrap"
+    assert facts.boundary_classification == "host_sandbox_bootstrap_unsupported"
+    assert facts.raw_output_retained is False
+    assert "RAW-PRIVATE-DIAGNOSTIC" not in str(asdict(facts))
+
+
+def test_sandbox_preflight_timeout_is_fixed_and_non_successful(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
+    fake_codex = tmp_path / "fake-codex-timeout.py"
+    fake_codex.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys, time\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('codex-cli 0.149.0')\n"
+        "else:\n"
+        "    time.sleep(2)\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o700)
+
+    facts = run_sandbox_preflight(fake_codex, fixture, timeout_seconds=0.01)
+
+    assert facts.timed_out is True
+    assert facts.successful is False
+    assert facts.boundary_classification == "unresolved_with_fixed_evidence"
+
+
+def test_sandbox_preflight_rejects_oversized_output_without_retaining_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
+    fake_codex = tmp_path / "fake-codex-large-output.py"
+    fake_codex.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('codex-cli 0.149.0')\n"
+        "else:\n"
+        "    sys.stderr.write('x' * 32)\n"
+        "    raise SystemExit(1)\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o700)
+    monkeypatch.setattr(e2e_module, "SANDBOX_PREFLIGHT_MAX_OUTPUT_BYTES", 8)
+
+    facts = run_sandbox_preflight(fake_codex, fixture)
+
+    assert facts.process_status == "unknown"
+    assert facts.boundary_classification == "unresolved_with_fixed_evidence"
+    assert facts.raw_output_retained is False
+
+
+def test_sandbox_boundary_classification_is_deterministic(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
+    available = _successful_sandbox_preflight(fixture)
+    failed = replace(
+        available,
+        process_exit_status=1,
+        process_status="failed",
+        byte_identical=False,
+        boundary_classification="host_sandbox_bootstrap_unsupported",
+    )
+    command_success = DependencyObservationFacts(
+        intended_dependency_reads=1,
+        started_commands=1,
+        completed_commands=1,
+        successful_dependency_reads=1,
+        output_sha256="a" * 64,
+        output_byte_length=1,
+    )
+    cases = [
+        (failed, None, "host_sandbox_bootstrap_unsupported"),
+        (
+            replace(
+                available,
+                target_inside_repository=False,
+                boundary_classification="workspace_root_resolution_mismatch",
+            ),
+            None,
+            "workspace_root_resolution_mismatch",
+        ),
+        (
+            available,
+            SanitizedCodexRun(
+                exit_status=0,
+                timed_out=False,
+                duration_seconds=0,
+                event_bytes=1,
+                event_type_counts={},
+                call_item_type_counts={},
+                tool_names=(),
+                tool_calls=0,
+                sentinel_passed=False,
+                failure_reason="unknown",
+                sandbox_mode="unknown",
+            ),
+            "invocation_config_precedence_error",
+        ),
+        (
+            available,
+            SanitizedCodexRun(
+                exit_status=0,
+                timed_out=False,
+                duration_seconds=0,
+                event_bytes=1,
+                event_type_counts={},
+                call_item_type_counts={},
+                tool_names=("command_execution",),
+                tool_calls=1,
+                sentinel_passed=False,
+                failure_reason="command_incomplete",
+                command_diagnostics=CommandDiagnostics(command_status="unknown"),
+            ),
+            "command_event_schema_mismatch",
+        ),
+        (
+            available,
+            SanitizedCodexRun(
+                exit_status=0,
+                timed_out=False,
+                duration_seconds=0,
+                event_bytes=1,
+                event_type_counts={},
+                call_item_type_counts={},
+                tool_names=("command_execution",),
+                tool_calls=1,
+                sentinel_passed=True,
+                failure_reason="success",
+                dependency_observation=command_success,
+                command_diagnostics=CommandDiagnostics(
+                    command_status="success", command_path_inside_repository=True
+                ),
+            ),
+            "workspace_sandbox_available",
+        ),
+        (
+            available,
+            SanitizedCodexRun(
+                exit_status=0,
+                timed_out=False,
+                duration_seconds=0,
+                event_bytes=1,
+                event_type_counts={},
+                call_item_type_counts={},
+                tool_names=(),
+                tool_calls=0,
+                sentinel_passed=False,
+                failure_reason="command_failed",
+            ),
+            "unresolved_with_fixed_evidence",
+        ),
+    ]
+    for preflight, nested, expected in cases:
+        assert classify_sandbox_boundary(preflight, nested) == expected
+
+
+def test_sandbox_diagnostic_subclasses_are_fixed() -> None:
+    assert (
+        _classify_sandbox_diagnostic_subclass(
+            "bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\nraw"
+        )
+        == "bwrap_loopback_bootstrap"
+    )
+    assert _classify_sandbox_diagnostic_subclass("unexpected argument") == "argument"
+    assert _classify_sandbox_diagnostic_subclass("") == "empty"
+
+
 def test_direct_dependency_read_control_is_private_and_byte_accurate(tmp_path: Path) -> None:
     fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
     dependency = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
@@ -566,6 +815,11 @@ def test_failure_diagnosis_uses_one_alternative_then_stops(
     monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
     monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
     monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_: fixture)
+    monkeypatch.setattr(
+        e2e_module,
+        "run_sandbox_preflight",
+        lambda *_args, **_kwargs: _successful_sandbox_preflight(fixture),
+    )
     facts = run_command_failure_diagnostic("unused")
     assert len(facts.attempts) == 2
     assert [attempt.read_form for attempt in facts.attempts] == [
@@ -622,6 +876,11 @@ def test_failure_diagnosis_stops_after_first_success(
     monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
     monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
     monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_: fixture)
+    monkeypatch.setattr(
+        e2e_module,
+        "run_sandbox_preflight",
+        lambda *_args, **_kwargs: _successful_sandbox_preflight(fixture),
+    )
     facts = run_command_failure_diagnostic("unused")
     assert len(facts.attempts) == 1
     assert facts.attempts[0].read_form == "relative_cat"

@@ -14,8 +14,10 @@ import io
 import json
 import math
 import os
+import platform
 import re
 import shlex
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -38,6 +40,10 @@ CODEX_MAX_EVENT_BYTES = 32_000_000
 CODEX_MAX_DIAGNOSTIC_BYTES = 1_048_576
 CODEX_MAX_ATTEMPTS = 2
 CACHE_INVENTORY_MAX_ENTRY_BYTES = 1_048_576
+SANDBOX_PREFLIGHT_TIMEOUT_SECONDS = 15.0
+SANDBOX_PREFLIGHT_MAX_OUTPUT_BYTES = 1_048_576
+SANDBOX_PERMISSION_PROFILE = "workspace-write"
+SANDBOX_PLATFORM = "linux"
 
 DependencyCommandState = Literal["success", "failed", "incomplete"]
 DependencyProvenanceClassification = Literal[
@@ -60,6 +66,26 @@ DiagnosticFailureClass = Literal[
     "unavailable",
 ]
 ArgvShape = Literal["absent", "single_string", "argv_list", "shell_wrapped_list", "unsupported"]
+SandboxDiagnosticSubclass = Literal[
+    "empty",
+    "bwrap_loopback_bootstrap",
+    "bwrap_bootstrap_denied",
+    "permission",
+    "not_found",
+    "argument",
+    "schema",
+    "timeout",
+    "other",
+]
+SandboxBoundaryClassification = Literal[
+    "workspace_sandbox_available",
+    "host_sandbox_bootstrap_unsupported",
+    "workspace_root_resolution_mismatch",
+    "invocation_config_precedence_error",
+    "command_event_schema_mismatch",
+    "unresolved_with_fixed_evidence",
+]
+SandboxPolicyResolution = Literal["resolved", "unresolved", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -111,6 +137,7 @@ class BinaryStreamFacts:
     byte_length: int
     sha256: str
     first_line_class: DiagnosticFailureClass
+    first_line_subclass: SandboxDiagnosticSubclass = "empty"
 
 
 @dataclass(frozen=True)
@@ -133,6 +160,48 @@ class CommandDiagnostics:
 
 
 @dataclass(frozen=True)
+class SandboxPreflightFacts:
+    """Sanitized result of one no-model Codex sandbox-helper read."""
+
+    cli_version: str | None
+    platform: str
+    kernel_capabilities: tuple[str, ...]
+    sandbox_mode: Literal["workspace-write"]
+    permission_profile: str
+    feature_labels: tuple[str, ...]
+    policy_resolution: SandboxPolicyResolution
+    working_directory_inside_repository: bool
+    target_inside_repository: bool
+    target_regular_file: bool
+    target_symlink: bool
+    target_byte_length: int | None
+    target_sha256: str | None
+    observed_byte_length: int | None
+    observed_sha256: str | None
+    byte_identical: bool | None
+    process_exit_status: int | None
+    process_status: Literal["success", "failed", "unknown"]
+    timed_out: bool
+    stdout: BinaryStreamFacts
+    stderr: BinaryStreamFacts
+    raw_output_retained: bool = False
+    boundary_classification: SandboxBoundaryClassification = "unresolved_with_fixed_evidence"
+
+    @property
+    def successful(self) -> bool:
+        return (
+            self.process_exit_status == 0
+            and self.process_status == "success"
+            and not self.timed_out
+            and self.working_directory_inside_repository
+            and self.target_inside_repository
+            and self.target_regular_file
+            and not self.target_symlink
+            and self.byte_identical is True
+        )
+
+
+@dataclass(frozen=True)
 class SanitizedCodexRun:
     """Non-confidential result of one bounded Codex execution."""
 
@@ -151,6 +220,8 @@ class SanitizedCodexRun:
         default_factory=lambda: DependencyObservationFacts()
     )
     command_diagnostics: CommandDiagnostics = field(default_factory=CommandDiagnostics)
+    sandbox_mode: Literal["workspace-write", "unknown"] = "workspace-write"
+    approval_policy: Literal["never", "unknown"] = "never"
 
 
 @dataclass(frozen=True)
@@ -218,6 +289,8 @@ class CommandFailureDiagnosisFacts:
     fixture_dependency_sha256: str
     fixture_dependency_byte_length: int
     fixture_dependency_stripped_sha256: str
+    sandbox_preflight: SandboxPreflightFacts | None = None
+    boundary_classification: SandboxBoundaryClassification = "unresolved_with_fixed_evidence"
 
     @property
     def dependency_provenance(self) -> DependencyProvenanceClassification:
@@ -532,6 +605,293 @@ def verify_direct_dependency_read(fixture: GovernedFixturePaths) -> DirectDepend
     )
 
 
+def _sandbox_environment(codex_home: Path) -> dict[str, str]:
+    """Build a disposable helper environment without inherited credentials."""
+
+    environment = {
+        name: os.environ[name] for name in ("PATH", "LANG", "LC_ALL", "TERM") if name in os.environ
+    }
+    environment.update(
+        {
+            "CODEX_HOME": str(codex_home),
+            "HOME": str(codex_home.parent),
+            "TMPDIR": str(codex_home.parent),
+        }
+    )
+    return environment
+
+
+def _sanitized_codex_version(codex_bin: Path | str, environment: Mapping[str, str]) -> str | None:
+    """Read only a semantic CLI version and discard bounded process text."""
+
+    try:
+        result = subprocess.run(
+            [str(codex_bin), "--version"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            env=dict(environment),
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for stream in (result.stdout, result.stderr):
+        for line in stream[:4_096].splitlines()[:4]:
+            match = re.search(rb"\b(\d+\.\d+\.\d+)\b", line)
+            if match is not None:
+                return match.group(1).decode("ascii")
+    return None
+
+
+def _sandbox_kernel_capabilities() -> tuple[str, ...]:
+    """Return fixed capability labels without retaining host paths or values."""
+
+    labels = [f"platform_{platform.system().lower() or 'unknown'}"]
+    labels.append("bwrap_present" if shutil.which("bwrap") else "bwrap_missing")
+    labels.append(
+        "user_namespace_probe_available"
+        if Path("/proc/sys/kernel/unprivileged_userns_clone").is_file()
+        else "user_namespace_probe_unavailable"
+    )
+    labels.append(
+        "seccomp_probe_available"
+        if Path("/proc/sys/kernel/seccomp/actions_avail").is_file()
+        else "seccomp_probe_unavailable"
+    )
+    return tuple(labels)
+
+
+def build_sandbox_preflight_argv(
+    codex_bin: Path | str, repository: Path, target: Path
+) -> tuple[str, ...]:
+    """Build the documented Linux helper command with a relative in-root target."""
+
+    repository_resolved = repository.resolve(strict=False)
+    target_resolved = target.resolve(strict=False)
+    try:
+        relative_target = target_resolved.relative_to(repository_resolved).as_posix()
+    except ValueError as exc:
+        raise ValueError("sandbox preflight target must be inside repository") from exc
+    if not relative_target or relative_target == ".":
+        raise ValueError("sandbox preflight target must be a file")
+    return (
+        str(codex_bin),
+        "sandbox",
+        SANDBOX_PLATFORM,
+        "--permission-profile",
+        SANDBOX_PERMISSION_PROFILE,
+        "--cd",
+        str(repository_resolved),
+        "--",
+        "/bin/cat",
+        relative_target,
+    )
+
+
+def _classify_sandbox_preflight(
+    *,
+    process_exit_status: int | None,
+    process_status: Literal["success", "failed", "unknown"],
+    timed_out: bool,
+    stderr: BinaryStreamFacts,
+    working_directory_inside_repository: bool,
+    target_inside_repository: bool,
+    target_regular_file: bool,
+    target_symlink: bool,
+    byte_identical: bool | None,
+) -> SandboxBoundaryClassification:
+    """Classify the direct helper boundary from fixed facts only."""
+
+    if not working_directory_inside_repository or not target_inside_repository:
+        return "workspace_root_resolution_mismatch"
+    if (
+        process_exit_status == 0
+        and process_status == "success"
+        and not timed_out
+        and target_regular_file
+        and not target_symlink
+        and byte_identical is True
+    ):
+        return "workspace_sandbox_available"
+    if timed_out:
+        return "unresolved_with_fixed_evidence"
+    if stderr.first_line_subclass in {"bwrap_loopback_bootstrap", "bwrap_bootstrap_denied"}:
+        return "host_sandbox_bootstrap_unsupported"
+    if stderr.first_line_class in {"sandbox_denied", "permission_denied"}:
+        return "host_sandbox_bootstrap_unsupported"
+    if stderr.first_line_class == "not_found" and target_regular_file and not target_symlink:
+        return "workspace_root_resolution_mismatch"
+    if stderr.first_line_class in {"argv_unsupported", "schema_invalid"}:
+        return "invocation_config_precedence_error"
+    return "unresolved_with_fixed_evidence"
+
+
+def run_sandbox_preflight(
+    codex_bin: Path | str,
+    fixture: GovernedFixturePaths,
+    *,
+    timeout_seconds: float = SANDBOX_PREFLIGHT_TIMEOUT_SECONDS,
+) -> SandboxPreflightFacts:
+    """Run one no-model sandbox-helper read and discard raw process streams."""
+
+    repository = fixture.repository.resolve(strict=False)
+    target = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
+    target_inside = False
+    target_regular = False
+    target_symlink = False
+    target_length: int | None = None
+    target_hash: str | None = None
+    target_bytes: bytes | None = None
+    try:
+        target_stat = target.lstat()
+        target_regular = stat.S_ISREG(target_stat.st_mode)
+        target_symlink = stat.S_ISLNK(target_stat.st_mode)
+        target_resolved = target.resolve(strict=False)
+        target_inside = target_resolved == repository or repository in target_resolved.parents
+        if target_regular and not target_symlink:
+            target_bytes = target.read_bytes()
+            target_length = len(target_bytes)
+            target_hash = hashlib.sha256(target_bytes).hexdigest()
+    except OSError:
+        target_bytes = None
+
+    environment = _sandbox_environment(fixture.codex_home)
+    cli_version = _sanitized_codex_version(codex_bin, environment)
+    stdout_facts = BinaryStreamFacts(
+        byte_length=0,
+        sha256=hashlib.sha256(b"").hexdigest(),
+        first_line_class="unavailable",
+    )
+    stderr_facts = stdout_facts
+    process_exit_status: int | None = None
+    timed_out = False
+    process_status: Literal["success", "failed", "unknown"] = "unknown"
+    try:
+        command = build_sandbox_preflight_argv(codex_bin, fixture.repository, target)
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            process = subprocess.Popen(
+                command,
+                cwd=repository,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout,
+                stderr=stderr,
+            )
+            try:
+                process_exit_status = process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                timed_out = True
+            process_status = (
+                "success"
+                if process_exit_status == 0 and not timed_out
+                else ("failed" if process_exit_status is not None or timed_out else "unknown")
+            )
+            for stream_name, stream in (("stdout", stdout), ("stderr", stderr)):
+                stream_length = stream.seek(0, os.SEEK_END)
+                if stream_length > SANDBOX_PREFLIGHT_MAX_OUTPUT_BYTES:
+                    raise OverflowError(f"sandbox preflight {stream_name} exceeded bound")
+                stream.seek(0)
+                facts = _binary_stream_facts(stream)
+                if stream_name == "stdout":
+                    stdout_facts = facts
+                else:
+                    stderr_facts = facts
+    except (OSError, subprocess.SubprocessError, OverflowError):
+        process_exit_status = None
+        process_status = "unknown"
+
+    observed_length = stdout_facts.byte_length if stdout_facts.byte_length else None
+    observed_hash = stdout_facts.sha256 if observed_length is not None else None
+    byte_identical: bool | None = (
+        target_hash is not None
+        and target_length is not None
+        and observed_hash == target_hash
+        and observed_length == target_length
+    )
+    if target_bytes is None or observed_length is None:
+        byte_identical = None
+    policy_resolution: SandboxPolicyResolution
+    if cli_version is None:
+        policy_resolution = "unknown"
+    elif stderr_facts.first_line_class in {"argv_unsupported", "schema_invalid"}:
+        policy_resolution = "unresolved"
+    else:
+        policy_resolution = "resolved"
+    classification = _classify_sandbox_preflight(
+        process_exit_status=process_exit_status,
+        process_status=process_status,
+        timed_out=timed_out,
+        stderr=stderr_facts,
+        working_directory_inside_repository=repository == fixture.repository.resolve(strict=False),
+        target_inside_repository=target_inside,
+        target_regular_file=target_regular,
+        target_symlink=target_symlink,
+        byte_identical=byte_identical,
+    )
+    return SandboxPreflightFacts(
+        cli_version=cli_version,
+        platform=SANDBOX_PLATFORM,
+        kernel_capabilities=_sandbox_kernel_capabilities(),
+        sandbox_mode="workspace-write",
+        permission_profile=SANDBOX_PERMISSION_PROFILE,
+        feature_labels=("direct_no_model", "workspace_write", "linux_bwrap_seccomp"),
+        policy_resolution=policy_resolution,
+        working_directory_inside_repository=repository == fixture.repository.resolve(strict=False),
+        target_inside_repository=target_inside,
+        target_regular_file=target_regular,
+        target_symlink=target_symlink,
+        target_byte_length=target_length,
+        target_sha256=target_hash,
+        observed_byte_length=observed_length,
+        observed_sha256=observed_hash,
+        byte_identical=byte_identical,
+        process_exit_status=process_exit_status,
+        process_status=process_status,
+        timed_out=timed_out,
+        stdout=stdout_facts,
+        stderr=stderr_facts,
+        boundary_classification=classification,
+    )
+
+
+def classify_sandbox_boundary(
+    preflight: SandboxPreflightFacts, nested_run: SanitizedCodexRun | None = None
+) -> SandboxBoundaryClassification:
+    """Compare direct helper facts with a nested Codex lifecycle, if permitted."""
+
+    if not preflight.successful:
+        return preflight.boundary_classification
+    if nested_run is None:
+        return "workspace_sandbox_available"
+    if nested_run.command_diagnostics.command_path_inside_repository is False:
+        return "workspace_root_resolution_mismatch"
+    if (
+        nested_run.sandbox_mode != SANDBOX_PERMISSION_PROFILE
+        or nested_run.approval_policy != "never"
+        or nested_run.command_diagnostics.failure_class in {"argv_unsupported", "schema_invalid"}
+        or (
+            nested_run.command_diagnostics.actual_argv_shape != "absent"
+            and nested_run.command_diagnostics.requested_argv_shape
+            != nested_run.command_diagnostics.actual_argv_shape
+        )
+    ):
+        return "invocation_config_precedence_error"
+    if (
+        nested_run.command_diagnostics.command_status == "unknown"
+        and nested_run.tool_calls > 0
+        and nested_run.dependency_observation.intended_dependency_reads == 0
+    ):
+        return "command_event_schema_mismatch"
+    if (
+        nested_run.failure_reason == "success"
+        and nested_run.dependency_observation.lifecycle == "success"
+    ):
+        return "workspace_sandbox_available"
+    return "unresolved_with_fixed_evidence"
+
+
 def write_local_model_catalog(
     codex_bin: Path | str, destination: Path, *, model: str = DEFAULT_MODEL
 ) -> None:
@@ -764,7 +1124,7 @@ def _parsed_exit_code(value: object) -> int | None:
 
 
 _DIAGNOSTIC_PATTERNS: tuple[tuple[DiagnosticFailureClass, str], ...] = (
-    ("sandbox_denied", r"\b(sandbox|blocked by policy|operation not permitted)\b"),
+    ("sandbox_denied", r"\b(bwrap|sandbox|blocked by policy|operation not permitted)\b"),
     ("permission_denied", r"\b(permission denied|access denied|eacces|eperm)\b"),
     ("not_found", r"\b(no such file or directory|not found|enoent)\b"),
     ("argv_unsupported", r"\b(unrecognized option|unexpected argument|unknown option)\b"),
@@ -773,15 +1133,48 @@ _DIAGNOSTIC_PATTERNS: tuple[tuple[DiagnosticFailureClass, str], ...] = (
 )
 
 
-def _classify_diagnostic_text(text: str) -> DiagnosticFailureClass:
-    """Map only the first text line through fixed allowlisted patterns."""
+def _first_diagnostic_line(text: str) -> str:
+    """Ignore fixed Codex warning preambles before classifying diagnostics."""
 
-    lines = text.splitlines()
-    first_line = lines[0] if lines else ""
+    for line in text.splitlines():
+        if line.strip().lower().startswith(("warning:", "warn:")):
+            continue
+        return line
+    return ""
+
+
+def _classify_diagnostic_text(text: str) -> DiagnosticFailureClass:
+    """Map only the first diagnostic line through fixed allowlisted patterns."""
+
+    first_line = _first_diagnostic_line(text)
     for failure_class, pattern in _DIAGNOSTIC_PATTERNS:
         if re.search(pattern, first_line, flags=re.IGNORECASE):
             return failure_class
     return "success" if first_line else "unavailable"
+
+
+def _classify_sandbox_diagnostic_subclass(text: str) -> SandboxDiagnosticSubclass:
+    """Map one first diagnostic line to a fixed privacy-safe subclass."""
+
+    first_line = _first_diagnostic_line(text)
+    lowered = first_line.lower()
+    if not lowered:
+        return "empty"
+    if "bwrap" in lowered and "rtm_newaddr" in lowered:
+        return "bwrap_loopback_bootstrap"
+    if "bwrap" in lowered:
+        return "bwrap_bootstrap_denied"
+    if "permission denied" in lowered or "access denied" in lowered:
+        return "permission"
+    if "no such file or directory" in lowered or "not found" in lowered:
+        return "not_found"
+    if "unrecognized option" in lowered or "unexpected argument" in lowered:
+        return "argument"
+    if "schema" in lowered or "invalid request" in lowered:
+        return "schema"
+    if "timeout" in lowered or "timed out" in lowered:
+        return "timeout"
+    return "other"
 
 
 def _binary_stream_facts(stream: io.BufferedIOBase) -> BinaryStreamFacts:
@@ -802,6 +1195,9 @@ def _binary_stream_facts(stream: io.BufferedIOBase) -> BinaryStreamFacts:
         byte_length=length,
         sha256=digest.hexdigest(),
         first_line_class=_classify_diagnostic_text(first_line.decode("utf-8", errors="replace")),
+        first_line_subclass=_classify_sandbox_diagnostic_subclass(
+            first_line.decode("utf-8", errors="replace")
+        ),
     )
 
 
@@ -1268,6 +1664,8 @@ def run_codex_once(
         command_event_counts=dict(command_event_counts),
         dependency_observation=dependency_observation,
         command_diagnostics=command_diagnostics,
+        sandbox_mode="workspace-write",
+        approval_policy="never",
     )
 
 
@@ -1680,37 +2078,44 @@ def run_command_failure_diagnostic(
     base_url: str = DEFAULT_ADAPTER_BASE_URL,
     api_key_env: str = DEFAULT_API_KEY_ENV,
 ) -> CommandFailureDiagnosisFacts:
-    """Run one fixture and at most current-plus-alternative fresh attempts."""
+    """Preflight the OS sandbox, then allow at most two governed attempts."""
 
     with tempfile.TemporaryDirectory(prefix="slaif-codex-command-diagnosis-") as temporary:
         fixture = write_governed_fixture(Path(temporary), base_url, api_key_env)
-        write_local_model_catalog(codex_bin, fixture.model_catalog)
         dependency_path = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
         dependency_bytes = dependency_path.read_bytes()
         dependency_hash = hashlib.sha256(dependency_bytes).hexdigest()
         stripped_hash = hashlib.sha256(dependency_bytes.rstrip()).hexdigest()
         dependency_length = len(dependency_bytes)
+        preflight = run_sandbox_preflight(codex_bin, fixture)
 
         attempts: list[CommandDiagnosticAttempt] = []
-        forms: tuple[DependencyReadForm, ...] = ("relative_cat", "absolute_bin_cat")
-        for read_form in forms:
-            direct_read = verify_direct_dependency_read(fixture)
-            run = run_codex_once(codex_bin, fixture, governed_prompt(read_form=read_form))
-            attempts.append(
-                CommandDiagnosticAttempt(
-                    read_form=read_form,
-                    direct_read=direct_read,
-                    run=run,
+        if preflight.successful:
+            write_local_model_catalog(codex_bin, fixture.model_catalog)
+            forms: tuple[DependencyReadForm, ...] = ("relative_cat", "absolute_bin_cat")
+            for read_form in forms:
+                direct_read = verify_direct_dependency_read(fixture)
+                run = run_codex_once(codex_bin, fixture, governed_prompt(read_form=read_form))
+                attempts.append(
+                    CommandDiagnosticAttempt(
+                        read_form=read_form,
+                        direct_read=direct_read,
+                        run=run,
+                    )
                 )
-            )
-            if run.failure_reason == "success":
-                break
+                if run.failure_reason == "success":
+                    break
 
+    boundary_classification = classify_sandbox_boundary(
+        preflight, attempts[-1].run if attempts else None
+    )
     return CommandFailureDiagnosisFacts(
         attempts=tuple(attempts),
         fixture_dependency_sha256=dependency_hash,
         fixture_dependency_byte_length=dependency_length,
         fixture_dependency_stripped_sha256=stripped_hash,
+        sandbox_preflight=preflight,
+        boundary_classification=boundary_classification,
     )
 
 
