@@ -10,33 +10,22 @@ import tempfile
 import time
 import tomllib
 from collections import Counter
-from collections.abc import Callable
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
 
 import pytest
 
-from slaif_local_coding.e2e import (
+from tests.helpers.e2e_support import (
     BinaryStreamFacts,
-    BubblewrapProbeFacts,
     CacheInventory,
     CacheInventoryEntry,
     CommandDiagnostics,
     DependencyObservationFacts,
     GovernedFixturePaths,
-    InstalledDirectoryFacts,
-    InstalledPathFacts,
     MetricDelta,
-    SandboxDifferentialFacts,
-    SandboxInstallationLayoutFacts,
-    SandboxLocalization,
-    SandboxPreflightFacts,
-    SandboxProbeFacts,
     SanitizedCodexRun,
-    SanitizedExecutableFacts,
     _binary_stream_facts,
-    _build_sandbox_probe_argv,
     _classify_dependency_cache_outcome,
     _classify_diagnostic_text,
     _classify_sandbox_diagnostic_subclass,
@@ -44,10 +33,6 @@ from slaif_local_coding.e2e import (
     _normalized_diagnostic_class,
     _reconcile_dependency_cache,
     _sentinel_failure_reason,
-    build_sandbox_preflight_argv,
-    classify_sandbox_boundary,
-    classify_sandbox_differential,
-    classify_sandbox_runtime_boundary,
     constitution_metric_snapshot,
     governed_prompt,
     metric_value,
@@ -57,54 +42,26 @@ from slaif_local_coding.e2e import (
     parse_dependency_observation_events,
     read_persistent_cache_inventory,
     run_codex_once,
-    run_command_failure_diagnostic,
-    run_localized_command_failure_diagnostic,
-    run_sandbox_differential_matrix,
-    run_sandbox_preflight,
-    run_sandbox_runtime_boundary_diagnostic,
-    verify_direct_dependency_read,
     write_governed_fixture,
+)
+from tests.helpers.sandbox_runtime import (
+    BubblewrapProbeFacts,
+    InstalledDirectoryFacts,
+    InstalledPathFacts,
+    SandboxInstallationLayoutFacts,
+    SandboxProbeFacts,
+    SanitizedExecutableFacts,
+    _build_sandbox_probe_argv,
+    classify_sandbox_runtime_boundary,
+    run_sandbox_runtime_boundary_diagnostic,
 )
 
 
-def _successful_sandbox_preflight(fixture: GovernedFixturePaths) -> SandboxPreflightFacts:
-    dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
-    dependency_hash = hashlib.sha256(dependency).hexdigest()
-    empty_hash = hashlib.sha256(b"").hexdigest()
-    return SandboxPreflightFacts(
-        cli_version="0.149.0",
-        platform="linux",
-        kernel_capabilities=("bwrap_present", "seccomp_probe_available"),
-        sandbox_mode="workspace-write",
-        permission_profile=":workspace",
-        feature_labels=("direct_no_model", "workspace_write", "linux_bwrap_seccomp"),
-        policy_resolution="resolved",
-        working_directory_inside_repository=True,
-        target_inside_repository=True,
-        target_regular_file=True,
-        target_symlink=False,
-        target_byte_length=len(dependency),
-        target_sha256=dependency_hash,
-        observed_byte_length=len(dependency),
-        observed_sha256=dependency_hash,
-        byte_identical=True,
-        process_exit_status=0,
-        process_status="success",
-        timed_out=False,
-        stdout=BinaryStreamFacts(len(dependency), dependency_hash, "success", "other"),
-        stderr=BinaryStreamFacts(0, empty_hash, "unavailable"),
-        boundary_classification="workspace_sandbox_available",
-    )
-
-
 def _differential_probe(
-    command: Literal["true", "pwd", "cat"],
+    command: Literal["true", "cat"],
     *,
     success: bool,
-    failure_class: Literal[
-        "not_found", "sandbox_denied", "permission_denied", "unavailable", "success"
-    ] = "unavailable",
-    root_class: Literal["system_tmp", "repo_owned_scratch", "other"] = "system_tmp",
+    failure_class: Literal["not_found", "sandbox_denied"] = "not_found",
 ) -> SandboxProbeFacts:
     empty_hash = hashlib.sha256(b"").hexdigest()
     executable = SanitizedExecutableFacts(
@@ -115,20 +72,9 @@ def _differential_probe(
         symlink=False,
         resolved_basename_class="expected",
     )
-    stdout = BinaryStreamFacts(
-        byte_length=0,
-        sha256=empty_hash,
-        first_line_class="unavailable",
-    )
-    stderr = BinaryStreamFacts(
-        byte_length=(0 if failure_class == "unavailable" else 1),
-        sha256=empty_hash,
-        first_line_class=failure_class,
-        first_line_subclass=("empty" if failure_class == "unavailable" else "not_found"),
-    )
     return SandboxProbeFacts(
         command=command,
-        root_class=root_class,
+        root_class="system_tmp",
         executable=executable,
         working_directory_inside_repository=True,
         target_inside_repository=True if command == "cat" else None,
@@ -145,8 +91,13 @@ def _differential_probe(
         process_exit_status=0 if success else 1,
         process_status="success" if success else "failed",
         timed_out=False,
-        stdout=stdout,
-        stderr=stderr,
+        stdout=BinaryStreamFacts(0, empty_hash, "unavailable"),
+        stderr=BinaryStreamFacts(
+            0 if success else 1,
+            empty_hash,
+            "unavailable" if success else failure_class,
+            "empty" if success else "not_found",
+        ),
         policy_resolution="resolved",
     )
 
@@ -196,10 +147,43 @@ def test_fixture_is_isolated_private_and_governed() -> None:
         assert status.stdout == ""
 
 
+def test_subprocess_environment_allows_only_named_credential(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tests.helpers.e2e_support as e2e_module
+
+    monkeypatch.setenv("QWEN3090_API_KEY", "unit-test-secret")
+    monkeypatch.setenv("UNRELATED_SECRET", "must-not-cross-boundary")
+    environment = e2e_module._sandbox_environment(tmp_path, "QWEN3090_API_KEY")
+
+    assert environment["QWEN3090_API_KEY"] == "unit-test-secret"
+    assert "UNRELATED_SECRET" not in environment
+    with pytest.raises(ValueError, match="environment variable name"):
+        e2e_module._sandbox_environment(tmp_path, "bad-name=value")
+
+
+def test_model_catalog_subprocess_output_is_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tests.helpers.e2e_support as e2e_module
+
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    fake_codex = tmp_path / "fake-codex.py"
+    fake_codex.write_text(
+        "#!/usr/bin/env python3\nimport sys\nsys.stdout.write('x' * 32)\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o700)
+    monkeypatch.setattr(e2e_module, "CODEX_MAX_DIAGNOSTIC_BYTES", 8)
+
+    with pytest.raises(RuntimeError, match="output_exceeded"):
+        e2e_module.write_local_model_catalog(fake_codex, fixture.model_catalog)
+
+
 def test_runner_prompts_never_contain_delegated_sentinel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import slaif_local_coding.e2e as e2e_module
+    import tests.helpers.e2e_support as e2e_module
 
     prompts: list[str] = []
     sentinel_tokens: list[str] = []
@@ -269,7 +253,7 @@ def test_final_agent_ack_is_checked_without_retaining_text() -> None:
 
 
 def test_governed_runner_rejects_invalid_budget(tmp_path: Path) -> None:
-    from slaif_local_coding.e2e import run_governed_e2e
+    from tests.helpers.e2e_support import run_governed_e2e
 
     with pytest.raises(ValueError, match="invalid attempt budget"):
         run_governed_e2e("unused", max_attempts=0)
@@ -536,7 +520,7 @@ def test_warning_preambles_reveal_first_meaningful_bounded_diagnostic() -> None:
 
 
 def test_diagnostic_line_scan_has_fixed_count_and_length_bounds() -> None:
-    import slaif_local_coding.e2e as e2e_module
+    import tests.helpers.e2e_support as e2e_module
 
     after_bound = b"\n".join(
         [b"Warning: preamble"] * e2e_module.SANDBOX_DIAGNOSTIC_MAX_LINES + [b"Permission denied"]
@@ -552,324 +536,6 @@ def test_diagnostic_line_scan_has_fixed_count_and_length_bounds() -> None:
     assert facts.diagnostic_line_max_bytes == e2e_module.SANDBOX_DIAGNOSTIC_MAX_LINE_BYTES
     assert facts.diagnostic_line_truncated is True
     assert facts.byte_length == len(long_warning) + len(b"\nPermission denied\n")
-
-
-def test_sandbox_preflight_command_is_explicit_and_in_root(tmp_path: Path) -> None:
-    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
-    target = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
-    command = build_sandbox_preflight_argv("codex", fixture.repository, target)
-    assert command[:4] == (
-        "codex",
-        "sandbox",
-        "--permission-profile",
-        ":workspace",
-    )
-    assert command[4] == "--cd"
-    assert command[6:] == ("--", "/bin/cat", "GOVERNANCE-DEPENDENCY.md")
-    assert "linux" not in command
-    assert all("danger" not in part for part in command)
-    with pytest.raises(ValueError, match="inside repository"):
-        build_sandbox_preflight_argv("codex", fixture.repository, tmp_path / "outside")
-
-
-def test_sandbox_preflight_sanitizes_bootstrap_diagnostic_and_bounds_output(
-    tmp_path: Path,
-) -> None:
-    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
-    fake_codex = tmp_path / "fake-codex.py"
-    fake_codex.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys\n"
-        "if sys.argv[1:] == ['--version']:\n"
-        "    print('codex-cli 0.149.0')\n"
-        "else:\n"
-        "    sys.stderr.write('bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted\\n')\n"
-        "    sys.stderr.write('RAW-PRIVATE-DIAGNOSTIC\\n')\n"
-        "    raise SystemExit(1)\n",
-        encoding="utf-8",
-    )
-    fake_codex.chmod(0o700)
-
-    facts = run_sandbox_preflight(fake_codex, fixture)
-
-    assert facts.cli_version == "0.149.0"
-    assert facts.sandbox_mode == "workspace-write"
-    assert facts.permission_profile == ":workspace"
-    assert facts.policy_resolution == "resolved"
-    assert facts.target_inside_repository is True
-    assert facts.process_exit_status == 1
-    assert facts.stderr.first_line_class == "sandbox_denied"
-    assert facts.stderr.first_line_subclass == "bwrap_loopback_bootstrap"
-    assert facts.boundary_classification == "host_sandbox_bootstrap_unsupported"
-    assert facts.raw_output_retained is False
-    assert "RAW-PRIVATE-DIAGNOSTIC" not in str(asdict(facts))
-
-
-def test_sandbox_preflight_rejecting_builtin_profile_is_config_error(tmp_path: Path) -> None:
-    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
-    fake_codex = tmp_path / "fake-codex-profile-rejection.py"
-    fake_codex.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys\n"
-        "if sys.argv[1:] == ['--version']:\n"
-        "    print('codex-cli 0.149.0')\n"
-        "else:\n"
-        "    sys.stderr.write('Warning: startup preamble\\n')\n"
-        "    sys.stderr.write('error: permission profile :workspace is not valid\\n')\n"
-        "    sys.stderr.write('RAW-PROFILE-DIAGNOSTIC\\n')\n"
-        "    raise SystemExit(2)\n",
-        encoding="utf-8",
-    )
-    fake_codex.chmod(0o700)
-
-    facts = run_sandbox_preflight(fake_codex, fixture)
-
-    assert facts.permission_profile == ":workspace"
-    assert facts.policy_resolution == "unresolved"
-    assert facts.stderr.first_line_class == "argv_unsupported"
-    assert facts.stderr.first_line_subclass == "configuration"
-    assert facts.boundary_classification == "invocation_config_precedence_error"
-    assert "RAW-PROFILE-DIAGNOSTIC" not in str(asdict(facts))
-
-
-def test_sandbox_preflight_timeout_is_fixed_and_non_successful(tmp_path: Path) -> None:
-    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
-    fake_codex = tmp_path / "fake-codex-timeout.py"
-    fake_codex.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys, time\n"
-        "if sys.argv[1:] == ['--version']:\n"
-        "    print('codex-cli 0.149.0')\n"
-        "else:\n"
-        "    time.sleep(2)\n",
-        encoding="utf-8",
-    )
-    fake_codex.chmod(0o700)
-
-    facts = run_sandbox_preflight(fake_codex, fixture, timeout_seconds=0.01)
-
-    assert facts.timed_out is True
-    assert facts.successful is False
-    assert facts.boundary_classification == "unresolved_with_fixed_evidence"
-
-
-def test_sandbox_preflight_rejects_oversized_output_without_retaining_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import slaif_local_coding.e2e as e2e_module
-
-    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
-    fake_codex = tmp_path / "fake-codex-large-output.py"
-    fake_codex.write_text(
-        "#!/usr/bin/env python3\n"
-        "import sys\n"
-        "if sys.argv[1:] == ['--version']:\n"
-        "    print('codex-cli 0.149.0')\n"
-        "else:\n"
-        "    sys.stderr.write('x' * 32)\n"
-        "    raise SystemExit(1)\n",
-        encoding="utf-8",
-    )
-    fake_codex.chmod(0o700)
-    monkeypatch.setattr(e2e_module, "SANDBOX_PREFLIGHT_MAX_OUTPUT_BYTES", 8)
-
-    facts = run_sandbox_preflight(fake_codex, fixture)
-
-    assert facts.process_status == "unknown"
-    assert facts.boundary_classification == "unresolved_with_fixed_evidence"
-    assert facts.raw_output_retained is False
-
-
-def test_sandbox_boundary_classification_is_deterministic(tmp_path: Path) -> None:
-    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
-    available = _successful_sandbox_preflight(fixture)
-    failed = replace(
-        available,
-        process_exit_status=1,
-        process_status="failed",
-        byte_identical=False,
-        boundary_classification="host_sandbox_bootstrap_unsupported",
-    )
-    command_success = DependencyObservationFacts(
-        intended_dependency_reads=1,
-        started_commands=1,
-        completed_commands=1,
-        successful_dependency_reads=1,
-        output_sha256="a" * 64,
-        output_byte_length=1,
-    )
-    cases = [
-        (failed, None, "host_sandbox_bootstrap_unsupported"),
-        (
-            replace(
-                available,
-                target_inside_repository=False,
-                boundary_classification="workspace_root_resolution_mismatch",
-            ),
-            None,
-            "workspace_root_resolution_mismatch",
-        ),
-        (
-            available,
-            SanitizedCodexRun(
-                exit_status=0,
-                timed_out=False,
-                duration_seconds=0,
-                event_bytes=1,
-                event_type_counts={},
-                call_item_type_counts={},
-                tool_names=(),
-                tool_calls=0,
-                sentinel_passed=False,
-                failure_reason="unknown",
-                sandbox_mode="unknown",
-            ),
-            "invocation_config_precedence_error",
-        ),
-        (
-            available,
-            SanitizedCodexRun(
-                exit_status=0,
-                timed_out=False,
-                duration_seconds=0,
-                event_bytes=1,
-                event_type_counts={},
-                call_item_type_counts={},
-                tool_names=("command_execution",),
-                tool_calls=1,
-                sentinel_passed=False,
-                failure_reason="command_incomplete",
-                command_diagnostics=CommandDiagnostics(command_status="unknown"),
-            ),
-            "command_event_schema_mismatch",
-        ),
-        (
-            available,
-            SanitizedCodexRun(
-                exit_status=0,
-                timed_out=False,
-                duration_seconds=0,
-                event_bytes=1,
-                event_type_counts={},
-                call_item_type_counts={},
-                tool_names=("command_execution",),
-                tool_calls=1,
-                sentinel_passed=True,
-                failure_reason="success",
-                dependency_observation=command_success,
-                command_diagnostics=CommandDiagnostics(
-                    command_status="success", command_path_inside_repository=True
-                ),
-            ),
-            "workspace_sandbox_available",
-        ),
-        (
-            available,
-            SanitizedCodexRun(
-                exit_status=0,
-                timed_out=False,
-                duration_seconds=0,
-                event_bytes=1,
-                event_type_counts={},
-                call_item_type_counts={},
-                tool_names=(),
-                tool_calls=0,
-                sentinel_passed=False,
-                failure_reason="command_failed",
-            ),
-            "unresolved_with_fixed_evidence",
-        ),
-    ]
-    for preflight, nested, expected in cases:
-        assert classify_sandbox_boundary(preflight, nested) == expected
-
-
-def test_sandbox_differential_decision_table_is_explicit() -> None:
-    successful_true = _differential_probe("true", success=True)
-    successful_pwd = _differential_probe("pwd", success=True)
-    successful_cat = _differential_probe("cat", success=True)
-    assert (
-        classify_sandbox_differential((successful_true, successful_pwd, successful_cat))
-        == "workspace_sandbox_available_system_tmp"
-    )
-    assert (
-        classify_sandbox_differential(
-            (
-                successful_true,
-                _differential_probe("pwd", success=False, failure_class="not_found"),
-            )
-        )
-        == "workspace_mapping_failure_system_tmp"
-    )
-    assert (
-        classify_sandbox_differential(
-            (
-                successful_true,
-                _differential_probe("pwd", success=False, failure_class="not_found"),
-            ),
-            _differential_probe("cat", success=True, root_class="repo_owned_scratch"),
-        )
-        == "workspace_sandbox_available_repo_scratch"
-    )
-    assert (
-        classify_sandbox_differential(
-            (
-                successful_true,
-                successful_pwd,
-                _differential_probe("cat", success=False, failure_class="not_found"),
-            )
-        )
-        == "target_mapping_failure"
-    )
-    assert (
-        classify_sandbox_differential(
-            (_differential_probe("true", success=False, failure_class="not_found"),)
-        )
-        == "helper_executable_mapping_failure"
-    )
-    assert (
-        classify_sandbox_differential(
-            (_differential_probe("true", success=False, failure_class="sandbox_denied"),)
-        )
-        == "host_sandbox_runtime_failure"
-    )
-    assert classify_sandbox_differential(()) == "unresolved_with_fixed_evidence"
-
-
-def test_sandbox_differential_matrix_stops_and_cleans_private_scratch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import slaif_local_coding.e2e as e2e_module
-
-    calls: list[tuple[str, Path]] = []
-
-    def fake_probe(
-        _codex_bin: object,
-        fixture: GovernedFixturePaths,
-        command: Literal["true", "pwd", "cat"],
-        checkout: Path,
-    ) -> SandboxProbeFacts:
-        calls.append((command, fixture.repository))
-        root_class = (
-            "repo_owned_scratch" if checkout in fixture.repository.parents else "system_tmp"
-        )
-        if root_class == "system_tmp" and command == "true":
-            return _differential_probe(command, success=True)
-        if root_class == "system_tmp" and command == "pwd":
-            return _differential_probe(command, success=False, failure_class="not_found")
-        return _differential_probe(command, success=True, root_class="repo_owned_scratch")
-
-    monkeypatch.setattr(e2e_module, "_run_sandbox_probe", fake_probe)
-    facts = run_sandbox_differential_matrix("unused", product_checkout=tmp_path)
-
-    assert [command for command, _ in calls] == ["true", "pwd", "cat"]
-    assert facts.helper_calls == 3
-    assert facts.repo_scratch_attempted is True
-    assert facts.repo_scratch_private is True
-    assert facts.repo_scratch_cleanup_verified is True
-    assert facts.repo_scratch_probe is not None
-    assert facts.classification == "workspace_sandbox_available_repo_scratch"
-    assert not any(path.exists() for _, path in calls if tmp_path in path.parents)
 
 
 def _runtime_layout() -> SandboxInstallationLayoutFacts:
@@ -1001,7 +667,7 @@ def test_sandbox_runtime_probe_argv_allows_only_fixed_executable_spellings(
 def test_sandbox_runtime_failure_gates_models_and_stops_at_two_probes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import slaif_local_coding.e2e as e2e_module
+    import tests.helpers.sandbox_runtime as e2e_module
 
     layout = _runtime_layout()
     failed_true = _differential_probe("true", success=False, failure_class="not_found")
@@ -1036,7 +702,7 @@ def test_sandbox_runtime_failure_gates_models_and_stops_at_two_probes(
 def test_sandbox_runtime_success_allows_at_most_two_governed_calls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import slaif_local_coding.e2e as e2e_module
+    import tests.helpers.sandbox_runtime as e2e_module
 
     fixture_holder: list[GovernedFixturePaths] = []
     successful_true = _differential_probe("true", success=True)
@@ -1098,111 +764,6 @@ def test_sandbox_runtime_success_allows_at_most_two_governed_calls(
     assert model_calls == 2
 
 
-def test_localized_diagnostic_gates_models_on_exact_helper_bytes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import slaif_local_coding.e2e as e2e_module
-
-    catalog_calls = 0
-    model_calls = 0
-    matrix_calls = 0
-
-    def fake_catalog(_codex_bin: object, _destination: object) -> None:
-        nonlocal catalog_calls
-        catalog_calls += 1
-
-    def fake_run(
-        _codex_bin: object, fixture: GovernedFixturePaths, _prompt: str
-    ) -> SanitizedCodexRun:
-        nonlocal model_calls
-        model_calls += 1
-        dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
-        dependency_hash = hashlib.sha256(dependency).hexdigest()
-        return SanitizedCodexRun(
-            exit_status=0,
-            timed_out=False,
-            duration_seconds=0.0,
-            event_bytes=1,
-            event_type_counts={},
-            call_item_type_counts={"command_execution": 1},
-            tool_names=("command_execution",),
-            tool_calls=1,
-            sentinel_passed=True,
-            failure_reason="success",
-            dependency_observation=DependencyObservationFacts(
-                intended_dependency_reads=1,
-                started_commands=1,
-                completed_commands=1,
-                successful_dependency_reads=1,
-                output_sha256=dependency_hash,
-                output_byte_length=len(dependency),
-                rstrip_output_sha256=hashlib.sha256(dependency.rstrip()).hexdigest(),
-            ),
-            command_diagnostics=CommandDiagnostics(
-                failure_class="success", command_status="success"
-            ),
-        )
-
-    def fake_matrix(
-        _codex_bin: object,
-        *,
-        product_checkout: Path | None,
-        base_url: str,
-        api_key_env: str,
-        on_fixture_available: Callable[..., None] | None,
-        on_system_fixture: Callable[..., None] | None,
-    ) -> SandboxDifferentialFacts:
-        del product_checkout, base_url, api_key_env
-        nonlocal matrix_calls
-        matrix_calls += 1
-        fixture_root = tmp_path / f"fixture-{matrix_calls}"
-        fixture_root.mkdir()
-        fixture = write_governed_fixture(fixture_root, "", "UNUSED")
-        if on_system_fixture is not None:
-            on_system_fixture(fixture)
-        classification: SandboxLocalization
-        probes: tuple[SandboxProbeFacts, ...]
-        if matrix_calls == 1 and on_fixture_available is not None:
-            on_fixture_available(fixture, "system_tmp")
-            classification = "workspace_sandbox_available_system_tmp"
-            probes = (_differential_probe("true", success=True),)
-            helper_calls = 3
-        else:
-            classification = "workspace_mapping_failure_system_tmp"
-            probes = (
-                _differential_probe("true", success=True),
-                _differential_probe("pwd", success=False, failure_class="not_found"),
-            )
-            helper_calls = 2
-        return SandboxDifferentialFacts(
-            system_temp_probes=probes,
-            repo_scratch_probe=None,
-            helper_calls=helper_calls,
-            repo_scratch_attempted=False,
-            repo_scratch_private=False,
-            repo_scratch_cleanup_verified=False,
-            classification=classification,
-        )
-
-    monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
-    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
-    monkeypatch.setattr(e2e_module, "_run_sandbox_differential_matrix", fake_matrix)
-
-    allowed = run_localized_command_failure_diagnostic("unused", product_checkout=tmp_path)
-    assert allowed.differential is not None
-    assert allowed.differential.classification == "workspace_sandbox_available_system_tmp"
-    assert len(allowed.attempts) == 1
-    assert catalog_calls == 1
-    assert model_calls == 1
-
-    blocked = run_localized_command_failure_diagnostic("unused", product_checkout=tmp_path)
-    assert blocked.differential is not None
-    assert blocked.differential.classification == "workspace_mapping_failure_system_tmp"
-    assert blocked.attempts == ()
-    assert catalog_calls == 1
-    assert model_calls == 1
-
-
 def test_sandbox_diagnostic_subclasses_are_fixed() -> None:
     assert (
         _classify_sandbox_diagnostic_subclass(
@@ -1212,32 +773,6 @@ def test_sandbox_diagnostic_subclasses_are_fixed() -> None:
     )
     assert _classify_sandbox_diagnostic_subclass("unexpected argument") == "argument"
     assert _classify_sandbox_diagnostic_subclass("") == "empty"
-
-
-def test_direct_dependency_read_control_is_private_and_byte_accurate(tmp_path: Path) -> None:
-    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
-    dependency = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
-    control = verify_direct_dependency_read(fixture)
-    expected = dependency.read_bytes()
-    assert control.exists is True
-    assert control.regular_file is True
-    assert control.symlink is False
-    assert control.private_mode is True
-    assert control.byte_length == len(expected)
-    assert control.sha256 == hashlib.sha256(expected).hexdigest()
-    assert control.subprocess_exit_status == 0
-    assert control.subprocess_byte_identical is True
-
-    dependency.chmod(0o644)
-    assert verify_direct_dependency_read(fixture).private_mode is False
-
-    dependency.unlink()
-    dependency.symlink_to(fixture.repository / "AGENTS.md")
-    symlink_control = verify_direct_dependency_read(fixture)
-    assert symlink_control.exists is True
-    assert symlink_control.regular_file is False
-    assert symlink_control.symlink is True
-    assert symlink_control.byte_length is None
 
 
 def test_command_event_diagnostic_hashes_class_without_retaining_output(
@@ -1292,185 +827,6 @@ def test_failed_codex_process_returns_sanitized_unavailable_diagnostics(tmp_path
     assert result.dependency_observation.lifecycle == "incomplete"
     assert result.command_diagnostics.failure_class == "unavailable"
     assert result.command_diagnostics.process_status == "unknown"
-
-
-def test_failure_diagnosis_uses_one_alternative_then_stops(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import slaif_local_coding.e2e as e2e_module
-
-    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
-    dependency_bytes = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
-    prompts: list[str] = []
-
-    def fake_catalog(_codex_bin: object, _destination: object) -> None:
-        return None
-
-    def fake_run(
-        _codex_bin: object, called_fixture: GovernedFixturePaths, prompt: str
-    ) -> SanitizedCodexRun:
-        assert called_fixture is fixture
-        prompts.append(prompt)
-        if len(prompts) == 1:
-            return SanitizedCodexRun(
-                exit_status=0,
-                timed_out=False,
-                duration_seconds=0.0,
-                event_bytes=1,
-                event_type_counts={},
-                call_item_type_counts={"command_execution": 1},
-                tool_names=("command_execution",),
-                tool_calls=1,
-                sentinel_passed=False,
-                failure_reason="command_failed",
-                dependency_observation=DependencyObservationFacts(
-                    intended_dependency_reads=1,
-                    started_commands=1,
-                    failed_commands=1,
-                ),
-                command_diagnostics=CommandDiagnostics(
-                    failure_class="not_found",
-                    process_exit_code=0,
-                    process_status="success",
-                    command_exit_code=1,
-                    command_status="failed",
-                ),
-            )
-        observed_hash = hashlib.sha256(dependency_bytes).hexdigest()
-        return SanitizedCodexRun(
-            exit_status=0,
-            timed_out=False,
-            duration_seconds=0.0,
-            event_bytes=1,
-            event_type_counts={},
-            call_item_type_counts={"command_execution": 1},
-            tool_names=("command_execution",),
-            tool_calls=1,
-            sentinel_passed=True,
-            failure_reason="sentinel_missing",
-            dependency_observation=DependencyObservationFacts(
-                intended_dependency_reads=1,
-                started_commands=1,
-                completed_commands=1,
-                successful_dependency_reads=1,
-                output_sha256=observed_hash,
-                output_byte_length=len(dependency_bytes),
-                rstrip_output_sha256=hashlib.sha256(dependency_bytes.rstrip()).hexdigest(),
-            ),
-            command_diagnostics=CommandDiagnostics(
-                failure_class="success",
-                process_exit_code=0,
-                process_status="success",
-                command_exit_code=0,
-                command_status="success",
-            ),
-        )
-
-    monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
-    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
-    monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_: fixture)
-    monkeypatch.setattr(
-        e2e_module,
-        "run_sandbox_preflight",
-        lambda *_args, **_kwargs: _successful_sandbox_preflight(fixture),
-    )
-    facts = run_command_failure_diagnostic("unused")
-    assert len(facts.attempts) == 2
-    assert [attempt.read_form for attempt in facts.attempts] == [
-        "relative_cat",
-        "absolute_bin_cat",
-    ]
-    assert "command cat GOVERNANCE-DEPENDENCY.md" in prompts[0]
-    assert "command /bin/cat GOVERNANCE-DEPENDENCY.md" in prompts[1]
-    assert all(attempt.direct_read.subprocess_exit_status == 0 for attempt in facts.attempts)
-    assert facts.attempts[0].run.command_diagnostics.failure_class == "not_found"
-    assert facts.dependency_provenance == "equal"
-    # The helper's own lifecycle gate still prevents governance attribution here.
-    assert facts.attempts[-1].run.failure_reason == "sentinel_missing"
-
-
-def test_failure_diagnosis_stops_after_first_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import slaif_local_coding.e2e as e2e_module
-
-    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
-    prompts: list[str] = []
-
-    def fake_catalog(_codex_bin: object, _destination: object) -> None:
-        return None
-
-    def fake_run(
-        _codex_bin: object, _called_fixture: GovernedFixturePaths, prompt: str
-    ) -> SanitizedCodexRun:
-        prompts.append(prompt)
-        return SanitizedCodexRun(
-            exit_status=0,
-            timed_out=False,
-            duration_seconds=0.0,
-            event_bytes=1,
-            event_type_counts={},
-            call_item_type_counts={"command_execution": 1},
-            tool_names=("command_execution",),
-            tool_calls=1,
-            sentinel_passed=True,
-            failure_reason="success",
-            dependency_observation=DependencyObservationFacts(
-                intended_dependency_reads=1,
-                started_commands=1,
-                completed_commands=1,
-                successful_dependency_reads=1,
-                output_sha256="a" * 64,
-                output_byte_length=1,
-                rstrip_output_sha256="a" * 64,
-            ),
-            command_diagnostics=CommandDiagnostics(failure_class="success"),
-        )
-
-    monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
-    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
-    monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_: fixture)
-    monkeypatch.setattr(
-        e2e_module,
-        "run_sandbox_preflight",
-        lambda *_args, **_kwargs: _successful_sandbox_preflight(fixture),
-    )
-    facts = run_command_failure_diagnostic("unused")
-    assert len(facts.attempts) == 1
-    assert facts.attempts[0].read_form == "relative_cat"
-    assert len(prompts) == 1
-
-
-def test_failure_diagnosis_never_runs_model_after_failed_preflight(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import slaif_local_coding.e2e as e2e_module
-
-    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
-    failed = replace(
-        _successful_sandbox_preflight(fixture),
-        process_exit_status=2,
-        process_status="failed",
-        byte_identical=False,
-        boundary_classification="invocation_config_precedence_error",
-    )
-    monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_: fixture)
-    monkeypatch.setattr(e2e_module, "run_sandbox_preflight", lambda *_args, **_kwargs: failed)
-    monkeypatch.setattr(
-        e2e_module,
-        "write_local_model_catalog",
-        lambda *_args, **_kwargs: pytest.fail("model catalog must remain gated"),
-    )
-    monkeypatch.setattr(
-        e2e_module,
-        "run_codex_once",
-        lambda *_args, **_kwargs: pytest.fail("governed model run must remain gated"),
-    )
-
-    facts = run_command_failure_diagnostic("unused")
-
-    assert facts.attempts == ()
-    assert facts.boundary_classification == "invocation_config_precedence_error"
 
 
 def test_constitution_metric_snapshot_exposes_fixed_counter_deltas() -> None:
@@ -1746,7 +1102,7 @@ def test_dependency_reconciliation_ignores_expected_different_source_root() -> N
 def test_one_invocation_diagnostic_reconciles_a_real_cache_miss(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import slaif_local_coding.e2e as e2e_module
+    import tests.helpers.e2e_support as e2e_module
 
     fixture = write_governed_fixture(
         tmp_path, base_url="http://127.0.0.1:18031/v1", api_key_env="QWEN3090_API_KEY"
@@ -1855,7 +1211,7 @@ def test_one_invocation_diagnostic_reconciles_a_real_cache_miss(
 def test_diagnostic_classifies_terminal_whitespace_boundary_normalization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import slaif_local_coding.e2e as e2e_module
+    import tests.helpers.e2e_support as e2e_module
 
     fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
     observed_bytes = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes().rstrip()
@@ -1931,7 +1287,7 @@ def test_diagnostic_classifies_terminal_whitespace_boundary_normalization(
 def test_diagnostic_classifies_non_whitespace_observation_mismatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import slaif_local_coding.e2e as e2e_module
+    import tests.helpers.e2e_support as e2e_module
 
     fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
     repository_dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()

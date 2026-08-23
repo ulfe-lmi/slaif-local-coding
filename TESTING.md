@@ -93,6 +93,16 @@ Verify unchanged Codex client behavior, ordinary local tools, image full-view
 then crop, forced compaction or equivalent history reduction, cache reuse, and
 continued compliance.
 
+The real-Codex launcher and sandbox diagnostics are repository-only support in
+`tests/helpers/e2e_support.py` and `tests/helpers/sandbox_runtime.py`. They are
+not importable production modules and must not appear in the built wheel. The
+cleanup suite covers private fixture/config modes, fixed argv, bounded
+subprocess output/time, stdin closure, cleanup, sanitized lifecycle/provenance
+facts, sentinel/cache gates, and the final read-only sandbox-runtime decision.
+The verified `bubblewrap_kernel_runtime_unsupported` boundary remains an
+external test limitation; this cleanup does not run governed model calls or
+raise objective-004 completeness/readiness claims.
+
 ## CI and merge
 
 Required GitHub checks for the current PR must all be present and successful.

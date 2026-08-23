@@ -211,107 +211,42 @@ as multi-user production isolation. Gateway integration, forced/equivalent compa
 vision readiness, security hardening review, systemd candidate proof, and cutover
 remain excluded.
 
-## Isolated real-Codex governed E2E
+## Repository-only real-Codex governed E2E diagnostics
 
-`slaif_local_coding.e2e` provides a repository-owned launcher for a disposable,
-bounded evidence run. It creates a private temporary Git fixture and temporary
-`CODEX_HOME`, writes a custom Responses provider at `http://127.0.0.1:18031/v1`,
-and never touches `~/.codex`, active profiles, auth files, hooks, or either OAP
-agent route. The provider references the protected credential only by environment
-name. Runs are serialized with process/output/time budgets; raw events remain in
-caller-owned temporary files and are deleted after extraction.
+Real-Codex governed E2E support is repository test support under
+`tests/helpers/e2e_support.py` and `tests/helpers/sandbox_runtime.py`; it is
+not a `slaif_local_coding` runtime module, import, or console API. The
+production adapter therefore has no launcher, sandbox/bubblewrap probe,
+temporary credential/config writer, or `e2e.py` payload. A wheel inspection
+must show no such installed payload. Source-distribution test support, if
+included by the build backend, is explicitly non-runtime and is exercised only
+from the repository test suite.
 
-The synthetic long root has one referenced dependency. The helper invokes Codex
-CLI 0.149.0 with `workspace-write`, approvals never, JSON events, and the stable
-built-in command tool (`--disable unified_exec`). It emits only sanitized facts:
-exit/status, duration, byte/count bounds, fixed tool item names, sentinel pass/fail,
-selected adapter counters, command lifecycle and provenance facts, and bounded
-cache diagnostics.
-A one-invocation diagnostic reads the explicitly supplied persistent adapter-cache
-boundary (not the disposable fixture cache) and can report repository and
-crossing-boundary dependency SHA-256 values/byte lengths, terminal-whitespace
-equality, command lifecycle state, root/dependency observation and cache-attempt
-counter deltas, working-set dependency states, persistent-cache inventory,
-hit/miss reconciliation errors, and a fixed outcome classification. Inventory
-contains logical-key/source-hash identifiers (full source hashes only for exact
-observed-byte reconciliation), sizes/order buckets, index/model/schema/compiler
-metadata, and pinned state; it never contains raw source bytes, prompts, events,
-model output, tokens, credentials, bodies, full private paths, or customer data.
-Cache validation is reconciled against observed crossing-boundary bytes rather
-than repository disk bytes. A governance-derived `sentinel_missing` result
-requires exactly one intended read with a successfully completed command
-lifecycle; otherwise the fixed result is `command_failed` or
-`command_incomplete`. A successful two-invocation run demonstrates local tool
-use, one-root observation plus dependency acquisition/compilation, sentinel
-compliance, then persistent index reuse with no additional compiler model
-attempts.
-The bounded command-failure diagnostic separately proves same-user readability
-before every fresh attempt: the dependency exists, is a regular non-symlink
-private-mode file, has a fixed byte length/hash, and a subprocess `cat` returns
-byte-identical content without retaining it. The first Codex attempt uses the
-stable relative `cat` form; if that does not complete successfully, the sole
-permitted alternative uses absolute `/bin/cat`. Each attempt reports process and
-command exit/status facts, one fixed failure class (`success`, `not_found`,
-`permission_denied`, `sandbox_denied`, `schema_invalid`,
-`argv_unsupported`, `signal`, `timeout`, `unknown_nonzero`, or
-`unavailable`), first-line-only stream classifications, raw-stream SHA-256/byte
-counts, requested versus actual argv shape labels, and whether the resolved
-command path was inside the disposable repository. Raw stderr/stdout, prompts,
-events, model messages, source bytes, tokens, credentials, and private paths are
-never retained or reported.
-The unique expected token exists only in the temporary delegated dependency and
-the helper's in-memory comparison value. The prompt requires the ordinary command
-tool, then requires literal compliance with the dependency's
-`FINAL_RESPONSE_EXACTLY` instruction without revealing that target. A run whose
-final message lacks the helper-known acknowledgment is reported as
-`sentinel_missing`; it is never counted as governance-derived success.
+The retained support creates a private synthetic Git fixture and disposable
+Codex home, writes a custom Responses provider for the loopback candidate
+adapter, and references the protected credential only by environment name. It
+uses fixed argv, `workspace-write` plus approvals-never, bounded time/event/
+diagnostic output, closed stdin, process cleanup, private temporary state, and
+sanitized event/lifecycle/provenance facts. Raw prompts, source, events,
+responses, command output, credentials, and private paths stay in caller-owned
+temporary storage and are not returned, logged, or reported. Fixture cleanup is
+verified by focused tests.
 
-Before a model-backed attempt, the command-failure diagnostic runs a bounded
-no-model differential matrix with the installed CLI's built-in `:workspace`
-profile (semantic policy `workspace-write`): `/bin/true`, then `/bin/pwd` when
-needed, then `/bin/cat GOVERNANCE-DEPENDENCY.md` when the root is proven mapped.
-Only when the system-temporary root is shown to be the failing boundary does it
-run the same `/bin/cat` helper once in a fresh private scratch directory beneath
-the product checkout. Every helper call is direct (no shell), uses fixed
-time/output/line bounds, and records only executable booleans, root/target
-containment/type/mode/length/hash facts, fixed status classes, stream hashes,
-and byte identity. The scratch directory is caller-owned, private, excluded
-from explicit staging, and removed with cleanup verification. A byte-identical
-`:workspace` read is the sole gate for the existing maximum of two nested
-`codex exec` attempts through the candidate adapter; otherwise model calls are
-zero. The differential decision is exactly one of
-`helper_executable_mapping_failure`, `workspace_mapping_failure_system_tmp`,
-`target_mapping_failure`, `workspace_sandbox_available_system_tmp`,
-`workspace_sandbox_available_repo_scratch`, `host_sandbox_runtime_failure`, or
-`unresolved_with_fixed_evidence`. Prior direct and nested evidence remains
-classified as
-`workspace_sandbox_available`,
-`host_sandbox_bootstrap_unsupported`, `workspace_root_resolution_mismatch`,
-`invocation_config_precedence_error`, `command_event_schema_mismatch`, or
-`unresolved_with_fixed_evidence`.
+The retained gates cover the synthetic long-root/dependency fixture, successful
+dependency-read lifecycle, sentinel attribution, bounded cache/metric
+reconciliation, and the final read-only sandbox-runtime boundary probe. The
+superseded intermediate preflight/differential/localization wrappers and their
+duplicated decision tables are not retained.
 
-The 004-i no-model matrix on Codex CLI 0.149.0 stopped after one `/bin/true`
-probe: the host executable is present, regular, executable, and non-symlink, but
-the corrected `:workspace` helper returned fixed `not_found`/`not_found` evidence.
-This localizes the current failure to helper executable mapping; `/bin/pwd`,
-dependency reads, repo-scratch probing, and governed model calls were therefore
-not run. This is a bounded host/CLI portability result, not a host-kernel
-repair or a claim about other sandbox runtimes.
-
-The 004-j final boundary probe records only fixed executable/layout booleans,
-bounded hashes, Codex version, same-file results for the fixed `bin`/`usr-bin`
-candidate pairs, and fixed companion-presence labels. It makes at most three
-direct no-model probes: corrected `true`, corrected dependency `cat` only after
-`true` succeeds, and a direct bubblewrap probe only when the helper boundary
-remains unresolved. The bubblewrap command uses a read-only root view, isolated
-namespaces, no writable host bind, no shell, and no network or model access.
-On the verified host, the corrected absolute helper spelling still returned
-`not_found`/`not_found`; the direct probe returned `sandbox_denied` with the
-fixed `bwrap_loopback_bootstrap` subclass. The deterministic 004-j outcome is
-`bubblewrap_kernel_runtime_unsupported`, with two probe calls, zero governed
-model calls, and no host/package/profile/configuration mutation. This is an
-external runtime boundary classification, not a product-code or installation
-repair and not a portable claim about other kernels or hosts.
+The verified external result remains unchanged: the final helper probe returned
+fixed `not_found` evidence and the direct read-only bubblewrap probe returned
+fixed `sandbox_denied`/`bwrap_loopback_bootstrap` evidence. The deterministic
+classification is `bubblewrap_kernel_runtime_unsupported`; governed model
+calls are therefore gated to zero in this cleanup round. This is an external
+Codex/host runtime boundary, not a host repair or a portability claim.
+Objective 004 remains at 35% and branch readiness remains approximately 78%.
+No compaction, vision, production-readiness, cutover, or protected-service
+claim follows from this diagnostic.
 
 ## Candidate quickstart
 
