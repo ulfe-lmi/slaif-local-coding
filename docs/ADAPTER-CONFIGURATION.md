@@ -155,8 +155,19 @@ Acquisition instructions name unavailable files but do not fetch them. Arbitrary
 signed production identity, gateway integration, vision readiness, real Codex E2E
 support, and cutover remain excluded.
 
-The example user unit is not installed or enabled automatically. For candidate
-testing, prefer the README foreground command on `127.0.0.1:18031`. Stop it with
-Ctrl-C. If an operator separately installs the example, stop and remove only
-that candidate unit and its repo-owned state. No Qwen/vLLM rollback is required
-because this candidate neither changes nor replaces the protected service.
+The user-systemd file in `packaging/` is an uninstalled candidate example. It
+uses the repository `.venv`, an explicit repository config path, a separate
+mode-0600 `EnvironmentFile`, loopback-only address-family/IP restrictions,
+private temporary storage, read-only system/home protection, bounded tasks/
+memory/file descriptors, and explicit SIGTERM/timeout/journal behavior. The
+example config binds `127.0.0.1:18031` and forwards to the separately protected
+upstream; it does not load model weights or replace that service. Validate a
+rendered candidate with `systemd-analyze verify` before use and prefer a unique
+`systemd-run --user --collect --unit=...` transient unit for testing. Never put
+the credential in `Environment=`, `ExecStart`, or this repository.
+
+For a simple foreground candidate test, use the README command on
+`127.0.0.1:18031` and stop it with Ctrl-C. If an operator separately installs
+the example, stop and remove only that candidate unit and its repo-owned state.
+No Qwen/vLLM rollback is required because this candidate neither changes nor
+replaces the protected service.

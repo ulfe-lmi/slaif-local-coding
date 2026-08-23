@@ -324,6 +324,15 @@ The compiler/cache live case calls the configured private upstream directly and
 does not require that foreground adapter. Tests use only synthetic prompts and
 bounded outputs. Stop the temporary adapter after testing; protected vLLM
 service, model, network, and Codex profiles remain untouched.
-The systemd file in `packaging/` is an uninstalled example only. Public service
-authentication, signed identity, quotas, and TLS remain the separate gateway's
-responsibility.
+The systemd file in `packaging/` is an uninstalled user-service example only.
+It requires a repository `.venv`, an explicit config path, and a mode-0600
+external environment file for `QWEN3090_API_KEY`; it does not accept credentials
+inline in the unit or command line. The example hardens the candidate with
+loopback-only networking, private temporary storage, read-only system/home
+views, bounded tasks/memory/file descriptors, a private umask, journal output,
+and bounded graceful shutdown. Prefer a uniquely named transient
+`systemd-run --user --collect` unit for proof, validate it with
+`systemd-analyze verify`, and remove the temporary unit/config/cache/env after
+the run. It never installs, restarts, or changes `qwen-serving` or port
+`18020`. Public service authentication, signed identity, quotas, and TLS remain
+the separate gateway's responsibility.
