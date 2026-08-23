@@ -90,6 +90,18 @@ SandboxBoundaryClassification = Literal[
     "unresolved_with_fixed_evidence",
 ]
 SandboxPolicyResolution = Literal["resolved", "unresolved", "unknown"]
+SandboxProbeCommand = Literal["true", "pwd", "cat"]
+SandboxRootClass = Literal["system_tmp", "repo_owned_scratch", "other"]
+SandboxResolvedBasenameClass = Literal["expected", "other", "unavailable"]
+SandboxLocalization = Literal[
+    "helper_executable_mapping_failure",
+    "workspace_mapping_failure_system_tmp",
+    "target_mapping_failure",
+    "workspace_sandbox_available_system_tmp",
+    "workspace_sandbox_available_repo_scratch",
+    "host_sandbox_runtime_failure",
+    "unresolved_with_fixed_evidence",
+]
 
 
 @dataclass(frozen=True)
@@ -209,6 +221,79 @@ class SandboxPreflightFacts:
 
 
 @dataclass(frozen=True)
+class SanitizedExecutableFacts:
+    """Allowlisted local facts for one fixed absolute helper executable."""
+
+    command: SandboxProbeCommand
+    exists: bool
+    regular_file: bool
+    executable: bool
+    symlink: bool
+    resolved_basename_class: SandboxResolvedBasenameClass
+
+
+@dataclass(frozen=True)
+class SandboxProbeFacts:
+    """Sanitized result of one no-model differential helper call."""
+
+    command: SandboxProbeCommand
+    root_class: SandboxRootClass
+    executable: SanitizedExecutableFacts
+    working_directory_inside_repository: bool
+    target_inside_repository: bool | None
+    target_regular_file: bool | None
+    target_symlink: bool | None
+    target_private_mode: bool | None
+    target_byte_length: int | None
+    target_sha256: str | None
+    observed_byte_length: int
+    observed_sha256: str
+    expected_output_byte_length: int | None
+    expected_output_sha256: str | None
+    byte_identical: bool | None
+    process_exit_status: int | None
+    process_status: Literal["success", "failed", "unknown"]
+    timed_out: bool
+    stdout: BinaryStreamFacts
+    stderr: BinaryStreamFacts
+    policy_resolution: SandboxPolicyResolution
+
+    @property
+    def successful(self) -> bool:
+        return (
+            self.process_exit_status == 0
+            and self.process_status == "success"
+            and not self.timed_out
+            and self.byte_identical is True
+        )
+
+
+@dataclass(frozen=True)
+class SandboxDifferentialFacts:
+    """Fixed evidence from the bounded system-temp/repo-scratch matrix."""
+
+    system_temp_probes: tuple[SandboxProbeFacts, ...]
+    repo_scratch_probe: SandboxProbeFacts | None
+    helper_calls: int
+    repo_scratch_attempted: bool
+    repo_scratch_private: bool
+    repo_scratch_cleanup_verified: bool
+    classification: SandboxLocalization
+
+    @property
+    def governed_gate_allowed(self) -> bool:
+        return (
+            self.repo_scratch_probe is not None
+            and self.repo_scratch_probe.successful
+            and self.repo_scratch_probe.command == "cat"
+            and self.repo_scratch_probe.root_class == "repo_owned_scratch"
+        ) or any(
+            probe.successful and probe.command == "cat" and probe.root_class == "system_tmp"
+            for probe in self.system_temp_probes
+        )
+
+
+@dataclass(frozen=True)
 class SanitizedCodexRun:
     """Non-confidential result of one bounded Codex execution."""
 
@@ -298,6 +383,7 @@ class CommandFailureDiagnosisFacts:
     fixture_dependency_stripped_sha256: str
     sandbox_preflight: SandboxPreflightFacts | None = None
     boundary_classification: SandboxBoundaryClassification = "unresolved_with_fixed_evidence"
+    differential: SandboxDifferentialFacts | None = None
 
     @property
     def dependency_provenance(self) -> DependencyProvenanceClassification:
@@ -896,6 +982,510 @@ def classify_sandbox_boundary(
     ):
         return "workspace_sandbox_available"
     return "unresolved_with_fixed_evidence"
+
+
+def _sandbox_root_class(path: Path, product_checkout: Path) -> SandboxRootClass:
+    """Classify a disposable root without returning its path."""
+
+    resolved = path.resolve(strict=False)
+    system_tmp = Path(tempfile.gettempdir()).resolve()
+    checkout = product_checkout.resolve(strict=False)
+    if resolved != checkout and checkout in resolved.parents:
+        return "repo_owned_scratch"
+    if resolved == system_tmp or system_tmp in resolved.parents:
+        return "system_tmp"
+    return "other"
+
+
+def _sanitized_executable_facts(command: SandboxProbeCommand) -> SanitizedExecutableFacts:
+    """Inspect only fixed /bin helpers and return allowlisted facts."""
+
+    expected_name = command
+    executable_path = Path("/bin") / expected_name
+    try:
+        path_stat = executable_path.lstat()
+        resolved = executable_path.resolve(strict=True)
+        return SanitizedExecutableFacts(
+            command=command,
+            exists=True,
+            regular_file=stat.S_ISREG(path_stat.st_mode),
+            executable=bool(path_stat.st_mode & 0o111),
+            symlink=stat.S_ISLNK(path_stat.st_mode),
+            resolved_basename_class=("expected" if resolved.name == expected_name else "other"),
+        )
+    except OSError:
+        return SanitizedExecutableFacts(
+            command=command,
+            exists=False,
+            regular_file=False,
+            executable=False,
+            symlink=False,
+            resolved_basename_class="unavailable",
+        )
+
+
+def _build_sandbox_probe_argv(
+    codex_bin: Path | str,
+    repository: Path,
+    command: SandboxProbeCommand,
+    target: Path | None = None,
+) -> tuple[str, ...]:
+    """Build one direct, non-shell helper invocation."""
+
+    repository_resolved = repository.resolve(strict=False)
+    argv = (
+        str(codex_bin),
+        "sandbox",
+        "--permission-profile",
+        SANDBOX_PERMISSION_PROFILE,
+        "--cd",
+        str(repository_resolved),
+        "--",
+        f"/bin/{command}",
+    )
+    if command == "cat":
+        if target is None:
+            raise ValueError("cat sandbox probe requires a target")
+        try:
+            relative_target = (
+                target.resolve(strict=False).relative_to(repository_resolved).as_posix()
+            )
+        except ValueError as exc:
+            raise ValueError("sandbox probe target must be inside repository") from exc
+        if not relative_target or relative_target == ".":
+            raise ValueError("sandbox probe target must be a file")
+        return (*argv, relative_target)
+    if target is not None:
+        raise ValueError("non-cat sandbox probe cannot have a target")
+    return argv
+
+
+def _sandbox_target_facts(
+    repository: Path, target: Path | None
+) -> tuple[
+    bool | None,
+    bool | None,
+    bool | None,
+    bool | None,
+    int | None,
+    str | None,
+    bytes | None,
+]:
+    if target is None:
+        return None, None, None, None, None, None, None
+    repository_resolved = repository.resolve(strict=False)
+    target_inside = False
+    target_regular = False
+    target_symlink = False
+    target_private = False
+    target_length: int | None = None
+    target_hash: str | None = None
+    target_bytes: bytes | None = None
+    try:
+        target_stat = target.lstat()
+        target_regular = stat.S_ISREG(target_stat.st_mode)
+        target_symlink = stat.S_ISLNK(target_stat.st_mode)
+        target_private = not bool(target_stat.st_mode & 0o077)
+        target_resolved = target.resolve(strict=False)
+        target_inside = target_resolved == repository_resolved or repository_resolved in (
+            target_resolved.parents
+        )
+        if target_regular and not target_symlink:
+            target_bytes = target.read_bytes()
+            target_length = len(target_bytes)
+            target_hash = hashlib.sha256(target_bytes).hexdigest()
+    except OSError:
+        pass
+    return (
+        target_inside,
+        target_regular,
+        target_symlink,
+        target_private,
+        target_length,
+        target_hash,
+        target_bytes,
+    )
+
+
+def _run_sandbox_probe(
+    codex_bin: Path | str,
+    fixture: GovernedFixturePaths,
+    command: SandboxProbeCommand,
+    product_checkout: Path,
+) -> SandboxProbeFacts:
+    """Run one bounded helper call and discard all raw process streams."""
+
+    repository = fixture.repository.resolve(strict=False)
+    target = fixture.repository / "GOVERNANCE-DEPENDENCY.md" if command == "cat" else None
+    (
+        target_inside,
+        target_regular,
+        target_symlink,
+        target_private,
+        target_length,
+        target_hash,
+        target_bytes,
+    ) = _sandbox_target_facts(repository, target)
+    expected_output: bytes | None
+    if command == "true":
+        expected_output = b""
+    elif command == "pwd":
+        expected_output = f"{repository}\n".encode()
+    else:
+        expected_output = target_bytes
+
+    stdout_facts = BinaryStreamFacts(0, hashlib.sha256(b"").hexdigest(), "unavailable")
+    stderr_facts = stdout_facts
+    process_exit_status: int | None = None
+    process_status: Literal["success", "failed", "unknown"] = "unknown"
+    timed_out = False
+    environment = _sandbox_environment(fixture.codex_home)
+    try:
+        command_argv = _build_sandbox_probe_argv(codex_bin, repository, command, target)
+        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+            process = subprocess.Popen(
+                command_argv,
+                cwd=repository,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=stdout,
+                stderr=stderr,
+            )
+            try:
+                process_exit_status = process.wait(timeout=SANDBOX_PREFLIGHT_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                timed_out = True
+            process_status = (
+                "success"
+                if process_exit_status == 0 and not timed_out
+                else ("failed" if process_exit_status is not None or timed_out else "unknown")
+            )
+            for stream_name, stream in (("stdout", stdout), ("stderr", stderr)):
+                stream_length = stream.seek(0, os.SEEK_END)
+                if stream_length > SANDBOX_PREFLIGHT_MAX_OUTPUT_BYTES:
+                    raise OverflowError("sandbox probe output exceeded bound")
+                stream.seek(0)
+                facts = _binary_stream_facts(stream)
+                if stream_name == "stdout":
+                    stdout_facts = facts
+                else:
+                    stderr_facts = facts
+    except (OSError, subprocess.SubprocessError, OverflowError):
+        process_exit_status = None
+        process_status = "unknown"
+
+    observed_length = stdout_facts.byte_length
+    observed_hash = stdout_facts.sha256
+    byte_identical: bool | None = None
+    if expected_output is not None:
+        byte_identical = (
+            process_exit_status == 0
+            and process_status == "success"
+            and not timed_out
+            and observed_length == len(expected_output)
+            and observed_hash == hashlib.sha256(expected_output).hexdigest()
+        )
+    if _sandbox_root_class(repository, product_checkout) == "other":
+        root_class: SandboxRootClass = "other"
+    else:
+        root_class = _sandbox_root_class(repository, product_checkout)
+    if command == "cat":
+        policy_resolution: SandboxPolicyResolution = (
+            "unresolved"
+            if stderr_facts.first_line_class in {"argv_unsupported", "schema_invalid"}
+            else "resolved"
+        )
+    else:
+        policy_resolution = (
+            "unresolved"
+            if stderr_facts.first_line_class in {"argv_unsupported", "schema_invalid"}
+            else "resolved"
+        )
+    return SandboxProbeFacts(
+        command=command,
+        root_class=root_class,
+        executable=_sanitized_executable_facts(command),
+        working_directory_inside_repository=repository == fixture.repository.resolve(strict=False),
+        target_inside_repository=target_inside,
+        target_regular_file=target_regular,
+        target_symlink=target_symlink,
+        target_private_mode=target_private,
+        target_byte_length=target_length,
+        target_sha256=target_hash,
+        observed_byte_length=observed_length,
+        observed_sha256=observed_hash,
+        expected_output_byte_length=(len(expected_output) if expected_output is not None else None),
+        expected_output_sha256=(
+            hashlib.sha256(expected_output).hexdigest() if expected_output is not None else None
+        ),
+        byte_identical=byte_identical,
+        process_exit_status=process_exit_status,
+        process_status=process_status,
+        timed_out=timed_out,
+        stdout=stdout_facts,
+        stderr=stderr_facts,
+        policy_resolution=policy_resolution,
+    )
+
+
+def _probe_process_succeeded(probe: SandboxProbeFacts | None) -> bool:
+    return (
+        probe is not None
+        and probe.process_exit_status == 0
+        and probe.process_status == "success"
+        and not probe.timed_out
+    )
+
+
+def _probe_is_runtime_failure(probe: SandboxProbeFacts | None) -> bool:
+    return probe is not None and (
+        probe.stderr.first_line_class in {"sandbox_denied", "permission_denied"}
+        or probe.stderr.first_line_subclass
+        in {"bwrap_loopback_bootstrap", "bwrap_bootstrap_denied"}
+    )
+
+
+def classify_sandbox_differential(
+    system_temp_probes: Iterable[SandboxProbeFacts],
+    repo_scratch_probe: SandboxProbeFacts | None = None,
+) -> SandboxLocalization:
+    """Apply the fixed executable/root/target decision table."""
+
+    probes = {probe.command: probe for probe in system_temp_probes}
+    true_probe = probes.get("true")
+    if true_probe is None:
+        return "unresolved_with_fixed_evidence"
+    if not _probe_process_succeeded(true_probe):
+        if not true_probe.executable.exists or not true_probe.executable.regular_file:
+            return "helper_executable_mapping_failure"
+        if true_probe.stderr.first_line_class == "not_found":
+            return "helper_executable_mapping_failure"
+        if _probe_is_runtime_failure(true_probe):
+            return "host_sandbox_runtime_failure"
+        return "unresolved_with_fixed_evidence"
+
+    pwd_probe = probes.get("pwd")
+    if pwd_probe is None:
+        return "unresolved_with_fixed_evidence"
+    root_mapping_failure = (
+        not _probe_process_succeeded(pwd_probe) or pwd_probe.byte_identical is not True
+    )
+    if root_mapping_failure:
+        if _probe_is_runtime_failure(pwd_probe):
+            return "host_sandbox_runtime_failure"
+        if (
+            pwd_probe.stderr.first_line_class not in {"not_found", "unavailable"}
+            and pwd_probe.byte_identical is not False
+        ):
+            return "unresolved_with_fixed_evidence"
+        if repo_scratch_probe is not None and repo_scratch_probe.successful:
+            return "workspace_sandbox_available_repo_scratch"
+        return "workspace_mapping_failure_system_tmp"
+
+    cat_probe = probes.get("cat")
+    if cat_probe is None:
+        return "unresolved_with_fixed_evidence"
+    if cat_probe.successful and cat_probe.target_regular_file and not cat_probe.target_symlink:
+        return "workspace_sandbox_available_system_tmp"
+    if _probe_is_runtime_failure(cat_probe):
+        return "host_sandbox_runtime_failure"
+    if (
+        cat_probe.stderr.first_line_class == "not_found"
+        and cat_probe.target_regular_file
+        and not cat_probe.target_symlink
+    ):
+        return "target_mapping_failure"
+    return "unresolved_with_fixed_evidence"
+
+
+def _sandbox_root_mapping_proven(probes: Iterable[SandboxProbeFacts]) -> bool:
+    """Return true only when pwd separates root mapping from target mapping."""
+
+    by_command = {probe.command: probe for probe in probes}
+    true_probe = by_command.get("true")
+    pwd_probe = by_command.get("pwd")
+    if not _probe_process_succeeded(true_probe) or pwd_probe is None:
+        return False
+    if _probe_process_succeeded(pwd_probe) and pwd_probe.byte_identical is True:
+        return False
+    return not _probe_is_runtime_failure(pwd_probe)
+
+
+def _caller_owned_private_directory(path: Path) -> bool:
+    try:
+        path_stat = path.stat()
+        return (
+            path_stat.st_uid == os.getuid()
+            and stat.S_ISDIR(path_stat.st_mode)
+            and not bool(path_stat.st_mode & 0o077)
+        )
+    except OSError:
+        return False
+
+
+def _run_sandbox_differential_matrix(
+    codex_bin: Path | str,
+    *,
+    product_checkout: Path | None = None,
+    base_url: str = "",
+    api_key_env: str = "UNUSED",
+    on_fixture_available: Callable[[GovernedFixturePaths, SandboxRootClass], None] | None = None,
+    on_system_fixture: Callable[[GovernedFixturePaths], None] | None = None,
+) -> SandboxDifferentialFacts:
+    """Run the exact bounded matrix, optionally gating a caller callback."""
+
+    checkout = (product_checkout or Path.cwd()).resolve(strict=False)
+    system_probes: list[SandboxProbeFacts] = []
+    scratch_probe: SandboxProbeFacts | None = None
+    helper_calls = 0
+    scratch_attempted = False
+    scratch_private = False
+    scratch_cleanup_verified = False
+    with tempfile.TemporaryDirectory(prefix="slaif-codex-sandbox-system-") as system_root_text:
+        system_root = Path(system_root_text)
+        system_fixture = write_governed_fixture(system_root, base_url, api_key_env)
+        if on_system_fixture is not None:
+            on_system_fixture(system_fixture)
+
+        true_probe = _run_sandbox_probe(codex_bin, system_fixture, "true", checkout)
+        helper_calls += 1
+        system_probes.append(true_probe)
+        if _probe_process_succeeded(true_probe):
+            pwd_probe = _run_sandbox_probe(codex_bin, system_fixture, "pwd", checkout)
+            helper_calls += 1
+            system_probes.append(pwd_probe)
+            if not _sandbox_root_mapping_proven(system_probes):
+                if _probe_process_succeeded(pwd_probe):
+                    cat_probe = _run_sandbox_probe(codex_bin, system_fixture, "cat", checkout)
+                    helper_calls += 1
+                    system_probes.append(cat_probe)
+                    if cat_probe.successful and on_fixture_available is not None:
+                        on_fixture_available(system_fixture, "system_tmp")
+
+        if _sandbox_root_mapping_proven(system_probes):
+            scratch_attempted = True
+            scratch_path: Path | None = None
+            try:
+                if checkout.is_dir() and checkout.stat().st_uid == os.getuid():
+                    scratch_path = Path(
+                        tempfile.mkdtemp(prefix=".slaif-codex-sandbox-", dir=checkout)
+                    )
+                    scratch_private = _caller_owned_private_directory(scratch_path)
+                if scratch_path is not None and scratch_private:
+                    scratch_fixture = write_governed_fixture(scratch_path, base_url, api_key_env)
+                    scratch_probe = _run_sandbox_probe(codex_bin, scratch_fixture, "cat", checkout)
+                    helper_calls += 1
+                    if scratch_probe.successful and on_fixture_available is not None:
+                        on_fixture_available(scratch_fixture, "repo_owned_scratch")
+            finally:
+                if scratch_path is not None:
+                    try:
+                        if scratch_path.is_symlink():
+                            scratch_path.unlink()
+                        else:
+                            shutil.rmtree(scratch_path)
+                    except OSError:
+                        scratch_cleanup_verified = False
+                    else:
+                        scratch_cleanup_verified = not scratch_path.exists()
+
+    classification = classify_sandbox_differential(system_probes, scratch_probe)
+    return SandboxDifferentialFacts(
+        system_temp_probes=tuple(system_probes),
+        repo_scratch_probe=scratch_probe,
+        helper_calls=helper_calls,
+        repo_scratch_attempted=scratch_attempted,
+        repo_scratch_private=scratch_private,
+        repo_scratch_cleanup_verified=scratch_cleanup_verified,
+        classification=classification,
+    )
+
+
+def run_sandbox_differential_matrix(
+    codex_bin: Path | str, *, product_checkout: Path | None = None
+) -> SandboxDifferentialFacts:
+    """Run no-model executable/root/target mapping probes with fixed bounds."""
+
+    return _run_sandbox_differential_matrix(codex_bin, product_checkout=product_checkout)
+
+
+def _legacy_sandbox_boundary_classification(
+    classification: SandboxLocalization,
+) -> SandboxBoundaryClassification:
+    if classification in {
+        "workspace_sandbox_available_system_tmp",
+        "workspace_sandbox_available_repo_scratch",
+    }:
+        return "workspace_sandbox_available"
+    if classification == "host_sandbox_runtime_failure":
+        return "host_sandbox_bootstrap_unsupported"
+    if classification == "helper_executable_mapping_failure":
+        return "invocation_config_precedence_error"
+    if classification in {"workspace_mapping_failure_system_tmp", "target_mapping_failure"}:
+        return "workspace_root_resolution_mismatch"
+    return "unresolved_with_fixed_evidence"
+
+
+def run_localized_command_failure_diagnostic(
+    codex_bin: Path | str,
+    *,
+    product_checkout: Path | None = None,
+    base_url: str = DEFAULT_ADAPTER_BASE_URL,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
+) -> CommandFailureDiagnosisFacts:
+    """Localize the helper boundary before allowing the governed two-call gate."""
+
+    fixture_hash = ""
+    fixture_length = 0
+    fixture_stripped_hash = ""
+    attempts: list[CommandDiagnosticAttempt] = []
+
+    def record_fixture(fixture: GovernedFixturePaths) -> None:
+        nonlocal fixture_hash, fixture_length, fixture_stripped_hash
+        dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
+        fixture_hash = hashlib.sha256(dependency).hexdigest()
+        fixture_length = len(dependency)
+        fixture_stripped_hash = hashlib.sha256(dependency.rstrip()).hexdigest()
+
+    def run_governed_gate(fixture: GovernedFixturePaths, _root_class: SandboxRootClass) -> None:
+        record_fixture(fixture)
+        try:
+            write_local_model_catalog(codex_bin, fixture.model_catalog)
+        except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
+            return
+        forms: tuple[DependencyReadForm, ...] = ("relative_cat", "absolute_bin_cat")
+        for read_form in forms:
+            direct_read = verify_direct_dependency_read(fixture)
+            run = run_codex_once(codex_bin, fixture, governed_prompt(read_form=read_form))
+            attempts.append(
+                CommandDiagnosticAttempt(read_form=read_form, direct_read=direct_read, run=run)
+            )
+            if run.failure_reason == "success":
+                break
+
+    differential = _run_sandbox_differential_matrix(
+        codex_bin,
+        product_checkout=product_checkout,
+        base_url=base_url,
+        api_key_env=api_key_env,
+        on_system_fixture=record_fixture,
+        on_fixture_available=run_governed_gate,
+    )
+    if not fixture_hash:
+        fixture_hash = "0" * 64
+        fixture_stripped_hash = "0" * 64
+    return CommandFailureDiagnosisFacts(
+        attempts=tuple(attempts),
+        fixture_dependency_sha256=fixture_hash,
+        fixture_dependency_byte_length=fixture_length,
+        fixture_dependency_stripped_sha256=fixture_stripped_hash,
+        boundary_classification=_legacy_sandbox_boundary_classification(
+            differential.classification
+        ),
+        differential=differential,
+    )
 
 
 def write_local_model_catalog(

@@ -10,6 +10,7 @@ import tempfile
 import time
 import tomllib
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Literal
@@ -24,8 +25,12 @@ from slaif_local_coding.e2e import (
     DependencyObservationFacts,
     GovernedFixturePaths,
     MetricDelta,
+    SandboxDifferentialFacts,
+    SandboxLocalization,
     SandboxPreflightFacts,
+    SandboxProbeFacts,
     SanitizedCodexRun,
+    SanitizedExecutableFacts,
     _binary_stream_facts,
     _classify_dependency_cache_outcome,
     _classify_diagnostic_text,
@@ -36,6 +41,7 @@ from slaif_local_coding.e2e import (
     _sentinel_failure_reason,
     build_sandbox_preflight_argv,
     classify_sandbox_boundary,
+    classify_sandbox_differential,
     constitution_metric_snapshot,
     governed_prompt,
     metric_value,
@@ -46,6 +52,8 @@ from slaif_local_coding.e2e import (
     read_persistent_cache_inventory,
     run_codex_once,
     run_command_failure_diagnostic,
+    run_localized_command_failure_diagnostic,
+    run_sandbox_differential_matrix,
     run_sandbox_preflight,
     verify_direct_dependency_read,
     write_governed_fixture,
@@ -79,6 +87,60 @@ def _successful_sandbox_preflight(fixture: GovernedFixturePaths) -> SandboxPrefl
         stdout=BinaryStreamFacts(len(dependency), dependency_hash, "success", "other"),
         stderr=BinaryStreamFacts(0, empty_hash, "unavailable"),
         boundary_classification="workspace_sandbox_available",
+    )
+
+
+def _differential_probe(
+    command: Literal["true", "pwd", "cat"],
+    *,
+    success: bool,
+    failure_class: Literal[
+        "not_found", "sandbox_denied", "permission_denied", "unavailable", "success"
+    ] = "unavailable",
+    root_class: Literal["system_tmp", "repo_owned_scratch", "other"] = "system_tmp",
+) -> SandboxProbeFacts:
+    empty_hash = hashlib.sha256(b"").hexdigest()
+    executable = SanitizedExecutableFacts(
+        command=command,
+        exists=True,
+        regular_file=True,
+        executable=True,
+        symlink=False,
+        resolved_basename_class="expected",
+    )
+    stdout = BinaryStreamFacts(
+        byte_length=0,
+        sha256=empty_hash,
+        first_line_class="unavailable",
+    )
+    stderr = BinaryStreamFacts(
+        byte_length=(0 if failure_class == "unavailable" else 1),
+        sha256=empty_hash,
+        first_line_class=failure_class,
+        first_line_subclass=("empty" if failure_class == "unavailable" else "not_found"),
+    )
+    return SandboxProbeFacts(
+        command=command,
+        root_class=root_class,
+        executable=executable,
+        working_directory_inside_repository=True,
+        target_inside_repository=True if command == "cat" else None,
+        target_regular_file=True if command == "cat" else None,
+        target_symlink=False if command == "cat" else None,
+        target_private_mode=True if command == "cat" else None,
+        target_byte_length=1 if command == "cat" else None,
+        target_sha256="a" * 64 if command == "cat" else None,
+        observed_byte_length=1 if success and command == "cat" else 0,
+        observed_sha256="a" * 64 if success and command == "cat" else empty_hash,
+        expected_output_byte_length=1 if command == "cat" else 0,
+        expected_output_sha256="a" * 64 if command == "cat" else empty_hash,
+        byte_identical=True if success else False,
+        process_exit_status=0 if success else 1,
+        process_status="success" if success else "failed",
+        timed_out=False,
+        stdout=stdout,
+        stderr=stderr,
+        policy_resolution="resolved",
     )
 
 
@@ -713,6 +775,199 @@ def test_sandbox_boundary_classification_is_deterministic(tmp_path: Path) -> Non
     ]
     for preflight, nested, expected in cases:
         assert classify_sandbox_boundary(preflight, nested) == expected
+
+
+def test_sandbox_differential_decision_table_is_explicit() -> None:
+    successful_true = _differential_probe("true", success=True)
+    successful_pwd = _differential_probe("pwd", success=True)
+    successful_cat = _differential_probe("cat", success=True)
+    assert (
+        classify_sandbox_differential((successful_true, successful_pwd, successful_cat))
+        == "workspace_sandbox_available_system_tmp"
+    )
+    assert (
+        classify_sandbox_differential(
+            (
+                successful_true,
+                _differential_probe("pwd", success=False, failure_class="not_found"),
+            )
+        )
+        == "workspace_mapping_failure_system_tmp"
+    )
+    assert (
+        classify_sandbox_differential(
+            (
+                successful_true,
+                _differential_probe("pwd", success=False, failure_class="not_found"),
+            ),
+            _differential_probe("cat", success=True, root_class="repo_owned_scratch"),
+        )
+        == "workspace_sandbox_available_repo_scratch"
+    )
+    assert (
+        classify_sandbox_differential(
+            (
+                successful_true,
+                successful_pwd,
+                _differential_probe("cat", success=False, failure_class="not_found"),
+            )
+        )
+        == "target_mapping_failure"
+    )
+    assert (
+        classify_sandbox_differential(
+            (_differential_probe("true", success=False, failure_class="not_found"),)
+        )
+        == "helper_executable_mapping_failure"
+    )
+    assert (
+        classify_sandbox_differential(
+            (_differential_probe("true", success=False, failure_class="sandbox_denied"),)
+        )
+        == "host_sandbox_runtime_failure"
+    )
+    assert classify_sandbox_differential(()) == "unresolved_with_fixed_evidence"
+
+
+def test_sandbox_differential_matrix_stops_and_cleans_private_scratch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    calls: list[tuple[str, Path]] = []
+
+    def fake_probe(
+        _codex_bin: object,
+        fixture: GovernedFixturePaths,
+        command: Literal["true", "pwd", "cat"],
+        checkout: Path,
+    ) -> SandboxProbeFacts:
+        calls.append((command, fixture.repository))
+        root_class = (
+            "repo_owned_scratch" if checkout in fixture.repository.parents else "system_tmp"
+        )
+        if root_class == "system_tmp" and command == "true":
+            return _differential_probe(command, success=True)
+        if root_class == "system_tmp" and command == "pwd":
+            return _differential_probe(command, success=False, failure_class="not_found")
+        return _differential_probe(command, success=True, root_class="repo_owned_scratch")
+
+    monkeypatch.setattr(e2e_module, "_run_sandbox_probe", fake_probe)
+    facts = run_sandbox_differential_matrix("unused", product_checkout=tmp_path)
+
+    assert [command for command, _ in calls] == ["true", "pwd", "cat"]
+    assert facts.helper_calls == 3
+    assert facts.repo_scratch_attempted is True
+    assert facts.repo_scratch_private is True
+    assert facts.repo_scratch_cleanup_verified is True
+    assert facts.repo_scratch_probe is not None
+    assert facts.classification == "workspace_sandbox_available_repo_scratch"
+    assert not any(path.exists() for _, path in calls if tmp_path in path.parents)
+
+
+def test_localized_diagnostic_gates_models_on_exact_helper_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    catalog_calls = 0
+    model_calls = 0
+    matrix_calls = 0
+
+    def fake_catalog(_codex_bin: object, _destination: object) -> None:
+        nonlocal catalog_calls
+        catalog_calls += 1
+
+    def fake_run(
+        _codex_bin: object, fixture: GovernedFixturePaths, _prompt: str
+    ) -> SanitizedCodexRun:
+        nonlocal model_calls
+        model_calls += 1
+        dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
+        dependency_hash = hashlib.sha256(dependency).hexdigest()
+        return SanitizedCodexRun(
+            exit_status=0,
+            timed_out=False,
+            duration_seconds=0.0,
+            event_bytes=1,
+            event_type_counts={},
+            call_item_type_counts={"command_execution": 1},
+            tool_names=("command_execution",),
+            tool_calls=1,
+            sentinel_passed=True,
+            failure_reason="success",
+            dependency_observation=DependencyObservationFacts(
+                intended_dependency_reads=1,
+                started_commands=1,
+                completed_commands=1,
+                successful_dependency_reads=1,
+                output_sha256=dependency_hash,
+                output_byte_length=len(dependency),
+                rstrip_output_sha256=hashlib.sha256(dependency.rstrip()).hexdigest(),
+            ),
+            command_diagnostics=CommandDiagnostics(
+                failure_class="success", command_status="success"
+            ),
+        )
+
+    def fake_matrix(
+        _codex_bin: object,
+        *,
+        product_checkout: Path | None,
+        base_url: str,
+        api_key_env: str,
+        on_fixture_available: Callable[..., None] | None,
+        on_system_fixture: Callable[..., None] | None,
+    ) -> SandboxDifferentialFacts:
+        del product_checkout, base_url, api_key_env
+        nonlocal matrix_calls
+        matrix_calls += 1
+        fixture_root = tmp_path / f"fixture-{matrix_calls}"
+        fixture_root.mkdir()
+        fixture = write_governed_fixture(fixture_root, "", "UNUSED")
+        if on_system_fixture is not None:
+            on_system_fixture(fixture)
+        classification: SandboxLocalization
+        probes: tuple[SandboxProbeFacts, ...]
+        if matrix_calls == 1 and on_fixture_available is not None:
+            on_fixture_available(fixture, "system_tmp")
+            classification = "workspace_sandbox_available_system_tmp"
+            probes = (_differential_probe("true", success=True),)
+            helper_calls = 3
+        else:
+            classification = "workspace_mapping_failure_system_tmp"
+            probes = (
+                _differential_probe("true", success=True),
+                _differential_probe("pwd", success=False, failure_class="not_found"),
+            )
+            helper_calls = 2
+        return SandboxDifferentialFacts(
+            system_temp_probes=probes,
+            repo_scratch_probe=None,
+            helper_calls=helper_calls,
+            repo_scratch_attempted=False,
+            repo_scratch_private=False,
+            repo_scratch_cleanup_verified=False,
+            classification=classification,
+        )
+
+    monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
+    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
+    monkeypatch.setattr(e2e_module, "_run_sandbox_differential_matrix", fake_matrix)
+
+    allowed = run_localized_command_failure_diagnostic("unused", product_checkout=tmp_path)
+    assert allowed.differential is not None
+    assert allowed.differential.classification == "workspace_sandbox_available_system_tmp"
+    assert len(allowed.attempts) == 1
+    assert catalog_calls == 1
+    assert model_calls == 1
+
+    blocked = run_localized_command_failure_diagnostic("unused", product_checkout=tmp_path)
+    assert blocked.differential is not None
+    assert blocked.differential.classification == "workspace_mapping_failure_system_tmp"
+    assert blocked.attempts == ()
+    assert catalog_calls == 1
+    assert model_calls == 1
 
 
 def test_sandbox_diagnostic_subclasses_are_fixed() -> None:

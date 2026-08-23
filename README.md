@@ -266,21 +266,37 @@ tool, then requires literal compliance with the dependency's
 final message lacks the helper-known acknowledgment is reported as
 `sentinel_missing`; it is never counted as governance-derived success.
 
-Before a model-backed attempt, the command-failure diagnostic runs one direct,
-no-model `codex sandbox --permission-profile :workspace --cd <disposable-repository>
--- /bin/cat GOVERNANCE-DEPENDENCY.md` preflight using the installed CLI's
-built-in `:workspace` profile, whose semantic policy is `workspace-write`. It
-reads the synthetic dependency through `/bin/cat` using a disposable
-`CODEX_HOME`, records only fixed platform/capability labels, process status,
-bounded stream hashes/counts, the first nonempty non-warning diagnostic within a
-small fixed line/length budget, root-containment booleans, and byte-equality
-facts, and never inherits API keys or other credentials. A failed preflight
-runs zero nested `codex exec` attempts; otherwise the existing two-attempt
-budget remains the hard maximum. Direct and nested evidence are classified as
+Before a model-backed attempt, the command-failure diagnostic runs a bounded
+no-model differential matrix with the installed CLI's built-in `:workspace`
+profile (semantic policy `workspace-write`): `/bin/true`, then `/bin/pwd` when
+needed, then `/bin/cat GOVERNANCE-DEPENDENCY.md` when the root is proven mapped.
+Only when the system-temporary root is shown to be the failing boundary does it
+run the same `/bin/cat` helper once in a fresh private scratch directory beneath
+the product checkout. Every helper call is direct (no shell), uses fixed
+time/output/line bounds, and records only executable booleans, root/target
+containment/type/mode/length/hash facts, fixed status classes, stream hashes,
+and byte identity. The scratch directory is caller-owned, private, excluded
+from explicit staging, and removed with cleanup verification. A byte-identical
+`:workspace` read is the sole gate for the existing maximum of two nested
+`codex exec` attempts through the candidate adapter; otherwise model calls are
+zero. The differential decision is exactly one of
+`helper_executable_mapping_failure`, `workspace_mapping_failure_system_tmp`,
+`target_mapping_failure`, `workspace_sandbox_available_system_tmp`,
+`workspace_sandbox_available_repo_scratch`, `host_sandbox_runtime_failure`, or
+`unresolved_with_fixed_evidence`. Prior direct and nested evidence remains
+classified as
 `workspace_sandbox_available`,
 `host_sandbox_bootstrap_unsupported`, `workspace_root_resolution_mismatch`,
 `invocation_config_precedence_error`, `command_event_schema_mismatch`, or
 `unresolved_with_fixed_evidence`.
+
+The 004-i no-model matrix on Codex CLI 0.149.0 stopped after one `/bin/true`
+probe: the host executable is present, regular, executable, and non-symlink, but
+the corrected `:workspace` helper returned fixed `not_found`/`not_found` evidence.
+This localizes the current failure to helper executable mapping; `/bin/pwd`,
+dependency reads, repo-scratch probing, and governed model calls were therefore
+not run. This is a bounded host/CLI portability result, not a host-kernel
+repair or a claim about other sandbox runtimes.
 
 ## Candidate quickstart
 
