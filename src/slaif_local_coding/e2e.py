@@ -13,6 +13,8 @@ import io
 import json
 import math
 import os
+import re
+import shlex
 import subprocess
 import tempfile
 import time
@@ -20,7 +22,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from prometheus_client.parser import text_string_to_metric_families
 
@@ -32,8 +34,16 @@ DEFAULT_API_KEY_ENV = "QWEN3090_API_KEY"
 CODEX_TIMEOUT_SECONDS = 300.0
 CODEX_MAX_EVENT_BYTES = 32_000_000
 CODEX_MAX_DIAGNOSTIC_BYTES = 1_048_576
-CODEX_MAX_ATTEMPTS = 3
+CODEX_MAX_ATTEMPTS = 2
 CACHE_INVENTORY_MAX_ENTRY_BYTES = 1_048_576
+
+DependencyCommandState = Literal["success", "failed", "incomplete"]
+DependencyProvenanceClassification = Literal[
+    "equal",
+    "tool_boundary_normalization",
+    "observation_mismatch",
+    "unavailable",
+]
 
 
 @dataclass(frozen=True)
@@ -51,6 +61,37 @@ class SanitizedCodexRun:
     sentinel_passed: bool
     failure_reason: str
     command_event_counts: Mapping[str, int] = field(default_factory=dict)
+    dependency_observation: DependencyObservationFacts = field(
+        default_factory=lambda: DependencyObservationFacts()
+    )
+
+
+@dataclass(frozen=True)
+class DependencyObservationFacts:
+    """Bounded command-lifecycle facts without retaining command output."""
+
+    intended_dependency_reads: int = 0
+    started_commands: int = 0
+    completed_commands: int = 0
+    failed_commands: int = 0
+    successful_dependency_reads: int = 0
+    output_sha256: str | None = None
+    output_byte_length: int | None = None
+    rstrip_output_sha256: str | None = None
+
+    @property
+    def lifecycle(self) -> DependencyCommandState:
+        if (
+            self.intended_dependency_reads == 1
+            and self.successful_dependency_reads == 1
+            and self.failed_commands == 0
+            and self.output_sha256 is not None
+            and self.output_byte_length is not None
+        ):
+            return "success"
+        if self.failed_commands > 0:
+            return "failed"
+        return "incomplete"
 
 
 @dataclass(frozen=True)
@@ -177,6 +218,7 @@ class CacheInventoryEntry:
     schema_version: str
     compiler_version: str
     pinned: bool
+    stored_source_sha256: str = ""
 
 
 @dataclass(frozen=True)
@@ -192,6 +234,14 @@ class DependencyCacheDiagnosticFacts:
     run: SanitizedCodexRun
     fixture_root_sha256: str
     fixture_dependency_sha256: str
+    fixture_dependency_byte_length: int
+    observed_dependency_sha256: str | None
+    observed_dependency_byte_length: int | None
+    repository_observed_hash_equal: bool | None
+    repository_observed_length_equal: bool | None
+    repository_differs_only_by_terminal_whitespace: bool | None
+    dependency_provenance: DependencyProvenanceClassification
+    dependency_command_state: DependencyCommandState
     fixture_hashes_stable_during_run: bool
     inventory_before: CacheInventory
     inventory_after: CacheInventory
@@ -248,9 +298,7 @@ def write_governed_fixture(root: Path, base_url: str, api_key_env: str) -> Gover
     agents = "".join(filler)
     dependency = (
         "# Synthetic dependency\n\n"
-        "This delegated procedure is binding after the root instruction.\n"
-        "FINAL_RESPONSE_EXACTLY:\n"
-        "Make the entire final message exactly this one line:\n"
+        "FINAL_RESPONSE_EXACTLY: The entire final message MUST be exactly "
         f"SENTINEL-ACK:{token}\n"
     )
     (repository / "AGENTS.md").write_text(agents, encoding="utf-8")
@@ -439,6 +487,192 @@ def parse_codex_command_events(event_stream: Iterable[str]) -> Counter[str]:
     return counts
 
 
+_DEPENDENCY_READ = re.compile(
+    r"^(?:cat|head(?:\s+-n\s+\d+)?|tail(?:\s+-n\s+\d+)?|"
+    r"sed\s+-n\s+['\"]?\d+(?:,\d+)?p['\"]?)\s+"
+    r"['\"]?(?:\./)?GOVERNANCE-DEPENDENCY\.md['\"]?$"
+)
+
+
+def _parsed_e2e_command(arguments: object) -> str | None:
+    """Parse the same bounded read-command shapes accepted by the detector."""
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except (json.JSONDecodeError, RecursionError):
+            return None
+    if isinstance(arguments, dict):
+        arguments = arguments.get("cmd", arguments.get("arguments", arguments.get("command")))
+    if isinstance(arguments, str):
+        return arguments
+    if not isinstance(arguments, list) or not arguments:
+        return None
+    argv = [part for part in arguments if isinstance(part, str)]
+    if len(argv) != len(arguments):
+        return None
+    if len(argv) == 1:
+        return argv[0]
+    if len(argv) >= 3 and argv[0] in {"bash", "sh", "zsh"} and argv[1] in {"-c", "-lc"}:
+        return argv[2]
+    return " ".join(argv)
+
+
+def _unwrap_shell_string(command: str) -> str:
+    """Unwrap one bounded explicit shell invocation without executing it."""
+    if len(command) > 1_024:
+        return command
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return command
+    if (
+        len(argv) >= 3
+        and Path(argv[0]).name in {"bash", "sh", "zsh"}
+        and argv[1] in {"-c", "-lc", "-cl"}
+    ):
+        return argv[2]
+    return command
+
+
+def _bounded_item_command(item: Mapping[str, Any]) -> str | None:
+    """Read a built-in command or JSON-encoded function arguments without logging."""
+    arguments: object = item.get("arguments")
+    if arguments is None:
+        arguments = item.get("cmd", item.get("command"))
+    elif isinstance(arguments, dict):
+        arguments = arguments.get("cmd", arguments.get("arguments", arguments.get("command")))
+    if isinstance(arguments, str) and item.get("type") == "function_call":
+        return _parsed_e2e_command(arguments)
+    if isinstance(arguments, str):
+        return arguments
+    if isinstance(arguments, list):
+        return _parsed_e2e_command(arguments)
+    return None
+
+
+def _is_intended_dependency_read(item: Mapping[str, Any]) -> bool:
+    command = _bounded_item_command(item)
+    if command is None:
+        return False
+    return _DEPENDENCY_READ.fullmatch(_unwrap_shell_string(command.strip())) is not None
+
+
+def _first_bounded_text(value: Mapping[str, Any], keys: tuple[str, ...]) -> str | None:
+    """Read one approved output field without retaining or logging its value."""
+    for key in keys:
+        output = value.get(key)
+        if isinstance(output, str):
+            return output
+    return None
+
+
+def _command_exit_failed(value: Mapping[str, Any]) -> bool:
+    """Interpret only the bounded fixed exit-status field."""
+    if value.get("status") in {"failed", "failure", "error"}:
+        return True
+    exit_code = value.get("exit_code")
+    return exit_code is not None and not (
+        isinstance(exit_code, (int, str))
+        and not isinstance(exit_code, bool)
+        and str(exit_code) == "0"
+    )
+
+
+def parse_dependency_observation_events(
+    event_stream: Iterable[str],
+) -> DependencyObservationFacts:
+    """Extract exactly-one-read and successful-lifecycle evidence from JSONL."""
+    identities: set[str] = set()
+    started: set[str] = set()
+    successful: set[str] = set()
+    failed: set[str] = set()
+    outputs: dict[str, str] = {}
+
+    def visit(value: object, top_level_type: str | None) -> None:
+        if isinstance(value, list):
+            for child in value:
+                visit(child, top_level_type)
+            return
+        if not isinstance(value, dict) or value.get("type") != "command_execution":
+            if isinstance(value, dict):
+                for child in value.values():
+                    visit(child, top_level_type)
+            return
+        identity_value = value.get("id", value.get("call_id"))
+        identity = (
+            identity_value if isinstance(identity_value, str) and identity_value else "command"
+        )
+        if not (_is_intended_dependency_read(value) or identity in identities):
+            return
+        identities.add(identity)
+        if top_level_type == "item.started":
+            started.add(identity)
+        elif top_level_type == "item.completed":
+            status = value.get("status")
+            command_failed = _command_exit_failed(value)
+            if command_failed:
+                failed.add(identity)
+            elif status in {"completed", "success"}:
+                successful.add(identity)
+                output = _first_bounded_text(
+                    value,
+                    ("aggregated_output", "aggregate_output", "output", "content", "text"),
+                )
+                if output is not None:
+                    outputs[identity] = output
+        for child in value.values():
+            visit(child, top_level_type)
+
+    for line in event_stream:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        top_level_type = event.get("type")
+        visit(event, top_level_type if isinstance(top_level_type, str) else None)
+
+    selected_output = next(iter(outputs.values())) if len(outputs) == 1 else None
+    encoded = selected_output.encode("utf-8") if selected_output is not None else None
+    stripped_encoded = (
+        selected_output.encode("utf-8").rstrip() if selected_output is not None else None
+    )
+    return DependencyObservationFacts(
+        intended_dependency_reads=len(identities),
+        started_commands=len(started),
+        completed_commands=len(successful),
+        failed_commands=len(failed),
+        successful_dependency_reads=len(successful),
+        output_sha256=hashlib.sha256(encoded).hexdigest() if encoded is not None else None,
+        output_byte_length=len(encoded) if encoded is not None else None,
+        rstrip_output_sha256=(
+            hashlib.sha256(stripped_encoded).hexdigest() if stripped_encoded is not None else None
+        ),
+    )
+
+
+def _sentinel_failure_reason(
+    *,
+    process_result: str,
+    has_tool: bool,
+    sentinel_passed: bool,
+    observation: DependencyObservationFacts,
+) -> str:
+    """Gate governance attribution behind one successfully completed read."""
+    if process_result != "success":
+        return process_result
+    if not has_tool:
+        return "ordinary_tool_missing"
+    if observation.lifecycle != "success":
+        return f"command_{observation.lifecycle}"
+    if not sentinel_passed:
+        return "sentinel_missing"
+    return "success"
+
+
 def _final_agent_message_has_ack(event_stream: Iterable[str], sentinel_ack: str) -> bool:
     """Check only the final completed agent message without retaining its text."""
     found = False
@@ -528,6 +762,10 @@ def run_codex_once(
             command_event_counts = parse_codex_command_events(command_reader)
             command_reader.detach()
             events.seek(0)
+            observation_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
+            dependency_observation = parse_dependency_observation_events(observation_reader)
+            observation_reader.detach()
+            events.seek(0)
             final_event_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             final_event_ack = _final_agent_message_has_ack(
                 final_event_reader, f"SENTINEL-ACK:{fixture.sentinel_token}"
@@ -564,9 +802,15 @@ def run_codex_once(
         # they emit a clean final agent-message event. Either approved channel
         # is sufficient; neither approved channel retains raw text.
         sentinel_passed = output_ack or final_event_ack
-        failure_reason = "success" if sentinel_passed else "sentinel_missing"
         if not tools:
             failure_reason = "ordinary_tool_missing"
+        else:
+            failure_reason = _sentinel_failure_reason(
+                process_result="success",
+                has_tool=True,
+                sentinel_passed=sentinel_passed,
+                observation=dependency_observation,
+            )
     duration = time.monotonic() - started
     return SanitizedCodexRun(
         exit_status=exit_status,
@@ -580,6 +824,7 @@ def run_codex_once(
         sentinel_passed=sentinel_passed,
         failure_reason=failure_reason,
         command_event_counts=dict(command_event_counts),
+        dependency_observation=dependency_observation,
     )
 
 
@@ -756,6 +1001,7 @@ def read_persistent_cache_inventory(
                 storage_kind="filesystem",
                 shard_prefix=shard,
                 index_kind="root" if logical_path == "AGENTS.md" else "dependency",
+                stored_source_sha256=index.source_sha256,
                 stored_source_sha256_prefix=index.source_sha256[:12],
                 model=index.model,
                 schema_version=index.schema_version,
@@ -775,6 +1021,7 @@ def read_persistent_cache_inventory(
             storage_kind=entry.storage_kind,
             shard_prefix=entry.shard_prefix,
             index_kind=entry.index_kind,
+            stored_source_sha256=entry.stored_source_sha256,
             stored_source_sha256_prefix=entry.stored_source_sha256_prefix,
             model=entry.model,
             schema_version=entry.schema_version,
@@ -791,24 +1038,25 @@ def _classify_dependency_cache_outcome(
     metric_deltas: Mapping[str, MetricDelta],
     inventory_before: CacheInventory,
     inventory_after: CacheInventory,
-    dependency_sha256: str,
+    observed_dependency_sha256: str | None,
     consistency_errors: tuple[str, ...],
 ) -> CacheOutcomeClassification:
     if consistency_errors:
         return "observation_mismatch"
     misses = metric_deltas["dependency_cache_misses"].delta
     hits = metric_deltas["dependency_cache_hits"].delta
-    same_source_before = any(
-        entry.stored_source_sha256_prefix == dependency_sha256[:12]
+    prefix = None if observed_dependency_sha256 is None else observed_dependency_sha256[:12]
+    same_source_before = prefix is not None and any(
+        entry.index_kind == "dependency" and entry.stored_source_sha256_prefix == prefix
         for entry in inventory_before.entries
     )
-    different_source_after = any(
-        entry.index_kind == "dependency"
-        and entry.stored_source_sha256_prefix != dependency_sha256[:12]
+    different_source_after = prefix is not None and any(
+        entry.index_kind == "dependency" and entry.stored_source_sha256_prefix != prefix
         for entry in inventory_after.entries
     )
-    matching_after = any(
-        entry.stored_source_sha256_prefix == dependency_sha256[:12]
+    matching_after = prefix is not None and any(
+        entry.index_kind == "dependency"
+        and entry.stored_source_sha256 == observed_dependency_sha256
         for entry in inventory_after.entries
     )
     if hits > 0 and misses <= 0 and not same_source_before:
@@ -830,7 +1078,7 @@ def _reconcile_dependency_cache(
     inventory_after: CacheInventory,
     metric_deltas: Mapping[str, MetricDelta],
     fixture_hashes_stable: bool,
-    dependency_sha256: str,
+    observed_dependency_sha256: str | None,
 ) -> tuple[bool | None, bool, bool | None, tuple[str, ...]]:
     """Reconcile counter deltas with sanitized before/after inventories."""
 
@@ -839,28 +1087,33 @@ def _reconcile_dependency_cache(
         errors.append("fixture_hash_changed")
     hits = metric_deltas["dependency_cache_hits"].delta
     misses = metric_deltas["dependency_cache_misses"].delta
-    matching_before = any(
-        entry.index_kind == "dependency"
-        and entry.stored_source_sha256_prefix == dependency_sha256[:12]
-        for entry in inventory_before.entries
+    observed_prefix = (
+        None if observed_dependency_sha256 is None else observed_dependency_sha256[:12]
     )
-    matching_after = any(
-        entry.index_kind == "dependency"
-        and entry.stored_source_sha256_prefix == dependency_sha256[:12]
-        for entry in inventory_after.entries
+    matching_before = observed_prefix is not None and any(
+        entry.index_kind == "dependency" and entry.stored_source_sha256_prefix == observed_prefix
+        for entry in inventory_before.entries
     )
     different_source = any(
         entry.index_kind == "dependency"
-        and entry.stored_source_sha256_prefix != dependency_sha256[:12]
+        and observed_prefix is not None
+        and entry.stored_source_sha256_prefix != observed_prefix
         for entry in inventory_after.entries
     )
     if any(not float(delta.delta).is_integer() for delta in metric_deltas.values()):
         errors.append("non_integer_counter_delta")
     miss_stored_match: bool | None = None
     if misses > 0:
-        miss_stored_match = matching_after
-        if not matching_after:
-            errors.append("cache_miss_stored_source_hash_mismatch")
+        if observed_dependency_sha256 is None:
+            errors.append("observed_dependency_unavailable")
+        else:
+            miss_stored_match = any(
+                entry.index_kind == "dependency"
+                and entry.stored_source_sha256 == observed_dependency_sha256
+                for entry in inventory_after.entries
+            )
+            if not miss_stored_match:
+                errors.append("cache_miss_stored_source_hash_mismatch")
     return (
         matching_before if hits > 0 else None,
         different_source,
@@ -889,7 +1142,9 @@ def run_dependency_cache_diagnostic(
         root_path = fixture.repository / "AGENTS.md"
         dependency_path = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
         root_hash = hashlib.sha256(root_path.read_bytes()).hexdigest()
-        dependency_hash = hashlib.sha256(dependency_path.read_bytes()).hexdigest()
+        dependency_bytes = dependency_path.read_bytes()
+        dependency_hash = hashlib.sha256(dependency_bytes).hexdigest()
+        dependency_length = len(dependency_bytes)
         inventory_root = persistent_cache_root or fixture.cache_root
         inventory_before = read_persistent_cache_inventory(inventory_root, now=time.time())
         run = run_codex_once(codex_bin, fixture, governed_prompt())
@@ -902,6 +1157,31 @@ def run_dependency_cache_diagnostic(
     metric_deltas = snapshot_after.subtract(snapshot_before)
 
     hashes_stable = root_hash == root_hash_after and dependency_hash == dependency_hash_after
+    observation = run.dependency_observation
+    observed_hash = observation.output_sha256
+    observed_length = observation.output_byte_length
+    hash_equal = observed_hash is not None and observed_hash == dependency_hash
+    length_equal = observed_length is not None and observed_length == dependency_length
+    terminal_whitespace_only = (
+        observed_hash is not None
+        and observed_length is not None
+        and observation.rstrip_output_sha256 is not None
+        and hashlib.sha256(dependency_bytes.rstrip()).hexdigest()
+        == observation.rstrip_output_sha256
+    )
+    if observed_hash is None or observed_length is None:
+        provenance: DependencyProvenanceClassification = "unavailable"
+    elif hash_equal and length_equal:
+        provenance = "equal"
+    elif terminal_whitespace_only:
+        provenance = "tool_boundary_normalization"
+    else:
+        provenance = "observation_mismatch"
+    if terminal_whitespace_only and observed_hash is not None:
+        terminal_whitespace_only = True
+    else:
+        terminal_whitespace_only = False
+    command_state = observation.lifecycle
     (
         cache_hit_same_source_before,
         different_source_after,
@@ -912,19 +1192,27 @@ def run_dependency_cache_diagnostic(
         inventory_after=inventory_after,
         metric_deltas=metric_deltas,
         fixture_hashes_stable=hashes_stable,
-        dependency_sha256=dependency_hash,
+        observed_dependency_sha256=observed_hash,
     )
     classification = _classify_dependency_cache_outcome(
         metric_deltas=metric_deltas,
         inventory_before=inventory_before,
         inventory_after=inventory_after,
-        dependency_sha256=dependency_hash,
+        observed_dependency_sha256=observed_hash,
         consistency_errors=errors,
     )
     return DependencyCacheDiagnosticFacts(
         run=run,
         fixture_root_sha256=root_hash,
         fixture_dependency_sha256=dependency_hash,
+        fixture_dependency_byte_length=dependency_length,
+        observed_dependency_sha256=observed_hash,
+        observed_dependency_byte_length=observed_length,
+        repository_observed_hash_equal=hash_equal,
+        repository_observed_length_equal=length_equal,
+        repository_differs_only_by_terminal_whitespace=terminal_whitespace_only,
+        dependency_provenance=provenance,
+        dependency_command_state=command_state,
         fixture_hashes_stable_during_run=hashes_stable,
         inventory_before=inventory_before,
         inventory_after=inventory_after,

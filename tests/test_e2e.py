@@ -19,17 +19,20 @@ import pytest
 from slaif_local_coding.e2e import (
     CacheInventory,
     CacheInventoryEntry,
+    DependencyObservationFacts,
     GovernedFixturePaths,
     MetricDelta,
     SanitizedCodexRun,
     _classify_dependency_cache_outcome,
     _final_agent_message_has_ack,
     _reconcile_dependency_cache,
+    _sentinel_failure_reason,
     constitution_metric_snapshot,
     governed_prompt,
     metric_value,
     parse_codex_command_events,
     parse_codex_events,
+    parse_dependency_observation_events,
     read_persistent_cache_inventory,
     write_governed_fixture,
 )
@@ -237,6 +240,127 @@ def test_command_event_lifecycle_counts_are_sanitized() -> None:
     assert counts == Counter({"started": 1, "completed": 1, "failed": 1})
 
 
+def test_dependency_observation_parses_one_successful_bounded_read() -> None:
+    canned = "\n".join(
+        [
+            '{"type":"item.started","item":{"id":"read","type":"command_execution",'
+            '"command":"cat GOVERNANCE-DEPENDENCY.md"}}',
+            '{"type":"item.completed","item":{"id":"read","type":"command_execution",'
+            '"status":"completed","exit_code":0,"aggregated_output":"raw dependency"}}',
+            '{"type":"item.completed","item":{"id":"other","type":"command_execution",'
+            '"command":["cat","README.md"],"status":"completed","exit_code":0}}',
+        ]
+    )
+    facts = parse_dependency_observation_events(io.StringIO(canned))
+    assert facts.intended_dependency_reads == 1
+    assert facts.started_commands == 1
+    assert facts.completed_commands == 1
+    assert facts.failed_commands == 0
+    assert facts.successful_dependency_reads == 1
+    assert facts.lifecycle == "success"
+    assert facts.output_sha256 == hashlib.sha256(b"raw dependency").hexdigest()
+    assert facts.output_byte_length == len(b"raw dependency")
+    assert facts.rstrip_output_sha256 == hashlib.sha256(b"raw dependency").hexdigest()
+
+
+def test_dependency_observation_accepts_string_zero_exit_and_started_identity() -> None:
+    canned = "\n".join(
+        [
+            '{"type":"item.started","item":{"id":"read","type":"command_execution",'
+            '"command":"cat GOVERNANCE-DEPENDENCY.md"}}',
+            '{"type":"item.completed","item":{"id":"read","type":"command_execution",'
+            '"status":"completed","exit_code":"0","aggregate_output":"raw"}}',
+        ]
+    )
+    facts = parse_dependency_observation_events(io.StringIO(canned))
+    assert facts.lifecycle == "success"
+    assert facts.output_sha256 == hashlib.sha256(b"raw").hexdigest()
+
+
+def test_dependency_observation_rejects_duplicate_failed_or_wrapper_reads() -> None:
+    failed = "\n".join(
+        [
+            '{"type":"item.started","item":{"id":"failed","type":"command_execution",'
+            '"command":"cat GOVERNANCE-DEPENDENCY.md"}}',
+            '{"type":"item.completed","item":{"id":"failed","type":"command_execution",'
+            '"status":"failed","exit_code":1}}',
+        ]
+    )
+    assert parse_dependency_observation_events(io.StringIO(failed)).lifecycle == "failed"
+
+
+def test_dependency_observation_recognizes_quoted_shell_wrapper_failure() -> None:
+    canned = "\n".join(
+        [
+            '{"type":"item.started","item":{"id":"wrapped","type":"command_execution",'
+            '"command":"bash -lc \\"cat GOVERNANCE-DEPENDENCY.md\\""}}',
+            '{"type":"item.completed","item":{"id":"wrapped","type":"command_execution",'
+            '"status":"failed","exit_code":1,"aggregated_output":"ignored"}}',
+        ]
+    )
+    facts = parse_dependency_observation_events(io.StringIO(canned))
+    assert facts.intended_dependency_reads == 1
+    assert facts.started_commands == 1
+    assert facts.failed_commands == 1
+    assert facts.lifecycle == "failed"
+    duplicate = "\n".join(
+        [
+            '{"type":"item.started","item":{"id":"one","type":"command_execution",'
+            '"command":"cat GOVERNANCE-DEPENDENCY.md"}}',
+            '{"type":"item.started","item":{"id":"two","type":"command_execution",'
+            '"command":["bash","-lc","cat GOVERNANCE-DEPENDENCY.md"]}}',
+        ]
+    )
+    facts = parse_dependency_observation_events(io.StringIO(duplicate))
+    assert facts.intended_dependency_reads == 2
+    assert facts.lifecycle == "incomplete"
+
+
+def test_sentinel_failure_is_gated_by_command_lifecycle() -> None:
+    success = DependencyObservationFacts(
+        intended_dependency_reads=1,
+        started_commands=1,
+        completed_commands=1,
+        successful_dependency_reads=1,
+        output_sha256="a" * 64,
+        output_byte_length=1,
+        rstrip_output_sha256="a" * 64,
+    )
+    failed = DependencyObservationFacts(
+        intended_dependency_reads=1,
+        started_commands=1,
+        failed_commands=1,
+    )
+    incomplete = DependencyObservationFacts(intended_dependency_reads=2)
+    assert (
+        _sentinel_failure_reason(
+            process_result="success",
+            has_tool=True,
+            sentinel_passed=False,
+            observation=success,
+        )
+        == "sentinel_missing"
+    )
+    assert (
+        _sentinel_failure_reason(
+            process_result="success",
+            has_tool=True,
+            sentinel_passed=False,
+            observation=failed,
+        )
+        == "command_failed"
+    )
+    assert (
+        _sentinel_failure_reason(
+            process_result="success",
+            has_tool=True,
+            sentinel_passed=False,
+            observation=incomplete,
+        )
+        == "command_incomplete"
+    )
+
+
 def test_constitution_metric_snapshot_exposes_fixed_counter_deltas() -> None:
     before = constitution_metric_snapshot("")
     acquisitions = "slaif_constitution_dependency_acquisitions_total"
@@ -323,6 +447,7 @@ def test_cache_inventory_is_bounded_ordered_and_sanitized(tmp_path: Path) -> Non
         "shard_prefix",
         "index_kind",
         "stored_source_sha256_prefix",
+        "stored_source_sha256",
         "model",
         "schema_version",
         "compiler_version",
@@ -342,6 +467,7 @@ def test_dependency_cache_reconciliation_detects_hits_misses_and_mismatches() ->
             shard_prefix="ab",
             index_kind="dependency",
             stored_source_sha256_prefix=source_prefix,
+            stored_source_sha256=f"{source_prefix}{'0' * 52}",
             model="sanitized-model",
             schema_version="constitution-index-v1",
             compiler_version="compiler-v2",
@@ -361,7 +487,7 @@ def test_dependency_cache_reconciliation_detects_hits_misses_and_mismatches() ->
         inventory_after=same_after,
         metric_deltas=metrics,
         fixture_hashes_stable=True,
-        dependency_sha256=f"{matching}{'0' * 52}",
+        observed_dependency_sha256=f"{matching}{'0' * 52}",
     )
     assert hit_match is False and not different_source and errors == ()
 
@@ -370,7 +496,7 @@ def test_dependency_cache_reconciliation_detects_hits_misses_and_mismatches() ->
         inventory_after=same_after,
         metric_deltas=metrics,
         fixture_hashes_stable=True,
-        dependency_sha256=f"{matching}{'0' * 52}",
+        observed_dependency_sha256=f"{matching}{'0' * 52}",
     )
     assert known_hit is True
 
@@ -383,7 +509,7 @@ def test_dependency_cache_reconciliation_detects_hits_misses_and_mismatches() ->
         inventory_after=empty_before,
         metric_deltas=mismatch_metrics,
         fixture_hashes_stable=False,
-        dependency_sha256=f"{matching}{'0' * 52}",
+        observed_dependency_sha256=f"{matching}{'0' * 52}",
     )
     assert miss_match is False
     assert mismatch_errors == ("fixture_hash_changed", "cache_miss_stored_source_hash_mismatch")
@@ -447,6 +573,7 @@ def test_dependency_cache_outcomes_are_classified_from_fixed_facts(
                 shard_prefix="ab",
                 index_kind="dependency",
                 stored_source_sha256_prefix=prefix,
+                stored_source_sha256=f"{prefix}{'0' * 52}",
                 model="sanitized-model",
                 schema_version="constitution-index-v1",
                 compiler_version="compiler-v2",
@@ -460,7 +587,7 @@ def test_dependency_cache_outcomes_are_classified_from_fixed_facts(
         metric_deltas={name: MetricDelta(0, value) for name, value in metrics.items()},
         inventory_before=inventory(before_sources),
         inventory_after=inventory(after_sources),
-        dependency_sha256=f"{'a' * 12}{'0' * 52}",
+        observed_dependency_sha256=f"{'a' * 12}{'0' * 52}",
         consistency_errors=("cache_miss_stored_source_hash_mismatch",)
         if expected == "observation_mismatch"
         else (),
@@ -479,6 +606,7 @@ def test_dependency_reconciliation_ignores_expected_different_source_root() -> N
             shard_prefix="ab",
             index_kind=kind,
             stored_source_sha256_prefix=source_prefix,
+            stored_source_sha256=f"{source_prefix}{'0' * 52}",
             model="sanitized-model",
             schema_version="constitution-index-v1",
             compiler_version="compiler-v2",
@@ -498,7 +626,7 @@ def test_dependency_reconciliation_ignores_expected_different_source_root() -> N
             "dependency_cache_misses": MetricDelta(0, 1),
         },
         fixture_hashes_stable=True,
-        dependency_sha256=f"{'a' * 12}{'0' * 52}",
+        observed_dependency_sha256=f"{'a' * 12}{'0' * 52}",
     )
     assert hit_before is None and different is False and miss_match is True and errors == ()
 
@@ -544,6 +672,15 @@ def test_one_invocation_diagnostic_reconciles_a_real_cache_miss(
             sentinel_passed=False,
             failure_reason="sentinel_missing",
             command_event_counts={"started": 1, "completed": 1},
+            dependency_observation=DependencyObservationFacts(
+                intended_dependency_reads=1,
+                started_commands=1,
+                completed_commands=1,
+                successful_dependency_reads=1,
+                output_sha256=hashlib.sha256(dependency).hexdigest(),
+                output_byte_length=len(dependency),
+                rstrip_output_sha256=hashlib.sha256(dependency.rstrip()).hexdigest(),
+            ),
         )
 
     metrics_samples = [
@@ -580,6 +717,8 @@ def test_one_invocation_diagnostic_reconciles_a_real_cache_miss(
     assert facts.attempt_count == 1
     assert facts.run.failure_reason == "sentinel_missing"
     assert facts.run.command_event_counts == {"started": 1, "completed": 1}
+    assert facts.dependency_command_state == "success"
+    assert facts.dependency_provenance == "equal"
     assert facts.fixture_hashes_stable_during_run
     assert facts.metric_deltas["dependency_cache_misses"].delta == 1
     assert facts.metric_deltas["dependency_observations"].delta == 1
@@ -590,8 +729,160 @@ def test_one_invocation_diagnostic_reconciles_a_real_cache_miss(
         (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
     ).hexdigest()
     assert facts.fixture_dependency_sha256 == dependency_hash
+    assert facts.fixture_dependency_byte_length == len(
+        (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
+    )
+    assert facts.observed_dependency_sha256 == dependency_hash
     assert facts.cache_miss_stored_source_hash_match is True
     assert facts.consistency_errors == ()
     assert facts.classification == "unresolved_with_fixed_evidence"
     public = json.dumps(asdict(facts), sort_keys=True)
     assert fixture.sentinel_token not in public
+
+
+def test_diagnostic_classifies_terminal_whitespace_boundary_normalization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    observed_bytes = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes().rstrip()
+
+    def fake_catalog(_codex_bin: object, _destination: object) -> None:
+        return None
+
+    def fake_run(
+        _codex_bin: object, called_fixture: GovernedFixturePaths, _prompt: str
+    ) -> SanitizedCodexRun:
+        assert called_fixture is fixture
+        _write_cache_entry(
+            persistent_root,
+            logical_path="GOVERNANCE-DEPENDENCY.md",
+            source=observed_bytes,
+            created_at=time.time(),
+        )
+        return SanitizedCodexRun(
+            exit_status=0,
+            timed_out=False,
+            duration_seconds=0.0,
+            event_bytes=1,
+            event_type_counts={},
+            call_item_type_counts={"command_execution": 1},
+            tool_names=("command_execution",),
+            tool_calls=1,
+            sentinel_passed=False,
+            failure_reason="sentinel_missing",
+            command_event_counts={"started": 1, "completed": 1},
+            dependency_observation=DependencyObservationFacts(
+                intended_dependency_reads=1,
+                started_commands=1,
+                completed_commands=1,
+                successful_dependency_reads=1,
+                output_sha256=hashlib.sha256(observed_bytes).hexdigest(),
+                output_byte_length=len(observed_bytes),
+                rstrip_output_sha256=hashlib.sha256(observed_bytes).hexdigest(),
+            ),
+        )
+
+    monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
+    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
+    monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_args, **_kwargs: fixture)
+    persistent_root = tmp_path / "cache"
+    persistent_root.mkdir(mode=0o700)
+    samples = [
+        "",
+        "slaif_constitution_dependency_acquisitions_total"
+        '{route="qwen38-vision-codex",outcome="cache_miss"} 1\n',
+    ]
+    sample_index = 0
+
+    def sample_metrics() -> str:
+        nonlocal sample_index
+        result = samples[sample_index]
+        sample_index += 1
+        return result
+
+    facts = e2e_module.run_dependency_cache_diagnostic(
+        "unused", metrics_sampler=sample_metrics, persistent_cache_root=persistent_root
+    )
+    assert facts.repository_observed_hash_equal is False
+    assert facts.repository_observed_length_equal is False
+    assert facts.repository_differs_only_by_terminal_whitespace is True
+    assert facts.dependency_provenance == "tool_boundary_normalization"
+    assert facts.dependency_command_state == "success"
+    assert facts.cache_miss_stored_source_hash_match is True
+    assert facts.cache_miss_stored_source_hash_match is not False
+    assert facts.consistency_errors == ()
+    assert facts.classification == "unresolved_with_fixed_evidence"
+
+
+def test_diagnostic_classifies_non_whitespace_observation_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    repository_dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
+    observed_bytes = repository_dependency + b"NON-WHITESPACE-BOUNDARY-DELTA"
+
+    def fake_catalog(_codex_bin: object, _destination: object) -> None:
+        return None
+
+    def fake_run(
+        _codex_bin: object, called_fixture: GovernedFixturePaths, _prompt: str
+    ) -> SanitizedCodexRun:
+        assert called_fixture is fixture
+        _write_cache_entry(
+            persistent_root,
+            logical_path="GOVERNANCE-DEPENDENCY.md",
+            source=observed_bytes,
+            created_at=time.time(),
+        )
+        return SanitizedCodexRun(
+            exit_status=0,
+            timed_out=False,
+            duration_seconds=0.0,
+            event_bytes=1,
+            event_type_counts={},
+            call_item_type_counts={"command_execution": 1},
+            tool_names=("command_execution",),
+            tool_calls=1,
+            sentinel_passed=False,
+            failure_reason="sentinel_missing",
+            command_event_counts={"started": 1, "completed": 1},
+            dependency_observation=DependencyObservationFacts(
+                intended_dependency_reads=1,
+                started_commands=1,
+                completed_commands=1,
+                successful_dependency_reads=1,
+                output_sha256=hashlib.sha256(observed_bytes).hexdigest(),
+                output_byte_length=len(observed_bytes),
+                rstrip_output_sha256=hashlib.sha256(observed_bytes.rstrip()).hexdigest(),
+            ),
+        )
+
+    monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
+    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
+    monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_args, **_kwargs: fixture)
+    persistent_root = tmp_path / "cache"
+    persistent_root.mkdir(mode=0o700)
+    samples = [
+        "",
+        "slaif_constitution_dependency_acquisitions_total"
+        '{route="qwen38-vision-codex",outcome="cache_miss"} 1\n',
+    ]
+    sample_index = 0
+
+    def sample_metrics() -> str:
+        nonlocal sample_index
+        result = samples[sample_index]
+        sample_index += 1
+        return result
+
+    facts = e2e_module.run_dependency_cache_diagnostic(
+        "unused", metrics_sampler=sample_metrics, persistent_cache_root=persistent_root
+    )
+    assert facts.dependency_provenance == "observation_mismatch"
+    assert facts.repository_differs_only_by_terminal_whitespace is False
+    assert facts.cache_miss_stored_source_hash_match is True
+    assert facts.classification == "unresolved_with_fixed_evidence"
