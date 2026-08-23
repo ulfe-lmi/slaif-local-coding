@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from prometheus_client.parser import text_string_to_metric_families
 
 from tests.helpers.e2e_support import (
@@ -71,18 +72,39 @@ class VisionFixturePaths:
 
 @dataclass(frozen=True)
 class VisionBoundaryEvidence:
-    """Safe evidence from a recorder placed at the adapter boundary."""
+    """Safe evidence captured from one actual outbound Responses request."""
 
-    turn: Literal[1, 2]
-    input_images_seen: int
+    endpoint: Literal["/v1/responses"]
+    turn: int
+    image_types: tuple[str, ...]
     outgoing_images_seen: int
-    images_removed: int
     forwarded_labels: tuple[str, ...]
-    forwarded_lengths: tuple[int, ...]
-    forwarded_sha256: tuple[str, ...]
+    forwarded_lengths: tuple[int | None, ...]
+    forwarded_sha256: tuple[str | None, ...]
+    exactly_one_expected_image: bool
+    no_unexpected_image: bool
+    expected_fixture_match: bool
+    body_parsed: bool
     non_image_content_preserved: bool
     governance_content_preserved: bool
     tool_content_preserved: bool
+
+    @property
+    def accepted(self) -> bool:
+        """Return whether this fact set meets the two-turn image contract."""
+        return (
+            self.endpoint == "/v1/responses"
+            and self.turn in {1, 2}
+            and self.image_types == ("input_image",)
+            and self.outgoing_images_seen == 1
+            and self.exactly_one_expected_image
+            and self.no_unexpected_image
+            and self.expected_fixture_match
+            and self.body_parsed
+            and self.non_image_content_preserved
+            and self.governance_content_preserved
+            and self.tool_content_preserved
+        )
 
 
 @dataclass(frozen=True)
@@ -133,6 +155,7 @@ class VisionSessionFacts:
     catalog_context_window: int | None
     catalog_parallel_tools_disabled: bool
     metric_deltas: VisionMetricDeltas | None
+    outbound_facts: tuple[VisionBoundaryEvidence, ...] = ()
 
     @property
     def successful(self) -> bool:
@@ -147,6 +170,11 @@ class VisionSessionFacts:
             and self.metric_deltas is not None
             and self.metric_deltas.exact
         )
+
+    @property
+    def outbound_successful(self) -> bool:
+        """Require both ordered, recorder-backed main requests."""
+        return len(self.outbound_facts) == 2 and all(fact.accepted for fact in self.outbound_facts)
 
 
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
@@ -327,8 +355,15 @@ def _data_url(path: Path) -> str:
     return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
 
 
-def _image_values(value: object) -> list[tuple[str, object]]:
-    found: list[tuple[str, object]] = []
+@dataclass(frozen=True)
+class _ImageObservation:
+    item_type: str
+    url: str | None
+    supported_shape: bool
+
+
+def _image_items(value: object) -> list[_ImageObservation]:
+    found: list[_ImageObservation] = []
 
     def visit(node: object) -> None:
         if isinstance(node, list):
@@ -338,12 +373,16 @@ def _image_values(value: object) -> list[tuple[str, object]]:
         if not isinstance(node, dict):
             return
         marker = node.get("type")
-        if marker == "input_image" and isinstance(node.get("image_url"), str):
-            found.append(("input_image", node["image_url"]))
-        elif marker == "image_url" and isinstance(node.get("image_url"), dict):
-            url = node["image_url"].get("url")
-            if isinstance(url, str):
-                found.append(("image_url", url))
+        if isinstance(marker, str) and (
+            marker in {"input_image", "image_url", "image"} or marker.endswith("_image")
+        ):
+            if marker == "input_image" and isinstance(node.get("image_url"), str):
+                found.append(_ImageObservation(marker, node["image_url"], True))
+            elif marker == "image_url" and isinstance(node.get("image_url"), dict):
+                url = node["image_url"].get("url")
+                found.append(_ImageObservation(marker, url if isinstance(url, str) else None, True))
+            else:
+                found.append(_ImageObservation(marker, None, False))
         for child in node.values():
             visit(child)
 
@@ -374,47 +413,159 @@ def _has_tool_content(value: object) -> bool:
     return False
 
 
-def capture_outgoing_vision_payload(
-    *,
-    turn: Literal[1, 2],
-    incoming: Mapping[str, Any],
-    outgoing: Mapping[str, Any],
-    fixture: VisionFixturePaths,
-) -> VisionBoundaryEvidence:
-    """Capture safe facts from an acceptance-only recorder/fake upstream.
+def _content_fingerprint(value: object) -> str:
+    canonical = json.dumps(
+        _without_images(value), ensure_ascii=True, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
-    ``incoming`` is the body before route adaptation and ``outgoing`` is the
-    body actually sent onward.  Only expected image labels, lengths, hashes,
-    counts, and preservation booleans leave this function.
+
+def _governance_content_present(value: object) -> bool:
+    encoded = json.dumps(value, ensure_ascii=True, sort_keys=True)
+    return "GOVERNANCE-DEPENDENCY.md" in encoded and "FINAL_RESPONSE_EXACTLY" in encoded
+
+
+def _safe_image_identity(url: str | None) -> tuple[int, str] | None:
+    """Return only fixture-comparable facts; never retain an image or data URL."""
+    if url is None or not url.startswith("data:image/png;base64,") or len(url) > 8_388_608:
+        return None
+    try:
+        image_bytes = base64.b64decode(url.removeprefix("data:image/png;base64,"), validate=True)
+    except (ValueError, UnicodeError):
+        return None
+    return len(image_bytes), hashlib.sha256(image_bytes).hexdigest()
+
+
+@dataclass(frozen=True)
+class _ExpectedPreservation:
+    content_sha256: str
+    governance: bool
+    tool: bool
+
+
+class VisionOutboundRecorder(httpx.AsyncBaseTransport):
+    """Acceptance-only transport recorder for the real adapter boundary.
+
+    The wrapper observes the request passed by ``create_app`` to HTTPX, records
+    safe facts, and passes the same request object to the configured transport.
+    It deliberately ignores compiler ``/v1/chat/completions`` requests.
     """
-    incoming_images = _image_values(incoming)
-    outgoing_images = _image_values(outgoing)
-    expected = {
-        _data_url(fixture.full_image.path): fixture.full_image,
-        _data_url(fixture.crop_image.path): fixture.crop_image,
-    }
-    forwarded: list[VisionImageFixture] = []
-    for _, url in outgoing_images:
-        if not isinstance(url, str):
-            continue
-        image = expected.get(url)
-        if image is not None:
-            forwarded.append(image)
-    return VisionBoundaryEvidence(
-        turn=turn,
-        input_images_seen=len(incoming_images),
-        outgoing_images_seen=len(outgoing_images),
-        images_removed=len(incoming_images) - len(outgoing_images),
-        forwarded_labels=tuple(image.label for image in forwarded),
-        forwarded_lengths=tuple(image.byte_length for image in forwarded),
-        forwarded_sha256=tuple(image.sha256 for image in forwarded),
-        non_image_content_preserved=_without_images(incoming) == _without_images(outgoing),
-        governance_content_preserved=(
-            "GOVERNANCE-DEPENDENCY.md" in json.dumps(outgoing, sort_keys=True)
-            and "FINAL_RESPONSE_EXACTLY" in json.dumps(outgoing, sort_keys=True)
-        ),
-        tool_content_preserved=_has_tool_content(incoming) and _has_tool_content(outgoing),
-    )
+
+    def __init__(self, fixture: VisionFixturePaths, upstream: httpx.AsyncBaseTransport) -> None:
+        self._fixture = fixture
+        self._upstream = upstream
+        self._facts: list[VisionBoundaryEvidence] = []
+        self._expected: dict[int, _ExpectedPreservation] = {}
+
+    @property
+    def facts(self) -> tuple[VisionBoundaryEvidence, ...]:
+        return tuple(self._facts)
+
+    def expect_preserved_content(self, turn: Literal[1, 2], payload: Mapping[str, Any]) -> None:
+        """Register only a safe oracle for focused fake-upstream assertions."""
+        self._expected[turn] = _ExpectedPreservation(
+            content_sha256=_content_fingerprint(payload),
+            governance=_governance_content_present(payload),
+            tool=_has_tool_content(payload),
+        )
+
+    def _fact_from_body(self, turn: int, body: bytes) -> VisionBoundaryEvidence:
+        try:
+            payload = json.loads(body)
+            if not isinstance(payload, dict):
+                raise ValueError("payload must be an object")
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+            return VisionBoundaryEvidence(
+                endpoint="/v1/responses",
+                turn=turn,
+                image_types=(),
+                outgoing_images_seen=0,
+                forwarded_labels=(),
+                forwarded_lengths=(),
+                forwarded_sha256=(),
+                exactly_one_expected_image=False,
+                no_unexpected_image=False,
+                expected_fixture_match=False,
+                body_parsed=False,
+                non_image_content_preserved=False,
+                governance_content_preserved=False,
+                tool_content_preserved=False,
+            )
+
+        images = _image_items(payload)
+        expected = {1: self._fixture.full_image, 2: self._fixture.crop_image}.get(turn)
+        expected_identity = (
+            (expected.byte_length, expected.sha256) if expected is not None else None
+        )
+        known_identities = {
+            (
+                self._fixture.full_image.byte_length,
+                self._fixture.full_image.sha256,
+            ): self._fixture.full_image,
+            (
+                self._fixture.crop_image.byte_length,
+                self._fixture.crop_image.sha256,
+            ): self._fixture.crop_image,
+        }
+        labels: list[str] = []
+        lengths: list[int | None] = []
+        hashes: list[str | None] = []
+        unexpected = False
+        for image in images:
+            identity = _safe_image_identity(image.url) if image.supported_shape else None
+            fixture_image = known_identities.get(identity) if identity is not None else None
+            if image.item_type != "input_image" or fixture_image is None:
+                unexpected = True
+                labels.append("unexpected")
+                lengths.append(None)
+                hashes.append(None)
+            else:
+                labels.append(fixture_image.label)
+                lengths.append(fixture_image.byte_length)
+                hashes.append(fixture_image.sha256)
+        expected_match = (
+            len(images) == 1
+            and not unexpected
+            and _safe_image_identity(images[0].url) == expected_identity
+        )
+        expected_preservation = self._expected.get(turn)
+        if expected_preservation is None:
+            non_image_preserved = bool(_without_images(payload))
+            governance_preserved = _governance_content_present(payload)
+            tool_preserved = _has_tool_content(payload)
+        else:
+            non_image_preserved = (
+                _content_fingerprint(payload) == expected_preservation.content_sha256
+            )
+            governance_preserved = expected_preservation.governance and _governance_content_present(
+                payload
+            )
+            tool_preserved = expected_preservation.tool and _has_tool_content(payload)
+        return VisionBoundaryEvidence(
+            endpoint="/v1/responses",
+            turn=turn,
+            image_types=tuple(image.item_type for image in images),
+            outgoing_images_seen=len(images),
+            forwarded_labels=tuple(labels),
+            forwarded_lengths=tuple(lengths),
+            forwarded_sha256=tuple(hashes),
+            exactly_one_expected_image=len(images) == 1 and not unexpected,
+            no_unexpected_image=not unexpected,
+            expected_fixture_match=expected_match,
+            body_parsed=True,
+            non_image_content_preserved=non_image_preserved,
+            governance_content_preserved=governance_preserved,
+            tool_content_preserved=tool_preserved,
+        )
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/v1/responses":
+            body = await request.aread()
+            self._facts.append(self._fact_from_body(len(self._facts) + 1, body))
+        return await self._upstream.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._upstream.aclose()
 
 
 def image_metric_snapshot(metrics_text: str, *, route: str = VISION_ROUTE) -> tuple[int, int]:
@@ -484,13 +635,12 @@ def _vision_prompt(turn: Literal[1, 2]) -> str:
 
 
 def _parse_vision_events(
-    stream: Iterable[bytes], *, expected_marker: str, expected_sentinel: str
-) -> tuple[int, Counter[str], int, bool, bool, str | None]:
+    stream: Iterable[bytes], *, expected_marker: str
+) -> tuple[int, Counter[str], int, bool, str | None]:
     event_bytes = 0
     event_types: Counter[str] = Counter()
     tool_calls = 0
     marker = False
-    sentinel = False
     thread_id: str | None = None
     for raw_line in stream:
         event_bytes += len(raw_line)
@@ -515,8 +665,18 @@ def _parse_vision_events(
         if item.get("type") == "agent_message" and isinstance(item.get("text"), str):
             text = item["text"]
             marker = marker or expected_marker in text
-            sentinel = sentinel or expected_sentinel in text
-    return event_bytes, event_types, tool_calls, marker, sentinel, thread_id
+    return event_bytes, event_types, tool_calls, marker, thread_id
+
+
+def _exact_final_message(path: Path, expected: str) -> bool:
+    """Validate the bounded output file without retaining its sensitive text."""
+    try:
+        content = path.read_bytes()
+    except OSError:
+        return False
+    if len(content) > CODEX_MAX_EVENT_BYTES:
+        return False
+    return content == expected.encode("utf-8")
 
 
 def _run_vision_turn(
@@ -595,13 +755,12 @@ def _run_vision_turn(
                 event_types,
                 tool_calls,
                 marker,
-                sentinel,
                 thread_id,
             ) = _parse_vision_events(
                 iter(events.readline, b""),
                 expected_marker=expected_marker,
-                expected_sentinel=f"SENTINEL-ACK:{fixture.sentinel_token}",
             )
+            sentinel = _exact_final_message(output_path, f"SENTINEL-ACK:{fixture.sentinel_token}")
     except (OSError, OverflowError, subprocess.SubprocessError):
         exit_status = None
     finally:
@@ -642,6 +801,7 @@ def run_vision_e2e(
     fixture: VisionFixturePaths,
     *,
     metrics_sampler: Callable[[], str] | None = None,
+    outbound_recorder: VisionOutboundRecorder | None = None,
     timeout_seconds: float = VISION_TIMEOUT_SECONDS,
 ) -> VisionSessionFacts:
     """Run exactly one initial image turn and one same-session crop resume."""
@@ -665,8 +825,8 @@ def run_vision_e2e(
         if before is not None and between is not None and after is not None
         else None
     )
-    same_session = first_thread is not None and (
-        second_thread is None or second_thread == first_thread
+    same_session = (
+        first_thread is not None and second_thread is not None and second_thread == first_thread
     )
     return VisionSessionFacts(
         first=first,
@@ -677,4 +837,5 @@ def run_vision_e2e(
         catalog_context_window=catalog_facts[2],
         catalog_parallel_tools_disabled=catalog_facts[3],
         metric_deltas=metric_deltas,
+        outbound_facts=outbound_recorder.facts if outbound_recorder is not None else (),
     )

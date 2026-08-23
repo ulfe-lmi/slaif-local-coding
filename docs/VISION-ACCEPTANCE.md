@@ -50,11 +50,17 @@ session. Prompts do not contain the delegated sentinel. Results retain only
 status, event counts/bytes, fixed marker booleans, image labels, lengths,
 SHA-256 values, metric deltas, and cleanup facts.
 
-The fake-upstream tests prove the acceptance-only boundary recorder sees one
-full image on turn 1 and two input images reduced to exactly the newest crop on
-turn 2. They also prove non-image content, tool items, and governance markers
-are preserved, with exact image metric deltas of seen/removed `1/0` then `2/1`.
-No production debug header or raw-body diagnostic is added.
+The fake-upstream tests construct the production `create_app` path with the
+acceptance-only `VisionOutboundRecorder` as its HTTPX transport. The recorder
+sees the exact request object after image policy, constitutional processing,
+and serialization, then forwards that same object to fake upstream. It proves
+one full image on turn 1 and two input images reduced to exactly the newest
+crop on turn 2. It also proves non-image content, tool items, and governance
+markers are preserved, with exact image metric deltas of seen/removed `1/0`
+then `2/1`. Compiler `/v1/chat/completions` requests share the transport but
+are not counted as main image turns. Only fixed labels, counts, types, lengths,
+hashes, and booleans are retained; no production debug header or raw-body
+diagnostic is added.
 
 ## Human-gated command
 
@@ -65,12 +71,16 @@ repository with the protected key already present in the environment:
 SLAIF_VISION_ACCEPTANCE=1 uv run --frozen pytest -q tests/test_vision_e2e.py -k live_vision_exec_resume_acceptance
 ```
 
-The test starts only the repository-owned candidate on loopback 18031 using a
-temporary configuration, runs the two Codex turns through the candidate, and
-stops/removes the candidate and all temporary fixture/cache/session state. It
-requires both responses, the governance sentinel and image marker on both
-turns, the exact model catalog facts, and image metric deltas. Port 18031 must
-be absent afterward. It does not switch or mutate protected services.
+The test constructs the repository-owned candidate through `create_app` with
+the same acceptance-only recorder and a real HTTPX upstream transport, serves
+it on loopback 18031 using a temporary configuration, runs the two Codex turns
+through that candidate, and stops/removes the candidate and all temporary
+fixture/cache/session state. It requires both responses, exact final-message
+sentinel binding, a direct matching persisted/resumed session identity, the
+governance and image markers on both turns, the exact model catalog facts,
+image metric deltas, and two ordered recorder facts for full then crop. Port
+18031 must be absent afterward. It does not switch or mutate protected
+services.
 
 The live test is intentionally skipped unless `SLAIF_VISION_ACCEPTANCE=1` is
 set. A skipped run is not acceptance evidence. If the human fixture is not

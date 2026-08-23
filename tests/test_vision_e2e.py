@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import tempfile
+import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+import uvicorn
 
+from slaif_local_coding.app import create_app
+from slaif_local_coding.config import load_settings
 from tests.helpers import vision_e2e_support as vision
 
 
@@ -62,6 +67,8 @@ def _fake_codex(path: Path, fixture: vision.VisionFixturePaths) -> Path:
         f"{str(fixture.full_image.path)!r}:\n"
         "        raise SystemExit(23)\n"
         f"    marker = 'FULL-SCENE-PROCESSED'\n"
+        "output_index = args.index('--output-last-message') + 1\n"
+        f"pathlib.Path(args[output_index]).write_text('SENTINEL-ACK:{token}', encoding='utf-8')\n"
         "events = [\n"
         " {'type': 'thread.started', 'thread_id': 'synthetic-session'},\n"
         " {'type': 'item.completed', 'item': {'type': 'command_execution'}},\n"
@@ -102,10 +109,16 @@ def test_vision_fixture_is_deterministic_private_and_catalog_contract_is_exact(
     assert fixture.sentinel_token not in fixture.codex_config.read_text(encoding="utf-8")
 
 
-def test_outgoing_recorder_proves_newest_crop_and_preserves_other_content(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_outbound_recorder_is_wired_to_create_app_and_proves_newest_crop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     fixture = vision.write_vision_fixture(
         tmp_path, base_url="http://127.0.0.1:18031/v1", api_key_env="UNUSED"
     )
+    monkeypatch.setenv("UNUSED", "test-only-secret")
+    monkeypatch.setenv("QWEN3090_API_KEY", "test-only-secret")
+    settings = load_settings(fixture.adapter_config)
     full = vision._data_url(fixture.full_image.path)
     crop = vision._data_url(fixture.crop_image.path)
     governance = {
@@ -133,31 +146,100 @@ def test_outgoing_recorder_proves_newest_crop_and_preserves_other_content(tmp_pa
         ],
         "tools": [tool_call],
     }
-    outgoing_one = json.loads(json.dumps(turn_one))
-    outgoing_two = json.loads(json.dumps(turn_two))
-    outgoing_two["input"][0]["content"] = [governance]
 
-    first = vision.capture_outgoing_vision_payload(
-        turn=1, incoming=turn_one, outgoing=outgoing_one, fixture=fixture
-    )
-    second = vision.capture_outgoing_vision_payload(
-        turn=2, incoming=turn_two, outgoing=outgoing_two, fixture=fixture
-    )
-    assert first.input_images_seen == 1
-    assert first.outgoing_images_seen == 1
-    assert first.images_removed == 0
+    upstream_calls = 0
+    compiler_calls = 0
+
+    async def upstream(request: httpx.Request) -> httpx.Response:
+        nonlocal upstream_calls, compiler_calls
+        if request.url.path == "/v1/chat/completions":
+            compiler_calls += 1
+            return httpx.Response(500)
+        assert request.url.path == "/v1/responses"
+        upstream_calls += 1
+        body = json.loads(await request.aread())
+        assert body["model"] == vision.VISION_MODEL
+        assert "GOVERNANCE-DEPENDENCY.md" in json.dumps(body)
+        assert any(item.get("type") == "function_call" for item in body["tools"])
+        return httpx.Response(200, json={"id": "fake-upstream"})
+
+    recorder = vision.VisionOutboundRecorder(fixture, httpx.MockTransport(upstream))
+    recorder.expect_preserved_content(1, turn_one)
+    recorder.expect_preserved_content(2, turn_two)
+    app = create_app(settings, recorder)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        before = (await client.get("/metrics")).text
+        first_response = await client.post("/v1/responses", json=turn_one)
+        between = (await client.get("/metrics")).text
+        second_response = await client.post("/v1/responses", json=turn_two)
+        after = (await client.get("/metrics")).text
+
+    assert first_response.status_code == second_response.status_code == 200
+    assert upstream_calls == 2
+    assert compiler_calls == 0
+    facts = recorder.facts
+    assert len(facts) == 2
+    first, second = facts
+    assert first.endpoint == second.endpoint == "/v1/responses"
+    assert first.turn == 1 and second.turn == 2
+    assert first.image_types == second.image_types == ("input_image",)
+    assert first.outgoing_images_seen == second.outgoing_images_seen == 1
     assert first.forwarded_labels == ("full_scene",)
-    assert second.input_images_seen == 2
-    assert second.outgoing_images_seen == 1
-    assert second.images_removed == 1
     assert second.forwarded_labels == ("right_crop",)
+    assert first.forwarded_lengths == (fixture.full_image.byte_length,)
     assert second.forwarded_lengths == (fixture.crop_image.byte_length,)
+    assert first.forwarded_sha256 == (fixture.full_image.sha256,)
     assert second.forwarded_sha256 == (fixture.crop_image.sha256,)
-    assert first.non_image_content_preserved
-    assert second.non_image_content_preserved
-    assert first.governance_content_preserved and second.governance_content_preserved
-    assert first.tool_content_preserved and second.tool_content_preserved
+    assert first.accepted and second.accepted
+    assert "data:image/png" not in json.dumps(asdict(first))
     assert "data:image/png" not in json.dumps(asdict(second))
+    metric_deltas = vision.vision_metric_deltas(before, between, after)
+    assert (metric_deltas.turn1_seen, metric_deltas.turn1_removed) == (1, 0)
+    assert (metric_deltas.turn2_seen, metric_deltas.turn2_removed) == (2, 1)
+    assert metric_deltas.exact
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case",
+    ["zero", "duplicate", "unknown", "wrong_order", "wrong_type", "mismatched"],
+)
+async def test_outbound_recorder_rejects_invalid_image_evidence(tmp_path: Path, case: str) -> None:
+    fixture = vision.write_vision_fixture(
+        tmp_path, base_url="http://127.0.0.1:18031/v1", api_key_env="UNUSED"
+    )
+    full = vision._data_url(fixture.full_image.path)
+    crop = vision._data_url(fixture.crop_image.path)
+    items: list[dict[str, Any]] = []
+    if case == "duplicate":
+        items = [
+            {"type": "input_image", "image_url": full},
+            {"type": "input_image", "image_url": crop},
+        ]
+    elif case == "unknown":
+        items = [{"type": "input_image", "image_url": "data:image/png;base64,AAAA"}]
+    elif case == "wrong_order":
+        items = [{"type": "input_image", "image_url": crop}]
+    elif case == "wrong_type":
+        items = [{"type": "image_url", "image_url": {"url": full}}]
+    elif case == "mismatched":
+        items = [{"type": "input_image", "image_url": "data:image/png;base64,AAEC"}]
+
+    async def upstream(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    recorder = vision.VisionOutboundRecorder(fixture, httpx.MockTransport(upstream))
+    request = httpx.Request(
+        "POST",
+        "http://upstream.test/v1/responses",
+        json={"model": vision.VISION_MODEL, "input": items},
+    )
+    response = await recorder.handle_async_request(request)
+    assert response.status_code == 200
+    assert len(recorder.facts) == 1
+    assert not recorder.facts[0].accepted
 
 
 def test_vision_runner_uses_global_yolo_exec_resume_and_exact_model_facts(tmp_path: Path) -> None:
@@ -213,6 +295,48 @@ def test_vision_metric_deltas_are_exact_and_bounded() -> None:
     assert deltas.exact
 
 
+@contextmanager
+def _running_wired_candidate(
+    fixture: vision.VisionFixturePaths, recorder: vision.VisionOutboundRecorder
+) -> Iterator[None]:
+    """Run the real app with the acceptance recorder on repository port 18031."""
+    settings = load_settings(fixture.adapter_config)
+    app = create_app(settings, recorder)
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=18031,
+            log_level="warning",
+            access_log=False,
+        )
+    )
+    thread = threading.Thread(target=server.run, name="vision-acceptance-candidate", daemon=True)
+    thread.start()
+    try:
+        with httpx.Client(base_url="http://127.0.0.1:18031", timeout=5) as client:
+            for _ in range(60):
+                if not thread.is_alive():
+                    raise AssertionError("candidate_adapter_exited")
+                try:
+                    if client.get("/healthz").status_code == 200:
+                        break
+                except httpx.HTTPError:
+                    pass
+                time.sleep(0.25)
+            else:
+                raise AssertionError("candidate_adapter_not_ready")
+        yield
+    finally:
+        server.should_exit = True
+        thread.join(timeout=15)
+        if thread.is_alive():
+            server.force_exit = True
+            thread.join(timeout=5)
+        if thread.is_alive():
+            raise AssertionError("candidate_adapter_did_not_stop")
+
+
 @pytest.mark.skipif(
     os.getenv("SLAIF_VISION_ACCEPTANCE") != "1",
     reason="human must activate the mutually exclusive protected vision fixture",
@@ -225,54 +349,18 @@ def test_live_vision_exec_resume_acceptance() -> None:
             Path(temporary), base_url="http://127.0.0.1:18031/v1", api_key_env="QWEN3090_API_KEY"
         )
         vision.write_vision_model_catalog(codex_bin, fixture.model_catalog)
-        environment = vision.vision_subprocess_environment(fixture)
-        log_path = fixture.codex_home / "candidate.log"
-        log_handle = log_path.open("wb")
-        candidate = subprocess.Popen(
-            [
-                "uv",
-                "run",
-                "--frozen",
-                "slaif-local-coding",
-                f"--config={fixture.adapter_config}",
-            ],
-            cwd=Path(__file__).resolve().parents[1],
-            env=environment,
-            stdin=subprocess.DEVNULL,
-            stdout=log_handle,
-            stderr=subprocess.STDOUT,
-        )
-        try:
+        recorder = vision.VisionOutboundRecorder(fixture, httpx.AsyncHTTPTransport(retries=0))
+        with _running_wired_candidate(fixture, recorder):
             with httpx.Client(base_url="http://127.0.0.1:18031", timeout=5) as client:
-                for _ in range(60):
-                    if candidate.poll() is not None:
-                        raise AssertionError("candidate_adapter_exited")
-                    try:
-                        if client.get("/healthz").status_code == 200:
-                            break
-                    except httpx.HTTPError:
-                        pass
-                    time.sleep(0.25)
-                else:
-                    raise AssertionError("candidate_adapter_not_ready")
                 facts = vision.run_vision_e2e(
                     codex_bin,
                     fixture,
                     metrics_sampler=lambda: client.get("/metrics").text,
+                    outbound_recorder=recorder,
                 )
-            assert facts.successful
-        finally:
-            candidate.terminate()
-            try:
-                candidate.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                candidate.kill()
-                candidate.wait(timeout=5)
-            log_handle.close()
-        assert candidate.poll() is not None
-        log_bytes = log_path.read_bytes()
-        assert fixture.sentinel_token.encode() not in log_bytes
-        assert b"data:image" not in log_bytes
+        assert facts.successful
+        assert facts.outbound_successful
+        assert len(recorder.facts) == 2
         with httpx.Client(base_url="http://127.0.0.1:18031", timeout=1) as client:
             with pytest.raises(httpx.HTTPError):
                 client.get("/healthz")
