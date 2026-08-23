@@ -42,7 +42,10 @@ CODEX_MAX_ATTEMPTS = 2
 CACHE_INVENTORY_MAX_ENTRY_BYTES = 1_048_576
 SANDBOX_PREFLIGHT_TIMEOUT_SECONDS = 15.0
 SANDBOX_PREFLIGHT_MAX_OUTPUT_BYTES = 1_048_576
-SANDBOX_PERMISSION_PROFILE = "workspace-write"
+SANDBOX_DIAGNOSTIC_MAX_LINES = 8
+SANDBOX_DIAGNOSTIC_MAX_LINE_BYTES = 4_096
+SANDBOX_PERMISSION_PROFILE = ":workspace"
+SANDBOX_MODE: Literal["workspace-write"] = "workspace-write"
 SANDBOX_PLATFORM = "linux"
 
 DependencyCommandState = Literal["success", "failed", "incomplete"]
@@ -73,6 +76,7 @@ SandboxDiagnosticSubclass = Literal[
     "permission",
     "not_found",
     "argument",
+    "configuration",
     "schema",
     "timeout",
     "other",
@@ -138,6 +142,9 @@ class BinaryStreamFacts:
     sha256: str
     first_line_class: DiagnosticFailureClass
     first_line_subclass: SandboxDiagnosticSubclass = "empty"
+    diagnostic_lines_scanned: int = 0
+    diagnostic_line_max_bytes: int = 0
+    diagnostic_line_truncated: bool = False
 
 
 @dataclass(frozen=True)
@@ -664,7 +671,7 @@ def _sandbox_kernel_capabilities() -> tuple[str, ...]:
 def build_sandbox_preflight_argv(
     codex_bin: Path | str, repository: Path, target: Path
 ) -> tuple[str, ...]:
-    """Build the documented Linux helper command with a relative in-root target."""
+    """Build the installed CLI's profile-based helper with a relative target."""
 
     repository_resolved = repository.resolve(strict=False)
     target_resolved = target.resolve(strict=False)
@@ -677,7 +684,6 @@ def build_sandbox_preflight_argv(
     return (
         str(codex_bin),
         "sandbox",
-        SANDBOX_PLATFORM,
         "--permission-profile",
         SANDBOX_PERMISSION_PROFILE,
         "--cd",
@@ -719,10 +725,10 @@ def _classify_sandbox_preflight(
         return "host_sandbox_bootstrap_unsupported"
     if stderr.first_line_class in {"sandbox_denied", "permission_denied"}:
         return "host_sandbox_bootstrap_unsupported"
-    if stderr.first_line_class == "not_found" and target_regular_file and not target_symlink:
-        return "workspace_root_resolution_mismatch"
     if stderr.first_line_class in {"argv_unsupported", "schema_invalid"}:
         return "invocation_config_precedence_error"
+    if stderr.first_line_class == "not_found" and target_regular_file and not target_symlink:
+        return "workspace_root_resolution_mismatch"
     return "unresolved_with_fixed_evidence"
 
 
@@ -834,7 +840,7 @@ def run_sandbox_preflight(
         cli_version=cli_version,
         platform=SANDBOX_PLATFORM,
         kernel_capabilities=_sandbox_kernel_capabilities(),
-        sandbox_mode="workspace-write",
+        sandbox_mode=SANDBOX_MODE,
         permission_profile=SANDBOX_PERMISSION_PROFILE,
         feature_labels=("direct_no_model", "workspace_write", "linux_bwrap_seccomp"),
         policy_resolution=policy_resolution,
@@ -868,7 +874,7 @@ def classify_sandbox_boundary(
     if nested_run.command_diagnostics.command_path_inside_repository is False:
         return "workspace_root_resolution_mismatch"
     if (
-        nested_run.sandbox_mode != SANDBOX_PERMISSION_PROFILE
+        nested_run.sandbox_mode != SANDBOX_MODE
         or nested_run.approval_policy != "never"
         or nested_run.command_diagnostics.failure_class in {"argv_unsupported", "schema_invalid"}
         or (
@@ -1126,20 +1132,29 @@ def _parsed_exit_code(value: object) -> int | None:
 _DIAGNOSTIC_PATTERNS: tuple[tuple[DiagnosticFailureClass, str], ...] = (
     ("sandbox_denied", r"\b(bwrap|sandbox|blocked by policy|operation not permitted)\b"),
     ("permission_denied", r"\b(permission denied|access denied|eacces|eperm)\b"),
+    (
+        "argv_unsupported",
+        r"\b(unrecognized option|unexpected argument|unknown option|"
+        r"(?:permission )?profile\b.*(?:not found|unknown|invalid|undefined|"
+        r"not defined|does not exist|not valid)|(?:unknown|invalid|unrecognized)"
+        r"\s+(?:permission\s+)?profile)\b",
+    ),
     ("not_found", r"\b(no such file or directory|not found|enoent)\b"),
-    ("argv_unsupported", r"\b(unrecognized option|unexpected argument|unknown option)\b"),
     ("schema_invalid", r"\b(schema|invalid (?:request|arguments)|missing required)\b"),
     ("signal", r"\b(signal|killed|terminated)\b"),
 )
 
 
 def _first_diagnostic_line(text: str) -> str:
-    """Ignore fixed Codex warning preambles before classifying diagnostics."""
+    """Return the first bounded nonempty, non-warning diagnostic line."""
 
-    for line in text.splitlines():
-        if line.strip().lower().startswith(("warning:", "warn:")):
+    for line_number, line in enumerate(text.splitlines()):
+        if line_number >= SANDBOX_DIAGNOSTIC_MAX_LINES:
+            break
+        stripped = line.strip()
+        if not stripped or stripped.lower().startswith(("warning:", "warn:")):
             continue
-        return line
+        return line[:SANDBOX_DIAGNOSTIC_MAX_LINE_BYTES]
     return ""
 
 
@@ -1154,7 +1169,7 @@ def _classify_diagnostic_text(text: str) -> DiagnosticFailureClass:
 
 
 def _classify_sandbox_diagnostic_subclass(text: str) -> SandboxDiagnosticSubclass:
-    """Map one first diagnostic line to a fixed privacy-safe subclass."""
+    """Map one first meaningful diagnostic line to a fixed subclass."""
 
     first_line = _first_diagnostic_line(text)
     lowered = first_line.lower()
@@ -1166,6 +1181,11 @@ def _classify_sandbox_diagnostic_subclass(text: str) -> SandboxDiagnosticSubclas
         return "bwrap_bootstrap_denied"
     if "permission denied" in lowered or "access denied" in lowered:
         return "permission"
+    if "profile" in lowered and any(
+        marker in lowered
+        for marker in ("not found", "unknown", "invalid", "undefined", "not defined", "not valid")
+    ):
+        return "configuration"
     if "no such file or directory" in lowered or "not found" in lowered:
         return "not_found"
     if "unrecognized option" in lowered or "unexpected argument" in lowered:
@@ -1178,26 +1198,71 @@ def _classify_sandbox_diagnostic_subclass(text: str) -> SandboxDiagnosticSubclas
 
 
 def _binary_stream_facts(stream: io.BufferedIOBase) -> BinaryStreamFacts:
-    """Hash a bounded stream and classify only its first nonempty line."""
+    """Hash a bounded stream and classify only bounded diagnostic-line facts."""
 
     digest = hashlib.sha256()
     length = 0
-    first_line = bytearray()
-    first_line_complete = False
+    first_meaningful_line: bytes | None = None
+    line_prefix = bytearray()
+    line_length = 0
+    line_has_bytes = False
+    lines_scanned = 0
+    diagnostic_line_max_bytes = 0
+    diagnostic_line_truncated = False
+
+    def finish_line() -> None:
+        nonlocal first_meaningful_line, line_prefix, line_length, line_has_bytes
+        nonlocal lines_scanned, diagnostic_line_max_bytes, diagnostic_line_truncated
+        if lines_scanned >= SANDBOX_DIAGNOSTIC_MAX_LINES:
+            return
+        lines_scanned += 1
+        bounded_length = min(line_length, SANDBOX_DIAGNOSTIC_MAX_LINE_BYTES)
+        diagnostic_line_max_bytes = max(diagnostic_line_max_bytes, bounded_length)
+        diagnostic_line_truncated = diagnostic_line_truncated or (
+            line_length > SANDBOX_DIAGNOSTIC_MAX_LINE_BYTES
+        )
+        decoded = line_prefix.decode("utf-8", errors="replace")
+        stripped = decoded.strip()
+        if (
+            first_meaningful_line is None
+            and stripped
+            and not stripped.lower().startswith(("warning:", "warn:"))
+        ):
+            first_meaningful_line = bytes(line_prefix)
+        line_prefix = bytearray()
+        line_length = 0
+        line_has_bytes = False
+
     while chunk := stream.read(65_536):
         length += len(chunk)
         digest.update(chunk)
-        if not first_line_complete:
-            leading, separator, _remainder = chunk.partition(b"\n")
-            first_line.extend(leading[: max(0, 4_096 - len(first_line))])
-            first_line_complete = bool(separator)
+        if lines_scanned >= SANDBOX_DIAGNOSTIC_MAX_LINES:
+            continue
+        for value in chunk:
+            if lines_scanned >= SANDBOX_DIAGNOSTIC_MAX_LINES:
+                break
+            if value == 0x0A:
+                finish_line()
+                continue
+            line_has_bytes = True
+            line_length += 1
+            if len(line_prefix) < SANDBOX_DIAGNOSTIC_MAX_LINE_BYTES:
+                line_prefix.append(value)
+    if lines_scanned < SANDBOX_DIAGNOSTIC_MAX_LINES and line_has_bytes:
+        finish_line()
+    selected = (
+        first_meaningful_line.decode("utf-8", errors="replace")
+        if first_meaningful_line is not None
+        else ""
+    )
     return BinaryStreamFacts(
         byte_length=length,
         sha256=digest.hexdigest(),
-        first_line_class=_classify_diagnostic_text(first_line.decode("utf-8", errors="replace")),
-        first_line_subclass=_classify_sandbox_diagnostic_subclass(
-            first_line.decode("utf-8", errors="replace")
-        ),
+        first_line_class=_classify_diagnostic_text(selected),
+        first_line_subclass=_classify_sandbox_diagnostic_subclass(selected),
+        diagnostic_lines_scanned=lines_scanned,
+        diagnostic_line_max_bytes=diagnostic_line_max_bytes,
+        diagnostic_line_truncated=diagnostic_line_truncated,
     )
 
 

@@ -61,7 +61,7 @@ def _successful_sandbox_preflight(fixture: GovernedFixturePaths) -> SandboxPrefl
         platform="linux",
         kernel_capabilities=("bwrap_present", "seccomp_probe_available"),
         sandbox_mode="workspace-write",
-        permission_profile="workspace-write",
+        permission_profile=":workspace",
         feature_labels=("direct_no_model", "workspace_write", "linux_bwrap_seccomp"),
         policy_resolution="resolved",
         working_directory_inside_repository=True,
@@ -446,19 +446,58 @@ def test_diagnostic_classes_and_stream_audit_do_not_retain_raw_text() -> None:
     assert "SECRET-FIRST-LINE" not in asdict(facts).values()
 
 
+def test_warning_preambles_reveal_first_meaningful_bounded_diagnostic() -> None:
+    cases = [
+        (b"Warning: startup\nWARN: compatibility\nbwrap: sandbox denied\nRAW", "sandbox_denied"),
+        (b"warning: startup\nPermission denied\nRAW", "permission_denied"),
+        (b"Warning: startup\nNo such file or directory\nRAW", "not_found"),
+        (b"warn: startup\nunexpected argument\nRAW", "argv_unsupported"),
+        (b"Warning: startup\ninvalid request schema\nRAW", "schema_invalid"),
+    ]
+    for payload, expected in cases:
+        facts = _binary_stream_facts(io.BytesIO(payload))
+        assert facts.first_line_class == expected
+        assert facts.diagnostic_lines_scanned <= 8
+        assert facts.diagnostic_line_max_bytes <= 4_096
+        assert "RAW" not in str(asdict(facts))
+
+    warning_only = _binary_stream_facts(io.BytesIO(b"Warning: one\n\nWARN: two\n"))
+    assert warning_only.first_line_class == "unavailable"
+    assert warning_only.first_line_subclass == "empty"
+
+
+def test_diagnostic_line_scan_has_fixed_count_and_length_bounds() -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    after_bound = b"\n".join(
+        [b"Warning: preamble"] * e2e_module.SANDBOX_DIAGNOSTIC_MAX_LINES + [b"Permission denied"]
+    )
+    bounded = _binary_stream_facts(io.BytesIO(after_bound))
+    assert bounded.diagnostic_lines_scanned == e2e_module.SANDBOX_DIAGNOSTIC_MAX_LINES
+    assert bounded.first_line_class == "unavailable"
+    assert bounded.first_line_subclass == "empty"
+
+    long_warning = b"Warning: " + b"x" * (e2e_module.SANDBOX_DIAGNOSTIC_MAX_LINE_BYTES + 100)
+    facts = _binary_stream_facts(io.BytesIO(long_warning + b"\nPermission denied\n"))
+    assert facts.first_line_class == "permission_denied"
+    assert facts.diagnostic_line_max_bytes == e2e_module.SANDBOX_DIAGNOSTIC_MAX_LINE_BYTES
+    assert facts.diagnostic_line_truncated is True
+    assert facts.byte_length == len(long_warning) + len(b"\nPermission denied\n")
+
+
 def test_sandbox_preflight_command_is_explicit_and_in_root(tmp_path: Path) -> None:
     fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
     target = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
     command = build_sandbox_preflight_argv("codex", fixture.repository, target)
-    assert command[:5] == (
+    assert command[:4] == (
         "codex",
         "sandbox",
-        "linux",
         "--permission-profile",
-        "workspace-write",
+        ":workspace",
     )
-    assert command[5] == "--cd"
-    assert command[7:] == ("--", "/bin/cat", "GOVERNANCE-DEPENDENCY.md")
+    assert command[4] == "--cd"
+    assert command[6:] == ("--", "/bin/cat", "GOVERNANCE-DEPENDENCY.md")
+    assert "linux" not in command
     assert all("danger" not in part for part in command)
     with pytest.raises(ValueError, match="inside repository"):
         build_sandbox_preflight_argv("codex", fixture.repository, tmp_path / "outside")
@@ -486,7 +525,7 @@ def test_sandbox_preflight_sanitizes_bootstrap_diagnostic_and_bounds_output(
 
     assert facts.cli_version == "0.149.0"
     assert facts.sandbox_mode == "workspace-write"
-    assert facts.permission_profile == "workspace-write"
+    assert facts.permission_profile == ":workspace"
     assert facts.policy_resolution == "resolved"
     assert facts.target_inside_repository is True
     assert facts.process_exit_status == 1
@@ -495,6 +534,33 @@ def test_sandbox_preflight_sanitizes_bootstrap_diagnostic_and_bounds_output(
     assert facts.boundary_classification == "host_sandbox_bootstrap_unsupported"
     assert facts.raw_output_retained is False
     assert "RAW-PRIVATE-DIAGNOSTIC" not in str(asdict(facts))
+
+
+def test_sandbox_preflight_rejecting_builtin_profile_is_config_error(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path / "fixture", base_url="", api_key_env="UNUSED")
+    fake_codex = tmp_path / "fake-codex-profile-rejection.py"
+    fake_codex.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('codex-cli 0.149.0')\n"
+        "else:\n"
+        "    sys.stderr.write('Warning: startup preamble\\n')\n"
+        "    sys.stderr.write('error: permission profile :workspace is not valid\\n')\n"
+        "    sys.stderr.write('RAW-PROFILE-DIAGNOSTIC\\n')\n"
+        "    raise SystemExit(2)\n",
+        encoding="utf-8",
+    )
+    fake_codex.chmod(0o700)
+
+    facts = run_sandbox_preflight(fake_codex, fixture)
+
+    assert facts.permission_profile == ":workspace"
+    assert facts.policy_resolution == "unresolved"
+    assert facts.stderr.first_line_class == "argv_unsupported"
+    assert facts.stderr.first_line_subclass == "configuration"
+    assert facts.boundary_classification == "invocation_config_precedence_error"
+    assert "RAW-PROFILE-DIAGNOSTIC" not in str(asdict(facts))
 
 
 def test_sandbox_preflight_timeout_is_fixed_and_non_successful(tmp_path: Path) -> None:
@@ -885,6 +951,38 @@ def test_failure_diagnosis_stops_after_first_success(
     assert len(facts.attempts) == 1
     assert facts.attempts[0].read_form == "relative_cat"
     assert len(prompts) == 1
+
+
+def test_failure_diagnosis_never_runs_model_after_failed_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    failed = replace(
+        _successful_sandbox_preflight(fixture),
+        process_exit_status=2,
+        process_status="failed",
+        byte_identical=False,
+        boundary_classification="invocation_config_precedence_error",
+    )
+    monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_: fixture)
+    monkeypatch.setattr(e2e_module, "run_sandbox_preflight", lambda *_args, **_kwargs: failed)
+    monkeypatch.setattr(
+        e2e_module,
+        "write_local_model_catalog",
+        lambda *_args, **_kwargs: pytest.fail("model catalog must remain gated"),
+    )
+    monkeypatch.setattr(
+        e2e_module,
+        "run_codex_once",
+        lambda *_args, **_kwargs: pytest.fail("governed model run must remain gated"),
+    )
+
+    facts = run_command_failure_diagnostic("unused")
+
+    assert facts.attempts == ()
+    assert facts.boundary_classification == "invocation_config_precedence_error"
 
 
 def test_constitution_metric_snapshot_exposes_fixed_counter_deltas() -> None:
