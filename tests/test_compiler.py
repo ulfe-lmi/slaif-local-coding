@@ -23,6 +23,7 @@ from slaif_local_coding.constitution.compiler import (
     CompilerSettings,
     ConstitutionalCompiler,
     ObservedSourceMetadata,
+    _build_prompt,
     _validate_index,
 )
 from slaif_local_coding.constitution.compiler_models import (
@@ -127,6 +128,18 @@ def settings(tmp_path: Any, **changes: Any) -> CompilerSettings:
     }
     values.update(changes)
     return CompilerSettings(**values)
+
+
+def test_compiler_prompt_preserves_exact_normative_binding_literals() -> None:
+    system, _user = _build_prompt(
+        b"FINAL_RESPONSE_EXACTLY: SENTINEL-ACK:ephemeral",
+        "GOVERNANCE-DEPENDENCY.md",
+        hashlib.sha256(b"binding").hexdigest(),
+        "test-model",
+        (),
+    )
+    assert "exact case-sensitive literals" in system
+    assert "sentinels" in system
 
 
 def openai_output(

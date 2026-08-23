@@ -1,0 +1,680 @@
+"""Bounded repository-only support for the eventual Codex vision acceptance.
+
+The helper owns disposable PNGs, a persistent disposable Codex home, and the
+two-command ``exec``/``exec resume`` shape.  It returns fixed facts only.  It
+never puts image bytes, prompts, tool output, source, credentials, or session
+IDs in a result object.
+"""
+
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import os
+import struct
+import subprocess
+import tempfile
+import zlib
+from collections import Counter
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Literal
+
+from prometheus_client.parser import text_string_to_metric_families
+
+from tests.helpers.e2e_support import (
+    CODEX_MAX_DIAGNOSTIC_BYTES,
+    CODEX_MAX_EVENT_BYTES,
+    DEFAULT_MODEL,
+    _ordinary_version,
+    _sandbox_environment,
+    write_governed_fixture,
+    write_local_model_catalog,
+)
+
+VISION_MODEL = DEFAULT_MODEL
+VISION_ROUTE = "qwen38-vision-codex"
+VISION_CODEX_VERSION = "0.149.0"
+VISION_TIMEOUT_SECONDS = 300.0
+VISION_MAX_TOOL_CALLS = 4
+VISION_FULL_LABEL = "full_scene"
+VISION_CROP_LABEL = "right_crop"
+
+
+@dataclass(frozen=True)
+class VisionImageFixture:
+    """Safe identity facts for one synthetic image."""
+
+    path: Path
+    label: Literal["full_scene", "right_crop"]
+    byte_length: int
+    sha256: str
+
+
+@dataclass(frozen=True)
+class VisionFixturePaths:
+    """All paths are caller-owned disposable state."""
+
+    repository: Path
+    codex_home: Path
+    cache_root: Path
+    codex_config: Path
+    model_catalog: Path
+    adapter_config: Path
+    full_image: VisionImageFixture
+    crop_image: VisionImageFixture
+    api_key_env: str
+    sentinel_token: str
+
+
+@dataclass(frozen=True)
+class VisionBoundaryEvidence:
+    """Safe evidence from a recorder placed at the adapter boundary."""
+
+    turn: Literal[1, 2]
+    input_images_seen: int
+    outgoing_images_seen: int
+    images_removed: int
+    forwarded_labels: tuple[str, ...]
+    forwarded_lengths: tuple[int, ...]
+    forwarded_sha256: tuple[str, ...]
+    non_image_content_preserved: bool
+    governance_content_preserved: bool
+    tool_content_preserved: bool
+
+
+@dataclass(frozen=True)
+class VisionMetricDeltas:
+    """Per-turn image counters parsed from three bounded metric snapshots."""
+
+    turn1_seen: int
+    turn1_removed: int
+    turn2_seen: int
+    turn2_removed: int
+
+    @property
+    def exact(self) -> bool:
+        return (self.turn1_seen, self.turn1_removed, self.turn2_seen, self.turn2_removed) == (
+            1,
+            0,
+            2,
+            1,
+        )
+
+
+@dataclass(frozen=True)
+class VisionTurnFacts:
+    """Sanitized result of one bounded Codex invocation."""
+
+    turn: Literal[1, 2]
+    exit_status: int | None
+    timed_out: bool
+    event_bytes: int
+    event_type_counts: Mapping[str, int]
+    tool_calls: int
+    sentinel_passed: bool
+    image_marker_passed: bool
+    response_success: bool
+    resumed_command: bool
+    normalized_argv: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class VisionSessionFacts:
+    """Sanitized two-turn acceptance facts."""
+
+    first: VisionTurnFacts
+    second: VisionTurnFacts
+    same_session: bool
+    catalog_image_capability: bool
+    catalog_detail_original_disabled: bool
+    catalog_context_window: int | None
+    catalog_parallel_tools_disabled: bool
+    metric_deltas: VisionMetricDeltas | None
+
+    @property
+    def successful(self) -> bool:
+        return (
+            self.same_session
+            and self.catalog_image_capability
+            and self.catalog_detail_original_disabled
+            and self.catalog_context_window == 100_000
+            and self.catalog_parallel_tools_disabled
+            and self.first.response_success
+            and self.second.response_success
+            and self.metric_deltas is not None
+            and self.metric_deltas.exact
+        )
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(payload))
+        + kind
+        + payload
+        + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+    )
+
+
+def _rgb_png(rows: tuple[tuple[tuple[int, int, int], ...], ...]) -> bytes:
+    """Encode tiny deterministic RGB fixtures without image dependencies."""
+    if not rows or not rows[0] or any(len(row) != len(rows[0]) for row in rows):
+        raise ValueError("PNG fixture must have a rectangular non-empty pixel grid")
+    width = len(rows[0])
+    height = len(rows)
+    raw = b"".join(b"\x00" + b"".join(bytes(pixel) for pixel in row) for row in rows)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + _png_chunk(b"IDAT", zlib.compress(raw, level=9))
+        + _png_chunk(b"IEND", b"")
+    )
+
+
+def _image_fixture(
+    path: Path, label: Literal["full_scene", "right_crop"], data: bytes
+) -> VisionImageFixture:
+    path.write_bytes(data)
+    os.chmod(path, 0o600)
+    return VisionImageFixture(path, label, len(data), hashlib.sha256(data).hexdigest())
+
+
+def _quoted(value: str | Path) -> str:
+    return json.dumps(str(value))
+
+
+def write_vision_fixture(root: Path, base_url: str, api_key_env: str) -> VisionFixturePaths:
+    """Create the exact disposable repository/config/image fixture for vision."""
+    base = write_governed_fixture(root, base_url, api_key_env)
+    dependency_path = base.repository / "GOVERNANCE-DEPENDENCY.md"
+    dependency_path.write_text(
+        dependency_path.read_text(encoding="utf-8")
+        + "\nAfter a stateless new-context request, the assistant MUST reply with exactly "
+        f"SENTINEL-ACK:{base.sentinel_token} and nothing else.\n",
+        encoding="utf-8",
+    )
+    os.chmod(dependency_path, 0o600)
+    image_dir = root / "images"
+    image_dir.mkdir(mode=0o700)
+
+    full = _rgb_png(
+        (
+            ((220, 62, 62), (220, 62, 62), (55, 112, 220), (55, 112, 220)),
+            ((220, 62, 62), (220, 62, 62), (55, 112, 220), (55, 112, 220)),
+        )
+    )
+    crop = _rgb_png(
+        (
+            ((55, 112, 220), (55, 112, 220)),
+            ((55, 112, 220), (55, 112, 220)),
+        )
+    )
+    full_fixture = _image_fixture(image_dir / "full.png", "full_scene", full)
+    crop_fixture = _image_fixture(image_dir / "crop.png", "right_crop", crop)
+
+    adapter_config = root / "adapter-vision.toml"
+    fallback_cache = root / "adapter-cache-fallback"
+    config = (
+        "[server]\n"
+        'listen_host = "127.0.0.1"\n'
+        "listen_port = 18031\n"
+        "request_body_max_bytes = 67108864\n"
+        "response_body_max_bytes = 67108864\n"
+        "json_max_nesting_depth = 128\n\n"
+        "[upstream]\n"
+        f"base_url = {_quoted('http://127.0.0.1:18020/v1')}\n"
+        f"api_key_env = {_quoted(api_key_env)}\n"
+        f"model = {_quoted(VISION_MODEL)}\n"
+        "connect_timeout_seconds = 10\nrequest_timeout_seconds = 300\n"
+        "write_timeout_seconds = 30\npool_timeout_seconds = 10\n\n"
+        "[compiler]\n"
+        'enabled = true\nreasoning_effort = "low"\n'
+        "timeout_seconds = 120\nmax_attempts = 2\nmax_output_tokens = 3000\n"
+        "max_parallel_calls = 1\nmax_source_bytes = 262144\n"
+        "max_candidates = 128\nmax_json_depth = 24\n\n"
+        "[cache]\n"
+        'backend = "filesystem"\n'
+        f"root = {_quoted(base.cache_root)}\n"
+        f"fallback_root = {_quoted(fallback_cache)}\n"
+        "max_total_bytes = 67108864\nmax_entry_bytes = 65536\n"
+        "max_pinned_bytes = 8388608\nmax_entries = 4096\n"
+        "ttl_seconds = 604800\nmax_scan_entries = 4096\n\n"
+        "[constitution]\n"
+        'enabled = true\nprincipal = "vision-e2e-principal"\n'
+        'session = "vision-e2e-session"\nrepository = "vision-e2e-repository"\n'
+        "max_injected_bytes = 16384\ncandidate_max_count = 128\n"
+        'compile_failure_policy = "preserve_original"\n'
+        'selector_schema_version = "working-set-v1"\n'
+        'render_version = "constitution-render-v1"\n'
+        'working_set_policy_version = "foundation-v1"\n'
+        "working_set_max_entries = 128\nacquisition_max_count = 128\n"
+        "max_dependency_acquisitions = 4\nentry_render_max_bytes = 8192\n"
+        "injection_max_depth = 64\ninjection_max_nodes = 16384\n\n"
+        "[observation]\n"
+        'schema_version = "observation-v1"\npolicy_version = "references-v1"\n'
+        "max_roots = 8\nmax_source_bytes = 262144\nmax_candidates = 128\n"
+        "max_evidence_per_candidate = 16\nmax_total_evidence = 1024\nmax_path_bytes = 512\n\n"
+        "[[routes]]\n"
+        f"name = {_quoted(VISION_ROUTE)}\nmodel = {_quoted(VISION_MODEL)}\n"
+        'max_images_per_request = 1\nimage_overflow_policy = "retain_newest"\n'
+        "enable_responses = true\nenable_chat_completions = true\n"
+        "observation_enabled = true\nconstitution_enabled = true\n\n"
+        '[observability]\nlog_level = "INFO"\nlog_raw_payloads = false\n'
+        'metrics_enabled = true\nmetrics_host = "127.0.0.1"\n'
+    )
+    adapter_config.write_text(config, encoding="utf-8")
+    os.chmod(adapter_config, 0o600)
+    return VisionFixturePaths(
+        repository=base.repository,
+        codex_home=base.codex_home,
+        cache_root=base.cache_root,
+        codex_config=base.codex_config,
+        model_catalog=base.model_catalog,
+        adapter_config=adapter_config,
+        full_image=full_fixture,
+        crop_image=crop_fixture,
+        api_key_env=api_key_env,
+        sentinel_token=base.sentinel_token,
+    )
+
+
+def write_vision_model_catalog(
+    codex_bin: Path | str, destination: Path, *, model: str = VISION_MODEL
+) -> None:
+    """Derive the installed catalog schema and apply the exact vision fixture contract."""
+    write_local_model_catalog(codex_bin, destination, model=model)
+    document = json.loads(destination.read_text(encoding="utf-8"))
+    models = document.get("models")
+    selected = next((item for item in models if item.get("slug") == model), None)
+    if not isinstance(selected, dict):
+        raise RuntimeError("vision_model_catalog_model_missing")
+    selected.update(
+        {
+            "input_modalities": ["text", "image"],
+            "supports_image_detail_original": False,
+            "context_window": 100_000,
+            "max_context_window": 100_000,
+            "supports_parallel_tool_calls": False,
+        }
+    )
+    destination.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
+    os.chmod(destination, 0o600)
+
+
+def vision_subprocess_environment(fixture: VisionFixturePaths) -> dict[str, str]:
+    """Return the allowlisted environment for a disposable Codex/candidate process."""
+    return _sandbox_environment(fixture.codex_home, fixture.api_key_env)
+
+
+def _catalog_facts(path: Path) -> tuple[bool, bool, int | None, bool]:
+    document = json.loads(path.read_text(encoding="utf-8"))
+    models = document.get("models")
+    selected = next((item for item in models if item.get("slug") == VISION_MODEL), None)
+    if not isinstance(selected, dict):
+        return False, False, None, False
+    modalities = selected.get("input_modalities")
+    return (
+        isinstance(modalities, list) and modalities == ["text", "image"],
+        selected.get("supports_image_detail_original") is False,
+        selected.get("context_window") if isinstance(selected.get("context_window"), int) else None,
+        selected.get("supports_parallel_tool_calls") is False,
+    )
+
+
+def _data_url(path: Path) -> str:
+    return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+
+
+def _image_values(value: object) -> list[tuple[str, object]]:
+    found: list[tuple[str, object]] = []
+
+    def visit(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                visit(item)
+            return
+        if not isinstance(node, dict):
+            return
+        marker = node.get("type")
+        if marker == "input_image" and isinstance(node.get("image_url"), str):
+            found.append(("input_image", node["image_url"]))
+        elif marker == "image_url" and isinstance(node.get("image_url"), dict):
+            url = node["image_url"].get("url")
+            if isinstance(url, str):
+                found.append(("image_url", url))
+        for child in node.values():
+            visit(child)
+
+    visit(value)
+    return found
+
+
+def _without_images(value: object) -> object:
+    if isinstance(value, list):
+        result: list[object] = []
+        for item in value:
+            if isinstance(item, dict) and item.get("type") in {"input_image", "image_url"}:
+                continue
+            result.append(_without_images(item))
+        return result
+    if isinstance(value, dict):
+        return {key: _without_images(child) for key, child in value.items()}
+    return value
+
+
+def _has_tool_content(value: object) -> bool:
+    if isinstance(value, list):
+        return any(_has_tool_content(item) for item in value)
+    if isinstance(value, dict):
+        if value.get("type") in {"function_call", "function_call_output", "exec_command"}:
+            return True
+        return any(_has_tool_content(item) for item in value.values())
+    return False
+
+
+def capture_outgoing_vision_payload(
+    *,
+    turn: Literal[1, 2],
+    incoming: Mapping[str, Any],
+    outgoing: Mapping[str, Any],
+    fixture: VisionFixturePaths,
+) -> VisionBoundaryEvidence:
+    """Capture safe facts from an acceptance-only recorder/fake upstream.
+
+    ``incoming`` is the body before route adaptation and ``outgoing`` is the
+    body actually sent onward.  Only expected image labels, lengths, hashes,
+    counts, and preservation booleans leave this function.
+    """
+    incoming_images = _image_values(incoming)
+    outgoing_images = _image_values(outgoing)
+    expected = {
+        _data_url(fixture.full_image.path): fixture.full_image,
+        _data_url(fixture.crop_image.path): fixture.crop_image,
+    }
+    forwarded: list[VisionImageFixture] = []
+    for _, url in outgoing_images:
+        if not isinstance(url, str):
+            continue
+        image = expected.get(url)
+        if image is not None:
+            forwarded.append(image)
+    return VisionBoundaryEvidence(
+        turn=turn,
+        input_images_seen=len(incoming_images),
+        outgoing_images_seen=len(outgoing_images),
+        images_removed=len(incoming_images) - len(outgoing_images),
+        forwarded_labels=tuple(image.label for image in forwarded),
+        forwarded_lengths=tuple(image.byte_length for image in forwarded),
+        forwarded_sha256=tuple(image.sha256 for image in forwarded),
+        non_image_content_preserved=_without_images(incoming) == _without_images(outgoing),
+        governance_content_preserved=(
+            "GOVERNANCE-DEPENDENCY.md" in json.dumps(outgoing, sort_keys=True)
+            and "FINAL_RESPONSE_EXACTLY" in json.dumps(outgoing, sort_keys=True)
+        ),
+        tool_content_preserved=_has_tool_content(incoming) and _has_tool_content(outgoing),
+    )
+
+
+def image_metric_snapshot(metrics_text: str, *, route: str = VISION_ROUTE) -> tuple[int, int]:
+    """Read only cumulative seen/removed image counters for the configured route."""
+    values = {"seen": 0, "removed": 0}
+    for family in text_string_to_metric_families(metrics_text):
+        for sample in family.samples:
+            if sample.name != "slaif_image_items_total" or sample.labels.get("route") != route:
+                continue
+            result = sample.labels.get("result")
+            if result in values:
+                values[result] += int(sample.value)
+    return values["seen"], values["removed"]
+
+
+def vision_metric_deltas(
+    before: str, between: str, after: str, *, route: str = VISION_ROUTE
+) -> VisionMetricDeltas:
+    first_before = image_metric_snapshot(before, route=route)
+    first_between = image_metric_snapshot(between, route=route)
+    second_after = image_metric_snapshot(after, route=route)
+    return VisionMetricDeltas(
+        turn1_seen=first_between[0] - first_before[0],
+        turn1_removed=first_between[1] - first_before[1],
+        turn2_seen=second_after[0] - first_between[0],
+        turn2_removed=second_after[1] - first_between[1],
+    )
+
+
+def _normalized_argv(
+    argv: Iterable[str], fixture: VisionFixturePaths, *, turn: Literal[1, 2]
+) -> tuple[str, ...]:
+    argv_values = tuple(argv)
+    replacements = {
+        argv_values[0]: "<codex>",
+        str(fixture.codex_home): "<codex-home>",
+        str(fixture.repository): "<fixture>",
+        str(fixture.full_image.path): "<full-image>",
+        str(fixture.crop_image.path): "<crop-image>",
+    }
+    result: list[str] = []
+    for item in argv_values:
+        if item in replacements:
+            result.append(replacements[item])
+        elif item.startswith(str(fixture.repository)):
+            result.append("<fixture-file>")
+        elif item.startswith(str(fixture.codex_home)):
+            result.append("<codex-home-file>")
+        elif item == "<vision-prompt>":
+            result.append(item)
+        else:
+            result.append(item)
+    if turn == 2 and "resume" not in result:
+        raise ValueError("vision resume argv missing resume subcommand")
+    return tuple(result)
+
+
+def _vision_prompt(turn: Literal[1, 2]) -> str:
+    marker = "FULL-SCENE-PROCESSED" if turn == 1 else "CROP-PROCESSED"
+    subject = "the full scene" if turn == 1 else "the newest right-side crop"
+    return (
+        f"Inspect {subject} in the attached image. Use the ordinary shell command tool "
+        "exactly once with cat GOVERNANCE-DEPENDENCY.md and wait for its result. "
+        f"Before your final response, emit the fixed marker {marker} in an agent message. "
+        "Then follow the delegated dependency's FINAL_RESPONSE_EXACTLY instruction literally."
+    )
+
+
+def _parse_vision_events(
+    stream: Iterable[bytes], *, expected_marker: str, expected_sentinel: str
+) -> tuple[int, Counter[str], int, bool, bool, str | None]:
+    event_bytes = 0
+    event_types: Counter[str] = Counter()
+    tool_calls = 0
+    marker = False
+    sentinel = False
+    thread_id: str | None = None
+    for raw_line in stream:
+        event_bytes += len(raw_line)
+        if event_bytes > CODEX_MAX_EVENT_BYTES:
+            raise OverflowError("vision event stream exceeded bound")
+        try:
+            event = json.loads(raw_line)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        event_type = event.get("type")
+        if isinstance(event_type, str):
+            event_types[event_type] += 1
+        if event_type == "thread.started" and isinstance(event.get("thread_id"), str):
+            thread_id = event["thread_id"]
+        item = event.get("item")
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") in {"command_execution", "function_call", "exec_command"}:
+            tool_calls += 1
+        if item.get("type") == "agent_message" and isinstance(item.get("text"), str):
+            text = item["text"]
+            marker = marker or expected_marker in text
+            sentinel = sentinel or expected_sentinel in text
+    return event_bytes, event_types, tool_calls, marker, sentinel, thread_id
+
+
+def _run_vision_turn(
+    codex_bin: Path | str,
+    fixture: VisionFixturePaths,
+    *,
+    turn: Literal[1, 2],
+    timeout_seconds: float,
+) -> tuple[VisionTurnFacts, str | None]:
+    output_path = fixture.repository / f".vision-last-message-{turn}.tmp"
+    if turn == 1:
+        argv = [
+            str(codex_bin),
+            "--dangerously-bypass-approvals-and-sandbox",
+            "exec",
+            "--json",
+            "--strict-config",
+            "--cd",
+            str(fixture.repository),
+            "--image",
+            str(fixture.full_image.path),
+            "--output-last-message",
+            str(output_path),
+            "<vision-prompt>",
+        ]
+    else:
+        argv = [
+            str(codex_bin),
+            "--dangerously-bypass-approvals-and-sandbox",
+            "exec",
+            "resume",
+            "--last",
+            "--json",
+            "--strict-config",
+            "--image",
+            str(fixture.crop_image.path),
+            "--output-last-message",
+            str(output_path),
+            "<vision-prompt>",
+        ]
+    expected_marker = "FULL-SCENE-PROCESSED" if turn == 1 else "CROP-PROCESSED"
+    environment = _sandbox_environment(fixture.codex_home, fixture.api_key_env)
+    event_types: Counter[str] = Counter()
+    event_bytes = 0
+    tool_calls = 0
+    marker = False
+    sentinel = False
+    thread_id: str | None = None
+    exit_status: int | None = None
+    timed_out = False
+    try:
+        with (
+            tempfile.TemporaryFile(dir=fixture.codex_home) as events,
+            tempfile.TemporaryFile(dir=fixture.codex_home) as diagnostics,
+        ):
+            process = subprocess.Popen(
+                [item if item != "<vision-prompt>" else _vision_prompt(turn) for item in argv],
+                cwd=fixture.repository,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=events,
+                stderr=diagnostics,
+            )
+            try:
+                exit_status = process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                timed_out = True
+            diagnostics.seek(0, os.SEEK_END)
+            if diagnostics.tell() > CODEX_MAX_DIAGNOSTIC_BYTES:
+                raise OverflowError("vision diagnostics exceeded bound")
+            events.seek(0)
+            (
+                event_bytes,
+                event_types,
+                tool_calls,
+                marker,
+                sentinel,
+                thread_id,
+            ) = _parse_vision_events(
+                iter(events.readline, b""),
+                expected_marker=expected_marker,
+                expected_sentinel=f"SENTINEL-ACK:{fixture.sentinel_token}",
+            )
+    except (OSError, OverflowError, subprocess.SubprocessError):
+        exit_status = None
+    finally:
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+    response_success = (
+        exit_status == 0
+        and not timed_out
+        and event_bytes > 0
+        and tool_calls >= 1
+        and marker
+        and sentinel
+    )
+    facts = VisionTurnFacts(
+        turn=turn,
+        exit_status=exit_status,
+        timed_out=timed_out,
+        event_bytes=event_bytes,
+        event_type_counts=dict(event_types),
+        tool_calls=tool_calls,
+        sentinel_passed=sentinel,
+        image_marker_passed=marker,
+        response_success=response_success,
+        resumed_command=turn == 2,
+        normalized_argv=_normalized_argv(
+            [item if item != "<vision-prompt>" else "<vision-prompt>" for item in argv],
+            fixture,
+            turn=turn,
+        ),
+    )
+    return facts, thread_id
+
+
+def run_vision_e2e(
+    codex_bin: Path | str,
+    fixture: VisionFixturePaths,
+    *,
+    metrics_sampler: Callable[[], str] | None = None,
+    timeout_seconds: float = VISION_TIMEOUT_SECONDS,
+) -> VisionSessionFacts:
+    """Run exactly one initial image turn and one same-session crop resume."""
+    if timeout_seconds <= 0 or timeout_seconds > VISION_TIMEOUT_SECONDS:
+        raise ValueError("invalid vision timeout")
+    version = _ordinary_version(codex_bin, _sandbox_environment(fixture.codex_home))
+    if version != VISION_CODEX_VERSION:
+        raise RuntimeError("unsupported_codex_version")
+    catalog_facts = _catalog_facts(fixture.model_catalog)
+    before = metrics_sampler() if metrics_sampler is not None else None
+    first, first_thread = _run_vision_turn(
+        codex_bin, fixture, turn=1, timeout_seconds=timeout_seconds
+    )
+    between = metrics_sampler() if metrics_sampler is not None else None
+    second, second_thread = _run_vision_turn(
+        codex_bin, fixture, turn=2, timeout_seconds=timeout_seconds
+    )
+    after = metrics_sampler() if metrics_sampler is not None else None
+    metric_deltas = (
+        vision_metric_deltas(before, between, after)
+        if before is not None and between is not None and after is not None
+        else None
+    )
+    same_session = first_thread is not None and (
+        second_thread is None or second_thread == first_thread
+    )
+    return VisionSessionFacts(
+        first=first,
+        second=second,
+        same_session=same_session,
+        catalog_image_capability=catalog_facts[0],
+        catalog_detail_original_disabled=catalog_facts[1],
+        catalog_context_window=catalog_facts[2],
+        catalog_parallel_tools_disabled=catalog_facts[3],
+        metric_deltas=metric_deltas,
+    )

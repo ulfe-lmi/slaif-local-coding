@@ -182,7 +182,9 @@ def _build_prompt(
         "Use the two independent scores separately and never add a combined score. "
         "Include every supplied candidate path exactly once and invent none."
         " Only the supplied root may be P0; every dependency classification must "
-        "be P1, P2, P3, or P4."
+        "be P1, P2, P3, or P4. Preserve exact case-sensitive literals in normative "
+        "binding statements and their evidence, including exact-response directives, "
+        "sentinels, markers, and tokens; do not paraphrase, redact, or replace them."
     )
     user = (
         f"<source path={logical_path!r} sha256={source_hash} "

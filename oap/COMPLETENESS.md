@@ -1,9 +1,10 @@
 # OAP MVP Completeness — 2026-08-23
 
 Assessment target: full SME MVP represented by objectives 000–006.
-Current authoritative recovery-branch readiness: ~87%.
+Current authoritative recovery-branch readiness: ~89%.
 PR #6's base `main`, including accepted objective 003, readiness: ~74%.
-Current fixture is text-only/zero-image; no vision or production readiness is claimed.
+The protected fixture is text-only/zero-image in this round; the repository-only
+vision runner is ready, but no live vision or production readiness is claimed.
 
 | Objective | Weight | Complete | Evidence | Remaining gap |
 |---|---:|---:|---|---|
@@ -11,7 +12,7 @@ Current fixture is text-only/zero-image; no vision or production readiness is cl
 | 001 AGENTS observation and deterministic candidates | 10% | 100% | Merged PR #2; fixtures/tests | Compiler/injection intentionally later |
 | 002 compiler, validation, bounded cache | 20% | 100% | Merged PR #3; isolation/live text evidence | Request integration completed in 003-b |
 | 003 selection, injection, acquisition, rehydration | 25% | 100% | PR #5 through 003-e; one-root pipeline/cache tests; fake-upstream dependency acquisition, isolation, and process-local zero-root rehydration tests | None within objective; real Codex E2E evidence is objective 004 |
-| 004 real Codex E2E, security/operations hardening | 20% | 80% | Prior workspace-write/native-helper diagnostics remain historical and are not governed acceptance evidence. Strategic review accepted the 004-s two-invocation global-yolo run: both crossing-boundary `GOVERNANCE-DEPENDENCY.md` byte streams matched the fixture exactly (127 bytes; SHA-256 `71f0fa5dd58c8c7f4ba6c2d40caeee9db3e9eb0b4911e9bc23ba7726fc0c5a09`); observation, successful acquisition, direct non-recursive compilation, and stable injection completed; the hidden dependency-derived sentinel passed twice; invocation 1 recorded a dependency-cache miss and two compiler-model attempts, invocation 2 a persistent cache hit and zero additional compiler-model attempts. Strategic review accepted 004-w's complete security/observability hardening matrix, production diff, negative tests, packaging/privacy scans, protected-state evidence, and final CI. Strategic review also accepted 004-x's isolated temporary user-systemd candidate proof on loopback 18031, including health/readiness, bounded text/tool/SSE, privacy, cleanup, and protected-state preservation. | Actual forced/equivalent long-session compaction and vision-capable E2E |
+| 004 real Codex E2E, security/operations hardening | 20% | 90% | Prior workspace-write/native-helper diagnostics remain historical and are not governed acceptance evidence. See the concise [Objective-004 criterion ledger](../docs/OBJECTIVE-004-LEDGER.md): accepted 004-s/004-w/004-x evidence covers all non-vision criteria, and this round adds the bounded adapter-boundary simulated-compaction proof plus repository-only vision readiness support. | Live vision-capable Codex full-image then crop evidence on the human-provided fixture |
 | 005 gateway integration and controlled cutover | 7% | 5% | Interface documentation only | Signed identity, gateway PR, soak, rollback-proven cutover |
 | 006 reproducible SME package/release | 3% | 20% | Build/package/license/service example | Reproducible installer, capacity/runbook, tested release claims |
-| **Weighted total** | **100%** | **~87% on branch** | OAP orders/reports/CI | See rows above |
+| **Weighted total** | **100%** | **~89% on branch** | OAP orders/reports/CI | See rows above |

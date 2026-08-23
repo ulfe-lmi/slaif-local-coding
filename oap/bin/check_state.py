@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-ID_RE = re.compile(r"^[0-9]{3}-[a-z]$")
+ID_RE = re.compile(r"^[0-9]{3}-[a-z]{1,2}$")
 
 
 def run_git(repo: Path, *args: str) -> dict[str, Any]:

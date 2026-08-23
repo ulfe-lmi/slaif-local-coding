@@ -42,6 +42,11 @@ reason labels, counts, and duration—not source paths/content/hashes, identity 
 tool text, queries, or authorization. Current external identity/session headers are
 spoofable and stripped; signed gateway identity remains future work.
 
+The bounded compiler prompt requires exact case-sensitive literals in normative
+binding statements and evidence to survive derived indexing. This matters for
+exact-response directives and hidden sentinel rules: a compiler success that
+omits such a literal is not an acceptable governance-preserving index.
+
 Supported evidence is deliberately structural: the captured project marker must
 occur exactly once in a top-level user/`input_text` Responses item. Three fresh
 Codex 0.149.0 captures reported the actual path `$.input[1].content[0].text` and
