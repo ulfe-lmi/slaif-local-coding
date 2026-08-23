@@ -160,6 +160,7 @@ class SanitizedCodexRun:
     command_diagnostics: CommandDiagnostics = field(default_factory=CommandDiagnostics)
     sandbox_mode: Literal["workspace-write", "danger-full-access", "unknown"] = "workspace-write"
     approval_policy: Literal["never", "unknown"] = "never"
+    codex_under_test_yolo: bool = False
     failure_origin: str = "unresolved_with_fixed_evidence"
     invocation_fingerprint: tuple[tuple[str, str], ...] = ()
     parser_recognized_events: int = 0
@@ -213,6 +214,9 @@ class GovernedE2EFacts:
         first = self.first_runs[-1] if self.first_runs else None
         return (
             first is not None
+            and len(self.first_runs) == 1
+            and first.codex_under_test_yolo
+            and self.second_run.codex_under_test_yolo
             and first.failure_reason == "success"
             and self.second_run.failure_reason == "success"
             and self.compiler_calls_after_first > self.compiler_calls_before_first
@@ -1248,26 +1252,46 @@ def _ordinary_fingerprint(
     prompt: str,
     sandbox_mode: Literal["workspace-write", "danger-full-access"],
     timeout_seconds: float,
+    *,
+    codex_under_test_yolo: bool,
 ) -> OrdinaryInvocationFacts:
     environment = _sandbox_environment(fixture.codex_home, fixture.api_key_env)
     output = str(fixture.repository / ".codex-last-message.tmp")
     raw_argv = (
-        str(codex_bin),
-        "--ask-for-approval",
-        "never",
-        "exec",
-        "--sandbox",
-        sandbox_mode,
-        "--json",
-        "--ephemeral",
-        "--strict-config",
-        "--disable",
-        "unified_exec",
-        "--cd",
-        str(fixture.repository),
-        "--output-last-message",
-        output,
-        "<prompt>",
+        (
+            str(codex_bin),
+            "--dangerously-bypass-approvals-and-sandbox",
+            "exec",
+            "--json",
+            "--ephemeral",
+            "--strict-config",
+            "--disable",
+            "unified_exec",
+            "--cd",
+            str(fixture.repository),
+            "--output-last-message",
+            output,
+            "<prompt>",
+        )
+        if codex_under_test_yolo
+        else (
+            str(codex_bin),
+            "--ask-for-approval",
+            "never",
+            "exec",
+            "--sandbox",
+            sandbox_mode,
+            "--json",
+            "--ephemeral",
+            "--strict-config",
+            "--disable",
+            "unified_exec",
+            "--cd",
+            str(fixture.repository),
+            "--output-last-message",
+            output,
+            "<prompt>",
+        )
     )
     normalized = tuple(
         "<codex>"
@@ -1313,7 +1337,8 @@ def _ordinary_fingerprint(
         ("prompt_sha256", hashlib.sha256(prompt.encode()).hexdigest()),
         ("prompt_byte_length", str(len(prompt.encode()))),
         ("requested_executable", "/usr/bin/true"),
-        ("approval_policy", "never"),
+        ("codex_under_test_yolo", str(codex_under_test_yolo).lower()),
+        ("approval_policy", "not_configured" if codex_under_test_yolo else "never"),
         ("tool_feature_flags", "disable:unified_exec"),
         ("tool_catalog_sha256", _bounded_hash(fixture.model_catalog, CODEX_MAX_DIAGNOSTIC_BYTES)),
         ("noninteractive_flags", "exec,json,ephemeral"),
@@ -1351,6 +1376,7 @@ def run_codex_once(
     expected_final_message: str | None = None,
     sandbox_mode: Literal["workspace-write", "danger-full-access"] = "workspace-write",
     expected_command: str | None = None,
+    codex_under_test_yolo: bool = True,
 ) -> SanitizedCodexRun:
     """Serialize one isolated run; raw stdout/stderr remain in unlinked temp files."""
     started = time.monotonic()
@@ -1372,8 +1398,15 @@ def run_codex_once(
     event_command_diagnostics = CommandDiagnostics()
     output_path = fixture.repository / ".codex-last-message.tmp"
     fingerprint = (
-        _ordinary_fingerprint(codex_bin, fixture, prompt, sandbox_mode, timeout_seconds)
-        if expected_command is not None
+        _ordinary_fingerprint(
+            codex_bin,
+            fixture,
+            prompt,
+            sandbox_mode,
+            timeout_seconds,
+            codex_under_test_yolo=codex_under_test_yolo,
+        )
+        if expected_command is not None or codex_under_test_yolo
         else None
     )
     expected_ack = (
@@ -1383,8 +1416,24 @@ def run_codex_once(
     )
     try:
         with tempfile.TemporaryFile() as events, tempfile.TemporaryFile() as diagnostics:
-            process = subprocess.Popen(
+            argv = (
                 [
+                    str(codex_bin),
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    "exec",
+                    "--json",
+                    "--ephemeral",
+                    "--strict-config",
+                    "--disable",
+                    "unified_exec",
+                    "--cd",
+                    str(fixture.repository),
+                    "--output-last-message",
+                    str(output_path),
+                    prompt,
+                ]
+                if codex_under_test_yolo
+                else [
                     str(codex_bin),
                     "--ask-for-approval",
                     "never",
@@ -1404,7 +1453,10 @@ def run_codex_once(
                     "--output-last-message",
                     str(output_path),
                     prompt,
-                ],
+                ]
+            )
+            process = subprocess.Popen(
+                argv,
                 cwd=fixture.repository,
                 env=_sandbox_environment(fixture.codex_home, fixture.api_key_env),
                 stdout=events,
@@ -1546,8 +1598,9 @@ def run_codex_once(
         command_event_counts=dict(command_event_counts),
         dependency_observation=dependency_observation,
         command_diagnostics=command_diagnostics,
-        sandbox_mode=sandbox_mode,
-        approval_policy="never",
+        sandbox_mode="unknown" if codex_under_test_yolo else sandbox_mode,
+        approval_policy="unknown" if codex_under_test_yolo else "never",
+        codex_under_test_yolo=codex_under_test_yolo,
         failure_origin=failure_origin,
         invocation_fingerprint=(fingerprint.values if fingerprint is not None else ()),
         parser_recognized_events=parser_recognized_events,
@@ -1571,6 +1624,7 @@ def run_ordinary_command_once(
         expected_final_message="ORDINARY-COMMAND-ACK",
         sandbox_mode=sandbox_mode,
         expected_command="/usr/bin/true",
+        codex_under_test_yolo=False,
     )
 
 
@@ -2024,28 +2078,9 @@ def run_governed_e2e(
     with tempfile.TemporaryDirectory(prefix="slaif-codex-governed-e2e-") as temporary:
         fixture = write_governed_fixture(Path(temporary), base_url, api_key_env)
         write_local_model_catalog(codex_bin, fixture.model_catalog)
-        first_runs: list[SanitizedCodexRun] = []
-        for _ in range(max_attempts):
-            result = run_codex_once(codex_bin, fixture, governed_prompt())
-            first_runs.append(result)
-            if result.failure_reason == "success":
-                break
+        first_runs = [run_codex_once(codex_bin, fixture, governed_prompt())]
         metrics_after_first = sample()
-        if first_runs[-1].failure_reason == "success":
-            second = run_codex_once(codex_bin, fixture, governed_prompt())
-        else:
-            second = SanitizedCodexRun(
-                exit_status=None,
-                timed_out=False,
-                duration_seconds=0.0,
-                event_bytes=0,
-                event_type_counts={},
-                call_item_type_counts={},
-                tool_names=(),
-                tool_calls=0,
-                sentinel_passed=False,
-                failure_reason="not_run",
-            )
+        second = run_codex_once(codex_bin, fixture, governed_prompt())
         metrics_after_second = sample()
         sentinel_token_length = len(fixture.sentinel_token)
 

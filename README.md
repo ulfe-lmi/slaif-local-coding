@@ -224,29 +224,26 @@ from the repository test suite.
 
 The retained support creates a private synthetic Git fixture and disposable
 Codex home, writes a custom Responses provider for the loopback candidate
-adapter, and references the protected credential only by environment name. It
-uses fixed argv, `workspace-write` plus approvals-never, bounded time/event/
+adapter, and references the protected credential only by environment name. The
+governed Codex-under-test launcher uses global
+`--dangerously-bypass-approvals-and-sandbox` before `exec`, with fixed JSON/
+ephemeral/strict-config argv and disabled `unified_exec`; it records the
+normalized argv/hash and `codex_under_test_yolo=true`. Bounded time/event/
 diagnostic output, closed stdin, process cleanup, private temporary state, and
-sanitized event/lifecycle/provenance facts. Raw prompts, source, events,
-responses, command output, credentials, and private paths stay in caller-owned
-temporary storage and are not returned, logged, or reported. Fixture cleanup is
-verified by focused tests.
+sanitized event/lifecycle/provenance facts remain in force. Raw prompts, source,
+events, responses, command output, credentials, and private paths stay in
+caller-owned temporary storage and are not returned, logged, or reported.
+Fixture cleanup is verified by focused tests.
 
 The retained gates cover the synthetic long-root/dependency fixture, successful
 dependency-read lifecycle, sentinel attribution, bounded cache/metric
-reconciliation, and ordinary Codex command-path diagnostics. The 004-q
-qualification preserves 004-p's accepted danger-control baseline and uses one
-fresh workspace-write invocation against the direct protected loopback `18020`,
-with the corrected global-option argv `codex --ask-for-approval never exec
---sandbox workspace-write` plus JSON/ephemeral mode and the same disabled
-`unified_exec` setting. Ordinary success is content-independent: it requires a
-recognized ordinary command with a completed exit-zero lifecycle, no failed
-command lifecycle, clean process exit, and no parser/startup/tool-boundary
-failure; exact command equality remains diagnostic. A was started once in
-004-q, but its sanitized result was not retrievable from that execution, so the
-dependency read and governed adapter stages were not run. Raw bubblewrap,
-`unshare`, `codex sandbox`, retries, alternate prompts, and a third control are
-not used.
+reconciliation, and ordinary Codex command-path diagnostics. The 004-s
+acceptance sequence makes exactly two governed Codex invocations through the
+loopback candidate on `18031`, with the protected upstream on `18020`, and
+requires exact dependency bytes, root/dependency observation, compilation,
+injection, sentinel compliance, and persistent cache reuse without a third call
+or retry. Raw bubblewrap, `unshare`, sandbox controls, alternate prompts, and
+host/profile mutation are not used.
 
 The historical raw probe is described narrowly as
 `raw_bwrap_unshare_all_loopback_bootstrap_failed`: it observed a handcrafted
@@ -257,15 +254,14 @@ so the result was not a nested-outer-sandbox artifact. The immutable 004-o
 recorded the original startup placement failure. In the corrected 004-p round,
 the ordinary B control reached Codex `0.149.0`, exited `0`, and emitted one
 successful shell command whose exact text differed from `/usr/bin/true`.
-004-q removed that over-strict equality gate and started one fresh
-workspace-write A invocation, but its sanitized result was not retrievable from
-this execution. The order therefore did not reach dependency `cat`, candidate
-adapter, compiler/model calls, or governed E2E. The implementation records only allowlisted
-config/environment/argv facts; it does not retain raw diagnostics or mutate
-the host configuration. Objective 004 remains at 15% and branch readiness at
-approximately 74%. No current host-wide command or sandbox capability
-conclusion follows. No compaction, vision, production-readiness, cutover, or
-protected-service claim follows from this partial qualification.
+004-q and 004-r remain immutable historical records of workspace-write
+qualification limitations; they are not acceptance prerequisites. The current
+implementation records only allowlisted config/environment/argv facts; it does
+not retain raw diagnostics or mutate the host configuration. Objective 004
+remains at 15% and branch readiness at approximately 74% until the 004-s
+two-invocation evidence is complete. No compaction, vision,
+production-readiness, cutover, or protected-service claim follows from the
+historical diagnostics.
 
 ## Candidate quickstart
 

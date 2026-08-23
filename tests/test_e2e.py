@@ -348,6 +348,35 @@ def test_runner_prompts_never_contain_delegated_sentinel(
     assert all("FINAL_RESPONSE_EXACTLY" in prompt for prompt in prompts)
 
 
+def test_governed_codex_launcher_uses_global_yolo_without_sandbox_flags(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    codex = tmp_path / "codex"
+    codex.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import sys\n"
+        "expected = ['--dangerously-bypass-approvals-and-sandbox', 'exec']\n"
+        "if sys.argv[1:3] != expected:\n"
+        "    raise SystemExit(21)\n"
+        "for forbidden in ('--sandbox', '--ask-for-approval', '--permission-profile'):\n"
+        "    if forbidden in sys.argv:\n"
+        "        raise SystemExit(22)\n"
+        "print(json.dumps({'type': 'item.completed', 'item': {'type': 'command_execution'}}))\n",
+        encoding="utf-8",
+    )
+    codex.chmod(0o700)
+
+    result = run_codex_once(codex, fixture, governed_prompt())
+
+    assert result.codex_under_test_yolo is True
+    normalized = dict(result.invocation_fingerprint)["normalized_argv_template"].split("\0")
+    assert normalized[:3] == ["<codex>", "--dangerously-bypass-approvals-and-sandbox", "exec"]
+    assert "--sandbox" not in normalized
+    assert "--ask-for-approval" not in normalized
+    assert "--permission-profile" not in normalized
+    assert dict(result.invocation_fingerprint)["codex_under_test_yolo"] == "true"
+
+
 def test_event_parser_exposes_only_approved_facts() -> None:
     canned = "\n".join(
         [

@@ -93,14 +93,17 @@ Verify unchanged Codex client behavior, ordinary local tools, image full-view
 then crop, forced compaction or equivalent history reduction, cache reuse, and
 continued compliance.
 
-The real-Codex launcher and native workspace-write preflight are repository-only
-support in `tests/helpers/e2e_support.py` and
+The real-Codex launcher and historical native workspace-write preflight are
+repository-only support in `tests/helpers/e2e_support.py` and
 `tests/helpers/sandbox_runtime.py`. They are not importable production modules
-and must not appear in the built wheel. The suite covers private fixture/config
-modes, fixed native argv (`workspace-write`/`:workspace`), bounded subprocess
-output/time, stdin closure, cleanup, sanitized lifecycle/provenance facts,
-sentinel/cache gates, and strict no-model gating until exact dependency bytes
-are verified. It does not execute raw bubblewrap or `unshare` probes.
+and must not appear in the built wheel. The governed launcher uses Codex
+0.149.0's global `--dangerously-bypass-approvals-and-sandbox` before `exec`,
+records normalized argv/hash plus `codex_under_test_yolo=true`, and contains no
+sandbox, permission-profile, or approval CLI flags. The suite covers private
+fixture/config modes, bounded subprocess output/time, stdin closure, cleanup,
+sanitized lifecycle/provenance facts, sentinel/cache gates, and strict no-model
+gating until exact dependency bytes are verified. It does not execute raw
+bubblewrap or `unshare` probes.
 
 The historical raw probe is retained only as the narrower
 `raw_bwrap_unshare_all_loopback_bootstrap_failed` audit description. The OAP
@@ -116,20 +119,12 @@ the exact decision tree. No raw diagnostics or host configuration are retained
 or changed. This leaves objective 004 at 15% and branch readiness at
 approximately 74%; it is not a host-wide capability conclusion.
 
-The 004-o ordinary-command qualification supersedes that native helper as the
-decisive path. Its startup failure is retained as immutable history. The
-004-p correction places the global approval option before `exec`; its accepted
-B baseline reached Codex `0.149.0`, exited `0`, and emitted one successful
-command, although the model chose a different harmless command than the former
-literal `/usr/bin/true` gate (`command_equal=false`, origin
-`model_wrong_command`). 004-q accepts the successful lifecycle regardless of
-that diagnostic equality, while retaining the command hash/shape facts. Its one
-fresh workspace-write A invocation was started but did not return a retrievable
-sanitized result in this execution, so dependency, adapter, compiler, and
-governed/cache calls remain `NOT RUN`; no retry was made. The first remaining
-blocker is qualification evidence capture outside Local Coding. The runner
-keeps raw streams temporary and reports only hashes, counts, fixed classes,
-fingerprints, and command equality.
+The 004-o through 004-r workspace-write and native-helper results are retained
+as immutable historical external limitations. They do not gate the 004-s
+acceptance path. The current governed runner keeps raw streams temporary and
+reports only hashes, counts, fixed classes, fingerprints, and command status;
+the ordered run itself is exactly two global-yolo invocations with no
+qualification, retry, alternate prompt, or sandbox control.
 
 ## CI and merge
 
