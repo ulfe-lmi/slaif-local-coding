@@ -245,6 +245,20 @@ lifecycle; otherwise the fixed result is `command_failed` or
 use, one-root observation plus dependency acquisition/compilation, sentinel
 compliance, then persistent index reuse with no additional compiler model
 attempts.
+The bounded command-failure diagnostic separately proves same-user readability
+before every fresh attempt: the dependency exists, is a regular non-symlink
+private-mode file, has a fixed byte length/hash, and a subprocess `cat` returns
+byte-identical content without retaining it. The first Codex attempt uses the
+stable relative `cat` form; if that does not complete successfully, the sole
+permitted alternative uses absolute `/bin/cat`. Each attempt reports process and
+command exit/status facts, one fixed failure class (`success`, `not_found`,
+`permission_denied`, `sandbox_denied`, `schema_invalid`,
+`argv_unsupported`, `signal`, `timeout`, `unknown_nonzero`, or
+`unavailable`), first-line-only stream classifications, raw-stream SHA-256/byte
+counts, requested versus actual argv shape labels, and whether the resolved
+command path was inside the disposable repository. Raw stderr/stdout, prompts,
+events, model messages, source bytes, tokens, credentials, and private paths are
+never retained or reported.
 The unique expected token exists only in the temporary delegated dependency and
 the helper's in-memory comparison value. The prompt requires the ordinary command
 tool, then requires literal compliance with the dependency's

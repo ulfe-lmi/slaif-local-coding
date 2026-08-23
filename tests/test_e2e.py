@@ -17,14 +17,19 @@ from typing import Literal
 import pytest
 
 from slaif_local_coding.e2e import (
+    BinaryStreamFacts,
     CacheInventory,
     CacheInventoryEntry,
+    CommandDiagnostics,
     DependencyObservationFacts,
     GovernedFixturePaths,
     MetricDelta,
     SanitizedCodexRun,
+    _binary_stream_facts,
     _classify_dependency_cache_outcome,
+    _classify_diagnostic_text,
     _final_agent_message_has_ack,
+    _normalized_diagnostic_class,
     _reconcile_dependency_cache,
     _sentinel_failure_reason,
     constitution_metric_snapshot,
@@ -32,8 +37,12 @@ from slaif_local_coding.e2e import (
     metric_value,
     parse_codex_command_events,
     parse_codex_events,
+    parse_command_diagnostics_events,
     parse_dependency_observation_events,
     read_persistent_cache_inventory,
+    run_codex_once,
+    run_command_failure_diagnostic,
+    verify_direct_dependency_read,
     write_governed_fixture,
 )
 
@@ -359,6 +368,264 @@ def test_sentinel_failure_is_gated_by_command_lifecycle() -> None:
         )
         == "command_incomplete"
     )
+
+
+def test_diagnostic_classes_and_stream_audit_do_not_retain_raw_text() -> None:
+    assertions = [
+        ("No such file or directory", "not_found"),
+        ("Permission denied", "permission_denied"),
+        ("blocked by sandbox policy", "sandbox_denied"),
+        ("unexpected argument", "argv_unsupported"),
+    ]
+    for text, expected in assertions:
+        assert _classify_diagnostic_text(text) == expected
+
+    stdout = BinaryStreamFacts(11, hashlib.sha256(b"SECRET-TEXT").hexdigest(), "success")
+    stderr = BinaryStreamFacts(0, hashlib.sha256(b"").hexdigest(), "unavailable")
+    command = CommandDiagnostics(command_status="failed")
+    assert (
+        _normalized_diagnostic_class(
+            exit_status=1,
+            timed_out=False,
+            stdout=stdout,
+            stderr=stderr,
+            command=command,
+        )
+        == "unknown_nonzero"
+    )
+    assert (
+        _normalized_diagnostic_class(
+            exit_status=0,
+            timed_out=True,
+            stdout=stdout,
+            stderr=stderr,
+            command=command,
+        )
+        == "timeout"
+    )
+
+    facts = _binary_stream_facts(io.BytesIO(b"SECRET-FIRST-LINE\nSECOND\n"))
+    assert facts.byte_length == 25
+    assert facts.sha256 == hashlib.sha256(b"SECRET-FIRST-LINE\nSECOND\n").hexdigest()
+    assert facts.first_line_class == "success"
+    assert "SECRET-FIRST-LINE" not in asdict(facts).values()
+
+
+def test_direct_dependency_read_control_is_private_and_byte_accurate(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    dependency = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
+    control = verify_direct_dependency_read(fixture)
+    expected = dependency.read_bytes()
+    assert control.exists is True
+    assert control.regular_file is True
+    assert control.symlink is False
+    assert control.private_mode is True
+    assert control.byte_length == len(expected)
+    assert control.sha256 == hashlib.sha256(expected).hexdigest()
+    assert control.subprocess_exit_status == 0
+    assert control.subprocess_byte_identical is True
+
+    dependency.chmod(0o644)
+    assert verify_direct_dependency_read(fixture).private_mode is False
+
+    dependency.unlink()
+    dependency.symlink_to(fixture.repository / "AGENTS.md")
+    symlink_control = verify_direct_dependency_read(fixture)
+    assert symlink_control.exists is True
+    assert symlink_control.regular_file is False
+    assert symlink_control.symlink is True
+    assert symlink_control.byte_length is None
+
+
+def test_command_event_diagnostic_hashes_class_without_retaining_output(
+    tmp_path: Path,
+) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    canned = "\n".join(
+        [
+            '{"type":"item.started","item":{"id":"read","type":"command_execution",'
+            '"command":"cat GOVERNANCE-DEPENDENCY.md"}}',
+            '{"type":"item.completed","item":{"id":"read","type":"command_execution",'
+            '"status":"failed","exit_code":1,"command":["cat","GOVERNANCE-DEPENDENCY.md"],'
+            '"aggregated_output":"Permission denied\\nRAW-DIAGNOSTIC"}}',
+        ]
+    )
+    facts = parse_command_diagnostics_events(io.StringIO(canned), fixture.repository)
+    assert facts.requested_argv_shape == "single_string"
+    assert facts.actual_argv_shape == "argv_list"
+    assert facts.command_status == "failed"
+    assert facts.command_exit_code == 1
+    assert facts.command_output_class == "permission_denied"
+    assert facts.command_output_byte_length == len("Permission denied\nRAW-DIAGNOSTIC")
+    assert (
+        facts.command_output_sha256
+        == hashlib.sha256(b"Permission denied\nRAW-DIAGNOSTIC").hexdigest()
+    )
+    assert facts.command_path_inside_repository is True
+    assert "RAW-DIAGNOSTIC" not in str(asdict(facts))
+
+
+def test_command_event_diagnostic_normalizes_string_exit_code(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    canned = "\n".join(
+        [
+            '{"type":"item.started","item":{"id":"read","type":"command_execution",'
+            '"command":"cat GOVERNANCE-DEPENDENCY.md"}}',
+            '{"type":"item.completed","item":{"id":"read","type":"command_execution",'
+            '"status":"completed","exit_code":"1","command":["cat",'
+            '"GOVERNANCE-DEPENDENCY.md"]}}',
+        ]
+    )
+    facts = parse_command_diagnostics_events(io.StringIO(canned), fixture.repository)
+    assert facts.command_exit_code == 1
+    assert facts.command_status == "failed"
+    assert facts.failure_class == "unknown_nonzero"
+
+
+def test_failed_codex_process_returns_sanitized_unavailable_diagnostics(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    result = run_codex_once(tmp_path / "missing-codex", fixture, governed_prompt())
+    assert result.failure_reason == "process_boundary_error"
+    assert result.dependency_observation.lifecycle == "incomplete"
+    assert result.command_diagnostics.failure_class == "unavailable"
+    assert result.command_diagnostics.process_status == "unknown"
+
+
+def test_failure_diagnosis_uses_one_alternative_then_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    dependency_bytes = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
+    prompts: list[str] = []
+
+    def fake_catalog(_codex_bin: object, _destination: object) -> None:
+        return None
+
+    def fake_run(
+        _codex_bin: object, called_fixture: GovernedFixturePaths, prompt: str
+    ) -> SanitizedCodexRun:
+        assert called_fixture is fixture
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return SanitizedCodexRun(
+                exit_status=0,
+                timed_out=False,
+                duration_seconds=0.0,
+                event_bytes=1,
+                event_type_counts={},
+                call_item_type_counts={"command_execution": 1},
+                tool_names=("command_execution",),
+                tool_calls=1,
+                sentinel_passed=False,
+                failure_reason="command_failed",
+                dependency_observation=DependencyObservationFacts(
+                    intended_dependency_reads=1,
+                    started_commands=1,
+                    failed_commands=1,
+                ),
+                command_diagnostics=CommandDiagnostics(
+                    failure_class="not_found",
+                    process_exit_code=0,
+                    process_status="success",
+                    command_exit_code=1,
+                    command_status="failed",
+                ),
+            )
+        observed_hash = hashlib.sha256(dependency_bytes).hexdigest()
+        return SanitizedCodexRun(
+            exit_status=0,
+            timed_out=False,
+            duration_seconds=0.0,
+            event_bytes=1,
+            event_type_counts={},
+            call_item_type_counts={"command_execution": 1},
+            tool_names=("command_execution",),
+            tool_calls=1,
+            sentinel_passed=True,
+            failure_reason="sentinel_missing",
+            dependency_observation=DependencyObservationFacts(
+                intended_dependency_reads=1,
+                started_commands=1,
+                completed_commands=1,
+                successful_dependency_reads=1,
+                output_sha256=observed_hash,
+                output_byte_length=len(dependency_bytes),
+                rstrip_output_sha256=hashlib.sha256(dependency_bytes.rstrip()).hexdigest(),
+            ),
+            command_diagnostics=CommandDiagnostics(
+                failure_class="success",
+                process_exit_code=0,
+                process_status="success",
+                command_exit_code=0,
+                command_status="success",
+            ),
+        )
+
+    monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
+    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
+    monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_: fixture)
+    facts = run_command_failure_diagnostic("unused")
+    assert len(facts.attempts) == 2
+    assert [attempt.read_form for attempt in facts.attempts] == [
+        "relative_cat",
+        "absolute_bin_cat",
+    ]
+    assert "command cat GOVERNANCE-DEPENDENCY.md" in prompts[0]
+    assert "command /bin/cat GOVERNANCE-DEPENDENCY.md" in prompts[1]
+    assert all(attempt.direct_read.subprocess_exit_status == 0 for attempt in facts.attempts)
+    assert facts.attempts[0].run.command_diagnostics.failure_class == "not_found"
+    assert facts.dependency_provenance == "equal"
+    # The helper's own lifecycle gate still prevents governance attribution here.
+    assert facts.attempts[-1].run.failure_reason == "sentinel_missing"
+
+
+def test_failure_diagnosis_stops_after_first_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    prompts: list[str] = []
+
+    def fake_catalog(_codex_bin: object, _destination: object) -> None:
+        return None
+
+    def fake_run(
+        _codex_bin: object, _called_fixture: GovernedFixturePaths, prompt: str
+    ) -> SanitizedCodexRun:
+        prompts.append(prompt)
+        return SanitizedCodexRun(
+            exit_status=0,
+            timed_out=False,
+            duration_seconds=0.0,
+            event_bytes=1,
+            event_type_counts={},
+            call_item_type_counts={"command_execution": 1},
+            tool_names=("command_execution",),
+            tool_calls=1,
+            sentinel_passed=True,
+            failure_reason="success",
+            dependency_observation=DependencyObservationFacts(
+                intended_dependency_reads=1,
+                started_commands=1,
+                completed_commands=1,
+                successful_dependency_reads=1,
+                output_sha256="a" * 64,
+                output_byte_length=1,
+                rstrip_output_sha256="a" * 64,
+            ),
+            command_diagnostics=CommandDiagnostics(failure_class="success"),
+        )
+
+    monkeypatch.setattr(e2e_module, "write_local_model_catalog", fake_catalog)
+    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
+    monkeypatch.setattr(e2e_module, "write_governed_fixture", lambda *_: fixture)
+    facts = run_command_failure_diagnostic("unused")
+    assert len(facts.attempts) == 1
+    assert facts.attempts[0].read_form == "relative_cat"
+    assert len(prompts) == 1
 
 
 def test_constitution_metric_snapshot_exposes_fixed_counter_deltas() -> None:

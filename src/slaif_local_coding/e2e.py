@@ -8,6 +8,7 @@ output are discarded when the caller's ``TemporaryDirectory`` closes.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import io
 import json
@@ -15,6 +16,7 @@ import math
 import os
 import re
 import shlex
+import stat
 import subprocess
 import tempfile
 import time
@@ -44,26 +46,20 @@ DependencyProvenanceClassification = Literal[
     "observation_mismatch",
     "unavailable",
 ]
-
-
-@dataclass(frozen=True)
-class SanitizedCodexRun:
-    """Non-confidential result of one bounded Codex execution."""
-
-    exit_status: int | None
-    timed_out: bool
-    duration_seconds: float
-    event_bytes: int
-    event_type_counts: Mapping[str, int]
-    call_item_type_counts: Mapping[str, int]
-    tool_names: tuple[str, ...]
-    tool_calls: int
-    sentinel_passed: bool
-    failure_reason: str
-    command_event_counts: Mapping[str, int] = field(default_factory=dict)
-    dependency_observation: DependencyObservationFacts = field(
-        default_factory=lambda: DependencyObservationFacts()
-    )
+DependencyReadForm = Literal["relative_cat", "absolute_bin_cat"]
+DiagnosticFailureClass = Literal[
+    "success",
+    "not_found",
+    "permission_denied",
+    "sandbox_denied",
+    "schema_invalid",
+    "argv_unsupported",
+    "signal",
+    "timeout",
+    "unknown_nonzero",
+    "unavailable",
+]
+ArgvShape = Literal["absent", "single_string", "argv_list", "shell_wrapped_list", "unsupported"]
 
 
 @dataclass(frozen=True)
@@ -92,6 +88,69 @@ class DependencyObservationFacts:
         if self.failed_commands > 0:
             return "failed"
         return "incomplete"
+
+
+@dataclass(frozen=True)
+class DirectDependencyReadControl:
+    """Private same-user readability facts with no retained file content."""
+
+    exists: bool
+    regular_file: bool
+    symlink: bool
+    private_mode: bool
+    byte_length: int | None
+    sha256: str | None
+    subprocess_exit_status: int | None
+    subprocess_byte_identical: bool | None
+
+
+@dataclass(frozen=True)
+class BinaryStreamFacts:
+    """Fixed audit facts for a bounded process stream."""
+
+    byte_length: int
+    sha256: str
+    first_line_class: DiagnosticFailureClass
+
+
+@dataclass(frozen=True)
+class CommandDiagnostics:
+    """Bounded process/event diagnostics without retaining diagnostic text."""
+
+    failure_class: DiagnosticFailureClass = "unavailable"
+    process_exit_code: int | None = None
+    process_status: Literal["success", "failed", "unknown"] = "unknown"
+    stdout: BinaryStreamFacts | None = None
+    stderr: BinaryStreamFacts | None = None
+    command_exit_code: int | None = None
+    command_status: Literal["success", "failed", "unknown"] = "unknown"
+    command_output_class: DiagnosticFailureClass = "unavailable"
+    command_output_sha256: str | None = None
+    command_output_byte_length: int | None = None
+    requested_argv_shape: ArgvShape = "absent"
+    actual_argv_shape: ArgvShape = "absent"
+    command_path_inside_repository: bool | None = None
+
+
+@dataclass(frozen=True)
+class SanitizedCodexRun:
+    """Non-confidential result of one bounded Codex execution."""
+
+    exit_status: int | None
+    timed_out: bool
+    duration_seconds: float
+    event_bytes: int
+    event_type_counts: Mapping[str, int]
+    call_item_type_counts: Mapping[str, int]
+    tool_names: tuple[str, ...]
+    tool_calls: int
+    sentinel_passed: bool
+    failure_reason: str
+    command_event_counts: Mapping[str, int] = field(default_factory=dict)
+    dependency_observation: DependencyObservationFacts = field(
+        default_factory=lambda: DependencyObservationFacts()
+    )
+    command_diagnostics: CommandDiagnostics = field(default_factory=CommandDiagnostics)
 
 
 @dataclass(frozen=True)
@@ -140,6 +199,44 @@ class GovernedE2EFacts:
             and self.dependency_cache_hits >= 1
             and self.injected_requests >= 2
         )
+
+
+@dataclass(frozen=True)
+class CommandDiagnosticAttempt:
+    """One direct-read control plus one fresh bounded Codex attempt."""
+
+    read_form: DependencyReadForm
+    direct_read: DirectDependencyReadControl
+    run: SanitizedCodexRun
+
+
+@dataclass(frozen=True)
+class CommandFailureDiagnosisFacts:
+    """At-most-two-attempt diagnosis with only fixed sanitized facts."""
+
+    attempts: tuple[CommandDiagnosticAttempt, ...]
+    fixture_dependency_sha256: str
+    fixture_dependency_byte_length: int
+    fixture_dependency_stripped_sha256: str
+
+    @property
+    def dependency_provenance(self) -> DependencyProvenanceClassification:
+        if not self.attempts:
+            return "unavailable"
+        run = self.attempts[-1].run
+        observed_hash = run.dependency_observation.output_sha256
+        observed_length = run.dependency_observation.output_byte_length
+        if observed_hash is None or observed_length is None:
+            return "unavailable"
+        if (
+            observed_hash == self.fixture_dependency_sha256
+            and observed_length == self.fixture_dependency_byte_length
+        ):
+            return "equal"
+        stripped = run.dependency_observation.rstrip_output_sha256
+        if stripped == self.fixture_dependency_stripped_sha256:
+            return "tool_boundary_normalization"
+        return "observation_mismatch"
 
 
 CacheOutcomeClassification = Literal[
@@ -303,6 +400,8 @@ def write_governed_fixture(root: Path, base_url: str, api_key_env: str) -> Gover
     )
     (repository / "AGENTS.md").write_text(agents, encoding="utf-8")
     (repository / "GOVERNANCE-DEPENDENCY.md").write_text(dependency, encoding="utf-8")
+    os.chmod(repository / "AGENTS.md", 0o600)
+    os.chmod(repository / "GOVERNANCE-DEPENDENCY.md", 0o600)
     subprocess.run(["git", "init", "-q", str(repository)], check=True, capture_output=True)
     subprocess.run(
         ["git", "-C", str(repository), "add", "AGENTS.md", "GOVERNANCE-DEPENDENCY.md"],
@@ -353,6 +452,83 @@ def write_governed_fixture(root: Path, base_url: str, api_key_env: str) -> Gover
         codex_config=config,
         model_catalog=catalog,
         sentinel_token=token,
+    )
+
+
+def verify_direct_dependency_read(fixture: GovernedFixturePaths) -> DirectDependencyReadControl:
+    """Prove same-user readability without retaining dependency bytes."""
+
+    dependency_path = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
+    try:
+        stat_result = dependency_path.lstat()
+    except OSError:
+        return DirectDependencyReadControl(
+            exists=False,
+            regular_file=False,
+            symlink=False,
+            private_mode=False,
+            byte_length=None,
+            sha256=None,
+            subprocess_exit_status=None,
+            subprocess_byte_identical=None,
+        )
+    regular = stat.S_ISREG(stat_result.st_mode)
+    symlink = stat.S_ISLNK(stat_result.st_mode)
+    private_mode = not stat_result.st_mode & 0o077
+    if not regular or symlink:
+        return DirectDependencyReadControl(
+            exists=True,
+            regular_file=regular,
+            symlink=symlink,
+            private_mode=private_mode,
+            byte_length=None,
+            sha256=None,
+            subprocess_exit_status=None,
+            subprocess_byte_identical=None,
+        )
+    try:
+        expected = dependency_path.read_bytes()
+    except OSError:
+        return DirectDependencyReadControl(
+            exists=True,
+            regular_file=True,
+            symlink=False,
+            private_mode=private_mode,
+            byte_length=None,
+            sha256=None,
+            subprocess_exit_status=None,
+            subprocess_byte_identical=None,
+        )
+    try:
+        completed = subprocess.run(
+            ["cat", str(dependency_path)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        byte_identical = completed.returncode == 0 and completed.stdout == expected
+        exit_status = completed.returncode
+    except (OSError, subprocess.SubprocessError):
+        return DirectDependencyReadControl(
+            exists=True,
+            regular_file=regular,
+            symlink=symlink,
+            private_mode=private_mode,
+            byte_length=len(expected) if expected is not None else None,
+            sha256=(hashlib.sha256(expected).hexdigest() if expected is not None else None),
+            subprocess_exit_status=None,
+            subprocess_byte_identical=None,
+        )
+    return DirectDependencyReadControl(
+        exists=True,
+        regular_file=regular,
+        symlink=symlink,
+        private_mode=private_mode,
+        byte_length=len(expected) if expected is not None else None,
+        sha256=hashlib.sha256(expected).hexdigest() if expected is not None else None,
+        subprocess_exit_status=exit_status,
+        subprocess_byte_identical=byte_identical,
     )
 
 
@@ -488,7 +664,7 @@ def parse_codex_command_events(event_stream: Iterable[str]) -> Counter[str]:
 
 
 _DEPENDENCY_READ = re.compile(
-    r"^(?:cat|head(?:\s+-n\s+\d+)?|tail(?:\s+-n\s+\d+)?|"
+    r"^(?:(?:/bin/)?cat|head(?:\s+-n\s+\d+)?|tail(?:\s+-n\s+\d+)?|"
     r"sed\s+-n\s+['\"]?\d+(?:,\d+)?p['\"]?)\s+"
     r"['\"]?(?:\./)?GOVERNANCE-DEPENDENCY\.md['\"]?$"
 )
@@ -578,6 +754,113 @@ def _command_exit_failed(value: Mapping[str, Any]) -> bool:
     )
 
 
+def _parsed_exit_code(value: object) -> int | None:
+    """Normalize the bounded integer exit-code shapes emitted by Codex."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str) and re.fullmatch(r"-?\d+", value):
+        return int(value)
+    return None
+
+
+_DIAGNOSTIC_PATTERNS: tuple[tuple[DiagnosticFailureClass, str], ...] = (
+    ("sandbox_denied", r"\b(sandbox|blocked by policy|operation not permitted)\b"),
+    ("permission_denied", r"\b(permission denied|access denied|eacces|eperm)\b"),
+    ("not_found", r"\b(no such file or directory|not found|enoent)\b"),
+    ("argv_unsupported", r"\b(unrecognized option|unexpected argument|unknown option)\b"),
+    ("schema_invalid", r"\b(schema|invalid (?:request|arguments)|missing required)\b"),
+    ("signal", r"\b(signal|killed|terminated)\b"),
+)
+
+
+def _classify_diagnostic_text(text: str) -> DiagnosticFailureClass:
+    """Map only the first text line through fixed allowlisted patterns."""
+
+    lines = text.splitlines()
+    first_line = lines[0] if lines else ""
+    for failure_class, pattern in _DIAGNOSTIC_PATTERNS:
+        if re.search(pattern, first_line, flags=re.IGNORECASE):
+            return failure_class
+    return "success" if first_line else "unavailable"
+
+
+def _binary_stream_facts(stream: io.BufferedIOBase) -> BinaryStreamFacts:
+    """Hash a bounded stream and classify only its first nonempty line."""
+
+    digest = hashlib.sha256()
+    length = 0
+    first_line = bytearray()
+    first_line_complete = False
+    while chunk := stream.read(65_536):
+        length += len(chunk)
+        digest.update(chunk)
+        if not first_line_complete:
+            leading, separator, _remainder = chunk.partition(b"\n")
+            first_line.extend(leading[: max(0, 4_096 - len(first_line))])
+            first_line_complete = bool(separator)
+    return BinaryStreamFacts(
+        byte_length=length,
+        sha256=digest.hexdigest(),
+        first_line_class=_classify_diagnostic_text(first_line.decode("utf-8", errors="replace")),
+    )
+
+
+def _argv_shape(value: object) -> ArgvShape:
+    if value is None:
+        return "absent"
+    if isinstance(value, str):
+        return "single_string"
+    if not isinstance(value, list) or not value:
+        return "unsupported"
+    argv = [part for part in value if isinstance(part, str)]
+    if len(argv) != len(value):
+        return "unsupported"
+    if (
+        Path(argv[0]).name in {"bash", "sh", "zsh"}
+        and len(argv) >= 3
+        and argv[1]
+        in {
+            "-c",
+            "-lc",
+            "-cl",
+        }
+    ):
+        return "shell_wrapped_list"
+    return "argv_list"
+
+
+def _command_target_inside_repository(item: Mapping[str, Any], repository: Path) -> bool | None:
+    command_value = item.get("command")
+    if isinstance(command_value, str):
+        unwrapped = _unwrap_shell_string(command_value.strip())
+        try:
+            parts = shlex.split(unwrapped)
+        except ValueError:
+            return None
+    elif isinstance(command_value, list) and all(isinstance(part, str) for part in command_value):
+        parts = command_value
+    else:
+        return None
+    if len(parts) < 2:
+        return None
+    target = next((part for part in parts[1:] if not part.startswith("-")), None)
+    if target is None:
+        return False
+    try:
+        target_path = Path(target)
+        resolved = (
+            target_path.resolve(strict=False)
+            if target_path.is_absolute()
+            else (repository / target_path).resolve(strict=False)
+        )
+        return (
+            resolved == repository.resolve(strict=False)
+            or repository.resolve(strict=False) in resolved.parents
+        )
+    except OSError:
+        return False
+
+
 def parse_dependency_observation_events(
     event_stream: Iterable[str],
 ) -> DependencyObservationFacts:
@@ -640,6 +923,7 @@ def parse_dependency_observation_events(
     stripped_encoded = (
         selected_output.encode("utf-8").rstrip() if selected_output is not None else None
     )
+
     return DependencyObservationFacts(
         intended_dependency_reads=len(identities),
         started_commands=len(started),
@@ -651,6 +935,103 @@ def parse_dependency_observation_events(
         rstrip_output_sha256=(
             hashlib.sha256(stripped_encoded).hexdigest() if stripped_encoded is not None else None
         ),
+    )
+
+
+def parse_command_diagnostics_events(
+    event_stream: Iterable[str], repository: Path
+) -> CommandDiagnostics:
+    """Extract bounded command facts without retaining output or argv values."""
+
+    identities: set[str] = set()
+    requested_shape: ArgvShape = "absent"
+    actual_shape: ArgvShape = "absent"
+    path_inside: bool | None = None
+    exit_code: int | None = None
+    status: Literal["success", "failed", "unknown"] = "unknown"
+    output_class: DiagnosticFailureClass = "unavailable"
+    output_hash: str | None = None
+    output_length: int | None = None
+
+    def visit(value: object, top_level_type: str | None) -> None:
+        nonlocal requested_shape, actual_shape, path_inside
+        nonlocal exit_code, status, output_class, output_hash, output_length
+        if isinstance(value, list):
+            for child in value:
+                visit(child, top_level_type)
+            return
+        if not isinstance(value, dict) or value.get("type") != "command_execution":
+            if isinstance(value, dict):
+                for child in value.values():
+                    visit(child, top_level_type)
+            return
+        identity_value = value.get("id", value.get("call_id"))
+        identity = (
+            identity_value if isinstance(identity_value, str) and identity_value else "command"
+        )
+        if not (_is_intended_dependency_read(value) or identity in identities):
+            return
+        identities.add(identity)
+        shape = _argv_shape(value.get("command"))
+        inside = _command_target_inside_repository(value, repository)
+        if top_level_type == "item.started":
+            requested_shape = shape
+            path_inside = inside
+        elif top_level_type == "item.completed":
+            if shape != "absent":
+                actual_shape = shape
+            path_inside = path_inside if inside is None else inside
+            raw_exit = value.get("exit_code")
+            parsed_exit = _parsed_exit_code(raw_exit)
+            if parsed_exit is not None:
+                exit_code = parsed_exit
+            if value.get("status") in {"failed", "failure", "error"}:
+                status = "failed"
+            elif value.get("status") in {"completed", "success"} and (
+                parsed_exit is None or parsed_exit == 0
+            ):
+                status = "success"
+            else:
+                status = "failed" if _command_exit_failed(value) else "unknown"
+            output = _first_bounded_text(
+                value,
+                ("aggregated_output", "aggregate_output", "output", "content", "text"),
+            )
+            if output is not None:
+                encoded = output.encode("utf-8")[:CODEX_MAX_DIAGNOSTIC_BYTES]
+                output_class = _classify_diagnostic_text(output)
+                output_hash = hashlib.sha256(encoded).hexdigest()
+                output_length = len(output.encode("utf-8"))
+
+    for line in event_stream:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        top_level_type = event.get("type")
+        visit(event, top_level_type if isinstance(top_level_type, str) else None)
+    return CommandDiagnostics(
+        failure_class=(
+            "success"
+            if status == "success"
+            else ("unknown_nonzero" if status == "failed" else "unavailable")
+        ),
+        process_exit_code=None,
+        process_status="unknown",
+        stdout=None,
+        stderr=None,
+        command_exit_code=exit_code,
+        command_status=status,
+        command_output_class=output_class,
+        command_output_sha256=output_hash,
+        command_output_byte_length=output_length,
+        requested_argv_shape=requested_shape,
+        actual_argv_shape=actual_shape,
+        command_path_inside_repository=path_inside,
     )
 
 
@@ -693,6 +1074,35 @@ def _final_agent_message_has_ack(event_stream: Iterable[str], sentinel_ack: str)
     return found
 
 
+def _normalized_diagnostic_class(
+    *,
+    exit_status: int | None,
+    timed_out: bool,
+    stdout: BinaryStreamFacts,
+    stderr: BinaryStreamFacts,
+    command: CommandDiagnostics,
+) -> DiagnosticFailureClass:
+    """Combine bounded process and command facts without exposing their text."""
+
+    if timed_out:
+        return "timeout"
+    if exit_status is None:
+        return "unavailable"
+    if exit_status < 0:
+        return "signal"
+    if exit_status == 0 and command.command_status == "success":
+        return "success"
+    candidates = (
+        command.command_output_class,
+        stderr.first_line_class,
+        stdout.first_line_class,
+    )
+    for candidate in candidates:
+        if candidate not in {"success", "unavailable"}:
+            return candidate
+    return "unknown_nonzero" if exit_status != 0 else "unknown_nonzero"
+
+
 def run_codex_once(
     codex_bin: Path | str,
     fixture: GovernedFixturePaths,
@@ -711,6 +1121,11 @@ def run_codex_once(
     event_bytes = 0
     sentinel_passed = False
     command_event_counts: Counter[str] = Counter()
+    dependency_observation = DependencyObservationFacts()
+    final_event_ack = False
+    stdout_facts = BinaryStreamFacts(0, hashlib.sha256(b"").hexdigest(), "unavailable")
+    stderr_facts = BinaryStreamFacts(0, hashlib.sha256(b"").hexdigest(), "unavailable")
+    event_command_diagnostics = CommandDiagnostics()
     output_path = fixture.repository / ".codex-last-message.tmp"
     try:
         with tempfile.TemporaryFile() as events, tempfile.TemporaryFile() as diagnostics:
@@ -754,6 +1169,8 @@ def run_codex_once(
             if event_bytes > CODEX_MAX_EVENT_BYTES:
                 raise OverflowError
             events.seek(0)
+            stdout_facts = _binary_stream_facts(events)
+            events.seek(0)
             readable = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             counts, call_items, tools = parse_codex_events(readable)
             readable.detach()
@@ -766,6 +1183,12 @@ def run_codex_once(
             dependency_observation = parse_dependency_observation_events(observation_reader)
             observation_reader.detach()
             events.seek(0)
+            diagnostic_command_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
+            event_command_diagnostics = parse_command_diagnostics_events(
+                diagnostic_command_reader, fixture.repository
+            )
+            diagnostic_command_reader.detach()
+            events.seek(0)
             final_event_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             final_event_ack = _final_agent_message_has_ack(
                 final_event_reader, f"SENTINEL-ACK:{fixture.sentinel_token}"
@@ -774,6 +1197,8 @@ def run_codex_once(
             diagnostics_size = diagnostics.seek(0, os.SEEK_END)
             if diagnostics_size > CODEX_MAX_DIAGNOSTIC_BYTES:
                 raise OverflowError
+            diagnostics.seek(0)
+            stderr_facts = _binary_stream_facts(diagnostics)
             if timed_out:
                 failure_reason = "timeout"
             elif exit_status != 0:
@@ -786,11 +1211,6 @@ def run_codex_once(
     except (OverflowError, OSError, subprocess.SubprocessError):
         failure_reason = "process_boundary_error"
         exit_status = None
-    finally:
-        try:
-            output_path.unlink()
-        except FileNotFoundError:
-            pass
     if failure_reason == "success":
         try:
             output_ack = f"SENTINEL-ACK:{fixture.sentinel_token}" in output_path.read_text(
@@ -811,7 +1231,29 @@ def run_codex_once(
                 sentinel_passed=sentinel_passed,
                 observation=dependency_observation,
             )
+    try:
+        output_path.unlink()
+    except FileNotFoundError:
+        pass
     duration = time.monotonic() - started
+    command_diagnostics = dataclasses.replace(
+        event_command_diagnostics,
+        failure_class=_normalized_diagnostic_class(
+            exit_status=exit_status,
+            timed_out=timed_out,
+            stdout=stdout_facts,
+            stderr=stderr_facts,
+            command=event_command_diagnostics,
+        ),
+        process_exit_code=exit_status,
+        process_status=(
+            "success"
+            if exit_status == 0 and not timed_out
+            else ("failed" if exit_status is not None or timed_out else "unknown")
+        ),
+        stdout=stdout_facts,
+        stderr=stderr_facts,
+    )
     return SanitizedCodexRun(
         exit_status=exit_status,
         timed_out=timed_out,
@@ -825,13 +1267,20 @@ def run_codex_once(
         failure_reason=failure_reason,
         command_event_counts=dict(command_event_counts),
         dependency_observation=dependency_observation,
+        command_diagnostics=command_diagnostics,
     )
 
 
-def governed_prompt() -> str:
+def governed_prompt(*, read_form: DependencyReadForm = "relative_cat") -> str:
     """Build a bounded prompt that delegates the response token to governance."""
+
+    command = (
+        "cat GOVERNANCE-DEPENDENCY.md"
+        if read_form == "relative_cat"
+        else "/bin/cat GOVERNANCE-DEPENDENCY.md"
+    )
     return (
-        "First call shell_command exactly once with command cat GOVERNANCE-DEPENDENCY.md. "
+        f"First call shell_command exactly once with command {command}. "
         "Wait for its result, then follow that dependency's "
         "FINAL_RESPONSE_EXACTLY instruction literally as your entire final message."
     )
@@ -1222,6 +1671,46 @@ def run_dependency_cache_diagnostic(
         cache_miss_stored_source_hash_match=cache_miss_stored_match,
         consistency_errors=errors,
         classification=classification,
+    )
+
+
+def run_command_failure_diagnostic(
+    codex_bin: Path | str,
+    *,
+    base_url: str = DEFAULT_ADAPTER_BASE_URL,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
+) -> CommandFailureDiagnosisFacts:
+    """Run one fixture and at most current-plus-alternative fresh attempts."""
+
+    with tempfile.TemporaryDirectory(prefix="slaif-codex-command-diagnosis-") as temporary:
+        fixture = write_governed_fixture(Path(temporary), base_url, api_key_env)
+        write_local_model_catalog(codex_bin, fixture.model_catalog)
+        dependency_path = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
+        dependency_bytes = dependency_path.read_bytes()
+        dependency_hash = hashlib.sha256(dependency_bytes).hexdigest()
+        stripped_hash = hashlib.sha256(dependency_bytes.rstrip()).hexdigest()
+        dependency_length = len(dependency_bytes)
+
+        attempts: list[CommandDiagnosticAttempt] = []
+        forms: tuple[DependencyReadForm, ...] = ("relative_cat", "absolute_bin_cat")
+        for read_form in forms:
+            direct_read = verify_direct_dependency_read(fixture)
+            run = run_codex_once(codex_bin, fixture, governed_prompt(read_form=read_form))
+            attempts.append(
+                CommandDiagnosticAttempt(
+                    read_form=read_form,
+                    direct_read=direct_read,
+                    run=run,
+                )
+            )
+            if run.failure_reason == "success":
+                break
+
+    return CommandFailureDiagnosisFacts(
+        attempts=tuple(attempts),
+        fixture_dependency_sha256=dependency_hash,
+        fixture_dependency_byte_length=dependency_length,
+        fixture_dependency_stripped_sha256=stripped_hash,
     )
 
 
