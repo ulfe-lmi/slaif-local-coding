@@ -105,14 +105,16 @@ are verified. It does not execute raw bubblewrap or `unshare` probes.
 The historical raw probe is retained only as the narrower
 `raw_bwrap_unshare_all_loopback_bootstrap_failed` audit description. The OAP
 parent is host-direct/unsandboxed; that evidence is distinct from the
-Codex-under-test policy. The current native Codex 0.149.0 preflight stopped at
-`true` with exit status 1, so dependency `cat`, governed model calls, and
-cache-reuse E2E were not run. The 004-m environment correction retains host
-`HOME`/`TMPDIR` semantics while keeping an explicit disposable `CODEX_HOME`,
-but the same first native failure remains. The rewritten `HOME`/`TMPDIR` is
-therefore not established as the cause, and no Local Coding defect has yet been
-tested. This leaves objective 004 at 15% and branch readiness at approximately
-74%; it is not a host-wide capability conclusion.
+Codex-under-test policy. The 004-n decision tree records Codex 0.149.0
+`:workspace` `true` and, only after that failure, the same binary's
+`:danger-full-access` control. Both returned exit status 1 before dependency
+bytes crossed the boundary. B2 host-user reconciliation, dependency `cat`,
+governed model calls, and cache-reuse E2E were not run. Repository-only support
+parameterizes the built-in profile and config source, records normalized
+argv/hash and allowlisted effective config facts, and gates all later calls on
+the exact decision tree. No raw diagnostics or host configuration are retained
+or changed. This leaves objective 004 at 15% and branch readiness at
+approximately 74%; it is not a host-wide capability conclusion.
 
 ## CI and merge
 

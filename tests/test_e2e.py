@@ -10,7 +10,7 @@ import tempfile
 import time
 import tomllib
 from collections import Counter
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Literal
 
@@ -45,13 +45,17 @@ from tests.helpers.e2e_support import (
     write_governed_fixture,
 )
 from tests.helpers.sandbox_runtime import (
+    EffectiveCodexConfigFacts,
     InstalledDirectoryFacts,
     InstalledPathFacts,
+    NativeWorkspaceDecisionFacts,
     SandboxInstallationLayoutFacts,
     SandboxProbeFacts,
     SanitizedExecutableFacts,
     _build_sandbox_probe_argv,
+    _effective_codex_config_facts,
     classify_sandbox_runtime_boundary,
+    run_native_workspace_decision_tree,
     run_native_workspace_preflight,
     run_sandbox_runtime_boundary_diagnostic,
 )
@@ -190,6 +194,56 @@ def test_subprocess_environment_omits_unset_tmpdir(
 
     assert environment["CODEX_HOME"] == str(tmp_path)
     assert "TMPDIR" not in environment
+
+
+def test_effective_config_facts_are_allowlisted_and_hashed(tmp_path: Path) -> None:
+    codex_home = tmp_path / "codex-home"
+    codex_home.mkdir()
+    (codex_home / "config.toml").write_text(
+        'profile = "oap-test"\nsandbox_mode = "workspace-write"\n'
+        'approval_policy = "never"\nprovider_url = "https://private.invalid"\n',
+        encoding="utf-8",
+    )
+
+    facts = _effective_codex_config_facts(codex_home)
+
+    assert facts.config_present is True
+    assert (
+        facts.config_sha256 == hashlib.sha256((codex_home / "config.toml").read_bytes()).hexdigest()
+    )
+    assert facts.selected_profile == "oap-test"
+    assert facts.sandbox_mode == "workspace-write"
+    assert facts.approval_policy == "never"
+    assert "private.invalid" not in str(asdict(facts))
+
+
+def test_probe_facts_capture_profile_source_and_normalized_argv(
+    tmp_path: Path,
+) -> None:
+    import tests.helpers.sandbox_runtime as e2e_module
+
+    codex_bin = tmp_path / "codex"
+    codex_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    codex_bin.chmod(0o700)
+    fixture = write_governed_fixture(tmp_path, "", "UNUSED")
+
+    facts = e2e_module._run_sandbox_probe(
+        codex_bin,
+        fixture,
+        "true",
+        tmp_path,
+        permission_profile=":danger-full-access",
+        config_source="host_user",
+    )
+
+    assert facts.successful is True
+    assert facts.permission_profile == ":danger-full-access"
+    assert facts.semantic_mode == "danger-full-access-control"
+    assert facts.config_source == "host_user"
+    assert facts.environment_names == tuple(sorted(facts.environment_names))
+    assert "<fixture>" in facts.normalized_argv
+    assert str(codex_bin) not in facts.normalized_argv
+    assert len(facts.argv_sha256) == 64
 
 
 def test_model_catalog_subprocess_output_is_bounded(
@@ -631,10 +685,120 @@ def test_sandbox_runtime_probe_argv_allows_only_fixed_executable_spellings(
     )[-2:] == ("cat", "dependency")
     argv = _build_sandbox_probe_argv("codex", repository, "true", executable_path="true")
     assert argv[1:5] == ("sandbox", "--permission-profile", ":workspace", "--cd")
+    control_argv = _build_sandbox_probe_argv(
+        "codex",
+        repository,
+        "true",
+        executable_path="true",
+        permission_profile=":danger-full-access",
+    )
+    assert control_argv[1:5] == (
+        "sandbox",
+        "--permission-profile",
+        ":danger-full-access",
+        "--cd",
+    )
     with pytest.raises(ValueError):
         _build_sandbox_probe_argv("codex", repository, "true", executable_path="unsupported")
     with pytest.raises(ValueError):
         _build_sandbox_probe_argv("codex", repository, "true", executable_path="true;id")
+
+
+def test_decision_tree_stops_after_failed_native_control(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tests.helpers.sandbox_runtime as e2e_module
+
+    layout = _runtime_layout()
+    failed_workspace = _differential_probe("true", success=False, failure_class="not_found")
+    failed_control = replace(
+        failed_workspace,
+        permission_profile=":danger-full-access",
+        semantic_mode="danger-full-access-control",
+    )
+    calls: list[tuple[str, str, str]] = []
+
+    def fake_probe(
+        _codex_bin: object,
+        fixture: GovernedFixturePaths,
+        _command: str,
+        _checkout: Path,
+        *,
+        permission_profile: str,
+        config_source: str,
+        **_kwargs: object,
+    ) -> SandboxProbeFacts:
+        calls.append((str(fixture.repository), permission_profile, config_source))
+        return failed_control if permission_profile == ":danger-full-access" else failed_workspace
+
+    monkeypatch.setattr(e2e_module, "inspect_sandbox_installation_layout", lambda *_: layout)
+    monkeypatch.setattr(e2e_module, "_run_sandbox_probe", fake_probe)
+
+    facts = run_native_workspace_decision_tree("unused", product_checkout=tmp_path)
+
+    assert isinstance(facts, NativeWorkspaceDecisionFacts)
+    assert facts.classification == "codex_binary_or_native_helper_control_failure"
+    assert facts.helper_calls == 2
+    assert facts.host_workspace_probe is None
+    assert facts.dependency_cat_probe is None
+    assert calls[0][0] == calls[1][0]
+    assert [call[1:] for call in calls] == [
+        (":workspace", "disposable"),
+        (":danger-full-access", "disposable"),
+    ]
+
+
+def test_decision_tree_uses_host_config_only_after_control_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tests.helpers.sandbox_runtime as e2e_module
+
+    layout = _runtime_layout()
+    failed_workspace = _differential_probe("true", success=False, failure_class="not_found")
+    successful_control = replace(
+        _differential_probe("true", success=True),
+        permission_profile=":danger-full-access",
+        semantic_mode="danger-full-access-control",
+    )
+    failed_host = _differential_probe("true", success=False, failure_class="not_found")
+    calls: list[tuple[str, str]] = []
+
+    def fake_probe(
+        _codex_bin: object,
+        _fixture: object,
+        _command: str,
+        _checkout: Path,
+        *,
+        permission_profile: str,
+        config_source: str,
+        **_kwargs: object,
+    ) -> SandboxProbeFacts:
+        calls.append((permission_profile, config_source))
+        if permission_profile == ":danger-full-access":
+            return successful_control
+        if config_source == "host_user":
+            return failed_host
+        return failed_workspace
+
+    monkeypatch.setattr(e2e_module, "inspect_sandbox_installation_layout", lambda *_: layout)
+    monkeypatch.setattr(e2e_module, "_run_sandbox_probe", fake_probe)
+    monkeypatch.setattr(
+        e2e_module,
+        "_effective_codex_config_facts",
+        lambda _home: EffectiveCodexConfigFacts(
+            True, "a" * 64, "oap-test", "workspace-write", None, None, "never"
+        ),
+    )
+
+    facts = run_native_workspace_decision_tree("unused", product_checkout=tmp_path)
+
+    assert facts.classification == "no_known_working_workspace_write_baseline"
+    assert facts.helper_calls == 3
+    assert calls == [
+        (":workspace", "disposable"),
+        (":danger-full-access", "disposable"),
+        (":workspace", "host_user"),
+    ]
 
 
 def test_sandbox_runtime_failure_gates_models_and_stops_at_two_probes(
