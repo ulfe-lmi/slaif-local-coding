@@ -234,14 +234,14 @@ verified by focused tests.
 
 The retained gates cover the synthetic long-root/dependency fixture, successful
 dependency-read lifecycle, sentinel attribution, bounded cache/metric
-reconciliation, and Codex's native workspace-write path. The no-model preflight
-uses the native `codex sandbox` command with the built-in `:workspace` profile
-and runs `true` followed by exact dependency `cat`; on a failed `true`, the
-same disposable fixture is used for the conditional `:danger-full-access`
-control, then (only if that control succeeds) one host-user `:workspace`
-reconciliation. It never invokes raw bubblewrap, `unshare`, or a handcrafted
-sandbox approximation. Only after the exact dependency read passes may the
-candidate adapter and exactly two governed `codex exec` invocations run.
+reconciliation, and ordinary Codex command-path diagnostics. The 004-o control
+uses one fresh fixture and direct protected loopback `18020`, with ordinary
+`codex exec --json --ephemeral`, the same disabled `unified_exec` setting, and
+the same normalized invocation fingerprint for danger-full-access and
+workspace-write. B runs first and A is gated on one exact `/usr/bin/true`
+command event with exit zero; the dependency read is gated after A and exact
+fingerprint equivalence. Raw bubblewrap, `unshare`, `codex sandbox`, retries,
+alternate prompts, and a third control are not used.
 
 The historical raw probe is described narrowly as
 `raw_bwrap_unshare_all_loopback_bootstrap_failed`: it observed a handcrafted
@@ -249,16 +249,17 @@ all-namespace loopback bootstrap failure. The earlier host/kernel inference was
 too broad because that probe was not the acceptance topology. Independently
 sanitized evidence establishes that the OAP parent was host-direct/unsandboxed,
 so the result was not a nested-outer-sandbox artifact. In the current 004-n
-round, Codex 0.149.0's native `:workspace` `true` and the conditional
-`:danger-full-access` control both stopped with exit status 1 before dependency
-bytes crossed the boundary. B2 host-user reconciliation, dependency `cat`,
-model calls, candidate adapter, and governed E2E were therefore not run. The
-implementation records only allowlisted profile/config/environment/argv facts;
-it does not retain raw diagnostics or mutate the host configuration. Objective
-004 remains at 15% and branch readiness at approximately 74%. No current
-host-wide sandbox capability conclusion follows. No compaction, vision,
-production-readiness, cutover, or protected-service claim follows from this
-preflight failure.
+round, the ordinary B control exited `2` at Codex startup with sanitized
+`argv_unsupported`/`argument` evidence and no JSONL event or command execution;
+the installed CLI exposes `--ask-for-approval` as a global option, while the
+ordered `codex exec` placement was rejected. A, dependency `cat`, candidate
+adapter, compiler/model calls, and governed E2E were therefore not run. The
+implementation records only allowlisted config/environment/argv facts; it does
+not retain raw diagnostics or mutate the host configuration. Objective 004
+remains at 15% and branch readiness at approximately 74%. No current
+host-wide command or sandbox capability conclusion follows. No compaction,
+vision, production-readiness, cutover, or protected-service claim follows from
+this startup failure.
 
 ## Candidate quickstart
 

@@ -132,6 +132,11 @@ class CommandDiagnostics:
     requested_argv_shape: ArgvShape = "absent"
     actual_argv_shape: ArgvShape = "absent"
     command_path_inside_repository: bool | None = None
+    actual_command_count: int = 0
+    actual_command_sha256: str | None = None
+    actual_command_byte_length: int | None = None
+    actual_command_equal: bool | None = None
+    lifecycle_counts: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -153,8 +158,23 @@ class SanitizedCodexRun:
         default_factory=lambda: DependencyObservationFacts()
     )
     command_diagnostics: CommandDiagnostics = field(default_factory=CommandDiagnostics)
-    sandbox_mode: Literal["workspace-write", "unknown"] = "workspace-write"
+    sandbox_mode: Literal["workspace-write", "danger-full-access", "unknown"] = "workspace-write"
     approval_policy: Literal["never", "unknown"] = "never"
+    failure_origin: str = "unresolved_with_fixed_evidence"
+    invocation_fingerprint: tuple[tuple[str, str], ...] = ()
+    parser_recognized_events: int = 0
+    parser_rejected_events: int = 0
+
+
+@dataclass(frozen=True)
+class OrdinaryInvocationFacts:
+    """Cryptographic A/B facts; sandbox mode is the only excluded field."""
+
+    values: tuple[tuple[str, str], ...]
+    sandbox_mode: Literal["danger-full-access", "workspace-write"]
+
+    def comparable(self) -> tuple[tuple[str, str], ...]:
+        return self.values
 
 
 @dataclass(frozen=True)
@@ -564,6 +584,25 @@ def parse_codex_events(
     return counts, call_items, tuple(sorted(tools.elements()))
 
 
+def parse_event_parser_counts(event_stream: Iterable[str]) -> tuple[int, int]:
+    """Count recognized/rejected bounded JSONL records without retaining them."""
+    recognized = 0
+    rejected = 0
+    for line in event_stream:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            rejected += 1
+            continue
+        if isinstance(event, dict) and isinstance(event.get("type"), str):
+            recognized += 1
+        else:
+            rejected += 1
+    return recognized, rejected
+
+
 def parse_codex_command_events(event_stream: Iterable[str]) -> Counter[str]:
     """Count ordinary command-tool lifecycle outcomes without retaining output."""
     counts: Counter[str] = Counter()
@@ -968,7 +1007,7 @@ def parse_dependency_observation_events(
 
 
 def parse_command_diagnostics_events(
-    event_stream: Iterable[str], repository: Path
+    event_stream: Iterable[str], repository: Path, *, expected_command: str | None = None
 ) -> CommandDiagnostics:
     """Extract bounded command facts without retaining output or argv values."""
 
@@ -981,6 +1020,10 @@ def parse_command_diagnostics_events(
     output_class: DiagnosticFailureClass = "unavailable"
     output_hash: str | None = None
     output_length: int | None = None
+    started: set[str] = set()
+    completed: set[str] = set()
+    failed: set[str] = set()
+    command_values: dict[str, str] = {}
 
     def visit(value: object, top_level_type: str | None) -> None:
         nonlocal requested_shape, actual_shape, path_inside
@@ -998,15 +1041,24 @@ def parse_command_diagnostics_events(
         identity = (
             identity_value if isinstance(identity_value, str) and identity_value else "command"
         )
-        if not (_is_intended_dependency_read(value) or identity in identities):
+        if not (
+            expected_command is not None
+            or _is_intended_dependency_read(value)
+            or identity in identities
+        ):
             return
         identities.add(identity)
+        command = _bounded_item_command(value)
+        if command is not None:
+            command_values[identity] = command
         shape = _argv_shape(value.get("command"))
         inside = _command_target_inside_repository(value, repository)
         if top_level_type == "item.started":
+            started.add(identity)
             requested_shape = shape
             path_inside = inside
         elif top_level_type == "item.completed":
+            completed.add(identity)
             if shape != "absent":
                 actual_shape = shape
             path_inside = path_inside if inside is None else inside
@@ -1015,12 +1067,15 @@ def parse_command_diagnostics_events(
             if parsed_exit is not None:
                 exit_code = parsed_exit
             if value.get("status") in {"failed", "failure", "error"}:
+                failed.add(identity)
                 status = "failed"
             elif value.get("status") in {"completed", "success"} and (
                 parsed_exit is None or parsed_exit == 0
             ):
                 status = "success"
             else:
+                if _command_exit_failed(value):
+                    failed.add(identity)
                 status = "failed" if _command_exit_failed(value) else "unknown"
             output = _first_bounded_text(
                 value,
@@ -1043,6 +1098,18 @@ def parse_command_diagnostics_events(
             continue
         top_level_type = event.get("type")
         visit(event, top_level_type if isinstance(top_level_type, str) else None)
+    actual_values = tuple(command_values.values())
+    actual_encoded = "\0".join(actual_values).encode("utf-8") if actual_values else None
+    actual_equal = (
+        (
+            len(actual_values) == 1
+            and expected_command is not None
+            and actual_values[0].strip() == expected_command
+            and actual_shape != "shell_wrapped_list"
+        )
+        if actual_values
+        else None
+    )
     return CommandDiagnostics(
         failure_class=(
             "success"
@@ -1061,6 +1128,17 @@ def parse_command_diagnostics_events(
         requested_argv_shape=requested_shape,
         actual_argv_shape=actual_shape,
         command_path_inside_repository=path_inside,
+        actual_command_count=len(actual_values),
+        actual_command_sha256=(
+            hashlib.sha256(actual_encoded).hexdigest() if actual_encoded else None
+        ),
+        actual_command_byte_length=(len(actual_encoded) if actual_encoded else None),
+        actual_command_equal=actual_equal,
+        lifecycle_counts={
+            "started": len(started),
+            "completed": len(completed - failed),
+            "failed": len(failed),
+        },
     )
 
 
@@ -1132,12 +1210,147 @@ def _normalized_diagnostic_class(
     return "unknown_nonzero" if exit_status != 0 else "unknown_nonzero"
 
 
+def _bounded_hash(path: Path, limit: int) -> str:
+    digest = hashlib.sha256()
+    try:
+        if not path.is_file() or path.stat().st_size > limit:
+            return "unavailable"
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(65_536), b""):
+                digest.update(chunk)
+    except OSError:
+        return "unavailable"
+    return digest.hexdigest()
+
+
+def _ordinary_version(codex_bin: Path | str, environment: Mapping[str, str]) -> str:
+    try:
+        result = subprocess.run(
+            [str(codex_bin), "--version"],
+            capture_output=True,
+            check=False,
+            env=dict(environment),
+            stdin=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unavailable"
+    for line in (result.stdout + result.stderr)[:4_096].splitlines()[:4]:
+        match = re.search(rb"\b(\d+\.\d+\.\d+)\b", line)
+        if match:
+            return match.group(1).decode("ascii")
+    return "unavailable"
+
+
+def _ordinary_fingerprint(
+    codex_bin: Path | str,
+    fixture: GovernedFixturePaths,
+    prompt: str,
+    sandbox_mode: Literal["workspace-write", "danger-full-access"],
+    timeout_seconds: float,
+) -> OrdinaryInvocationFacts:
+    environment = _sandbox_environment(fixture.codex_home, fixture.api_key_env)
+    output = str(fixture.repository / ".codex-last-message.tmp")
+    raw_argv = (
+        str(codex_bin),
+        "exec",
+        "--sandbox",
+        sandbox_mode,
+        "--ask-for-approval",
+        "never",
+        "--json",
+        "--ephemeral",
+        "--strict-config",
+        "--disable",
+        "unified_exec",
+        "--cd",
+        str(fixture.repository),
+        "--output-last-message",
+        output,
+        "<prompt>",
+    )
+    normalized = tuple(
+        "<codex>"
+        if value == str(codex_bin)
+        else (
+            "<fixture>"
+            if value == str(fixture.repository)
+            else (
+                "<last-message>"
+                if value == output
+                else (
+                    "<sandbox-mode>"
+                    if value in {"danger-full-access", "workspace-write"}
+                    else value
+                )
+            )
+        )
+        for value in raw_argv
+    )
+    values = (
+        ("codex_version", _ordinary_version(codex_bin, environment)),
+        ("codex_binary_sha256", _bounded_hash(Path(codex_bin), 128 * 1_024 * 1_024)),
+        (
+            "fixture_identity_sha256",
+            hashlib.sha256(str(fixture.repository.resolve(strict=False)).encode()).hexdigest(),
+        ),
+        (
+            "path_classes",
+            ",".join(
+                (
+                    f"{name}={'host_inherited' if name in environment else 'absent'}"
+                    if name != "CODEX_HOME"
+                    else "CODEX_HOME=disposable"
+                )
+                for name in ("HOME", "TMPDIR", "CODEX_HOME")
+            ),
+        ),
+        ("environment_names", ",".join(sorted(environment))),
+        ("provider_sha256", hashlib.sha256(b"slaif-local-coding-e2e-provider").hexdigest()),
+        ("model_sha256", hashlib.sha256(DEFAULT_MODEL.encode()).hexdigest()),
+        ("catalog_sha256", _bounded_hash(fixture.model_catalog, CODEX_MAX_DIAGNOSTIC_BYTES)),
+        ("config_sha256", _bounded_hash(fixture.codex_config, CODEX_MAX_DIAGNOSTIC_BYTES)),
+        ("prompt_sha256", hashlib.sha256(prompt.encode()).hexdigest()),
+        ("prompt_byte_length", str(len(prompt.encode()))),
+        ("requested_executable", "/usr/bin/true"),
+        ("approval_policy", "never"),
+        ("tool_feature_flags", "disable:unified_exec"),
+        ("tool_catalog_sha256", _bounded_hash(fixture.model_catalog, CODEX_MAX_DIAGNOSTIC_BYTES)),
+        ("noninteractive_flags", "exec,json,ephemeral"),
+        ("timeout_seconds", str(timeout_seconds)),
+        ("max_event_bytes", str(CODEX_MAX_EVENT_BYTES)),
+        ("max_diagnostic_bytes", str(CODEX_MAX_DIAGNOSTIC_BYTES)),
+        ("event_parser_version", "ordinary-command-events-v1"),
+        ("normalized_argv_template", "\0".join(normalized)),
+        ("normalized_argv_sha256", hashlib.sha256("\0".join(normalized).encode()).hexdigest()),
+    )
+    return OrdinaryInvocationFacts(values=values, sandbox_mode=sandbox_mode)
+
+
+def ordinary_command_prompt() -> str:
+    return (
+        "Use the ordinary shell command tool exactly once with /usr/bin/true. "
+        "Wait for its result, then return exactly ORDINARY-COMMAND-ACK and nothing else."
+    )
+
+
+def ordinary_dependency_prompt() -> str:
+    return (
+        "Use the ordinary shell command tool exactly once with cat "
+        "GOVERNANCE-DEPENDENCY.md. Wait for its result, then return exactly "
+        "DEPENDENCY-READ-ACK and nothing else."
+    )
+
+
 def run_codex_once(
     codex_bin: Path | str,
     fixture: GovernedFixturePaths,
     prompt: str,
     *,
     timeout_seconds: float = CODEX_TIMEOUT_SECONDS,
+    expected_final_message: str | None = None,
+    sandbox_mode: Literal["workspace-write", "danger-full-access"] = "workspace-write",
+    expected_command: str | None = None,
 ) -> SanitizedCodexRun:
     """Serialize one isolated run; raw stdout/stderr remain in unlinked temp files."""
     started = time.monotonic()
@@ -1150,29 +1363,42 @@ def run_codex_once(
     event_bytes = 0
     sentinel_passed = False
     command_event_counts: Counter[str] = Counter()
+    parser_recognized_events = 0
+    parser_rejected_events = 0
     dependency_observation = DependencyObservationFacts()
     final_event_ack = False
     stdout_facts = BinaryStreamFacts(0, hashlib.sha256(b"").hexdigest(), "unavailable")
     stderr_facts = BinaryStreamFacts(0, hashlib.sha256(b"").hexdigest(), "unavailable")
     event_command_diagnostics = CommandDiagnostics()
     output_path = fixture.repository / ".codex-last-message.tmp"
+    fingerprint = (
+        _ordinary_fingerprint(codex_bin, fixture, prompt, sandbox_mode, timeout_seconds)
+        if expected_command is not None
+        else None
+    )
+    expected_ack = (
+        expected_final_message
+        if expected_final_message is not None
+        else f"SENTINEL-ACK:{fixture.sentinel_token}"
+    )
     try:
         with tempfile.TemporaryFile() as events, tempfile.TemporaryFile() as diagnostics:
             process = subprocess.Popen(
                 [
                     str(codex_bin),
+                    "exec",
+                    "--sandbox",
+                    sandbox_mode,
                     "--ask-for-approval",
                     "never",
-                    "exec",
                     "--json",
+                    "--ephemeral",
                     "--strict-config",
                     # Codex 0.149's unified-exec representation is not reliable
                     # for this constrained local Responses provider. Its stable
                     # command-tool path is explicit and disposable here.
                     "--disable",
                     "unified_exec",
-                    "--sandbox",
-                    "workspace-write",
                     "--cd",
                     str(fixture.repository),
                     "--output-last-message",
@@ -1200,6 +1426,12 @@ def run_codex_once(
             events.seek(0)
             stdout_facts = _binary_stream_facts(events)
             events.seek(0)
+            parser_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
+            parser_recognized_events, parser_rejected_events = parse_event_parser_counts(
+                parser_reader
+            )
+            parser_reader.detach()
+            events.seek(0)
             readable = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             counts, call_items, tools = parse_codex_events(readable)
             readable.detach()
@@ -1214,14 +1446,12 @@ def run_codex_once(
             events.seek(0)
             diagnostic_command_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             event_command_diagnostics = parse_command_diagnostics_events(
-                diagnostic_command_reader, fixture.repository
+                diagnostic_command_reader, fixture.repository, expected_command=expected_command
             )
             diagnostic_command_reader.detach()
             events.seek(0)
             final_event_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
-            final_event_ack = _final_agent_message_has_ack(
-                final_event_reader, f"SENTINEL-ACK:{fixture.sentinel_token}"
-            )
+            final_event_ack = _final_agent_message_has_ack(final_event_reader, expected_ack)
             final_event_reader.detach()
             diagnostics_size = diagnostics.seek(0, os.SEEK_END)
             if diagnostics_size > CODEX_MAX_DIAGNOSTIC_BYTES:
@@ -1242,9 +1472,7 @@ def run_codex_once(
         exit_status = None
     if failure_reason == "success":
         try:
-            output_ack = f"SENTINEL-ACK:{fixture.sentinel_token}" in output_path.read_text(
-                encoding="utf-8", errors="ignore"
-            )
+            output_ack = expected_ack in output_path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             output_ack = False
         # Some sandboxed CLI invocations do not create the output file even when
@@ -1283,6 +1511,27 @@ def run_codex_once(
         stdout=stdout_facts,
         stderr=stderr_facts,
     )
+    failure_origin = "unresolved_with_fixed_evidence"
+    if expected_command is not None:
+        if event_command_diagnostics.actual_command_count:
+            if event_command_diagnostics.actual_command_equal is not True:
+                failure_origin = "model_wrong_command"
+            elif event_command_diagnostics.command_status != "success":
+                failure_origin = "codex_command_execution"
+            elif exit_status != 0 or timed_out:
+                failure_origin = "wrapper_exit_translation"
+            elif sentinel_passed:
+                failure_origin = "success"
+        elif call_items.get("function_call", 0):
+            failure_origin = "tool_unavailable"
+        elif parser_rejected_events and not parser_recognized_events:
+            failure_origin = "event_parser"
+        elif not event_bytes:
+            failure_origin = "codex_startup"
+        elif exit_status == 0:
+            failure_origin = "model_no_shell_call"
+        else:
+            failure_origin = "codex_startup"
     return SanitizedCodexRun(
         exit_status=exit_status,
         timed_out=timed_out,
@@ -1297,9 +1546,56 @@ def run_codex_once(
         command_event_counts=dict(command_event_counts),
         dependency_observation=dependency_observation,
         command_diagnostics=command_diagnostics,
-        sandbox_mode="workspace-write",
+        sandbox_mode=sandbox_mode,
         approval_policy="never",
+        failure_origin=failure_origin,
+        invocation_fingerprint=(fingerprint.values if fingerprint is not None else ()),
+        parser_recognized_events=parser_recognized_events,
+        parser_rejected_events=parser_rejected_events,
     )
+
+
+def run_ordinary_command_once(
+    codex_bin: Path | str,
+    fixture: GovernedFixturePaths,
+    sandbox_mode: Literal["workspace-write", "danger-full-access"],
+    *,
+    timeout_seconds: float = 120.0,
+) -> SanitizedCodexRun:
+    """Run one ordinary command qualification with a fixed prompt and bounds."""
+    return run_codex_once(
+        codex_bin,
+        fixture,
+        ordinary_command_prompt(),
+        timeout_seconds=timeout_seconds,
+        expected_final_message="ORDINARY-COMMAND-ACK",
+        sandbox_mode=sandbox_mode,
+        expected_command="/usr/bin/true",
+    )
+
+
+def ordinary_command_succeeded(run: SanitizedCodexRun) -> bool:
+    diagnostics = run.command_diagnostics
+    return (
+        diagnostics.actual_command_count == 1
+        and diagnostics.actual_command_equal is True
+        and diagnostics.command_status == "success"
+        and diagnostics.command_exit_code == 0
+        and run.exit_status == 0
+        and diagnostics.process_status == "success"
+        and not run.timed_out
+    )
+
+
+def run_ordinary_command_pair(
+    codex_bin: Path | str, fixture: GovernedFixturePaths
+) -> tuple[SanitizedCodexRun, SanitizedCodexRun | None, bool | None]:
+    """Run B, then A only after B's exact command/process success."""
+    danger = run_ordinary_command_once(codex_bin, fixture, "danger-full-access")
+    if not ordinary_command_succeeded(danger):
+        return danger, None, None
+    workspace = run_ordinary_command_once(codex_bin, fixture, "workspace-write")
+    return danger, workspace, danger.invocation_fingerprint == workspace.invocation_fingerprint
 
 
 def governed_prompt(*, read_form: DependencyReadForm = "relative_cat") -> str:

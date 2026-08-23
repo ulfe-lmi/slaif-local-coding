@@ -40,8 +40,10 @@ from tests.helpers.e2e_support import (
     parse_codex_events,
     parse_command_diagnostics_events,
     parse_dependency_observation_events,
+    parse_event_parser_counts,
     read_persistent_cache_inventory,
     run_codex_once,
+    run_ordinary_command_pair,
     write_governed_fixture,
 )
 from tests.helpers.sandbox_runtime import (
@@ -104,6 +106,46 @@ def _differential_probe(
         ),
         policy_resolution="resolved",
     )
+
+
+def _fake_ordinary_codex(path: Path, *, fail_danger: bool = False) -> Path:
+    failure = (
+        "\nif mode == 'danger-full-access':\n"
+        "    sys.stderr.write('startup failure\\n')\n"
+        "    raise SystemExit(1)\n"
+        if fail_danger
+        else ""
+    )
+    started = (
+        " {'type':'item.started','item':{"
+        "'id':'cmd','type':'command_execution','command':command}},\n"
+    )
+    completed = (
+        " {'type':'item.completed','item':{"
+        "'id':'cmd','type':'command_execution','command':command,"
+        "'status':'completed','exit_code':0}},\n"
+    )
+    message = (
+        " {'type':'item.completed','item':{"
+        "'type':'agent_message','text':'ORDINARY-COMMAND-ACK'}},\n"
+    )
+    path.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\nimport sys\n"
+        "if '--version' in sys.argv:\n    print('codex-cli 0.149.0')\n    raise SystemExit(0)\n"
+        "mode = sys.argv[sys.argv.index('--sandbox') + 1]\n"
+        + failure
+        + "command = '/usr/bin/true'\n"
+        + "events = [\n"
+        + started
+        + completed
+        + message
+        + "]\n"
+        + "for event in events: print(json.dumps(event))\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o700)
+    return path
 
 
 def test_fixture_is_isolated_private_and_governed() -> None:
@@ -334,6 +376,54 @@ def test_final_agent_ack_is_checked_without_retaining_text() -> None:
 
     assert _final_agent_message_has_ack(io.StringIO(canned), "SENTINEL-ACK:secret")
     assert not _final_agent_message_has_ack(io.StringIO(canned), "SENTINEL-ACK:other")
+
+
+def test_ordinary_command_parser_records_exactness_origin_and_rejections(
+    tmp_path: Path,
+) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    canned = "\n".join(
+        [
+            '{"type":"item.started","item":{"id":"cmd","type":"command_execution",'
+            '"command":"/usr/bin/false"}}',
+            '{"type":"item.completed","item":{"id":"cmd","type":"command_execution",'
+            '"command":"/usr/bin/false","status":"completed","exit_code":1}}',
+        ]
+    )
+    facts = parse_command_diagnostics_events(
+        io.StringIO(canned), fixture.repository, expected_command="/usr/bin/true"
+    )
+    assert facts.actual_command_count == 1
+    assert facts.actual_command_equal is False
+    assert facts.command_status == "failed"
+    assert facts.actual_command_sha256 == hashlib.sha256(b"/usr/bin/false").hexdigest()
+    assert parse_event_parser_counts(io.StringIO(canned + "\n{invalid")) == (2, 1)
+    assert "/usr/bin/false" not in str(asdict(facts))
+
+
+def test_ordinary_pair_fingerprint_matches_except_sandbox_and_gates_a(
+    tmp_path: Path,
+) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    codex = _fake_ordinary_codex(tmp_path / "codex")
+    danger, workspace, equivalent = run_ordinary_command_pair(codex, fixture)
+    assert workspace is not None
+    assert equivalent is True
+    assert danger.sandbox_mode == "danger-full-access"
+    assert workspace.sandbox_mode == "workspace-write"
+    assert danger.invocation_fingerprint == workspace.invocation_fingerprint
+    assert danger.command_diagnostics.actual_command_equal is True
+    assert danger.failure_origin == "success"
+
+
+def test_ordinary_pair_stops_before_workspace_on_control_failure(tmp_path: Path) -> None:
+    fixture = write_governed_fixture(tmp_path, base_url="", api_key_env="UNUSED")
+    codex = _fake_ordinary_codex(tmp_path / "codex", fail_danger=True)
+    danger, workspace, equivalent = run_ordinary_command_pair(codex, fixture)
+    assert danger.exit_status == 1
+    assert danger.failure_origin == "codex_startup"
+    assert workspace is None
+    assert equivalent is None
 
 
 def test_governed_runner_rejects_invalid_budget(tmp_path: Path) -> None:
