@@ -102,6 +102,14 @@ SandboxLocalization = Literal[
     "host_sandbox_runtime_failure",
     "unresolved_with_fixed_evidence",
 ]
+SandboxRuntimeOutcome = Literal[
+    "codex_helper_path_spelling_defect",
+    "codex_sandbox_installation_layout_defect",
+    "bubblewrap_kernel_runtime_unsupported",
+    "codex_helper_unresolved_external_failure",
+    "workspace_sandbox_available",
+]
+SandboxRuntimePathKind = Literal["relative", "resolved_absolute", "original_absolute"]
 
 
 @dataclass(frozen=True)
@@ -291,6 +299,89 @@ class SandboxDifferentialFacts:
             probe.successful and probe.command == "cat" and probe.root_class == "system_tmp"
             for probe in self.system_temp_probes
         )
+
+
+@dataclass(frozen=True)
+class InstalledPathFacts:
+    """Allowlisted facts for one installed executable candidate."""
+
+    label: str
+    exists: bool
+    regular_file: bool
+    executable: bool
+    symlink: bool
+    resolved_basename_class: SandboxResolvedBasenameClass
+    sha256: str | None = None
+    version: str | None = None
+
+
+@dataclass(frozen=True)
+class InstalledDirectoryFacts:
+    """Sanitized facts for the resolved Codex binary directory."""
+
+    exists: bool
+    directory: bool
+    symlink: bool
+    resolved_basename_class: SandboxResolvedBasenameClass
+    companion_presence: tuple[tuple[str, bool], ...]
+
+
+@dataclass(frozen=True)
+class SandboxInstallationLayoutFacts:
+    """Fixed, hashed installation-layout facts without retaining paths."""
+
+    codex_launcher: InstalledPathFacts
+    codex_binary_directory: InstalledDirectoryFacts
+    bubblewrap: InstalledPathFacts
+    true_bin: InstalledPathFacts
+    true_usr_bin: InstalledPathFacts
+    cat_bin: InstalledPathFacts
+    cat_usr_bin: InstalledPathFacts
+    true_bin_usr_same_file: bool | None
+    cat_bin_usr_same_file: bool | None
+
+
+@dataclass(frozen=True)
+class BubblewrapProbeFacts:
+    """Sanitized result of the fixed direct bubblewrap viability probe."""
+
+    executable: InstalledPathFacts
+    process_exit_status: int | None
+    process_status: Literal["success", "failed", "unknown"]
+    timed_out: bool
+    stdout: BinaryStreamFacts
+    stderr: BinaryStreamFacts
+
+    @property
+    def successful(self) -> bool:
+        return (
+            self.executable.exists
+            and self.executable.regular_file
+            and self.executable.executable
+            and self.process_exit_status == 0
+            and self.process_status == "success"
+            and not self.timed_out
+        )
+
+
+@dataclass(frozen=True)
+class SandboxRuntimeBoundaryFacts:
+    """Final bounded helper/runtime split and optional governed proof."""
+
+    layout: SandboxInstallationLayoutFacts
+    corrected_true_probe: SandboxProbeFacts | None
+    corrected_cat_probe: SandboxProbeFacts | None
+    bubblewrap_probe: BubblewrapProbeFacts | None
+    corrected_true_path_kind: SandboxRuntimePathKind
+    helper_calls: int
+    classification: SandboxRuntimeOutcome
+    fixture_dependency_sha256: str
+    fixture_dependency_byte_length: int
+    governed_attempts: tuple[CommandDiagnosticAttempt, ...]
+
+    @property
+    def governed_gate_allowed(self) -> bool:
+        return bool(self.corrected_cat_probe is not None and self.corrected_cat_probe.successful)
 
 
 @dataclass(frozen=True)
@@ -1024,15 +1115,183 @@ def _sanitized_executable_facts(command: SandboxProbeCommand) -> SanitizedExecut
         )
 
 
+def _bounded_path_sha256(path: Path) -> str | None:
+    """Hash one fixed installed file only when its size is within the bound."""
+
+    try:
+        path_stat = path.stat()
+        if (
+            not stat.S_ISREG(path_stat.st_mode)
+            or path_stat.st_size > SANDBOX_PREFLIGHT_MAX_OUTPUT_BYTES
+        ):
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(65_536), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def _installed_path_facts(
+    label: str, path: Path, expected_basename: str, *, version: str | None = None
+) -> InstalledPathFacts:
+    """Inspect a fixed candidate without exposing its path."""
+
+    try:
+        link_stat = path.lstat()
+        target_stat = path.stat()
+        resolved = path.resolve(strict=True)
+        return InstalledPathFacts(
+            label=label,
+            exists=True,
+            regular_file=stat.S_ISREG(target_stat.st_mode),
+            executable=bool(target_stat.st_mode & 0o111),
+            symlink=stat.S_ISLNK(link_stat.st_mode),
+            resolved_basename_class=("expected" if resolved.name == expected_basename else "other"),
+            sha256=_bounded_path_sha256(path),
+            version=version,
+        )
+    except OSError:
+        return InstalledPathFacts(
+            label=label,
+            exists=False,
+            regular_file=False,
+            executable=False,
+            symlink=False,
+            resolved_basename_class="unavailable",
+            version=version,
+        )
+
+
+def _installed_directory_facts(path: Path) -> InstalledDirectoryFacts:
+    """Inspect only fixed companion-name candidates in one resolved directory."""
+
+    companion_candidates = (
+        ("native_linux_x86_64", "codex-x86_64-unknown-linux-gnu"),
+        ("native_linux_x86_64_gnu", "codex-linux-x86_64"),
+        ("native_linux_x86_64_musl", "codex-x86_64-unknown-linux-musl"),
+    )
+    try:
+        link_stat = path.lstat()
+        target = path.resolve(strict=True)
+        directory = path.is_dir()
+        presence = tuple(
+            (label, (target / candidate).exists()) for label, candidate in companion_candidates
+        )
+        return InstalledDirectoryFacts(
+            exists=True,
+            directory=directory,
+            symlink=stat.S_ISLNK(link_stat.st_mode),
+            resolved_basename_class=("expected" if "codex" in target.name else "other"),
+            companion_presence=presence,
+        )
+    except OSError:
+        return InstalledDirectoryFacts(
+            exists=False,
+            directory=False,
+            symlink=False,
+            resolved_basename_class="unavailable",
+            companion_presence=tuple((label, False) for label, _ in companion_candidates),
+        )
+
+
+def _resolve_installed_command(command: str, supplied: Path | str | None = None) -> Path | None:
+    """Resolve a launcher by name or accept an existing absolute path."""
+
+    candidate = Path(supplied) if supplied is not None else Path(command)
+    if candidate.is_absolute() and candidate.exists():
+        return candidate
+    resolved = shutil.which(str(candidate) if supplied is not None else command)
+    return Path(resolved) if resolved is not None else None
+
+
+def inspect_sandbox_installation_layout(
+    codex_bin: Path | str | None = None,
+) -> SandboxInstallationLayoutFacts:
+    """Collect fixed executable/layout facts with no directory listing."""
+
+    codex_path = _resolve_installed_command("codex", codex_bin)
+    codex_facts = _installed_path_facts(
+        "codex_launcher", codex_path or Path("/nonexistent"), "codex"
+    )
+    if codex_path is None:
+        directory_facts = _installed_directory_facts(Path("/nonexistent"))
+        version = None
+    else:
+        try:
+            resolved_codex = codex_path.resolve(strict=True)
+            directory_facts = _installed_directory_facts(resolved_codex.parent)
+        except OSError:
+            directory_facts = _installed_directory_facts(Path("/nonexistent"))
+        version = _sanitized_codex_version(
+            codex_path,
+            {
+                name: os.environ[name]
+                for name in ("PATH", "LANG", "LC_ALL", "TERM")
+                if name in os.environ
+            },
+        )
+    codex_facts = dataclasses.replace(codex_facts, version=version)
+    bwrap_path = _resolve_installed_command("bwrap")
+    return SandboxInstallationLayoutFacts(
+        codex_launcher=codex_facts,
+        codex_binary_directory=directory_facts,
+        bubblewrap=_installed_path_facts("bubblewrap", bwrap_path or Path("/nonexistent"), "bwrap"),
+        true_bin=_installed_path_facts("true_bin", Path("/bin/true"), "true"),
+        true_usr_bin=_installed_path_facts("true_usr_bin", Path("/usr/bin/true"), "true"),
+        cat_bin=_installed_path_facts("cat_bin", Path("/bin/cat"), "cat"),
+        cat_usr_bin=_installed_path_facts("cat_usr_bin", Path("/usr/bin/cat"), "cat"),
+        true_bin_usr_same_file=_same_file_or_none(Path("/bin/true"), Path("/usr/bin/true")),
+        cat_bin_usr_same_file=_same_file_or_none(Path("/bin/cat"), Path("/usr/bin/cat")),
+    )
+
+
+def _same_file_or_none(first: Path, second: Path) -> bool | None:
+    try:
+        return os.path.samefile(first, second)
+    except OSError:
+        return None
+
+
+def _corrected_sandbox_executable(
+    command: SandboxProbeCommand,
+) -> tuple[str, SandboxRuntimePathKind]:
+    """Select the real fixed candidate, or the relative spelling if unchanged."""
+
+    candidate = Path("/bin") / command
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return command, "relative"
+    if resolved != candidate:
+        return str(resolved), "resolved_absolute"
+    return command, "relative"
+
+
 def _build_sandbox_probe_argv(
     codex_bin: Path | str,
     repository: Path,
     command: SandboxProbeCommand,
     target: Path | None = None,
+    *,
+    executable_path: str | None = None,
 ) -> tuple[str, ...]:
     """Build one direct, non-shell helper invocation."""
 
     repository_resolved = repository.resolve(strict=False)
+    helper_path = f"/bin/{command}" if executable_path is None else executable_path
+    if helper_path != command:
+        allowed_resolutions = {
+            (Path("/bin") / command).resolve(strict=False),
+            (Path("/usr/bin") / command).resolve(strict=False),
+        }
+        try:
+            if Path(helper_path).resolve(strict=False) not in allowed_resolutions:
+                raise ValueError("sandbox probe executable must be a fixed system candidate")
+        except OSError as exc:
+            raise ValueError("sandbox probe executable must be a fixed system candidate") from exc
     argv = (
         str(codex_bin),
         "sandbox",
@@ -1041,7 +1300,7 @@ def _build_sandbox_probe_argv(
         "--cd",
         str(repository_resolved),
         "--",
-        f"/bin/{command}",
+        helper_path,
     )
     if command == "cat":
         if target is None:
@@ -1112,6 +1371,8 @@ def _run_sandbox_probe(
     fixture: GovernedFixturePaths,
     command: SandboxProbeCommand,
     product_checkout: Path,
+    *,
+    executable_path: str | None = None,
 ) -> SandboxProbeFacts:
     """Run one bounded helper call and discard all raw process streams."""
 
@@ -1141,7 +1402,13 @@ def _run_sandbox_probe(
     timed_out = False
     environment = _sandbox_environment(fixture.codex_home)
     try:
-        command_argv = _build_sandbox_probe_argv(codex_bin, repository, command, target)
+        command_argv = _build_sandbox_probe_argv(
+            codex_bin,
+            repository,
+            command,
+            target,
+            executable_path=executable_path,
+        )
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             process = subprocess.Popen(
                 command_argv,
@@ -1227,6 +1494,241 @@ def _run_sandbox_probe(
         stdout=stdout_facts,
         stderr=stderr_facts,
         policy_resolution=policy_resolution,
+    )
+
+
+def _run_direct_bubblewrap_probe() -> BubblewrapProbeFacts:
+    """Run one fixed read-only bubblewrap/kernel viability probe."""
+
+    bwrap_path = _resolve_installed_command("bwrap")
+    executable = _installed_path_facts("bubblewrap", bwrap_path or Path("/nonexistent"), "bwrap")
+    empty_hash = hashlib.sha256(b"").hexdigest()
+    empty_stream = BinaryStreamFacts(0, empty_hash, "unavailable")
+    if bwrap_path is None:
+        return BubblewrapProbeFacts(
+            executable=executable,
+            process_exit_status=None,
+            process_status="unknown",
+            timed_out=False,
+            stdout=empty_stream,
+            stderr=empty_stream,
+        )
+
+    process_exit_status: int | None = None
+    process_status: Literal["success", "failed", "unknown"] = "unknown"
+    timed_out = False
+    stdout_facts = empty_stream
+    stderr_facts = empty_stream
+    with tempfile.TemporaryDirectory(prefix="slaif-codex-bwrap-") as boundary_text:
+        boundary = Path(boundary_text)
+        command = (
+            str(bwrap_path),
+            "--die-with-parent",
+            "--unshare-all",
+            "--ro-bind",
+            "/",
+            "/",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--tmpfs",
+            "/tmp",
+            "--chdir",
+            "/",
+            "--",
+            "/usr/bin/true",
+        )
+        environment = {
+            name: os.environ[name]
+            for name in ("PATH", "LANG", "LC_ALL", "TERM")
+            if name in os.environ
+        }
+        try:
+            with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+                process = subprocess.Popen(
+                    command,
+                    cwd=boundary,
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=stdout,
+                    stderr=stderr,
+                )
+                try:
+                    process_exit_status = process.wait(timeout=SANDBOX_PREFLIGHT_TIMEOUT_SECONDS)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                    timed_out = True
+                process_status = (
+                    "success"
+                    if process_exit_status == 0 and not timed_out
+                    else ("failed" if process_exit_status is not None or timed_out else "unknown")
+                )
+                for stream_name, stream in (("stdout", stdout), ("stderr", stderr)):
+                    stream_length = stream.seek(0, os.SEEK_END)
+                    if stream_length > SANDBOX_PREFLIGHT_MAX_OUTPUT_BYTES:
+                        raise OverflowError("bubblewrap probe output exceeded bound")
+                    stream.seek(0)
+                    facts = _binary_stream_facts(stream)
+                    if stream_name == "stdout":
+                        stdout_facts = facts
+                    else:
+                        stderr_facts = facts
+        except (OSError, subprocess.SubprocessError, OverflowError):
+            process_exit_status = None
+            process_status = "unknown"
+
+    return BubblewrapProbeFacts(
+        executable=executable,
+        process_exit_status=process_exit_status,
+        process_status=process_status,
+        timed_out=timed_out,
+        stdout=stdout_facts,
+        stderr=stderr_facts,
+    )
+
+
+def _bubblewrap_runtime_failure(probe: BubblewrapProbeFacts | None) -> bool:
+    return probe is not None and (
+        probe.stderr.first_line_class in {"sandbox_denied", "permission_denied"}
+        or probe.stderr.first_line_subclass
+        in {"bwrap_loopback_bootstrap", "bwrap_bootstrap_denied"}
+    )
+
+
+def classify_sandbox_runtime_boundary(
+    layout: SandboxInstallationLayoutFacts,
+    corrected_true_probe: SandboxProbeFacts | None,
+    corrected_cat_probe: SandboxProbeFacts | None,
+    bubblewrap_probe: BubblewrapProbeFacts | None,
+    *,
+    corrected_true_path: bool,
+) -> SandboxRuntimeOutcome:
+    """Apply the final fixed helper/layout/runtime decision table."""
+
+    if corrected_true_probe is None:
+        return "codex_helper_unresolved_external_failure"
+    if corrected_true_probe.successful:
+        if corrected_cat_probe is None:
+            return "codex_helper_unresolved_external_failure"
+        if corrected_cat_probe.successful:
+            return (
+                "codex_helper_path_spelling_defect"
+                if corrected_true_path
+                else "workspace_sandbox_available"
+            )
+        if corrected_cat_probe.target_regular_file is False or corrected_cat_probe.target_symlink:
+            return "codex_helper_unresolved_external_failure"
+        if bubblewrap_probe is None:
+            return "codex_helper_unresolved_external_failure"
+        if _bubblewrap_runtime_failure(bubblewrap_probe):
+            return "bubblewrap_kernel_runtime_unsupported"
+        if bubblewrap_probe.successful:
+            return "codex_sandbox_installation_layout_defect"
+        if not bubblewrap_probe.executable.exists:
+            return "codex_sandbox_installation_layout_defect"
+        return "codex_helper_unresolved_external_failure"
+
+    if not corrected_true_probe.executable.exists:
+        return "codex_sandbox_installation_layout_defect"
+    if bubblewrap_probe is None:
+        return "codex_helper_unresolved_external_failure"
+    if _bubblewrap_runtime_failure(bubblewrap_probe):
+        return "bubblewrap_kernel_runtime_unsupported"
+    if bubblewrap_probe.successful:
+        return "codex_helper_unresolved_external_failure"
+    if not bubblewrap_probe.executable.exists:
+        return "codex_sandbox_installation_layout_defect"
+    return "codex_helper_unresolved_external_failure"
+
+
+def run_sandbox_runtime_boundary_diagnostic(
+    codex_bin: Path | str,
+    *,
+    product_checkout: Path | None = None,
+    base_url: str = DEFAULT_ADAPTER_BASE_URL,
+    api_key_env: str = DEFAULT_API_KEY_ENV,
+) -> SandboxRuntimeBoundaryFacts:
+    """Run the final three-probe boundary split and gate governed calls."""
+
+    layout = inspect_sandbox_installation_layout(codex_bin)
+    checkout = (product_checkout or Path.cwd()).resolve(strict=False)
+    corrected_true, true_path_kind = _corrected_sandbox_executable("true")
+    corrected_cat, _ = _corrected_sandbox_executable("cat")
+    true_probe: SandboxProbeFacts | None = None
+    cat_probe: SandboxProbeFacts | None = None
+    bubblewrap_probe: BubblewrapProbeFacts | None = None
+    helper_calls = 0
+    governed_attempts: list[CommandDiagnosticAttempt] = []
+    fixture_hash = "0" * 64
+    fixture_length = 0
+
+    with tempfile.TemporaryDirectory(prefix="slaif-codex-sandbox-final-") as root_text:
+        fixture = write_governed_fixture(Path(root_text), base_url, api_key_env)
+        dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
+        fixture_hash = hashlib.sha256(dependency).hexdigest()
+        fixture_length = len(dependency)
+        true_probe = _run_sandbox_probe(
+            codex_bin,
+            fixture,
+            "true",
+            checkout,
+            executable_path=corrected_true,
+        )
+        helper_calls += 1
+        if true_probe.successful:
+            cat_probe = _run_sandbox_probe(
+                codex_bin,
+                fixture,
+                "cat",
+                checkout,
+                executable_path=corrected_cat,
+            )
+            helper_calls += 1
+            if cat_probe.successful:
+                try:
+                    write_local_model_catalog(codex_bin, fixture.model_catalog)
+                except (OSError, RuntimeError, subprocess.SubprocessError, json.JSONDecodeError):
+                    pass
+                else:
+                    for read_form in ("relative_cat", "absolute_bin_cat"):
+                        direct_read = verify_direct_dependency_read(fixture)
+                        run = run_codex_once(
+                            codex_bin, fixture, governed_prompt(read_form=read_form)
+                        )
+                        governed_attempts.append(
+                            CommandDiagnosticAttempt(
+                                read_form=read_form, direct_read=direct_read, run=run
+                            )
+                        )
+                        if run.failure_reason == "success":
+                            break
+            else:
+                bubblewrap_probe = _run_direct_bubblewrap_probe()
+                helper_calls += 1
+        else:
+            bubblewrap_probe = _run_direct_bubblewrap_probe()
+            helper_calls += 1
+
+    classification = classify_sandbox_runtime_boundary(
+        layout,
+        true_probe,
+        cat_probe,
+        bubblewrap_probe,
+        corrected_true_path=true_path_kind != "original_absolute",
+    )
+    return SandboxRuntimeBoundaryFacts(
+        layout=layout,
+        corrected_true_probe=true_probe,
+        corrected_cat_probe=cat_probe,
+        bubblewrap_probe=bubblewrap_probe,
+        corrected_true_path_kind=true_path_kind,
+        helper_calls=helper_calls,
+        classification=classification,
+        fixture_dependency_sha256=fixture_hash,
+        fixture_dependency_byte_length=fixture_length,
+        governed_attempts=tuple(governed_attempts),
     )
 
 

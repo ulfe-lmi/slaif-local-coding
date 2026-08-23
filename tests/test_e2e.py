@@ -19,19 +19,24 @@ import pytest
 
 from slaif_local_coding.e2e import (
     BinaryStreamFacts,
+    BubblewrapProbeFacts,
     CacheInventory,
     CacheInventoryEntry,
     CommandDiagnostics,
     DependencyObservationFacts,
     GovernedFixturePaths,
+    InstalledDirectoryFacts,
+    InstalledPathFacts,
     MetricDelta,
     SandboxDifferentialFacts,
+    SandboxInstallationLayoutFacts,
     SandboxLocalization,
     SandboxPreflightFacts,
     SandboxProbeFacts,
     SanitizedCodexRun,
     SanitizedExecutableFacts,
     _binary_stream_facts,
+    _build_sandbox_probe_argv,
     _classify_dependency_cache_outcome,
     _classify_diagnostic_text,
     _classify_sandbox_diagnostic_subclass,
@@ -42,6 +47,7 @@ from slaif_local_coding.e2e import (
     build_sandbox_preflight_argv,
     classify_sandbox_boundary,
     classify_sandbox_differential,
+    classify_sandbox_runtime_boundary,
     constitution_metric_snapshot,
     governed_prompt,
     metric_value,
@@ -55,6 +61,7 @@ from slaif_local_coding.e2e import (
     run_localized_command_failure_diagnostic,
     run_sandbox_differential_matrix,
     run_sandbox_preflight,
+    run_sandbox_runtime_boundary_diagnostic,
     verify_direct_dependency_read,
     write_governed_fixture,
 )
@@ -863,6 +870,232 @@ def test_sandbox_differential_matrix_stops_and_cleans_private_scratch(
     assert facts.repo_scratch_probe is not None
     assert facts.classification == "workspace_sandbox_available_repo_scratch"
     assert not any(path.exists() for _, path in calls if tmp_path in path.parents)
+
+
+def _runtime_layout() -> SandboxInstallationLayoutFacts:
+    executable = InstalledPathFacts(
+        label="fixed",
+        exists=True,
+        regular_file=True,
+        executable=True,
+        symlink=False,
+        resolved_basename_class="expected",
+    )
+    directory = InstalledDirectoryFacts(
+        exists=True,
+        directory=True,
+        symlink=False,
+        resolved_basename_class="expected",
+        companion_presence=(),
+    )
+    return SandboxInstallationLayoutFacts(
+        codex_launcher=executable,
+        codex_binary_directory=directory,
+        bubblewrap=executable,
+        true_bin=executable,
+        true_usr_bin=executable,
+        cat_bin=executable,
+        cat_usr_bin=executable,
+        true_bin_usr_same_file=True,
+        cat_bin_usr_same_file=True,
+    )
+
+
+def _runtime_bubblewrap(
+    *, success: bool, failure_class: Literal["not_found", "sandbox_denied"] = "not_found"
+) -> BubblewrapProbeFacts:
+    empty_hash = hashlib.sha256(b"").hexdigest()
+    executable = InstalledPathFacts(
+        label="bubblewrap",
+        exists=True,
+        regular_file=True,
+        executable=True,
+        symlink=False,
+        resolved_basename_class="expected",
+    )
+    return BubblewrapProbeFacts(
+        executable=executable,
+        process_exit_status=0 if success else 1,
+        process_status="success" if success else "failed",
+        timed_out=False,
+        stdout=BinaryStreamFacts(0, empty_hash, "unavailable"),
+        stderr=BinaryStreamFacts(
+            0 if success else 1,
+            empty_hash,
+            "unavailable" if success else failure_class,
+            "empty" if success else "bwrap_bootstrap_denied",
+        ),
+    )
+
+
+def test_sandbox_runtime_decision_table_and_ambiguity_are_fixed() -> None:
+    layout = _runtime_layout()
+    successful_true = _differential_probe("true", success=True)
+    successful_cat = _differential_probe("cat", success=True)
+    failed_true = _differential_probe("true", success=False, failure_class="not_found")
+    failed_cat = _differential_probe("cat", success=False, failure_class="not_found")
+
+    assert (
+        classify_sandbox_runtime_boundary(
+            layout, successful_true, successful_cat, None, corrected_true_path=True
+        )
+        == "codex_helper_path_spelling_defect"
+    )
+    assert (
+        classify_sandbox_runtime_boundary(
+            layout, successful_true, successful_cat, None, corrected_true_path=False
+        )
+        == "workspace_sandbox_available"
+    )
+    assert (
+        classify_sandbox_runtime_boundary(
+            layout,
+            successful_true,
+            failed_cat,
+            _runtime_bubblewrap(success=True),
+            corrected_true_path=True,
+        )
+        == "codex_sandbox_installation_layout_defect"
+    )
+    assert (
+        classify_sandbox_runtime_boundary(
+            layout,
+            failed_true,
+            None,
+            _runtime_bubblewrap(success=False, failure_class="sandbox_denied"),
+            corrected_true_path=True,
+        )
+        == "bubblewrap_kernel_runtime_unsupported"
+    )
+    assert (
+        classify_sandbox_runtime_boundary(
+            layout, failed_true, None, _runtime_bubblewrap(success=True), corrected_true_path=True
+        )
+        == "codex_helper_unresolved_external_failure"
+    )
+    assert (
+        classify_sandbox_runtime_boundary(
+            layout, successful_true, failed_cat, None, corrected_true_path=True
+        )
+        == "codex_helper_unresolved_external_failure"
+    )
+
+
+def test_sandbox_runtime_probe_argv_allows_only_fixed_executable_spellings(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "repo"
+    repository.mkdir()
+    assert (
+        _build_sandbox_probe_argv("codex", repository, "true", executable_path="true")[-1] == "true"
+    )
+    assert _build_sandbox_probe_argv(
+        "codex", repository, "cat", repository / "dependency", executable_path="cat"
+    )[-2:] == ("cat", "dependency")
+    with pytest.raises(ValueError):
+        _build_sandbox_probe_argv("codex", repository, "true", executable_path="unsupported")
+    with pytest.raises(ValueError):
+        _build_sandbox_probe_argv("codex", repository, "true", executable_path="true;id")
+
+
+def test_sandbox_runtime_failure_gates_models_and_stops_at_two_probes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    layout = _runtime_layout()
+    failed_true = _differential_probe("true", success=False, failure_class="not_found")
+    monkeypatch.setattr(e2e_module, "inspect_sandbox_installation_layout", lambda *_: layout)
+    monkeypatch.setattr(e2e_module, "_run_sandbox_probe", lambda *_args, **_kwargs: failed_true)
+    monkeypatch.setattr(
+        e2e_module,
+        "_run_direct_bubblewrap_probe",
+        lambda: _runtime_bubblewrap(success=False, failure_class="sandbox_denied"),
+    )
+    monkeypatch.setattr(
+        e2e_module,
+        "write_local_model_catalog",
+        lambda *_args, **_kwargs: pytest.fail("catalog must remain gated"),
+    )
+    monkeypatch.setattr(
+        e2e_module,
+        "run_codex_once",
+        lambda *_args, **_kwargs: pytest.fail("model must remain gated"),
+    )
+
+    facts = run_sandbox_runtime_boundary_diagnostic(
+        "unused", product_checkout=tmp_path, base_url="", api_key_env="UNUSED"
+    )
+
+    assert facts.helper_calls == 2
+    assert facts.classification == "bubblewrap_kernel_runtime_unsupported"
+    assert facts.governed_attempts == ()
+    assert facts.governed_gate_allowed is False
+
+
+def test_sandbox_runtime_success_allows_at_most_two_governed_calls(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import slaif_local_coding.e2e as e2e_module
+
+    fixture_holder: list[GovernedFixturePaths] = []
+    successful_true = _differential_probe("true", success=True)
+    successful_cat = _differential_probe("cat", success=True)
+    layout = _runtime_layout()
+    model_calls = 0
+
+    def fake_probe(*args: object, **_kwargs: object) -> SandboxProbeFacts:
+        command = args[2]
+        return successful_true if command == "true" else successful_cat
+
+    def fake_fixture(root: Path, base_url: str, api_key_env: str) -> GovernedFixturePaths:
+        fixture = write_governed_fixture(root, base_url, api_key_env)
+        fixture_holder.append(fixture)
+        return fixture
+
+    def fake_run(
+        _codex_bin: object, fixture: GovernedFixturePaths, _prompt: str
+    ) -> SanitizedCodexRun:
+        nonlocal model_calls
+        model_calls += 1
+        dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_bytes()
+        digest = hashlib.sha256(dependency).hexdigest()
+        return SanitizedCodexRun(
+            exit_status=0,
+            timed_out=False,
+            duration_seconds=0,
+            event_bytes=1,
+            event_type_counts={},
+            call_item_type_counts={},
+            tool_names=(),
+            tool_calls=0,
+            sentinel_passed=False,
+            failure_reason="command_failed",
+            dependency_observation=DependencyObservationFacts(
+                intended_dependency_reads=1,
+                started_commands=1,
+                completed_commands=1,
+                successful_dependency_reads=1,
+                output_sha256=digest,
+                output_byte_length=len(dependency),
+                rstrip_output_sha256=hashlib.sha256(dependency.rstrip()).hexdigest(),
+            ),
+        )
+
+    monkeypatch.setattr(e2e_module, "inspect_sandbox_installation_layout", lambda *_: layout)
+    monkeypatch.setattr(e2e_module, "write_governed_fixture", fake_fixture)
+    monkeypatch.setattr(e2e_module, "_run_sandbox_probe", fake_probe)
+    monkeypatch.setattr(e2e_module, "write_local_model_catalog", lambda *_args: None)
+    monkeypatch.setattr(e2e_module, "run_codex_once", fake_run)
+
+    facts = run_sandbox_runtime_boundary_diagnostic(
+        "unused", product_checkout=tmp_path, base_url="", api_key_env="UNUSED"
+    )
+
+    assert facts.helper_calls == 2
+    assert facts.classification == "codex_helper_path_spelling_defect"
+    assert len(facts.governed_attempts) == 2
+    assert model_calls == 2
 
 
 def test_localized_diagnostic_gates_models_on_exact_helper_bytes(

@@ -298,6 +298,21 @@ dependency reads, repo-scratch probing, and governed model calls were therefore
 not run. This is a bounded host/CLI portability result, not a host-kernel
 repair or a claim about other sandbox runtimes.
 
+The 004-j final boundary probe records only fixed executable/layout booleans,
+bounded hashes, Codex version, same-file results for the fixed `bin`/`usr-bin`
+candidate pairs, and fixed companion-presence labels. It makes at most three
+direct no-model probes: corrected `true`, corrected dependency `cat` only after
+`true` succeeds, and a direct bubblewrap probe only when the helper boundary
+remains unresolved. The bubblewrap command uses a read-only root view, isolated
+namespaces, no writable host bind, no shell, and no network or model access.
+On the verified host, the corrected absolute helper spelling still returned
+`not_found`/`not_found`; the direct probe returned `sandbox_denied` with the
+fixed `bwrap_loopback_bootstrap` subclass. The deterministic 004-j outcome is
+`bubblewrap_kernel_runtime_unsupported`, with two probe calls, zero governed
+model calls, and no host/package/profile/configuration mutation. This is an
+external runtime boundary classification, not a product-code or installation
+repair and not a portable claim about other kernels or hosts.
+
 ## Candidate quickstart
 
 Python 3.12 and `uv` are required. The example intentionally obtains the
