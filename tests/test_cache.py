@@ -104,6 +104,13 @@ def test_atomic_private_write_payload_integrity_and_hit(tmp_path: Path) -> None:
     assert "prompt" not in envelope and SECRET_MARKER not in path.read_text()
 
 
+def test_invalid_cache_key_cannot_escape_shard_layout(tmp_path: Path) -> None:
+    cache = DerivedIndexCache(policy(tmp_path / "key-boundary"))
+    result = cache.put("../outside", index())
+    assert result.outcome == "invalid"
+    assert not (tmp_path / "outside").exists()
+
+
 def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Path) -> None:
     base = key_for(index())
     changes: list[tuple[str, Any]] = [

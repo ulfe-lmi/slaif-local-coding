@@ -70,6 +70,8 @@ async def test_health_models_auth_and_header_filter(settings: Settings) -> None:
         assert "upgrade" not in request.headers
         assert "x-remove-me" not in request.headers
         assert "x-slaif-principal" not in request.headers
+        assert "cookie" not in request.headers
+        assert "x-internal-secret" not in request.headers
         assert request.url.query == b"cursor=opaque%2Bvalue"
         return httpx.Response(
             200,
@@ -93,6 +95,8 @@ async def test_health_models_auth_and_header_filter(settings: Settings) -> None:
             "x-remove-me": "private",
             "upgrade": "attacker-protocol",
             "x-slaif-principal": "spoof",
+            "cookie": "private-cookie",
+            "x-internal-secret": "private-internal-header",
         },
     )
     assert response.status_code == 200 and response.json()["data"][0]["id"] == "qwen"
@@ -101,15 +105,12 @@ async def test_health_models_auth_and_header_filter(settings: Settings) -> None:
 
 
 @pytest.mark.asyncio
-async def test_nonstream_tool_usage_and_error_fidelity(settings: Settings) -> None:
-    expected = {
-        "choices": [{"message": {"tool_calls": [{"function": {"name": "f", "arguments": "{}"}}]}}],
-        "usage": {"total_tokens": 3},
-    }
-
+async def test_nonstream_upstream_error_is_sanitized_and_retryable(settings: Settings) -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            429, headers={"content-type": "application/json", "retry-after": "3"}, json=expected
+            429,
+            headers={"content-type": "application/json", "retry-after": "3"},
+            json={"error": {"message": "upstream-private-body", "path": "/private/path"}},
         )
 
     response = await call(
@@ -119,8 +120,34 @@ async def test_nonstream_tool_usage_and_error_fidelity(settings: Settings) -> No
         "/v1/chat/completions",
         json={"model": "qwen", "messages": [], "tools": [{"type": "function"}]},
     )
-    assert response.status_code == 429 and response.json() == expected
+    assert response.status_code == 429
+    assert response.json() == {
+        "error": {
+            "message": "upstream returned an error",
+            "type": "upstream_error",
+            "code": "upstream_error",
+        }
+    }
     assert response.headers["retry-after"] == "3"
+    assert "upstream-private-body" not in response.text
+    assert "/private/path" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_nonstream_response_body_bound_is_sanitized(settings: Settings) -> None:
+    settings.server.response_body_max_bytes = 32
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"x" * 33)
+
+    response = await call(
+        settings,
+        handler,
+        "GET",
+        "/health",
+    )
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "upstream_response_too_large"
 
 
 @pytest.mark.asyncio
@@ -673,6 +700,22 @@ async def test_metrics_have_bounded_labels(settings: Settings) -> None:
     assert 'status="400"' in metrics
     assert "slaif_readiness_state 0.0" in metrics
     assert "slaif_response_header_duration_seconds" in metrics
+
+
+@pytest.mark.asyncio
+async def test_metrics_can_be_disabled_without_exposing_registry(settings: Settings) -> None:
+    settings = settings.model_copy(
+        update={
+            "observability": settings.observability.model_copy(update={"metrics_enabled": False})
+        }
+    )
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    response = await call(settings, handler, "GET", "/metrics")
+    assert response.status_code == 404
+    assert "slaif_requests_total" not in response.text
 
 
 @pytest.mark.asyncio

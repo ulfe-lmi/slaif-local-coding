@@ -51,6 +51,7 @@ class FailureReason(StrEnum):
     CONTRADICTORY_OUTPUT = "contradictory_output"
     UPSTREAM_TIMEOUT = "upstream_timeout"
     UPSTREAM_TRANSPORT = "upstream_transport"
+    UPSTREAM_AUTH = "upstream_auth"
     UPSTREAM_STATUS = "upstream_status"
     CANCELLED = "cancelled"
 

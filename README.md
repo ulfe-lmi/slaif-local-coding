@@ -287,6 +287,9 @@ before decoding and rejected with sanitized HTTP 400 code
 `json_nesting_too_deep` when container nesting exceeds
 `json_max_nesting_depth` (128 by default). The configured depth itself is allowed;
 depth 129 is rejected by the example configuration without an upstream call.
+Non-streaming upstream response bodies are also bounded by
+`response_body_max_bytes`; oversized or error responses are closed and returned
+as fixed sanitized errors.
 
 Configuration is strict. Each supported model/endpoint must match exactly one
 route with `retain_newest`, `reject`, or `passthrough`. The designated Qwen Codex
@@ -296,7 +299,8 @@ preserve the semantics of explicit multi-image comparison.
 
 Proxy requests retain the opaque query string without logging or metric-labeling
 its values. Standard hop-by-hop headers and headers named by `Connection` are
-removed in both directions. Caller compression preferences are replaced with
+removed in both directions, including cookies, forwarding headers, and the
+adapter's internal header families. Caller compression preferences are replaced with
 `Accept-Encoding: identity`; if upstream still sends an encoded response, its raw
 bytes and safe `Content-Encoding` are retained consistently. Bounded compatibility
 metadata includes `Content-Type`, `Content-Encoding`, `Cache-Control`,

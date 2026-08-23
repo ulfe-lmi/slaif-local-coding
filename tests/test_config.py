@@ -28,6 +28,20 @@ def test_non_loopback_and_unknown_policy_fail_closed() -> None:
         ServerConfig(json_max_nesting_depth=257)
     with pytest.raises(ValidationError):
         ObservationPolicy(max_roots=0)
+    with pytest.raises(ValidationError):
+        RouteConfig(name="x", model="m", image_overflow_policy="reject")
+    with pytest.raises(ValidationError):
+        RouteConfig(
+            name="x", model="m", max_images_per_request=1, image_overflow_policy="passthrough"
+        )
+    with pytest.raises(ValidationError):
+        CacheConfig(root=Path("relative-cache"))
+    with pytest.raises(ValidationError):
+        UpstreamConfig(
+            base_url="http://user:password@upstream.test/v1", api_key_env="KEY", model="m"
+        )
+    with pytest.raises(ValidationError):
+        UpstreamConfig(base_url="http://upstream.test:bad/v1", api_key_env="KEY", model="m")
 
 
 def test_future_feature_and_raw_logging_configuration_fail_closed(tmp_path: Path) -> None:
@@ -42,11 +56,15 @@ name = "r"
 model = "m"
 image_overflow_policy = "passthrough"
 """
-    for unsafe in "[observability]\nlog_raw_payloads = true\n":
+    for unsafe in ("[observability]\nlog_raw_payloads = true\n",):
         path = tmp_path / "unsafe.toml"
         path.write_text(base + unsafe)
         with pytest.raises(ValueError):
             load_settings(path)
+    unknown = tmp_path / "unknown.toml"
+    unknown.write_text(base + '[observability]\nfuture_label = "private"\n')
+    with pytest.raises(ValueError):
+        load_settings(unknown)
 
 
 def test_route_matches_must_be_unique_per_model_and_endpoint() -> None:

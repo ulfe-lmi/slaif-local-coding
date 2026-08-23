@@ -526,7 +526,7 @@ class ConstitutionPipeline:
         previous: _RehydrationEntry | None = None
         try:
             size = self._entry_bytes(root, dependencies, metadata)
-            if size > policy.max_entry_bytes:
+            if size > policy.max_entry_bytes or size > policy.max_total_bytes:
                 raise ValueError("entry too large")
             entry = _RehydrationEntry(
                 created_at=time.monotonic(),
@@ -545,8 +545,6 @@ class ConstitutionPipeline:
                 ):
                     _, evicted = self._rehydration.popitem(last=False)
                     self._rehydration_bytes -= evicted.bytes
-                if size > policy.max_total_bytes:
-                    raise ValueError("entry exceeds total budget")
                 self._rehydration[key] = entry
                 self._rehydration_bytes += size
                 self._sync_rehydration_occupancy()
@@ -729,9 +727,7 @@ class ConstitutionPipeline:
                     reason=f"injection_{exc.reason.value}",
                 )
                 self._injection_failure(exc, endpoint=endpoint, route_name=route_name)
-            body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=False).encode(
-                "utf-8"
-            )
+            body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
             self._rehydration_metric(
                 endpoint=endpoint, route_name=route_name, state="hit", reason="zero_root"
             )
@@ -851,7 +847,7 @@ class ConstitutionPipeline:
         except ConstitutionInjectionError as exc:
             self._injection_failure(exc, endpoint=endpoint, route_name=route_name)
 
-        body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
         self._store_rehydration(
             key=self._rehydration_identity(
                 route_name=route_name,

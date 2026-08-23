@@ -21,8 +21,8 @@ secret/logging-policy checks
 Required behavior:
 
 - byte/semantic preservation for untransformed JSON requests;
-- status, headers, error body, SSE event order, disconnect, timeout, and tool-call
-  passthrough;
+- status, safe error envelopes, headers, SSE event order, disconnect, timeout, and
+  tool-call passthrough;
 - `/v1/responses` and `/v1/chat/completions`;
 - no buffering of streaming responses;
 - hop-by-hop/internal-header filtering;

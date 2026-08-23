@@ -526,6 +526,50 @@ async def test_timeout_and_server_status_return_typed_failures(
 
 
 @pytest.mark.asyncio
+async def test_compiler_timeout_is_bounded_even_with_injected_client(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEST_COMPILER_KEY", "test-only-secret")
+
+    async def slow_handler(_request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.05)
+        return openai_output(index())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(slow_handler)) as client:
+        compiler = ConstitutionalCompiler(
+            settings(tmp_path, timeout_seconds=0.001, max_attempts=1), client=client
+        )
+        result = await compile_one(compiler)
+        await compiler.aclose()
+
+    assert result.failure is not None
+    assert result.failure.reason is FailureReason.UPSTREAM_TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_missing_compiler_credential_is_typed_and_not_forwarded(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("TEST_COMPILER_KEY", raising=False)
+    requests = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal requests
+        requests += 1
+        return openai_output(index())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        compiler = ConstitutionalCompiler(settings(tmp_path, max_attempts=2), client=client)
+        result = await compile_one(compiler)
+        await compiler.aclose()
+
+    assert result.failure is not None
+    assert result.failure.reason is FailureReason.UPSTREAM_AUTH
+    assert result.failure.detail == "compiler credential is unavailable"
+    assert requests == 0
+
+
+@pytest.mark.asyncio
 async def test_cancellation_releases_slot_for_next_call(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

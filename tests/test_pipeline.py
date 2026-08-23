@@ -287,6 +287,40 @@ async def test_compiler_failure_forwards_original_governance_request(
 
 
 @pytest.mark.asyncio
+async def test_readiness_reports_disposable_cache_degradation(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEST_PIPELINE_KEY", "test-only-secret")
+    base_settings = enabled_settings(tmp_path)
+    settings = base_settings.model_copy(
+        update={
+            "cache": base_settings.cache.model_copy(
+                update={"root": tmp_path / "missing-parent" / "cache", "fallback_root": None}
+            )
+        }
+    )
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/health"
+        return httpx.Response(200, json={})
+
+    app = create_app(settings, httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        response = await client.get("/readyz")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "config": "valid",
+        "upstream": "ready",
+        "compiler": "ready",
+        "cache": "unavailable",
+    }
+
+
+@pytest.mark.asyncio
 async def test_image_policy_tools_and_stream_choice_are_preserved(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

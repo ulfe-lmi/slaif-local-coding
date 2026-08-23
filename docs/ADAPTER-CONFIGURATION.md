@@ -13,6 +13,12 @@ are not reused as trusted upstream credentials or metadata. Logs and metrics
 contain bounded endpoint, configured route, status, timing, stream, failure,
 and image-count labels only; raw bodies and secrets are excluded.
 
+`request_body_max_bytes` and `response_body_max_bytes` are independent finite
+limits. A non-streaming upstream response over the response cap is closed and
+returned as a sanitized 502. Streaming remains incremental and is bounded by
+HTTPX/ASGI backpressure and read timeouts. The CLI disables Uvicorn access logs
+so opaque query strings are not emitted by the default server logger.
+
 The adapter incrementally consumes each request body and stops once the hard
 `request_body_max_bytes` cap is exceeded. It rejects a known oversized
 `Content-Length` early but still counts actual streamed bytes when the header is
@@ -69,6 +75,12 @@ upstream ignores that preference, raw encoded bytes and safe `Content-Encoding`
 are forwarded together. Safe bounded response metadata includes `Content-Type`,
 `Content-Encoding`, `Cache-Control`, `OpenAI-Processing-Ms`, `Retry-After`, and
 request IDs.
+
+Upstream responses with HTTP status 400 or higher retain their status and safe
+retry metadata but receive a fixed OpenAI-shaped error body; upstream error
+bodies are never relayed to callers. `/readyz` reports fixed `config`,
+`upstream`, `compiler`, and disposable-cache states; cache degradation remains
+ready-but-degraded because original request semantics are preserved.
 
 `slaif_response_header_duration_seconds` measures time until a local outcome or
 upstream response headers. `slaif_stream_duration_seconds` separately measures

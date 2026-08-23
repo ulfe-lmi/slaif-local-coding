@@ -15,7 +15,8 @@ class ServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     listen_host: str = "127.0.0.1"
     listen_port: int = Field(default=18031, ge=1, le=65535)
-    request_body_max_bytes: int = Field(default=67_108_864, gt=0)
+    request_body_max_bytes: int = Field(default=67_108_864, gt=0, le=268_435_456)
+    response_body_max_bytes: int = Field(default=67_108_864, gt=0, le=268_435_456)
     json_max_nesting_depth: int = Field(default=128, ge=1, le=256)
 
     @model_validator(mode="after")
@@ -27,19 +28,26 @@ class ServerConfig(BaseModel):
 
 class UpstreamConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    base_url: str
-    api_key_env: str = Field(min_length=1)
-    model: str = Field(min_length=1)
-    connect_timeout_seconds: float = Field(default=10, gt=0)
-    request_timeout_seconds: float = Field(default=300, gt=0)
-    write_timeout_seconds: float = Field(default=30, gt=0)
-    pool_timeout_seconds: float = Field(default=10, gt=0)
+    base_url: str = Field(min_length=1, max_length=2048)
+    api_key_env: str = Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    model: str = Field(min_length=1, max_length=128)
+    connect_timeout_seconds: float = Field(default=10, gt=0, le=300)
+    request_timeout_seconds: float = Field(default=300, gt=0, le=3600)
+    write_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    pool_timeout_seconds: float = Field(default=10, gt=0, le=300)
 
     @model_validator(mode="after")
     def supported_base_path(self) -> UpstreamConfig:
-        parsed = urlsplit(self.base_url)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        try:
+            parsed = urlsplit(self.base_url)
+            hostname = parsed.hostname
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("upstream base_url must be a valid HTTP(S) URL") from exc
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or not hostname:
             raise ValueError("upstream base_url must be HTTP(S)")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("upstream base_url must not contain credentials")
         if parsed.path.rstrip("/") not in {"", "/v1"} or parsed.query or parsed.fragment:
             raise ValueError("upstream base_url path must be empty or /v1")
         return self
@@ -80,7 +88,9 @@ class CompilerConfig(BaseModel):
     prompt_policy_version: str = Field(
         default="constitutional-rank-v2", min_length=1, max_length=64
     )
-    api_key_env: str = Field(default="QWEN3090_API_KEY", min_length=1)
+    api_key_env: str = Field(
+        default="QWEN3090_API_KEY", min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$"
+    )
     reasoning_effort: Literal["low"] = "low"
     timeout_seconds: float = Field(default=45, gt=0, le=300)
     max_attempts: int = Field(default=2, ge=1, le=4)
@@ -104,15 +114,20 @@ class CacheConfig(BaseModel):
             Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "slaif-local-coding"
         )
     )
-    max_total_bytes: int = Field(default=67_108_864, ge=1024)
-    max_entry_bytes: int = Field(default=65_536, ge=256)
-    max_pinned_bytes: int = Field(default=8_388_608, ge=256)
-    max_entries: int = Field(default=4096, ge=1)
+    max_total_bytes: int = Field(default=67_108_864, ge=1024, le=1_073_741_824)
+    max_entry_bytes: int = Field(default=65_536, ge=256, le=268_435_456)
+    max_pinned_bytes: int = Field(default=8_388_608, ge=256, le=268_435_456)
+    max_entries: int = Field(default=4096, ge=1, le=1_000_000)
     ttl_seconds: float = Field(default=604800, gt=0)
     max_scan_entries: int = Field(default=4096, ge=1, le=1_000_000)
 
     @model_validator(mode="after")
     def bounded(self) -> CacheConfig:
+        for label, path in (("root", self.root), ("fallback_root", self.fallback_root)):
+            if path is not None and (
+                not path.is_absolute() or any(part == ".." for part in path.parts)
+            ):
+                raise ValueError(f"cache {label} must be an absolute normalized path")
         if self.max_entry_bytes > self.max_total_bytes:
             raise ValueError("cache entry budget cannot exceed total budget")
         if self.max_pinned_bytes > self.max_total_bytes:
@@ -179,7 +194,7 @@ class ConstitutionIntegrationConfig(BaseModel):
 class RouteConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
-    model: str
+    model: str = Field(min_length=1, max_length=128)
     max_images_per_request: int | None = Field(default=None, ge=0)
     image_overflow_policy: Literal["retain_newest", "reject", "passthrough"]
     enable_responses: bool = True
@@ -187,10 +202,30 @@ class RouteConfig(BaseModel):
     observation_enabled: bool = False
     constitution_enabled: bool = False
 
+    @model_validator(mode="after")
+    def image_policy_requires_limit(self) -> RouteConfig:
+        if self.image_overflow_policy in {"retain_newest", "reject"} and (
+            self.max_images_per_request is None
+        ):
+            raise ValueError("image overflow policy requires max_images_per_request")
+        if self.image_overflow_policy == "passthrough" and self.max_images_per_request is not None:
+            raise ValueError("passthrough image policy cannot declare an enforced image limit")
+        return self
+
     def enables(self, endpoint: str) -> bool:
         return (endpoint == "/v1/responses" and self.enable_responses) or (
             endpoint == "/v1/chat/completions" and self.enable_chat_completions
         )
+
+
+class ObservabilityConfig(BaseModel):
+    """Safe operator controls; raw payload logging is never configurable."""
+
+    model_config = ConfigDict(extra="forbid")
+    log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
+    log_raw_payloads: Literal[False] = False
+    metrics_enabled: bool = True
+    metrics_host: Literal["127.0.0.1", "::1", "localhost"] = "127.0.0.1"
 
 
 class Settings(BaseModel):
@@ -204,11 +239,14 @@ class Settings(BaseModel):
     constitution: ConstitutionIntegrationConfig = Field(
         default_factory=lambda: ConstitutionIntegrationConfig()
     )
+    observability: ObservabilityConfig = Field(default_factory=lambda: ObservabilityConfig())
 
     @model_validator(mode="after")
     def safe_integration(self) -> Settings:
         if self.constitution.enabled and not self.compiler.enabled:
             raise ValueError("constitution integration requires direct compiler enablement")
+        if self.constitution.enabled and urlsplit(self.upstream.base_url).path.rstrip("/") != "/v1":
+            raise ValueError("constitution integration requires an upstream /v1 base path")
         if self.constitution.enabled and (
             self.compiler.schema_version != "constitution-index-v1"
             or self.constitution.selector_schema_version != "working-set-v1"
@@ -254,17 +292,17 @@ def load_settings(path: Path) -> Settings:
     compiler_raw = raw.pop("compiler", {})
     cache_raw = raw.pop("cache", {})
     constitution_raw = raw.pop("constitution", {})
+    observability_raw = raw.pop("observability", {})
     compiler_config = CompilerConfig.model_validate(compiler_raw)
     cache_config = CacheConfig.model_validate(cache_raw)
     constitution_config = ConstitutionIntegrationConfig.model_validate(constitution_raw)
-    observability = raw.pop("observability", {})
-    if observability.get("log_raw_payloads") is not False:
-        raise ValueError("raw payload logging must be explicitly disabled")
+    observability_config = ObservabilityConfig.model_validate(observability_raw)
     return Settings.model_validate(
         {
             **raw,
             "compiler": compiler_config,
             "cache": cache_config,
             "constitution": constitution_config,
+            "observability": observability_config,
         }
     )
