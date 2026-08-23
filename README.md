@@ -234,10 +234,11 @@ verified by focused tests.
 
 The retained gates cover the synthetic long-root/dependency fixture, successful
 dependency-read lifecycle, sentinel attribution, bounded cache/metric
-reconciliation, and ordinary Codex command-path diagnostics. The 004-o control
-uses one fresh fixture and direct protected loopback `18020`, with ordinary
-`codex exec --json --ephemeral`, the same disabled `unified_exec` setting, and
-the same normalized invocation fingerprint for danger-full-access and
+reconciliation, and ordinary Codex command-path diagnostics. The 004-p control
+uses one fresh fixture and direct protected loopback `18020`, with the corrected
+global-option argv `codex --ask-for-approval never exec --sandbox <mode>` plus
+JSON/ephemeral mode and the same disabled `unified_exec` setting. It records the
+same normalized invocation fingerprint for danger-full-access and
 workspace-write. B runs first and A is gated on one exact `/usr/bin/true`
 command event with exit zero; the dependency read is gated after A and exact
 fingerprint equivalence. Raw bubblewrap, `unshare`, `codex sandbox`, retries,
@@ -248,18 +249,18 @@ The historical raw probe is described narrowly as
 all-namespace loopback bootstrap failure. The earlier host/kernel inference was
 too broad because that probe was not the acceptance topology. Independently
 sanitized evidence establishes that the OAP parent was host-direct/unsandboxed,
-so the result was not a nested-outer-sandbox artifact. In the current 004-n
-round, the ordinary B control exited `2` at Codex startup with sanitized
-`argv_unsupported`/`argument` evidence and no JSONL event or command execution;
-the installed CLI exposes `--ask-for-approval` as a global option, while the
-ordered `codex exec` placement was rejected. A, dependency `cat`, candidate
-adapter, compiler/model calls, and governed E2E were therefore not run. The
-implementation records only allowlisted config/environment/argv facts; it does
-not retain raw diagnostics or mutate the host configuration. Objective 004
-remains at 15% and branch readiness at approximately 74%. No current
-host-wide command or sandbox capability conclusion follows. No compaction,
-vision, production-readiness, cutover, or protected-service claim follows from
-this startup failure.
+so the result was not a nested-outer-sandbox artifact. The immutable 004-o
+recorded the original startup placement failure. In the corrected 004-p round,
+the ordinary B control reached Codex `0.149.0`, exited `0`, and emitted one
+successful shell command, but it was not the required exact `/usr/bin/true`
+(`command_equal=false`, origin `model_wrong_command`). The order therefore
+gated A, dependency `cat`, candidate adapter, compiler/model calls, and
+governed E2E. The implementation records only allowlisted
+config/environment/argv facts; it does not retain raw diagnostics or mutate
+the host configuration. Objective 004 remains at 15% and branch readiness at
+approximately 74%. No current host-wide command or sandbox capability
+conclusion follows. No compaction, vision, production-readiness, cutover, or
+protected-service claim follows from this partial qualification.
 
 ## Candidate quickstart
 

@@ -414,6 +414,8 @@ def test_ordinary_pair_fingerprint_matches_except_sandbox_and_gates_a(
     assert danger.invocation_fingerprint == workspace.invocation_fingerprint
     assert danger.command_diagnostics.actual_command_equal is True
     assert danger.failure_origin == "success"
+    normalized_argv = dict(danger.invocation_fingerprint)["normalized_argv_template"].split("\0")
+    assert normalized_argv.index("--ask-for-approval") < normalized_argv.index("exec")
 
 
 def test_ordinary_pair_stops_before_workspace_on_control_failure(tmp_path: Path) -> None:

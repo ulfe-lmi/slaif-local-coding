@@ -1253,11 +1253,11 @@ def _ordinary_fingerprint(
     output = str(fixture.repository / ".codex-last-message.tmp")
     raw_argv = (
         str(codex_bin),
+        "--ask-for-approval",
+        "never",
         "exec",
         "--sandbox",
         sandbox_mode,
-        "--ask-for-approval",
-        "never",
         "--json",
         "--ephemeral",
         "--strict-config",
@@ -1386,11 +1386,11 @@ def run_codex_once(
             process = subprocess.Popen(
                 [
                     str(codex_bin),
+                    "--ask-for-approval",
+                    "never",
                     "exec",
                     "--sandbox",
                     sandbox_mode,
-                    "--ask-for-approval",
-                    "never",
                     "--json",
                     "--ephemeral",
                     "--strict-config",

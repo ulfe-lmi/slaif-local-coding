@@ -117,12 +117,14 @@ or changed. This leaves objective 004 at 15% and branch readiness at
 approximately 74%; it is not a host-wide capability conclusion.
 
 The 004-o ordinary-command qualification supersedes that native helper as the
-decisive path. Its B control reached Codex `0.149.0` startup but exited `2`
-with sanitized argument/argv evidence before JSONL or model/tool events. A was
-not run, and dependency, adapter, compiler, and governed/cache calls remain
-`NOT RUN`; the first blocker is outside Local Coding. The runner keeps raw
-streams temporary and reports only hashes, counts, fixed classes, fingerprints,
-and command equality.
+decisive path. Its startup failure is retained as immutable history. The
+004-p correction places the global approval option before `exec`; its B control
+reached Codex `0.149.0`, exited `0`, and emitted one successful command, but
+not the required exact `/usr/bin/true` (`command_equal=false`, origin
+`model_wrong_command`). A was correctly gated, so dependency, adapter,
+compiler, and governed/cache calls remain `NOT RUN`; the first remaining
+blocker is outside Local Coding. The runner keeps raw streams temporary and
+reports only hashes, counts, fixed classes, fingerprints, and command equality.
 
 ## CI and merge
 
