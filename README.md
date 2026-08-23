@@ -248,11 +248,14 @@ sanitized evidence establishes that the OAP parent was host-direct/unsandboxed,
 so the result was not a nested-outer-sandbox artifact. In the current round,
 Codex 0.149.0's native workspace-write preflight stopped at `true` with exit
 status 1 before dependency bytes crossed the boundary; the dependency `cat`,
-model calls, candidate adapter, and governed E2E were not run. Objective 004 is
-therefore reset to 15% and branch readiness to approximately 74%. No current
-host-wide bubblewrap capability conclusion follows. No compaction, vision,
-production-readiness, cutover, or protected-service claim follows from this
-preflight failure.
+model calls, candidate adapter, and governed E2E were not run. The 004-m
+environment experiment retained host `HOME`/`TMPDIR` semantics while keeping an
+explicit disposable `CODEX_HOME`; `true` still failed, so the prior rewriting
+of `HOME`/`TMPDIR` is not established as the cause and no Local Coding defect
+was tested. Objective 004 therefore remains at 15% and branch readiness at
+approximately 74%. No current host-wide bubblewrap capability conclusion
+follows. No compaction, vision, production-readiness, cutover, or
+protected-service claim follows from this preflight failure.
 
 ## Candidate quickstart
 

@@ -107,8 +107,12 @@ The historical raw probe is retained only as the narrower
 parent is host-direct/unsandboxed; that evidence is distinct from the
 Codex-under-test policy. The current native Codex 0.149.0 preflight stopped at
 `true` with exit status 1, so dependency `cat`, governed model calls, and
-cache-reuse E2E were not run. This leaves objective 004 at 15% and branch
-readiness at approximately 74%; it is not a host-wide capability conclusion.
+cache-reuse E2E were not run. The 004-m environment correction retains host
+`HOME`/`TMPDIR` semantics while keeping an explicit disposable `CODEX_HOME`,
+but the same first native failure remains. The rewritten `HOME`/`TMPDIR` is
+therefore not established as the cause, and no Local Coding defect has yet been
+tested. This leaves objective 004 at 15% and branch readiness at approximately
+74%; it is not a host-wide capability conclusion.
 
 ## CI and merge
 

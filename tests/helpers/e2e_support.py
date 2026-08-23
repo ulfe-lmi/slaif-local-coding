@@ -436,18 +436,19 @@ def write_governed_fixture(root: Path, base_url: str, api_key_env: str) -> Gover
 
 
 def _sandbox_environment(codex_home: Path, api_key_env: str | None = None) -> dict[str, str]:
-    """Build a disposable helper environment without inherited credentials."""
+    """Build a bounded helper environment without inherited credentials.
+
+    ``CODEX_HOME`` isolates Codex configuration and state.  ``HOME`` and
+    ``TMPDIR`` retain the normal host launch semantics when the host provides
+    them; omitting either keeps the platform default behavior.
+    """
 
     environment = {
-        name: os.environ[name] for name in ("PATH", "LANG", "LC_ALL", "TERM") if name in os.environ
+        name: os.environ[name]
+        for name in ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TERM")
+        if name in os.environ
     }
-    environment.update(
-        {
-            "CODEX_HOME": str(codex_home),
-            "HOME": str(codex_home.parent),
-            "TMPDIR": str(codex_home.parent),
-        }
-    )
+    environment["CODEX_HOME"] = str(codex_home)
     if api_key_env is not None:
         if ENVIRONMENT_NAME.fullmatch(api_key_env) is None:
             raise ValueError("api_key_env must be a valid environment variable name")

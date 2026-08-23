@@ -147,19 +147,49 @@ def test_fixture_is_isolated_private_and_governed() -> None:
         assert status.stdout == ""
 
 
-def test_subprocess_environment_allows_only_named_credential(
+def test_subprocess_environment_preserves_host_home_tmpdir_and_named_credential(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import tests.helpers.e2e_support as e2e_module
 
+    host_home = tmp_path / "host-home"
+    host_tmpdir = tmp_path / "host-tmpdir"
+    monkeypatch.setenv("HOME", str(host_home))
+    monkeypatch.setenv("TMPDIR", str(host_tmpdir))
     monkeypatch.setenv("QWEN3090_API_KEY", "unit-test-secret")
     monkeypatch.setenv("UNRELATED_SECRET", "must-not-cross-boundary")
     environment = e2e_module._sandbox_environment(tmp_path, "QWEN3090_API_KEY")
 
+    assert environment["CODEX_HOME"] == str(tmp_path)
+    assert environment["HOME"] == str(host_home)
+    assert environment["TMPDIR"] == str(host_tmpdir)
+    assert str(tmp_path.parent) not in {environment["HOME"], environment["TMPDIR"]}
     assert environment["QWEN3090_API_KEY"] == "unit-test-secret"
     assert "UNRELATED_SECRET" not in environment
+    assert set(environment) <= {
+        "PATH",
+        "HOME",
+        "TMPDIR",
+        "LANG",
+        "LC_ALL",
+        "TERM",
+        "CODEX_HOME",
+        "QWEN3090_API_KEY",
+    }
     with pytest.raises(ValueError, match="environment variable name"):
         e2e_module._sandbox_environment(tmp_path, "bad-name=value")
+
+
+def test_subprocess_environment_omits_unset_tmpdir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tests.helpers.e2e_support as e2e_module
+
+    monkeypatch.delenv("TMPDIR", raising=False)
+    environment = e2e_module._sandbox_environment(tmp_path)
+
+    assert environment["CODEX_HOME"] == str(tmp_path)
+    assert "TMPDIR" not in environment
 
 
 def test_model_catalog_subprocess_output_is_bounded(
