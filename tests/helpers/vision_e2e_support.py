@@ -17,7 +17,8 @@ import subprocess
 import tempfile
 import zlib
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -40,6 +41,7 @@ VISION_ROUTE = "qwen38-vision-codex"
 VISION_CODEX_VERSION = "0.149.0"
 VISION_TIMEOUT_SECONDS = 300.0
 VISION_MAX_TOOL_CALLS = 4
+VISION_MAX_MAIN_REQUESTS_PER_INVOCATION = VISION_MAX_TOOL_CALLS
 VISION_FULL_LABEL = "full_scene"
 VISION_CROP_LABEL = "right_crop"
 
@@ -72,10 +74,10 @@ class VisionFixturePaths:
 
 @dataclass(frozen=True)
 class VisionBoundaryEvidence:
-    """Safe evidence captured from one actual outbound Responses request."""
+    """Safe evidence from one actual request with a fixed invocation label."""
 
     endpoint: Literal["/v1/responses"]
-    turn: int
+    turn: Literal[1, 2]
     image_types: tuple[str, ...]
     outgoing_images_seen: int
     forwarded_labels: tuple[str, ...]
@@ -109,20 +111,29 @@ class VisionBoundaryEvidence:
 
 @dataclass(frozen=True)
 class VisionMetricDeltas:
-    """Per-turn image counters parsed from three bounded metric snapshots."""
+    """Per-invocation counters scaled to directly recorded request counts."""
 
     turn1_seen: int
     turn1_removed: int
     turn2_seen: int
     turn2_removed: int
+    invocation_1_requests: int | None = None
+    invocation_2_requests: int | None = None
 
     @property
     def exact(self) -> bool:
-        return (self.turn1_seen, self.turn1_removed, self.turn2_seen, self.turn2_removed) == (
-            1,
-            0,
-            2,
-            1,
+        if self.invocation_1_requests is None or self.invocation_2_requests is None:
+            return False
+        return self.exact_for(self.invocation_1_requests, self.invocation_2_requests)
+
+    def exact_for(self, invocation_1_requests: int, invocation_2_requests: int) -> bool:
+        """Validate image counters against the observed phase cardinalities."""
+        return (
+            1 <= invocation_1_requests <= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
+            and 1 <= invocation_2_requests <= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
+            and (self.turn1_seen, self.turn1_removed) == (invocation_1_requests, 0)
+            and (self.turn2_seen, self.turn2_removed)
+            == (2 * invocation_2_requests, invocation_2_requests)
         )
 
 
@@ -173,8 +184,22 @@ class VisionSessionFacts:
 
     @property
     def outbound_successful(self) -> bool:
-        """Require both ordered, recorder-backed main requests."""
-        return len(self.outbound_facts) == 2 and all(fact.accepted for fact in self.outbound_facts)
+        """Require every request in both ordered, recorder-backed phases."""
+        labels = tuple(fact.turn for fact in self.outbound_facts)
+        if not labels or 1 not in labels or 2 not in labels:
+            return False
+        first_second = labels.index(2)
+        if any(label != 1 for label in labels[:first_second]) or any(
+            label != 2 for label in labels[first_second:]
+        ):
+            return False
+        first_count = first_second
+        second_count = len(labels) - first_second
+        return (
+            1 <= first_count <= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
+            and 1 <= second_count <= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
+            and all(fact.accepted for fact in self.outbound_facts)
+        )
 
 
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
@@ -455,21 +480,86 @@ class VisionOutboundRecorder(httpx.AsyncBaseTransport):
         self._fixture = fixture
         self._upstream = upstream
         self._facts: list[VisionBoundaryEvidence] = []
-        self._expected: dict[int, _ExpectedPreservation] = {}
+        self._phase_facts: dict[int, tuple[VisionBoundaryEvidence, ...]] = {}
+        self._active_turn: Literal[1, 2] | None = None
+        self._next_turn: Literal[1, 2] | None = 1
+        self._phase_error: str | None = None
+        self._expected: dict[int, list[_ExpectedPreservation]] = {}
 
     @property
     def facts(self) -> tuple[VisionBoundaryEvidence, ...]:
         return tuple(self._facts)
 
+    @property
+    def phase_counts(self) -> tuple[int, int] | None:
+        """Return counts only after both explicitly ordered phases are complete."""
+        first = self._phase_facts.get(1)
+        second = self._phase_facts.get(2)
+        if first is None or second is None:
+            return None
+        return len(first), len(second)
+
+    def phase_facts(self, turn: Literal[1, 2]) -> tuple[VisionBoundaryEvidence, ...]:
+        """Return the immutable facts for one completed invocation phase."""
+        return self._phase_facts.get(turn, ())
+
+    def begin_phase(self, turn: Literal[1, 2]) -> None:
+        """Open one bounded, ordered phase around one Codex subprocess."""
+        if self._phase_error is not None:
+            raise ValueError(self._phase_error)
+        if self._active_turn is not None:
+            raise ValueError("vision_phase_overlap")
+        if self._next_turn != turn:
+            raise ValueError("vision_phase_reordered")
+        if turn in self._phase_facts:
+            raise ValueError("vision_phase_repeated")
+        self._active_turn = turn
+
+    def end_phase(self, turn: Literal[1, 2]) -> tuple[VisionBoundaryEvidence, ...]:
+        """Close a phase and reject empty, invalid, or unbounded attribution."""
+        if self._active_turn != turn:
+            raise ValueError("vision_phase_not_active")
+        if self._phase_error is not None:
+            self._active_turn = None
+            raise ValueError(self._phase_error)
+        facts = tuple(fact for fact in self._facts if fact.turn == turn)
+        if not facts:
+            self._active_turn = None
+            raise ValueError("vision_phase_empty")
+        if len(facts) > VISION_MAX_MAIN_REQUESTS_PER_INVOCATION:
+            self._active_turn = None
+            raise ValueError("vision_phase_request_bound_exceeded")
+        expected = self._expected.get(turn, [])
+        if expected and len(expected) != len(facts):
+            self._active_turn = None
+            raise ValueError("vision_phase_preservation_oracle_mismatch")
+        self._phase_facts[turn] = facts
+        self._active_turn = None
+        self._next_turn = 2 if turn == 1 else None
+        return facts
+
+    @contextmanager
+    def phase(self, turn: Literal[1, 2]) -> Iterator[tuple[VisionBoundaryEvidence, ...]]:
+        """Context-manager form of the explicit invocation phase API."""
+        self.begin_phase(turn)
+        try:
+            yield self._phase_facts.get(turn, ())
+        finally:
+            self.end_phase(turn)
+
     def expect_preserved_content(self, turn: Literal[1, 2], payload: Mapping[str, Any]) -> None:
         """Register only a safe oracle for focused fake-upstream assertions."""
-        self._expected[turn] = _ExpectedPreservation(
-            content_sha256=_content_fingerprint(payload),
-            governance=_governance_content_present(payload),
-            tool=_has_tool_content(payload),
+        self._expected.setdefault(turn, []).append(
+            _ExpectedPreservation(
+                content_sha256=_content_fingerprint(payload),
+                governance=_governance_content_present(payload),
+                tool=_has_tool_content(payload),
+            )
         )
 
-    def _fact_from_body(self, turn: int, body: bytes) -> VisionBoundaryEvidence:
+    def _fact_from_body(
+        self, turn: Literal[1, 2], body: bytes, request_index: int
+    ) -> VisionBoundaryEvidence:
         try:
             payload = json.loads(body)
             if not isinstance(payload, dict):
@@ -528,7 +618,10 @@ class VisionOutboundRecorder(httpx.AsyncBaseTransport):
             and not unexpected
             and _safe_image_identity(images[0].url) == expected_identity
         )
-        expected_preservation = self._expected.get(turn)
+        expected_values = self._expected.get(turn, [])
+        expected_preservation = (
+            expected_values[request_index] if request_index < len(expected_values) else None
+        )
         if expected_preservation is None:
             non_image_preserved = bool(_without_images(payload))
             governance_preserved = _governance_content_present(payload)
@@ -560,8 +653,15 @@ class VisionOutboundRecorder(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and request.url.path == "/v1/responses":
+            if self._active_turn is None:
+                self._phase_error = "vision_main_request_outside_phase"
+                raise ValueError(self._phase_error)
+            current_facts = [fact for fact in self._facts if fact.turn == self._active_turn]
+            if len(current_facts) >= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION:
+                self._phase_error = "vision_phase_request_bound_exceeded"
+                raise ValueError(self._phase_error)
             body = await request.aread()
-            self._facts.append(self._fact_from_body(len(self._facts) + 1, body))
+            self._facts.append(self._fact_from_body(self._active_turn, body, len(current_facts)))
         return await self._upstream.handle_async_request(request)
 
     async def aclose(self) -> None:
@@ -582,7 +682,12 @@ def image_metric_snapshot(metrics_text: str, *, route: str = VISION_ROUTE) -> tu
 
 
 def vision_metric_deltas(
-    before: str, between: str, after: str, *, route: str = VISION_ROUTE
+    before: str,
+    between: str,
+    after: str,
+    *,
+    phase_counts: tuple[int, int] | None = None,
+    route: str = VISION_ROUTE,
 ) -> VisionMetricDeltas:
     first_before = image_metric_snapshot(before, route=route)
     first_between = image_metric_snapshot(between, route=route)
@@ -592,6 +697,8 @@ def vision_metric_deltas(
         turn1_removed=first_between[1] - first_before[1],
         turn2_seen=second_after[0] - first_between[0],
         turn2_removed=second_after[1] - first_between[1],
+        invocation_1_requests=phase_counts[0] if phase_counts is not None else None,
+        invocation_2_requests=phase_counts[1] if phase_counts is not None else None,
     )
 
 
@@ -812,16 +919,29 @@ def run_vision_e2e(
         raise RuntimeError("unsupported_codex_version")
     catalog_facts = _catalog_facts(fixture.model_catalog)
     before = metrics_sampler() if metrics_sampler is not None else None
-    first, first_thread = _run_vision_turn(
-        codex_bin, fixture, turn=1, timeout_seconds=timeout_seconds
-    )
+    if outbound_recorder is not None:
+        outbound_recorder.begin_phase(1)
+    try:
+        first, first_thread = _run_vision_turn(
+            codex_bin, fixture, turn=1, timeout_seconds=timeout_seconds
+        )
+    finally:
+        if outbound_recorder is not None:
+            outbound_recorder.end_phase(1)
     between = metrics_sampler() if metrics_sampler is not None else None
-    second, second_thread = _run_vision_turn(
-        codex_bin, fixture, turn=2, timeout_seconds=timeout_seconds
-    )
+    if outbound_recorder is not None:
+        outbound_recorder.begin_phase(2)
+    try:
+        second, second_thread = _run_vision_turn(
+            codex_bin, fixture, turn=2, timeout_seconds=timeout_seconds
+        )
+    finally:
+        if outbound_recorder is not None:
+            outbound_recorder.end_phase(2)
     after = metrics_sampler() if metrics_sampler is not None else None
+    phase_counts = outbound_recorder.phase_counts if outbound_recorder is not None else None
     metric_deltas = (
-        vision_metric_deltas(before, between, after)
+        vision_metric_deltas(before, between, after, phase_counts=phase_counts)
         if before is not None and between is not None and after is not None
         else None
     )

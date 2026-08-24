@@ -53,14 +53,19 @@ SHA-256 values, metric deltas, and cleanup facts.
 The fake-upstream tests construct the production `create_app` path with the
 acceptance-only `VisionOutboundRecorder` as its HTTPX transport. The recorder
 sees the exact request object after image policy, constitutional processing,
-and serialization, then forwards that same object to fake upstream. It proves
-one full image on turn 1 and two input images reduced to exactly the newest
-crop on turn 2. It also proves non-image content, tool items, and governance
-markers are preserved, with exact image metric deltas of seen/removed `1/0`
-then `2/1`. Compiler `/v1/chat/completions` requests share the transport but
-are not counted as main image turns. Only fixed labels, counts, types, lengths,
-hashes, and booleans are retained; no production debug header or raw-body
-diagnostic is added.
+and serialization, then forwards that same object to fake upstream. A single
+Codex invocation may run a tool loop and emit multiple main Responses
+requests, so the recorder opens an explicit phase around each invocation and
+checks every request in order. Every phase-1 request must contain exactly the
+full scene; every phase-2 request must contain exactly the newest right crop.
+One invalid request therefore rejects the whole grouped acceptance, even when
+another request in the same phase is correct. Compiler `/v1/chat/completions`
+requests share the transport but are ignored as non-main requests. Image
+metrics scale from the directly recorded phase counts: phase 1 is
+`seen=n1, removed=0`, and phase 2 is `seen=2*n2, removed=n2`, with each phase
+bounded and non-empty. Only fixed labels, counts, types, lengths, hashes, and
+booleans are retained; no production debug header or raw-body diagnostic is
+added.
 
 ## Human-gated command
 
@@ -73,14 +78,15 @@ SLAIF_VISION_ACCEPTANCE=1 uv run --frozen pytest -q tests/test_vision_e2e.py -k 
 
 The test constructs the repository-owned candidate through `create_app` with
 the same acceptance-only recorder and a real HTTPX upstream transport, serves
-it on loopback 18031 using a temporary configuration, runs the two Codex turns
-through that candidate, and stops/removes the candidate and all temporary
-fixture/cache/session state. It requires both responses, exact final-message
-sentinel binding, a direct matching persisted/resumed session identity, the
-governance and image markers on both turns, the exact model catalog facts,
-image metric deltas, and two ordered recorder facts for full then crop. Port
-18031 must be absent afterward. It does not switch or mutate protected
-services.
+it on loopback 18031 using a temporary configuration, runs the two Codex
+invocations through that candidate, and stops/removes the candidate and all
+temporary fixture/cache/session state. It requires both responses, exact
+final-message sentinel binding, a direct matching persisted/resumed session
+identity, the governance and image markers on both invocations, the exact
+model catalog facts, a non-empty bounded phase for each invocation, every
+outbound request grouped in its phase, the scaled image metric invariant, and
+the exact final binding. Port 18031 must be absent afterward. It does not
+switch or mutate protected services.
 
 The live test is intentionally skipped unless `SLAIF_VISION_ACCEPTANCE=1` is
 set. A skipped run is not acceptance evidence. If the human fixture is not
