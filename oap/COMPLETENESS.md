@@ -26,3 +26,11 @@ leading LF bytes around the hidden sentinel, so byte-exact final formatting is
 not proven or supported on this fixture. This remains a formatting limitation of
 the selected Qwen fixture, not a generic whitespace-normalization allowance or a
 production/cutover claim.
+
+Objective-005-c did not complete its acceptance contract. Its disposable
+PostgreSQL/gateway/candidate path reached the public model route, text, SSE,
+and one-image subset and cleaned up with the protected vision fixture
+unchanged. The real Codex 0.149.0 tool envelope was rejected before a public
+reservation, so quota/ledger proof for that portion, complete gateway Codex
+compatibility, and rollback-proven cutover remain open. Strategy must not raise
+the Objective-005 completeness arithmetic from this report.

@@ -110,3 +110,10 @@ For an unchanged gateway with one shared service-Bearer credential, set
 `[constitution.rehydration].enabled = false` unless the route is explicitly
 single-user. This preserves current-request governance but disables zero-root
 post-compaction rehydration; it does not provide trusted multi-user identity.
+
+Objective-005-c ended `FAILED` during the disposable gateway rehearsal. The
+standard text/SSE/one-image subset and teardown completed, but the pinned
+gateway rejected the real Codex 0.149.0 tool envelope before accounting for
+that request. Do not treat this as gateway Codex acceptance or retry live
+diagnostics from the coding turn; review the immutable report and address the
+gateway/tool-contract blocker through a new authorized order.

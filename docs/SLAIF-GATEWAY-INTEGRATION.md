@@ -193,3 +193,34 @@ Because no gateway service is installed or running on hinton1, the actual
 cutover and rollback proof are `NOT RUN`. No direct-vLLM retirement, public
 listener, TLS, database, Redis, Docker, gateway OAP workflow, or Codex profile
 change is authorized by this order.
+
+## Objective-005-c disposable rehearsal result
+
+The bounded 2026-08-24 rehearsal was `FAILED`, not acceptance. The detached
+gateway checkout was the exact pinned main commit
+`8f2813bf745b90221da33a7cfaf40726c5b1b480`. A temporary PostgreSQL 16
+container used loopback-only random port allocation and a tmpfs-only database;
+the seed used gateway repositories/services for the provider, route, pricing,
+and synthetic public key.
+
+The public `/v1/models`, non-streaming Responses text, one Responses SSE
+sequence with completed usage, and one small inline image request reached the
+Local Coding candidate and protected Qwen fixture. The candidate used the
+synthetic service credential and the Qwen credential remained a candidate-side
+environment reference. PostgreSQL rows observed for the completed subset had
+one finalized reservation and ledger row per successful public request, no
+pending reservation, and provider usage available for finalization.
+
+The real Codex 0.149.0 invocation did not complete: the gateway rejected the
+Codex tool envelope before a public reservation was created. No gateway or
+adapter policy was weakened to force it through. Temporary listeners,
+container, image, cache, gateway process, candidate process, Codex home, and
+fixture state were removed; the protected vision PID/start facts and port
+18020 listener were unchanged. This remains a failed rehearsal and does not
+prove gateway Codex compatibility, accounting completeness for the Codex
+portion, production readiness, or cutover safety.
+
+During bounded diagnosis, a read-only search accidentally traversed the host
+Codex session cache and exposed sensitive session content to local tool output.
+Further live probing was stopped. No session content is retained in this
+repository, report, metrics, or driver facts.
