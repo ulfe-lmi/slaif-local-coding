@@ -662,6 +662,21 @@ class ConstitutionPipeline:
 
         if len(roots) == 0:
             # A zero-root request is the simulated/new-context rehydration boundary.
+            if not self.constitution.rehydration.enabled:
+                preserved = self._preserve(
+                    payload,
+                    post_image_body,
+                    endpoint=endpoint,
+                    route_name=route_name,
+                    reason="rehydration_disabled",
+                )
+                self._rehydration_metric(
+                    endpoint=endpoint,
+                    route_name=route_name,
+                    state="disabled",
+                    reason="rehydration_disabled",
+                )
+                return complete("skipped", "rehydration_disabled", preserved)
             key = self._matching_rehydration_key(
                 route_name=route_name,
                 model=model,
@@ -848,23 +863,31 @@ class ConstitutionPipeline:
             self._injection_failure(exc, endpoint=endpoint, route_name=route_name)
 
         body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
-        self._store_rehydration(
-            key=self._rehydration_identity(
+        if self.constitution.rehydration.enabled:
+            self._store_rehydration(
+                key=self._rehydration_identity(
+                    route_name=route_name,
+                    model=model,
+                    logical_path=index.source_logical_path,
+                    source_sha256=index.source_sha256,
+                    observation_policy=observation_policy,
+                ),
+                root=index,
+                dependencies=acquired_dependencies,
+                metadata=working_set,
+                endpoint=endpoint,
                 route_name=route_name,
-                model=model,
-                logical_path=index.source_logical_path,
-                source_sha256=index.source_sha256,
-                observation_policy=observation_policy,
-            ),
-            root=index,
-            dependencies=acquired_dependencies,
-            metadata=working_set,
-            endpoint=endpoint,
-            route_name=route_name,
-        )
-        self._rehydration_metric(
-            endpoint=endpoint, route_name=route_name, state="injected", reason="observed_root"
-        )
+            )
+            self._rehydration_metric(
+                endpoint=endpoint, route_name=route_name, state="injected", reason="observed_root"
+            )
+        else:
+            self._rehydration_metric(
+                endpoint=endpoint,
+                route_name=route_name,
+                state="disabled",
+                reason="rehydration_disabled",
+            )
         return complete(
             "injected",
             injection.outcome.value,

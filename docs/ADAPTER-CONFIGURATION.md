@@ -22,6 +22,11 @@ explicitly a single-user local-appliance contract, not per-gateway-key or
 multi-user isolation. `/healthz`, `/readyz`, and loopback-only `/metrics` remain
 operator endpoints; readiness exposes only the fixed `gateway_ingress` state.
 
+Configured and supplied service tokens share one validator: nonempty visible
+ASCII bytes (`0x21..0x7e`) with a maximum of 4096 encoded bytes. Authorization
+must contain exactly one `Bearer <token>` value; whitespace, controls, Unicode,
+extra segments, duplicate headers, and over-limit values fail before body work.
+
 Caller `Authorization`, public gateway credentials, internal identity/debug
 headers, and hop-by-hop headers are not reused as trusted upstream credentials
 or metadata. Logs and metrics contain bounded endpoint, configured route,
@@ -167,6 +172,16 @@ disabled/spoofed-header requests retain their existing semantics. This simulates
 new-context/compacted request behavior at the adapter boundary; a native Codex
 compaction trigger is not claimed or required by the accepted Objective-004
 evidence.
+
+`[constitution.rehydration].enabled` defaults to `true`. Set it to `false` for a
+shared service-Bearer deployment when the unchanged gateway supplies no trusted
+per-user identity: observed roots still receive current-request governance, but
+the process-local map is never populated or consulted and zero-root requests
+preserve the post-image-policy body. Exact content-addressed compiler-cache
+reuse, if enabled, remains disposable derived reuse and is not identity/session
+memory; it cannot create zero-root disclosure. This safe degradation loses
+post-compaction/zero-root governance survival and is not equivalent to the
+accepted single-user path or to multi-user identity/isolation.
 
 Safe observation/pipeline/rehydration metrics use fixed endpoint/route/state/
 reason/outcome labels and counts/durations/gauges only—never source paths/

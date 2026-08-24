@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 
-from .config import RouteConfig, Settings
+from .config import RouteConfig, Settings, validate_service_token
 from .constitution import (
     ObservationContext,
     observe_request_for_pipeline,
@@ -80,7 +80,6 @@ FORWARDED_RESPONSE_HEADERS = frozenset(
 )
 PROXY_PATHS = frozenset({"/health", "/v1/models", "/v1/responses", "/v1/chat/completions"})
 MAX_AUTHORIZATION_HEADER_BYTES = 8192
-MAX_SERVICE_TOKEN_BYTES = 4096
 
 
 def _error(status: int, message: str, code: str) -> JSONResponse:
@@ -109,10 +108,6 @@ def _authorization_failure(status: int, *, challenge: bool) -> JSONResponse:
     )
 
 
-def _control_character(value: str) -> bool:
-    return any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
-
-
 def _authenticate_service_request(request: Request, settings: Settings) -> Response | None:
     """Authenticate only the private gateway ingress; never return token data."""
     if not settings.gateway_ingress.enabled:
@@ -122,17 +117,19 @@ def _authenticate_service_request(request: Request, settings: Settings) -> Respo
     if len(authorization_values) != 1:
         return _authorization_failure(401, challenge=True)
     authorization = authorization_values[0]
-    if len(authorization.encode("utf-8")) > MAX_AUTHORIZATION_HEADER_BYTES or _control_character(
-        authorization
-    ):
+    try:
+        authorization_bytes = authorization.encode("utf-8")
+    except UnicodeEncodeError:
+        return _authorization_failure(401, challenge=True)
+    if len(authorization_bytes) > MAX_AUTHORIZATION_HEADER_BYTES:
         return _authorization_failure(401, challenge=True)
     parts = authorization.split(" ")
     if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
         return _authorization_failure(401, challenge=True)
     supplied_token = parts[1]
-    if len(supplied_token.encode("utf-8")) > MAX_SERVICE_TOKEN_BYTES or _control_character(
-        supplied_token
-    ):
+    try:
+        validate_service_token(supplied_token)
+    except ValueError:
         return _authorization_failure(401, challenge=True)
     try:
         expected_token = settings.gateway_ingress.service_token()

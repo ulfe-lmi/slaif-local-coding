@@ -105,3 +105,8 @@ Ordinary objectives use candidate port 18031. Never mutate port 18020,
 qwen-serving/model/venv/patches/systemd, firewall/VPN/bindings/keys, or active
 Codex profiles without a dedicated explicit rollback-proven order. Port 18021
 is not presumed occupied; live reconnaissance decides whether it is free.
+
+For an unchanged gateway with one shared service-Bearer credential, set
+`[constitution.rehydration].enabled = false` unless the route is explicitly
+single-user. This preserves current-request governance but disables zero-root
+post-compaction rehydration; it does not provide trusted multi-user identity.

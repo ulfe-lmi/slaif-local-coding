@@ -10,6 +10,21 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+MAX_SERVICE_TOKEN_BYTES = 4096
+
+
+def validate_service_token(value: str) -> str:
+    """Validate one configured or supplied service Bearer token."""
+    if not isinstance(value, str) or not value:
+        raise ValueError("service credential is invalid")
+    try:
+        encoded = value.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError("service credential is invalid") from exc
+    if len(encoded) > MAX_SERVICE_TOKEN_BYTES or any(not 0x21 <= byte <= 0x7E for byte in encoded):
+        raise ValueError("service credential is invalid")
+    return value
+
 
 class ServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -55,11 +70,7 @@ class GatewayIngressConfig(BaseModel):
         value = os.environ.get(self.service_token_env)
         if not value:
             raise ValueError("gateway ingress service credential is unavailable")
-        if len(value) > 4096 or any(
-            ord(character) < 0x20 or ord(character) == 0x7F for character in value
-        ):
-            raise ValueError("gateway ingress service credential is invalid")
-        return value
+        return validate_service_token(value)
 
 
 class UpstreamConfig(BaseModel):
@@ -175,6 +186,7 @@ class RehydrationConfig(BaseModel):
     """Process-local rehydration bounds; no persistent or cross-process state."""
 
     model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
     ttl_seconds: float = Field(default=3600, gt=0, le=86400)
     max_entries: int = Field(default=64, ge=1, le=1024)
     max_entry_bytes: int = Field(default=262_144, ge=1024)

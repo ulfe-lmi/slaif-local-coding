@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 import pytest
+from starlette.requests import Request
 
 import slaif_local_coding.app as app_module
 from slaif_local_coding.app import create_app
@@ -150,6 +151,11 @@ async def test_health_models_auth_and_header_filter(settings: Settings) -> None:
         ({"authorization": "Basic adapter-only-synthetic-token"}, 401),
         ({"authorization": "Bearer"}, 401),
         ({"authorization": "Bearer "}, 401),
+        ({"authorization": "Bearer  adapter-only-synthetic-token"}, 401),
+        ({"authorization": "Bearer adapter-only-synthetic-token extra"}, 401),
+        ({"authorization": "Bearer\tadapter-only-synthetic-token"}, 401),
+        ({"authorization": "Bearer adapter-only-synthetic-token\t"}, 401),
+        ({"authorization": "Bearer adapter-only-synthetic-token "}, 401),
         ({"authorization": "Bearer wrong-synthetic-token"}, 403),
         ({"authorization": "Bearer " + "x" * 4097}, 401),
     ],
@@ -218,6 +224,22 @@ async def test_service_ingress_rejects_duplicate_authorization_without_cache_wri
     assert response.status_code == 401
     assert calls == 0
     assert sorted(tmp_path.joinpath("cache").rglob("*")) == cache_entries_before
+
+
+def test_request_service_token_uses_same_validator_as_environment(
+    settings: Settings, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    authenticated = authenticated_settings(settings, tmp_path, monkeypatch)
+    valid = "x" * 4096
+    invalid = "x\u00a0x"
+    monkeypatch.setenv("TEST_ADAPTER_SERVICE_TOKEN", valid)
+    for token, expected in ((valid, None), (invalid, 401), ("x x", 401)):
+        request = Request(post_scope(headers=[(b"authorization", f"Bearer {token}".encode())]))
+        result = app_module._authenticate_service_request(request, authenticated)
+        if expected is None:
+            assert result is None
+        else:
+            assert result is not None and result.status_code == expected
 
 
 @pytest.mark.asyncio

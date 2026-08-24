@@ -17,7 +17,46 @@ from slaif_local_coding.config import (
     Settings,
     UpstreamConfig,
     load_settings,
+    validate_service_token,
 )
+
+
+@pytest.mark.parametrize(
+    "character",
+    [*(chr(code) for code in range(0x00, 0x21)), chr(0x7F), "\u00a0", "\u2003", "é"],
+)
+def test_service_token_validator_rejects_non_visible_ascii(character: str) -> None:
+    with pytest.raises(ValueError, match="credential is invalid"):
+        validate_service_token(f"x{character}x")
+
+
+@pytest.mark.parametrize("token", [" leading", "trailing ", "two words", ""])
+def test_service_token_validator_rejects_empty_or_embedded_whitespace(token: str) -> None:
+    with pytest.raises(ValueError, match="credential is invalid"):
+        validate_service_token(token)
+
+
+def test_service_token_validator_uses_encoded_byte_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from slaif_local_coding.config import MAX_SERVICE_TOKEN_BYTES
+
+    one = "x"
+    maximum = "x" * MAX_SERVICE_TOKEN_BYTES
+    over = "x" * (MAX_SERVICE_TOKEN_BYTES + 1)
+    assert validate_service_token(one) == one
+    assert validate_service_token(maximum) == maximum
+    with pytest.raises(ValueError, match="credential is invalid"):
+        validate_service_token(over)
+
+    config = GatewayIngressConfig(
+        mode="service_bearer_static_identity", service_token_env="TEST_ADAPTER_TOKEN"
+    )
+    monkeypatch.setenv("TEST_ADAPTER_TOKEN", maximum)
+    assert config.service_token() == maximum
+    monkeypatch.setenv("TEST_ADAPTER_TOKEN", over)
+    with pytest.raises(ValueError, match="credential is invalid"):
+        config.service_token()
 
 
 def test_gateway_ingress_contract_is_strict_and_disabled_by_default(

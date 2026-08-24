@@ -73,6 +73,10 @@ injection_max_nodes = 16384
 [constitution.rehydration]
 # Process-local only. State is intentionally lost on restart and never persists
 # prompts, source, images, tool output, or request bodies.
+# Set false for shared service-Bearer deployments without trusted per-user
+# identity. This preserves current-request governance but disables zero-root
+# post-compaction rehydration and is not equivalent to the single-user path.
+enabled = true
 ttl_seconds = 3600
 max_entries = 64
 max_entry_bytes = 262144

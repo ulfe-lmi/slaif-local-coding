@@ -201,6 +201,13 @@ Expired/corrupt/oversized or missing state safely preserves the original body.
 This is adapter-boundary simulated/new-context rehydration, not real Codex
 compaction E2E.
 
+`[constitution.rehydration].enabled` defaults to `true`. A shared service-Bearer
+deployment without trusted per-user identity can set it to `false`; roots still
+govern their current request, while zero-root requests preserve their original
+body and lose post-compaction rehydration. Content-addressed compiler-cache
+reuse remains derived reuse, never identity/session memory. This is a safe
+degradation, not multi-user isolation or equivalent single-user readiness.
+
 When enabled, the public request order is JSON bounds/route selection, image
 policy, deterministic observation with exact in-memory root/dependency handoff,
 direct non-recursive compiler/cache execution, bounded incremental dependency

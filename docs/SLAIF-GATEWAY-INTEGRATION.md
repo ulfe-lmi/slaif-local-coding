@@ -50,7 +50,8 @@ The named environment variable is an example name only; its nonempty secret is
 kept in a protected runtime environment file and is never placed in TOML,
 tests, vectors, logs, metrics, cache names, or reports. Enabled mode requires
 the complete configured `constitution` `principal`, `session`, and `repository`
-identity and is explicitly a `single-user local-appliance` route. The adapter
+identity and is explicitly a `single-user local-appliance` route. Configured
+and supplied tokens share a visible-ASCII, 4096-byte validator. The adapter
 verifies exactly one `Authorization: Bearer` value with constant-time
 comparison before reading request JSON or invoking image, constitution,
 compiler, cache, or upstream work. Missing/duplicate/malformed/oversized or
@@ -71,8 +72,9 @@ cannot be represented as isolated adapter principals through this service
 contract. They must not be separated with public keys, unsigned `X-SLAIF-*`
 headers, IP addresses, request IDs, model strings, forwarding headers, or
 cookies. Safe deployment is one explicitly single-user Local Coding route and
-identity, or disabled cross-request rehydration/cache reuse until coordinated
-trusted identity exists.
+identity, or `[constitution.rehydration].enabled = false` until coordinated
+trusted identity exists. The disabled mode preserves current-request governance
+but loses zero-root/post-compaction rehydration and is not multi-user isolation.
 
 The non-active design sketch for a future coordinated contract is:
 
@@ -96,10 +98,37 @@ Evidence captured at Objective-005 activation on 2026-08-24:
 
 | Boundary | Existing capability/evidence | Local Coding state | Missing or not claimed |
 | --- | --- | --- | --- |
-| Generic provider | Gateway `main` `8f2813bf745b90221da33a7cfaf40726c5b1b480` has the existing `openai_compatible` provider, exact `/v1` backend validation, server-side secret env lookup, provider Bearer substitution, client-key non-forwarding, and quota/accounting behavior. | Adapter fake contract verifies the service Bearer boundary, Qwen credential substitution, model/usage/SSE/tool/image pass-through, and sanitized errors. | No gateway source change, gateway PR, or executable gateway-service deployment proof was made in this round. |
+| Generic provider | Gateway `main` `8f2813bf745b90221da33a7cfaf40726c5b1b480` has the existing `openai_compatible` provider, exact `/v1` backend validation, server-side secret env lookup, provider Bearer substitution, client-key non-forwarding, and quota/accounting behavior. | A disposable pinned checkout run executes the actual `OpenAICompatibleProviderAdapter` against a Local Coding candidate and fake vLLM for Responses JSON and SSE, proving model/credential/usage/event facts. | No gateway source change, gateway PR, accounting path, or live gateway-service deployment proof was made in this round. |
 | Route/profile | Open gateway OAP PR #287 is `oap/152-real-provider-accounting-qualification` at `346cdc13bcc1eb42035fb1d6a3e82c137651f4a4`; the isolated Qwen3.8 vision Codex candidate is unregistered/live-unqualified and records Codex 0.148.0. | Local Coding preserves explicit route/model policy and uses the current adapter contract. | Current Codex is 0.149.0; candidate profile mismatch and live qualification remain unresolved. |
 | Host deployment | No gateway checkout or gateway service, PostgreSQL/Redis, or gateway listener was found on hinton1 at activation; protected Qwen vision remains on port 18020 with context 100000 and text remains inactive. | No service, profile, network, or protected Qwen mutation. | Live gateway path and cutover are `NOT RUN`; no production or multi-user claim. |
 | Identity | Existing provider has one backend service credential. | Static constitution identity is the only accepted cross-request identity in enabled mode. | Trusted signed per-user principal/session/repository isolation is missing. |
+
+### Pinned gateway capability audit
+
+At gateway SHA `8f2813bf745b90221da33a7cfaf40726c5b1b480`,
+`slaif_gateway.schemas.providers.ProviderRequest` has `extra_headers`, but its
+fields do not contain client or gateway key material. The pinned
+`build_provider_headers` allowlist retains only `Accept`, `Content-Type`,
+`Content-Length`, and `X-Request-ID` from extras; authorization, cookie, token,
+session, gateway, and identity-like fragments are filtered while the configured
+provider Bearer is substituted. The existing Responses service constructs a
+`ProviderRequest` without trusted Local Coding principal/session/repository
+headers. Configuration alone therefore cannot establish signed per-user
+identity. The executable driver records this source evidence and its bounded
+JSON/SSE result; it does not invoke PostgreSQL, Redis, quota, or accounting
+services.
+
+The bounded 005-b driver run used the pinned checkout and repository-only
+`scripts/gateway_provider_driver.py` support. `OpenAICompatibleProviderAdapter`
+`forward_response` returned HTTP 200 with total usage count 5 and the fake
+upstream observed model `qwen3.8-27b`; `stream_response` returned HTTP 200
+equivalent evidence with three events in order:
+`response.created`, `response.output_text.delta`, `response.completed`. The
+candidate accepted the service credential, the fake vLLM accepted only its
+configured synthetic upstream credential, metrics were secret-free, and the
+temporary servers/cache were cleaned up. This is direct provider-adapter
+compatibility evidence only, not gateway service, quota, ledger, or cutover
+evidence.
 
 The repository-owned bounded vectors are in
 `tests/fixtures/gateway/openai_compatible_vectors.json`. They contain no
