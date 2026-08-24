@@ -139,8 +139,8 @@ Local authority (routine setup belongs to coding)
 GitHub publication and immutable report contract
 ```
 
-One numeric objective=one coherent PR. `a` creates exactly one new PR; `b..z`
-amend it. Open failed/incomplete objective precedes adjacent work. Do not put
+One numeric objective=one coherent PR. `a` creates exactly one new PR; every
+later valid suffix (`b..z`, then `aa..zz`) amends it. Open failed/incomplete objective precedes adjacent work. Do not put
 multiple architectural milestones into one order to save sequence numbers.
 
 ## 7. Review and merge gate
@@ -179,7 +179,7 @@ GitHub/live facts or production readiness.
 
 1. GitHub=software truth; OAP files=orchestration truth; FIFO=sync only.
 2. Exact active ID; unique immutable order/report; no mtime/newest inference.
-3. `a` one new PR; `b..z` same PR; one numeric objective=one PR.
+3. `a` one new PR; every later valid suffix uses the same PR; one numeric objective=one PR.
 4. Coding never merges; strategic alone accepts/merges/advances.
 5. All claimed implementation state remote before report.
 6. Report literal implementation SHA+SELF; SELF parent verified.

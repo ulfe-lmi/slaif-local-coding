@@ -61,7 +61,7 @@ the round; proceed directly from `oap/active`. You still must write response
 After valid signal, read `oap/active`; require exactly one logical ID matching:
 
 ```text
-^[0-9]{3}-[a-z]$
+^[0-9]{3}-[a-z]{1,2}$
 ```
 
 Require exactly one `orders/<ID>-*.md`. Never select by mtime, directory order,
@@ -69,9 +69,10 @@ lexical order, newest, or highest number. Duplicate/zero matches are protocol
 errors; never guess.
 
 `NNN-a` = first round of numeric objective; create one fresh branch and exactly
-one new PR. `NNN-b..NNN-z` = continuation; amend the exact existing branch/PR
-named by order; never create another. One numeric objective = one PR. Coding
-never invents or advances an ID. No `aa`; strategy escalates after `z`.
+one new PR. `NNN-b..NNN-z`, followed by `NNN-aa..NNN-zz`, are continuations;
+amend the exact existing branch/PR named by order and never create another. One
+numeric objective = one PR. Coding never invents or advances an ID. Strategy
+chooses the next suffix and escalates if `zz` is insufficient.
 
 Order filename begins `<ID>-`. Report should use same basename under
 `oap/reports/`. Exactly one final report per ID. Activated orders and published
@@ -134,7 +135,7 @@ Required:
 Prohibited: report before remote PR exists; local-only claimed commits; second
 branch/PR; merge; edited active/order; non-report file in final report commit.
 
-## 7. `NNN-b..z` — AMEND_EXISTING_PR
+## 7. Later valid suffixes — AMEND_EXISTING_PR
 
 Required:
 
@@ -276,7 +277,7 @@ sanitized fixtures, command names, status codes, event types, timings.
 
 1. GitHub=software truth; OAP files=orchestration truth; FIFO=sync only.
 2. One signal selects exact active; unique order/report; no inference.
-3. `a` creates one PR; `b..z` same PR; coding never chooses ID/roadmap.
+3. `a` creates one PR; every later valid suffix uses that PR; coding never chooses ID/roadmap.
 4. Strategy owns active/order content; coding commits unchanged bytes.
 5. Every non-report claim is remote before report.
 6. Report uses literal implementation SHA+SELF; SELF parent equals SHA.

@@ -47,8 +47,9 @@ codex --dangerously-bypass-approvals-and-sandbox exec resume --last --image crop
 
 It does not use `--ephemeral`; the second command resumes the first persisted
 session. Prompts do not contain the delegated sentinel. Results retain only
-status, event counts/bytes, fixed marker booleans, image labels, lengths,
-SHA-256 values, metric deltas, and cleanup facts.
+status, event counts/bytes, exact-sentinel binding booleans, image labels,
+lengths, SHA-256 values, metric deltas, and cleanup facts. No prompt-supplied
+processing marker is used.
 
 The fake-upstream tests construct the production `create_app` path with the
 acceptance-only `VisionOutboundRecorder` as its HTTPX transport. The recorder
@@ -82,11 +83,15 @@ it on loopback 18031 using a temporary configuration, runs the two Codex
 invocations through that candidate, and stops/removes the candidate and all
 temporary fixture/cache/session state. It requires both responses, exact
 final-message sentinel binding, a direct matching persisted/resumed session
-identity, the governance and image markers on both invocations, the exact
-model catalog facts, a non-empty bounded phase for each invocation, every
-outbound request grouped in its phase, the scaled image metric invariant, and
-the exact final binding. Port 18031 must be absent afterward. It does not
-switch or mutate protected services.
+identity, governance observation/acquisition/compile/injection on both
+invocations, exact outbound image identity and count for every main request,
+the exact model catalog facts, a non-empty bounded phase for each invocation,
+every outbound request grouped in its phase, the scaled image metric invariant,
+and the exact final binding. Exact outbound image identity/count plus the
+successful protected-upstream/Codex lifecycle proves this compatibility
+property; no visual-quality benchmark or prompt-supplied marker is used. Port
+18031 must be absent afterward. It does not switch or mutate protected
+services.
 
 The live test is intentionally skipped unless `SLAIF_VISION_ACCEPTANCE=1` is
 set. A skipped run is not acceptance evidence. If the human fixture is not

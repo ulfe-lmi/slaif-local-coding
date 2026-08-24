@@ -62,7 +62,7 @@ order, implements, pushes, creates/amends PR, publishes final report-only SELF
 commit, verifies remote state, writes response `OK`, then exits. Wrapper waits
 for next control signal.
 
-Coding never merges. `NNN-a` creates one PR; `NNN-b..z` amend it.
+Coding never merges. `NNN-a` creates one PR; `NNN-b..z`, then `NNN-aa..zz`, amend it.
 
 ## Strategic review
 

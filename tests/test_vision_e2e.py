@@ -42,7 +42,9 @@ def _catalog(path: Path) -> None:
     )
 
 
-def _fake_codex(path: Path, fixture: vision.VisionFixturePaths) -> Path:
+def _fake_codex(
+    path: Path, fixture: vision.VisionFixturePaths, *, final_message: str | None = None
+) -> Path:
     token = fixture.sentinel_token
     argv_log = fixture.codex_home / "argv-log.jsonl"
     path.write_text(
@@ -61,20 +63,20 @@ def _fake_codex(path: Path, fixture: vision.VisionFixturePaths) -> Path:
         "if 'resume' in args:\n"
         "    if '--last' not in args or '--image' not in args:\n"
         "        raise SystemExit(22)\n"
-        f"    marker = 'CROP-PROCESSED'\n"
         "else:\n"
         "    if args[args.index('--image') + 1] != "
         f"{str(fixture.full_image.path)!r}:\n"
         "        raise SystemExit(23)\n"
-        f"    marker = 'FULL-SCENE-PROCESSED'\n"
         "output_index = args.index('--output-last-message') + 1\n"
-        f"pathlib.Path(args[output_index]).write_text('SENTINEL-ACK:{token}', encoding='utf-8')\n"
+        f"final_message = {final_message!r}\n"
+        "if final_message is None:\n"
+        f"    final_message = 'SENTINEL-ACK:{token}'\n"
+        "pathlib.Path(args[output_index]).write_text(final_message, encoding='utf-8')\n"
         "events = [\n"
         " {'type': 'thread.started', 'thread_id': 'synthetic-session'},\n"
         " {'type': 'item.completed', 'item': {'type': 'command_execution'}},\n"
-        " {'type': 'item.completed', 'item': {'type': 'agent_message', 'text': marker}},\n"
         f" {{'type': 'item.completed', 'item': {{'type': 'agent_message', "
-        f"'text': 'SENTINEL-ACK:{token}'}}}},\n"
+        "'text': final_message}},\n"
         "]\n"
         "for event in events:\n"
         "    print(json.dumps(event))\n",
@@ -368,9 +370,37 @@ def test_vision_runner_uses_global_yolo_exec_resume_and_exact_model_facts(tmp_pa
     assert "--ephemeral" not in facts.second.normalized_argv
     assert facts.metric_deltas is not None and not facts.metric_deltas.exact
     assert fixture.sentinel_token not in json.dumps(asdict(facts))
+    assert all(
+        marker not in vision._vision_prompt(turn)
+        for marker in ("FULL-SCENE-PROCESSED", "CROP-PROCESSED")
+        for turn in (1, 2)
+    )
+    assert all(
+        marker not in json.dumps(asdict(facts))
+        for marker in ("FULL-SCENE-PROCESSED", "CROP-PROCESSED")
+    )
     log = (fixture.codex_home / "argv-log.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(log) == 2
     assert "resume" in log[1] and "--last" in log[1]
+
+
+@pytest.mark.parametrize("include_sentinel", [False, True])
+def test_marker_like_or_marker_plus_sentinel_output_cannot_pass_exact_binding(
+    tmp_path: Path, include_sentinel: bool
+) -> None:
+    fixture = vision.write_vision_fixture(
+        tmp_path, base_url="http://127.0.0.1:18031/v1", api_key_env="UNUSED"
+    )
+    _catalog(fixture.model_catalog)
+    final_message = "FULL-SCENE-PROCESSED"
+    if include_sentinel:
+        final_message += f" SENTINEL-ACK:{fixture.sentinel_token}"
+    codex = _fake_codex(tmp_path / "codex", fixture, final_message=final_message)
+    facts = vision.run_vision_e2e(codex, fixture)
+    assert facts.first.sentinel_passed is False
+    assert facts.second.sentinel_passed is False
+    assert facts.first.response_success is False
+    assert facts.second.response_success is False
 
 
 def test_vision_metric_deltas_are_exact_and_bounded() -> None:

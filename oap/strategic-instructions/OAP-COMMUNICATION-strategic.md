@@ -57,13 +57,16 @@ context while the versioned transcript/GitHub preserve continuity.
 
 ## 3. IDs and one-objective/one-PR law
 
-ID=`NNN-L`, `NNN=000..999`, `L=a..z`. `000` is first implementation objective.
+ID=`NNN-L`, `NNN=000..999`, and `L` is one or two lowercase letters. `000` is
+the first implementation objective.
 
 - `NNN-a`: initial round; MUST create exactly one new PR.
-- `NNN-b..NNN-z`: same objective; MUST amend that exact branch/PR; no new PR.
+- `NNN-b..NNN-z`, then `NNN-aa..NNN-zz`: same objective; MUST amend that exact
+  branch/PR; no new PR.
 - Only after accepted merge+remote-main verification may strategy activate
   `NNN+1-a`.
-- If `z` insufficient, escalate; never invent `aa`.
+- After `z`, strategy continues `aa`, `ab`, ... through `zz`; if `zz` is
+  insufficient, escalate rather than extending the grammar silently.
 - Abandonment requires explicit strategic/human decision, PR closure/reason,
   and durable record; no silent sequence skip.
 
@@ -179,7 +182,7 @@ For `a`, explicitly require coding to start current remote base, create fresh
 branch, implement/test, push, create exactly one PR before report, inspect/fix
 in-scope CI, never merge, publish report-only SELF child.
 
-For `b..z`, name exact PR number/URL/head/current useful SHA, why prior round is
+For every continuation suffix, name exact PR number/URL/head/current useful SHA, why prior round is
 insufficient, exact remediation/evidence, and `NO NEW PR`. Coding verifies/open
 same PR, pushes same branch, never merges, publishes next report.
 
@@ -238,7 +241,7 @@ cutover, release authority.
 1. GitHub=software truth; local state recoverable/non-authoritative.
 2. OAP files=orchestration truth; FIFO=sync only; exact active ID.
 3. Coding executes only active; exact unique order/report mapping.
-4. `a` one PR; `b..z` same PR; one numeric objective=one PR.
+4. `a` one PR; every later valid suffix uses the same PR; one numeric objective=one PR.
 5. Claimed implementation/transcript state remote before report.
 6. Report literal implementation SHA+SELF; strategic verifies containing commit
    and parent.

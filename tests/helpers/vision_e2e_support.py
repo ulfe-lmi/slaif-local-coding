@@ -148,7 +148,6 @@ class VisionTurnFacts:
     event_type_counts: Mapping[str, int]
     tool_calls: int
     sentinel_passed: bool
-    image_marker_passed: bool
     response_success: bool
     resumed_command: bool
     normalized_argv: tuple[str, ...]
@@ -731,23 +730,18 @@ def _normalized_argv(
 
 
 def _vision_prompt(turn: Literal[1, 2]) -> str:
-    marker = "FULL-SCENE-PROCESSED" if turn == 1 else "CROP-PROCESSED"
     subject = "the full scene" if turn == 1 else "the newest right-side crop"
     return (
         f"Inspect {subject} in the attached image. Use the ordinary shell command tool "
         "exactly once with cat GOVERNANCE-DEPENDENCY.md and wait for its result. "
-        f"Before your final response, emit the fixed marker {marker} in an agent message. "
         "Then follow the delegated dependency's FINAL_RESPONSE_EXACTLY instruction literally."
     )
 
 
-def _parse_vision_events(
-    stream: Iterable[bytes], *, expected_marker: str
-) -> tuple[int, Counter[str], int, bool, str | None]:
+def _parse_vision_events(stream: Iterable[bytes]) -> tuple[int, Counter[str], int, str | None]:
     event_bytes = 0
     event_types: Counter[str] = Counter()
     tool_calls = 0
-    marker = False
     thread_id: str | None = None
     for raw_line in stream:
         event_bytes += len(raw_line)
@@ -769,10 +763,7 @@ def _parse_vision_events(
             continue
         if item.get("type") in {"command_execution", "function_call", "exec_command"}:
             tool_calls += 1
-        if item.get("type") == "agent_message" and isinstance(item.get("text"), str):
-            text = item["text"]
-            marker = marker or expected_marker in text
-    return event_bytes, event_types, tool_calls, marker, thread_id
+    return event_bytes, event_types, tool_calls, thread_id
 
 
 def _exact_final_message(path: Path, expected: str) -> bool:
@@ -824,12 +815,10 @@ def _run_vision_turn(
             str(output_path),
             "<vision-prompt>",
         ]
-    expected_marker = "FULL-SCENE-PROCESSED" if turn == 1 else "CROP-PROCESSED"
     environment = _sandbox_environment(fixture.codex_home, fixture.api_key_env)
     event_types: Counter[str] = Counter()
     event_bytes = 0
     tool_calls = 0
-    marker = False
     sentinel = False
     thread_id: str | None = None
     exit_status: int | None = None
@@ -861,12 +850,8 @@ def _run_vision_turn(
                 event_bytes,
                 event_types,
                 tool_calls,
-                marker,
                 thread_id,
-            ) = _parse_vision_events(
-                iter(events.readline, b""),
-                expected_marker=expected_marker,
-            )
+            ) = _parse_vision_events(iter(events.readline, b""))
             sentinel = _exact_final_message(output_path, f"SENTINEL-ACK:{fixture.sentinel_token}")
     except (OSError, OverflowError, subprocess.SubprocessError):
         exit_status = None
@@ -880,7 +865,6 @@ def _run_vision_turn(
         and not timed_out
         and event_bytes > 0
         and tool_calls >= 1
-        and marker
         and sentinel
     )
     facts = VisionTurnFacts(
@@ -891,7 +875,6 @@ def _run_vision_turn(
         event_type_counts=dict(event_types),
         tool_calls=tool_calls,
         sentinel_passed=sentinel,
-        image_marker_passed=marker,
         response_success=response_success,
         resumed_command=turn == 2,
         normalized_argv=_normalized_argv(
