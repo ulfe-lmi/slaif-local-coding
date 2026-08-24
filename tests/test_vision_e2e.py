@@ -204,6 +204,7 @@ async def test_outbound_recorder_is_wired_to_create_app_and_proves_newest_crop(
         "type": "input_text",
         "text": "GOVERNANCE-DEPENDENCY.md FINAL_RESPONSE_EXACTLY",
     }
+    tool_definition = {"type": "function", "name": "read", "parameters": {}}
     tool_call = {"type": "function_call", "call_id": "fixed", "name": "read"}
     tool_output = {"type": "function_call_output", "call_id": "fixed", "output": "fixed"}
     turn_one = {
@@ -214,16 +215,17 @@ async def test_outbound_recorder_is_wired_to_create_app_and_proves_newest_crop(
                 "content": [governance, {"type": "input_image", "image_url": full}],
             }
         ],
-        "tools": [tool_call],
+        "tools": [tool_definition],
     }
     turn_two = {
         "model": vision.VISION_MODEL,
         "input": [
             {"role": "user", "content": [governance, {"type": "input_image", "image_url": full}]},
             {"role": "user", "content": [{"type": "input_image", "image_url": crop}]},
+            tool_call,
             tool_output,
         ],
-        "tools": [tool_call],
+        "tools": [tool_definition],
     }
 
     upstream_calls = 0
@@ -239,7 +241,7 @@ async def test_outbound_recorder_is_wired_to_create_app_and_proves_newest_crop(
         body = json.loads(await request.aread())
         assert body["model"] == vision.VISION_MODEL
         assert "GOVERNANCE-DEPENDENCY.md" in json.dumps(body)
-        assert any(item.get("type") == "function_call" for item in body["tools"])
+        assert any(item.get("type") == "function" for item in body["tools"])
         return httpx.Response(200, json={"id": "fake-upstream"})
 
     recorder = vision.VisionOutboundRecorder(fixture, httpx.MockTransport(upstream))
@@ -460,6 +462,91 @@ def test_vision_runner_uses_global_yolo_exec_resume_and_exact_model_facts(tmp_pa
     log = (fixture.codex_home / "argv-log.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(log) == 2
     assert "resume" in log[1] and "--last" in log[1]
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"tools": [{"type": "function"}]}, True),
+        ({"tools": [{"type": "function", "name": "synthetic", "parameters": {}}]}, True),
+        ({"input": [{"type": "function_call"}]}, True),
+        ({"input": [{"type": "function_call_output"}]}, True),
+        ({"tools": []}, False),
+        ({"tools": [{"type": "function_call"}]}, False),
+        ({"tools": [{"type": "function"}, {}]}, False),
+        ({"tools": {"type": "function"}}, False),
+        ({"metadata": {"type": "function"}}, False),
+        ({"tools": [{"type": "function"}] * 17}, False),
+    ],
+)
+def test_tool_content_requires_supported_top_level_definitions_or_items(
+    payload: dict[str, Any], expected: bool
+) -> None:
+    assert vision._has_tool_content(payload) is expected
+
+
+@pytest.mark.parametrize(
+    ("content", "accepted", "terminal_only"),
+    [
+        ("EXPECTED-ACK", True, False),
+        ("EXPECTED-ACK\r", True, True),
+        ("EXPECTED-ACK\n", True, True),
+        ("EXPECTED-ACK\r\n", True, True),
+        ("EXPECTED-ACK\r\n\n\r", True, True),
+        ("EXPECTED-ACK ", False, False),
+        ("EXPECTED-ACK\t", False, False),
+        ("prefix EXPECTED-ACK", False, False),
+        ("EXPECTED-ACK suffix", False, False),
+        ("```EXPECTED-ACK```", False, False),
+        ("MARKER EXPECTED-ACK", False, False),
+    ],
+)
+def test_final_binding_accepts_only_exact_or_terminal_crlf(
+    tmp_path: Path, content: str, accepted: bool, terminal_only: bool
+) -> None:
+    expected = "EXPECTED-ACK"
+    event = vision._message_evidence(content.encode("utf-8"), expected)
+    output = tmp_path / "last-message"
+    output.write_bytes(content.encode("utf-8"))
+    file = vision._file_final_message_evidence(output, expected)
+    assert event.accepted is accepted
+    assert file.accepted is accepted
+    assert event.terminal_line_endings_only is terminal_only
+    assert file.terminal_line_endings_only is terminal_only
+    assert event.non_whitespace_mismatch is (not accepted and not terminal_only)
+    assert file.non_whitespace_mismatch is (not accepted and not terminal_only)
+    assert event.sha256 == file.sha256
+    assert "EXPECTED-ACK" not in repr(event)
+    assert "EXPECTED-ACK" not in repr(file)
+
+
+def test_final_binding_requires_the_last_completed_agent_message(tmp_path: Path) -> None:
+    expected = "EXPECTED-ACK"
+    stream = iter(
+        [
+            json.dumps(
+                {"type": "item.completed", "item": {"type": "agent_message", "text": expected}}
+            ).encode()
+            + b"\n",
+            json.dumps(
+                {
+                    "type": "item.completed",
+                    "item": {"type": "agent_message", "text": "wrong"},
+                }
+            ).encode()
+            + b"\n",
+        ]
+    )
+    parsed = vision._parse_vision_events(stream, expected=expected)
+    event = parsed[4]
+    assert event.present
+    assert not event.exact_expected
+    assert event.non_whitespace_mismatch
+    assert vision._final_binding_provenance(event, vision._missing_message()) == "mismatch"
+
+    missing = vision._file_final_message_evidence(tmp_path / "missing", expected)
+    assert not missing.present
+    assert vision._final_binding_provenance(vision._missing_message(), missing) == "missing"
 
 
 @pytest.mark.parametrize("include_sentinel", [False, True])

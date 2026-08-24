@@ -19,7 +19,7 @@ import zlib
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -76,6 +76,26 @@ _SAFE_EVENT_TYPES = ("thread.started", "item.completed")
 _SAFE_IMAGE_TYPES = frozenset({"input_image", "image_url"})
 _SAFE_OUTBOUND_LABELS = frozenset({VISION_FULL_LABEL, VISION_CROP_LABEL, "unexpected"})
 _MAX_SAFE_IMAGE_BYTES = 8_388_608
+_MAX_TOOL_DEFINITIONS = 16
+_MAX_TOOL_SCAN_DEPTH = 32
+_SUPPORTED_TOOL_DEFINITION_TYPES = frozenset({"function"})
+_FINAL_BINDING_PROVENANCE = (
+    "event_exact",
+    "event_terminal_crlf",
+    "file_exact",
+    "file_terminal_crlf",
+    "mismatch",
+    "missing",
+)
+
+FinalBindingProvenance = Literal[
+    "event_exact",
+    "event_terminal_crlf",
+    "file_exact",
+    "file_terminal_crlf",
+    "mismatch",
+    "missing",
+]
 
 
 @dataclass(frozen=True)
@@ -183,6 +203,80 @@ class VisionTurnFacts:
     response_success: bool
     resumed_command: bool
     normalized_argv: tuple[str, ...]
+    event_final_message: FinalMessageEvidence = field(default_factory=lambda: _missing_message())
+    file_final_message: FinalMessageEvidence = field(default_factory=lambda: _missing_message())
+    final_binding_provenance: FinalBindingProvenance = "missing"
+
+
+@dataclass(frozen=True)
+class FinalMessageEvidence:
+    """Bounded evidence for one final-message transport boundary."""
+
+    present: bool
+    byte_length: int
+    sha256: str
+    exact_expected: bool
+    terminal_line_endings_only: bool
+    non_whitespace_mismatch: bool
+
+    @property
+    def accepted(self) -> bool:
+        return self.exact_expected or self.terminal_line_endings_only
+
+
+def _missing_message() -> FinalMessageEvidence:
+    return FinalMessageEvidence(
+        present=False,
+        byte_length=0,
+        sha256=hashlib.sha256(b"").hexdigest(),
+        exact_expected=False,
+        terminal_line_endings_only=False,
+        non_whitespace_mismatch=False,
+    )
+
+
+def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvidence:
+    """Compare bounded bytes without retaining the message itself."""
+    if content is None:
+        return _missing_message()
+    expected_bytes = expected.encode("utf-8")
+    exact = content == expected_bytes
+    terminal_only = (
+        not exact
+        and content.startswith(expected_bytes)
+        and len(content) > len(expected_bytes)
+        and all(byte in {10, 13} for byte in content[len(expected_bytes) :])
+    )
+    return FinalMessageEvidence(
+        present=True,
+        byte_length=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+        exact_expected=exact,
+        terminal_line_endings_only=terminal_only,
+        non_whitespace_mismatch=not exact and not terminal_only,
+    )
+
+
+def _message_evidence_from_text(value: object, expected: str) -> FinalMessageEvidence:
+    if not isinstance(value, str):
+        return _missing_message()
+    return _message_evidence(value.encode("utf-8"), expected)
+
+
+def _final_binding_provenance(
+    event: FinalMessageEvidence, output_file: FinalMessageEvidence
+) -> FinalBindingProvenance:
+    if event.exact_expected:
+        return "event_exact"
+    if event.terminal_line_endings_only:
+        return "event_terminal_crlf"
+    if output_file.exact_expected:
+        return "file_exact"
+    if output_file.terminal_line_endings_only:
+        return "file_terminal_crlf"
+    if not event.present and not output_file.present:
+        return "missing"
+    return "mismatch"
 
 
 @dataclass(frozen=True)
@@ -352,6 +446,17 @@ def _safe_sha256(value: object) -> str | None:
     return value.lower()
 
 
+def _safe_final_message_summary(evidence: FinalMessageEvidence) -> dict[str, object]:
+    return {
+        "present": bool(evidence.present),
+        "byte_length": _bounded_int(evidence.byte_length, limit=CODEX_MAX_EVENT_BYTES + 1),
+        "sha256": _safe_sha256(evidence.sha256),
+        "exact_expected": bool(evidence.exact_expected),
+        "terminal_line_endings_only": bool(evidence.terminal_line_endings_only),
+        "non_whitespace_mismatch": bool(evidence.non_whitespace_mismatch),
+    }
+
+
 def _safe_turn_summary(turn: VisionTurnFacts) -> dict[str, object]:
     return {
         "turn": turn.turn if turn.turn in {1, 2} else None,
@@ -363,6 +468,13 @@ def _safe_turn_summary(turn: VisionTurnFacts) -> dict[str, object]:
         "sentinel_passed": bool(turn.sentinel_passed),
         "response_success": bool(turn.response_success),
         "resumed_command": bool(turn.resumed_command),
+        "event_final_message": _safe_final_message_summary(turn.event_final_message),
+        "file_final_message": _safe_final_message_summary(turn.file_final_message),
+        "final_binding_provenance": (
+            turn.final_binding_provenance
+            if turn.final_binding_provenance in _FINAL_BINDING_PROVENANCE
+            else "mismatch"
+        ),
     }
 
 
@@ -686,14 +798,39 @@ def _without_images(value: object) -> object:
     return value
 
 
-def _has_tool_content(value: object) -> bool:
+def _has_tool_definitions(value: object) -> bool:
+    """Recognize only a bounded, top-level list of supported definitions."""
+    if not isinstance(value, list) or not value or len(value) > _MAX_TOOL_DEFINITIONS:
+        return False
+    return all(
+        isinstance(item, dict) and item.get("type") in _SUPPORTED_TOOL_DEFINITION_TYPES
+        for item in value
+    )
+
+
+def _has_tool_item(value: object, *, depth: int, budget: list[int]) -> bool:
+    if depth > _MAX_TOOL_SCAN_DEPTH or budget[0] <= 0:
+        return False
+    budget[0] -= 1
     if isinstance(value, list):
-        return any(_has_tool_content(item) for item in value)
-    if isinstance(value, dict):
-        if value.get("type") in {"function_call", "function_call_output", "exec_command"}:
-            return True
-        return any(_has_tool_content(item) for item in value.values())
-    return False
+        return any(_has_tool_item(item, depth=depth + 1, budget=budget) for item in value)
+    if not isinstance(value, dict):
+        return False
+    if value.get("type") in {"function_call", "function_call_output", "exec_command"}:
+        return True
+    return any(
+        _has_tool_item(child, depth=depth + 1, budget=budget)
+        for key, child in value.items()
+        if key != "tools"
+    )
+
+
+def _has_tool_content(value: object) -> bool:
+    if not isinstance(value, dict):
+        return _has_tool_item(value, depth=0, budget=[_MAX_TOOL_DEFINITIONS])
+    return _has_tool_definitions(value.get("tools")) or _has_tool_item(
+        value, depth=0, budget=[_MAX_TOOL_DEFINITIONS]
+    )
 
 
 def _content_fingerprint(value: object) -> str:
@@ -997,11 +1134,14 @@ def _vision_prompt(turn: Literal[1, 2]) -> str:
     )
 
 
-def _parse_vision_events(stream: Iterable[bytes]) -> tuple[int, Counter[str], int, str | None]:
+def _parse_vision_events(
+    stream: Iterable[bytes], *, expected: str
+) -> tuple[int, Counter[str], int, str | None, FinalMessageEvidence]:
     event_bytes = 0
     event_types: Counter[str] = Counter()
     tool_calls = 0
     thread_id: str | None = None
+    final_message = _missing_message()
     for raw_line in stream:
         event_bytes += len(raw_line)
         if event_bytes > CODEX_MAX_EVENT_BYTES:
@@ -1022,18 +1162,24 @@ def _parse_vision_events(stream: Iterable[bytes]) -> tuple[int, Counter[str], in
             continue
         if item.get("type") in {"command_execution", "function_call", "exec_command"}:
             tool_calls += 1
-    return event_bytes, event_types, tool_calls, thread_id
+        if event_type == "item.completed" and item.get("type") == "agent_message":
+            final_message = _message_evidence_from_text(item.get("text"), expected)
+    return event_bytes, event_types, tool_calls, thread_id, final_message
+
+
+def _file_final_message_evidence(path: Path, expected: str) -> FinalMessageEvidence:
+    """Validate the bounded output file without retaining its sensitive text."""
+    try:
+        with path.open("rb") as handle:
+            content = handle.read(CODEX_MAX_EVENT_BYTES + 1)
+    except OSError:
+        return _missing_message()
+    return _message_evidence(content, expected)
 
 
 def _exact_final_message(path: Path, expected: str) -> bool:
-    """Validate the bounded output file without retaining its sensitive text."""
-    try:
-        content = path.read_bytes()
-    except OSError:
-        return False
-    if len(content) > CODEX_MAX_EVENT_BYTES:
-        return False
-    return content == expected.encode("utf-8")
+    """Backward-compatible boolean view of the bounded file evidence."""
+    return _file_final_message_evidence(path, expected).accepted
 
 
 def _run_vision_turn(
@@ -1078,7 +1224,8 @@ def _run_vision_turn(
     event_types: Counter[str] = Counter()
     event_bytes = 0
     tool_calls = 0
-    sentinel = False
+    event_final_message = _missing_message()
+    file_final_message = _missing_message()
     thread_id: str | None = None
     exit_status: int | None = None
     timed_out = False
@@ -1110,8 +1257,14 @@ def _run_vision_turn(
                 event_types,
                 tool_calls,
                 thread_id,
-            ) = _parse_vision_events(iter(events.readline, b""))
-            sentinel = _exact_final_message(output_path, f"SENTINEL-ACK:{fixture.sentinel_token}")
+                event_final_message,
+            ) = _parse_vision_events(
+                iter(events.readline, b""),
+                expected=f"SENTINEL-ACK:{fixture.sentinel_token}",
+            )
+            file_final_message = _file_final_message_evidence(
+                output_path, f"SENTINEL-ACK:{fixture.sentinel_token}"
+            )
     except (OSError, OverflowError, subprocess.SubprocessError):
         exit_status = None
     finally:
@@ -1119,6 +1272,8 @@ def _run_vision_turn(
             output_path.unlink()
         except OSError:
             pass
+    final_binding_provenance = _final_binding_provenance(event_final_message, file_final_message)
+    sentinel = event_final_message.accepted or file_final_message.accepted
     response_success = (
         exit_status == 0 and not timed_out and event_bytes > 0 and tool_calls >= 1 and sentinel
     )
@@ -1137,6 +1292,9 @@ def _run_vision_turn(
             fixture,
             turn=turn,
         ),
+        event_final_message=event_final_message,
+        file_final_message=file_final_message,
+        final_binding_provenance=final_binding_provenance,
     )
     return facts, thread_id
 
