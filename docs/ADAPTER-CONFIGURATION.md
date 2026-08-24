@@ -123,6 +123,22 @@ requests retain their original bytes. `reject` returns an API-shaped 422 before
 calling upstream. `passthrough` does not rewrite. A recognized image marker in
 an ambiguous non-list position fails closed.
 
+Each route also has a disabled-by-default responses_tool_policy
+(responses-tool-policy-v1).
+passthrough keeps both Responses and Chat tool envelopes unchanged. The
+explicitly selected drop_disabled_codex_search policy applies only to
+/v1/responses, after image handling and before constitutional observation. It
+removes only top-level tool declarations whose exact type is tool_search or
+web_search; function, custom, namespace, unknown, continuation, and tool-result
+items remain in their original order and shape. If no declarations remain for
+an automatic, none, or absent choice, the adapter omits tools deterministically.
+An explicit choice of a removed type/name, or a choice that cannot be satisfied
+after removal, returns HTTP 422 with fixed code
+responses_disabled_tool_choice before observation, compiler, cache, or upstream
+work. Malformed, oversized, or non-list top-level tool structures return fixed
+HTTP 422 responses_tool_policy_invalid. Chat never applies this policy, and
+compiler calls remain direct/bypassed.
+
 ### Objective-003-b through 003-e optional one-root pipeline
 
 Integration remains disabled by every default. Enabling it requires all of:

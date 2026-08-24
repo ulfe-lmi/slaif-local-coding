@@ -135,6 +135,14 @@ The repository-owned bounded vectors are in
 credentials, raw prompts, source, images, tool output, private URLs, or raw
 authorization values.
 
+The route-scoped Codex tool-envelope vector is
+tests/fixtures/gateway/responses_tool_filter_vectors.json; the non-active
+gateway-side proposal is documented in
+GATEWAY-ROUTE-SCOPED-CODEX-TOOL-FILTER-PROPOSAL.md. The vector is content-free
+and records the exact gateway precondition, adapter postcondition, and
+one-public-request accounting contract. It does not authorize gateway changes
+or claim that the current gateway accepts the envelope.
+
 ## Upstream route
 
 The gateway's local-Qwen route points to the adapter, not vLLM. The adapter

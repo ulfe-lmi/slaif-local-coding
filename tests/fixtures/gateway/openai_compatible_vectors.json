@@ -8,6 +8,7 @@
     "tool_continuation": true,
     "image_route": "qwen38-vision-codex"
   },
+  "responses_tool_policy_vector": "responses_tool_filter_vectors.json",
   "boundary_assertions": {
     "gateway_rewrites_model_before_adapter": true,
     "adapter_authenticates_private_service_bearer": true,

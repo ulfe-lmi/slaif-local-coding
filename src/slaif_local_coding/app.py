@@ -28,6 +28,7 @@ from .constitution.models import IncompleteReason, ObservationResult, TrustClass
 from .constitution.pipeline import ConstitutionInjectionRejected, ConstitutionPipeline
 from .image_policy import AmbiguousImageShape, apply_retain_newest, count_images
 from .json_structure import JsonNestingTooDeep, enforce_json_nesting
+from .tool_policy import ResponsesToolPolicyError, apply_responses_tool_policy
 
 LOGGER = logging.getLogger("slaif.adapter")
 HOP_BY_HOP = frozenset(
@@ -288,6 +289,18 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         ["endpoint", "route", "state"],
         registry=registry,
     )
+    response_tool_items = Counter(
+        "slaif_responses_tool_policy_items_total",
+        "Bounded Responses tool declaration counts",
+        ["route", "kind"],
+        registry=registry,
+    )
+    response_tool_policy = Counter(
+        "slaif_responses_tool_policy_total",
+        "Route-scoped Responses tool policy outcomes",
+        ["route", "outcome", "reason"],
+        registry=registry,
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -496,6 +509,21 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                         )
             image_count.labels(route_name, "seen").inc(seen)
             image_count.labels(route_name, "removed").inc(removed)
+            if endpoint == "/v1/responses":
+                try:
+                    tool_result = apply_responses_tool_policy(payload, route.responses_tool_policy)
+                except ResponsesToolPolicyError as exc:
+                    response_tool_items.labels(route_name, "observed").inc(exc.observed_count)
+                    response_tool_policy.labels(route_name, "rejected", exc.reason).inc()
+                    return local_error(422, exc.message, exc.code)
+                response_tool_items.labels(route_name, "observed").inc(tool_result.observed_count)
+                response_tool_items.labels(route_name, "removed").inc(tool_result.removed_count)
+                response_tool_policy.labels(
+                    route_name, tool_result.outcome, tool_result.reason
+                ).inc()
+                if tool_result.changed:
+                    payload = tool_result.payload
+                    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode()
             post_image_body = body
             observation: ObservationResult | None = None
             observation_sources: dict[tuple[str, str], bytes] = {}

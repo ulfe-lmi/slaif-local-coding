@@ -99,6 +99,9 @@ max_images_per_request = 1
 image_overflow_policy = "retain_newest"
 enable_responses = true
 enable_chat_completions = true
+# Disabled by default. The compatibility route may explicitly select
+# drop_disabled_codex_search to remove only tool_search/web_search declarations.
+responses_tool_policy = "passthrough"
 observation_enabled = true
 constitution_enabled = false
 

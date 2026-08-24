@@ -245,6 +245,7 @@ class RouteConfig(BaseModel):
     model: str = Field(min_length=1, max_length=128)
     max_images_per_request: int | None = Field(default=None, ge=0)
     image_overflow_policy: Literal["retain_newest", "reject", "passthrough"]
+    responses_tool_policy: Literal["passthrough", "drop_disabled_codex_search"] = "passthrough"
     enable_responses: bool = True
     enable_chat_completions: bool = True
     observation_enabled: bool = False
