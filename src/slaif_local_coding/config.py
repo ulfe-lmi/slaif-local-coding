@@ -11,6 +11,10 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 MAX_SERVICE_TOKEN_BYTES = 4096
+MIN_SIGNING_SECRET_BYTES = 32
+MAX_SIGNING_SECRET_BYTES = 4096
+SIGNED_IDENTITY_VERSION = "v1"
+SIGNED_IDENTITY_POLICY_VERSION = "signed-identity-v1"
 
 
 def validate_service_token(value: str) -> str:
@@ -24,6 +28,21 @@ def validate_service_token(value: str) -> str:
     if len(encoded) > MAX_SERVICE_TOKEN_BYTES or any(not 0x21 <= byte <= 0x7E for byte in encoded):
         raise ValueError("service credential is invalid")
     return value
+
+
+def validate_signing_secret(value: str) -> bytes:
+    """Validate the selected visible-ASCII HMAC secret encoding."""
+    if not isinstance(value, str):
+        raise ValueError("gateway signing secret is invalid")
+    try:
+        encoded = value.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ValueError("gateway signing secret is invalid") from exc
+    if not MIN_SIGNING_SECRET_BYTES <= len(encoded) <= MAX_SIGNING_SECRET_BYTES:
+        raise ValueError("gateway signing secret is invalid")
+    if any(not 0x21 <= byte <= 0x7E for byte in encoded):
+        raise ValueError("gateway signing secret is invalid")
+    return encoded
 
 
 class ServerConfig(BaseModel):
@@ -45,24 +64,69 @@ class GatewayIngressConfig(BaseModel):
     """Optional private gateway-to-adapter authentication boundary."""
 
     model_config = ConfigDict(extra="forbid")
-    mode: Literal["disabled", "service_bearer_static_identity"] = "disabled"
+    mode: Literal[
+        "disabled",
+        "service_bearer_static_identity",
+        "service_bearer_signed_identity_v1",
+    ] = "disabled"
     service_token_env: str | None = Field(
         default=None,
         max_length=256,
         pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
     )
+    signing_secret_env: str | None = Field(
+        default=None,
+        max_length=256,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
+    identity_version: Literal["v1"] = "v1"
+    policy_version: Literal["signed-identity-v1"] = "signed-identity-v1"
+    clock_skew_seconds: int = Field(default=60, ge=1, le=300)
+    replay_ttl_seconds: int = Field(default=60, ge=1, le=86_400)
+    max_replay_entries: int = Field(default=4096, ge=1, le=1_000_000)
+    nonce_min_length: int = Field(default=16, ge=1, le=128)
+    nonce_max_length: int = Field(default=128, ge=1, le=256)
 
     @model_validator(mode="after")
     def require_token_env_for_mode(self) -> GatewayIngressConfig:
-        if self.mode == "service_bearer_static_identity" and not self.service_token_env:
+        signed_only_configured = (
+            self.signing_secret_env is not None
+            or self.identity_version != SIGNED_IDENTITY_VERSION
+            or self.policy_version != SIGNED_IDENTITY_POLICY_VERSION
+            or self.clock_skew_seconds != 60
+            or self.replay_ttl_seconds != 60
+            or self.max_replay_entries != 4096
+            or self.nonce_min_length != 16
+            or self.nonce_max_length != 128
+        )
+        if (
+            self.mode
+            in {
+                "service_bearer_static_identity",
+                "service_bearer_signed_identity_v1",
+            }
+            and not self.service_token_env
+        ):
             raise ValueError("service bearer ingress requires service_token_env")
+        if self.mode != "service_bearer_signed_identity_v1" and signed_only_configured:
+            raise ValueError("signed identity settings require signed gateway ingress mode")
+        if self.mode == "service_bearer_signed_identity_v1" and not self.signing_secret_env:
+            raise ValueError("signed identity ingress requires signing_secret_env")
+        if self.replay_ttl_seconds < self.clock_skew_seconds:
+            raise ValueError("signed identity replay TTL must cover clock skew")
+        if self.nonce_min_length > self.nonce_max_length:
+            raise ValueError("signed identity nonce bounds are invalid")
         if self.mode == "disabled" and self.service_token_env is not None:
             raise ValueError("disabled gateway ingress cannot configure service_token_env")
         return self
 
     @property
     def enabled(self) -> bool:
-        return self.mode == "service_bearer_static_identity"
+        return self.mode != "disabled"
+
+    @property
+    def signed(self) -> bool:
+        return self.mode == "service_bearer_signed_identity_v1"
 
     def service_token(self) -> str:
         if not self.enabled or self.service_token_env is None:
@@ -71,6 +135,14 @@ class GatewayIngressConfig(BaseModel):
         if not value:
             raise ValueError("gateway ingress service credential is unavailable")
         return validate_service_token(value)
+
+    def signing_secret(self) -> bytes:
+        if not self.signed or self.signing_secret_env is None:
+            raise ValueError("signed gateway identity is disabled")
+        value = os.environ.get(self.signing_secret_env)
+        if value is None:
+            raise ValueError("gateway signing secret is unavailable")
+        return validate_signing_secret(value)
 
 
 class UpstreamConfig(BaseModel):
@@ -200,15 +272,16 @@ class RehydrationConfig(BaseModel):
 
 
 class ConstitutionIntegrationConfig(BaseModel):
-    """Explicit local single-user working-set/injection policy.
+    """Explicit working-set/injection policy and identity source.
 
-    Identity fields are configured static appliance labels for the private MVP.
-    They are never taken from caller headers, bodies, models, or source content,
-    and they do not provide signed multi-user production isolation.
+    Static identity fields are configured appliance labels for the private MVP.
+    Signed-request mode intentionally leaves them unset; verified request
+    identity is supplied explicitly by the ingress boundary.
     """
 
     model_config = ConfigDict(extra="forbid")
     enabled: bool = False
+    identity_source: Literal["static", "signed_request"] = "static"
     principal: str | None = Field(default=None, min_length=1, max_length=256)
     session: str | None = Field(default=None, min_length=1, max_length=256)
     repository: str | None = Field(default=None, min_length=1, max_length=256)
@@ -228,8 +301,17 @@ class ConstitutionIntegrationConfig(BaseModel):
 
     @model_validator(mode="after")
     def bounded(self) -> ConstitutionIntegrationConfig:
-        if self.enabled and not all((self.principal, self.session, self.repository)):
+        static_identity_present = any((self.principal, self.session, self.repository))
+        if (
+            self.identity_source == "static"
+            and self.enabled
+            and not all((self.principal, self.session, self.repository))
+        ):
             raise ValueError("enabled constitution integration requires static local identity")
+        if self.identity_source == "signed_request" and static_identity_present:
+            raise ValueError("signed-request constitution identity forbids static identity")
+        if not self.enabled and self.identity_source != "static":
+            raise ValueError("signed-request identity requires enabled constitution integration")
         if self.entry_render_max_bytes > self.max_injected_bytes:
             raise ValueError("entry render budget cannot exceed injected-byte budget")
         if self.working_set_max_entries > self.candidate_max_count:
@@ -293,7 +375,26 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def safe_integration(self) -> Settings:
-        if self.gateway_ingress.enabled and not (
+        if self.gateway_ingress.signed:
+            if not self.constitution.enabled or not self.compiler.enabled:
+                raise ValueError(
+                    "signed identity ingress requires enabled compiler and constitution integration"
+                )
+            if self.constitution.identity_source != "signed_request":
+                raise ValueError(
+                    "signed identity ingress requires signed-request constitution identity"
+                )
+            if any(
+                (
+                    self.constitution.principal,
+                    self.constitution.session,
+                    self.constitution.repository,
+                )
+            ):
+                raise ValueError("signed identity ingress forbids static constitution identity")
+        elif self.constitution.identity_source != "static":
+            raise ValueError("signed-request constitution identity requires signed ingress")
+        if self.gateway_ingress.mode == "service_bearer_static_identity" and not (
             self.constitution.enabled
             and self.constitution.principal
             and self.constitution.session

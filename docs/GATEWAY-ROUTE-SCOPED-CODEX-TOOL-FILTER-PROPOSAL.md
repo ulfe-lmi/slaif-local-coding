@@ -21,6 +21,16 @@ conditions hold:
 - the adapter conformance vector is the agreed version and the adapter proves
   the post-transform contract.
 
+The same coordinated gateway change must emit Local Coding signed identity v1:
+the adapter service Bearer credential remains separate from the HMAC signing
+secret; the gateway derives opaque principal from authenticated gateway owner
+truth, obtains session/repository from gateway-managed context, resolves the
+configured route, and signs the exact method/path/raw-query/body/identity
+canonical bytes. It must implement key rotation and bounded timestamp/nonce
+replay handling without forwarding raw public keys or unsigned caller
+`X-SLAIF-*` identity headers. The adapter-side conformance vector is
+`tests/fixtures/gateway/signed_identity_v1_vectors.json`.
+
 The capability describes client-compatibility metadata for the adapter. It does
 not grant provider-hosted web search, tool_search, MCP, network access, or
 execution authority to the gateway or Qwen.
@@ -36,8 +46,10 @@ gateway responsibilities. Adapter compiler calls are internal capacity only and
 never public reservations.
 
 The gateway change requires a separate OAP objective and PR, human
-authorization, full negative/security tests, accounting tests, and a
-cross-repository conformance check against
-tests/fixtures/gateway/responses_tool_filter_vectors.json. No gateway
-implementation, patch file, body rewrite, provider registration, or cutover is
-included here.
+authorization, full negative/security tests, signing-key rotation/replay tests,
+accounting tests, and cross-repository conformance checks against both
+`tests/fixtures/gateway/responses_tool_filter_vectors.json` and
+`tests/fixtures/gateway/signed_identity_v1_vectors.json`. No gateway
+implementation, patch file, body rewrite, provider registration, identity
+emission, or cutover is included here. Gateway support remains **NOT
+IMPLEMENTED** and **NOT AUTHORIZED**.

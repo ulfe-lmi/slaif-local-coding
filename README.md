@@ -151,8 +151,10 @@ valid result is cached. The cache is disposable and never persists raw source,
 prompts, images, tool output, bodies, credentials, or customer content.
 
 Compilation still never acquires files, rehydrates history, exposes
-compiler/cache endpoints, supports signed multi-user production identity, cuts
-over traffic, or alters either OAP Codex profile.
+compiler/cache endpoints, cuts over traffic, or alters either OAP Codex profile.
+The adapter-side signed identity v1 verifier is prepared behind an explicit
+configuration mode, but the current gateway emits no signatures; gateway
+support remains NOT IMPLEMENTED and NOT AUTHORIZED.
 
 ## Explicit one-root working-set pipeline (objective 003-b through 003-e)
 
@@ -216,13 +218,14 @@ endpoint-specific injection before deterministic serialization. Multiple
 or incomplete roots preserve the post-image-policy body, as does unavailable/
 invalid rehydration state. Compiler, cache,
 selection, and essential-overflow failures also preserve that body. Injection
-marker/shape failures return a sanitized 422 without forwarding. The pipeline is
-local single-user MVP functionality only: configured principal/session/
-repository labels are not signed gateway identity and must never be represented
-as multi-user production isolation. The optional adapter-side service-Bearer
-ingress gate is documented in [the gateway integration contract](docs/SLAIF-GATEWAY-INTEGRATION.md);
-signed multi-user identity, gateway quotas/accounting, production cutover, and
-generic production readiness remain outside this boundary. Repository-only Objective-004 evidence separately covers governed
+marker/shape failures return a sanitized 422 without forwarding. The pipeline
+supports either static local-appliance identity or an explicitly verified
+adapter-side signed identity v1; static labels are not multi-user production
+isolation. The optional adapter-side ingress contracts are documented in [the
+gateway integration contract](docs/SLAIF-GATEWAY-INTEGRATION.md). The current
+gateway emits no signed identity, while gateway quotas/accounting, production
+cutover, and generic production readiness remain outside this boundary.
+Repository-only Objective-004 evidence separately covers governed
 Codex E2E, adapter-boundary rehydration, security/observability review, the
 isolated systemd candidate, and fixture-scoped vision acceptance; native Codex
 compaction is not claimed or required. See the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
@@ -352,6 +355,7 @@ and bounded graceful shutdown. Prefer a uniquely named transient
 `systemd-run --user --collect` unit for proof, validate it with
 `systemd-analyze verify`, and remove the temporary unit/config/cache/env after
 the run. It never installs, restarts, or changes `qwen-serving` or port
-`18020`. Public client authentication, signed identity, quotas, and TLS remain
-the separate gateway's responsibility; the adapter's private service-Bearer
-ingress contract is documented separately and remains single-user only.
+`18020`. Public client authentication, gateway-side signed identity emission,
+quotas, and TLS remain the separate gateway's responsibility; the adapter-side
+service-Bearer and signed-ingress contracts are documented separately. Gateway
+support for signed identity remains NOT IMPLEMENTED and NOT AUTHORIZED.

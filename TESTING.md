@@ -30,6 +30,16 @@ Required behavior:
 - compiler requests bypass the public transformation path;
 - no raw-payload logging.
 
+Signed gateway identity v1 tests additionally cover service-auth ordering,
+canonical bytes/HMAC vectors, case-insensitive duplicate and grammar handling,
+timestamp edges, secret separation/rotation, invalid-signature nonce behavior,
+atomic replay TTL/LRU bounds, route mismatch before transformations, concurrent
+duplicate admission, explicit per-request identity propagation, cache/
+rehydration isolation dimensions, header stripping, and secret/raw-content
+privacy. The adapter-side vector is
+`tests/fixtures/gateway/signed_identity_v1_vectors.json`; gateway emission and
+cross-repository acceptance remain `NOT IMPLEMENTED` and `NOT AUTHORIZED`.
+
 ## Image-policy tests
 
 Cover nested `input_image` and `image_url` items for Responses and Chat:

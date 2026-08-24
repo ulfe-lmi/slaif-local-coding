@@ -8,10 +8,19 @@ response_body_max_bytes = 67108864
 json_max_nesting_depth = 128
 
 [gateway_ingress]
-# Disabled preserves private loopback development behavior. Enabling this gate
-# also requires the complete explicit single-user [constitution] identity.
+# Disabled preserves private loopback development behavior. Static mode requires
+# the complete explicit single-user [constitution] identity. Signed mode is an
+# adapter-side contract only; the current gateway does not emit it.
 mode = "disabled"
 # service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"
+# signing_secret_env = "SLAIF_ADAPTER_SIGNING_SECRET"
+# identity_version = "v1"
+# policy_version = "signed-identity-v1"
+# clock_skew_seconds = 60
+# replay_ttl_seconds = 60
+# max_replay_entries = 4096
+# nonce_min_length = 16
+# nonce_max_length = 128
 
 [upstream]
 base_url = "http://127.0.0.1:18020/v1"
@@ -52,11 +61,13 @@ ttl_seconds = 604800
 max_scan_entries = 4096
 
 [constitution]
-# Explicit local-appliance single-user MVP integration. When enabling it, also
-# set compiler.enabled = true, nonempty principal/session/repository labels,
-# observation_enabled = true, and constitution_enabled = true on one route.
-# These labels are configuration values, never caller-supplied identity.
+# Explicit local-appliance single-user MVP integration. When enabling static
+# mode, also set compiler.enabled = true and nonempty principal/session/
+# repository labels. Signed mode instead uses identity_source = "signed_request"
+# with no static labels and requires signed gateway ingress. Both modes require
+# observation_enabled = true and constitution_enabled = true on one route.
 enabled = false
+# identity_source = "static"
 max_injected_bytes = 16384
 candidate_max_count = 128
 compile_failure_policy = "preserve_original"

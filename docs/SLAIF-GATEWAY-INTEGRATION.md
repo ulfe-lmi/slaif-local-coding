@@ -66,31 +66,46 @@ and loopback-only `/metrics` remain operator endpoints.
 ## Trusted identity status
 
 The gateway generic provider currently substitutes one backend credential but
-does not provide a proven trusted per-request principal/session/repository
-contract to Local Coding. Different public-gateway-user simulations therefore
-cannot be represented as isolated adapter principals through this service
-contract. They must not be separated with public keys, unsigned `X-SLAIF-*`
-headers, IP addresses, request IDs, model strings, forwarding headers, or
-cookies. Safe deployment is one explicitly single-user Local Coding route and
-identity, or `[constitution.rehydration].enabled = false` until coordinated
-trusted identity exists. The disabled mode preserves current-request governance
-but loses zero-root/post-compaction rehydration and is not multi-user isolation.
+does not emit trusted per-request identity to Local Coding. Local Coding now
+implements the adapter-side `service_bearer_signed_identity_v1` verifier as a
+prepared, disabled-by-default contract. Its configuration requires a separate
+visible-ASCII HMAC secret, bounded clock skew/replay TTL/nonce state, and
+`constitution.identity_source = "signed_request"`; static identity is forbidden
+as a fallback.
 
-The non-active design sketch for a future coordinated contract is:
+The exact v1 headers are:
 
 ```text
 Authorization: Bearer <adapter-service-secret>
-X-SLAIF-Principal: <opaque stable principal UUID>
-X-SLAIF-Session: <opaque session/thread discriminator when available>
-X-SLAIF-Route: <resolved route UUID/name>
-X-SLAIF-Timestamp: <unix timestamp>
-X-SLAIF-Signature: <HMAC over method/path/body-hash/headers>
+X-SLAIF-Identity-Version: v1
+X-SLAIF-Principal: <opaque>
+X-SLAIF-Session: <opaque>
+X-SLAIF-Repository: <opaque>
+X-SLAIF-Route: <configured-route-name>
+X-SLAIF-Timestamp: <canonical-decimal-unix-seconds>
+X-SLAIF-Nonce: <unpadded-base64url-or-lowercase-hex-compatible-value>
+X-SLAIF-Signature: v1=<64-lowercase-hex-HMAC-SHA256>
 ```
 
-This is design material only. Exact names, signature scope, replay window,
-key rotation, and gateway implementation require a separate gateway OAP
-objective/PR and explicit human authorization. No signed per-user mechanism is
-claimed by this repository.
+The HMAC input is UTF-8 newline-separated, with no trailing newline:
+`domain/version`, method, path, SHA-256 of raw query bytes, SHA-256 of the
+exact bounded body bytes, principal, session, repository, route, timestamp, and
+nonce. Query bytes are not parsed or reordered. The adapter compares the HMAC
+constant-time, reserves only a SHA-256 nonce digest in bounded process-local
+TTL/LRU state, and passes one immutable verified identity explicitly to
+compiler/cache/rehydration/injection. Signed/internal headers are stripped
+before Qwen. Fixed 401/403/409/422/503 failures do not expose identity, nonce,
+signature, body, or secret data and occur before transformation work.
+
+The exact synthetic conformance vector is
+`tests/fixtures/gateway/signed_identity_v1_vectors.json`.
+Gateway-side support for this adapter contract is **NOT IMPLEMENTED** and **NOT
+AUTHORIZED**: the current gateway's existing provider filter emits no signed identity. A
+separate gateway OAP PR, human authorization, key-derivation/rotation design,
+route capability, negative/security tests, accounting checks, and
+cross-repository conformance review are required before enabling this mode.
+Until then, safe deployment remains explicit static single-user identity or
+rehydration disabled; unsigned `X-SLAIF-*` headers never establish identity.
 
 ## Dated cross-repository evidence
 
@@ -101,7 +116,7 @@ Evidence captured at Objective-005 activation on 2026-08-24:
 | Generic provider | Gateway `main` `8f2813bf745b90221da33a7cfaf40726c5b1b480` has the existing `openai_compatible` provider, exact `/v1` backend validation, server-side secret env lookup, provider Bearer substitution, client-key non-forwarding, and quota/accounting behavior. | A disposable pinned checkout run executes the actual `OpenAICompatibleProviderAdapter` against a Local Coding candidate and fake vLLM for Responses JSON and SSE, proving model/credential/usage/event facts. | No gateway source change, gateway PR, accounting path, or live gateway-service deployment proof was made in this round. |
 | Route/profile | Open gateway OAP PR #287 is `oap/152-real-provider-accounting-qualification` at `346cdc13bcc1eb42035fb1d6a3e82c137651f4a4`; the isolated Qwen3.8 vision Codex candidate is unregistered/live-unqualified and records Codex 0.148.0. | Local Coding preserves explicit route/model policy and uses the current adapter contract. | Current Codex is 0.149.0; candidate profile mismatch and live qualification remain unresolved. |
 | Host deployment | No gateway checkout or gateway service, PostgreSQL/Redis, or gateway listener was found on hinton1 at activation; protected Qwen vision remains on port 18020 with context 100000 and text remains inactive. | No service, profile, network, or protected Qwen mutation. | Live gateway path and cutover are `NOT RUN`; no production or multi-user claim. |
-| Identity | Existing provider has one backend service credential. | Static constitution identity is the only accepted cross-request identity in enabled mode. | Trusted signed per-user principal/session/repository isolation is missing. |
+| Identity | Existing provider has one backend service credential and emits no trusted Local Coding identity. | Adapter-side signed identity v1 verifier, replay bounds, canonical vector, and request-scoped cache/rehydration propagation are prepared behind explicit mode. | Gateway derivation/emission, key rotation, route capability, cross-repository acceptance, and cutover remain missing/not authorized. |
 
 ### Pinned gateway capability audit
 

@@ -17,7 +17,7 @@ from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import ConstitutionIntegrationConfig, ObservationPolicy, RouteConfig
-from .cache import CacheIdentity, CachePolicy, DerivedIndexCache
+from .cache import CacheIdentity, CachePolicy, DerivedIndexCache, RequestIdentity
 from .compiler import CompilerSettings, ConstitutionalCompiler, ObservedSourceMetadata
 from .compiler_models import (
     COMPILER_VERSION,
@@ -201,12 +201,18 @@ class ConstitutionPipeline:
     async def aclose(self) -> None:
         await self.compiler.aclose()
 
-    def _identity(self, route_name: str) -> CacheIdentity:
+    def _identity(
+        self, route_name: str, request_identity: RequestIdentity | None = None
+    ) -> RequestIdentity:
+        if request_identity is not None:
+            if request_identity.route != route_name:
+                raise ValueError("request identity route does not match selected route")
+            return request_identity
         # Settings validation guarantees these opaque static appliance labels.
         assert self.constitution.principal is not None
         assert self.constitution.session is not None
         assert self.constitution.repository is not None
-        return CacheIdentity(
+        return RequestIdentity(
             principal=self.constitution.principal,
             route=route_name,
             session=self.constitution.session,
@@ -216,20 +222,17 @@ class ConstitutionPipeline:
     def _rehydration_identity(
         self,
         *,
-        route_name: str,
         model: str,
         logical_path: str,
         source_sha256: str,
         observation_policy: ObservationPolicy,
+        identity: RequestIdentity,
     ) -> RehydrationKey:
-        assert self.constitution.principal is not None
-        assert self.constitution.session is not None
-        assert self.constitution.repository is not None
         return RehydrationKey(
-            principal=self.constitution.principal,
-            route=route_name,
-            session=self.constitution.session,
-            repository=self.constitution.repository,
+            principal=identity.principal,
+            route=identity.route,
+            session=identity.session,
+            repository=identity.repository,
             model=model,
             root_logical_path=logical_path,
             root_source_sha256=source_sha256,
@@ -492,16 +495,16 @@ class ConstitutionPipeline:
     def _matching_rehydration_key(
         self,
         *,
-        route_name: str,
+        identity: RequestIdentity,
         model: str,
         observation_policy: ObservationPolicy,
     ) -> RehydrationKey | None:
         probe = self._rehydration_identity(
-            route_name=route_name,
             model=model,
             logical_path="AGENTS.md",
             source_sha256="0" * 64,
             observation_policy=observation_policy,
+            identity=identity,
         )
         excluded = {"root_logical_path", "root_source_sha256"}
         expected = probe.model_dump(exclude=excluded)
@@ -635,10 +638,12 @@ class ConstitutionPipeline:
         endpoint: str,
         post_image_body: bytes,
         model: str,
+        request_identity: RequestIdentity | None = None,
     ) -> PipelineResult:
         """Compile/cache/select/inject one root or rehydrate the last valid set."""
         started = time.monotonic()
         route_name = route.name
+        effective_identity = self._identity(route_name, request_identity)
         roots = observation.roots
 
         def complete(state: str, reason: str, result: PipelineResult) -> PipelineResult:
@@ -657,6 +662,7 @@ class ConstitutionPipeline:
                 endpoint=endpoint,
                 post_image_body=post_image_body,
                 model=model,
+                request_identity=effective_identity,
                 started=started,
             )
 
@@ -678,7 +684,7 @@ class ConstitutionPipeline:
                 )
                 return complete("skipped", "rehydration_disabled", preserved)
             key = self._matching_rehydration_key(
-                route_name=route_name,
+                identity=effective_identity,
                 model=model,
                 observation_policy=observation_policy,
             )
@@ -783,6 +789,7 @@ class ConstitutionPipeline:
         endpoint: str,
         post_image_body: bytes,
         model: str,
+        request_identity: RequestIdentity,
         started: float,
     ) -> PipelineResult:
         route_name = route.name
@@ -808,7 +815,7 @@ class ConstitutionPipeline:
             )
             return complete("skipped", "source_unavailable", preserved)
 
-        identity = self._identity(route_name)
+        identity = self._identity(route_name, request_identity)
         compiled = await self.compiler.compile(
             source,
             root.logical_path,
@@ -866,11 +873,11 @@ class ConstitutionPipeline:
         if self.constitution.rehydration.enabled:
             self._store_rehydration(
                 key=self._rehydration_identity(
-                    route_name=route_name,
                     model=model,
                     logical_path=index.source_logical_path,
                     source_sha256=index.source_sha256,
                     observation_policy=observation_policy,
+                    identity=identity,
                 ),
                 root=index,
                 dependencies=acquired_dependencies,

@@ -61,8 +61,66 @@ semantics. Metrics expose only endpoint, configured route, fixed evidence/status
 reason labels, counts, and duration—not source paths/content/hashes, identity hints,
 tool text, queries, or authorization. Caller-supplied identity/session headers
 remain spoofable and are stripped. The service-Bearer gate authenticates the
-single configured appliance identity; a trusted signed per-user identity remains
-an unimplemented cross-repository capability.
+single configured appliance identity; signed mode instead accepts only the
+versioned, replay-protected adapter-side contract described below.
+
+### Signed gateway identity v1 — adapter-side preparation
+
+`service_bearer_signed_identity_v1` requires both `service_token_env` and a
+separate `signing_secret_env`. The signing secret uses visible ASCII bytes,
+with a 32-byte minimum and a 4096-byte maximum. `clock_skew_seconds` is bounded
+to 1–300 seconds; `replay_ttl_seconds` must cover that window; nonce entry count
+and nonce length are bounded. Signed mode requires
+`constitution.identity_source = "signed_request"`, enabled compiler and
+constitution integration, and an enabled observed/constitutional route. It
+forbids configured static principal/session/repository fallback. Disabled and
+static modes reject signed-only settings and retain their existing defaults.
+
+After the service Bearer check, the adapter reads the bounded raw body and
+requires exactly one case-insensitive value for each of these headers:
+`X-SLAIF-Identity-Version`, `X-SLAIF-Principal`, `X-SLAIF-Session`,
+`X-SLAIF-Repository`, `X-SLAIF-Route`, `X-SLAIF-Timestamp`, `X-SLAIF-Nonce`,
+and `X-SLAIF-Signature`. Opaque fields use the bounded ASCII grammar
+`[A-Za-z0-9][A-Za-z0-9_-]{0,255}`; timestamp is canonical decimal Unix seconds;
+nonce is unpadded base64url/lowercase-hex-compatible ASCII; and the signature
+is `v1=` followed by 64 lowercase hexadecimal characters. Identity values,
+nonce text, signatures, and secrets are never logged, cached, or returned.
+
+The exact signing bytes are UTF-8 fields joined by `\n`, with no trailing
+newline:
+
+```text
+slaif-local-coding-identity-v1
+METHOD
+PATH
+sha256(raw_query_bytes)
+sha256(exact_bounded_body_bytes)
+principal
+session
+repository
+route
+timestamp
+nonce
+```
+
+The path must be one supported proxy path and the raw query bytes are hashed
+without parsing or reordering. HMAC-SHA256 is compared in constant time. The
+adapter then reserves only a SHA-256 nonce digest in bounded process-local
+TTL/LRU state; raw nonce and identity values are not retained. Invalid
+signatures do not reserve replay state, concurrent duplicates admit one
+request, and stale/future, malformed, duplicate, replayed, and route-mismatched
+requests fail with fixed 403/409/422/503 errors before image, tool, constitution,
+compiler, cache, rehydration, or upstream work. The resulting immutable
+principal/session/repository/route identity is passed explicitly through cache,
+compiler, selection, injection, and zero-root rehydration keys. Signed/internal
+headers are stripped before Qwen.
+
+The canonical conformance fixture is
+`tests/fixtures/gateway/signed_identity_v1_vectors.json`. It uses only a
+fixture-only synthetic secret and content-free request facts. This repository
+implements and tests the adapter verifier; the current gateway does not emit
+these headers, so gateway support remains **NOT IMPLEMENTED** and **NOT
+AUTHORIZED** until a separate gateway OAP order/PR and cross-repository review.
 
 The bounded compiler prompt requires exact case-sensitive literals in normative
 binding statements and evidence to survive derived indexing. This matters for
@@ -142,14 +200,15 @@ compiler calls remain direct/bypassed.
 ### Objective-003-b through 003-e optional one-root pipeline
 
 Integration remains disabled by every default. Enabling it requires all of:
-`compiler.enabled = true`; `constitution.enabled = true`; complete nonempty
-`principal`, `session`, and `repository` configuration; at least one route with
+`compiler.enabled = true`; `constitution.enabled = true`; either complete
+nonempty static `principal`, `session`, and `repository` configuration with
+`identity_source = "static"`, or signed ingress with
+`identity_source = "signed_request"`; at least one route with
 both `observation_enabled = true` and `constitution_enabled = true`; supported
 schema versions; and all existing finite compiler/cache/selector/injection
-bounds. Invalid combinations fail settings validation/startup. The three identity
-values are static local-appliance labels for a private single-user MVP. They are
-never read from caller headers, bodies, models, or source content, and they are
-not signed multi-user production identity.
+bounds. Invalid combinations fail settings validation/startup. Static labels
+are never read from caller headers, bodies, models, or source content. Signed
+request identity is verified before this pipeline and is not a static fallback.
 
 On an enabled route, work runs after image policy in this order: deterministic
 observation with request-scoped exact root/dependency bytes, direct nonrecursive
@@ -170,7 +229,7 @@ compiler/cache validation before selection.
 
 After a successful governed injection, the pipeline also records the validated
 root index, acquired dependency indexes, and dependency inclusion metadata in a
-process-local rehydration map. The key includes the complete configured static
+process-local rehydration map. The key includes the complete verified request
 identity (principal/route/session/repository), model, root path/hash, compiler/
 index/prompt versions and bounds, observation policy/version/bounds, selector/
 render policy/version, and all working-set/injection bounds. A later zero-root
@@ -206,9 +265,9 @@ text, or request-derived high-cardinality data. Rehydration states include
 populated, hit, stale/expired, isolated miss, injected, skipped, and failure.
 
 Acquisition instructions name unavailable files but do not fetch them. Arbitrary
-tool-output ingestion and recursive fetching remain excluded. Signed production
-identity, gateway quotas/accounting, generic production readiness, and cutover
-remain outside this repository's production boundary. Repository-only
+tool-output ingestion and recursive fetching remain excluded. Gateway emission
+of signed identity, gateway quotas/accounting, generic production readiness, and
+cutover remain outside this repository's production boundary. Repository-only
 Objective-004 support and accepted evidence cover governed real-Codex E2E and
 fixture-scoped vision acceptance; see the [criterion ledger](OBJECTIVE-004-LEDGER.md)
 and [OAP completeness record](../oap/COMPLETENESS.md).

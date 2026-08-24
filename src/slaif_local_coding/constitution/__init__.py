@@ -1,5 +1,6 @@
 """Request-only observation plus library-only compilation/working-set contracts."""
 
+from .cache import RequestIdentity as RequestIdentity
 from .compiler import CompilerIdentity as CompilerIdentity
 from .compiler import CompilerSettings as CompilerSettings
 from .compiler import ConstitutionalCompiler as ConstitutionalCompiler
@@ -26,6 +27,7 @@ __all__ = [
     "InjectionResult",
     "ObservationContext",
     "ObservationResult",
+    "RequestIdentity",
     "WorkingSetFailure",
     "WorkingSetPolicy",
     "select_working_set",

@@ -35,11 +35,15 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
 10. Never mutate the live Qwen installation, model files, systemd service,
     firewall, VPN, API key, or active Codex provider/profile path unless an
     active OAP order explicitly authorizes that exact operation and rollback.
-11. Optional gateway ingress uses only a configured service Bearer secret with
-    constant-time comparison. It never accepts public gateway keys or caller
-    identity headers, and service-auth failures occur before image, constitution,
-    compiler, cache, or upstream work. Enabled mode is single-user static
-    identity only until a coordinated signed identity contract exists.
+11. Optional gateway ingress uses a configured service Bearer secret with
+    constant-time comparison. Signed v1 mode additionally verifies a separate
+    bounded HMAC secret over method/path/raw-query-hash/exact-body-hash and
+    opaque identity fields, then reserves only a nonce digest in bounded
+    process-local replay state. It never accepts public gateway keys or
+    unsigned caller identity headers. Service and signed-auth failures occur
+    before image, constitution, compiler, cache, rehydration, or upstream work.
+    The current gateway does not emit the signed contract; adapter preparation
+    is not gateway acceptance or production cutover.
 
 ## Protected live-host resources
 

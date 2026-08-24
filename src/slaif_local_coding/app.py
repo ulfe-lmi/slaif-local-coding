@@ -8,7 +8,7 @@ import logging
 import secrets
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -26,6 +26,7 @@ from .constitution.cache import CachePolicy
 from .constitution.compiler import CompilerSettings
 from .constitution.models import IncompleteReason, ObservationResult, TrustClass
 from .constitution.pipeline import ConstitutionInjectionRejected, ConstitutionPipeline
+from .gateway_identity import ReplayProtector, SignedIdentityError, verify_signed_identity
 from .image_policy import AmbiguousImageShape, apply_retain_newest, count_images
 from .json_structure import JsonNestingTooDeep, enforce_json_nesting
 from .tool_policy import ResponsesToolPolicyError, apply_responses_tool_policy
@@ -173,7 +174,11 @@ async def _bounded_body(request: Request, maximum: int) -> bytes | None:
     return b"".join(chunks)
 
 
-def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
+def create_app(
+    settings: Settings,
+    transport: httpx.AsyncBaseTransport | None = None,
+    signed_identity_clock: Callable[[], float] | None = None,
+) -> FastAPI:
     timeout = httpx.Timeout(
         connect=settings.upstream.connect_timeout_seconds,
         read=settings.upstream.request_timeout_seconds,
@@ -186,6 +191,14 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
     registry = CollectorRegistry()
     LOGGER.setLevel(settings.observability.log_level)
     constitution_pipeline: ConstitutionPipeline | None = None
+    replay_protector = (
+        ReplayProtector(
+            ttl_seconds=settings.gateway_ingress.replay_ttl_seconds,
+            max_entries=settings.gateway_ingress.max_replay_entries,
+        )
+        if settings.gateway_ingress.signed
+        else None
+    )
     if settings.constitution.enabled:
         compiler_settings = CompilerSettings(
             base_url=settings.upstream.base_url.rstrip("/"),
@@ -309,6 +322,11 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                 settings.gateway_ingress.service_token()
             except ValueError:
                 LOGGER.warning("gateway ingress service credential is unavailable")
+            if settings.gateway_ingress.signed:
+                try:
+                    settings.gateway_ingress.signing_secret()
+                except ValueError:
+                    LOGGER.warning("gateway signed identity secret is unavailable")
         try:
             settings.upstream.api_key()
         except ValueError:
@@ -322,6 +340,7 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
 
     app = FastAPI(lifespan=lifespan)
     app.state.constitution_pipeline = constitution_pipeline
+    app.state.signed_identity_replay = replay_protector
 
     def route_for(endpoint: str, model: str) -> RouteConfig | None:
         matches = [
@@ -342,7 +361,15 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
             except ValueError:
                 ingress_state = "unavailable"
             else:
-                ingress_state = "ready"
+                if settings.gateway_ingress.signed:
+                    try:
+                        settings.gateway_ingress.signing_secret()
+                    except ValueError:
+                        ingress_state = "unavailable"
+                    else:
+                        ingress_state = "ready"
+                else:
+                    ingress_state = "ready"
         cache_state = "disabled"
         compiler_state = "disabled"
         if constitution_pipeline is not None:
@@ -440,6 +467,28 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         if body is None:
             return local_error(413, "request body exceeds configured limit", "request_too_large")
 
+        verified_identity = None
+        if settings.gateway_ingress.signed:
+            assert replay_protector is not None
+            try:
+                verified_identity = verify_signed_identity(
+                    request,
+                    body,
+                    settings.gateway_ingress,
+                    replay_protector,
+                    now=(signed_identity_clock or time.time)(),
+                )
+            except SignedIdentityError as exc:
+                return local_error(exc.status_code, "signed identity rejected", exc.code)
+            if request.method == "GET":
+                if not any(route.name == verified_identity.route for route in settings.routes):
+                    return local_error(
+                        403,
+                        "signed identity route is not configured",
+                        "signed_identity_route_mismatch",
+                    )
+                route_name = verified_identity.route
+
         if request.method == "POST":
             try:
                 enforce_json_nesting(body, settings.server.json_max_nesting_depth)
@@ -469,6 +518,12 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                     422, "no explicit route policy matches model and endpoint", "unknown_route"
                 )
             route_name = route.name
+            if verified_identity is not None and verified_identity.route != route.name:
+                return local_error(
+                    403,
+                    "signed identity route mismatch",
+                    "signed_identity_route_mismatch",
+                )
             stream = payload.get("stream") is True
             try:
                 seen = count_images(payload)
@@ -598,6 +653,7 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                             endpoint=endpoint,
                             post_image_body=post_image_body,
                             model=model,
+                            request_identity=verified_identity,
                         )
                     except ConstitutionInjectionRejected as exc:
                         return local_error(
