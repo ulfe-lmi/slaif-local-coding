@@ -1,9 +1,9 @@
 # Vision acceptance handoff
 
-This is a repository-only, human-gated acceptance path. The current protected
-host state is text-only: `qwen-serving.service` is active on
-`127.0.0.1:18020` and `qwen-serving-vision.service` is loaded but inactive.
-No port-18021 image proxy is assumed.
+This is a repository-only, human-gated acceptance path. The 004-al acceptance
+run completed with the protected `qwen-serving-vision.service` active on
+`127.0.0.1:18020`; `qwen-serving.service` was inactive and no port-18021 image
+proxy was assumed.
 
 ## Exact fixture contract
 
@@ -104,6 +104,34 @@ services.
 The live test is intentionally skipped unless `SLAIF_VISION_ACCEPTANCE=1` is
 set. A skipped run is not acceptance evidence. If the human fixture is not
 active, retain the text-only limitation and do not run this command.
+
+## 004-al result
+
+The exact command above was run once and passed: `1 passed, 120 deselected` in
+99.16 seconds. The two persistent Codex invocations used the repository-owned
+global-yolo runner and the protected vision fixture without changing the
+fixture.
+
+The safe outbound result was full/full then crop/crop: every bounded phase-1
+main request forwarded exactly one `full_scene` image, and every bounded
+phase-2 main request forwarded exactly one newest `right_crop` image. The
+phase counts were non-empty and bounded to four requests per invocation; the
+image metrics matched the direct recorder invariant `(n1, 0)` for phase 1 and
+`(2*n2, n2)` for phase 2. Non-image, governance, and tool content remained
+preserved for every recorded request.
+
+The final binding was effective on both turns. The event and output-file
+evidence retained the fixed `leading_lf_lf` classification from the known
+fixture, so `binding_effective=true` and `byte_exact_format=false` are separate
+facts; the accepted provenance is `event_surrounding_crlf`. Effective binding
+content is accepted, but byte-exact final formatting is not proven or supported
+on this fixture. No spaces, tabs, Unicode whitespace, markup, punctuation,
+prose, substring, or wrapper is accepted by the repository-only predicate. Only
+the hidden sentinel's leading/trailing CR/LF framing is normalized.
+
+The result is scoped to Qwen3.8-27B on the selected RTX 3090 fixture: vision
+context 100000 versus the text configuration's 150000, one image per upstream
+request, and no production, cutover, benchmark, or visual-quality claim.
 
 ## Rollback and safety
 

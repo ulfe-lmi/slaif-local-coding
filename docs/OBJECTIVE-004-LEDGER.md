@@ -1,8 +1,8 @@
 # Objective-004 criterion ledger
 
-This ledger separates accepted non-vision evidence from the sole remaining
-human-gated vision criterion. It does not convert local evidence into merge or
-release acceptance.
+This ledger separates accepted non-vision evidence from the accepted human-gated
+vision criterion. It does not convert local evidence into merge or release
+acceptance.
 
 | Criterion | State | Evidence |
 |---|---|---|
@@ -17,9 +17,13 @@ release acceptance.
 | Adapter-boundary simulated post-compaction rehydration | PASS | Fresh bounded proof: two HTTP-200 Requests calls; first compiler-attempt delta 2, second delta 0; rehydration hit and injection; exact hidden sentinel passed on both; temporary log had no sentinel. |
 | Packaging, provenance, protected-host preservation, and gateway boundary | PASS | Frozen build/package gates, Qwen attribution, read-only protected-service checks; gateway integration remains the separately documented next milestone. |
 | Native Codex compaction trigger | NOT REQUIRED | The activated human-authorized order supersedes this upstream-observability requirement; this round does not claim native compaction. |
-| Live vision full-image then crop on the human fixture | PENDING | Repository-only fixture/runner/fake boundary evidence is ready. The protected vision unit is inactive; no live vision request was made. |
+| Live vision full-image then crop on the human fixture | PASS | Exactly one authorized `live_vision_exec_resume_acceptance` run passed. The active vision fixture accepted full/full then crop/crop outbound grouping, one expected image per request, effective binding on both turns, and the scaled image-counter invariant. |
 
-The architecture property established here is stable constitutional injection at
-the adapter boundary independent of what the client retains. It is not a claim
-that Codex itself compacted, nor a claim of vision capability on the current
-text-only service.
+The architecture properties established here are stable constitutional
+injection at the adapter boundary independent of what the client retains and
+route-scoped newest-image adaptation for the one-image vision fixture. The
+vision result is scoped to Qwen3.8-27B on the selected RTX 3090 fixture: context
+100000, one image upstream, full/full followed by crop/crop, and no visual
+quality or production-equivalence claim. The hidden binding was effective on
+both turns after CR/LF-only framing normalization; the fixture's two leading
+LF bytes remain a documented non-byte-exact formatting limitation.

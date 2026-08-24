@@ -54,12 +54,12 @@ VISION_REASON_LABELS = (
     "turn1_timeout",
     "turn1_events",
     "turn1_tool",
-    "turn1_exact_sentinel",
+    "turn1_binding_effective",
     "turn2_exit",
     "turn2_timeout",
     "turn2_events",
     "turn2_tool",
-    "turn2_exact_sentinel",
+    "turn2_binding_effective",
     "metrics_missing",
     "metrics_scaled_mismatch",
     "outbound_phase_grouping",
@@ -114,18 +114,18 @@ _TOOL_SENSITIVE_KEYS = frozenset(
 )
 _FINAL_BINDING_PROVENANCE = (
     "event_exact",
-    "event_terminal_crlf",
+    "event_surrounding_crlf",
     "file_exact",
-    "file_terminal_crlf",
+    "file_surrounding_crlf",
     "mismatch",
     "missing",
 )
 
 FinalBindingProvenance = Literal[
     "event_exact",
-    "event_terminal_crlf",
+    "event_surrounding_crlf",
     "file_exact",
-    "file_terminal_crlf",
+    "file_surrounding_crlf",
     "mismatch",
     "missing",
 ]
@@ -137,7 +137,6 @@ FinalMessageWrapper = Literal[
     "asterisk_wrapper",
     "period_suffix",
     "period_then_crlf",
-    "leading_and_trailing_crlf",
     "other_mismatch",
 ]
 FinalMessagePrefix = Literal[
@@ -165,7 +164,6 @@ _FINAL_MESSAGE_WRAPPERS = (
     "asterisk_wrapper",
     "period_suffix",
     "period_then_crlf",
-    "leading_and_trailing_crlf",
     "other_mismatch",
 )
 _FINAL_MESSAGE_PREFIXES = (
@@ -325,7 +323,7 @@ class FinalMessageEvidence:
     byte_length: int
     sha256: str
     exact_expected: bool
-    terminal_line_endings_only: bool
+    surrounding_crlf_only: bool
     non_whitespace_mismatch: bool
     wrapper_classification: FinalMessageWrapper = "none"
     prefix_classification: FinalMessagePrefix = "not_applicable"
@@ -338,7 +336,18 @@ class FinalMessageEvidence:
 
     @property
     def accepted(self) -> bool:
-        return self.exact_expected or self.terminal_line_endings_only
+        """Return whether the hidden binding is effective."""
+        return self.exact_expected or self.surrounding_crlf_only
+
+    @property
+    def binding_effective(self) -> bool:
+        """Expose the architecture-level binding verdict explicitly."""
+        return self.accepted
+
+    @property
+    def byte_exact_format(self) -> bool:
+        """Keep exact transport formatting separate from effective binding."""
+        return self.exact_expected
 
 
 def _missing_message() -> FinalMessageEvidence:
@@ -347,7 +356,7 @@ def _missing_message() -> FinalMessageEvidence:
         byte_length=0,
         sha256=hashlib.sha256(b"").hexdigest(),
         exact_expected=False,
-        terminal_line_endings_only=False,
+        surrounding_crlf_only=False,
         non_whitespace_mismatch=False,
         wrapper_classification="none",
         prefix_classification="not_applicable",
@@ -400,6 +409,21 @@ def _classify_prefix(
     )
 
 
+def _surrounding_crlf_only(content: bytes, expected_bytes: bytes) -> bool:
+    """Accept only CR/LF framing around one byte-exact expected message."""
+    if not content or content == expected_bytes:
+        return False
+    first_content = 0
+    while first_content < len(content) and content[first_content] in {10, 13}:
+        first_content += 1
+    last_content = len(content)
+    while last_content > first_content and content[last_content - 1] in {10, 13}:
+        last_content -= 1
+    if first_content == 0 and last_content == len(content):
+        return False
+    return content[first_content:last_content] == expected_bytes
+
+
 def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvidence:
     """Compare bounded bytes without retaining the message itself."""
     if content is None:
@@ -415,14 +439,9 @@ def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvide
         len(content) - first_offset - len(expected_bytes) if expected_occurs_once else None
     )
     exact = content == expected_bytes
-    terminal_only = (
-        not exact
-        and content.startswith(expected_bytes)
-        and len(content) > len(expected_bytes)
-        and all(byte in {10, 13} for byte in content[len(expected_bytes) :])
-    )
+    surrounding_only = _surrounding_crlf_only(content, expected_bytes)
     wrapper_classification: FinalMessageWrapper = "none"
-    if not exact and not terminal_only:
+    if not exact and not surrounding_only:
         fixed_wrappers: tuple[tuple[bytes, FinalMessageWrapper], ...] = (
             (b"`" + expected_bytes + b"`", "inline_backticks"),
             (b'"' + expected_bytes + b'"', "double_quotes"),
@@ -430,7 +449,6 @@ def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvide
             (b"*" + expected_bytes + b"*", "asterisk_wrapper"),
             (expected_bytes + b".", "period_suffix"),
             (expected_bytes + b".\r\n", "period_then_crlf"),
-            (b"\r\n" + expected_bytes + b"\r\n", "leading_and_trailing_crlf"),
         )
         wrapper_classification = next(
             (label for construction, label in fixed_wrappers if content == construction),
@@ -447,8 +465,8 @@ def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvide
         byte_length=len(content),
         sha256=hashlib.sha256(content).hexdigest(),
         exact_expected=exact,
-        terminal_line_endings_only=terminal_only,
-        non_whitespace_mismatch=not exact and not terminal_only,
+        surrounding_crlf_only=surrounding_only,
+        non_whitespace_mismatch=not exact and not surrounding_only,
         wrapper_classification=wrapper_classification,
         prefix_classification=prefix_classification,
         contains_expected=contains_expected,
@@ -471,12 +489,12 @@ def _final_binding_provenance(
 ) -> FinalBindingProvenance:
     if event.exact_expected:
         return "event_exact"
-    if event.terminal_line_endings_only:
-        return "event_terminal_crlf"
+    if event.surrounding_crlf_only:
+        return "event_surrounding_crlf"
     if output_file.exact_expected:
         return "file_exact"
-    if output_file.terminal_line_endings_only:
-        return "file_terminal_crlf"
+    if output_file.surrounding_crlf_only:
+        return "file_surrounding_crlf"
     if not event.present and not output_file.present:
         return "missing"
     return "mismatch"
@@ -595,7 +613,7 @@ def vision_failure_reasons(facts: VisionSessionFacts) -> tuple[str, ...]:
             timeout_label="turn1_timeout",
             events_label="turn1_events",
             tool_label="turn1_tool",
-            sentinel_label="turn1_exact_sentinel",
+            sentinel_label="turn1_binding_effective",
         )
     if not facts.second.response_success:
         _append_turn_failure_reasons(
@@ -605,7 +623,7 @@ def vision_failure_reasons(facts: VisionSessionFacts) -> tuple[str, ...]:
             timeout_label="turn2_timeout",
             events_label="turn2_events",
             tool_label="turn2_tool",
-            sentinel_label="turn2_exact_sentinel",
+            sentinel_label="turn2_binding_effective",
         )
     if facts.metric_deltas is None:
         reasons.add("metrics_missing")
@@ -655,7 +673,9 @@ def _safe_final_message_summary(evidence: FinalMessageEvidence) -> dict[str, obj
         "byte_length": _bounded_int(evidence.byte_length, limit=CODEX_MAX_EVENT_BYTES + 1),
         "sha256": _safe_sha256(evidence.sha256),
         "exact_expected": bool(evidence.exact_expected),
-        "terminal_line_endings_only": bool(evidence.terminal_line_endings_only),
+        "byte_exact_format": bool(evidence.byte_exact_format),
+        "surrounding_crlf_only": bool(evidence.surrounding_crlf_only),
+        "binding_effective": bool(evidence.binding_effective),
         "non_whitespace_mismatch": bool(evidence.non_whitespace_mismatch),
         "contains_expected": bool(evidence.contains_expected),
         "expected_offset": _bounded_int(evidence.expected_offset, limit=CODEX_MAX_EVENT_BYTES),
@@ -693,6 +713,7 @@ def _safe_turn_summary(turn: VisionTurnFacts) -> dict[str, object]:
         "event_type_counts": _safe_event_type_counts(turn.event_type_counts),
         "tool_calls": _bounded_int(turn.tool_calls, limit=VISION_MAX_TOOL_CALLS),
         "sentinel_passed": bool(turn.sentinel_passed),
+        "binding_effective": bool(turn.sentinel_passed),
         "response_success": bool(turn.response_success),
         "resumed_command": bool(turn.resumed_command),
         "event_final_message": _safe_final_message_summary(turn.event_final_message),

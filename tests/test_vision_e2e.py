@@ -553,23 +553,29 @@ def test_tool_shape_diagnostics_use_fixed_categories_and_bound_nested_scans() ->
 
 
 @pytest.mark.parametrize(
-    ("content", "accepted", "terminal_only"),
+    ("content", "accepted", "surrounding_only"),
     [
         ("EXPECTED-ACK", True, False),
         ("EXPECTED-ACK\r", True, True),
         ("EXPECTED-ACK\n", True, True),
         ("EXPECTED-ACK\r\n", True, True),
+        ("\r\nEXPECTED-ACK", True, True),
+        ("\n\nEXPECTED-ACK", True, True),
+        ("\r\nEXPECTED-ACK\n\r", True, True),
+        ("\r\nEXPECTED-ACK\r\n", True, True),
         ("EXPECTED-ACK\r\n\n\r", True, True),
+        ("EXPECTED-AC\nK", False, False),
         ("EXPECTED-ACK ", False, False),
         ("EXPECTED-ACK\t", False, False),
+        ("\u2003EXPECTED-ACK", False, False),
         ("prefix EXPECTED-ACK", False, False),
         ("EXPECTED-ACK suffix", False, False),
         ("```EXPECTED-ACK```", False, False),
         ("MARKER EXPECTED-ACK", False, False),
     ],
 )
-def test_final_binding_accepts_only_exact_or_terminal_crlf(
-    tmp_path: Path, content: str, accepted: bool, terminal_only: bool
+def test_final_binding_accepts_only_exact_or_surrounding_crlf(
+    tmp_path: Path, content: str, accepted: bool, surrounding_only: bool
 ) -> None:
     expected = "EXPECTED-ACK"
     event = vision._message_evidence(content.encode("utf-8"), expected)
@@ -578,16 +584,18 @@ def test_final_binding_accepts_only_exact_or_terminal_crlf(
     file = vision._file_final_message_evidence(output, expected)
     assert event.accepted is accepted
     assert file.accepted is accepted
-    assert event.terminal_line_endings_only is terminal_only
-    assert file.terminal_line_endings_only is terminal_only
-    assert event.non_whitespace_mismatch is (not accepted and not terminal_only)
-    assert file.non_whitespace_mismatch is (not accepted and not terminal_only)
+    assert event.surrounding_crlf_only is surrounding_only
+    assert file.surrounding_crlf_only is surrounding_only
+    assert event.non_whitespace_mismatch is (not accepted and not surrounding_only)
+    assert file.non_whitespace_mismatch is (not accepted and not surrounding_only)
     assert (
         event.wrapper_classification
         == file.wrapper_classification
-        == ("none" if accepted or terminal_only else "other_mismatch")
+        == ("none" if accepted or surrounding_only else "other_mismatch")
     )
     assert event.sha256 == file.sha256
+    assert event.byte_exact_format is (content == "EXPECTED-ACK")
+    assert event.binding_effective is accepted
     assert "EXPECTED-ACK" not in repr(event)
     assert "EXPECTED-ACK" not in repr(file)
 
@@ -613,12 +621,38 @@ def test_final_binding_requires_the_last_completed_agent_message(tmp_path: Path)
     event = parsed[4]
     assert event.present
     assert not event.exact_expected
+    assert not event.surrounding_crlf_only
     assert event.non_whitespace_mismatch
     assert vision._final_binding_provenance(event, vision._missing_message()) == "mismatch"
 
     missing = vision._file_final_message_evidence(tmp_path / "missing", expected)
     assert not missing.present
     assert vision._final_binding_provenance(vision._missing_message(), missing) == "missing"
+
+
+@pytest.mark.parametrize(
+    ("event_content", "file_content", "provenance"),
+    [
+        (b"EXPECTED-ACK", b"mismatch", "event_exact"),
+        (b"\n\nEXPECTED-ACK", b"mismatch", "event_surrounding_crlf"),
+        (b"mismatch", b"EXPECTED-ACK", "file_exact"),
+        (b"mismatch", b"\r\nEXPECTED-ACK\r\n", "file_surrounding_crlf"),
+        (b"mismatch", b"other", "mismatch"),
+        (None, None, "missing"),
+    ],
+)
+def test_final_binding_provenance_is_event_first_then_file(
+    tmp_path: Path,
+    event_content: bytes | None,
+    file_content: bytes | None,
+    provenance: str,
+) -> None:
+    event = vision._message_evidence(event_content, "EXPECTED-ACK")
+    output = tmp_path / "last-message"
+    if file_content is not None:
+        output.write_bytes(file_content)
+    file = vision._file_final_message_evidence(output, "EXPECTED-ACK")
+    assert vision._final_binding_provenance(event, file) == provenance
 
 
 @pytest.mark.parametrize(
@@ -630,7 +664,6 @@ def test_final_binding_requires_the_last_completed_agent_message(tmp_path: Path)
         ("*EXPECTED-ACK*", "asterisk_wrapper"),
         ("EXPECTED-ACK.", "period_suffix"),
         ("EXPECTED-ACK.\r\n", "period_then_crlf"),
-        ("\r\nEXPECTED-ACK\r\n", "leading_and_trailing_crlf"),
         ("EXPECTED-ACX", "other_mismatch"),
     ],
 )
@@ -643,7 +676,9 @@ def test_fixed_final_message_wrappers_are_diagnostic_only(content: str, wrapper:
     summary = vision._safe_final_message_summary(evidence)
     assert summary["wrapper_classification"] == wrapper
     assert summary["exact_expected"] is False
-    assert summary["terminal_line_endings_only"] is False
+    assert summary["surrounding_crlf_only"] is False
+    assert summary["byte_exact_format"] is False
+    assert summary["binding_effective"] is False
 
 
 @pytest.mark.parametrize(
@@ -721,7 +756,11 @@ def test_two_byte_prefix_classification_is_closed_and_event_file_parity(
     assert event.prefix_classification == file.prefix_classification == prefix_classification
     assert event.contains_expected and event.expected_offset in {0, 2}
     assert event.trailing_extra_bytes == 0
-    assert event.accepted is (prefix_classification == "none")
+    assert event.accepted is (
+        prefix_classification in {"none", "leading_crlf", "leading_lf_lf", "leading_cr_cr"}
+    )
+    assert file.accepted is event.accepted
+    assert event.byte_exact_format is (prefix_classification == "none")
     assert event.prefix_classification in vision._FINAL_MESSAGE_PREFIXES
     assert file.prefix_classification in vision._FINAL_MESSAGE_PREFIXES
     assert "EXPECTED-ACK" not in repr(event)
@@ -753,8 +792,8 @@ def test_two_byte_prefix_classification_is_not_applicable_without_exact_relation
     file = vision._file_final_message_evidence(output, expected)
 
     assert event.prefix_classification == file.prefix_classification == "not_applicable"
-    assert event.accepted is event.terminal_line_endings_only
-    assert file.accepted is file.terminal_line_endings_only
+    assert event.accepted is (event.exact_expected or event.surrounding_crlf_only)
+    assert file.accepted is (file.exact_expected or file.surrounding_crlf_only)
     assert event.prefix_classification in vision._FINAL_MESSAGE_PREFIXES
     assert file.prefix_classification in vision._FINAL_MESSAGE_PREFIXES
 
@@ -842,7 +881,7 @@ def test_marker_like_or_marker_plus_sentinel_output_cannot_pass_exact_binding(
             lambda facts: _replace_turn(facts, 1, tool_calls=0, response_success=False),
         ),
         (
-            "turn1_exact_sentinel",
+            "turn1_binding_effective",
             lambda facts: _replace_turn(facts, 1, sentinel_passed=False, response_success=False),
         ),
         (
@@ -862,7 +901,7 @@ def test_marker_like_or_marker_plus_sentinel_output_cannot_pass_exact_binding(
             lambda facts: _replace_turn(facts, 2, tool_calls=0, response_success=False),
         ),
         (
-            "turn2_exact_sentinel",
+            "turn2_binding_effective",
             lambda facts: _replace_turn(facts, 2, sentinel_passed=False, response_success=False),
         ),
         ("metrics_missing", lambda facts: replace(facts, metric_deltas=None)),
