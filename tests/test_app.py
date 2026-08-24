@@ -316,7 +316,7 @@ async def test_gateway_vector_auth_preserves_image_tools_usage_and_sse(
         )
 
     app = create_app(authenticated, httpx.MockTransport(handler))
-    payload = {
+    payload: dict[str, Any] = {
         "model": "qwen3.8-27b",
         "input": [
             {"type": "input_image", "image_url": "old-image"},
