@@ -7,11 +7,11 @@ import os
 import tempfile
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import pytest
@@ -40,6 +40,83 @@ def _catalog(path: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _passing_turn(turn: Literal[1, 2]) -> vision.VisionTurnFacts:
+    return vision.VisionTurnFacts(
+        turn=turn,
+        exit_status=0,
+        timed_out=False,
+        event_bytes=128,
+        event_type_counts={"thread.started": 1, "item.completed": 1},
+        tool_calls=1,
+        sentinel_passed=True,
+        response_success=True,
+        resumed_command=turn == 2,
+        normalized_argv=("<codex>", "--dangerously-bypass-approvals-and-sandbox"),
+    )
+
+
+def _passing_outbound(turn: Literal[1, 2]) -> vision.VisionBoundaryEvidence:
+    label = vision.VISION_FULL_LABEL if turn == 1 else vision.VISION_CROP_LABEL
+    return vision.VisionBoundaryEvidence(
+        endpoint="/v1/responses",
+        turn=turn,
+        image_types=("input_image",),
+        outgoing_images_seen=1,
+        forwarded_labels=(label,),
+        forwarded_lengths=(4,),
+        forwarded_sha256=("a" * 64,),
+        exactly_one_expected_image=True,
+        no_unexpected_image=True,
+        expected_fixture_match=True,
+        body_parsed=True,
+        non_image_content_preserved=True,
+        governance_content_preserved=True,
+        tool_content_preserved=True,
+    )
+
+
+def _passing_facts() -> vision.VisionSessionFacts:
+    return vision.VisionSessionFacts(
+        first=_passing_turn(1),
+        second=_passing_turn(2),
+        same_session=True,
+        catalog_image_capability=True,
+        catalog_detail_original_disabled=True,
+        catalog_context_window=100_000,
+        catalog_parallel_tools_disabled=True,
+        metric_deltas=vision.VisionMetricDeltas(
+            turn1_seen=1,
+            turn1_removed=0,
+            turn2_seen=2,
+            turn2_removed=1,
+            invocation_1_requests=1,
+            invocation_2_requests=1,
+        ),
+        outbound_facts=(_passing_outbound(1), _passing_outbound(2)),
+    )
+
+
+def _replace_turn(
+    facts: vision.VisionSessionFacts, turn: Literal[1, 2], **changes: Any
+) -> vision.VisionSessionFacts:
+    if turn == 1:
+        return replace(facts, first=replace(facts.first, **changes))
+    return replace(facts, second=replace(facts.second, **changes))
+
+
+def _scaled_metric_mismatch(facts: vision.VisionSessionFacts) -> vision.VisionSessionFacts:
+    assert facts.metric_deltas is not None
+    return replace(
+        facts,
+        metric_deltas=replace(facts.metric_deltas, turn1_seen=0),
+    )
+
+
+def _invalid_outbound_request(facts: vision.VisionSessionFacts) -> vision.VisionSessionFacts:
+    first = replace(facts.outbound_facts[0], expected_fixture_match=False)
+    return replace(facts, outbound_facts=(first, facts.outbound_facts[1]))
 
 
 def _fake_codex(
@@ -370,10 +447,11 @@ def test_vision_runner_uses_global_yolo_exec_resume_and_exact_model_facts(tmp_pa
     assert "--ephemeral" not in facts.second.normalized_argv
     assert facts.metric_deltas is not None and not facts.metric_deltas.exact
     assert fixture.sentinel_token not in json.dumps(asdict(facts))
+    vision_turns: tuple[Literal[1, 2], ...] = (1, 2)
     assert all(
         marker not in vision._vision_prompt(turn)
         for marker in ("FULL-SCENE-PROCESSED", "CROP-PROCESSED")
-        for turn in (1, 2)
+        for turn in vision_turns
     )
     assert all(
         marker not in json.dumps(asdict(facts))
@@ -401,6 +479,136 @@ def test_marker_like_or_marker_plus_sentinel_output_cannot_pass_exact_binding(
     assert facts.second.sentinel_passed is False
     assert facts.first.response_success is False
     assert facts.second.response_success is False
+
+
+@pytest.mark.parametrize(
+    ("label", "mutate"),
+    [
+        ("session_mismatch", lambda facts: replace(facts, same_session=False)),
+        (
+            "catalog_image_capability",
+            lambda facts: replace(facts, catalog_image_capability=False),
+        ),
+        (
+            "catalog_detail_original",
+            lambda facts: replace(facts, catalog_detail_original_disabled=False),
+        ),
+        (
+            "catalog_context_window",
+            lambda facts: replace(facts, catalog_context_window=None),
+        ),
+        (
+            "catalog_parallel_tools",
+            lambda facts: replace(facts, catalog_parallel_tools_disabled=False),
+        ),
+        (
+            "turn1_exit",
+            lambda facts: _replace_turn(facts, 1, exit_status=1, response_success=False),
+        ),
+        (
+            "turn1_timeout",
+            lambda facts: _replace_turn(facts, 1, timed_out=True, response_success=False),
+        ),
+        (
+            "turn1_events",
+            lambda facts: _replace_turn(facts, 1, event_bytes=0, response_success=False),
+        ),
+        (
+            "turn1_tool",
+            lambda facts: _replace_turn(facts, 1, tool_calls=0, response_success=False),
+        ),
+        (
+            "turn1_exact_sentinel",
+            lambda facts: _replace_turn(facts, 1, sentinel_passed=False, response_success=False),
+        ),
+        (
+            "turn2_exit",
+            lambda facts: _replace_turn(facts, 2, exit_status=1, response_success=False),
+        ),
+        (
+            "turn2_timeout",
+            lambda facts: _replace_turn(facts, 2, timed_out=True, response_success=False),
+        ),
+        (
+            "turn2_events",
+            lambda facts: _replace_turn(facts, 2, event_bytes=0, response_success=False),
+        ),
+        (
+            "turn2_tool",
+            lambda facts: _replace_turn(facts, 2, tool_calls=0, response_success=False),
+        ),
+        (
+            "turn2_exact_sentinel",
+            lambda facts: _replace_turn(facts, 2, sentinel_passed=False, response_success=False),
+        ),
+        ("metrics_missing", lambda facts: replace(facts, metric_deltas=None)),
+        ("metrics_scaled_mismatch", _scaled_metric_mismatch),
+        (
+            "outbound_phase_grouping",
+            lambda facts: replace(facts, outbound_facts=tuple(reversed(facts.outbound_facts))),
+        ),
+        ("outbound_request_invalid", _invalid_outbound_request),
+    ],
+)
+def test_vision_failure_reasons_cover_each_predicate(
+    label: str, mutate: Callable[[vision.VisionSessionFacts], vision.VisionSessionFacts]
+) -> None:
+    baseline = _passing_facts()
+    assert vision.vision_failure_reasons(baseline) == ()
+    assert baseline.successful and baseline.outbound_successful
+
+    altered = mutate(baseline)
+    reasons = vision.vision_failure_reasons(altered)
+    assert label in reasons
+    assert all(reason in vision.VISION_REASON_LABELS for reason in reasons)
+    assert reasons == tuple(reason for reason in vision.VISION_REASON_LABELS if reason in reasons)
+    assert (not reasons) == (altered.successful and altered.outbound_successful)
+
+
+def test_vision_diagnostic_summary_excludes_ephemeral_and_raw_values() -> None:
+    baseline = _passing_facts()
+    unsafe_first = replace(
+        baseline.first,
+        normalized_argv=(
+            "https://private.example/secret",
+            "prompt text",
+            "source text",
+            "tool output",
+            "Bearer credential-value",
+            "SENTINEL-ACK:ephemeral-sentinel",
+        ),
+        event_type_counts={"thread.started": 1, "raw-response-content": 1},
+    )
+    unsafe_outbound = replace(
+        baseline.outbound_facts[0],
+        image_types=("data:image/png;base64,raw-image",),
+        forwarded_labels=("prompt/source/tool text",),
+        forwarded_lengths=(99_999_999_999,),
+        forwarded_sha256=("not-a-sha256",),
+    )
+    facts = replace(
+        baseline,
+        first=unsafe_first,
+        outbound_facts=(unsafe_outbound, baseline.outbound_facts[1]),
+    )
+
+    summary = vision.vision_diagnostic_summary(facts)
+    serialized = json.dumps(summary, sort_keys=True)
+    for forbidden in (
+        "private.example",
+        "prompt text",
+        "source text",
+        "tool output",
+        "Bearer credential-value",
+        "ephemeral-sentinel",
+        "raw-response-content",
+        "data:image/png;base64,raw-image",
+        "prompt/source/tool text",
+        "not-a-sha256",
+    ):
+        assert forbidden not in serialized
+    assert "unexpected" in serialized
+    assert summary["reasons"] == ("outbound_request_invalid",)
 
 
 def test_vision_metric_deltas_are_exact_and_bounded() -> None:
@@ -480,8 +688,9 @@ def test_live_vision_exec_resume_acceptance() -> None:
                     metrics_sampler=lambda: client.get("/metrics").text,
                     outbound_recorder=recorder,
                 )
-        assert facts.successful
-        assert facts.outbound_successful
+        assert vision.vision_failure_reasons(facts) == (), json.dumps(
+            vision.vision_diagnostic_summary(facts), sort_keys=True
+        )
         assert len(recorder.facts) == sum(recorder.phase_counts or ())
         assert recorder.phase_counts is not None
         assert all(

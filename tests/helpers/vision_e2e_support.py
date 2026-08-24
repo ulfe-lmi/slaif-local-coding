@@ -44,6 +44,38 @@ VISION_MAX_TOOL_CALLS = 4
 VISION_MAX_MAIN_REQUESTS_PER_INVOCATION = VISION_MAX_TOOL_CALLS
 VISION_FULL_LABEL = "full_scene"
 VISION_CROP_LABEL = "right_crop"
+VISION_REASON_LABELS = (
+    "session_mismatch",
+    "catalog_image_capability",
+    "catalog_detail_original",
+    "catalog_context_window",
+    "catalog_parallel_tools",
+    "turn1_exit",
+    "turn1_timeout",
+    "turn1_events",
+    "turn1_tool",
+    "turn1_exact_sentinel",
+    "turn2_exit",
+    "turn2_timeout",
+    "turn2_events",
+    "turn2_tool",
+    "turn2_exact_sentinel",
+    "metrics_missing",
+    "metrics_scaled_mismatch",
+    "outbound_phase_grouping",
+    "outbound_request_invalid",
+)
+
+_CORE_REASON_LABELS = frozenset(
+    label for label in VISION_REASON_LABELS if not label.startswith("outbound_")
+)
+_OUTBOUND_REASON_LABELS = frozenset(
+    label for label in VISION_REASON_LABELS if label.startswith("outbound_")
+)
+_SAFE_EVENT_TYPES = ("thread.started", "item.completed")
+_SAFE_IMAGE_TYPES = frozenset({"input_image", "image_url"})
+_SAFE_OUTBOUND_LABELS = frozenset({VISION_FULL_LABEL, VISION_CROP_LABEL, "unexpected"})
+_MAX_SAFE_IMAGE_BYTES = 8_388_608
 
 
 @dataclass(frozen=True)
@@ -169,36 +201,263 @@ class VisionSessionFacts:
 
     @property
     def successful(self) -> bool:
-        return (
-            self.same_session
-            and self.catalog_image_capability
-            and self.catalog_detail_original_disabled
-            and self.catalog_context_window == 100_000
-            and self.catalog_parallel_tools_disabled
-            and self.first.response_success
-            and self.second.response_success
-            and self.metric_deltas is not None
-            and self.metric_deltas.exact
-        )
+        return _session_successful(self)
 
     @property
     def outbound_successful(self) -> bool:
         """Require every request in both ordered, recorder-backed phases."""
-        labels = tuple(fact.turn for fact in self.outbound_facts)
-        if not labels or 1 not in labels or 2 not in labels:
-            return False
-        first_second = labels.index(2)
-        if any(label != 1 for label in labels[:first_second]) or any(
-            label != 2 for label in labels[first_second:]
-        ):
-            return False
-        first_count = first_second
-        second_count = len(labels) - first_second
-        return (
-            1 <= first_count <= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
-            and 1 <= second_count <= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
-            and all(fact.accepted for fact in self.outbound_facts)
+        return _outbound_successful(self)
+
+
+def _session_successful(facts: VisionSessionFacts) -> bool:
+    """Keep the original aggregate acceptance predicate in one place."""
+    return (
+        facts.same_session
+        and facts.catalog_image_capability
+        and facts.catalog_detail_original_disabled
+        and facts.catalog_context_window == 100_000
+        and facts.catalog_parallel_tools_disabled
+        and facts.first.response_success
+        and facts.second.response_success
+        and facts.metric_deltas is not None
+        and facts.metric_deltas.exact
+    )
+
+
+def _outbound_phase_grouping_successful(facts: VisionSessionFacts) -> bool:
+    labels = tuple(fact.turn for fact in facts.outbound_facts)
+    if not labels or 1 not in labels or 2 not in labels:
+        return False
+    first_second = labels.index(2)
+    if any(label != 1 for label in labels[:first_second]) or any(
+        label != 2 for label in labels[first_second:]
+    ):
+        return False
+    first_count = first_second
+    second_count = len(labels) - first_second
+    return (
+        1 <= first_count <= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
+        and 1 <= second_count <= VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
+    )
+
+
+def _outbound_successful(facts: VisionSessionFacts) -> bool:
+    return _outbound_phase_grouping_successful(facts) and all(
+        fact.accepted for fact in facts.outbound_facts
+    )
+
+
+def _append_turn_failure_reasons(
+    reasons: set[str],
+    turn: VisionTurnFacts,
+    *,
+    exit_label: str,
+    timeout_label: str,
+    events_label: str,
+    tool_label: str,
+    sentinel_label: str,
+) -> None:
+    """Decompose one existing response predicate without retaining response text."""
+    if turn.response_success:
+        return
+    before = len(reasons)
+    if turn.exit_status != 0:
+        reasons.add(exit_label)
+    if turn.timed_out:
+        reasons.add(timeout_label)
+    if turn.event_bytes <= 0:
+        reasons.add(events_label)
+    if turn.tool_calls < 1:
+        reasons.add(tool_label)
+    if not turn.sentinel_passed:
+        reasons.add(sentinel_label)
+    if len(reasons) == before:
+        # A manually constructed fact may contain only an aggregate failure. Keep
+        # the closed verdict non-empty without inventing a raw failure detail.
+        reasons.add(events_label)
+
+
+def vision_failure_reasons(facts: VisionSessionFacts) -> tuple[str, ...]:
+    """Return the deterministic, privacy-safe field-level acceptance verdict."""
+    reasons: set[str] = set()
+    if not facts.same_session:
+        reasons.add("session_mismatch")
+    if not facts.catalog_image_capability:
+        reasons.add("catalog_image_capability")
+    if not facts.catalog_detail_original_disabled:
+        reasons.add("catalog_detail_original")
+    if facts.catalog_context_window != 100_000:
+        reasons.add("catalog_context_window")
+    if not facts.catalog_parallel_tools_disabled:
+        reasons.add("catalog_parallel_tools")
+    if not facts.first.response_success:
+        _append_turn_failure_reasons(
+            reasons,
+            facts.first,
+            exit_label="turn1_exit",
+            timeout_label="turn1_timeout",
+            events_label="turn1_events",
+            tool_label="turn1_tool",
+            sentinel_label="turn1_exact_sentinel",
         )
+    if not facts.second.response_success:
+        _append_turn_failure_reasons(
+            reasons,
+            facts.second,
+            exit_label="turn2_exit",
+            timeout_label="turn2_timeout",
+            events_label="turn2_events",
+            tool_label="turn2_tool",
+            sentinel_label="turn2_exact_sentinel",
+        )
+    if facts.metric_deltas is None:
+        reasons.add("metrics_missing")
+    elif not facts.metric_deltas.exact:
+        reasons.add("metrics_scaled_mismatch")
+    if not _outbound_phase_grouping_successful(facts):
+        reasons.add("outbound_phase_grouping")
+    elif not all(fact.accepted for fact in facts.outbound_facts):
+        reasons.add("outbound_request_invalid")
+    return tuple(label for label in VISION_REASON_LABELS if label in reasons)
+
+
+def _bounded_int(value: object, *, limit: int, allow_negative: bool = False) -> int | None:
+    if type(value) is not int:
+        return None
+    lower = -limit if allow_negative else 0
+    return value if lower <= value <= limit else None
+
+
+def _safe_event_type_counts(counts: Mapping[str, int]) -> dict[str, int]:
+    result = {
+        event_type: _bounded_int(counts.get(event_type), limit=CODEX_MAX_EVENT_BYTES) or 0
+        for event_type in _SAFE_EVENT_TYPES
+    }
+    other = 0
+    for event_type, count in counts.items():
+        if event_type in _SAFE_EVENT_TYPES:
+            continue
+        safe_count = _bounded_int(count, limit=CODEX_MAX_EVENT_BYTES)
+        if safe_count is not None:
+            other = min(CODEX_MAX_EVENT_BYTES, other + safe_count)
+    result["other"] = other
+    return result
+
+
+def _safe_sha256(value: object) -> str | None:
+    if not isinstance(value, str) or len(value) != 64:
+        return None
+    if any(character not in "0123456789abcdefABCDEF" for character in value):
+        return None
+    return value.lower()
+
+
+def _safe_turn_summary(turn: VisionTurnFacts) -> dict[str, object]:
+    return {
+        "turn": turn.turn if turn.turn in {1, 2} else None,
+        "exit_status": _bounded_int(turn.exit_status, limit=255, allow_negative=True),
+        "timed_out": bool(turn.timed_out),
+        "event_bytes": _bounded_int(turn.event_bytes, limit=CODEX_MAX_EVENT_BYTES),
+        "event_type_counts": _safe_event_type_counts(turn.event_type_counts),
+        "tool_calls": _bounded_int(turn.tool_calls, limit=VISION_MAX_TOOL_CALLS),
+        "sentinel_passed": bool(turn.sentinel_passed),
+        "response_success": bool(turn.response_success),
+        "resumed_command": bool(turn.resumed_command),
+    }
+
+
+def _safe_image_type(value: object) -> str:
+    return value if isinstance(value, str) and value in _SAFE_IMAGE_TYPES else "unexpected"
+
+
+def _safe_fixture_label(value: object) -> str:
+    return value if isinstance(value, str) and value in _SAFE_OUTBOUND_LABELS else "unexpected"
+
+
+def _safe_outbound_summary(fact: VisionBoundaryEvidence) -> dict[str, object]:
+    limit = VISION_MAX_MAIN_REQUESTS_PER_INVOCATION + 1
+    return {
+        "turn": fact.turn if fact.turn in {1, 2} else None,
+        "accepted": bool(fact.accepted),
+        "image_types": tuple(_safe_image_type(item) for item in fact.image_types[:limit]),
+        "images_seen": _bounded_int(
+            fact.outgoing_images_seen, limit=VISION_MAX_MAIN_REQUESTS_PER_INVOCATION
+        ),
+        "forwarded_labels": tuple(
+            _safe_fixture_label(item) for item in fact.forwarded_labels[:limit]
+        ),
+        "forwarded_lengths": tuple(
+            _bounded_int(item, limit=_MAX_SAFE_IMAGE_BYTES)
+            for item in fact.forwarded_lengths[:limit]
+        ),
+        "forwarded_sha256": tuple(_safe_sha256(item) for item in fact.forwarded_sha256[:limit]),
+        "expected_fixture_match": bool(fact.expected_fixture_match),
+        "body_parsed": bool(fact.body_parsed),
+        "non_image_content_preserved": bool(fact.non_image_content_preserved),
+        "governance_content_preserved": bool(fact.governance_content_preserved),
+        "tool_content_preserved": bool(fact.tool_content_preserved),
+    }
+
+
+def vision_diagnostic_summary(facts: VisionSessionFacts) -> dict[str, object]:
+    """Serialize only bounded, fixed-shape facts suitable for failure output."""
+    metric_deltas = facts.metric_deltas
+    metrics: dict[str, object] | None = None
+    if metric_deltas is not None:
+        metrics = {
+            "turn1_seen": _bounded_int(
+                metric_deltas.turn1_seen,
+                limit=2 * VISION_MAX_MAIN_REQUESTS_PER_INVOCATION,
+                allow_negative=True,
+            ),
+            "turn1_removed": _bounded_int(
+                metric_deltas.turn1_removed,
+                limit=2 * VISION_MAX_MAIN_REQUESTS_PER_INVOCATION,
+                allow_negative=True,
+            ),
+            "turn2_seen": _bounded_int(
+                metric_deltas.turn2_seen,
+                limit=2 * VISION_MAX_MAIN_REQUESTS_PER_INVOCATION,
+                allow_negative=True,
+            ),
+            "turn2_removed": _bounded_int(
+                metric_deltas.turn2_removed,
+                limit=2 * VISION_MAX_MAIN_REQUESTS_PER_INVOCATION,
+                allow_negative=True,
+            ),
+            "invocation_1_requests": _bounded_int(
+                metric_deltas.invocation_1_requests,
+                limit=VISION_MAX_MAIN_REQUESTS_PER_INVOCATION,
+            ),
+            "invocation_2_requests": _bounded_int(
+                metric_deltas.invocation_2_requests,
+                limit=VISION_MAX_MAIN_REQUESTS_PER_INVOCATION,
+            ),
+            "exact": bool(metric_deltas.exact),
+        }
+    phase_counts = (
+        tuple(
+            _bounded_int(count, limit=VISION_MAX_MAIN_REQUESTS_PER_INVOCATION)
+            for count in (
+                len(tuple(fact for fact in facts.outbound_facts if fact.turn == 1)),
+                len(tuple(fact for fact in facts.outbound_facts if fact.turn == 2)),
+            )
+        )
+        if facts.outbound_facts
+        else None
+    )
+    return {
+        "reasons": vision_failure_reasons(facts),
+        "session_matches": bool(facts.same_session),
+        "catalog_image_capability": bool(facts.catalog_image_capability),
+        "catalog_detail_original_disabled": bool(facts.catalog_detail_original_disabled),
+        "catalog_context_window": _bounded_int(facts.catalog_context_window, limit=1_000_000),
+        "catalog_parallel_tools_disabled": bool(facts.catalog_parallel_tools_disabled),
+        "turns": (_safe_turn_summary(facts.first), _safe_turn_summary(facts.second)),
+        "metrics": metrics,
+        "phase_counts": phase_counts,
+        "outbound": tuple(_safe_outbound_summary(fact) for fact in facts.outbound_facts),
+    }
 
 
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
@@ -861,11 +1120,7 @@ def _run_vision_turn(
         except OSError:
             pass
     response_success = (
-        exit_status == 0
-        and not timed_out
-        and event_bytes > 0
-        and tool_calls >= 1
-        and sentinel
+        exit_status == 0 and not timed_out and event_bytes > 0 and tool_calls >= 1 and sentinel
     )
     facts = VisionTurnFacts(
         turn=turn,
