@@ -973,10 +973,22 @@ def write_vision_fixture(root: Path, base_url: str, api_key_env: str) -> VisionF
 
 
 def write_vision_model_catalog(
-    codex_bin: Path | str, destination: Path, *, model: str = VISION_MODEL
+    codex_bin: Path | str,
+    destination: Path,
+    *,
+    model: str = VISION_MODEL,
+    environment_root: Path | None = None,
 ) -> None:
     """Derive the installed catalog schema and apply the exact vision fixture contract."""
-    write_local_model_catalog(codex_bin, destination, model=model)
+    if environment_root is None:
+        write_local_model_catalog(codex_bin, destination, model=model)
+    else:
+        write_local_model_catalog(
+            codex_bin,
+            destination,
+            model=model,
+            environment_root=environment_root,
+        )
     document = json.loads(destination.read_text(encoding="utf-8"))
     models = document.get("models")
     selected = next((item for item in models if item.get("slug") == model), None)

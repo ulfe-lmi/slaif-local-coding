@@ -28,6 +28,7 @@ from typing import Any, Literal
 from prometheus_client.parser import text_string_to_metric_families
 
 from slaif_local_coding.constitution.compiler_models import CompiledIndex
+from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv
 
 DEFAULT_ADAPTER_BASE_URL = "http://127.0.0.1:18031/v1"
 DEFAULT_MODEL = "qwen3.8-27b"
@@ -459,12 +460,16 @@ def write_governed_fixture(root: Path, base_url: str, api_key_env: str) -> Gover
     )
 
 
-def _sandbox_environment(codex_home: Path, api_key_env: str | None = None) -> dict[str, str]:
+def _sandbox_environment(
+    codex_home: Path,
+    api_key_env: str | None = None,
+    *,
+    environment_root: Path | None = None,
+) -> dict[str, str]:
     """Build a bounded helper environment without inherited credentials.
 
-    ``CODEX_HOME`` isolates Codex configuration and state.  ``HOME`` and
-    ``TMPDIR`` retain the normal host launch semantics when the host provides
-    them; omitting either keeps the platform default behavior.
+    ``CODEX_HOME`` isolates Codex configuration and state. Capture callers may
+    provide an ``environment_root`` to isolate ``HOME`` and ``TMPDIR`` too.
     """
 
     environment = {
@@ -473,6 +478,9 @@ def _sandbox_environment(codex_home: Path, api_key_env: str | None = None) -> di
         if name in os.environ
     }
     environment["CODEX_HOME"] = str(codex_home)
+    if environment_root is not None:
+        environment["HOME"] = str(environment_root)
+        environment["TMPDIR"] = str(environment_root)
     if api_key_env is not None:
         if ENVIRONMENT_NAME.fullmatch(api_key_env) is None:
             raise ValueError("api_key_env must be a valid environment variable name")
@@ -482,14 +490,26 @@ def _sandbox_environment(codex_home: Path, api_key_env: str | None = None) -> di
 
 
 def write_local_model_catalog(
-    codex_bin: Path | str, destination: Path, *, model: str = DEFAULT_MODEL
+    codex_bin: Path | str,
+    destination: Path,
+    *,
+    model: str = DEFAULT_MODEL,
+    environment_root: Path | None = None,
 ) -> None:
     """Derive a disposable local-model catalog from the installed CLI's bundled schema."""
+    command = [str(codex_bin), "debug", "models", "--bundled"]
+    assert_allowlisted_diagnostic_argv(
+        command,
+        allowed_commands={Path(command[0]).name},
+        allowed_executables=(command[0],),
+        disposable_root=destination.parent.parent,
+        path_arguments=(destination.parent, destination),
+    )
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         process = subprocess.Popen(
-            [str(codex_bin), "debug", "models", "--bundled"],
+            command,
             cwd=destination.parent,
-            env=_sandbox_environment(destination.parent),
+            env=_sandbox_environment(destination.parent, environment_root=environment_root),
             stdin=subprocess.DEVNULL,
             stdout=stdout,
             stderr=stderr,
@@ -1377,6 +1397,11 @@ def run_codex_once(
     sandbox_mode: Literal["workspace-write", "danger-full-access"] = "workspace-write",
     expected_command: str | None = None,
     codex_under_test_yolo: bool = True,
+    feature_flags: tuple[str, ...] = (),
+    ignore_user_config: bool = False,
+    provider_base_url: str | None = None,
+    provider_name: str = "slaif-local-coding-e2e",
+    model: str = DEFAULT_MODEL,
 ) -> SanitizedCodexRun:
     """Serialize one isolated run; raw stdout/stderr remain in unlinked temp files."""
     started = time.monotonic()
@@ -1417,21 +1442,7 @@ def run_codex_once(
     try:
         with tempfile.TemporaryFile() as events, tempfile.TemporaryFile() as diagnostics:
             argv = (
-                [
-                    str(codex_bin),
-                    "--dangerously-bypass-approvals-and-sandbox",
-                    "exec",
-                    "--json",
-                    "--ephemeral",
-                    "--strict-config",
-                    "--disable",
-                    "unified_exec",
-                    "--cd",
-                    str(fixture.repository),
-                    "--output-last-message",
-                    str(output_path),
-                    prompt,
-                ]
+                [str(codex_bin), "--dangerously-bypass-approvals-and-sandbox", "exec"]
                 if codex_under_test_yolo
                 else [
                     str(codex_bin),
@@ -1440,25 +1451,59 @@ def run_codex_once(
                     "exec",
                     "--sandbox",
                     sandbox_mode,
-                    "--json",
-                    "--ephemeral",
-                    "--strict-config",
-                    # Codex 0.149's unified-exec representation is not reliable
-                    # for this constrained local Responses provider. Its stable
-                    # command-tool path is explicit and disposable here.
-                    "--disable",
-                    "unified_exec",
-                    "--cd",
-                    str(fixture.repository),
-                    "--output-last-message",
-                    str(output_path),
-                    prompt,
                 ]
+            )
+            argv.extend(["--json", "--ephemeral", "--strict-config"])
+            argv.extend(
+                flag
+                for feature in ("unified_exec", *feature_flags)
+                for flag in ("--disable", feature)
+            )
+            if ignore_user_config:
+                if provider_base_url is None:
+                    raise ValueError("provider_base_url is required when ignoring user config")
+                argv.extend(
+                    [
+                        "--ignore-user-config",
+                        "-C",
+                        str(fixture.repository),
+                        "-m",
+                        model,
+                        "-c",
+                        f"model_provider={json.dumps(provider_name)}",
+                        "-c",
+                        (
+                            f"model_providers.{provider_name}="
+                            f'{{name="SLAIF Local Coding",base_url={json.dumps(provider_base_url)},'
+                            f'env_key={json.dumps(fixture.api_key_env)},wire_api="responses"}}'
+                        ),
+                        "-c",
+                        f"model_catalog_json={json.dumps(str(fixture.model_catalog))}",
+                    ]
+                )
+            else:
+                argv.extend(["--cd", str(fixture.repository)])
+            argv.extend(["--output-last-message", str(output_path), prompt])
+            assert_allowlisted_diagnostic_argv(
+                argv,
+                allowed_commands={Path(argv[0]).name},
+                allowed_executables=(argv[0],),
+                disposable_root=fixture.codex_home.parent,
+                path_arguments=(
+                    fixture.repository,
+                    fixture.codex_home,
+                    fixture.model_catalog,
+                    output_path,
+                ),
             )
             process = subprocess.Popen(
                 argv,
                 cwd=fixture.repository,
-                env=_sandbox_environment(fixture.codex_home, fixture.api_key_env),
+                env=_sandbox_environment(
+                    fixture.codex_home,
+                    fixture.api_key_env,
+                    environment_root=fixture.codex_home.parent,
+                ),
                 stdout=events,
                 stderr=diagnostics,
                 stdin=subprocess.DEVNULL,

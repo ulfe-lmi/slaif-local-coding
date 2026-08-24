@@ -117,3 +117,15 @@ gateway rejected the real Codex 0.149.0 tool envelope before accounting for
 that request. Do not treat this as gateway Codex acceptance or retry live
 diagnostics from the coding turn; review the immutable report and address the
 gateway/tool-contract blocker through a new authorized order.
+
+Objective-005-d recorded the resulting security-containment incident in
+[the containment record](OBJECTIVE-005D-SECURITY-CONTAINMENT.md). Its bounded
+no-model differential used four fresh disposable Codex homes and a loopback
+fake Responses provider. The pinned gateway rejected every captured envelope
+before reservation with `responses_hosted_tool_not_supported`; ordinary local
+`function`/`custom` declarations remained while hosted `tool_search` and/or
+`web_search` declarations remained. `--ignore-user-config`, supported feature
+disables, and a disposable catalog-only variant did not produce configuration-
+only compatibility. The corrected rehearsal driver now emits this preflight
+and refuses Docker, PostgreSQL, gateway/adapter listeners, and Qwen work when
+the gateway rejects it. Completeness and cutover status remain unchanged.

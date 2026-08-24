@@ -44,6 +44,10 @@ def test_capture_rejects_definition_and_unique_type_bounds() -> None:
         _extract_types({"tools": too_many_unique})
 
 
+def test_capture_can_record_an_empty_tools_envelope() -> None:
+    assert _extract_types({"tools": []}, require_nonempty=False) == ()
+
+
 def test_capture_does_not_return_tool_data() -> None:
     result = _extract_types(
         {

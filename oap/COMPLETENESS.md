@@ -34,3 +34,12 @@ unchanged. The real Codex 0.149.0 tool envelope was rejected before a public
 reservation, so quota/ledger proof for that portion, complete gateway Codex
 compatibility, and rollback-proven cutover remain open. Strategy must not raise
 the Objective-005 completeness arithmetic from this report.
+
+Objective-005-d adds security-containment evidence and a no-model differential
+against the unchanged pinned gateway. Four bounded Codex variants all retained
+ordinary local function/custom declarations but retained hosted search
+declarations and were rejected before reservation with the fixed gateway policy
+error. No configuration-only compatible variant was found; the corrected
+005-c driver preflight refuses any full stage when that rejection occurs. This
+does not change the 5% Objective-005 completeness arithmetic or prove gateway,
+adapter, Qwen, Docker, PostgreSQL, cutover, or production acceptance.

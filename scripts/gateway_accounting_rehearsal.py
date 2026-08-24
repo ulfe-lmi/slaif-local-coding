@@ -34,7 +34,13 @@ from prometheus_client.parser import text_string_to_metric_families
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "src"))
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.dont_write_bytecode = True
+
+from codex_tool_envelope_differential import (  # noqa: E402
+    VariantResult,
+    run_differential,
+)
 
 from tests.helpers.e2e_support import governed_prompt, run_codex_once  # noqa: E402
 from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
@@ -46,6 +52,7 @@ from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
     GatewayRehearsalFacts,
     assert_gateway_rehearsal_facts,
 )
+from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv  # noqa: E402
 from tests.helpers.vision_e2e_support import (  # noqa: E402
     VISION_MODEL,
     write_vision_fixture,
@@ -80,6 +87,13 @@ def _free_loopback_port(preferred: int | None = None) -> int:
 def _run_command(
     argv: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
+    assert_allowlisted_diagnostic_argv(
+        argv,
+        allowed_commands={"codex", "git", "python", "python3.12", "ss", "systemctl"},
+        allowed_executables=(argv[0],),
+        disposable_root=Path(tempfile.gettempdir()),
+        path_arguments=(cwd,) if cwd is not None else (),
+    )
     return subprocess.run(
         argv,
         cwd=cwd,
@@ -93,8 +107,10 @@ def _run_command(
 
 
 def _docker(*args: str, timeout: float = 120) -> subprocess.CompletedProcess[str]:
+    command = ["sudo", "-n", "docker", *args]
+    assert_allowlisted_diagnostic_argv(command, allowed_commands={"sudo"})
     return subprocess.run(
-        ["sudo", "-n", "docker", *args],
+        command,
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -594,6 +610,38 @@ def _disable_catalog_search_tools(path: Path) -> None:
     os.chmod(path, 0o600)
 
 
+def _tool_envelope_preflight(
+    gateway_root: Path, codex: Path
+) -> tuple[dict[str, object], tuple[VariantResult, ...]]:
+    """Capture and validate the tool envelope before any service/model stage."""
+
+    results = run_differential(gateway_root, codex)
+    compatible = next(
+        (
+            result
+            for result in results
+            if result.policy.accepted
+            and result.ordinary_function_or_custom_remains
+            and not result.tool_search_remains
+            and not result.web_search_remains
+        ),
+        None,
+    )
+    facts: dict[str, object] = {
+        "gateway_policy": "ACCEPTED" if compatible is not None else "REJECTED",
+        "ordinary_local_tools": "PRESENT" if compatible is not None else "UNKNOWN",
+        "hosted_search_tools": "ABSENT" if compatible is not None else "PRESENT_OR_UNRESOLVED",
+        "variant": compatible.name if compatible is not None else "none",
+        "feature_flags": compatible.feature_flags if compatible is not None else (),
+        "ignore_user_config": compatible.ignore_user_config if compatible is not None else False,
+        "catalog_search_disabled": (
+            compatible.catalog_search_disabled if compatible is not None else False
+        ),
+        "capture_count": len(results),
+    }
+    return facts, results
+
+
 def _build_gateway_process(
     gateway_python: Path,
     gateway_root: Path,
@@ -601,22 +649,30 @@ def _build_gateway_process(
     environment: dict[str, str],
     log_path: Path,
 ) -> subprocess.Popen[bytes]:
+    command = [
+        str(gateway_python),
+        "-m",
+        "uvicorn",
+        "slaif_gateway.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(gateway_port),
+        "--no-access-log",
+        "--log-level",
+        "warning",
+    ]
+    assert_allowlisted_diagnostic_argv(
+        command,
+        allowed_commands={gateway_python.name},
+        allowed_executables=(gateway_python,),
+        disposable_root=Path(tempfile.gettempdir()),
+        path_arguments=(gateway_root, log_path),
+    )
     log = log_path.open("wb")
     try:
         return subprocess.Popen(
-            [
-                str(gateway_python),
-                "-m",
-                "uvicorn",
-                "slaif_gateway.main:app",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(gateway_port),
-                "--no-access-log",
-                "--log-level",
-                "warning",
-            ],
+            command,
             cwd=gateway_root,
             env=environment,
             stdin=subprocess.DEVNULL,
@@ -634,10 +690,18 @@ def _build_candidate_process(
     environment: dict[str, str],
     log_path: Path,
 ) -> subprocess.Popen[bytes]:
+    command = [str(gateway_python), "-m", "slaif_local_coding", "--config", str(config_path)]
+    assert_allowlisted_diagnostic_argv(
+        command,
+        allowed_commands={gateway_python.name},
+        allowed_executables=(gateway_python,),
+        disposable_root=Path(tempfile.gettempdir()),
+        path_arguments=(config_path, log_path),
+    )
     log = log_path.open("wb")
     try:
         return subprocess.Popen(
-            [str(gateway_python), "-m", "slaif_local_coding", "--config", str(config_path)],
+            command,
             cwd=REPO_ROOT,
             env=environment,
             stdin=subprocess.DEVNULL,
@@ -720,7 +784,9 @@ def _docker_cleanup(name: str | None, image_was_absent: bool) -> tuple[bool, boo
     return container_removed, image_removed
 
 
-def _run_rehearsal(args: argparse.Namespace) -> GatewayRehearsalFacts:
+def _run_rehearsal(
+    args: argparse.Namespace, *, preflight: dict[str, object]
+) -> GatewayRehearsalFacts:
     started = time.monotonic()
     gateway_root = args.gateway_root.resolve()
     # Keep the venv launcher path itself; resolving its symlink would bypass
@@ -965,6 +1031,12 @@ def _run_rehearsal(args: argparse.Namespace) -> GatewayRehearsalFacts:
                     governed_prompt(),
                     timeout_seconds=300,
                     expected_command="cat GOVERNANCE-DEPENDENCY.md",
+                    feature_flags=tuple(preflight["feature_flags"]),
+                    ignore_user_config=bool(preflight["ignore_user_config"]),
+                    provider_base_url=(
+                        f"{gateway_url}/v1" if bool(preflight["ignore_user_config"]) else None
+                    ),
+                    model=PUBLIC_MODEL,
                 )
             finally:
                 if public_key_previous is None:
@@ -1169,7 +1241,17 @@ def main() -> int:
     parser.add_argument("--codex", type=Path, default=shutil.which("codex") or "codex")
     args = parser.parse_args()
     try:
-        facts = _run_rehearsal(args)
+        preflight, _ = _tool_envelope_preflight(args.gateway_root.resolve(), args.codex)
+        print(json.dumps({"status": "PREFLIGHT", **preflight}, sort_keys=True), flush=True)
+        if preflight["gateway_policy"] != "ACCEPTED":
+            print(
+                json.dumps(
+                    {"status": "FAILED", "error_type": "tool_envelope_preflight_gateway_rejected"},
+                    sort_keys=True,
+                )
+            )
+            return 1
+        facts = _run_rehearsal(args, preflight=preflight)
     except Exception as exc:  # pragma: no cover - bounded live process boundary
         print(json.dumps({"status": "FAILED", "error_type": type(exc).__name__}, sort_keys=True))
         return 1

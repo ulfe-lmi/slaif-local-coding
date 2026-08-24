@@ -224,3 +224,38 @@ During bounded diagnosis, a read-only search accidentally traversed the host
 Codex session cache and exposed sensitive session content to local tool output.
 Further live probing was stopped. No session content is retained in this
 repository, report, metrics, or driver facts.
+
+## Objective-005-d containment and tool-envelope differential
+
+Objective-005-d records the incident and bounded containment in
+[the security-containment record](OBJECTIVE-005D-SECURITY-CONTAINMENT.md).
+Repository-only capture support now confines Codex homes, catalogs, output,
+and diagnostic paths to driver-owned temporary roots, rejects home-relative or
+traversal paths, and requires an explicit subprocess allowlist. No script
+constructs a host Codex session/history/cache search. Bounded evidence contains
+only validated top-level tool-type counts and fixed policy facts; request
+bodies, headers, prompts, schemas, tool names, images, and session identifiers
+are discarded immediately.
+
+At pinned gateway SHA `8f2813bf745b90221da33a7cfaf40726c5b1b480`, four
+predetermined Codex 0.149.0 global-yolo variants were captured through a
+loopback fake Responses provider and fed directly to the gateway's actual
+Responses request policy plus the same synthetic route capability metadata used
+by 005-c. The variants were: the disposable baseline; `--ignore-user-config`
+with `apps`, `browser_use`, and `computer_use` disabled; that variant with
+`standalone_web_search` also disabled; and an ignore-user-config disposable
+catalog-only search-disabled variant. Each retained ordinary `function`/`custom`
+declarations. The first three retained both `tool_search` and `web_search`; the
+catalog-only variant removed `tool_search` but retained `web_search` and exposed
+`namespace`. All four were rejected by the unchanged policy before route,
+rate-limit, or quota reservation with fixed error type
+`invalid_request_error`, code `responses_hosted_tool_not_supported`, and fields
+`tools[6].type` or `tools[7].type`.
+
+Therefore unchanged-gateway configuration-only compatibility was **not found**.
+No gateway code was changed or authorized, no request body was altered, and no
+hosted capability was silently stripped. The corrected repository-only 005-c
+driver emits a fixed preflight result before any Docker/PostgreSQL/gateway/
+adapter/Qwen stage and refuses the full rehearsal when this policy rejection
+remains. No full rehearsal was rerun in 005-d. Live gateway, adapter, Qwen,
+Docker, PostgreSQL, cutover, and production acceptance remain `NOT RUN`.
