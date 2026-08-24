@@ -79,7 +79,14 @@ _MAX_SAFE_IMAGE_BYTES = 8_388_608
 _MAX_TOOL_DEFINITIONS = 16
 _MAX_TOOL_SCAN_DEPTH = 32
 _MAX_TOOL_SCAN_NODES = 128
-_TOOL_DEFINITION_TYPE_CATEGORIES = ("function", "custom", "local_shell", "unexpected")
+_TOOL_DEFINITION_TYPE_CATEGORIES = (
+    "function",
+    "custom",
+    "tool_search",
+    "web_search",
+    "local_shell",
+    "unexpected",
+)
 _TOOL_ITEM_TYPE_CATEGORIES = (
     "function_call",
     "function_call_output",
@@ -91,7 +98,7 @@ _TOOL_ITEM_TYPE_CATEGORIES = (
     "exec_command",
     "unexpected",
 )
-_SUPPORTED_TOOL_DEFINITION_TYPES = frozenset(_TOOL_DEFINITION_TYPE_CATEGORIES[:-1])
+_SUPPORTED_TOOL_DEFINITION_TYPES = frozenset({"function", "custom", "tool_search", "web_search"})
 _SUPPORTED_TOOL_ITEM_TYPES = frozenset(_TOOL_ITEM_TYPE_CATEGORIES[:-1])
 _TOOL_SENSITIVE_KEYS = frozenset(
     {
@@ -208,7 +215,7 @@ class VisionBoundaryEvidence:
     non_image_content_preserved: bool
     governance_content_preserved: bool
     tool_content_preserved: bool
-    tool_definition_type_counts: tuple[int, ...] = (0, 0, 0, 0)
+    tool_definition_type_counts: tuple[int, ...] = (0, 0, 0, 0, 0, 0)
     tool_item_type_counts: tuple[int, ...] = (0, 0, 0, 0, 0, 0, 0, 0, 0)
 
     @property
@@ -287,6 +294,12 @@ class FinalMessageEvidence:
     terminal_line_endings_only: bool
     non_whitespace_mismatch: bool
     wrapper_classification: FinalMessageWrapper = "none"
+    contains_expected: bool = False
+    expected_offset: int | None = None
+    common_prefix_bytes: int = 0
+    common_suffix_bytes: int = 0
+    leading_extra_bytes: int | None = None
+    trailing_extra_bytes: int | None = None
 
     @property
     def accepted(self) -> bool:
@@ -305,11 +318,32 @@ def _missing_message() -> FinalMessageEvidence:
     )
 
 
+def _common_edge_bytes(content: bytes, expected: bytes, *, from_end: bool) -> int:
+    limit = min(len(content), len(expected))
+    matched = 0
+    while matched < limit:
+        content_index = len(content) - matched - 1 if from_end else matched
+        expected_index = len(expected) - matched - 1 if from_end else matched
+        if content[content_index] != expected[expected_index]:
+            break
+        matched += 1
+    return min(matched, len(expected))
+
+
 def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvidence:
     """Compare bounded bytes without retaining the message itself."""
     if content is None:
         return _missing_message()
     expected_bytes = expected.encode("utf-8")
+    first_offset = content.find(expected_bytes)
+    contains_expected = first_offset >= 0
+    second_offset = content.find(expected_bytes, first_offset + 1) if contains_expected else -1
+    expected_occurs_once = contains_expected and second_offset < 0
+    expected_offset = first_offset if expected_occurs_once else None
+    leading_extra_bytes = first_offset if expected_occurs_once else None
+    trailing_extra_bytes = (
+        len(content) - first_offset - len(expected_bytes) if expected_occurs_once else None
+    )
     exact = content == expected_bytes
     terminal_only = (
         not exact
@@ -340,6 +374,12 @@ def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvide
         terminal_line_endings_only=terminal_only,
         non_whitespace_mismatch=not exact and not terminal_only,
         wrapper_classification=wrapper_classification,
+        contains_expected=contains_expected,
+        expected_offset=expected_offset,
+        common_prefix_bytes=_common_edge_bytes(content, expected_bytes, from_end=False),
+        common_suffix_bytes=_common_edge_bytes(content, expected_bytes, from_end=True),
+        leading_extra_bytes=leading_extra_bytes,
+        trailing_extra_bytes=trailing_extra_bytes,
     )
 
 
@@ -540,6 +580,20 @@ def _safe_final_message_summary(evidence: FinalMessageEvidence) -> dict[str, obj
         "exact_expected": bool(evidence.exact_expected),
         "terminal_line_endings_only": bool(evidence.terminal_line_endings_only),
         "non_whitespace_mismatch": bool(evidence.non_whitespace_mismatch),
+        "contains_expected": bool(evidence.contains_expected),
+        "expected_offset": _bounded_int(evidence.expected_offset, limit=CODEX_MAX_EVENT_BYTES),
+        "common_prefix_bytes": _bounded_int(
+            evidence.common_prefix_bytes, limit=CODEX_MAX_EVENT_BYTES
+        ),
+        "common_suffix_bytes": _bounded_int(
+            evidence.common_suffix_bytes, limit=CODEX_MAX_EVENT_BYTES
+        ),
+        "leading_extra_bytes": _bounded_int(
+            evidence.leading_extra_bytes, limit=CODEX_MAX_EVENT_BYTES
+        ),
+        "trailing_extra_bytes": _bounded_int(
+            evidence.trailing_extra_bytes, limit=CODEX_MAX_EVENT_BYTES
+        ),
         "wrapper_classification": (
             evidence.wrapper_classification
             if evidence.wrapper_classification in _FINAL_MESSAGE_WRAPPERS
@@ -928,7 +982,7 @@ def _scan_tool_definitions(value: object) -> tuple[tuple[int, ...], bool]:
             continue
         index = _type_count_index(item.get("type"), _TOOL_DEFINITION_TYPE_CATEGORIES)
         counts[index] += 1
-        valid = valid and index != len(counts) - 1
+        valid = valid and item.get("type") in _SUPPORTED_TOOL_DEFINITION_TYPES
     return tuple(counts), valid
 
 
@@ -978,7 +1032,7 @@ def _scan_tool_items(
 
 
 def _tool_shape_diagnostics(value: object) -> ToolShapeDiagnostics:
-    definition_counts: tuple[int, ...] = (0, 0, 0, 0)
+    definition_counts: tuple[int, ...] = (0,) * len(_TOOL_DEFINITION_TYPE_CATEGORIES)
     definitions_valid = True
     item_counts = [0] * len(_TOOL_ITEM_TYPE_CATEGORIES)
     item_recognized = False

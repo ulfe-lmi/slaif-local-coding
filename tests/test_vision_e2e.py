@@ -475,9 +475,18 @@ def test_vision_runner_uses_global_yolo_exec_resume_and_exact_model_facts(tmp_pa
     [
         ({"tools": [{"type": "function"}]}, True),
         ({"tools": [{"type": "custom"}]}, True),
-        ({"tools": [{"type": "local_shell"}]}, True),
+        ({"tools": [{"type": "tool_search"}]}, True),
+        ({"tools": [{"type": "web_search"}]}, True),
+        ({"tools": [{"type": "local_shell"}]}, False),
         (
-            {"tools": [{"type": "function"}, {"type": "custom"}, {"type": "local_shell"}]},
+            {
+                "tools": [
+                    {"type": "function"},
+                    {"type": "custom"},
+                    {"type": "tool_search"},
+                    {"type": "web_search"},
+                ]
+            },
             True,
         ),
         ({"tools": [{"type": "function", "name": "synthetic", "parameters": {}}]}, True),
@@ -510,7 +519,12 @@ def test_tool_content_requires_supported_top_level_definitions_or_items(
 
 def test_tool_shape_diagnostics_use_fixed_categories_and_bound_nested_scans() -> None:
     payload: dict[str, Any] = {
-        "tools": [{"type": "function"}, {"type": "custom"}, {"type": "local_shell"}],
+        "tools": [
+            {"type": "function"},
+            {"type": "custom"},
+            {"type": "tool_search"},
+            {"type": "web_search"},
+        ],
         "input": [
             {"type": "function_call"},
             {"type": "custom_tool_call_output"},
@@ -522,7 +536,7 @@ def test_tool_shape_diagnostics_use_fixed_categories_and_bound_nested_scans() ->
     }
     diagnostics = vision._tool_shape_diagnostics(payload)
     assert diagnostics.has_recognized_content
-    assert diagnostics.definition_type_counts == (1, 1, 1, 0)
+    assert diagnostics.definition_type_counts == (1, 1, 1, 1, 0, 0)
     assert diagnostics.item_type_counts == (1, 0, 0, 1, 1, 0, 1, 1, 1)
 
     nested: object = {"content": {"content": {"type": "exec_command"}}}
@@ -630,6 +644,50 @@ def test_fixed_final_message_wrappers_are_diagnostic_only(content: str, wrapper:
     assert summary["wrapper_classification"] == wrapper
     assert summary["exact_expected"] is False
     assert summary["terminal_line_endings_only"] is False
+
+
+@pytest.mark.parametrize(
+    ("content", "contains", "offset", "prefix", "suffix", "leading", "trailing"),
+    [
+        ("EXPECTED-ACK", True, 0, 12, 12, 0, 0),
+        ("xxEXPECTED-ACK", True, 2, 0, 12, 2, 0),
+        ("EXPECTED-ACKyy", True, 0, 12, 0, 0, 2),
+        ("xxEXPECTED-ACKyy", True, 2, 0, 0, 2, 2),
+        ("EXPECTED-ACKEXPECTED-ACK", True, None, 12, 12, None, None),
+        ("UNRELATED-XX", False, None, 0, 0, None, None),
+        ("EXPECTED-ACK.", True, 0, 12, 0, 0, 1),
+    ],
+)
+def test_final_message_relationship_facts_are_bounded_and_diagnostic_only(
+    content: str,
+    contains: bool,
+    offset: int | None,
+    prefix: int,
+    suffix: int,
+    leading: int | None,
+    trailing: int | None,
+) -> None:
+    evidence = vision._message_evidence(content.encode("utf-8"), "EXPECTED-ACK")
+    assert evidence.contains_expected is contains
+    assert evidence.expected_offset == offset
+    assert evidence.common_prefix_bytes == prefix
+    assert evidence.common_suffix_bytes == suffix
+    assert evidence.leading_extra_bytes == leading
+    assert evidence.trailing_extra_bytes == trailing
+    assert evidence.accepted is (content == "EXPECTED-ACK")
+
+
+def test_final_message_relationship_summary_cannot_reconstruct_content() -> None:
+    evidence = vision._message_evidence(b"xxEXPECTED-ACKyy", "EXPECTED-ACK")
+    summary = vision._safe_final_message_summary(evidence)
+    serialized = json.dumps(summary, sort_keys=True)
+    assert "EXPECTED-ACK" not in repr(evidence)
+    assert "EXPECTED-ACK" not in serialized
+    assert summary["contains_expected"] is True
+    assert summary["expected_offset"] == 2
+    assert summary["leading_extra_bytes"] == 2
+    assert summary["trailing_extra_bytes"] == 2
+    assert summary["exact_expected"] is False
 
 
 @pytest.mark.parametrize("include_sentinel", [False, True])

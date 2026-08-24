@@ -51,6 +51,14 @@ status, event counts/bytes, exact-sentinel binding booleans, image labels,
 lengths, SHA-256 values, metric deltas, and cleanup facts. No prompt-supplied
 processing marker is used.
 
+The 004-aj disposable no-model capture used the same vision catalog/configuration
+and global-yolo image invocation against a temporary loopback error provider. It
+retained only the ordered top-level type tuple/counts: `function` × 8, `custom`
+× 1, `tool_search` × 1, and `web_search` × 1. The repository-only structural
+predicate recognizes exactly those observed standard categories; the fixed
+`local_shell` and `unexpected` buckets remain diagnostic negative categories,
+and no tool name/schema/argument/body is retained.
+
 The fake-upstream tests construct the production `create_app` path with the
 acceptance-only `VisionOutboundRecorder` as its HTTPX transport. The recorder
 sees the exact request object after image policy, constitutional processing,
