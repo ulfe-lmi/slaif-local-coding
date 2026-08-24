@@ -17,10 +17,11 @@ import time
 import uuid
 from collections.abc import Sequence
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 from prometheus_client import CollectorRegistry, Counter, Histogram
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from ..json_structure import JsonNestingTooDeep, enforce_json_nesting
 from .cache import CacheIdentity, DerivedIndexCache, cache_key
@@ -44,8 +45,8 @@ class CompilerSettings(BaseModel):
     """Explicit resource/auth bounds for the internal library-only compiler."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
-    base_url: str = Field(pattern=r"^https?://[^/]+/v1$")
-    api_key_env: str = Field(min_length=1)
+    base_url: str
+    api_key_env: str = Field(min_length=1, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     model: str = Field(min_length=1, max_length=128)
     reasoning_effort: Literal["low"] = "low"
     timeout_seconds: float = Field(default=45, gt=0, le=300)
@@ -57,6 +58,22 @@ class CompilerSettings(BaseModel):
     max_output_tokens: int = Field(default=3_000, ge=128, le=16_000)
     max_output_bytes: int = Field(default=256_000, ge=1024, le=4_194_304)
     max_json_depth: int = Field(default=24, ge=1, le=128)
+
+    @model_validator(mode="after")
+    def supported_base_url(self) -> CompilerSettings:
+        try:
+            parsed = urlsplit(self.base_url)
+            hostname = parsed.hostname
+            _ = parsed.port
+        except ValueError as exc:
+            raise ValueError("compiler base_url must be a valid HTTP(S) URL") from exc
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc or not hostname:
+            raise ValueError("compiler base_url must be HTTP(S)")
+        if parsed.username is not None or parsed.password is not None:
+            raise ValueError("compiler base_url must not contain credentials")
+        if parsed.path.rstrip("/") != "/v1" or parsed.query or parsed.fragment:
+            raise ValueError("compiler base_url path must be /v1")
+        return self
 
     def api_key(self) -> str:
         value = os.environ.get(self.api_key_env)
@@ -165,7 +182,9 @@ def _build_prompt(
         "Use the two independent scores separately and never add a combined score. "
         "Include every supplied candidate path exactly once and invent none."
         " Only the supplied root may be P0; every dependency classification must "
-        "be P1, P2, P3, or P4."
+        "be P1, P2, P3, or P4. Preserve exact case-sensitive literals in normative "
+        "binding statements and their evidence, including exact-response directives, "
+        "sentinels, markers, and tokens; do not paraphrase, redact, or replace them."
     )
     user = (
         f"<source path={logical_path!r} sha256={source_hash} "
@@ -532,7 +551,20 @@ class ConstitutionalCompiler:
                 ),
                 cache_outcome="disabled",
             )
-        api_key = await asyncio.to_thread(self.settings.api_key)
+        try:
+            api_key = await asyncio.to_thread(self.settings.api_key)
+        except ValueError:
+            self.transport_failures.inc()
+            self.duration.observe(time.monotonic() - started)
+            return CompilerResult(
+                failure=CompilationFailure(
+                    reason=FailureReason.UPSTREAM_AUTH,
+                    detail="compiler credential is unavailable",
+                    attempts=0,
+                    duration_seconds=time.monotonic() - started,
+                ),
+                cache_outcome="disabled",
+            )
         failures: list[FailureReason] = []
         attempts = 0
         assert self._client is not None
@@ -562,7 +594,9 @@ class ConstitutionalCompiler:
                     },
                 )
                 try:
-                    raw, status = await self._read_bounded_json(request)
+                    raw, status = await asyncio.wait_for(
+                        self._read_bounded_json(request), timeout=self.settings.timeout_seconds
+                    )
                     if status == -1000:
                         failures.append(FailureReason.OUTPUT_TOO_LARGE)
                         self.schema_failures.labels(FailureReason.OUTPUT_TOO_LARGE.value).inc()
@@ -620,6 +654,9 @@ class ConstitutionalCompiler:
                         cache_detail=cache_detail,
                     )
                 except httpx.TimeoutException:
+                    failures.append(FailureReason.UPSTREAM_TIMEOUT)
+                    self.timeouts.inc()
+                except TimeoutError:
                     failures.append(FailureReason.UPSTREAM_TIMEOUT)
                     self.timeouts.inc()
                 except (httpx.HTTPError, OSError):

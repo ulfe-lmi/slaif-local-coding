@@ -54,6 +54,19 @@ SPOOFED_INTERNAL = frozenset(
         "x-internal-debug",
     }
 )
+SENSITIVE_REQUEST_HEADERS = frozenset(
+    {
+        "authorization",
+        "cookie",
+        "proxy-connection",
+        "set-cookie",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-forwarded-port",
+        "x-forwarded-proto",
+        "forwarded",
+    }
+)
 FORWARDED_RESPONSE_HEADERS = frozenset(
     {
         "content-type",
@@ -77,6 +90,15 @@ def _error(status: int, message: str, code: str) -> JSONResponse:
 def _connection_tokens(headers: httpx.Headers | Any) -> set[str]:
     value = headers.get("connection", "")
     return {token.strip().lower() for token in value.split(",") if token.strip()}
+
+
+def _forward_request_header(name: str, connection_tokens: set[str]) -> bool:
+    lowered = name.lower()
+    return not (
+        lowered in HOP_BY_HOP | SPOOFED_INTERNAL | SENSITIVE_REQUEST_HEADERS | connection_tokens
+        or lowered.startswith("x-slaif-")
+        or lowered.startswith("x-internal-")
+    )
 
 
 async def _bounded_body(request: Request, maximum: int) -> bytes | None:
@@ -108,10 +130,11 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         base_url=settings.upstream.origin(), timeout=timeout, transport=transport
     )
     registry = CollectorRegistry()
+    LOGGER.setLevel(settings.observability.log_level)
     constitution_pipeline: ConstitutionPipeline | None = None
     if settings.constitution.enabled:
         compiler_settings = CompilerSettings(
-            base_url=settings.upstream.base_url,
+            base_url=settings.upstream.base_url.rstrip("/"),
             api_key_env=settings.compiler.api_key_env,
             model=settings.upstream.model,
             timeout_seconds=settings.compiler.timeout_seconds,
@@ -168,6 +191,12 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
     readiness = Gauge(
         "slaif_readiness_state",
         "Last readiness result (1 ready, 0 not ready)",
+        registry=registry,
+    )
+    readiness_components = Gauge(
+        "slaif_readiness_component_state",
+        "Last readiness state by fixed component (1 available, 0 unavailable)",
+        ["component"],
         registry=registry,
     )
     observed_roots = Counter(
@@ -235,20 +264,63 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
 
     @app.get("/readyz")
     async def readyz() -> Response:
+        cache_state = "disabled"
+        compiler_state = "disabled"
+        if constitution_pipeline is not None:
+            cache_state = (
+                "ready"
+                if (
+                    constitution_pipeline.cache.available
+                    and not constitution_pipeline.cache.degraded
+                )
+                else ("degraded" if constitution_pipeline.cache.available else "unavailable")
+            )
+            try:
+                constitution_pipeline.compiler.settings.api_key()
+                compiler_state = "ready"
+            except ValueError:
+                compiler_state = "unavailable"
         try:
             key = settings.upstream.api_key()
             response = await client.get("/health", headers={"authorization": f"Bearer {key}"})
             if not response.is_success:
-                readiness.set(0)
-                return _error(503, "upstream is not ready", "upstream_unavailable")
+                raise RuntimeError("upstream unavailable")
         except (ValueError, httpx.HTTPError):
+            upstream_state = "unavailable"
+        except RuntimeError:
+            upstream_state = "unavailable"
+        else:
+            upstream_state = "ready"
+        readiness_components.labels("upstream").set(upstream_state == "ready")
+        readiness_components.labels("compiler").set(compiler_state != "unavailable")
+        readiness_components.labels("cache").set(cache_state != "unavailable")
+        if upstream_state != "ready" or compiler_state == "unavailable":
             readiness.set(0)
-            return _error(503, "upstream is not ready", "upstream_unavailable")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "config": "valid",
+                    "upstream": upstream_state,
+                    "compiler": compiler_state,
+                    "cache": cache_state,
+                },
+            )
         readiness.set(1)
-        return JSONResponse({"status": "ready"})
+        return JSONResponse(
+            content={
+                "status": "ready",
+                "config": "valid",
+                "upstream": upstream_state,
+                "compiler": compiler_state,
+                "cache": cache_state,
+            }
+        )
 
     @app.get("/metrics")
     async def metrics() -> Response:
+        if not settings.observability.metrics_enabled:
+            return _error(404, "metrics are disabled", "metrics_disabled")
         return Response(generate_latest(registry), media_type="text/plain; version=0.0.4")
 
     @app.api_route("/{path:path}", methods=["GET", "POST"])
@@ -282,7 +354,7 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                     "request JSON exceeds configured nesting limit",
                     "json_nesting_too_deep",
                 )
-            except (UnicodeDecodeError, json.JSONDecodeError):
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
                 return local_error(400, "request body must be valid JSON", "invalid_json")
             except RecursionError:
                 return local_error(
@@ -331,13 +403,13 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                                 "image_policy_failed",
                             )
                         body = json.dumps(
-                            payload, separators=(",", ":"), ensure_ascii=False
+                            payload, separators=(",", ":"), ensure_ascii=True
                         ).encode()
-                    except RecursionError:
+                    except (RecursionError, TypeError, ValueError, UnicodeError):
                         return local_error(
                             400,
-                            "request JSON exceeds configured nesting limit",
-                            "json_nesting_too_deep",
+                            "request body must be valid JSON",
+                            "invalid_json",
                         )
             image_count.labels(route_name, "seen").inc(seen)
             image_count.labels(route_name, "removed").inc(removed)
@@ -432,11 +504,8 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         headers = {
             name: value
             for name, value in request.headers.items()
-            if name.lower()
-            not in HOP_BY_HOP
-            | SPOOFED_INTERNAL
-            | request_connection_tokens
-            | {"authorization", "accept-encoding"}
+            if _forward_request_header(name, request_connection_tokens)
+            and name.lower() != "accept-encoding"
         }
         headers["authorization"] = f"Bearer {key}"
         headers["accept-encoding"] = "identity"
@@ -467,6 +536,26 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         ).inc()
         request_latency.labels(endpoint, route_name).observe(time.monotonic() - started)
 
+        if upstream.status_code >= 400:
+            error_headers = {
+                key: value
+                for key, value in response_headers.items()
+                if key.lower()
+                in {"cache-control", "openai-processing-ms", "retry-after", "x-request-id"}
+            }
+            await upstream.aclose()
+            return JSONResponse(
+                status_code=upstream.status_code,
+                content={
+                    "error": {
+                        "message": "upstream returned an error",
+                        "type": "upstream_error",
+                        "code": "upstream_error",
+                    }
+                },
+                headers=error_headers,
+            )
+
         if stream:
 
             async def chunks() -> AsyncIterator[bytes]:
@@ -486,11 +575,32 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                 chunks(), status_code=upstream.status_code, headers=response_headers
             )
         try:
-            content = (
-                upstream.content
-                if upstream.is_stream_consumed
-                else b"".join([chunk async for chunk in upstream.aiter_raw()])
-            )
+            if upstream.is_stream_consumed:
+                content = upstream.content
+                if len(content) > settings.server.response_body_max_bytes:
+                    upstream_failures.labels("response_too_large").inc()
+                    return local_error(
+                        502,
+                        "upstream response exceeds configured limit",
+                        "upstream_response_too_large",
+                    )
+            else:
+                response_chunks: list[bytes] = []
+                size = 0
+                async for chunk in upstream.aiter_raw():
+                    size += len(chunk)
+                    if size > settings.server.response_body_max_bytes:
+                        upstream_failures.labels("response_too_large").inc()
+                        return local_error(
+                            502,
+                            "upstream response exceeds configured limit",
+                            "upstream_response_too_large",
+                        )
+                    response_chunks.append(chunk)
+                content = b"".join(response_chunks)
+        except httpx.HTTPError:
+            upstream_failures.labels("response_read").inc()
+            return local_error(502, "upstream response failed", "upstream_error")
         finally:
             await upstream.aclose()
         return Response(content, status_code=upstream.status_code, headers=response_headers)

@@ -4,6 +4,7 @@
 listen_host = "127.0.0.1"
 listen_port = 18031
 request_body_max_bytes = 67108864
+response_body_max_bytes = 67108864
 json_max_nesting_depth = 128
 
 [upstream]

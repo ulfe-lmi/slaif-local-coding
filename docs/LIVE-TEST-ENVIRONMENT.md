@@ -1,7 +1,8 @@
 # Live development/test environment
 
-This file records the initial known host contract. It is a verification target,
-not permission to alter the host and not a substitute for live reconnaissance.
+This file records the accepted human-gated vision fixture and the mutually
+exclusive text configuration. It is a verification target, not permission to
+alter the host and not a substitute for live reconnaissance.
 
 ## Paths and identities
 
@@ -20,11 +21,11 @@ Preferred same-host upstream: http://127.0.0.1:18020/v1
 Optional LAN upstream on hinton1: http://10.8.132.75:18020/v1
 Historical upstream (not operational): http://10.8.132.76:18020/v1
 Model ID: qwen3.8-27b
-Verified launch class (2026-08-22): language-model-only
-Verified image capacity: zero images per request
+Accepted launch class (004-al): vision-enabled human-gated fixture
+Accepted image capacity: one image per request
 Authentication env: QWEN3090_API_KEY
 vLLM: 0.27.1 in the recorded installation
-Context: 150000 physical; Codex compaction configured around 125000
+Context: 100000 physical for the vision fixture; text configuration uses 150000
 Tool parser: qwen3_coder
 Reasoning parser: qwen3
 Prefix caching: enabled in the recorded text configuration
@@ -37,13 +38,13 @@ the LAN value is a documented alternative for clients on that network. The
 historical `.76` address remains only in merged provenance/reference material
 and must not be silently rewritten there.
 
-The currently verified service is text-only and declares capacity for zero
-images. Do not describe it as a live vision service. Objective 000 previously
-passed one- and two-image policy tests against the prior vision deployment;
-that evidence remains historical provenance only. Objective 002's current live
-image assertion is skipped because of the verified zero-image capability. Any
-launch command, multimodal flag, catalog, service state, API shape, or port
-ownership claim still requires fresh read-only reconnaissance.
+The accepted 004-al service is the human-selected vision fixture and declares
+capacity for one image per request. It is mutually exclusive with the
+text-only configuration, which declares zero-image capacity. The repository
+acceptance is fixture-scoped and does not establish generic or production
+vision readiness. Any launch command, multimodal flag, catalog, service state,
+API shape, or port ownership claim still requires fresh read-only
+reconnaissance.
 
 ## Current compatibility path
 
@@ -62,7 +63,8 @@ OAP control path:
   coding Codex    -> default Codex provider
 
 live system under test:
-  Qwen/vLLM text-only service -> hinton1 loopback :18020 (verify live)
+  selected protected Qwen/vLLM fixture -> hinton1 loopback :18020 (verify live)
+  vision fixture for 004-al; text configuration is mutually exclusive
 
 new adapter test path:
   curl/tests -> 127.0.0.1:18031 -> live Qwen/vLLM

@@ -1,7 +1,7 @@
 # INITIAL STRATEGIC ROADMAP — NON-ACTIVE
 
 Live GitHub/host evidence and prior PR review override this plan. One numeric
-objective=one PR; `b..z` amend same PR. Do not activate next numeric objective
+objective=one PR; every continuation suffix (`b..z`, then `aa..zz`) amends the same PR. Do not activate next numeric objective
 until current accepted, merged, and remote main verified.
 
 | ID | Objective | Required proof | Explicit exclusion |

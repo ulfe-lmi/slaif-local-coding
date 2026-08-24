@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import time
 from pathlib import Path
 from typing import Any
 
@@ -71,10 +70,24 @@ def bounds(**changes: Any) -> dict[str, Any]:
 
 
 def write_cache(root: Path, **policy_changes: Any) -> DerivedIndexCache:
-    cache = DerivedIndexCache(policy(root, **policy_changes))
+    clock = policy_changes.pop("clock", None)
+    cache = DerivedIndexCache(policy(root, **policy_changes), clock=clock)
     result = cache.put(key_for(index()), index())
     assert result.outcome == "written"
     return cache
+
+
+class ControlledClock:
+    """Explicit wall-clock test boundary with controlled advancement."""
+
+    def __init__(self, start: float = 1_000.0) -> None:
+        self.now = start
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
 
 
 def test_atomic_private_write_payload_integrity_and_hit(tmp_path: Path) -> None:
@@ -89,6 +102,13 @@ def test_atomic_private_write_payload_integrity_and_hit(tmp_path: Path) -> None:
     assert read.index is not None and read.outcome == "hit"
     envelope = json.loads(path.read_text())
     assert "prompt" not in envelope and SECRET_MARKER not in path.read_text()
+
+
+def test_invalid_cache_key_cannot_escape_shard_layout(tmp_path: Path) -> None:
+    cache = DerivedIndexCache(policy(tmp_path / "key-boundary"))
+    result = cache.put("../outside", index())
+    assert result.outcome == "invalid"
+    assert not (tmp_path / "outside").exists()
 
 
 def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Path) -> None:
@@ -182,13 +202,15 @@ def test_all_identity_source_and_policy_dimensions_isolate_entries(tmp_path: Pat
 
 def test_ttl_expiry_corruption_and_permission_failures_are_misses(tmp_path: Path) -> None:
     root = tmp_path / "ttl"
-    cache = write_cache(root, ttl_seconds=0.01)
+    clock = ControlledClock()
+    cache = write_cache(root, ttl_seconds=10.0, clock=clock)
     key = key_for(index())
     assert cache.get(key).outcome == "hit"
-    import time
-
-    time.sleep(0.02)
+    clock.advance(9.999)
+    assert cache.get(key).outcome == "hit"
+    clock.advance(0.002)
     assert cache.get(key).outcome == "expired"
+    assert not list(root.rglob("*.json"))
 
     cache = write_cache(tmp_path / "corrupt")
     path = next((tmp_path / "corrupt").rglob("*.json"))
@@ -378,9 +400,10 @@ def test_restart_removes_expired_corrupt_and_invalid_artifacts(tmp_path: Path) -
     assert restarted.available and restarted.get(key_for(index())).outcome == "hit"
 
     expired_root = tmp_path / "expired"
-    write_cache(expired_root, ttl_seconds=0.01)
-    time.sleep(0.02)
-    restarted = DerivedIndexCache(policy(expired_root, ttl_seconds=0.01))
+    expired_clock = ControlledClock()
+    write_cache(expired_root, ttl_seconds=0.01, clock=expired_clock)
+    expired_clock.advance(0.02)
+    restarted = DerivedIndexCache(policy(expired_root, ttl_seconds=0.01), clock=expired_clock)
     assert restarted.available
     assert not list(expired_root.rglob("*.json"))
 

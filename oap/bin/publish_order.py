@@ -10,7 +10,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ID_RE = re.compile(r"^[0-9]{3}-[a-z]$")
+ID_RE = re.compile(r"^[0-9]{3}-[a-z]{1,2}$")
 FORBIDDEN_DRAFT_MARKERS = ("DRAFT UNTIL", "VERIFY:")
 
 

@@ -28,6 +28,20 @@ def test_non_loopback_and_unknown_policy_fail_closed() -> None:
         ServerConfig(json_max_nesting_depth=257)
     with pytest.raises(ValidationError):
         ObservationPolicy(max_roots=0)
+    with pytest.raises(ValidationError):
+        RouteConfig(name="x", model="m", image_overflow_policy="reject")
+    with pytest.raises(ValidationError):
+        RouteConfig(
+            name="x", model="m", max_images_per_request=1, image_overflow_policy="passthrough"
+        )
+    with pytest.raises(ValidationError):
+        CacheConfig(root=Path("relative-cache"))
+    with pytest.raises(ValidationError):
+        UpstreamConfig(
+            base_url="http://user:password@upstream.test/v1", api_key_env="KEY", model="m"
+        )
+    with pytest.raises(ValidationError):
+        UpstreamConfig(base_url="http://upstream.test:bad/v1", api_key_env="KEY", model="m")
 
 
 def test_future_feature_and_raw_logging_configuration_fail_closed(tmp_path: Path) -> None:
@@ -42,11 +56,15 @@ name = "r"
 model = "m"
 image_overflow_policy = "passthrough"
 """
-    for unsafe in "[observability]\nlog_raw_payloads = true\n":
+    for unsafe in ("[observability]\nlog_raw_payloads = true\n",):
         path = tmp_path / "unsafe.toml"
         path.write_text(base + unsafe)
         with pytest.raises(ValueError):
             load_settings(path)
+    unknown = tmp_path / "unknown.toml"
+    unknown.write_text(base + '[observability]\nfuture_label = "private"\n')
+    with pytest.raises(ValueError):
+        load_settings(unknown)
 
 
 def test_route_matches_must_be_unique_per_model_and_endpoint() -> None:
@@ -178,24 +196,21 @@ def test_current_endpoint_migration_and_historical_provenance() -> None:
     assert "10.8.132.76" in reference
 
 
-def test_current_host_capability_is_text_only_with_historical_vision_provenance() -> None:
+def test_current_host_capability_records_fixture_scoped_vision_acceptance() -> None:
     live_document = Path("docs/LIVE-TEST-ENVIRONMENT.md").read_text()
     architecture = Path("ARCHITECTURE.md").read_text()
     readme = Path("README.md").read_text()
-    assert "Verified image capacity: zero images per request" in live_document
+    assert "Accepted image capacity: one image per request" in live_document
     assert "text-only" in live_document.lower()
-    assert "language-model-only" in live_document
-    assert "Qwen/vLLM vision service" not in architecture
-    assert "Qwen/vLLM text-only service" in architecture
+    assert "vision-enabled human-gated fixture" in live_document
+    assert "accepted 004-al human-gated vision fixture" in architecture
+    assert "selected protected Qwen/vLLM fixture" in architecture
+    assert "Qwen/vLLM text-only service" not in architecture
     assert "http://10.8.132.75:18020/v1" in live_document
     assert "10.8.132.76" in live_document
-    assert "prior vision deployment" in live_document
-    assert "historical provenance" in live_document
-    assert "accepts zero images" in architecture
-    assert "not live-vision" in readme
-    assert "readiness" in readme
-    assert "prior vision deployment" in live_document
-    assert "historical provenance" in live_document
+    assert "generic or production" in live_document
+    assert "one image per request" in readme
+    assert "fixture-scoped" in readme
 
 
 def test_cache_and_compiler_bounds_have_safe_defaults_and_finite_ranges(

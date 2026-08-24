@@ -201,15 +201,16 @@ Wire payload is exactly ASCII bytes `OK` (`4f 4b`), no newline/ID/JSON/status.
 `oap/active` alone selects work. Never infer from newest/highest/mtime/filename.
 Require exactly one matching immutable order.
 
-ID=`NNN-L`. `NNN-a` creates exactly one new branch and PR. `NNN-b..z` amend that
-same branch/PR; no second PR. Coding never invents ID/continuation/roadmap.
+ID=`NNN-L`, where `L` is one or two lowercase letters. `NNN-a` creates exactly
+one new branch and PR. `NNN-b..z`, then `NNN-aa..zz`, amend that same branch/PR;
+no second PR. Coding never invents ID/continuation/roadmap.
 
 Normal round after wrapper/agent receives valid control `OK`:
 
 1. read active/order/governance; reconcile GitHub;
 2. execute bounded scope and verification;
 3. commit/push implementation plus unchanged activated order and `oap/active`;
-4. create (`a`) or amend (`b..z`) exact objective PR; never merge;
+4. create (`a`) or amend (every later valid suffix) exact objective PR; never merge;
 5. inspect and safely repair in-scope CI failures;
 6. push all non-report work; capture literal 40-hex implementation head;
 7. atomically create exactly one immutable matching report containing:

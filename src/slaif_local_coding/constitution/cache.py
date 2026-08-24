@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -72,7 +73,7 @@ class CacheReadResult:
 
 @dataclass(frozen=True)
 class CacheWriteResult:
-    outcome: Literal["written", "too-large", "unavailable", "io-failed", "disabled"]
+    outcome: Literal["written", "too-large", "unavailable", "io-failed", "invalid", "disabled"]
     detail: str = ""
     bytes_written: int = 0
 
@@ -161,6 +162,12 @@ def _trusted_path(path: Path, *, directory: bool) -> bool:
     )
 
 
+def _valid_cache_key(key: str) -> bool:
+    return len(key) == _KEY_FILENAME_LENGTH and all(
+        character in "0123456789abcdef" for character in key
+    )
+
+
 def _safe_prepare(path: Path) -> None:
     """Create or adopt only a real, current-user, private directory."""
     try:
@@ -183,10 +190,12 @@ class DerivedIndexCache:
         self,
         policy: CachePolicy,
         registry: CollectorRegistry | None = None,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         if not policy.valid:
             raise ValueError("invalid cache policy")
         self.policy = policy
+        self._clock = clock or time.time
         self.registry = registry or CollectorRegistry()
         self._lock = threading.RLock()
         self._entries: OrderedDict[str, _EntryMetadata] = OrderedDict()
@@ -320,7 +329,8 @@ class DerivedIndexCache:
                 if current.suffix == ".json" or current.name.startswith(".tmp-"):
                     current.unlink(missing_ok=True)
                     self.permission_failures.inc()
-                continue
+                    continue
+                return "cache contains an untrusted file"
             if current.name.startswith(".tmp-"):
                 current.unlink(missing_ok=True)
                 self.corruption.inc()
@@ -341,7 +351,7 @@ class DerivedIndexCache:
                 discovered.append((info.st_mtime_ns, current, size))
             else:
                 current.unlink(missing_ok=True)
-        discovered.sort(reverse=True)
+        discovered.sort(key=lambda item: (item[0], str(item[1])), reverse=True)
         for _, path, _size in discovered[: self.policy.max_entries]:
             key = path.stem
             metadata = self._inspect(path, key, path.stat().st_size)
@@ -360,9 +370,17 @@ class DerivedIndexCache:
             if not isinstance(envelope, dict) or envelope.get("key") != key:
                 return None
             payload = envelope.get("payload")
+            payload_hash = envelope.get("payload_sha256")
+            payload_bytes = _canonical_bytes(payload)
+            if (
+                envelope.get("cache_schema_version") != CACHE_SCHEMA_VERSION
+                or not isinstance(payload_hash, str)
+                or hashlib.sha256(payload_bytes).hexdigest() != payload_hash
+            ):
+                return None
             index = CompiledIndex.model_validate(payload)
             created = _entry_time(envelope)
-            if time.time() - created > self.policy.ttl_seconds:
+            if self._clock() - created > self.policy.ttl_seconds:
                 return None
             return _EntryMetadata(
                 path=path,
@@ -429,9 +447,7 @@ class DerivedIndexCache:
         if not self._available or self._root is None:
             self.misses.labels("unavailable").inc()
             return CacheReadResult(None, "unavailable", self._detail)
-        if len(key) != _KEY_FILENAME_LENGTH or any(
-            character not in "0123456789abcdef" for character in key
-        ):
+        if not _valid_cache_key(key):
             self.misses.labels("miss").inc()
             return CacheReadResult(None, "miss")
         with self._lock:
@@ -453,7 +469,7 @@ class DerivedIndexCache:
                 self._refresh_occupancy()
                 return CacheReadResult(None, "permission", "entry is not a trusted private file")
             try:
-                if time.time() - metadata.created_at > self.policy.ttl_seconds:
+                if self._clock() - metadata.created_at > self.policy.ttl_seconds:
                     self._remove(key, expired=True)
                     self._refresh_occupancy()
                     return CacheReadResult(None, "expired")
@@ -497,6 +513,9 @@ class DerivedIndexCache:
         if not self._available or self._root is None:
             self.writes.labels("unavailable").inc()
             return CacheWriteResult("unavailable", self._detail)
+        if not _valid_cache_key(key):
+            self.writes.labels("invalid").inc()
+            return CacheWriteResult("invalid", "cache key is not a canonical digest")
         payload = index.model_dump(mode="json")
         payload_bytes = _canonical_bytes(payload)
         if len(payload_bytes) > self.policy.max_entry_bytes:
@@ -504,7 +523,7 @@ class DerivedIndexCache:
             return CacheWriteResult("too-large", "validated index exceeds cache entry budget")
         envelope = {
             "cache_schema_version": CACHE_SCHEMA_VERSION,
-            "created_at": time.time(),
+            "created_at": self._clock(),
             "key": key,
             "payload": payload,
             "payload_sha256": hashlib.sha256(payload_bytes).hexdigest(),
@@ -639,7 +658,11 @@ class DerivedIndexCache:
         """Remove only this cache's derived JSON entries; source truth is untouched."""
         removed = 0
         with self._lock:
-            assert self._root is not None
+            if not self._available or self._root is None:
+                return 0
+            if not _trusted_path(self._root, directory=True):
+                self._set_unavailable("cache root became untrusted")
+                return 0
             for path in tuple(self._root.rglob("*")):
                 try:
                     info = path.lstat()

@@ -48,8 +48,9 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`003-e` provide a private, loopback-only candidate
-adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
+Current status: objectives `000`–`004` provide a private, loopback-only candidate
+adapter plus repository-only Objective-004 acceptance evidence. It forwards
+`/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
 `AGENTS.md` content and enumerate syntactic repository-file candidates; and can
@@ -59,11 +60,15 @@ compiler, observation, route, and complete static local-appliance identity
 configuration. It handles exactly one complete root and can rehydrate the last validated
 working set for an exact configured identity on a later zero-root request;
 multiple/incomplete roots preserve post-image-policy semantics.
+The current Objective-004 criterion state is in the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
+and the [OAP completeness record](oap/COMPLETENESS.md); objectives 005–006 remain
+separate milestones.
 
-The currently verified `hinton1` fixture serves text only and declares zero-image
-capacity. Image-policy code is covered by fake-upstream tests and objective 000
-historical evidence from the prior vision deployment; it is not live-vision
-readiness.
+The accepted Objective-004 live fixture is the human-selected Qwen vision service:
+it supports one image per request and the repository-only run verified Codex
+full/full followed by crop/crop behavior. The mutually exclusive text
+configuration declares zero-image capacity. This is fixture-scoped evidence, not
+a generic or production vision-readiness claim.
 
 ## Request-only constitution observation
 
@@ -75,7 +80,8 @@ and normalized it to the canonical fixture path `$.input[0].content[0].text` wit
 byte-identical request-only fixtures; top-level `instructions` was absent and is
 therefore optional corroboration, not a prerequisite.
 Synthetic supplements accept explicit `input_file` items in top-level
-Responses/Chat content positions and exact `exec_command` calls paired one-to-one
+Responses/Chat content positions and exact bounded reads from `exec_command` or
+Codex 0.149.0 `shell_command` calls paired one-to-one
 with output by call ID;
 the read grammar is limited to exact `cat`, `head`, `tail`, or bounded `sed -n`.
 For the captured shape, a matching parseable `instructions` block adds evidence;
@@ -206,9 +212,66 @@ selection, and essential-overflow failures also preserve that body. Injection
 marker/shape failures return a sanitized 422 without forwarding. The pipeline is
 local single-user MVP functionality only: configured principal/session/
 repository labels are not signed gateway identity and must never be represented
-as multi-user production isolation. Acquisition, tool-output ingestion,
-real Codex E2E operation, gateway integration, vision readiness, and cutover
-remain excluded.
+as multi-user production isolation. Signed multi-user identity, gateway
+integration, production cutover, and generic production readiness remain outside
+this boundary. Repository-only Objective-004 evidence separately covers governed
+Codex E2E, adapter-boundary rehydration, security/observability review, the
+isolated systemd candidate, and fixture-scoped vision acceptance; native Codex
+compaction is not claimed or required. See the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
+and [completeness record](oap/COMPLETENESS.md).
+
+## Repository-only real-Codex governed E2E diagnostics
+
+Real-Codex governed E2E support is repository test support under
+`tests/helpers/e2e_support.py` and `tests/helpers/sandbox_runtime.py`; it is
+not a `slaif_local_coding` runtime module, import, or console API. The
+production adapter therefore has no launcher, sandbox/bubblewrap probe,
+temporary credential/config writer, or `e2e.py` payload. A wheel inspection
+must show no such installed payload. Source-distribution test support, if
+included by the build backend, is explicitly non-runtime and is exercised only
+from the repository test suite.
+
+The retained support creates a private synthetic Git fixture and disposable
+Codex home, writes a custom Responses provider for the loopback candidate
+adapter, and references the protected credential only by environment name. The
+governed Codex-under-test launcher uses global
+`--dangerously-bypass-approvals-and-sandbox` before `exec`, with fixed JSON/
+ephemeral/strict-config argv and disabled `unified_exec`; it records the
+normalized argv/hash and `codex_under_test_yolo=true`. Bounded time/event/
+diagnostic output, closed stdin, process cleanup, private temporary state, and
+sanitized event/lifecycle/provenance facts remain in force. Raw prompts, source,
+events, responses, command output, credentials, and private paths stay in
+caller-owned temporary storage and are not returned, logged, or reported.
+Fixture cleanup is verified by focused tests.
+
+The retained gates cover the synthetic long-root/dependency fixture, successful
+dependency-read lifecycle, sentinel attribution, bounded cache/metric
+reconciliation, and ordinary Codex command-path diagnostics. The 004-s
+acceptance sequence makes exactly two governed Codex invocations through the
+loopback candidate on `18031`, with the protected upstream on `18020`, and
+requires exact dependency bytes, root/dependency observation, compilation,
+injection, sentinel compliance, and persistent cache reuse without a third call
+or retry. Raw bubblewrap, `unshare`, sandbox controls, alternate prompts, and
+host/profile mutation are not used.
+
+The following paragraph is a historical 004-n snapshot, not current branch status.
+The historical raw probe is described narrowly as
+`raw_bwrap_unshare_all_loopback_bootstrap_failed`: it observed a handcrafted
+all-namespace loopback bootstrap failure. The earlier host/kernel inference was
+too broad because that probe was not the acceptance topology. Independently
+sanitized evidence establishes that the OAP parent was host-direct/unsandboxed,
+so the result was not a nested-outer-sandbox artifact. The immutable 004-o
+recorded the original startup placement failure. In the corrected 004-p round,
+the ordinary B control reached Codex `0.149.0`, exited `0`, and emitted one
+successful shell command whose exact text differed from `/usr/bin/true`.
+004-q and 004-r remain immutable historical records of workspace-write
+qualification limitations; they are not acceptance prerequisites. The current
+implementation records only allowlisted config/environment/argv facts; it does
+not retain raw diagnostics or mutate the host configuration. At that historical
+round, Objective 004 was recorded at 15% and branch readiness at approximately
+74%. Current Objective-004 completion and evidence are recorded in the [criterion
+ledger](docs/OBJECTIVE-004-LEDGER.md) and [completeness record](oap/COMPLETENESS.md);
+the historical external diagnostics do not gate 004-s or 004-al acceptance.
 
 ## Candidate quickstart
 
@@ -234,6 +297,9 @@ before decoding and rejected with sanitized HTTP 400 code
 `json_nesting_too_deep` when container nesting exceeds
 `json_max_nesting_depth` (128 by default). The configured depth itself is allowed;
 depth 129 is rejected by the example configuration without an upstream call.
+Non-streaming upstream response bodies are also bounded by
+`response_body_max_bytes`; oversized or error responses are closed and returned
+as fixed sanitized errors.
 
 Configuration is strict. Each supported model/endpoint must match exactly one
 route with `retain_newest`, `reject`, or `passthrough`. The designated Qwen Codex
@@ -243,7 +309,8 @@ preserve the semantics of explicit multi-image comparison.
 
 Proxy requests retain the opaque query string without logging or metric-labeling
 its values. Standard hop-by-hop headers and headers named by `Connection` are
-removed in both directions. Caller compression preferences are replaced with
+removed in both directions, including cookies, forwarding headers, and the
+adapter's internal header families. Caller compression preferences are replaced with
 `Accept-Encoding: identity`; if upstream still sends an encoded response, its raw
 bytes and safe `Content-Encoding` are retained consistently. Bounded compatibility
 metadata includes `Content-Type`, `Content-Encoding`, `Cache-Control`,
@@ -267,6 +334,15 @@ The compiler/cache live case calls the configured private upstream directly and
 does not require that foreground adapter. Tests use only synthetic prompts and
 bounded outputs. Stop the temporary adapter after testing; protected vLLM
 service, model, network, and Codex profiles remain untouched.
-The systemd file in `packaging/` is an uninstalled example only. Public service
-authentication, signed identity, quotas, and TLS remain the separate gateway's
-responsibility.
+The systemd file in `packaging/` is an uninstalled user-service example only.
+It requires a repository `.venv`, an explicit config path, and a mode-0600
+external environment file for `QWEN3090_API_KEY`; it does not accept credentials
+inline in the unit or command line. The example hardens the candidate with
+loopback-only networking, private temporary storage, read-only system/home
+views, bounded tasks/memory/file descriptors, a private umask, journal output,
+and bounded graceful shutdown. Prefer a uniquely named transient
+`systemd-run --user --collect` unit for proof, validate it with
+`systemd-analyze verify`, and remove the temporary unit/config/cache/env after
+the run. It never installs, restarts, or changes `qwen-serving` or port
+`18020`. Public service authentication, signed identity, quotas, and TLS remain
+the separate gateway's responsibility.

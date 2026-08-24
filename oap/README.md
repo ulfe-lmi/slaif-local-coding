@@ -14,9 +14,10 @@ is bootstrapped from `strategic-instructions/` into a separate workspace.
 - `strategic-instructions/`: bootstrap source copied to strategic workspace;
   files here are not coding-agent instructions unless root constitution says so.
 
-ID=`NNN-L`. `NNN-a` creates exactly one branch/PR. `NNN-b..NNN-z` amend that
-same PR. One numeric objective=one PR. Strategic alone chooses IDs, accepts,
-merges, advances, abandons, or escalates.
+ID=`NNN-L`, with one or two lowercase suffix letters. `NNN-a` creates exactly
+one branch/PR. `NNN-b..NNN-z`, then `NNN-aa..NNN-zz`, amend that same PR. One
+numeric objective=one PR. Strategic alone chooses IDs, accepts, merges,
+advances, abandons, or escalates.
 
 Activated order, current `active`, and matching report are committed/pushed on
 the objective PR. Coding commits strategic artifacts byte-for-byte but does not

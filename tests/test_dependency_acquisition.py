@@ -96,6 +96,24 @@ def responses_tool_dependency(payload: dict[str, Any], *, output: Any = DEPENDEN
     )
 
 
+def codex_0149_tool_dependency(payload: dict[str, Any]) -> None:
+    payload["input"].extend(
+        [
+            {
+                "type": "function_call",
+                "call_id": "codex-shell-call",
+                "name": "shell_command",
+                "arguments": json.dumps({"command": ["head", "-n", "20", "SECURITY.md"]}),
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "codex-shell-call",
+                "output": DEPENDENCY_TEXT,
+            },
+        ]
+    )
+
+
 def chat_pairing() -> dict[str, Any]:
     return {
         "model": "test-model",
@@ -287,6 +305,16 @@ def test_responses_input_file_and_tool_dependencies_are_deterministic() -> None:
     assert second[0].model_dump_json() == third[0].model_dump_json()
 
 
+def test_codex_0149_shell_command_tool_result_is_acquired() -> None:
+    payload = root_payload()
+    codex_0149_tool_dependency(payload)
+    result, _, sources = observe_request_for_pipeline(payload, context(), ObservationPolicy())
+
+    assert [item.logical_path for item in result.dependencies] == ["SECURITY.md"]
+    assert result.dependencies[0].evidence[0].type is EvidenceType.PAIRED_TOOL_RESULT
+    assert sources["SECURITY.md"] == DEPENDENCY
+
+
 def test_chat_message_tool_result_pairs_with_exact_call_id() -> None:
     payload = chat_pairing()
     del payload["input"][2:]
@@ -382,6 +410,14 @@ async def test_root_plus_dependency_compiles_then_reuses_both_indexes(
         for value in [line.rsplit(" ", 1)[-1]]
     }
     assert outcomes == {"cache_hit": 1.0, "cache_miss": 1.0}
+    for status, expected in (("included", 2.0), ("missing", 2.0), ("omitted", 0.0)):
+        matches = [
+            float(line.rsplit(" ", 1)[-1])
+            for line in metrics.splitlines()
+            if line.startswith("slaif_constitution_dependency_working_set_total{")
+            and f'status="{status}"' in line
+        ]
+        assert sum(matches) == expected
     assert RAW_DEPENDENCY_TOKEN not in metrics and ROOT_TEXT not in metrics
 
 

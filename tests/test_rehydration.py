@@ -488,6 +488,42 @@ def test_lru_and_total_byte_pressure_discard_oldest_safe_entry(
     assert 'state="populated"' in state["metrics"]
 
 
+def test_oversized_rehydration_does_not_evict_valid_entries(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEST_PIPELINE_KEY", "test-only-secret")
+    settings = enabled_settings(tmp_path)
+    state: dict[str, Any] = {"compiler_calls": 0}
+    response = asyncio.run(_populate_once(settings, state))
+    assert response.status_code == 200
+    pipeline = state["pipeline"]
+    first_key = next(iter(pipeline._rehydration))
+    first_entry = pipeline._rehydration[first_key]
+    pipeline.constitution = pipeline.constitution.model_copy(
+        update={
+            "rehydration": pipeline.constitution.rehydration.model_copy(
+                update={
+                    "max_entries": 2,
+                    "max_entry_bytes": first_entry.bytes,
+                    "max_total_bytes": first_entry.bytes - 1,
+                }
+            )
+        }
+    )
+
+    pipeline._store_rehydration(
+        key=first_key.model_copy(update={"root_source_sha256": "2" * 64}),
+        root=first_entry.root,
+        dependencies=first_entry.dependencies,
+        metadata=first_entry.inclusion_metadata,
+        endpoint="/v1/responses",
+        route_name="constitution-route",
+    )
+
+    assert list(pipeline._rehydration) == [first_key]
+    assert pipeline._rehydration_bytes == first_entry.bytes
+
+
 async def _populate_once(settings: Any, state: dict[str, Any]) -> httpx.Response:
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/chat/completions":

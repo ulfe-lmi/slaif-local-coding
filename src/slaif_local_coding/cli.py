@@ -17,7 +17,10 @@ def main() -> None:
     args = parser.parse_args()
     settings = load_settings(args.config)
     uvicorn.run(
-        create_app(settings), host=settings.server.listen_host, port=settings.server.listen_port
+        create_app(settings),
+        host=settings.server.listen_host,
+        port=settings.server.listen_port,
+        access_log=False,
     )
 
 

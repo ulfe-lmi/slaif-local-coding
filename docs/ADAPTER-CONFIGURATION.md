@@ -13,6 +13,12 @@ are not reused as trusted upstream credentials or metadata. Logs and metrics
 contain bounded endpoint, configured route, status, timing, stream, failure,
 and image-count labels only; raw bodies and secrets are excluded.
 
+`request_body_max_bytes` and `response_body_max_bytes` are independent finite
+limits. A non-streaming upstream response over the response cap is closed and
+returned as a sanitized 502. Streaming remains incremental and is bounded by
+HTTPX/ASGI backpressure and read timeouts. The CLI disables Uvicorn access logs
+so opaque query strings are not emitted by the default server logger.
+
 The adapter incrementally consumes each request body and stops once the hard
 `request_body_max_bytes` cap is exceeded. It rejects a known oversized
 `Content-Length` early but still counts actual streamed bytes when the header is
@@ -35,6 +41,11 @@ semantics. Metrics expose only endpoint, configured route, fixed evidence/status
 reason labels, counts, and duration—not source paths/content/hashes, identity hints,
 tool text, queries, or authorization. Current external identity/session headers are
 spoofable and stripped; signed gateway identity remains future work.
+
+The bounded compiler prompt requires exact case-sensitive literals in normative
+binding statements and evidence to survive derived indexing. This matters for
+exact-response directives and hidden sentinel rules: a compiler success that
+omits such a literal is not an acceptable governance-preserving index.
 
 Supported evidence is deliberately structural: the captured project marker must
 occur exactly once in a top-level user/`input_text` Responses item. Three fresh
@@ -69,6 +80,12 @@ upstream ignores that preference, raw encoded bytes and safe `Content-Encoding`
 are forwarded together. Safe bounded response metadata includes `Content-Type`,
 `Content-Encoding`, `Cache-Control`, `OpenAI-Processing-Ms`, `Retry-After`, and
 request IDs.
+
+Upstream responses with HTTP status 400 or higher retain their status and safe
+retry metadata but receive a fixed OpenAI-shaped error body; upstream error
+bodies are never relayed to callers. `/readyz` reports fixed `config`,
+`upstream`, `compiler`, and disposable-cache states; cache degradation remains
+ready-but-degraded because original request semantics are preserved.
 
 `slaif_response_header_duration_seconds` measures time until a local outcome or
 upstream response headers. `slaif_stream_duration_seconds` separately measures
@@ -130,8 +147,9 @@ keys. `[constitution.rehydration]` enforces TTL, LRU entry-count, per-entry-byte
 and total-byte limits. Expired, invalid, oversized, or missing state is a safe
 miss that preserves the post-image-policy request. Multiple/incomplete roots and
 disabled/spoofed-header requests retain their existing semantics. This simulates
-new-context/compacted request behavior at the adapter boundary; actual Codex
-compaction E2E remains objective 004.
+new-context/compacted request behavior at the adapter boundary; a native Codex
+compaction trigger is not claimed or required by the accepted Objective-004
+evidence.
 
 Safe observation/pipeline/rehydration metrics use fixed endpoint/route/state/
 reason/outcome labels and counts/durations/gauges only—never source paths/
@@ -139,12 +157,27 @@ content/hashes, prompts/output, images, identity values, cache keys, model-visib
 text, or request-derived high-cardinality data. Rehydration states include
 populated, hit, stale/expired, isolated miss, injected, skipped, and failure.
 
-Acquisition instructions name unavailable files but do not fetch them. Arbitrary tool-output ingestion, recursive fetching,
-signed production identity, gateway integration, vision readiness, real Codex E2E
-support, and cutover remain excluded.
+Acquisition instructions name unavailable files but do not fetch them. Arbitrary
+tool-output ingestion and recursive fetching remain excluded. Signed production
+identity, gateway integration, generic production readiness, and cutover also
+remain outside this repository's production boundary. Repository-only
+Objective-004 support and accepted evidence cover governed real-Codex E2E and
+fixture-scoped vision acceptance; see the [criterion ledger](OBJECTIVE-004-LEDGER.md)
+and [OAP completeness record](../oap/COMPLETENESS.md).
 
-The example user unit is not installed or enabled automatically. For candidate
-testing, prefer the README foreground command on `127.0.0.1:18031`. Stop it with
-Ctrl-C. If an operator separately installs the example, stop and remove only
-that candidate unit and its repo-owned state. No Qwen/vLLM rollback is required
-because this candidate neither changes nor replaces the protected service.
+The user-systemd file in `packaging/` is an uninstalled candidate example. It
+uses the repository `.venv`, an explicit repository config path, a separate
+mode-0600 `EnvironmentFile`, loopback-only address-family/IP restrictions,
+private temporary storage, read-only system/home protection, bounded tasks/
+memory/file descriptors, and explicit SIGTERM/timeout/journal behavior. The
+example config binds `127.0.0.1:18031` and forwards to the separately protected
+upstream; it does not load model weights or replace that service. Validate a
+rendered candidate with `systemd-analyze verify` before use and prefer a unique
+`systemd-run --user --collect --unit=...` transient unit for testing. Never put
+the credential in `Environment=`, `ExecStart`, or this repository.
+
+For a simple foreground candidate test, use the README command on
+`127.0.0.1:18031` and stop it with Ctrl-C. If an operator separately installs
+the example, stop and remove only that candidate unit and its repo-owned state.
+No Qwen/vLLM rollback is required because this candidate neither changes nor
+replaces the protected service.

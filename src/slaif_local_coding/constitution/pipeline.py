@@ -148,6 +148,12 @@ class ConstitutionPipeline:
             ["endpoint", "route"],
             registry=registry,
         )
+        self.selection_statuses = Counter(
+            "slaif_constitution_dependency_working_set_total",
+            "Bounded dependency states in rendered working sets",
+            ["endpoint", "route", "status"],
+            registry=registry,
+        )
         self.selection_failures = Counter(
             "slaif_constitution_selection_failures_total",
             "Typed working-set selection failures by fixed reason",
@@ -520,7 +526,7 @@ class ConstitutionPipeline:
         previous: _RehydrationEntry | None = None
         try:
             size = self._entry_bytes(root, dependencies, metadata)
-            if size > policy.max_entry_bytes:
+            if size > policy.max_entry_bytes or size > policy.max_total_bytes:
                 raise ValueError("entry too large")
             entry = _RehydrationEntry(
                 created_at=time.monotonic(),
@@ -539,8 +545,6 @@ class ConstitutionPipeline:
                 ):
                     _, evicted = self._rehydration.popitem(last=False)
                     self._rehydration_bytes -= evicted.bytes
-                if size > policy.max_total_bytes:
-                    raise ValueError("entry exceeds total budget")
                 self._rehydration[key] = entry
                 self._rehydration_bytes += size
                 self._sync_rehydration_occupancy()
@@ -588,6 +592,10 @@ class ConstitutionPipeline:
         self.selection_inclusions.labels(endpoint, route_name).inc(
             sum(item.status.value == "included" for item in working_set.dependencies)
         )
+        for status in ("included", "missing", "omitted"):
+            self.selection_statuses.labels(endpoint, route_name, status).inc(
+                sum(item.status.value == status for item in working_set.dependencies)
+            )
         if endpoint == "/v1/responses":
             transformed, injection = inject_responses(
                 payload,
@@ -719,9 +727,7 @@ class ConstitutionPipeline:
                     reason=f"injection_{exc.reason.value}",
                 )
                 self._injection_failure(exc, endpoint=endpoint, route_name=route_name)
-            body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=False).encode(
-                "utf-8"
-            )
+            body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
             self._rehydration_metric(
                 endpoint=endpoint, route_name=route_name, state="hit", reason="zero_root"
             )
@@ -841,7 +847,7 @@ class ConstitutionPipeline:
         except ConstitutionInjectionError as exc:
             self._injection_failure(exc, endpoint=endpoint, route_name=route_name)
 
-        body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        body = json.dumps(transformed, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
         self._store_rehydration(
             key=self._rehydration_identity(
                 route_name=route_name,
