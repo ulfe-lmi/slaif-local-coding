@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -41,8 +42,13 @@ SERVICE_TOKEN = "synthetic-adapter-service-token"
 
 
 def _vector() -> dict[str, Any]:
-    return json.loads(
-        Path("tests/fixtures/gateway/signed_identity_v1_vectors.json").read_text(encoding="utf-8")
+    return cast(
+        dict[str, Any],
+        json.loads(
+            Path("tests/fixtures/gateway/signed_identity_v1_vectors.json").read_text(
+                encoding="utf-8"
+            )
+        ),
     )
 
 
@@ -110,10 +116,11 @@ def _request(
         "client": ("127.0.0.1", 1),
         "server": ("127.0.0.1", 18031),
     }
-    return Request(
-        scope,
-        receive=lambda: {"type": "http.request", "body": body, "more_body": False},
-    )
+
+    async def receive() -> MutableMapping[str, Any]:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(scope, receive=receive)
 
 
 def _identity_headers(
@@ -256,7 +263,7 @@ def test_header_names_are_case_insensitive_and_identity_is_immutable(
         principal="principal-a", session="session-a", repository="repository-a", route="vision"
     )
     with pytest.raises(ValidationError):
-        identity.principal = "changed"  # type: ignore[misc]
+        identity.principal = "changed"
 
 
 def test_signature_binds_body_query_path_method_identity_and_route(
@@ -432,7 +439,7 @@ async def test_verified_identity_is_explicitly_passed_to_each_pipeline_request(
             reason="test_capture",
         )
 
-    pipeline.process = capture  # type: ignore[method-assign]
+    pipeline.process = capture
     body = b'{"model":"qwen","input":"synthetic"}'
     first = _identity_headers(
         settings,
