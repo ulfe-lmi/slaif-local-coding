@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -78,6 +79,8 @@ FORWARDED_RESPONSE_HEADERS = frozenset(
     }
 )
 PROXY_PATHS = frozenset({"/health", "/v1/models", "/v1/responses", "/v1/chat/completions"})
+MAX_AUTHORIZATION_HEADER_BYTES = 8192
+MAX_SERVICE_TOKEN_BYTES = 4096
 
 
 def _error(status: int, message: str, code: str) -> JSONResponse:
@@ -85,6 +88,59 @@ def _error(status: int, message: str, code: str) -> JSONResponse:
         status_code=status,
         content={"error": {"message": message, "type": "invalid_request_error", "code": code}},
     )
+
+
+def _authorization_failure(status: int, *, challenge: bool) -> JSONResponse:
+    headers = {"WWW-Authenticate": "Bearer"} if challenge else None
+    return JSONResponse(
+        status_code=status,
+        content={
+            "error": {
+                "message": "invalid service authorization"
+                if status == 401
+                else "service authorization denied",
+                "type": "invalid_request_error",
+                "code": "invalid_service_authorization"
+                if status == 401
+                else "service_authorization_denied",
+            }
+        },
+        headers=headers,
+    )
+
+
+def _control_character(value: str) -> bool:
+    return any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+
+
+def _authenticate_service_request(request: Request, settings: Settings) -> Response | None:
+    """Authenticate only the private gateway ingress; never return token data."""
+    if not settings.gateway_ingress.enabled:
+        return None
+
+    authorization_values = request.headers.getlist("authorization")
+    if len(authorization_values) != 1:
+        return _authorization_failure(401, challenge=True)
+    authorization = authorization_values[0]
+    if len(authorization.encode("utf-8")) > MAX_AUTHORIZATION_HEADER_BYTES or _control_character(
+        authorization
+    ):
+        return _authorization_failure(401, challenge=True)
+    parts = authorization.split(" ")
+    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1]:
+        return _authorization_failure(401, challenge=True)
+    supplied_token = parts[1]
+    if len(supplied_token.encode("utf-8")) > MAX_SERVICE_TOKEN_BYTES or _control_character(
+        supplied_token
+    ):
+        return _authorization_failure(401, challenge=True)
+    try:
+        expected_token = settings.gateway_ingress.service_token()
+    except ValueError:
+        return _error(503, "service authentication is unavailable", "service_auth_unavailable")
+    if not secrets.compare_digest(supplied_token, expected_token):
+        return _authorization_failure(403, challenge=False)
+    return None
 
 
 def _connection_tokens(headers: httpx.Headers | Any) -> set[str]:
@@ -238,6 +294,11 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        if settings.gateway_ingress.enabled:
+            try:
+                settings.gateway_ingress.service_token()
+            except ValueError:
+                LOGGER.warning("gateway ingress service credential is unavailable")
         try:
             settings.upstream.api_key()
         except ValueError:
@@ -264,6 +325,14 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
 
     @app.get("/readyz")
     async def readyz() -> Response:
+        ingress_state = "disabled"
+        if settings.gateway_ingress.enabled:
+            try:
+                settings.gateway_ingress.service_token()
+            except ValueError:
+                ingress_state = "unavailable"
+            else:
+                ingress_state = "ready"
         cache_state = "disabled"
         compiler_state = "disabled"
         if constitution_pipeline is not None:
@@ -294,7 +363,12 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
         readiness_components.labels("upstream").set(upstream_state == "ready")
         readiness_components.labels("compiler").set(compiler_state != "unavailable")
         readiness_components.labels("cache").set(cache_state != "unavailable")
-        if upstream_state != "ready" or compiler_state == "unavailable":
+        readiness_components.labels("gateway_ingress").set(ingress_state != "unavailable")
+        if (
+            upstream_state != "ready"
+            or compiler_state == "unavailable"
+            or ingress_state == "unavailable"
+        ):
             readiness.set(0)
             return JSONResponse(
                 status_code=503,
@@ -302,6 +376,7 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                     "status": "not_ready",
                     "config": "valid",
                     "upstream": upstream_state,
+                    "gateway_ingress": ingress_state,
                     "compiler": compiler_state,
                     "cache": cache_state,
                 },
@@ -312,6 +387,7 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
                 "status": "ready",
                 "config": "valid",
                 "upstream": upstream_state,
+                "gateway_ingress": ingress_state,
                 "compiler": compiler_state,
                 "cache": cache_state,
             }
@@ -340,6 +416,16 @@ def create_app(settings: Settings, transport: httpx.AsyncBaseTransport | None = 
 
         if endpoint not in PROXY_PATHS:
             return local_error(404, "unsupported endpoint", "unsupported_endpoint")
+        authentication_error = _authenticate_service_request(request, settings)
+        if authentication_error is not None:
+            request_count.labels(
+                metric_endpoint,
+                route_name,
+                str(authentication_error.status_code),
+                str(stream).lower(),
+            ).inc()
+            request_latency.labels(metric_endpoint, route_name).observe(time.monotonic() - started)
+            return authentication_error
         body = await _bounded_body(request, settings.server.request_body_max_bytes)
         if body is None:
             return local_error(413, "request body exceeds configured limit", "request_too_large")

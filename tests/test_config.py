@@ -9,6 +9,7 @@ from slaif_local_coding.config import (
     CacheConfig,
     CompilerConfig,
     ConstitutionIntegrationConfig,
+    GatewayIngressConfig,
     ObservationPolicy,
     RehydrationConfig,
     RouteConfig,
@@ -17,6 +18,43 @@ from slaif_local_coding.config import (
     UpstreamConfig,
     load_settings,
 )
+
+
+def test_gateway_ingress_contract_is_strict_and_disabled_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert GatewayIngressConfig().mode == "disabled"
+    with pytest.raises(ValidationError):
+        GatewayIngressConfig(mode="service_bearer_static_identity")
+    with pytest.raises(ValidationError):
+        GatewayIngressConfig(mode="disabled", service_token_env="TEST_TOKEN")
+    with pytest.raises(ValidationError):
+        GatewayIngressConfig(
+            mode="service_bearer_static_identity", service_token_env="not-valid-name"
+        )
+
+    enabled = GatewayIngressConfig(
+        mode="service_bearer_static_identity", service_token_env="TEST_ADAPTER_TOKEN"
+    )
+    monkeypatch.setenv("TEST_ADAPTER_TOKEN", "adapter-only-synthetic-token")
+    assert enabled.service_token() == "adapter-only-synthetic-token"
+    monkeypatch.setenv("TEST_ADAPTER_TOKEN", "invalid\nvalue")
+    with pytest.raises(ValueError, match="credential is invalid"):
+        enabled.service_token()
+
+
+def test_gateway_ingress_requires_complete_static_identity() -> None:
+    upstream = UpstreamConfig(base_url="http://upstream.test/v1", api_key_env="KEY", model="m")
+    route = RouteConfig(name="r", model="m", image_overflow_policy="passthrough")
+    with pytest.raises(ValidationError, match="complete enabled static constitution identity"):
+        Settings(
+            server=ServerConfig(),
+            gateway_ingress=GatewayIngressConfig(
+                mode="service_bearer_static_identity", service_token_env="TEST_ADAPTER_TOKEN"
+            ),
+            upstream=upstream,
+            routes=[route],
+        )
 
 
 def test_non_loopback_and_unknown_policy_fail_closed() -> None:

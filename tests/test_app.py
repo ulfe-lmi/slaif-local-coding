@@ -3,6 +3,7 @@ import gzip
 import json
 import logging
 from collections.abc import AsyncIterator, Callable, Coroutine, MutableMapping
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -10,7 +11,16 @@ import pytest
 
 import slaif_local_coding.app as app_module
 from slaif_local_coding.app import create_app
-from slaif_local_coding.config import RouteConfig, ServerConfig, Settings, UpstreamConfig
+from slaif_local_coding.config import (
+    CacheConfig,
+    CompilerConfig,
+    ConstitutionIntegrationConfig,
+    GatewayIngressConfig,
+    RouteConfig,
+    ServerConfig,
+    Settings,
+    UpstreamConfig,
+)
 
 
 @pytest.fixture
@@ -62,6 +72,34 @@ def post_scope(headers: list[tuple[bytes, bytes]] | None = None) -> dict[str, An
     }
 
 
+def authenticated_settings(
+    settings: Settings, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> Settings:
+    monkeypatch.setenv("TEST_ADAPTER_SERVICE_TOKEN", "adapter-only-synthetic-token")
+    monkeypatch.setenv("TEST_COMPILER_KEY", "compiler-only-synthetic-token")
+    route = settings.routes[0].model_copy(
+        update={"observation_enabled": True, "constitution_enabled": True}
+    )
+    return Settings(
+        server=settings.server,
+        gateway_ingress=GatewayIngressConfig(
+            mode="service_bearer_static_identity", service_token_env="TEST_ADAPTER_SERVICE_TOKEN"
+        ),
+        upstream=settings.upstream.model_copy(update={"base_url": "http://upstream.test/v1"}),
+        routes=[route],
+        observation=settings.observation,
+        compiler=CompilerConfig(enabled=True, api_key_env="TEST_COMPILER_KEY"),
+        cache=CacheConfig(root=tmp_path / "cache", fallback_root=tmp_path / "fallback-cache"),
+        constitution=ConstitutionIntegrationConfig(
+            enabled=True,
+            principal="local-appliance-principal",
+            session="local-appliance-session",
+            repository="local-appliance-repository",
+        ),
+        observability=settings.observability,
+    )
+
+
 @pytest.mark.asyncio
 async def test_health_models_auth_and_header_filter(settings: Settings) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
@@ -102,6 +140,225 @@ async def test_health_models_auth_and_header_filter(settings: Settings) -> None:
     assert response.status_code == 200 and response.json()["data"][0]["id"] == "qwen"
     assert "x-secret" not in response.headers
     assert "retry-after" not in response.headers
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("headers", "expected_status"),
+    [
+        (None, 401),
+        ({"authorization": "Basic adapter-only-synthetic-token"}, 401),
+        ({"authorization": "Bearer"}, 401),
+        ({"authorization": "Bearer "}, 401),
+        ({"authorization": "Bearer wrong-synthetic-token"}, 403),
+        ({"authorization": "Bearer " + "x" * 4097}, 401),
+    ],
+)
+async def test_service_ingress_rejects_invalid_authorization_before_work(
+    settings: Settings,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: dict[str, str] | None,
+    expected_status: int,
+) -> None:
+    authenticated = authenticated_settings(settings, tmp_path, monkeypatch)
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={})
+
+    app = create_app(authenticated, httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        response = await client.post(
+            "/v1/responses",
+            content=b"not-json-and-should-not-be-parsed",
+            headers=headers,
+        )
+    assert response.status_code == expected_status
+    assert response.headers.get("www-authenticate") == (
+        "Bearer" if expected_status == 401 else None
+    )
+    assert response.json()["error"]["code"] in {
+        "invalid_service_authorization",
+        "service_authorization_denied",
+    }
+    assert calls == 0
+    assert "adapter-only-synthetic-token" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_service_ingress_rejects_duplicate_authorization_without_cache_write(
+    settings: Settings, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    authenticated = authenticated_settings(settings, tmp_path, monkeypatch)
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={})
+
+    app = create_app(authenticated, httpx.MockTransport(handler))
+    cache_entries_before = sorted(tmp_path.joinpath("cache").rglob("*"))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        response = await client.post(
+            "/v1/responses",
+            json={"model": "qwen", "input": "synthetic"},
+            headers=[
+                ("authorization", "Bearer adapter-only-synthetic-token"),
+                ("authorization", "Bearer second-synthetic-token"),
+            ],
+        )
+    assert response.status_code == 401
+    assert calls == 0
+    assert sorted(tmp_path.joinpath("cache").rglob("*")) == cache_entries_before
+
+
+@pytest.mark.asyncio
+async def test_service_ingress_forwards_only_qwen_auth_and_keeps_static_identity(
+    settings: Settings,
+    tmp_path: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    authenticated = authenticated_settings(settings, tmp_path, monkeypatch)
+    received: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        received.append(request)
+        assert request.headers["authorization"] == "Bearer test-only-secret"
+        assert "adapter-only-synthetic-token" not in str(request.headers)
+        assert "x-slaif-principal" not in request.headers
+        assert "x-slaif-session" not in request.headers
+        assert "x-internal-owner" not in request.headers
+        assert "cookie" not in request.headers
+        assert json.loads(request.content)["model"] == "qwen"
+        return httpx.Response(200, json={"usage": {"input_tokens": 2, "output_tokens": 1}})
+
+    app = create_app(authenticated, httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        with caplog.at_level(logging.INFO):
+            response_one = await client.post(
+                "/v1/responses",
+                json={"model": "qwen", "input": "synthetic-one"},
+                headers={
+                    "authorization": "Bearer adapter-only-synthetic-token",
+                    "x-slaif-principal": "spoofed-principal-one",
+                    "x-slaif-session": "spoofed-session-one",
+                    "x-internal-owner": "spoofed-owner-one",
+                    "cookie": "spoofed-cookie-one",
+                },
+            )
+            response_two = await client.post(
+                "/v1/responses",
+                json={"model": "qwen", "input": "synthetic-two"},
+                headers={
+                    "authorization": "Bearer adapter-only-synthetic-token",
+                    "x-slaif-principal": "spoofed-principal-two",
+                    "x-slaif-session": "spoofed-session-two",
+                    "x-forwarded-for": "spoofed-address-two",
+                },
+            )
+            metrics = (await client.get("/metrics")).text
+    assert response_one.status_code == response_two.status_code == 200
+    assert len(received) == 2
+    assert "adapter-only-synthetic-token" not in caplog.text
+    assert "adapter-only-synthetic-token" not in metrics
+    assert "spoofed-principal" not in metrics
+    pipeline = app.state.constitution_pipeline
+    assert pipeline is not None
+    identity = pipeline._identity("vision")
+    assert identity.principal == "local-appliance-principal"
+    assert identity.session == "local-appliance-session"
+    assert identity.repository == "local-appliance-repository"
+
+
+@pytest.mark.asyncio
+async def test_gateway_vector_auth_preserves_image_tools_usage_and_sse(
+    settings: Settings, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    vector = json.loads(Path("tests/fixtures/gateway/openai_compatible_vectors.json").read_text())
+    authenticated = authenticated_settings(settings, tmp_path, monkeypatch)
+    authenticated.routes[0].model = vector["request"]["model_after_gateway_rewrite"]
+    authenticated.upstream.model = vector["request"]["model_after_gateway_rewrite"]
+    events = [b"data: gateway-one\n\n", b"data: [DONE]\n\n"]
+
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            for event in events:
+                yield event
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["authorization"] == "Bearer test-only-secret"
+        payload = json.loads(await request.aread())
+        assert payload["model"] == "qwen3.8-27b"
+        assert payload["tools"][0]["type"] == "function"
+        content = payload["input"]
+        assert content[0]["type"] == "function_call_output"
+        assert [item["image_url"] for item in content if item["type"] == "input_image"] == [
+            "new-image"
+        ]
+        if payload.get("stream"):
+            return httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=Stream()
+            )
+        return httpx.Response(
+            200,
+            json={"usage": {"input_tokens": 4, "output_tokens": 3}, "output": []},
+        )
+
+    app = create_app(authenticated, httpx.MockTransport(handler))
+    payload = {
+        "model": "qwen3.8-27b",
+        "input": [
+            {"type": "input_image", "image_url": "old-image"},
+            {"type": "function_call_output", "call_id": "call-1", "output": "ok"},
+            {"type": "input_image", "image_url": "new-image"},
+        ],
+        "tools": [{"type": "function", "function": {"name": "lookup"}}],
+    }
+    headers = {"authorization": "Bearer adapter-only-synthetic-token"}
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        nonstream = await client.post("/v1/responses", json=payload, headers=headers)
+        payload["stream"] = True
+        streamed = await client.post("/v1/responses", json=payload, headers=headers)
+    assert nonstream.status_code == streamed.status_code == 200
+    assert nonstream.json()["usage"] == {"input_tokens": 4, "output_tokens": 3}
+    assert streamed.content == b"".join(events)
+
+
+@pytest.mark.asyncio
+async def test_service_ingress_readiness_is_fixed_and_secret_free(
+    settings: Settings, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    authenticated = authenticated_settings(settings, tmp_path, monkeypatch)
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/health"
+        return httpx.Response(200, json={})
+
+    app = create_app(authenticated, httpx.MockTransport(handler))
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        ready = await client.get("/readyz")
+        assert ready.status_code == 200
+        assert ready.json()["gateway_ingress"] == "ready"
+        monkeypatch.delenv("TEST_ADAPTER_SERVICE_TOKEN")
+        unavailable = await client.get("/readyz")
+    assert unavailable.status_code == 503
+    assert unavailable.json()["gateway_ingress"] == "unavailable"
+    assert "adapter-only-synthetic-token" not in unavailable.text
 
 
 @pytest.mark.asyncio

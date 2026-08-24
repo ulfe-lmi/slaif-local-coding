@@ -1,0 +1,23 @@
+{
+  "schema": "gateway-openai-compatible-v1",
+  "provider_kind": "openai_compatible",
+  "request": {
+    "endpoint": "/v1/responses",
+    "model_after_gateway_rewrite": "qwen3.8-27b",
+    "stream_variants": [false, true],
+    "tool_continuation": true,
+    "image_route": "qwen38-vision-codex"
+  },
+  "boundary_assertions": {
+    "gateway_rewrites_model_before_adapter": true,
+    "adapter_authenticates_private_service_bearer": true,
+    "client_authorization_is_not_forwarded": true,
+    "adapter_substitutes_configured_upstream_credential": true,
+    "provider_usage_is_forwarded_without_adapter_accounting": true,
+    "compiler_calls_are_not_public_calls": true
+  },
+  "source": {
+    "repository": "ulfe-lmi/slaif-api-gateway",
+    "main_sha_at_activation": "8f2813bf745b90221da33a7cfaf40726c5b1b480"
+  }
+}

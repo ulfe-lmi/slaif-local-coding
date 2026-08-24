@@ -315,6 +315,7 @@ async def test_readiness_reports_disposable_cache_degradation(
         "status": "ready",
         "config": "valid",
         "upstream": "ready",
+        "gateway_ingress": "disabled",
         "compiler": "ready",
         "cache": "unavailable",
     }

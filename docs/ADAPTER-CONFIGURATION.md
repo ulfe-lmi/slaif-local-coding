@@ -7,11 +7,26 @@ settings validation/startup. Application code has
 no hard-coded upstream address. The example address is host-specific candidate
 configuration, not a public endpoint.
 
-The credential is read from the environment variable named by `api_key_env`.
-Caller `Authorization`, internal identity/debug headers, and hop-by-hop headers
-are not reused as trusted upstream credentials or metadata. Logs and metrics
-contain bounded endpoint, configured route, status, timing, stream, failure,
-and image-count labels only; raw bodies and secrets are excluded.
+The upstream credential is read from the environment variable named by
+`api_key_env`. Optional `[gateway_ingress]` service authentication is disabled
+by default. In `service_bearer_static_identity` mode, the adapter accepts one
+`Authorization: Bearer` credential from the environment variable named by
+`service_token_env` on the private proxy endpoints (`/health`, `/v1/models`,
+`/v1/responses`, and `/v1/chat/completions`) and verifies it with a
+constant-time comparison before reading or transforming request JSON. Missing,
+duplicate, malformed, oversized, wrong-scheme, or mismatched credentials are
+fixed 401/403 errors; an unavailable configured secret is a fixed 503. The
+service credential is never forwarded upstream. This mode requires the complete
+enabled static `principal`/`session`/`repository` constitution identity and is
+explicitly a single-user local-appliance contract, not per-gateway-key or
+multi-user isolation. `/healthz`, `/readyz`, and loopback-only `/metrics` remain
+operator endpoints; readiness exposes only the fixed `gateway_ingress` state.
+
+Caller `Authorization`, public gateway credentials, internal identity/debug
+headers, and hop-by-hop headers are not reused as trusted upstream credentials
+or metadata. Logs and metrics contain bounded endpoint, configured route,
+status, timing, stream, failure, and image-count labels only; raw bodies and
+secrets are excluded.
 
 `request_body_max_bytes` and `response_body_max_bytes` are independent finite
 limits. A non-streaming upstream response over the response cap is closed and
@@ -39,8 +54,10 @@ internal/model service, caches state, or rewrites/injects governance. An overflo
 marks the manifest incomplete with a fixed reason while preserving forwarding
 semantics. Metrics expose only endpoint, configured route, fixed evidence/status/
 reason labels, counts, and duration—not source paths/content/hashes, identity hints,
-tool text, queries, or authorization. Current external identity/session headers are
-spoofable and stripped; signed gateway identity remains future work.
+tool text, queries, or authorization. Caller-supplied identity/session headers
+remain spoofable and are stripped. The service-Bearer gate authenticates the
+single configured appliance identity; a trusted signed per-user identity remains
+an unimplemented cross-repository capability.
 
 The bounded compiler prompt requires exact case-sensitive literals in normative
 binding statements and evidence to survive derived indexing. This matters for
@@ -159,7 +176,7 @@ populated, hit, stale/expired, isolated miss, injected, skipped, and failure.
 
 Acquisition instructions name unavailable files but do not fetch them. Arbitrary
 tool-output ingestion and recursive fetching remain excluded. Signed production
-identity, gateway integration, generic production readiness, and cutover also
+identity, gateway quotas/accounting, generic production readiness, and cutover
 remain outside this repository's production boundary. Repository-only
 Objective-004 support and accepted evidence cover governed real-Codex E2E and
 fixture-scoped vision acceptance; see the [criterion ledger](OBJECTIVE-004-LEDGER.md)

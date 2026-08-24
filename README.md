@@ -212,9 +212,10 @@ selection, and essential-overflow failures also preserve that body. Injection
 marker/shape failures return a sanitized 422 without forwarding. The pipeline is
 local single-user MVP functionality only: configured principal/session/
 repository labels are not signed gateway identity and must never be represented
-as multi-user production isolation. Signed multi-user identity, gateway
-integration, production cutover, and generic production readiness remain outside
-this boundary. Repository-only Objective-004 evidence separately covers governed
+as multi-user production isolation. The optional adapter-side service-Bearer
+ingress gate is documented in [the gateway integration contract](docs/SLAIF-GATEWAY-INTEGRATION.md);
+signed multi-user identity, gateway quotas/accounting, production cutover, and
+generic production readiness remain outside this boundary. Repository-only Objective-004 evidence separately covers governed
 Codex E2E, adapter-boundary rehydration, security/observability review, the
 isolated systemd candidate, and fixture-scoped vision acceptance; native Codex
 compaction is not claimed or required. See the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
@@ -344,5 +345,6 @@ and bounded graceful shutdown. Prefer a uniquely named transient
 `systemd-run --user --collect` unit for proof, validate it with
 `systemd-analyze verify`, and remove the temporary unit/config/cache/env after
 the run. It never installs, restarts, or changes `qwen-serving` or port
-`18020`. Public service authentication, signed identity, quotas, and TLS remain
-the separate gateway's responsibility.
+`18020`. Public client authentication, signed identity, quotas, and TLS remain
+the separate gateway's responsibility; the adapter's private service-Bearer
+ingress contract is documented separately and remains single-user only.

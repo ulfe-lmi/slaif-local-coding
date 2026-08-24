@@ -7,6 +7,12 @@ request_body_max_bytes = 67108864
 response_body_max_bytes = 67108864
 json_max_nesting_depth = 128
 
+[gateway_ingress]
+# Disabled preserves private loopback development behavior. Enabling this gate
+# also requires the complete explicit single-user [constitution] identity.
+mode = "disabled"
+# service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"
+
 [upstream]
 base_url = "http://127.0.0.1:18020/v1"
 api_key_env = "QWEN3090_API_KEY"

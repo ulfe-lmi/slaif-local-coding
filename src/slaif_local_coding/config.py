@@ -26,6 +26,42 @@ class ServerConfig(BaseModel):
         return self
 
 
+class GatewayIngressConfig(BaseModel):
+    """Optional private gateway-to-adapter authentication boundary."""
+
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["disabled", "service_bearer_static_identity"] = "disabled"
+    service_token_env: str | None = Field(
+        default=None,
+        max_length=256,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+    )
+
+    @model_validator(mode="after")
+    def require_token_env_for_mode(self) -> GatewayIngressConfig:
+        if self.mode == "service_bearer_static_identity" and not self.service_token_env:
+            raise ValueError("service bearer ingress requires service_token_env")
+        if self.mode == "disabled" and self.service_token_env is not None:
+            raise ValueError("disabled gateway ingress cannot configure service_token_env")
+        return self
+
+    @property
+    def enabled(self) -> bool:
+        return self.mode == "service_bearer_static_identity"
+
+    def service_token(self) -> str:
+        if not self.enabled or self.service_token_env is None:
+            raise ValueError("gateway ingress service authentication is disabled")
+        value = os.environ.get(self.service_token_env)
+        if not value:
+            raise ValueError("gateway ingress service credential is unavailable")
+        if len(value) > 4096 or any(
+            ord(character) < 0x20 or ord(character) == 0x7F for character in value
+        ):
+            raise ValueError("gateway ingress service credential is invalid")
+        return value
+
+
 class UpstreamConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     base_url: str = Field(min_length=1, max_length=2048)
@@ -231,6 +267,7 @@ class ObservabilityConfig(BaseModel):
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     server: ServerConfig
+    gateway_ingress: GatewayIngressConfig = Field(default_factory=lambda: GatewayIngressConfig())
     upstream: UpstreamConfig
     routes: list[RouteConfig] = Field(min_length=1)
     observation: ObservationPolicy = Field(default_factory=lambda: ObservationPolicy())
@@ -243,6 +280,15 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def safe_integration(self) -> Settings:
+        if self.gateway_ingress.enabled and not (
+            self.constitution.enabled
+            and self.constitution.principal
+            and self.constitution.session
+            and self.constitution.repository
+        ):
+            raise ValueError(
+                "service bearer ingress requires complete enabled static constitution identity"
+            )
         if self.constitution.enabled and not self.compiler.enabled:
             raise ValueError("constitution integration requires direct compiler enablement")
         if self.constitution.enabled and urlsplit(self.upstream.base_url).path.rstrip("/") != "/v1":
@@ -290,16 +336,19 @@ def load_settings(path: Path) -> Settings:
     # Objective-003 modules validate bounded settings before app construction;
     # cross-feature safety is enforced by Settings itself.
     compiler_raw = raw.pop("compiler", {})
+    gateway_ingress_raw = raw.pop("gateway_ingress", {})
     cache_raw = raw.pop("cache", {})
     constitution_raw = raw.pop("constitution", {})
     observability_raw = raw.pop("observability", {})
     compiler_config = CompilerConfig.model_validate(compiler_raw)
+    gateway_ingress_config = GatewayIngressConfig.model_validate(gateway_ingress_raw)
     cache_config = CacheConfig.model_validate(cache_raw)
     constitution_config = ConstitutionIntegrationConfig.model_validate(constitution_raw)
     observability_config = ObservabilityConfig.model_validate(observability_raw)
     return Settings.model_validate(
         {
             **raw,
+            "gateway_ingress": gateway_ingress_config,
             "compiler": compiler_config,
             "cache": cache_config,
             "constitution": constitution_config,

@@ -34,10 +34,47 @@ The adapter must not reimplement public users, key issuance, quotas, billing, or
 admin UI. The gateway must not contain model-specific constitutional-cache or
 image-pruning logic.
 
-## Internal identity
+## Current adapter service-ingress contract
 
-The gateway should terminate the external key and forward signed internal
-identity, for example:
+The gateway terminates its public client credential and the existing generic
+`openai_compatible` provider substitutes a private adapter service Bearer
+credential. Local Coding now has an optional, loopback-only ingress gate:
+
+```toml
+[gateway_ingress]
+mode = "service_bearer_static_identity"
+service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"
+```
+
+The named environment variable is an example name only; its nonempty secret is
+kept in a protected runtime environment file and is never placed in TOML,
+tests, vectors, logs, metrics, cache names, or reports. Enabled mode requires
+the complete configured `constitution` `principal`, `session`, and `repository`
+identity and is explicitly a `single-user local-appliance` route. The adapter
+verifies exactly one `Authorization: Bearer` value with constant-time
+comparison before reading request JSON or invoking image, constitution,
+compiler, cache, or upstream work. Missing/duplicate/malformed/oversized or
+wrong-scheme authorization returns fixed 401 with `WWW-Authenticate: Bearer`;
+mismatches return fixed 403; an unavailable configured secret returns fixed 503.
+The adapter strips service authorization and all caller/internal identity,
+forwarding, cookie, and hop-by-hop headers before substituting only the Qwen
+upstream credential. `/health`, `/v1/models`, `/v1/responses`, and
+`/v1/chat/completions` are protected in enabled mode; `/healthz`, `/readyz`,
+and loopback-only `/metrics` remain operator endpoints.
+
+## Trusted identity status
+
+The gateway generic provider currently substitutes one backend credential but
+does not provide a proven trusted per-request principal/session/repository
+contract to Local Coding. Different public-gateway-user simulations therefore
+cannot be represented as isolated adapter principals through this service
+contract. They must not be separated with public keys, unsigned `X-SLAIF-*`
+headers, IP addresses, request IDs, model strings, forwarding headers, or
+cookies. Safe deployment is one explicitly single-user Local Coding route and
+identity, or disabled cross-request rehydration/cache reuse until coordinated
+trusted identity exists.
+
+The non-active design sketch for a future coordinated contract is:
 
 ```text
 Authorization: Bearer <adapter-service-secret>
@@ -48,9 +85,26 @@ X-SLAIF-Timestamp: <unix timestamp>
 X-SLAIF-Signature: <HMAC over method/path/body-hash/headers>
 ```
 
-Exact header names are a cross-repository contract and require coordinated PRs.
-The adapter rejects caller-supplied spoofed internal headers at the public
-boundary and never uses raw gateway keys as cache keys.
+This is design material only. Exact names, signature scope, replay window,
+key rotation, and gateway implementation require a separate gateway OAP
+objective/PR and explicit human authorization. No signed per-user mechanism is
+claimed by this repository.
+
+## Dated cross-repository evidence
+
+Evidence captured at Objective-005 activation on 2026-08-24:
+
+| Boundary | Existing capability/evidence | Local Coding state | Missing or not claimed |
+| --- | --- | --- | --- |
+| Generic provider | Gateway `main` `8f2813bf745b90221da33a7cfaf40726c5b1b480` has the existing `openai_compatible` provider, exact `/v1` backend validation, server-side secret env lookup, provider Bearer substitution, client-key non-forwarding, and quota/accounting behavior. | Adapter fake contract verifies the service Bearer boundary, Qwen credential substitution, model/usage/SSE/tool/image pass-through, and sanitized errors. | No gateway source change, gateway PR, or executable gateway-service deployment proof was made in this round. |
+| Route/profile | Open gateway OAP PR #287 is `oap/152-real-provider-accounting-qualification` at `346cdc13bcc1eb42035fb1d6a3e82c137651f4a4`; the isolated Qwen3.8 vision Codex candidate is unregistered/live-unqualified and records Codex 0.148.0. | Local Coding preserves explicit route/model policy and uses the current adapter contract. | Current Codex is 0.149.0; candidate profile mismatch and live qualification remain unresolved. |
+| Host deployment | No gateway checkout or gateway service, PostgreSQL/Redis, or gateway listener was found on hinton1 at activation; protected Qwen vision remains on port 18020 with context 100000 and text remains inactive. | No service, profile, network, or protected Qwen mutation. | Live gateway path and cutover are `NOT RUN`; no production or multi-user claim. |
+| Identity | Existing provider has one backend service credential. | Static constitution identity is the only accepted cross-request identity in enabled mode. | Trusted signed per-user principal/session/repository isolation is missing. |
+
+The repository-owned bounded vectors are in
+`tests/fixtures/gateway/openai_compatible_vectors.json`. They contain no
+credentials, raw prompts, source, images, tool output, private URLs, or raw
+authorization values.
 
 ## Upstream route
 
@@ -83,3 +137,30 @@ configuration schema version
 
 An adapter release is not declared gateway-compatible until cross-repository E2E
 passes with ordinary Codex and OpenAI clients.
+
+## Controlled cutover and rollback gates — preparation only
+
+Objective 005-a does not perform cutover. A later accepted continuation must
+prove, in order:
+
+1. a merged/green Local Coding version and pinned gateway commit;
+2. exact backups and hashes of gateway route/provider metadata, the Codex
+   profile, unit files, environment files, listener/firewall state, and the
+   current direct Qwen endpoint;
+3. a candidate Local Coding service on loopback port `18031` first;
+4. the gateway generic provider points to Local Coding, never directly to
+   vLLM;
+5. bounded standard OpenAI-client and real Codex text/tool/SSE/vision/
+   governance checks through the gateway;
+6. exact gateway quota reservation/finalization/ledger facts from provider
+   usage, with compiler overhead observed separately;
+7. no active coding or strategic turn depends on the endpoint being switched;
+8. direct vLLM exposure is retained until gateway-path acceptance and human
+   approval;
+9. rollback restores the exact prior provider route/profile/unit and health;
+10. final listener/firewall/VPN/service state is independently verified.
+
+Because no gateway service is installed or running on hinton1, the actual
+cutover and rollback proof are `NOT RUN`. No direct-vLLM retirement, public
+listener, TLS, database, Redis, Docker, gateway OAP workflow, or Codex profile
+change is authorized by this order.
