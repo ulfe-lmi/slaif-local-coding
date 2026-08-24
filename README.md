@@ -48,8 +48,9 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`004-a` provide a private, loopback-only candidate
-adapter. It forwards `/health`, `/v1/models`, `/v1/responses`, and
+Current status: objectives `000`–`004` provide a private, loopback-only candidate
+adapter plus repository-only Objective-004 acceptance evidence. It forwards
+`/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
 `AGENTS.md` content and enumerate syntactic repository-file candidates; and can
@@ -59,11 +60,15 @@ compiler, observation, route, and complete static local-appliance identity
 configuration. It handles exactly one complete root and can rehydrate the last validated
 working set for an exact configured identity on a later zero-root request;
 multiple/incomplete roots preserve post-image-policy semantics.
+The current Objective-004 criterion state is in the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
+and the [OAP completeness record](oap/COMPLETENESS.md); objectives 005–006 remain
+separate milestones.
 
-The currently verified `hinton1` fixture serves text only and declares zero-image
-capacity. Image-policy code is covered by fake-upstream tests and objective 000
-historical evidence from the prior vision deployment; it is not live-vision
-readiness.
+The accepted Objective-004 live fixture is the human-selected Qwen vision service:
+it supports one image per request and the repository-only run verified Codex
+full/full followed by crop/crop behavior. The mutually exclusive text
+configuration declares zero-image capacity. This is fixture-scoped evidence, not
+a generic or production vision-readiness claim.
 
 ## Request-only constitution observation
 
@@ -207,9 +212,13 @@ selection, and essential-overflow failures also preserve that body. Injection
 marker/shape failures return a sanitized 422 without forwarding. The pipeline is
 local single-user MVP functionality only: configured principal/session/
 repository labels are not signed gateway identity and must never be represented
-as multi-user production isolation. Gateway integration, forced/equivalent compaction E2E,
-vision readiness, security hardening review, systemd candidate proof, and cutover
-remain excluded.
+as multi-user production isolation. Signed multi-user identity, gateway
+integration, production cutover, and generic production readiness remain outside
+this boundary. Repository-only Objective-004 evidence separately covers governed
+Codex E2E, adapter-boundary rehydration, security/observability review, the
+isolated systemd candidate, and fixture-scoped vision acceptance; native Codex
+compaction is not claimed or required. See the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
+and [completeness record](oap/COMPLETENESS.md).
 
 ## Repository-only real-Codex governed E2E diagnostics
 
@@ -245,6 +254,7 @@ injection, sentinel compliance, and persistent cache reuse without a third call
 or retry. Raw bubblewrap, `unshare`, sandbox controls, alternate prompts, and
 host/profile mutation are not used.
 
+The following paragraph is a historical 004-n snapshot, not current branch status.
 The historical raw probe is described narrowly as
 `raw_bwrap_unshare_all_loopback_bootstrap_failed`: it observed a handcrafted
 all-namespace loopback bootstrap failure. The earlier host/kernel inference was
@@ -257,11 +267,11 @@ successful shell command whose exact text differed from `/usr/bin/true`.
 004-q and 004-r remain immutable historical records of workspace-write
 qualification limitations; they are not acceptance prerequisites. The current
 implementation records only allowlisted config/environment/argv facts; it does
-not retain raw diagnostics or mutate the host configuration. Objective 004
-remains at 15% and branch readiness at approximately 74% until the 004-s
-two-invocation evidence is complete. No compaction, vision,
-production-readiness, cutover, or protected-service claim follows from the
-historical diagnostics.
+not retain raw diagnostics or mutate the host configuration. At that historical
+round, Objective 004 was recorded at 15% and branch readiness at approximately
+74%. Current Objective-004 completion and evidence are recorded in the [criterion
+ledger](docs/OBJECTIVE-004-LEDGER.md) and [completeness record](oap/COMPLETENESS.md);
+the historical external diagnostics do not gate 004-s or 004-al acceptance.
 
 ## Candidate quickstart
 

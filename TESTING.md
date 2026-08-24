@@ -90,8 +90,9 @@ not claim equivalent vision/adapter evidence until rerun.
 Use a disposable test repository with a long `AGENTS.md`, a sentinel rule near
 the end, and referenced constitutional files. Capture only sanitized metadata.
 Verify unchanged Codex client behavior, ordinary local tools, image full-view
-then crop, forced compaction or equivalent history reduction, cache reuse, and
-continued compliance.
+then crop, adapter-boundary rehydration after history reduction, cache reuse,
+and continued compliance. A native Codex compaction trigger is not required and
+is not claimed by the accepted Objective-004 evidence.
 
 The real-Codex launcher and historical native workspace-write preflight are
 repository-only support in `tests/helpers/e2e_support.py` and
@@ -105,7 +106,8 @@ sanitized lifecycle/provenance facts, sentinel/cache gates, and strict no-model
 gating until exact dependency bytes are verified. It does not execute raw
 bubblewrap or `unshare` probes.
 
-The historical raw probe is retained only as the narrower
+The following is a historical 004-n snapshot, not current branch status. The
+historical raw probe is retained only as the narrower
 `raw_bwrap_unshare_all_loopback_bootstrap_failed` audit description. The OAP
 parent is host-direct/unsandboxed; that evidence is distinct from the
 Codex-under-test policy. The 004-n decision tree records Codex 0.149.0
@@ -116,11 +118,14 @@ governed model calls, and cache-reuse E2E were not run. Repository-only support
 parameterizes the built-in profile and config source, records normalized
 argv/hash and allowlisted effective config facts, and gates all later calls on
 the exact decision tree. No raw diagnostics or host configuration are retained
-or changed. This leaves objective 004 at 15% and branch readiness at
-approximately 74%; it is not a host-wide capability conclusion.
+or changed. At that historical round, Objective 004 was recorded at 15% and
+branch readiness at approximately 74%; it is not a host-wide capability
+conclusion. Current Objective-004 evidence is in the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
+and [completeness record](oap/COMPLETENESS.md), and these external diagnostics
+do not gate 004-s or 004-al acceptance.
 
 The 004-o through 004-r workspace-write and native-helper results are retained
-as immutable historical external limitations. They do not gate the 004-s
+as immutable historical external limitations. They do not gate the 004-s/004-al
 acceptance path. The current governed runner keeps raw streams temporary and
 reports only hashes, counts, fixed classes, fingerprints, and command status;
 the ordered run itself is exactly two global-yolo invocations with no

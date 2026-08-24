@@ -12,11 +12,13 @@ layer for running useful “mini ChatGPT” and “mini Codex” services on con
 local hardware.
 
 The immediate reference deployment family is Qwen3.8-27B served by vLLM on a
-single RTX 3090. The prior vision deployment provided a long context window,
-OpenAI-compatible Responses traffic, ordinary function tools, streaming, and
-one-image vision. As verified on 2026-08-22, the current protected `hinton1`
-service is language-model-only and accepts zero images. Two limitations remain
-material for the intended real Codex use:
+single RTX 3090. The accepted 004-al human-gated vision fixture provides a
+100000-token context window, OpenAI-compatible Responses traffic, ordinary
+function tools, streaming, and one-image vision. The mutually exclusive text
+configuration uses 150000 context and accepts zero images. The repository
+acceptance is fixture-scoped; production gateway integration, cutover, and
+generic readiness remain separate work. Two compatibility problems motivate the
+adapter behavior:
 
 1. Codex compacts long conversations. After compaction, a smaller local model can
    temporarily lose project/governance orientation and spend substantial context
@@ -35,8 +37,9 @@ referenced files, asks the model in a separate internal call to compile and rank
 constitutional material, caches bounded derived indexes, and reinjects the
 result into later requests. For an explicitly configured one-image route, it
 enforces the physical limit and retains only the newest image for the designated
-Codex workflow. Current-host image behavior remains unavailable unless the
-protected fixture is separately changed through an explicitly ordered cutover.
+Codex workflow. The accepted fixture-scoped image behavior is documented in
+`docs/VISION-ACCEPTANCE.md`; changing protected fixtures still requires an
+explicitly ordered human-controlled operation.
 
 The client remains ordinary Codex or another OpenAI-compatible application. The
 client does not install or manage pseudo-context software. The SLAIF API Gateway
@@ -191,8 +194,9 @@ OAP control plane:
   Coding Codex    -> default Codex provider
 
 Protected live system under test:
-  Qwen/vLLM text-only service
+  selected protected Qwen/vLLM fixture
     -> discover live; currently hinton1 127.0.0.1:18020
+    -> vision fixture for 004-al; text configuration is mutually exclusive
 
 New adapter development path:
   tests/curl

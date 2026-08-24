@@ -2,7 +2,8 @@
 
 Assessment target: full SME MVP represented by objectives 000–006.
 Current authoritative recovery-branch readiness: ~91%.
-PR #6's base `main`, including accepted objective 003, readiness: ~74%.
+Historical PR #6 base snapshot before Objective-004 acceptance, readiness: ~74%
+(retained audit context only; not current branch status).
 The protected vision fixture completed the single ordered full-image then crop
 acceptance run. This is fixture-scoped evidence, not production readiness.
 

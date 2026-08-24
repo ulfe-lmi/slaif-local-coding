@@ -147,8 +147,9 @@ keys. `[constitution.rehydration]` enforces TTL, LRU entry-count, per-entry-byte
 and total-byte limits. Expired, invalid, oversized, or missing state is a safe
 miss that preserves the post-image-policy request. Multiple/incomplete roots and
 disabled/spoofed-header requests retain their existing semantics. This simulates
-new-context/compacted request behavior at the adapter boundary; actual Codex
-compaction E2E remains objective 004.
+new-context/compacted request behavior at the adapter boundary; a native Codex
+compaction trigger is not claimed or required by the accepted Objective-004
+evidence.
 
 Safe observation/pipeline/rehydration metrics use fixed endpoint/route/state/
 reason/outcome labels and counts/durations/gauges only—never source paths/
@@ -156,9 +157,13 @@ content/hashes, prompts/output, images, identity values, cache keys, model-visib
 text, or request-derived high-cardinality data. Rehydration states include
 populated, hit, stale/expired, isolated miss, injected, skipped, and failure.
 
-Acquisition instructions name unavailable files but do not fetch them. Arbitrary tool-output ingestion, recursive fetching,
-signed production identity, gateway integration, vision readiness, real Codex E2E
-support, and cutover remain excluded.
+Acquisition instructions name unavailable files but do not fetch them. Arbitrary
+tool-output ingestion and recursive fetching remain excluded. Signed production
+identity, gateway integration, generic production readiness, and cutover also
+remain outside this repository's production boundary. Repository-only
+Objective-004 support and accepted evidence cover governed real-Codex E2E and
+fixture-scoped vision acceptance; see the [criterion ledger](OBJECTIVE-004-LEDGER.md)
+and [OAP completeness record](../oap/COMPLETENESS.md).
 
 The user-systemd file in `packaging/` is an uninstalled candidate example. It
 uses the repository `.venv`, an explicit repository config path, a separate
