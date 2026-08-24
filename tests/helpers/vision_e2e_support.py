@@ -78,7 +78,33 @@ _SAFE_OUTBOUND_LABELS = frozenset({VISION_FULL_LABEL, VISION_CROP_LABEL, "unexpe
 _MAX_SAFE_IMAGE_BYTES = 8_388_608
 _MAX_TOOL_DEFINITIONS = 16
 _MAX_TOOL_SCAN_DEPTH = 32
-_SUPPORTED_TOOL_DEFINITION_TYPES = frozenset({"function"})
+_MAX_TOOL_SCAN_NODES = 128
+_TOOL_DEFINITION_TYPE_CATEGORIES = ("function", "custom", "local_shell", "unexpected")
+_TOOL_ITEM_TYPE_CATEGORIES = (
+    "function_call",
+    "function_call_output",
+    "custom_tool_call",
+    "custom_tool_call_output",
+    "local_shell_call",
+    "local_shell_call_output",
+    "command_execution",
+    "exec_command",
+    "unexpected",
+)
+_SUPPORTED_TOOL_DEFINITION_TYPES = frozenset(_TOOL_DEFINITION_TYPE_CATEGORIES[:-1])
+_SUPPORTED_TOOL_ITEM_TYPES = frozenset(_TOOL_ITEM_TYPE_CATEGORIES[:-1])
+_TOOL_SENSITIVE_KEYS = frozenset(
+    {
+        "arguments",
+        "description",
+        "grammar",
+        "name",
+        "output",
+        "parameters",
+        "schema",
+        "text",
+    }
+)
 _FINAL_BINDING_PROVENANCE = (
     "event_exact",
     "event_terminal_crlf",
@@ -96,6 +122,46 @@ FinalBindingProvenance = Literal[
     "mismatch",
     "missing",
 ]
+FinalMessageWrapper = Literal[
+    "none",
+    "inline_backticks",
+    "double_quotes",
+    "single_quotes",
+    "asterisk_wrapper",
+    "period_suffix",
+    "period_then_crlf",
+    "leading_and_trailing_crlf",
+    "other_mismatch",
+]
+_FINAL_MESSAGE_WRAPPERS = (
+    "none",
+    "inline_backticks",
+    "double_quotes",
+    "single_quotes",
+    "asterisk_wrapper",
+    "period_suffix",
+    "period_then_crlf",
+    "leading_and_trailing_crlf",
+    "other_mismatch",
+)
+
+
+@dataclass(frozen=True)
+class ToolShapeDiagnostics:
+    """Fixed-category tool-shape counts with no dynamic tool data."""
+
+    definition_type_counts: tuple[int, ...]
+    item_type_counts: tuple[int, ...]
+    definitions_valid: bool
+    item_scan_complete: bool
+
+    @property
+    def has_recognized_content(self) -> bool:
+        return (
+            self.definitions_valid
+            and self.item_scan_complete
+            and (any(self.definition_type_counts[:-1]) or any(self.item_type_counts[:-1]))
+        )
 
 
 @dataclass(frozen=True)
@@ -142,6 +208,8 @@ class VisionBoundaryEvidence:
     non_image_content_preserved: bool
     governance_content_preserved: bool
     tool_content_preserved: bool
+    tool_definition_type_counts: tuple[int, ...] = (0, 0, 0, 0)
+    tool_item_type_counts: tuple[int, ...] = (0, 0, 0, 0, 0, 0, 0, 0, 0)
 
     @property
     def accepted(self) -> bool:
@@ -218,6 +286,7 @@ class FinalMessageEvidence:
     exact_expected: bool
     terminal_line_endings_only: bool
     non_whitespace_mismatch: bool
+    wrapper_classification: FinalMessageWrapper = "none"
 
     @property
     def accepted(self) -> bool:
@@ -232,6 +301,7 @@ def _missing_message() -> FinalMessageEvidence:
         exact_expected=False,
         terminal_line_endings_only=False,
         non_whitespace_mismatch=False,
+        wrapper_classification="none",
     )
 
 
@@ -247,6 +317,21 @@ def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvide
         and len(content) > len(expected_bytes)
         and all(byte in {10, 13} for byte in content[len(expected_bytes) :])
     )
+    wrapper_classification: FinalMessageWrapper = "none"
+    if not exact and not terminal_only:
+        fixed_wrappers: tuple[tuple[bytes, FinalMessageWrapper], ...] = (
+            (b"`" + expected_bytes + b"`", "inline_backticks"),
+            (b'"' + expected_bytes + b'"', "double_quotes"),
+            (b"'" + expected_bytes + b"'", "single_quotes"),
+            (b"*" + expected_bytes + b"*", "asterisk_wrapper"),
+            (expected_bytes + b".", "period_suffix"),
+            (expected_bytes + b".\r\n", "period_then_crlf"),
+            (b"\r\n" + expected_bytes + b"\r\n", "leading_and_trailing_crlf"),
+        )
+        wrapper_classification = next(
+            (label for construction, label in fixed_wrappers if content == construction),
+            "other_mismatch",
+        )
     return FinalMessageEvidence(
         present=True,
         byte_length=len(content),
@@ -254,6 +339,7 @@ def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvide
         exact_expected=exact,
         terminal_line_endings_only=terminal_only,
         non_whitespace_mismatch=not exact and not terminal_only,
+        wrapper_classification=wrapper_classification,
     )
 
 
@@ -454,6 +540,11 @@ def _safe_final_message_summary(evidence: FinalMessageEvidence) -> dict[str, obj
         "exact_expected": bool(evidence.exact_expected),
         "terminal_line_endings_only": bool(evidence.terminal_line_endings_only),
         "non_whitespace_mismatch": bool(evidence.non_whitespace_mismatch),
+        "wrapper_classification": (
+            evidence.wrapper_classification
+            if evidence.wrapper_classification in _FINAL_MESSAGE_WRAPPERS
+            else "other_mismatch"
+        ),
     }
 
 
@@ -486,6 +577,18 @@ def _safe_fixture_label(value: object) -> str:
     return value if isinstance(value, str) and value in _SAFE_OUTBOUND_LABELS else "unexpected"
 
 
+def _safe_fixed_counts(value: object, categories: tuple[str, ...]) -> dict[str, int]:
+    counts = value if isinstance(value, tuple) else ()
+    return {
+        category: _bounded_int(
+            counts[index] if index < len(counts) else 0,
+            limit=VISION_MAX_MAIN_REQUESTS_PER_INVOCATION,
+        )
+        or 0
+        for index, category in enumerate(categories)
+    }
+
+
 def _safe_outbound_summary(fact: VisionBoundaryEvidence) -> dict[str, object]:
     limit = VISION_MAX_MAIN_REQUESTS_PER_INVOCATION + 1
     return {
@@ -508,6 +611,12 @@ def _safe_outbound_summary(fact: VisionBoundaryEvidence) -> dict[str, object]:
         "non_image_content_preserved": bool(fact.non_image_content_preserved),
         "governance_content_preserved": bool(fact.governance_content_preserved),
         "tool_content_preserved": bool(fact.tool_content_preserved),
+        "tool_definition_type_counts": _safe_fixed_counts(
+            fact.tool_definition_type_counts, _TOOL_DEFINITION_TYPE_CATEGORIES
+        ),
+        "tool_item_type_counts": _safe_fixed_counts(
+            fact.tool_item_type_counts, _TOOL_ITEM_TYPE_CATEGORIES
+        ),
     }
 
 
@@ -615,7 +724,10 @@ def write_vision_fixture(root: Path, base_url: str, api_key_env: str) -> VisionF
     dependency_path.write_text(
         dependency_path.read_text(encoding="utf-8")
         + "\nAfter a stateless new-context request, the assistant MUST reply with exactly "
-        f"SENTINEL-ACK:{base.sentinel_token} and nothing else.\n",
+        f"SENTINEL-ACK:{base.sentinel_token} and nothing else.\n"
+        "Output only the prescribed sentinel bytes.\n"
+        "Do not add quotes, backticks, Markdown, code fences, punctuation, spaces,\n"
+        "tabs, prefixes, suffixes, explanation, or line breaks.\n",
         encoding="utf-8",
     )
     os.chmod(dependency_path, 0o600)
@@ -798,39 +910,126 @@ def _without_images(value: object) -> object:
     return value
 
 
-def _has_tool_definitions(value: object) -> bool:
-    """Recognize only a bounded, top-level list of supported definitions."""
+def _type_count_index(marker: object, categories: tuple[str, ...]) -> int:
+    return categories.index(marker) if marker in categories[:-1] else len(categories) - 1
+
+
+def _scan_tool_definitions(value: object) -> tuple[tuple[int, ...], bool]:
+    """Inspect only bounded top-level definition type markers."""
+    counts = [0] * len(_TOOL_DEFINITION_TYPE_CATEGORIES)
     if not isinstance(value, list) or not value or len(value) > _MAX_TOOL_DEFINITIONS:
-        return False
-    return all(
-        isinstance(item, dict) and item.get("type") in _SUPPORTED_TOOL_DEFINITION_TYPES
-        for item in value
+        counts[-1] = 1
+        return tuple(counts), False
+    valid = True
+    for item in value:
+        if not isinstance(item, dict):
+            counts[-1] += 1
+            valid = False
+            continue
+        index = _type_count_index(item.get("type"), _TOOL_DEFINITION_TYPE_CATEGORIES)
+        counts[index] += 1
+        valid = valid and index != len(counts) - 1
+    return tuple(counts), valid
+
+
+def _scan_tool_items(
+    value: object,
+    *,
+    depth: int,
+    budget: list[int],
+    counts: list[int] | None = None,
+) -> tuple[bool, bool]:
+    """Recursively inspect bounded structural item markers, excluding tool data."""
+    if counts is None:
+        counts = [0] * len(_TOOL_ITEM_TYPE_CATEGORIES)
+    if depth > _MAX_TOOL_SCAN_DEPTH or budget[0] <= 0:
+        return False, False
+    budget[0] -= 1
+    if isinstance(value, list):
+        recognized = False
+        complete = True
+        for item in value:
+            child_recognized, child_complete = _scan_tool_items(
+                item, depth=depth + 1, budget=budget, counts=counts
+            )
+            recognized = recognized or child_recognized
+            complete = complete and child_complete
+        return recognized, complete
+    if not isinstance(value, dict):
+        return False, True
+
+    marker = value.get("type")
+    recognized = False
+    if "type" in value:
+        index = _type_count_index(marker, _TOOL_ITEM_TYPE_CATEGORIES)
+        counts[index] += 1
+        recognized = index != len(counts) - 1
+
+    complete = True
+    for key, child in value.items():
+        if key in _TOOL_SENSITIVE_KEYS or key == "type":
+            continue
+        child_recognized, child_complete = _scan_tool_items(
+            child, depth=depth + 1, budget=budget, counts=counts
+        )
+        recognized = recognized or child_recognized
+        complete = complete and child_complete
+    return recognized, complete
+
+
+def _tool_shape_diagnostics(value: object) -> ToolShapeDiagnostics:
+    definition_counts: tuple[int, ...] = (0, 0, 0, 0)
+    definitions_valid = True
+    item_counts = [0] * len(_TOOL_ITEM_TYPE_CATEGORIES)
+    item_recognized = False
+    item_scan_complete = True
+
+    if isinstance(value, dict):
+        if "tools" in value:
+            definition_counts, definitions_valid = _scan_tool_definitions(value["tools"])
+        if "input" in value:
+            item_recognized, item_scan_complete = _scan_tool_items(
+                value["input"],
+                depth=0,
+                budget=[_MAX_TOOL_SCAN_NODES],
+                counts=item_counts,
+            )
+        elif "type" in value:
+            item_recognized, item_scan_complete = _scan_tool_items(
+                value,
+                depth=0,
+                budget=[_MAX_TOOL_SCAN_NODES],
+                counts=item_counts,
+            )
+    else:
+        item_recognized, item_scan_complete = _scan_tool_items(
+            value,
+            depth=0,
+            budget=[_MAX_TOOL_SCAN_NODES],
+            counts=item_counts,
+        )
+    del item_recognized
+    return ToolShapeDiagnostics(
+        definition_type_counts=definition_counts,
+        item_type_counts=tuple(item_counts),
+        definitions_valid=definitions_valid,
+        item_scan_complete=item_scan_complete,
     )
+
+
+def _has_tool_definitions(value: object) -> bool:
+    """Recognize only a bounded, non-empty list of supported definitions."""
+    _counts, valid = _scan_tool_definitions(value)
+    return valid
 
 
 def _has_tool_item(value: object, *, depth: int, budget: list[int]) -> bool:
-    if depth > _MAX_TOOL_SCAN_DEPTH or budget[0] <= 0:
-        return False
-    budget[0] -= 1
-    if isinstance(value, list):
-        return any(_has_tool_item(item, depth=depth + 1, budget=budget) for item in value)
-    if not isinstance(value, dict):
-        return False
-    if value.get("type") in {"function_call", "function_call_output", "exec_command"}:
-        return True
-    return any(
-        _has_tool_item(child, depth=depth + 1, budget=budget)
-        for key, child in value.items()
-        if key != "tools"
-    )
+    recognized, complete = _scan_tool_items(value, depth=depth, budget=budget)
+    return recognized and complete
 
 
 def _has_tool_content(value: object) -> bool:
-    if not isinstance(value, dict):
-        return _has_tool_item(value, depth=0, budget=[_MAX_TOOL_DEFINITIONS])
-    return _has_tool_definitions(value.get("tools")) or _has_tool_item(
-        value, depth=0, budget=[_MAX_TOOL_DEFINITIONS]
-    )
+    return _tool_shape_diagnostics(value).has_recognized_content
 
 
 def _content_fingerprint(value: object) -> str:
@@ -978,6 +1177,7 @@ class VisionOutboundRecorder(httpx.AsyncBaseTransport):
             )
 
         images = _image_items(payload)
+        tool_diagnostics = _tool_shape_diagnostics(payload)
         expected = {1: self._fixture.full_image, 2: self._fixture.crop_image}.get(turn)
         expected_identity = (
             (expected.byte_length, expected.sha256) if expected is not None else None
@@ -1020,7 +1220,7 @@ class VisionOutboundRecorder(httpx.AsyncBaseTransport):
         if expected_preservation is None:
             non_image_preserved = bool(_without_images(payload))
             governance_preserved = _governance_content_present(payload)
-            tool_preserved = _has_tool_content(payload)
+            tool_preserved = tool_diagnostics.has_recognized_content
         else:
             non_image_preserved = (
                 _content_fingerprint(payload) == expected_preservation.content_sha256
@@ -1028,7 +1228,7 @@ class VisionOutboundRecorder(httpx.AsyncBaseTransport):
             governance_preserved = expected_preservation.governance and _governance_content_present(
                 payload
             )
-            tool_preserved = expected_preservation.tool and _has_tool_content(payload)
+            tool_preserved = expected_preservation.tool and tool_diagnostics.has_recognized_content
         return VisionBoundaryEvidence(
             endpoint="/v1/responses",
             turn=turn,
@@ -1044,6 +1244,8 @@ class VisionOutboundRecorder(httpx.AsyncBaseTransport):
             non_image_content_preserved=non_image_preserved,
             governance_content_preserved=governance_preserved,
             tool_content_preserved=tool_preserved,
+            tool_definition_type_counts=tool_diagnostics.definition_type_counts,
+            tool_item_type_counts=tool_diagnostics.item_type_counts,
         )
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
@@ -1160,7 +1362,7 @@ def _parse_vision_events(
         item = event.get("item")
         if not isinstance(item, dict):
             continue
-        if item.get("type") in {"command_execution", "function_call", "exec_command"}:
+        if item.get("type") in _SUPPORTED_TOOL_ITEM_TYPES:
             tool_calls += 1
         if event_type == "item.completed" and item.get("type") == "agent_message":
             final_message = _message_evidence_from_text(item.get("text"), expected)

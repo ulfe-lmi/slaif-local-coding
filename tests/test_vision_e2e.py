@@ -186,6 +186,12 @@ def test_vision_fixture_is_deterministic_private_and_catalog_contract_is_exact(
     vision.write_vision_model_catalog("unused", fixture.model_catalog)
     assert vision._catalog_facts(fixture.model_catalog) == (True, True, 100_000, True)
     assert fixture.sentinel_token not in fixture.codex_config.read_text(encoding="utf-8")
+    dependency = (fixture.repository / "GOVERNANCE-DEPENDENCY.md").read_text(encoding="utf-8")
+    assert "Output only the prescribed sentinel bytes." in dependency
+    assert "Do not add quotes, backticks, Markdown, code fences, punctuation, spaces," in dependency
+    assert fixture.sentinel_token in dependency
+    assert fixture.sentinel_token not in vision._vision_prompt(1)
+    assert fixture.sentinel_token not in fixture.model_catalog.read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -468,21 +474,68 @@ def test_vision_runner_uses_global_yolo_exec_resume_and_exact_model_facts(tmp_pa
     ("payload", "expected"),
     [
         ({"tools": [{"type": "function"}]}, True),
+        ({"tools": [{"type": "custom"}]}, True),
+        ({"tools": [{"type": "local_shell"}]}, True),
+        (
+            {"tools": [{"type": "function"}, {"type": "custom"}, {"type": "local_shell"}]},
+            True,
+        ),
         ({"tools": [{"type": "function", "name": "synthetic", "parameters": {}}]}, True),
         ({"input": [{"type": "function_call"}]}, True),
         ({"input": [{"type": "function_call_output"}]}, True),
+        ({"input": [{"type": "custom_tool_call"}]}, True),
+        ({"input": [{"type": "custom_tool_call_output"}]}, True),
+        ({"input": [{"type": "local_shell_call"}]}, True),
+        ({"input": [{"type": "local_shell_call_output"}]}, True),
+        ({"input": [{"type": "command_execution"}]}, True),
+        ({"input": [{"type": "exec_command"}]}, True),
+        ({"input": [{"content": [{"type": "custom_tool_call"}]}]}, True),
         ({"tools": []}, False),
         ({"tools": [{"type": "function_call"}]}, False),
         ({"tools": [{"type": "function"}, {}]}, False),
-        ({"tools": {"type": "function"}}, False),
-        ({"metadata": {"type": "function"}}, False),
+        ({"tools": [{"type": "custom"}, {"type": "unknown"}]}, False),
         ({"tools": [{"type": "function"}] * 17}, False),
+        ({"input": [{"type": "unknown"}]}, False),
+        ({"metadata": {"type": "function_call"}}, False),
+        ({"input": [{"arguments": {"type": "function_call"}}]}, False),
+        ({"input": [{"type": "function_call"}, {"type": "unknown"}]}, True),
+        ({"tools": {"type": "function"}}, False),
     ],
 )
 def test_tool_content_requires_supported_top_level_definitions_or_items(
     payload: dict[str, Any], expected: bool
 ) -> None:
     assert vision._has_tool_content(payload) is expected
+
+
+def test_tool_shape_diagnostics_use_fixed_categories_and_bound_nested_scans() -> None:
+    payload: dict[str, Any] = {
+        "tools": [{"type": "function"}, {"type": "custom"}, {"type": "local_shell"}],
+        "input": [
+            {"type": "function_call"},
+            {"type": "custom_tool_call_output"},
+            {"type": "local_shell_call"},
+            {"type": "command_execution"},
+            {"type": "exec_command"},
+            {"type": "spoofed_unknown"},
+        ],
+    }
+    diagnostics = vision._tool_shape_diagnostics(payload)
+    assert diagnostics.has_recognized_content
+    assert diagnostics.definition_type_counts == (1, 1, 1, 0)
+    assert diagnostics.item_type_counts == (1, 0, 0, 1, 1, 0, 1, 1, 1)
+
+    nested: object = {"content": {"content": {"type": "exec_command"}}}
+    for _ in range(vision._MAX_TOOL_SCAN_DEPTH + 1):
+        nested = {"content": nested}
+    assert not vision._has_tool_content({"input": [nested]})
+
+    serialized = json.dumps(vision.vision_diagnostic_summary(_passing_facts()), sort_keys=True)
+    assert "tool_definition_type_counts" in serialized
+    assert "tool_item_type_counts" in serialized
+    assert "unexpected" in serialized
+    for forbidden in ("synthetic", "spoofed_unknown", "arguments"):
+        assert forbidden not in serialized
 
 
 @pytest.mark.parametrize(
@@ -515,6 +568,11 @@ def test_final_binding_accepts_only_exact_or_terminal_crlf(
     assert file.terminal_line_endings_only is terminal_only
     assert event.non_whitespace_mismatch is (not accepted and not terminal_only)
     assert file.non_whitespace_mismatch is (not accepted and not terminal_only)
+    assert (
+        event.wrapper_classification
+        == file.wrapper_classification
+        == ("none" if accepted or terminal_only else "other_mismatch")
+    )
     assert event.sha256 == file.sha256
     assert "EXPECTED-ACK" not in repr(event)
     assert "EXPECTED-ACK" not in repr(file)
@@ -547,6 +605,31 @@ def test_final_binding_requires_the_last_completed_agent_message(tmp_path: Path)
     missing = vision._file_final_message_evidence(tmp_path / "missing", expected)
     assert not missing.present
     assert vision._final_binding_provenance(vision._missing_message(), missing) == "missing"
+
+
+@pytest.mark.parametrize(
+    ("content", "wrapper"),
+    [
+        ("`EXPECTED-ACK`", "inline_backticks"),
+        ('"EXPECTED-ACK"', "double_quotes"),
+        ("'EXPECTED-ACK'", "single_quotes"),
+        ("*EXPECTED-ACK*", "asterisk_wrapper"),
+        ("EXPECTED-ACK.", "period_suffix"),
+        ("EXPECTED-ACK.\r\n", "period_then_crlf"),
+        ("\r\nEXPECTED-ACK\r\n", "leading_and_trailing_crlf"),
+        ("EXPECTED-ACX", "other_mismatch"),
+    ],
+)
+def test_fixed_final_message_wrappers_are_diagnostic_only(content: str, wrapper: str) -> None:
+    evidence = vision._message_evidence(content.encode("utf-8"), "EXPECTED-ACK")
+    assert evidence.wrapper_classification == wrapper
+    assert evidence.accepted is False
+    assert evidence.non_whitespace_mismatch is True
+
+    summary = vision._safe_final_message_summary(evidence)
+    assert summary["wrapper_classification"] == wrapper
+    assert summary["exact_expected"] is False
+    assert summary["terminal_line_endings_only"] is False
 
 
 @pytest.mark.parametrize("include_sentinel", [False, True])
