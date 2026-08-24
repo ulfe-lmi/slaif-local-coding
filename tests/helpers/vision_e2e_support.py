@@ -140,6 +140,23 @@ FinalMessageWrapper = Literal[
     "leading_and_trailing_crlf",
     "other_mismatch",
 ]
+FinalMessagePrefix = Literal[
+    "none",
+    "leading_crlf",
+    "leading_lf_lf",
+    "leading_cr_cr",
+    "leading_space_space",
+    "leading_tab_tab",
+    "leading_dash_space",
+    "leading_gt_space",
+    "leading_hash_space",
+    "leading_double_asterisk",
+    "leading_double_backtick",
+    "leading_double_quote",
+    "leading_open_paren_space",
+    "other_two_byte_prefix",
+    "not_applicable",
+]
 _FINAL_MESSAGE_WRAPPERS = (
     "none",
     "inline_backticks",
@@ -150,6 +167,23 @@ _FINAL_MESSAGE_WRAPPERS = (
     "period_then_crlf",
     "leading_and_trailing_crlf",
     "other_mismatch",
+)
+_FINAL_MESSAGE_PREFIXES = (
+    "none",
+    "leading_crlf",
+    "leading_lf_lf",
+    "leading_cr_cr",
+    "leading_space_space",
+    "leading_tab_tab",
+    "leading_dash_space",
+    "leading_gt_space",
+    "leading_hash_space",
+    "leading_double_asterisk",
+    "leading_double_backtick",
+    "leading_double_quote",
+    "leading_open_paren_space",
+    "other_two_byte_prefix",
+    "not_applicable",
 )
 
 
@@ -294,6 +328,7 @@ class FinalMessageEvidence:
     terminal_line_endings_only: bool
     non_whitespace_mismatch: bool
     wrapper_classification: FinalMessageWrapper = "none"
+    prefix_classification: FinalMessagePrefix = "not_applicable"
     contains_expected: bool = False
     expected_offset: int | None = None
     common_prefix_bytes: int = 0
@@ -315,6 +350,7 @@ def _missing_message() -> FinalMessageEvidence:
         terminal_line_endings_only=False,
         non_whitespace_mismatch=False,
         wrapper_classification="none",
+        prefix_classification="not_applicable",
     )
 
 
@@ -328,6 +364,40 @@ def _common_edge_bytes(content: bytes, expected: bytes, *, from_end: bool) -> in
             break
         matched += 1
     return min(matched, len(expected))
+
+
+def _classify_prefix(
+    content: bytes | None,
+    expected_bytes: bytes,
+    *,
+    expected_occurs_once: bool,
+    expected_offset: int | None,
+) -> FinalMessagePrefix:
+    """Classify only an exact two-byte leading relationship, without retaining it."""
+    if content is None or not expected_occurs_once or expected_offset is None:
+        return "not_applicable"
+    if expected_offset == 0 and len(content) == len(expected_bytes):
+        return "none"
+    if expected_offset != 2 or len(content) != 2 + len(expected_bytes):
+        return "not_applicable"
+    fixed_prefixes: tuple[tuple[bytes, FinalMessagePrefix], ...] = (
+        (b"\r\n", "leading_crlf"),
+        (b"\n\n", "leading_lf_lf"),
+        (b"\r\r", "leading_cr_cr"),
+        (b"  ", "leading_space_space"),
+        (b"\t\t", "leading_tab_tab"),
+        (b"- ", "leading_dash_space"),
+        (b"> ", "leading_gt_space"),
+        (b"# ", "leading_hash_space"),
+        (b"**", "leading_double_asterisk"),
+        (b"``", "leading_double_backtick"),
+        (b'""', "leading_double_quote"),
+        (b"( ", "leading_open_paren_space"),
+    )
+    return next(
+        (label for prefix, label in fixed_prefixes if content[:2] == prefix),
+        "other_two_byte_prefix",
+    )
 
 
 def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvidence:
@@ -366,6 +436,12 @@ def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvide
             (label for construction, label in fixed_wrappers if content == construction),
             "other_mismatch",
         )
+    prefix_classification = _classify_prefix(
+        content,
+        expected_bytes,
+        expected_occurs_once=expected_occurs_once,
+        expected_offset=expected_offset,
+    )
     return FinalMessageEvidence(
         present=True,
         byte_length=len(content),
@@ -374,6 +450,7 @@ def _message_evidence(content: bytes | None, expected: str) -> FinalMessageEvide
         terminal_line_endings_only=terminal_only,
         non_whitespace_mismatch=not exact and not terminal_only,
         wrapper_classification=wrapper_classification,
+        prefix_classification=prefix_classification,
         contains_expected=contains_expected,
         expected_offset=expected_offset,
         common_prefix_bytes=_common_edge_bytes(content, expected_bytes, from_end=False),
@@ -598,6 +675,11 @@ def _safe_final_message_summary(evidence: FinalMessageEvidence) -> dict[str, obj
             evidence.wrapper_classification
             if evidence.wrapper_classification in _FINAL_MESSAGE_WRAPPERS
             else "other_mismatch"
+        ),
+        "prefix_classification": (
+            evidence.prefix_classification
+            if evidence.prefix_classification in _FINAL_MESSAGE_PREFIXES
+            else "not_applicable"
         ),
     }
 

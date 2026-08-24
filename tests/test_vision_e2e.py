@@ -690,6 +690,102 @@ def test_final_message_relationship_summary_cannot_reconstruct_content() -> None
     assert summary["exact_expected"] is False
 
 
+@pytest.mark.parametrize(
+    ("prefix_classification", "content"),
+    [
+        ("none", b"EXPECTED-ACK"),
+        ("leading_crlf", b"\r\nEXPECTED-ACK"),
+        ("leading_lf_lf", b"\n\nEXPECTED-ACK"),
+        ("leading_cr_cr", b"\r\rEXPECTED-ACK"),
+        ("leading_space_space", b"  EXPECTED-ACK"),
+        ("leading_tab_tab", b"\t\tEXPECTED-ACK"),
+        ("leading_dash_space", b"- EXPECTED-ACK"),
+        ("leading_gt_space", b"> EXPECTED-ACK"),
+        ("leading_hash_space", b"# EXPECTED-ACK"),
+        ("leading_double_asterisk", b"**EXPECTED-ACK"),
+        ("leading_double_backtick", b"``EXPECTED-ACK"),
+        ("leading_double_quote", b'""EXPECTED-ACK'),
+        ("leading_open_paren_space", b"( EXPECTED-ACK"),
+        ("other_two_byte_prefix", b"!?EXPECTED-ACK"),
+    ],
+)
+def test_two_byte_prefix_classification_is_closed_and_event_file_parity(
+    tmp_path: Path, prefix_classification: str, content: bytes
+) -> None:
+    expected = "EXPECTED-ACK"
+    event = vision._message_evidence(content, expected)
+    output = tmp_path / "last-message"
+    output.write_bytes(content)
+    file = vision._file_final_message_evidence(output, expected)
+
+    assert event.prefix_classification == file.prefix_classification == prefix_classification
+    assert event.contains_expected and event.expected_offset in {0, 2}
+    assert event.trailing_extra_bytes == 0
+    assert event.accepted is (prefix_classification == "none")
+    assert event.prefix_classification in vision._FINAL_MESSAGE_PREFIXES
+    assert file.prefix_classification in vision._FINAL_MESSAGE_PREFIXES
+    assert "EXPECTED-ACK" not in repr(event)
+    assert "EXPECTED-ACK" not in repr(file)
+    serialized = json.dumps(vision._safe_final_message_summary(event), sort_keys=True)
+    assert "EXPECTED-ACK" not in serialized
+    assert "!?" not in serialized
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,
+        b"EXPECTED-ACK\r\n",
+        b"xEXPECTED-ACK",
+        b"xxEXPECTED-ACKyy",
+        b"EXPECTED-ACKE XPECTED-ACK",
+        b"UNRELATED-XX",
+    ],
+)
+def test_two_byte_prefix_classification_is_not_applicable_without_exact_relation(
+    tmp_path: Path, content: bytes | None
+) -> None:
+    expected = "EXPECTED-ACK"
+    event = vision._message_evidence(content, expected)
+    output = tmp_path / "last-message"
+    if content is not None:
+        output.write_bytes(content)
+    file = vision._file_final_message_evidence(output, expected)
+
+    assert event.prefix_classification == file.prefix_classification == "not_applicable"
+    assert event.accepted is event.terminal_line_endings_only
+    assert file.accepted is file.terminal_line_endings_only
+    assert event.prefix_classification in vision._FINAL_MESSAGE_PREFIXES
+    assert file.prefix_classification in vision._FINAL_MESSAGE_PREFIXES
+
+
+def test_two_byte_prefix_classification_summary_is_fixed_shape_and_private() -> None:
+    assert set(vision._FINAL_MESSAGE_PREFIXES) == {
+        "none",
+        "leading_crlf",
+        "leading_lf_lf",
+        "leading_cr_cr",
+        "leading_space_space",
+        "leading_tab_tab",
+        "leading_dash_space",
+        "leading_gt_space",
+        "leading_hash_space",
+        "leading_double_asterisk",
+        "leading_double_backtick",
+        "leading_double_quote",
+        "leading_open_paren_space",
+        "other_two_byte_prefix",
+        "not_applicable",
+    }
+    evidence = vision._message_evidence(b"!?EXPECTED-ACK", "EXPECTED-ACK")
+    summary = vision._safe_final_message_summary(evidence)
+    serialized = json.dumps(summary, sort_keys=True)
+    assert summary["prefix_classification"] == "other_two_byte_prefix"
+    assert "EXPECTED-ACK" not in serialized
+    assert "!?" not in serialized
+    assert "prefix" in serialized
+
+
 @pytest.mark.parametrize("include_sentinel", [False, True])
 def test_marker_like_or_marker_plus_sentinel_output_cannot_pass_exact_binding(
     tmp_path: Path, include_sentinel: bool
