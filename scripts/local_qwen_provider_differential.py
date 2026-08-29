@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Run the single bounded Local Coding -> protected Qwen differential.
+"""Run the single bounded Local Coding -> protected Qwen verification.
 
-This is repository-only evidence support for OAP 005-i.  It emits fixed
+This is repository-only evidence support for OAP 005-j. It emits fixed
 transport/SSE facts and never prints request, response, credential, identity,
 endpoint, or model-content values.
 """
@@ -48,9 +48,9 @@ from slaif_local_coding.gateway_identity import (  # noqa: E402  # type: ignore[
 
 MODEL = "qwen3.8-27b"
 ROUTE = "qwen38-vision-codex"
-QWEN_KEY_ENV = "OAP_005I_QWEN_KEY"
-SERVICE_TOKEN_ENV = "OAP_005I_SERVICE_TOKEN"
-SIGNING_SECRET_ENV = "OAP_005I_SIGNING_SECRET"
+QWEN_KEY_ENV = "OAP_005J_QWEN_KEY"
+SERVICE_TOKEN_ENV = "OAP_005J_SERVICE_TOKEN"
+SIGNING_SECRET_ENV = "OAP_005J_SIGNING_SECRET"
 UPSTREAM_ORIGIN = "http://127.0.0.1:18020"
 REQUEST_PATH = "/v1/responses"
 MAX_STREAM_BYTES = 1_048_576
@@ -74,14 +74,13 @@ KNOWN_EVENT_TYPES = frozenset(
         "response.reasoning_text.delta",
         "response.reasoning_text.done",
         "response.function_call_arguments.delta",
-        "response.function_call_arguments.done",
         "response.reasoning_part.added",
         "response.reasoning_part.done",
         "response.custom_tool_call_input.delta",
-        "response.custom_tool_call_input.done",
         "error",
     }
 )
+PROVIDER_FAILURE_EVENT_TYPES = frozenset({"response.failed", "response.incomplete", "error"})
 
 
 def _status_class(status: int | None) -> str:
@@ -245,6 +244,8 @@ class SSEFacts:
     normal_close: bool = False
     event_counts: dict[str, int] = field(default_factory=dict)
     unknown_events: bool = False
+    error_event: bool = False
+    duplicates: bool = False
     created: bool = False
     completed: bool = False
     completed_valid: bool = False
@@ -274,6 +275,9 @@ class SSEFacts:
             self._line_buffer.clear()
 
     def _consume_line(self, line: bytes) -> None:
+        if len(line) > MAX_EVENT_BYTES:
+            self.parseable = False
+            return
         if line == b"":
             self._finish_event()
         elif line.startswith(b"data:"):
@@ -308,7 +312,11 @@ class SSEFacts:
         self.event_counts[event_type] = self.event_counts.get(event_type, 0) + 1
         if event_type not in KNOWN_EVENT_TYPES:
             self.unknown_events = True
+        if event_type in PROVIDER_FAILURE_EVENT_TYPES:
+            self.error_event = True
         if event_type == "response.created":
+            if self.created:
+                self.duplicates = True
             self.created = True
             response = payload.get("response")
             if isinstance(response, Mapping) and isinstance(response.get("id"), str):
@@ -316,6 +324,8 @@ class SSEFacts:
             elif isinstance(payload.get("id"), str):
                 self.created_id = payload["id"]
         if event_type == "response.completed":
+            if self.completed:
+                self.duplicates = True
             self.completed = True
             response = payload.get("response")
             if isinstance(response, Mapping):
@@ -359,6 +369,8 @@ class SSEFacts:
             "first_bytes": self.first_bytes,
             "parseable": self.parseable,
             "recognized_events": recognized,
+            "error_event": self.error_event,
+            "duplicates": self.duplicates,
             "event_counts": dict(sorted(self.event_counts.items())),
             "created": self.created,
             "completed": self.completed,
@@ -373,6 +385,7 @@ class SSEFacts:
 @dataclass
 class StageResult:
     dispatch_started: bool = False
+    dispatch_count: int = 0
     response_status: int | None = None
     response_content_type: str | None = None
     response_headers: tuple[str, ...] = ()
@@ -390,20 +403,35 @@ class StageResult:
     def stages(self, *, forwarded: bool | None = None) -> dict[str, str]:
         has_response = self.response_status is not None
         has_headers = has_response
+        status_ok = self.response_status is not None and 200 <= self.response_status < 300
+        content_type_ok = _content_type_class(self.response_content_type) == "sse"
         has_body = self.sse.first_bytes
         framing = (
             "PASSED" if has_body and self.sse.parseable else "FAILED" if has_body else "NOT_REACHED"
         )
         recognized = (
             "PASSED"
-            if has_body and self.sse.parseable and not self.sse.unknown_events
+            if has_body
+            and self.sse.parseable
+            and not self.sse.unknown_events
+            and not self.sse.error_event
+            and not self.sse.duplicates
             else "FAILED"
             if has_body
             else "NOT_REACHED"
         )
         completed = (
             "PASSED"
-            if self.sse.completed_valid
+            if (
+                status_ok
+                and content_type_ok
+                and self.sse.completed_valid
+                and self.sse.event_counts.get("response.created") == 1
+                and self.sse.event_counts.get("response.completed") == 1
+                and not self.sse.error_event
+                and not self.sse.duplicates
+                and self.sse.normal_close
+            )
             else "FAILED"
             if self.sse.completed
             else "NOT_REACHED"
@@ -414,7 +442,11 @@ class StageResult:
         return {
             "A": "PASSED" if self.dispatch_started else "NOT_REACHED",
             "B": (
-                "PASSED" if has_response else "FAILED" if self.request_exception else "NOT_REACHED"
+                "PASSED"
+                if status_ok
+                else "FAILED"
+                if has_response or self.request_exception
+                else "NOT_REACHED"
             ),
             "C": "PASSED" if has_headers else "NOT_REACHED",
             "D": "PASSED" if has_body else "FAILED" if has_response else "NOT_REACHED",
@@ -432,6 +464,7 @@ class StageResult:
             if self.request_body
             else request_shape(b"", expected_body=expected_body),
             "request_method": self.request_method,
+            "dispatch_count": self.dispatch_count,
             "request_path_class": (
                 "v1_responses" if self.request_path == REQUEST_PATH else "other"
             ),
@@ -482,6 +515,7 @@ class RecordingTransport(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         self.facts.dispatch_started = True
+        self.facts.dispatch_count += 1
         self.facts.request_method = request.method
         self.facts.request_path = request.url.path
         self.facts.request_headers = _header_classes(request.headers)
@@ -639,75 +673,39 @@ async def _local_call(
                 facts.response_exception = _exception_class(exc)
 
 
-async def _direct_call(body: bytes, qwen_key: str, facts: StageResult) -> None:
-    facts.dispatch_started = True
-    facts.request_method = "POST"
-    facts.request_path = REQUEST_PATH
-    facts.request_body = body
-    facts.request_headers = (
-        "accept",
-        "accept-encoding",
-        "authorization",
-        "content-type",
-    )
-    timeout = httpx.Timeout(connect=10, read=300, write=30, pool=10)
-    headers = {
-        "Authorization": f"Bearer {qwen_key}",
-        "Accept": "text/event-stream",
-        "Content-Type": "application/json",
-        "Accept-Encoding": "identity",
-    }
-    transport = httpx.AsyncHTTPTransport(retries=0)
-    async with httpx.AsyncClient(
-        base_url=UPSTREAM_ORIGIN,
-        timeout=timeout,
-        transport=transport,
-        follow_redirects=False,
-    ) as client:
-        try:
-            async with client.stream(
-                "POST", REQUEST_PATH, content=body, headers=headers
-            ) as response:
-                await _consume_response(response, facts, facts.sse)
-        except BaseException as exc:
-            if isinstance(exc, asyncio.CancelledError):
-                raise
-            if facts.response_exception is None:
-                facts.response_exception = _exception_class(exc)
-
-
 def _through_h(facts: StageResult) -> bool:
     stages = facts.stages()
-    return all(stages[key] == "PASSED" for key in "ABCDEFGH")
+    return facts.dispatch_count == 1 and all(stages[key] == "PASSED" for key in "ABCDEFGH")
 
 
 def _forwarded(facts: StageResult) -> bool | None:
-    if facts.response_status is None or not 200 <= facts.response_status < 300:
+    if facts.response_status is None:
         return None
+    if not 200 <= facts.response_status < 300:
+        return False
+    if _content_type_class(facts.response_content_type) != "sse":
+        return False
     if facts.downstream_status is None:
         return False
     if not 200 <= facts.downstream_status < 300:
         return False
+    if _content_type_class(facts.downstream_content_type) != "sse":
+        return False
     if not facts.sse.first_bytes or not facts.downstream_sse.first_bytes:
+        return False
+    if not _through_h(facts):
         return False
     return (
         facts.sse.byte_count == facts.downstream_sse.byte_count
         and facts.sse.digest.digest() == facts.downstream_sse.digest.digest()
         and facts.downstream_sse.parseable
+        and not facts.downstream_sse.unknown_events
+        and not facts.downstream_sse.error_event
+        and not facts.downstream_sse.duplicates
+        and facts.downstream_sse.event_counts.get("response.created") == 1
+        and facts.downstream_sse.event_counts.get("response.completed") == 1
+        and facts.downstream_sse.completed_valid
         and facts.downstream_sse.normal_close
-    )
-
-
-def _same_failure_stage(local: StageResult, direct: StageResult) -> bool:
-    local_stages = local.stages()
-    direct_stages = direct.stages()
-    for key in "ABCDEFGH":
-        if local_stages[key] != direct_stages[key]:
-            return False
-    return _status_class(local.response_status) == _status_class(
-        direct.response_status
-    ) and _content_type_class(local.response_content_type) == _content_type_class(
-        direct.response_content_type
     )
 
 
@@ -715,57 +713,39 @@ async def run() -> dict[str, object]:
     qwen_key = os.environ.get(QWEN_KEY_ENV)
     if not qwen_key:
         return {"status": "BLOCKED", "reason": "protected_credential_unavailable"}
+    previous_service_token = os.environ.get(SERVICE_TOKEN_ENV)
+    previous_signing_secret = os.environ.get(SIGNING_SECRET_ENV)
     os.environ[SERVICE_TOKEN_ENV] = "synthetic-005i-service-token"
     os.environ[SIGNING_SECRET_ENV] = "synthetic-005i-signing-secret-0123456789"
     body = _expected_body()
     signed_headers = _signed_headers(body)
     local_facts = StageResult()
-    direct_facts: StageResult | None = None
-    with tempfile.TemporaryDirectory(prefix="slaif-005i-differential-") as temp_dir:
-        recording = RecordingTransport(httpx.AsyncHTTPTransport(retries=0), local_facts)
-        app = create_app(_settings(Path(temp_dir) / "cache"), transport=recording)
-        async with app.router.lifespan_context(app):
-            await _local_call(app, body, signed_headers, local_facts)
+    try:
+        with tempfile.TemporaryDirectory(prefix="slaif-005j-differential-") as temp_dir:
+            recording = RecordingTransport(httpx.AsyncHTTPTransport(retries=0), local_facts)
+            app = create_app(_settings(Path(temp_dir) / "cache"), transport=recording)
+            async with app.router.lifespan_context(app):
+                await _local_call(app, body, signed_headers, local_facts)
         local_forwarded = _forwarded(local_facts)
         local_passed = _through_h(local_facts) and local_forwarded is True
-        if not local_passed:
-            direct_facts = StageResult()
-            await _direct_call(body, qwen_key, direct_facts)
-    local_summary = local_facts.summary(expected_body=body, forwarded=local_forwarded)
-    if local_passed:
+        local_summary = local_facts.summary(expected_body=body, forwarded=local_forwarded)
         return {
-            "status": "PASSED",
-            "decision": "boundary_green",
+            "status": "PASSED" if local_passed else "FAILED",
+            "decision": "boundary_green" if local_passed else "local_boundary_evidence",
             "expected_request": request_shape(body, expected_body=body),
             "local": local_summary,
-            "direct_control": "NOT_REACHED",
+            "direct_control": "NOT_AUTHORIZED",
             "compiler_attempts": 0,
         }
-    assert direct_facts is not None
-    direct_summary = direct_facts.summary(expected_body=body, forwarded=None)
-    direct_passed = _through_h(direct_facts)
-    local_request = cast(Mapping[str, object], local_summary["request"])
-    local_body_equal = bool(local_request.get("body_equal"))
-    if direct_passed:
-        local_provider_stage = local_facts.stages()["B"]
-        if not local_body_equal:
-            decision = "local_request_construction"
-        elif local_provider_stage != "PASSED":
-            decision = "local_provider_transport"
+    finally:
+        if previous_service_token is None:
+            os.environ.pop(SERVICE_TOKEN_ENV, None)
         else:
-            decision = "local_sse_forwarding"
-    elif _same_failure_stage(local_facts, direct_facts):
-        decision = "protected_qwen_provider"
-    else:
-        decision = "local_provider_transport"
-    return {
-        "status": "FAILED",
-        "decision": decision,
-        "expected_request": request_shape(body, expected_body=body),
-        "local": local_summary,
-        "direct_control": direct_summary,
-        "compiler_attempts": 0,
-    }
+            os.environ[SERVICE_TOKEN_ENV] = previous_service_token
+        if previous_signing_secret is None:
+            os.environ.pop(SIGNING_SECRET_ENV, None)
+        else:
+            os.environ[SIGNING_SECRET_ENV] = previous_signing_secret
 
 
 def main() -> int:
