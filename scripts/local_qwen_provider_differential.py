@@ -82,6 +82,27 @@ KNOWN_EVENT_TYPES = frozenset(
     }
 )
 PROVIDER_FAILURE_EVENT_TYPES = frozenset({"response.failed", "response.incomplete", "error"})
+SAFE_ERROR_FIELD_NAMES = frozenset({"code", "message", "param", "request_id", "status", "type"})
+ERROR_VALUE_CLASSES = {
+    "adapter_error": "local",
+    "compiler_error": "local",
+    "context_length_exceeded": "provider",
+    "forbidden": "gateway",
+    "invalid_model": "provider",
+    "invalid_request": "gateway",
+    "invalid_route": "gateway",
+    "model_error": "provider",
+    "overloaded": "provider",
+    "provider_error": "provider",
+    "quota_exceeded": "gateway",
+    "rate_limit_exceeded": "gateway",
+    "service_unavailable": "provider",
+    "unauthorized": "gateway",
+    "unsupported_capability": "gateway",
+    "upstream_error": "local",
+    "upstream_timeout": "local",
+    "upstream_unavailable": "local",
+}
 
 
 def _status_class(status: int | None) -> str:
@@ -299,8 +320,15 @@ class SSEFacts:
     completed: bool = False
     completed_valid: bool = False
     completed_output_empty: bool = False
+    completed_status_valid: bool = False
+    completed_output_valid: bool = False
+    completed_usage_valid: bool = False
+    response_id_relation: bool = True
     created_id: str | None = None
     completed_id: str | None = None
+    error_field_names: set[str] = field(default_factory=set)
+    error_code_class: str = "unknown"
+    error_type_class: str = "unknown"
     _line_buffer: bytearray = field(default_factory=bytearray)
     _data_lines: list[bytes] = field(default_factory=list)
     _event_bytes: int = 0
@@ -363,6 +391,7 @@ class SSEFacts:
             self.unknown_events = True
         if event_type in PROVIDER_FAILURE_EVENT_TYPES:
             self.error_event = True
+            self._record_error(payload, provider_event=event_type != "error")
         if event_type == "response.created":
             if self.created:
                 self.duplicates = True
@@ -397,8 +426,42 @@ class SSEFacts:
                 and usage["total_tokens"] == usage["input_tokens"] + usage["output_tokens"]
             )
             ids_valid = self.created_id is None or self.completed_id in {None, self.created_id}
+            self.completed_status_valid = status == "completed"
+            self.completed_output_valid = isinstance(output, list)
+            self.completed_usage_valid = usage_valid
+            self.response_id_relation = ids_valid
             self.completed_output_empty = isinstance(output, list) and len(output) == 0
-            self.completed_valid = status == "completed" and usage_valid and ids_valid
+            self.completed_valid = (
+                self.completed_status_valid
+                and self.completed_output_valid
+                and self.completed_usage_valid
+                and ids_valid
+            )
+
+    def _record_error(self, payload: Mapping[str, object], *, provider_event: bool) -> None:
+        """Retain only fixed error metadata classes, never error values."""
+        values: list[object] = []
+        for key, value in payload.items():
+            if key in SAFE_ERROR_FIELD_NAMES:
+                self.error_field_names.add(key)
+            if key in {"code", "type"}:
+                values.append(value)
+        error = payload.get("error")
+        if isinstance(error, Mapping):
+            for key, value in error.items():
+                if key in SAFE_ERROR_FIELD_NAMES:
+                    self.error_field_names.add(key)
+                if key in {"code", "type"}:
+                    values.append(value)
+        if provider_event:
+            self.error_type_class = "provider"
+        for value in values:
+            if isinstance(value, str):
+                classification = ERROR_VALUE_CLASSES.get(value, "unknown")
+                if self.error_code_class == "unknown" and classification != "unknown":
+                    self.error_code_class = classification
+                elif self.error_type_class == "unknown" and classification != "unknown":
+                    self.error_type_class = classification
 
     def finish(self) -> None:
         if self._line_buffer:
@@ -425,9 +488,14 @@ class SSEFacts:
             "completed": self.completed,
             "completed_valid": self.completed_valid,
             "completed_output_empty": self.completed_output_empty,
+            "completed_status_valid": self.completed_status_valid,
+            "completed_output_valid": self.completed_output_valid,
+            "completed_usage_valid": self.completed_usage_valid,
+            "response_id_relation": self.response_id_relation,
+            "error_field_names": tuple(sorted(self.error_field_names)),
+            "error_code_class": self.error_code_class,
+            "error_type_class": self.error_type_class,
             "normal_close": self.normal_close,
-            "response_id_relation": self.created_id is None
-            or self.completed_id in {None, self.created_id},
         }
 
 

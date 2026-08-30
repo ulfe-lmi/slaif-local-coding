@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import replace
+from dataclasses import asdict, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -46,9 +46,10 @@ from codex_tool_envelope_differential import (  # noqa: E402
     run_differential,
 )
 
-from slaif_local_coding.gateway_identity import (  # noqa: E402
-    canonical_identity_bytes,
-    expected_signature,
+from scripts.local_qwen_provider_differential import (  # noqa: E402
+    SSEFacts,
+    _status_class,
+    _timing_bucket,
 )
 from tests.helpers.e2e_support import governed_prompt, run_codex_once  # noqa: E402
 from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
@@ -57,12 +58,10 @@ from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
     PUBLIC_MODEL,
     RESPONSES_ENDPOINT,
     UPSTREAM_MODEL,
-    GatewayRehearsalFacts,
-    assert_gateway_rehearsal_facts,
+    build_composed_stream_facts,
 )
 from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv  # noqa: E402
 from tests.helpers.vision_e2e_support import (  # noqa: E402
-    VISION_MODEL,
     write_vision_fixture,
     write_vision_model_catalog,
 )
@@ -99,7 +98,6 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
         self.inference_calls = 0
         self.stream_calls = 0
         self.tool_types: set[str] = set()
-        self.post_path_classes: set[str] = set()
         self.bad_auth = False
         self._lock = threading.Lock()
 
@@ -122,7 +120,6 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
                 "inference_calls": self.inference_calls,
                 "stream_calls": self.stream_calls,
                 "tool_types": sorted(self.tool_types),
-                "post_path_classes": sorted(self.post_path_classes),
                 "bad_auth": self.bad_auth,
             }
 
@@ -306,25 +303,6 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         request_path = urlsplit(self.path).path
-        self.server.post_path_classes.add(
-            "responses"
-            if request_path == "/v1/responses"
-            else "compiler"
-            if request_path == "/v1/chat/completions"
-            else "bare_responses"
-            if request_path == "/responses"
-            else "double_v1_responses"
-            if request_path == "/v1/v1/responses"
-            else "responses_trailing_slash"
-            if request_path == "/v1/responses/"
-            else "responses_query"
-            if self.path.startswith("/v1/responses?")
-            else "responses_variant"
-            if request_path.startswith("/v1/responses")
-            else "chat_variant"
-            if request_path.startswith("/v1/chat/completions")
-            else "other"
-        )
         if not self._authorized():
             self._json(401, {"error": {"code": "unauthorized"}})
             return
@@ -948,29 +926,51 @@ def _metric_sum(metrics: str, name: str, labels: dict[str, str] | None = None) -
     return int(total)
 
 
-def _request_metric_classes(metrics: str) -> tuple[str, ...]:
-    """Return bounded endpoint/status classes for a disposable failure diagnostic."""
-    totals: dict[tuple[str, str, str], int] = {}
-    for family in text_string_to_metric_families(metrics):
-        for sample in family.samples:
-            if sample.name != "slaif_requests_total":
-                continue
-            endpoint = sample.labels.get("endpoint", "unsupported")
-            endpoint_class = {
-                "/v1/responses": "responses",
-                "/v1/chat/completions": "chat",
-                "/health": "health",
-                "/v1/models": "models",
-            }.get(endpoint, "unsupported")
-            status = sample.labels.get("status", "other")
-            route = sample.labels.get("route", "other")
-            key = (endpoint_class, status, "local" if route == LOCAL_ROUTE else "other")
-            totals[key] = totals.get(key, 0) + int(float(sample.value))
-    return tuple(
-        f"{endpoint}_{status}_{route}_{count}"
-        for (endpoint, status, route), count in sorted(totals.items())
-        if count > 0
-    )
+def _metric_delta(before: str, after: str, name: str, labels: dict[str, str] | None = None) -> int:
+    return max(0, _metric_sum(after, name, labels) - _metric_sum(before, name, labels))
+
+
+def _local_upstream_status_class(before: str, after: str) -> str:
+    """Project only the status class observed for this route's upstream call."""
+    before_values: dict[str, int] = {}
+    after_values: dict[str, int] = {}
+    for metrics, values in ((before, before_values), (after, after_values)):
+        for family in text_string_to_metric_families(metrics):
+            for sample in family.samples:
+                if sample.name != "slaif_requests_total":
+                    continue
+                if sample.labels.get("endpoint") != RESPONSES_ENDPOINT:
+                    continue
+                status = sample.labels.get("status")
+                if status in {"2xx", "4xx", "5xx", "other", "unknown"}:
+                    values[status] = values.get(status, 0) + int(float(sample.value))
+                elif status is not None and status.isdigit():
+                    values[status] = values.get(status, 0) + int(float(sample.value))
+    for status, value in sorted(after_values.items()):
+        try:
+            delta = value - before_values.get(status, 0)
+            if delta > 0:
+                return status if status in {"2xx", "4xx", "5xx"} else _status_class(int(status))
+        except ValueError:
+            continue
+    return "unknown"
+
+
+def _local_failure_delta(before: str, after: str) -> tuple[int, str]:
+    allowed = {"connection", "disconnect", "response_read", "response_too_large", "timeout"}
+    total = 0
+    classes: set[str] = set()
+    for kind in allowed:
+        delta = _metric_delta(
+            before,
+            after,
+            "slaif_upstream_failures_total",
+            {"kind": kind},
+        )
+        total += delta
+        if delta:
+            classes.add(kind)
+    return total, "none" if not classes else "multiple" if len(classes) > 1 else next(iter(classes))
 
 
 def _adapter_metrics(client: httpx.Client, adapter_port: int) -> str:
@@ -1223,463 +1223,6 @@ def _docker_cleanup(name: str | None, image_was_absent: bool) -> tuple[bool, boo
     return container_removed, image_removed
 
 
-def _run_rehearsal(
-    args: argparse.Namespace, *, preflight: dict[str, object]
-) -> GatewayRehearsalFacts:
-    started = time.monotonic()
-    gateway_root = args.gateway_root.resolve()
-    # Keep the venv launcher path itself; resolving its symlink would bypass
-    # the disposable venv and execute the system interpreter.
-    gateway_python = Path(args.gateway_python).absolute()
-    if (
-        _run_command(["git", "-C", str(gateway_root), "rev-parse", "HEAD"]).stdout.strip()
-        != GATEWAY_MAIN_SHA
-    ):
-        raise RuntimeError("gateway_sha_mismatch")
-    checkout_clean_before = not bool(
-        _run_command(["git", "-C", str(gateway_root), "status", "--short"]).stdout.strip()
-    )
-    if not checkout_clean_before:
-        raise RuntimeError("gateway_checkout_dirty")
-    codex = Path(args.codex).resolve()
-    codex_version = _codex_version(codex)
-    if codex_version != CODEX_VERSION:
-        raise RuntimeError("codex_version_mismatch")
-    qwen_key = os.environ.get(QWEN_KEY_ENV)
-    if not qwen_key:
-        raise RuntimeError("protected_qwen_key_unavailable")
-    before_protected = _protected_snapshot()
-    if not before_protected["vision_active"] or not before_protected["has_18020"]:
-        raise RuntimeError("protected_vision_fixture_not_active")
-    if not before_protected["text_inactive"] or before_protected["has_18021"]:
-        raise RuntimeError("protected_fixture_precondition_failed")
-    gateway_port = _free_loopback_port()
-    adapter_port = _free_loopback_port(18031)
-    if adapter_port != 18031:
-        raise RuntimeError("candidate_port_18031_not_free")
-    gateway_url = f"http://127.0.0.1:{gateway_port}"
-    synthetic = _gateway_settings(gateway_url)
-    service_token = "synthetic-005c-adapter-service-token"
-    gateway_key: str | None = None
-    gateway_process: subprocess.Popen[bytes] | None = None
-    candidate_process: subprocess.Popen[bytes] | None = None
-    postgres_name: str | None = None
-    postgres_image_was_absent = False
-    postgres_image_id: str | None = None
-    postgres_image_digest: str | None = None
-    container_removed = False
-    image_removed = False
-    logs: tuple[Path, ...] = ()
-    temporary_name: str | None = None
-    fact: GatewayRehearsalFacts | None = None
-    try:
-        with tempfile.TemporaryDirectory(prefix="slaif-005c-rehearsal-") as temporary:
-            temporary_name = temporary
-            temp_root = Path(temporary)
-            gateway_log_path = temp_root / "gateway.log"
-            candidate_log_path = temp_root / "candidate.log"
-            logs = (gateway_log_path, candidate_log_path)
-            fixture = write_vision_fixture(temp_root / "fixture", gateway_url + "/v1", QWEN_KEY_ENV)
-            adapter_config_text = fixture.adapter_config.read_text(encoding="utf-8")
-            adapter_config_text = adapter_config_text.replace(
-                "[upstream]\n",
-                '[gateway_ingress]\nmode = "service_bearer_static_identity"\n'
-                f'service_token_env = "{SERVICE_TOKEN_ENV}"\n\n[upstream]\n',
-                1,
-            )
-            fixture.adapter_config.write_text(adapter_config_text, encoding="utf-8")
-            os.chmod(fixture.adapter_config, 0o600)
-            codex_config_text = fixture.codex_config.read_text(encoding="utf-8")
-            codex_config_text = codex_config_text.replace(
-                f'model = "{VISION_MODEL}"', f'model = "{PUBLIC_MODEL}"', 1
-            ).replace(f'env_key = "{QWEN_KEY_ENV}"', f'env_key = "{PUBLIC_KEY_ENV}"', 1)
-            fixture.codex_config.write_text(codex_config_text, encoding="utf-8")
-            os.chmod(fixture.codex_config, 0o600)
-            fixture = replace(fixture, api_key_env=PUBLIC_KEY_ENV)
-            write_vision_model_catalog(codex, fixture.model_catalog, model=PUBLIC_MODEL)
-            _disable_catalog_search_tools(fixture.model_catalog)
-            if not _public_model_catalog_ok(fixture.model_catalog):
-                raise RuntimeError("codex_catalog_contract_failed")
-
-            (
-                postgres_name,
-                postgres_port,
-                tmpfs_only,
-                postgres_image_was_absent,
-                postgres_image_id,
-                postgres_image_digest,
-            ) = _docker_start_postgres()
-            database_url = f"postgresql+asyncpg://{DATABASE_USER}:{DATABASE_PASSWORD}@127.0.0.1:{postgres_port}/{DATABASE_NAME}"
-            gateway_env = _gateway_environment(
-                gateway_root=gateway_root,
-                database_url=database_url,
-                gateway_port=gateway_port,
-                hmac_secret=synthetic["hmac_secret"],
-                encryption_key=synthetic["encryption_key"],
-                service_token=service_token,
-                signing_secret="synthetic-005c-signing-secret-0123456789",
-                derivation_secret="synthetic-005c-derivation-secret-0123456789",
-            )
-            migrate_env = dict(gateway_env)
-            migration_succeeded = False
-            for _ in range(3):
-                migration = _run_command(
-                    [str(gateway_python), "-m", "alembic", "upgrade", "head"],
-                    cwd=gateway_root,
-                    env=migrate_env,
-                )
-                if migration.returncode == 0:
-                    migration_succeeded = True
-                    break
-                time.sleep(1)
-            if not migration_succeeded:
-                raise RuntimeError("gateway_migration_failed")
-            seeded = asyncio.run(
-                _seed_database(
-                    gateway_root,
-                    database_url,
-                    adapter_port=adapter_port,
-                    failure_port=_free_loopback_port(),
-                    hmac_secret=synthetic["hmac_secret"],
-                    encryption_key=synthetic["encryption_key"],
-                )
-            )
-            gateway_key = seeded["plaintext_key"]
-            seeded_key_id = seeded["gateway_key_id"]
-            candidate_process = _build_candidate_process(
-                gateway_python,
-                fixture.adapter_config,
-                _candidate_environment(
-                    service_token,
-                    qwen_key,
-                    "synthetic-005c-signing-secret-0123456789",
-                ),
-                candidate_log_path,
-            )
-            with httpx.Client(timeout=30, follow_redirects=False) as http:
-                candidate_health = _wait_status(
-                    http,
-                    f"http://127.0.0.1:{adapter_port}/health",
-                    headers={"Authorization": f"Bearer {service_token}"},
-                )
-                candidate_ready = _wait_status(http, f"http://127.0.0.1:{adapter_port}/readyz")
-                if candidate_health != 200 or candidate_ready != 200:
-                    raise RuntimeError("candidate_not_ready")
-            gateway_process = _build_gateway_process(
-                gateway_python, gateway_root, gateway_port, gateway_env, gateway_log_path
-            )
-            with httpx.Client(timeout=30, follow_redirects=False) as http:
-                gateway_health = _wait_status(http, f"{gateway_url}/healthz")
-                gateway_ready = _wait_status(http, f"{gateway_url}/readyz")
-            if gateway_health != 200 or gateway_ready != 200:
-                raise RuntimeError("gateway_not_ready")
-            if not gateway_key:
-                raise RuntimeError("seed_key_unavailable")
-            client = OpenAI(
-                api_key=gateway_key,
-                base_url=gateway_url + "/v1/",
-                timeout=120,
-                max_retries=0,
-            )
-            with httpx.Client(timeout=30, follow_redirects=False) as http:
-                before_unauthorized = _metric_sum(
-                    _adapter_metrics(http, adapter_port), "slaif_requests_total"
-                )
-                unauthorized = http.get(
-                    f"{gateway_url}/v1/models",
-                    headers={"Authorization": "Bearer sk-slaif-invalid." + "a" * 43},
-                )
-                after_unauthorized = _metric_sum(
-                    _adapter_metrics(http, adapter_port), "slaif_requests_total"
-                )
-                unauthorized_status = unauthorized.status_code
-            models = client.models.list()
-            model_ids = tuple(str(item.id) for item in models.data)
-            text_response = client.responses.create(
-                model=PUBLIC_MODEL,
-                input="Return a short acknowledgment.",
-                max_output_tokens=32,
-                store=False,
-            )
-            text_usage = getattr(getattr(text_response, "usage", None), "total_tokens", None)
-            if not isinstance(text_usage, int):
-                raise RuntimeError("text_usage_missing")
-            stream_types: list[str] = []
-            stream_completed_usage = False
-            stream = client.responses.create(
-                model=PUBLIC_MODEL,
-                input="Return one short streamed acknowledgment.",
-                max_output_tokens=32,
-                tools=[
-                    {
-                        "type": "namespace",
-                        "name": "functions",
-                        "tools": [
-                            {
-                                "type": "function",
-                                "name": "rehearsal_noop",
-                                "description": (
-                                    "A bounded no-op tool that must not be called in this turn."
-                                ),
-                                "parameters": {
-                                    "type": "object",
-                                    "properties": {},
-                                    "additionalProperties": False,
-                                },
-                            }
-                        ],
-                    }
-                ],
-                tool_choice="none",
-                stream=True,
-            )
-            for event in stream:
-                event_type = getattr(event, "type", None)
-                if isinstance(event_type, str):
-                    stream_types.append(event_type)
-                if event_type == "response.completed":
-                    usage = getattr(getattr(event, "response", None), "usage", None)
-                    stream_completed_usage = isinstance(getattr(usage, "total_tokens", None), int)
-            data_url = "data:image/png;base64," + base64.b64encode(
-                fixture.full_image.path.read_bytes()
-            ).decode("ascii")
-            with httpx.Client(timeout=30, follow_redirects=False) as http:
-                before_image = _adapter_metrics(http, adapter_port)
-            image_response = client.responses.create(
-                model=PUBLIC_MODEL,
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "input_text",
-                                "text": "Describe this synthetic image briefly.",
-                            },
-                            {"type": "input_image", "image_url": data_url, "detail": "auto"},
-                        ],
-                    }
-                ],
-                max_output_tokens=32,
-                store=False,
-            )
-            if getattr(image_response, "usage", None) is None:
-                raise RuntimeError("image_usage_missing")
-            with httpx.Client(timeout=30, follow_redirects=False) as http:
-                after_image = _adapter_metrics(http, adapter_port)
-                before_codex_metrics = _adapter_metrics(http, adapter_port)
-            before_codex_rows = asyncio.run(_db_snapshot(gateway_root, database_url, seeded_key_id))
-            public_key_previous = os.environ.get(PUBLIC_KEY_ENV)
-            os.environ[PUBLIC_KEY_ENV] = gateway_key
-            try:
-                codex_run = run_codex_once(
-                    codex,
-                    fixture,
-                    governed_prompt(),
-                    timeout_seconds=300,
-                    expected_command="cat GOVERNANCE-DEPENDENCY.md",
-                    feature_flags=tuple(preflight["feature_flags"]),
-                    ignore_user_config=bool(preflight["ignore_user_config"]),
-                    provider_base_url=(
-                        f"{gateway_url}/v1" if bool(preflight["ignore_user_config"]) else None
-                    ),
-                    model=PUBLIC_MODEL,
-                )
-            finally:
-                if public_key_previous is None:
-                    os.environ.pop(PUBLIC_KEY_ENV, None)
-                else:
-                    os.environ[PUBLIC_KEY_ENV] = public_key_previous
-            with httpx.Client(timeout=30, follow_redirects=False) as http:
-                after_codex_metrics = _adapter_metrics(http, adapter_port)
-            after_codex_rows = asyncio.run(_db_snapshot(gateway_root, database_url, seeded_key_id))
-            asyncio.run(_tighten_request_limit(gateway_root, database_url, seeded_key_id))
-            codex_request_count = int(codex_run.event_type_counts.get("response.created", 0))
-            compiler_attempt_delta = _metric_sum(
-                after_codex_metrics, "slaif_constitution_compiler_attempts_total"
-            ) - _metric_sum(before_codex_metrics, "slaif_constitution_compiler_attempts_total")
-            compiler_success_delta = _metric_sum(
-                after_codex_metrics, "slaif_constitution_compiler_successes_total"
-            ) - _metric_sum(before_codex_metrics, "slaif_constitution_compiler_successes_total")
-            over_quota_status = 0
-            over_quota_candidate_delta = 0
-            for _ in range(3):
-                with httpx.Client(timeout=30, follow_redirects=False) as http:
-                    before_quota = _metric_sum(
-                        _adapter_metrics(http, adapter_port), "slaif_requests_total"
-                    )
-                try:
-                    client.responses.create(
-                        model=PUBLIC_MODEL,
-                        input="quota probe",
-                        max_output_tokens=8,
-                        store=False,
-                    )
-                except APIStatusError as exc:
-                    if exc.status_code not in {402, 429}:
-                        raise RuntimeError("unexpected_quota_probe_failure") from None
-                    over_quota_status = int(exc.status_code)
-                    with httpx.Client(timeout=30, follow_redirects=False) as http:
-                        over_quota_candidate_delta = (
-                            _metric_sum(
-                                _adapter_metrics(http, adapter_port), "slaif_requests_total"
-                            )
-                            - before_quota
-                        )
-                    break
-            if over_quota_status == 0:
-                raise RuntimeError("quota_rejection_not_observed")
-            final_rows = asyncio.run(_db_snapshot(gateway_root, database_url, seeded_key_id))
-            with httpx.Client(timeout=30, follow_redirects=False) as http:
-                image_seen_delta = _metric_sum(
-                    after_image,
-                    "slaif_image_items_total",
-                    {"route": "qwen38-vision-codex", "result": "seen"},
-                ) - _metric_sum(
-                    before_image,
-                    "slaif_image_items_total",
-                    {"route": "qwen38-vision-codex", "result": "seen"},
-                )
-                image_removed_delta = _metric_sum(
-                    after_image,
-                    "slaif_image_items_total",
-                    {"route": "qwen38-vision-codex", "result": "removed"},
-                ) - _metric_sum(
-                    before_image,
-                    "slaif_image_items_total",
-                    {"route": "qwen38-vision-codex", "result": "removed"},
-                )
-            safe_log_values = (
-                service_token,
-                qwen_key,
-                gateway_key,
-                fixture.sentinel_token,
-                "GOVERNANCE-DEPENDENCY.md",
-            )
-            logs_clean = _secret_free_logs(logs, safe_log_values)
-            before_codex_request_count = before_codex_rows["ledger_count"]
-            after_codex_request_count = after_codex_rows["ledger_count"]
-            fact = GatewayRehearsalFacts(
-                gateway_sha=GATEWAY_MAIN_SHA,
-                gateway_checkout_clean_before=checkout_clean_before,
-                gateway_checkout_clean_after=False,
-                postgres_image_preexisted=not postgres_image_was_absent,
-                postgres_image_pulled=postgres_image_was_absent,
-                postgres_image_removed=False,
-                postgres_tmpfs_only=tmpfs_only,
-                gateway_health_status=gateway_health,
-                gateway_ready_status=gateway_ready,
-                candidate_health_status=candidate_health,
-                candidate_ready_status=candidate_ready,
-                models_status=200,
-                models_visible_count=len(model_ids),
-                models_visible_expected=model_ids == (PUBLIC_MODEL,),
-                text_status=200,
-                text_usage_total=int(text_usage),
-                stream_status=200,
-                stream_event_types=tuple(stream_types),
-                stream_completed_usage=stream_completed_usage,
-                image_status=200,
-                image_seen_delta=image_seen_delta,
-                image_removed_delta=image_removed_delta,
-                codex_version=codex_version,
-                codex_exit_status=codex_run.exit_status,
-                codex_tool_calls=codex_run.tool_calls,
-                codex_dependency_reads=codex_run.dependency_observation.successful_dependency_reads,
-                codex_sentinel_passed=codex_run.sentinel_passed,
-                codex_effective_governance=codex_run.failure_reason == "success"
-                and codex_run.dependency_observation.lifecycle == "success",
-                codex_public_request_count=codex_request_count,
-                compiler_attempt_delta=compiler_attempt_delta,
-                compiler_success_delta=compiler_success_delta,
-                compiler_added_gateway_rows=after_codex_request_count
-                - before_codex_request_count
-                - codex_request_count,
-                unauthorized_status=unauthorized_status,
-                unauthorized_candidate_request_delta=after_unauthorized - before_unauthorized,
-                over_quota_status=over_quota_status,
-                over_quota_candidate_request_delta=over_quota_candidate_delta,
-                reservation_count=final_rows["reservation_count"],
-                finalized_reservation_count=final_rows["finalized_reservation_count"],
-                pending_reservation_count=final_rows["pending_reservation_count"],
-                ledger_count=final_rows["ledger_count"],
-                finalized_ledger_count=final_rows["finalized_ledger_count"],
-                failed_ledger_count=final_rows["failed_ledger_count"],
-                duplicate_request_id_count=final_rows["duplicate_request_id_count"],
-                provider_usage_rows=final_rows["provider_usage_rows"],
-                key_requests_used=final_rows["key_requests_used"],
-                key_requests_reserved=final_rows["key_requests_reserved"],
-                key_tokens_used=final_rows["key_tokens_used"],
-                key_tokens_reserved=final_rows["key_tokens_reserved"],
-                key_cost_used_eur=final_rows["key_cost_used_eur"],
-                key_cost_reserved_eur=final_rows["key_cost_reserved_eur"],
-                ledger_total_tokens=final_rows["ledger_total_tokens"],
-                ledger_total_cost_eur=final_rows["ledger_total_cost_eur"],
-                route_metadata_ok=final_rows["route_metadata_ok"],
-                gateway_key_not_forwarded=logs_clean and candidate_health == 200,
-                adapter_service_token_not_forwarded=logs_clean and candidate_ready == 200,
-                qwen_credential_boundary_ok=candidate_ready == 200
-                and QWEN_KEY_ENV not in gateway_env,
-                compiler_not_accounted_as_public=(
-                    compiler_attempt_delta > 0
-                    and after_codex_request_count - before_codex_request_count
-                    == codex_request_count
-                ),
-                gateway_logs_secret_free=logs_clean,
-                candidate_logs_secret_free=logs_clean,
-                candidate_listener_removed=False,
-                gateway_listener_removed=False,
-                postgres_container_removed=False,
-                temporary_state_removed=False,
-                protected_vision_pid_unchanged=False,
-                protected_vision_start_unchanged=False,
-                protected_vision_listener_unchanged=False,
-                text_service_still_inactive=False,
-                no_18021_listener=False,
-                no_18031_listener=False,
-            )
-    finally:
-        _stop_process(gateway_process)
-        _stop_process(candidate_process)
-        container_removed, image_removed = _docker_cleanup(postgres_name, postgres_image_was_absent)
-        after_protected = _protected_snapshot()
-        checkout_clean_after = not bool(
-            _run_command(["git", "-C", str(gateway_root), "status", "--short"]).stdout.strip()
-        )
-        if fact is not None:
-            gateway_listener_removed = not bool(
-                _run_command(["ss", "-ltnp"]).stdout
-                and re.search(rf":{gateway_port}\b", _run_command(["ss", "-ltnp"]).stdout)
-            )
-            candidate_listener_removed = not bool(
-                re.search(r":18031\b", _run_command(["ss", "-ltnp"]).stdout)
-            )
-            fact = replace(
-                fact,
-                gateway_checkout_clean_after=checkout_clean_after,
-                postgres_image_removed=image_removed,
-                candidate_listener_removed=candidate_listener_removed,
-                gateway_listener_removed=gateway_listener_removed,
-                postgres_container_removed=container_removed,
-                protected_vision_pid_unchanged=before_protected["vision_pid"]
-                == after_protected["vision_pid"],
-                protected_vision_start_unchanged=before_protected["vision_start"]
-                == after_protected["vision_start"],
-                protected_vision_listener_unchanged=before_protected["has_18020"]
-                == after_protected["has_18020"],
-                text_service_still_inactive=bool(after_protected["text_inactive"]),
-                no_18021_listener=not bool(after_protected["has_18021"]),
-                no_18031_listener=not bool(after_protected["has_18031"]),
-            )
-    if fact is None:
-        raise RuntimeError("rehearsal_did_not_produce_facts")
-    if temporary_name is not None:
-        fact = replace(fact, temporary_state_removed=not Path(temporary_name).exists())
-    assert_gateway_rehearsal_facts(fact)
-    if time.monotonic() - started > MAX_REHEARSAL_SECONDS:
-        raise RuntimeError("rehearsal_time_budget_exceeded")
-    return fact
-
-
 def _start_threaded_server(server: http.server.ThreadingHTTPServer) -> threading.Thread:
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -1697,74 +1240,51 @@ def _stop_threaded_server(
         thread.join(timeout=10)
 
 
-def _stream_event_types(chunks: object) -> tuple[str, ...]:
-    """Parse only bounded event type labels from a transient streaming body."""
-    if not isinstance(chunks, list):
-        return ()
-    line_buffer = bytearray()
-    event_types: list[str] = []
-    for chunk in chunks:
-        if not isinstance(chunk, bytes):
-            continue
-        line_buffer.extend(chunk)
-        while b"\n" in line_buffer:
-            line, _, remainder = line_buffer.partition(b"\n")
-            line_buffer = bytearray(remainder)
-            line = bytes(line.rstrip(b"\r"))
-            if not line.startswith(b"data:"):
-                continue
-            data = line[5:].lstrip(b" ")
-            try:
-                payload = json.loads(data)
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                continue
-            if isinstance(payload, dict) and isinstance(payload.get("type"), str):
-                event_types.append(payload["type"])
-    return tuple(event_types)
-
-
 def _timed_public_stream(
     gateway_url: str, gateway_key: str, body: dict[str, object]
-) -> tuple[int, tuple[str, ...], dict[str, str]]:
-    """Run the ordinary client-boundary stream and emit only timing buckets."""
-    from scripts.local_qwen_provider_differential import _timing_bucket
-
+) -> tuple[int | None, SSEFacts, dict[str, str], int]:
+    """Observe one stream with the shared bounded 005-j SSE parser."""
     started = time.monotonic()
     timing: dict[str, str] = {}
-    chunks: list[bytes] = []
-    with httpx.Client(timeout=300, follow_redirects=False) as http:
-        with http.stream(
-            "POST",
-            f"{gateway_url}/v1/responses",
-            headers={
-                "Authorization": f"Bearer {gateway_key}",
-                "Accept": "text/event-stream",
-                "Content-Type": "application/json",
-            },
-            content=json.dumps(body, separators=(",", ":")).encode("utf-8"),
-        ) as response:
-            bucket = _timing_bucket(time.monotonic() - started)
-            if bucket is not None:
-                timing["response_headers"] = bucket
-            if not 200 <= response.status_code < 300:
-                return response.status_code, (), timing
-            for chunk in response.iter_raw():
-                if not chunk:
-                    continue
-                if "first_sse_bytes" not in timing:
-                    bucket = _timing_bucket(time.monotonic() - started)
-                    if bucket is not None:
-                        timing["first_sse_bytes"] = bucket
-                chunks.append(chunk)
-            event_types = _stream_event_types(chunks)
-            if "response.completed" in event_types:
+    sse = SSEFacts()
+    chunk_count = 0
+    status: int | None = None
+    try:
+        with httpx.Client(timeout=300, follow_redirects=False) as http:
+            with http.stream(
+                "POST",
+                f"{gateway_url}/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {gateway_key}",
+                    "Accept": "text/event-stream",
+                    "Content-Type": "application/json",
+                },
+                content=json.dumps(body, separators=(",", ":")).encode("utf-8"),
+            ) as response:
+                status = response.status_code
                 bucket = _timing_bucket(time.monotonic() - started)
                 if bucket is not None:
-                    timing["terminal_completion"] = bucket
-    bucket = _timing_bucket(time.monotonic() - started)
-    if bucket is not None:
-        timing["normal_close"] = bucket
-    return response.status_code, event_types, timing
+                    timing["response_headers"] = bucket
+                for chunk in response.iter_raw():
+                    if not chunk:
+                        continue
+                    chunk_count += 1
+                    if "first_sse_bytes" not in timing:
+                        bucket = _timing_bucket(time.monotonic() - started)
+                        if bucket is not None:
+                            timing["first_sse_bytes"] = bucket
+                    sse.consume(chunk)
+                    if sse.completed and "terminal_completion" not in timing:
+                        bucket = _timing_bucket(time.monotonic() - started)
+                        if bucket is not None:
+                            timing["terminal_completion"] = bucket
+                sse.finish()
+                bucket = _timing_bucket(time.monotonic() - started)
+                if bucket is not None:
+                    timing["normal_close"] = bucket
+    except httpx.HTTPError:
+        return status, sse, timing, chunk_count
+    return status, sse, timing, chunk_count
 
 
 def _response_status(call: Any) -> int:
@@ -1773,39 +1293,6 @@ def _response_status(call: Any) -> int:
     except APIStatusError as exc:
         return int(exc.status_code)
     return 200
-
-
-def _signed_probe_headers(service_token: str, signing_secret: str) -> dict[str, str]:
-    timestamp = str(int(time.time()))
-    nonce = secrets.token_urlsafe(16)
-    principal = "synthetic-probe-principal"
-    session = "synthetic-probe-session"
-    repository = "synthetic-probe-repository"
-    canonical = canonical_identity_bytes(
-        method="GET",
-        path="/health",
-        raw_query=b"",
-        body=b"",
-        principal=principal,
-        session=session,
-        repository=repository,
-        route=LOCAL_ROUTE,
-        timestamp=timestamp,
-        nonce=nonce,
-    )
-    return {
-        "Authorization": f"Bearer {service_token}",
-        "X-SLAIF-Identity-Version": "v1",
-        "X-SLAIF-Principal": principal,
-        "X-SLAIF-Session": session,
-        "X-SLAIF-Repository": repository,
-        "X-SLAIF-Route": LOCAL_ROUTE,
-        "X-SLAIF-Timestamp": timestamp,
-        "X-SLAIF-Nonce": nonce,
-        "X-SLAIF-Signature": expected_signature(
-            secret=signing_secret.encode("ascii"), canonical=canonical
-        ),
-    }
 
 
 def _composed_request_body(
@@ -2117,112 +1604,126 @@ def _run_direct_composed_rehearsal(
                     max_output_tokens=32,
                     store=False,
                 )
-            except APIStatusError as exc:
-                provider_calls = "unknown"
-                if fake_server is not None:
-                    fake_snapshot = fake_server.snapshot()
-                    provider_calls = str(fake_snapshot["calls"])
-                    provider_path = (
-                        "responses"
-                        if "responses" in fake_snapshot["post_path_classes"]
-                        else "bare_responses"
-                        if "bare_responses" in fake_snapshot["post_path_classes"]
-                        else "double_v1_responses"
-                        if "double_v1_responses" in fake_snapshot["post_path_classes"]
-                        else "responses_trailing_slash"
-                        if "responses_trailing_slash" in fake_snapshot["post_path_classes"]
-                        else "responses_query"
-                        if "responses_query" in fake_snapshot["post_path_classes"]
-                        else "responses_variant"
-                        if "responses_variant" in fake_snapshot["post_path_classes"]
-                        else "chat_variant"
-                        if "chat_variant" in fake_snapshot["post_path_classes"]
-                        else "compiler"
-                        if "compiler" in fake_snapshot["post_path_classes"]
-                        else "other"
-                        if "other" in fake_snapshot["post_path_classes"]
-                        else "none"
-                    )
-                else:
-                    provider_path = "unknown"
-                candidate_requests = "unknown"
-                candidate_status = "unknown"
-                candidate_route = "unknown"
-                candidate_metric_classes = "unknown"
-                try:
-                    with httpx.Client(timeout=10, follow_redirects=False) as metrics_http:
-                        candidate_metrics = _adapter_metrics(metrics_http, adapter_port)
-                        candidate_requests = str(
-                            _metric_sum(candidate_metrics, "slaif_requests_total")
-                        )
-                        candidate_metric_classes = (
-                            ";".join(_request_metric_classes(candidate_metrics)) or "none"
-                        )
-                        candidate_status = next(
-                            (
-                                str(status)
-                                for status in (200, 400, 401, 403, 404, 409, 422, 500, 502, 503)
-                                if _metric_sum(
-                                    candidate_metrics,
-                                    "slaif_requests_total",
-                                    {"status": str(status)},
-                                )
-                                > 0
-                            ),
-                            "none",
-                        )
-                        candidate_route = next(
-                            (
-                                "local" if route == LOCAL_ROUTE else route
-                                for route in ("passthrough", LOCAL_ROUTE)
-                                if _metric_sum(
-                                    candidate_metrics,
-                                    "slaif_requests_total",
-                                    {"route": route},
-                                )
-                                > 0
-                            ),
-                            "none",
-                        )
-                except (OSError, httpx.HTTPError, RuntimeError):
-                    pass
-                error_code = "unknown"
-                try:
-                    error_payload = exc.response.json()
-                    error_value = (
-                        error_payload.get("error", {}).get("code")
-                        if isinstance(error_payload, dict)
-                        and isinstance(error_payload.get("error"), dict)
-                        else None
-                    )
-                    if isinstance(error_value, str) and re.fullmatch(
-                        r"[a-z0-9_]{1,96}", error_value
-                    ):
-                        error_code = error_value
-                except (TypeError, ValueError):
-                    pass
-                raise RuntimeError(
-                    f"text_status_{exc.status_code}_{error_code}_provider_calls_{provider_calls}"
-                    f"_candidate_requests_{candidate_requests}"
-                    f"_candidate_status_{candidate_status}"
-                    f"_candidate_route_{candidate_route}"
-                    f"_candidate_metrics_{candidate_metric_classes}"
-                    f"_provider_path_{provider_path}"
-                ) from None
+            except APIStatusError:
+                raise RuntimeError("text_request_failed") from None
             text_usage = getattr(getattr(text_response, "usage", None), "total_tokens", None)
             if not isinstance(text_usage, int) or text_usage <= 0:
                 raise RuntimeError("text_usage_missing")
             stream_body = _composed_request_body(session_a, "ordinary stream", tools=adapter_tools)
             stream_body.update({"stream": True, "max_output_tokens": 32, "store": False})
-            stream_status, stream_types, stream_timing = _timed_public_stream(
+            with httpx.Client(timeout=45, follow_redirects=False) as http:
+                stream_metrics_before = _adapter_metrics(http, adapter_port)
+            stream_rows_before = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
+            fake_before = None if fake_server is None else fake_server.snapshot()
+            stream_status, stream_sse, stream_timing, stream_chunk_count = _timed_public_stream(
                 gateway_url, seeded["plaintext_key"], stream_body
             )
-            if (
-                stream_status != 200
-                or stream_types[-1:] != ("response.completed",)
-                or not stream_timing
-            ):
-                raise RuntimeError("stream_contract_failed")
+            with httpx.Client(timeout=45, follow_redirects=False) as http:
+                stream_metrics_after = _adapter_metrics(http, adapter_port)
+            stream_rows_after = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
+            local_failure_delta, local_failure_class = _local_failure_delta(
+                stream_metrics_before, stream_metrics_after
+            )
+            local_status_class = _local_upstream_status_class(
+                stream_metrics_before, stream_metrics_after
+            )
+            local_request_delta = _metric_delta(
+                stream_metrics_before,
+                stream_metrics_after,
+                "slaif_requests_total",
+                {"endpoint": RESPONSES_ENDPOINT},
+            )
+            local_stream_duration_delta = _metric_delta(
+                stream_metrics_before,
+                stream_metrics_after,
+                "slaif_stream_duration_seconds_count",
+                {"endpoint": RESPONSES_ENDPOINT},
+            )
+            reservation_delta = max(
+                0,
+                int(stream_rows_after["reservation_count"])
+                - int(stream_rows_before["reservation_count"]),
+            )
+            ledger_delta = max(
+                0,
+                int(stream_rows_after["ledger_count"]) - int(stream_rows_before["ledger_count"]),
+            )
+            reservation_terminal = (
+                reservation_delta > 0
+                and stream_rows_after["pending_reservation_count"] == 0
+                and stream_rows_after["finalized_reservation_count"]
+                >= stream_rows_after["reservation_count"]
+            )
+            ledger_terminal = (
+                ledger_delta > 0
+                and stream_rows_after["finalized_ledger_count"]
+                + stream_rows_after["failed_ledger_count"]
+                >= stream_rows_after["ledger_count"]
+            )
+            if fake_server is not None and fake_before is not None:
+                fake_after = fake_server.snapshot()
+                provider_call_count = int(fake_after["calls"]) - int(fake_before["calls"])
+            else:
+                provider_call_count = ledger_delta
+            stream_facts = build_composed_stream_facts(
+                status=stream_status,
+                content_type="text/event-stream" if stream_status == 200 else None,
+                timing=stream_timing,
+                sse=stream_sse,
+                chunk_count=stream_chunk_count,
+                local_request_delta=local_request_delta,
+                local_stream_duration_delta=local_stream_duration_delta,
+                local_failure_delta=local_failure_delta,
+                local_upstream_status_class=local_status_class,
+                local_stream_duration_bucket=stream_timing.get("normal_close"),
+                local_failure_class=local_failure_class,
+                local_terminal_bytes=local_status_class == "2xx" and local_failure_delta == 0,
+                gateway_reservation_terminal=reservation_terminal,
+                gateway_ledger_terminal=ledger_terminal,
+                provider_call_count=provider_call_count,
+            )
+            if stream_facts.first_failure != "stream_contract_passed":
+                logs_clean = _secret_free_logs(
+                    logs,
+                    (
+                        service_token,
+                        signing_secret,
+                        derivation_secret,
+                        qwen_key,
+                        seeded["plaintext_key"],
+                        seeded["second_plaintext_key"],
+                        seeded["failure_plaintext_key"],
+                        "synthetic-005k-failure-key",
+                    ),
+                )
+                result = {
+                    "status": "FAILED",
+                    "provider_target": provider_target,
+                    "gateway_sha": GATEWAY_MAIN_SHA,
+                    "stream": asdict(stream_facts),
+                    "stream_first_failure": stream_facts.first_failure,
+                    "stream_owner": stream_facts.owner,
+                    "local_metric_deltas": {
+                        "request": local_request_delta,
+                        "stream_duration": local_stream_duration_delta,
+                        "failure": local_failure_delta,
+                        "upstream_status_class": local_status_class,
+                        "failure_class": local_failure_class,
+                    },
+                    "gateway_accounting": {
+                        "reservation_delta": reservation_delta,
+                        "ledger_delta": ledger_delta,
+                        "reservation_terminal": reservation_terminal,
+                        "ledger_terminal": ledger_terminal,
+                        "provider_call_count_class": stream_facts.provider_call_count_class,
+                    },
+                    "protected_traffic_sequence": "stopped_at_stream",
+                }
+                return result
             image_data_url = "data:image/png;base64," + base64.b64encode(
                 fixture.full_image.path.read_bytes()
             ).decode("ascii")
@@ -2429,7 +1930,7 @@ def _run_direct_composed_rehearsal(
                 before_image, "slaif_image_items_total", {"route": LOCAL_ROUTE, "result": "removed"}
             )
             result = {
-                "status": "PARTIAL" if provider_target == "protected" else "PASSED",
+                "status": "PASSED",
                 "provider_target": provider_target,
                 "gateway_sha": GATEWAY_MAIN_SHA,
                 "gateway_health_status": gateway_health,
@@ -2439,9 +1940,7 @@ def _run_direct_composed_rehearsal(
                 "models_visible_expected": gateway_models_probe.status_code == 200,
                 "text_status": 200,
                 "text_usage_present": True,
-                "stream_status": stream_status,
-                "stream_event_types": stream_types,
-                "stream_timing_buckets": stream_timing,
+                "stream": asdict(stream_facts),
                 "image_status": 200,
                 "image_seen": image_seen,
                 "image_removed": image_removed,
@@ -2456,7 +1955,6 @@ def _run_direct_composed_rehearsal(
                 "controlled_failure_status": failure_status,
                 "failure_provider_calls": failure_server.calls,
                 "replay_tamper": "NOT_RUN_NO_REQUEST_RELAY",
-                "relay_started": False,
                 "provider_url_class": "fake_loopback"
                 if provider_target == "fake"
                 else "protected_loopback",

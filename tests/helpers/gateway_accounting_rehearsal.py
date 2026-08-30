@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+
+from scripts.local_qwen_provider_differential import (
+    SSEFacts,
+    _content_type_class,
+    _status_class,
+)
 
 GATEWAY_MAIN_SHA = "306ecb186b5c12db991a684e7c04e5c9f174eba2"
 PUBLIC_MODEL = "qwen3.8-27b"
@@ -10,150 +17,291 @@ UPSTREAM_MODEL = "qwen3.8-27b"
 PROVIDER = "local-coding"
 RESPONSES_ENDPOINT = "/v1/responses"
 
+STREAM_FAILURE_ORDER = (
+    "http_status_non_2xx",
+    "content_type_not_sse",
+    "response_headers_timing_missing",
+    "first_bytes_missing",
+    "sse_unparseable",
+    "event_vocabulary_unrecognized",
+    "gateway_error_event",
+    "response_created_missing_or_duplicate",
+    "response_completed_missing_or_duplicate",
+    "terminal_status_or_output_invalid",
+    "terminal_usage_invalid",
+    "response_id_mismatch",
+    "normal_close_false",
+    "terminal_or_close_timing_missing",
+    "local_upstream_non_2xx_or_failure",
+    "gateway_accounting_nonterminal",
+    "stream_contract_passed",
+)
+
+
+def _count_class(value: int) -> str:
+    if value < 0:
+        return "unknown"
+    if value <= 4:
+        return str(value)
+    if value <= 16:
+        return "5-16"
+    if value <= 64:
+        return "17-64"
+    return "65+"
+
+
+def _byte_count_class(value: int) -> str:
+    if value < 0:
+        return "unknown"
+    if value == 0:
+        return "0"
+    if value <= 128:
+        return "1-128"
+    if value <= 4_096:
+        return "129-4096"
+    if value <= 65_536:
+        return "4097-65536"
+    if value <= 1_048_576:
+        return "65537-1048576"
+    return "over_limit"
+
+
+def _timing_value(timing: Mapping[str, str], name: str) -> str | None:
+    value = timing.get(name)
+    return value if isinstance(value, str) and value else None
+
 
 @dataclass(frozen=True)
-class GatewayRehearsalFacts:
-    """Safe facts retained from one full disposable boundary run."""
+class ComposedStreamFacts:
+    """Fixed-shape, content-free facts for one public composed stream."""
 
-    gateway_sha: str
-    gateway_checkout_clean_before: bool
-    gateway_checkout_clean_after: bool
-    postgres_image_preexisted: bool
-    postgres_image_pulled: bool
-    postgres_image_removed: bool
-    postgres_tmpfs_only: bool
-    gateway_health_status: int
-    gateway_ready_status: int
-    candidate_health_status: int
-    candidate_ready_status: int
-    models_status: int
-    models_visible_count: int
-    models_visible_expected: bool
-    text_status: int
-    text_usage_total: int
-    stream_status: int
-    stream_event_types: tuple[str, ...]
-    stream_completed_usage: bool
-    image_status: int
-    image_seen_delta: int
-    image_removed_delta: int
-    codex_version: str
-    codex_exit_status: int | None
-    codex_tool_calls: int
-    codex_dependency_reads: int
-    codex_sentinel_passed: bool
-    codex_effective_governance: bool
-    codex_public_request_count: int
-    compiler_attempt_delta: int
-    compiler_success_delta: int
-    compiler_added_gateway_rows: int
-    unauthorized_status: int
-    unauthorized_candidate_request_delta: int
-    over_quota_status: int
-    over_quota_candidate_request_delta: int
-    reservation_count: int
-    finalized_reservation_count: int
-    pending_reservation_count: int
-    ledger_count: int
-    finalized_ledger_count: int
-    failed_ledger_count: int
-    duplicate_request_id_count: int
-    provider_usage_rows: int
-    key_requests_used: int
-    key_requests_reserved: int
-    key_tokens_used: int
-    key_tokens_reserved: int
-    key_cost_used_eur: str
-    key_cost_reserved_eur: str
-    ledger_total_tokens: int
-    ledger_total_cost_eur: str
-    route_metadata_ok: bool
-    gateway_key_not_forwarded: bool
-    adapter_service_token_not_forwarded: bool
-    qwen_credential_boundary_ok: bool
-    compiler_not_accounted_as_public: bool
-    gateway_logs_secret_free: bool
-    candidate_logs_secret_free: bool
-    candidate_listener_removed: bool
-    gateway_listener_removed: bool
-    postgres_container_removed: bool
-    temporary_state_removed: bool
-    protected_vision_pid_unchanged: bool
-    protected_vision_start_unchanged: bool
-    protected_vision_listener_unchanged: bool
-    text_service_still_inactive: bool
-    no_18021_listener: bool
-    no_18031_listener: bool
+    status_class: str
+    content_type_class: str
+    response_headers_timing: str | None
+    first_bytes_timing: str | None
+    terminal_timing: str | None
+    normal_close_timing: str | None
+    byte_count_class: str
+    chunk_count_class: str
+    normal_close: bool
+    parseable: bool
+    recognized_vocabulary: bool
+    error_event: bool
+    gateway_error_event: bool
+    duplicate_terminal: bool
+    created_count_class: str
+    completed_count_class: str
+    response_id_relation: bool
+    terminal_status_valid: bool
+    terminal_output_valid: bool
+    terminal_usage_valid: bool
+    error_field_names: tuple[str, ...]
+    error_code_class: str
+    error_type_class: str
+    local_request_delta: int
+    local_stream_duration_delta: int
+    local_failure_delta: int
+    local_upstream_status_class: str
+    local_stream_duration_bucket: str | None
+    local_failure_class: str
+    local_terminal_bytes: bool
+    gateway_reservation_terminal: bool
+    gateway_ledger_terminal: bool
+    provider_call_count_class: str
+    first_failure: str
+    owner: str
 
 
-def assert_gateway_rehearsal_facts(facts: GatewayRehearsalFacts) -> None:
-    """Assert the full bounded contract without inspecting raw payloads."""
+def _first_failure(
+    *,
+    status_class: str,
+    content_type_class: str,
+    response_headers_timing: str | None,
+    first_bytes: bool,
+    parseable: bool,
+    recognized_vocabulary: bool,
+    gateway_error_event: bool,
+    created_count: int,
+    completed_count: int,
+    terminal_status_valid: bool,
+    terminal_output_valid: bool,
+    terminal_usage_valid: bool,
+    response_id_relation: bool,
+    normal_close: bool,
+    terminal_timing: str | None,
+    normal_close_timing: str | None,
+    local_upstream_status_class: str,
+    local_failure_class: str,
+    gateway_reservation_terminal: bool,
+    gateway_ledger_terminal: bool,
+) -> str:
+    """Evaluate the ordered stream contract without collapsing failures."""
+    if status_class != "2xx":
+        return "http_status_non_2xx"
+    if content_type_class != "sse":
+        return "content_type_not_sse"
+    if response_headers_timing is None:
+        return "response_headers_timing_missing"
+    if not first_bytes:
+        return "first_bytes_missing"
+    if not parseable:
+        return "sse_unparseable"
+    if not recognized_vocabulary:
+        return "event_vocabulary_unrecognized"
+    if gateway_error_event:
+        return "gateway_error_event"
+    if created_count != 1:
+        return "response_created_missing_or_duplicate"
+    if completed_count != 1:
+        return "response_completed_missing_or_duplicate"
+    if not terminal_status_valid or not terminal_output_valid:
+        return "terminal_status_or_output_invalid"
+    if not terminal_usage_valid:
+        return "terminal_usage_invalid"
+    if not response_id_relation:
+        return "response_id_mismatch"
+    if not normal_close:
+        return "normal_close_false"
+    if terminal_timing is None or normal_close_timing is None:
+        return "terminal_or_close_timing_missing"
+    if local_upstream_status_class != "2xx" or local_failure_class != "none":
+        return "local_upstream_non_2xx_or_failure"
+    if not gateway_reservation_terminal or not gateway_ledger_terminal:
+        return "gateway_accounting_nonterminal"
+    return "stream_contract_passed"
 
-    assert facts.gateway_sha == GATEWAY_MAIN_SHA
-    assert facts.gateway_checkout_clean_before
-    assert facts.gateway_checkout_clean_after
-    assert not facts.postgres_image_preexisted
-    assert facts.postgres_image_pulled
-    assert facts.postgres_image_removed
-    assert facts.postgres_tmpfs_only
-    assert facts.gateway_health_status == 200
-    assert facts.gateway_ready_status == 200
-    assert facts.candidate_health_status == 200
-    assert facts.candidate_ready_status == 200
-    assert facts.models_status == 200
-    assert facts.models_visible_count == 1
-    assert facts.models_visible_expected
-    assert facts.text_status == 200
-    assert facts.text_usage_total > 0
-    assert facts.stream_status == 200
-    assert facts.stream_event_types
-    assert facts.stream_event_types[-1] == "response.completed"
-    assert facts.stream_completed_usage
-    assert facts.image_status == 200
-    assert facts.image_seen_delta == 1
-    assert facts.image_removed_delta == 0
-    assert facts.codex_version == "0.149.0"
-    assert facts.codex_exit_status == 0
-    assert facts.codex_tool_calls >= 1
-    assert facts.codex_dependency_reads == 1
-    assert facts.codex_sentinel_passed
-    assert facts.codex_effective_governance
-    assert facts.codex_public_request_count >= 1
-    assert facts.compiler_attempt_delta > 0
-    assert facts.compiler_success_delta >= 0
-    assert facts.compiler_added_gateway_rows == 0
-    assert facts.unauthorized_status in {401, 403}
-    assert facts.unauthorized_candidate_request_delta == 0
-    assert facts.over_quota_status in {402, 429}
-    assert facts.over_quota_candidate_request_delta == 0
-    assert facts.reservation_count == facts.ledger_count
-    assert facts.finalized_reservation_count == facts.reservation_count
-    assert facts.pending_reservation_count == 0
-    assert facts.finalized_ledger_count == facts.ledger_count
-    assert facts.failed_ledger_count == 0
-    assert facts.duplicate_request_id_count == 0
-    assert facts.provider_usage_rows == facts.ledger_count
-    assert facts.key_requests_used == facts.ledger_count
-    assert facts.key_requests_reserved == 0
-    assert facts.key_tokens_used == facts.ledger_total_tokens
-    assert facts.key_tokens_reserved == 0
-    assert facts.key_cost_reserved_eur == "0"
-    assert facts.ledger_total_tokens > 0
-    assert facts.ledger_total_cost_eur != "0"
-    assert facts.route_metadata_ok
-    assert facts.gateway_key_not_forwarded
-    assert facts.adapter_service_token_not_forwarded
-    assert facts.qwen_credential_boundary_ok
-    assert facts.compiler_not_accounted_as_public
-    assert facts.gateway_logs_secret_free
-    assert facts.candidate_logs_secret_free
-    assert facts.candidate_listener_removed
-    assert facts.gateway_listener_removed
-    assert facts.postgres_container_removed
-    assert facts.temporary_state_removed
-    assert facts.protected_vision_pid_unchanged
-    assert facts.protected_vision_start_unchanged
-    assert facts.protected_vision_listener_unchanged
-    assert facts.text_service_still_inactive
-    assert facts.no_18021_listener
-    assert facts.no_18031_listener
+
+def _owner_for_failure(
+    *,
+    first_failure: str,
+    status_class: str,
+    local_upstream_status_class: str,
+    local_failure_class: str,
+    local_terminal_bytes: bool,
+    driver_observation_failure: bool,
+) -> str:
+    if first_failure == "stream_contract_passed":
+        return "stream_contract_passed"
+    if driver_observation_failure and status_class == "2xx":
+        return "acceptance_harness_owned"
+    if (
+        status_class == "2xx"
+        and local_upstream_status_class == "2xx"
+        and local_failure_class == "none"
+        and local_terminal_bytes
+        and first_failure
+        in {
+            "gateway_error_event",
+            "response_created_missing_or_duplicate",
+            "response_completed_missing_or_duplicate",
+            "terminal_status_or_output_invalid",
+            "terminal_usage_invalid",
+            "response_id_mismatch",
+            "normal_close_false",
+            "terminal_or_close_timing_missing",
+            "gateway_accounting_nonterminal",
+        }
+    ):
+        return "gateway_stream_owned"
+    if local_upstream_status_class != "2xx" or local_failure_class != "none":
+        return "local_or_provider_owned"
+    return "unresolved"
+
+
+def build_composed_stream_facts(
+    *,
+    status: int | None,
+    content_type: str | None,
+    timing: Mapping[str, str],
+    sse: SSEFacts,
+    chunk_count: int,
+    local_request_delta: int = 0,
+    local_stream_duration_delta: int = 0,
+    local_failure_delta: int = 0,
+    local_upstream_status_class: str = "unknown",
+    local_stream_duration_bucket: str | None = None,
+    local_failure_class: str = "none",
+    local_terminal_bytes: bool = False,
+    gateway_reservation_terminal: bool = False,
+    gateway_ledger_terminal: bool = False,
+    provider_call_count: int = -1,
+    driver_observation_failure: bool = False,
+) -> ComposedStreamFacts:
+    """Project the shared 005-j :class:`SSEFacts` into safe composed facts."""
+    status_class = _status_class(status)
+    content_type_class = _content_type_class(content_type)
+    response_headers_timing = _timing_value(timing, "response_headers")
+    first_bytes_timing = _timing_value(timing, "first_sse_bytes")
+    terminal_timing = _timing_value(timing, "terminal_completion")
+    normal_close_timing = _timing_value(timing, "normal_close")
+    recognized_vocabulary = sse.parseable and not sse.unknown_events
+    gateway_error_event = sse.event_counts.get("error", 0) > 0
+    created_count = sse.event_counts.get("response.created", 0)
+    completed_count = sse.event_counts.get("response.completed", 0)
+    first_failure = _first_failure(
+        status_class=status_class,
+        content_type_class=content_type_class,
+        response_headers_timing=response_headers_timing,
+        first_bytes=sse.first_bytes,
+        parseable=sse.parseable,
+        recognized_vocabulary=recognized_vocabulary,
+        gateway_error_event=gateway_error_event,
+        created_count=created_count,
+        completed_count=completed_count,
+        terminal_status_valid=sse.completed_status_valid,
+        terminal_output_valid=sse.completed_output_valid,
+        terminal_usage_valid=sse.completed_usage_valid,
+        response_id_relation=sse.response_id_relation,
+        normal_close=sse.normal_close,
+        terminal_timing=terminal_timing,
+        normal_close_timing=normal_close_timing,
+        local_upstream_status_class=local_upstream_status_class,
+        local_failure_class=local_failure_class,
+        gateway_reservation_terminal=gateway_reservation_terminal,
+        gateway_ledger_terminal=gateway_ledger_terminal,
+    )
+    owner = _owner_for_failure(
+        first_failure=first_failure,
+        status_class=status_class,
+        local_upstream_status_class=local_upstream_status_class,
+        local_failure_class=local_failure_class,
+        local_terminal_bytes=local_terminal_bytes,
+        driver_observation_failure=driver_observation_failure,
+    )
+    return ComposedStreamFacts(
+        status_class=status_class,
+        content_type_class=content_type_class,
+        response_headers_timing=response_headers_timing,
+        first_bytes_timing=first_bytes_timing,
+        terminal_timing=terminal_timing,
+        normal_close_timing=normal_close_timing,
+        byte_count_class=_byte_count_class(sse.byte_count),
+        chunk_count_class=_count_class(chunk_count),
+        normal_close=sse.normal_close,
+        parseable=sse.parseable,
+        recognized_vocabulary=recognized_vocabulary,
+        error_event=sse.error_event,
+        gateway_error_event=gateway_error_event,
+        duplicate_terminal=sse.duplicates,
+        created_count_class=_count_class(created_count),
+        completed_count_class=_count_class(completed_count),
+        response_id_relation=sse.response_id_relation,
+        terminal_status_valid=sse.completed_status_valid,
+        terminal_output_valid=sse.completed_output_valid,
+        terminal_usage_valid=sse.completed_usage_valid,
+        error_field_names=tuple(sorted(sse.error_field_names)),
+        error_code_class=sse.error_code_class,
+        error_type_class=sse.error_type_class,
+        local_request_delta=max(0, local_request_delta),
+        local_stream_duration_delta=max(0, local_stream_duration_delta),
+        local_failure_delta=max(0, local_failure_delta),
+        local_upstream_status_class=local_upstream_status_class,
+        local_stream_duration_bucket=local_stream_duration_bucket,
+        local_failure_class=local_failure_class,
+        local_terminal_bytes=local_terminal_bytes,
+        gateway_reservation_terminal=gateway_reservation_terminal,
+        gateway_ledger_terminal=gateway_ledger_terminal,
+        provider_call_count_class=_count_class(provider_call_count),
+        first_failure=first_failure,
+        owner=owner,
+    )
