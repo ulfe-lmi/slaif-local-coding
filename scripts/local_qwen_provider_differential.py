@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import secrets
 import sys
@@ -235,6 +236,54 @@ def _header_classes(headers: httpx.Headers) -> tuple[str, ...]:
     return tuple(sorted(classes))
 
 
+def _timing_bucket(seconds: float) -> str | None:
+    """Return a bounded latency class without exposing a private timestamp."""
+    if not isinstance(seconds, (int, float)) or isinstance(seconds, bool):
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    milliseconds = seconds * 1000
+    if milliseconds < 10:
+        return "0-9ms"
+    if milliseconds < 50:
+        return "10-49ms"
+    if milliseconds < 100:
+        return "50-99ms"
+    if milliseconds < 250:
+        return "100-249ms"
+    if milliseconds < 1000:
+        return "250-999ms"
+    return "1000ms+"
+
+
+@dataclass
+class TimingFacts:
+    """Monotonic stream milestones projected to fixed, content-free buckets."""
+
+    _started: float | None = None
+    _milestones: dict[str, float] = field(default_factory=dict)
+
+    def start(self, now: float | None = None) -> None:
+        self._started = time.monotonic() if now is None else now
+
+    def mark(self, name: str, now: float | None = None) -> None:
+        if self._started is None or name in self._milestones:
+            return
+        observed = time.monotonic() if now is None else now
+        if observed >= self._started:
+            self._milestones[name] = observed
+
+    def summary(self) -> dict[str, str]:
+        if self._started is None:
+            return {}
+        result: dict[str, str] = {}
+        for name, observed in self._milestones.items():
+            bucket = _timing_bucket(observed - self._started)
+            if bucket is not None:
+                result[name] = bucket
+        return result
+
+
 @dataclass
 class SSEFacts:
     byte_count: int = 0
@@ -399,6 +448,8 @@ class StageResult:
     downstream_status: int | None = None
     downstream_content_type: str | None = None
     downstream_sse: SSEFacts = field(default_factory=SSEFacts)
+    timing: TimingFacts = field(default_factory=TimingFacts)
+    downstream_timing: TimingFacts = field(default_factory=TimingFacts)
 
     def stages(self, *, forwarded: bool | None = None) -> dict[str, str]:
         has_response = self.response_status is not None
@@ -484,6 +535,8 @@ class StageResult:
                 if self.downstream_status is not None
                 else "NOT_REACHED"
             ),
+            "timing": self.timing.summary(),
+            "downstream_timing": self.downstream_timing.summary(),
         }
 
 
@@ -495,9 +548,15 @@ class RecordingStream(httpx.AsyncByteStream):
     async def __aiter__(self) -> AsyncIterator[bytes]:
         try:
             async for chunk in self._stream:
+                self._facts.timing.mark("first_sse_bytes")
                 self._facts.sse.consume(chunk)
+                if self._facts.sse.completed:
+                    self._facts.timing.mark("terminal_completion")
                 yield chunk
             self._facts.sse.finish()
+            if self._facts.sse.completed:
+                self._facts.timing.mark("terminal_completion")
+            self._facts.timing.mark("normal_close")
         except BaseException as exc:
             if isinstance(exc, asyncio.CancelledError):
                 raise
@@ -514,6 +573,7 @@ class RecordingTransport(httpx.AsyncBaseTransport):
         self.facts = facts
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.facts.timing.start()
         self.facts.dispatch_started = True
         self.facts.dispatch_count += 1
         self.facts.request_method = request.method
@@ -533,6 +593,7 @@ class RecordingTransport(httpx.AsyncBaseTransport):
         self.facts.response_status = response.status_code
         self.facts.response_content_type = response.headers.get("content-type")
         self.facts.response_headers = _header_classes(response.headers)
+        self.facts.timing.mark("response_headers")
         response.stream = RecordingStream(cast(httpx.AsyncByteStream, response.stream), self.facts)
         return response
 
@@ -637,14 +698,22 @@ async def _consume_response(
     *,
     record_response: bool = True,
 ) -> None:
+    facts.downstream_timing.start()
     if record_response:
         facts.response_status = response.status_code
         facts.response_content_type = response.headers.get("content-type")
         facts.response_headers = _header_classes(response.headers)
+    facts.downstream_timing.mark("response_headers")
     try:
         async for chunk in response.aiter_raw():
+            facts.downstream_timing.mark("first_sse_bytes")
             stream.consume(chunk)
+            if stream.completed:
+                facts.downstream_timing.mark("terminal_completion")
         stream.finish()
+        if stream.completed:
+            facts.downstream_timing.mark("terminal_completion")
+        facts.downstream_timing.mark("normal_close")
     except BaseException as exc:
         if isinstance(exc, asyncio.CancelledError):
             raise

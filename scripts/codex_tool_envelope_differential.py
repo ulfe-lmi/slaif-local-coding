@@ -30,7 +30,7 @@ from tests.helpers.capture_codex_tool_types import (  # noqa: E402
 from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv  # noqa: E402
 from tests.helpers.vision_e2e_support import VISION_MODEL  # noqa: E402
 
-GATEWAY_MAIN_SHA = "8f2813bf745b90221da33a7cfaf40726c5b1b480"
+GATEWAY_MAIN_SHA = "306ecb186b5c12db991a684e7c04e5c9f174eba2"
 CODEX_VERSION = "0.149.0"
 ROUTE_CAPABILITIES: dict[str, object] = {
     "responses": {
@@ -158,6 +158,12 @@ def _source_proves_policy_precedes_reservation(gateway_root: Path) -> bool:
 def _policy_reducer(gateway_root: Path) -> Any:
     sys.path.insert(0, str(gateway_root / "app"))
     from slaif_gateway.config import Settings
+    from slaif_gateway.modules.clients.codex_0149 import (
+        CODEX_0149_ADAPTER_MANAGED_CANDIDATE_SHAPES,
+        CODEX_0149_ADAPTER_MANAGED_CANDIDATE_TYPES,
+        CODEX_0149_POLICY_SPEC,
+    )
+    from slaif_gateway.modules.clients.registry import CODEX_0149_CLIENT_MODULE
     from slaif_gateway.services.policy_errors import RequestPolicyError
     from slaif_gateway.services.responses_request_policy import (
         ResponsesRequestPolicy,
@@ -188,7 +194,7 @@ def _policy_reducer(gateway_root: Path) -> Any:
         ONE_TIME_SECRET_ENCRYPTION_KEY=encryption_key,
         ENABLE_REDIS_RATE_LIMITS=False,
     )
-    policy = ResponsesRequestPolicy(settings=settings)
+    policy = ResponsesRequestPolicy(settings=settings, client_spec=CODEX_0149_POLICY_SPEC)
     source_order_ok = _source_proves_policy_precedes_reservation(gateway_root)
 
     def reduce(payload: object) -> PolicyObservation:
@@ -201,15 +207,67 @@ def _policy_reducer(gateway_root: Path) -> Any:
                 source_order_ok,
             )
         try:
-            codex_client_tools = responses_codex_client_tools_requested(payload)
+            captured_types = {
+                item.get("type")
+                for item in payload.get("tools", [])
+                if isinstance(item, dict) and isinstance(item.get("type"), str)
+            }
+            conformance_tools: list[dict[str, object]] = [
+                {
+                    "type": "function",
+                    "name": "synthetic_local",
+                    "description": "synthetic local function",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+                {
+                    "type": "custom",
+                    "name": "synthetic_custom",
+                    "description": "synthetic local custom",
+                    "format": {"type": "text"},
+                },
+            ]
+            if "tool_search" in captured_types:
+                conformance_tools.append(
+                    {
+                        "type": "tool_search",
+                        "description": "synthetic adapter candidate",
+                        "execution": "client",
+                        "parameters": {},
+                    }
+                )
+            if "web_search" in captured_types:
+                conformance_tools.append(
+                    {
+                        "type": "web_search",
+                        "external_web_access": False,
+                        "search_content_types": ["text"],
+                    }
+                )
+            conformance_payload = {
+                "model": "synthetic-capture-model",
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "synthetic"}],
+                    }
+                ],
+                "tools": conformance_tools,
+                "tool_choice": "auto",
+            }
+            normalized = CODEX_0149_CLIENT_MODULE.normalize_responses(conformance_payload)
+            effective_payload = dict(normalized.body)
+            codex_client_tools = responses_codex_client_tools_requested(effective_payload)
             codex_envelope = (
-                responses_codex_request_envelope_requested(payload) or codex_client_tools
+                responses_codex_request_envelope_requested(effective_payload) or codex_client_tools
             )
-            streaming_tools = responses_codex_streaming_tool_events_requested(payload)
-            encrypted_replay = responses_codex_encrypted_reasoning_replay_requested(payload)
-            compact_replay = responses_codex_compaction_replay_requested(payload)
+            streaming_tools = responses_codex_streaming_tool_events_requested(effective_payload)
+            encrypted_replay = responses_codex_encrypted_reasoning_replay_requested(
+                effective_payload
+            )
+            compact_replay = responses_codex_compaction_replay_requested(effective_payload)
             policy_result = policy.apply(
-                payload,
+                effective_payload,
                 allow_store=True,
                 allow_codex_request_envelope=True,
                 allow_codex_client_tools=True,
@@ -219,6 +277,10 @@ def _policy_reducer(gateway_root: Path) -> Any:
                 allow_codex_compaction_replay=True,
                 codex_client_tool_taxonomy="codex_0_148",
                 allow_external_tool_request=False,
+                adapter_managed_declaration_candidates=frozenset(
+                    CODEX_0149_ADAPTER_MANAGED_CANDIDATE_TYPES
+                ),
+                adapter_managed_declaration_shapes=CODEX_0149_ADAPTER_MANAGED_CANDIDATE_SHAPES,
             )
             effective = policy_result.effective_body
             format_type = responses_text_format_type(effective)

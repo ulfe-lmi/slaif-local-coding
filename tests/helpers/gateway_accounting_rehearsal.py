@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-GATEWAY_MAIN_SHA = "8f2813bf745b90221da33a7cfaf40726c5b1b480"
-PUBLIC_MODEL = "qwen3.8-27b-vision"
+GATEWAY_MAIN_SHA = "306ecb186b5c12db991a684e7c04e5c9f174eba2"
+PUBLIC_MODEL = "qwen3.8-27b"
 UPSTREAM_MODEL = "qwen3.8-27b"
-PROVIDER = "local-coding-005c"
+PROVIDER = "local-coding"
 RESPONSES_ENDPOINT = "/v1/responses"
 
 

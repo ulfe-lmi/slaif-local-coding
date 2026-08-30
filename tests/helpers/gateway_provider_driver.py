@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-GATEWAY_MAIN_SHA = "8f2813bf745b90221da33a7cfaf40726c5b1b480"
+GATEWAY_MAIN_SHA = "306ecb186b5c12db991a684e7c04e5c9f174eba2"
 UPSTREAM_MODEL = "qwen3.8-27b"
 
 

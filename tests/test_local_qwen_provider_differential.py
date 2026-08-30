@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from collections.abc import AsyncIterator
+
+import httpx
+import pytest
 
 from scripts import local_qwen_provider_differential as differential
 from scripts.local_qwen_provider_differential import (
@@ -11,6 +16,7 @@ from scripts.local_qwen_provider_differential import (
     MAX_STREAM_BYTES,
     SSEFacts,
     StageResult,
+    TimingFacts,
     _expected_body,
     _forwarded,
     _through_h,
@@ -198,6 +204,63 @@ def test_sse_parser_distinguishes_normal_and_abnormal_close() -> None:
     abnormal = SSEFacts()
     abnormal.consume(_valid_stream())
     assert abnormal.normal_close is False
+
+
+def test_timing_facts_emit_only_bounded_milestone_buckets() -> None:
+    timing = TimingFacts()
+    timing.start(now=10.0)
+    timing.mark("response_headers", now=10.001)
+    timing.mark("first_sse_bytes", now=10.011)
+    timing.mark("terminal_completion", now=10.121)
+    timing.mark("normal_close", now=10.901)
+
+    assert timing.summary() == {
+        "response_headers": "0-9ms",
+        "first_sse_bytes": "10-49ms",
+        "terminal_completion": "100-249ms",
+        "normal_close": "250-999ms",
+    }
+    timing.mark("invalid", now=9.0)
+    assert "invalid" not in timing.summary()
+
+
+@pytest.mark.asyncio
+async def test_delayed_stream_records_headers_first_terminal_and_close_buckets() -> None:
+    class DelayedStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            await asyncio.sleep(0.01)
+            yield _valid_stream()
+
+        async def aclose(self) -> None:
+            return None
+
+    class DelayedTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            _ = request
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=DelayedStream(),
+            )
+
+        async def aclose(self) -> None:
+            return None
+
+    facts = StageResult()
+    transport = differential.RecordingTransport(DelayedTransport(), facts)
+    async with httpx.AsyncClient(transport=transport, base_url="http://adapter.test") as client:
+        async with client.stream("POST", "/v1/responses", content=b"synthetic") as response:
+            async for _chunk in response.aiter_raw():
+                pass
+
+    buckets = facts.timing.summary()
+    assert set(buckets) == {
+        "response_headers",
+        "first_sse_bytes",
+        "terminal_completion",
+        "normal_close",
+    }
+    assert all(isinstance(value, str) and value for value in buckets.values())
 
 
 def test_fixed_vocabulary_matches_gateway_codex_contract_and_rejects_unknowns() -> None:
