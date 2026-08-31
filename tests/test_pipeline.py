@@ -16,6 +16,7 @@ from slaif_local_coding.config import (
     CompilerConfig,
     ConstitutionIntegrationConfig,
     ObservationPolicy,
+    RehydrationConfig,
     RouteConfig,
     ServerConfig,
     Settings,
@@ -94,7 +95,9 @@ def compiler_response() -> httpx.Response:
     )
 
 
-def enabled_settings(tmp_path: Any, *, session: str = "local-session") -> Settings:
+def enabled_settings(
+    tmp_path: Any, *, session: str = "local-session", rehydration_enabled: bool = True
+) -> Settings:
     return Settings(
         server=ServerConfig(request_body_max_bytes=8192),
         upstream=UpstreamConfig(
@@ -128,6 +131,7 @@ def enabled_settings(tmp_path: Any, *, session: str = "local-session") -> Settin
             principal="local-principal",
             session=session,
             repository="local-repository",
+            rehydration=RehydrationConfig(enabled=rehydration_enabled),
         ),
     )
 
@@ -315,6 +319,7 @@ async def test_readiness_reports_disposable_cache_degradation(
         "status": "ready",
         "config": "valid",
         "upstream": "ready",
+        "gateway_ingress": "disabled",
         "compiler": "ready",
         "cache": "unavailable",
     }

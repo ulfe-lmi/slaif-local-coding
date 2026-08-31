@@ -7,6 +7,21 @@ request_body_max_bytes = 67108864
 response_body_max_bytes = 67108864
 json_max_nesting_depth = 128
 
+[gateway_ingress]
+# Disabled preserves private loopback development behavior. Static mode requires
+# the complete explicit single-user [constitution] identity. Signed mode is an
+# adapter-side contract only; the current gateway does not emit it.
+mode = "disabled"
+# service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"
+# signing_secret_env = "SLAIF_ADAPTER_SIGNING_SECRET"
+# identity_version = "v1"
+# policy_version = "signed-identity-v1"
+# clock_skew_seconds = 60
+# replay_ttl_seconds = 60
+# max_replay_entries = 4096
+# nonce_min_length = 16
+# nonce_max_length = 128
+
 [upstream]
 base_url = "http://127.0.0.1:18020/v1"
 api_key_env = "QWEN3090_API_KEY"
@@ -46,11 +61,13 @@ ttl_seconds = 604800
 max_scan_entries = 4096
 
 [constitution]
-# Explicit local-appliance single-user MVP integration. When enabling it, also
-# set compiler.enabled = true, nonempty principal/session/repository labels,
-# observation_enabled = true, and constitution_enabled = true on one route.
-# These labels are configuration values, never caller-supplied identity.
+# Explicit local-appliance single-user MVP integration. When enabling static
+# mode, also set compiler.enabled = true and nonempty principal/session/
+# repository labels. Signed mode instead uses identity_source = "signed_request"
+# with no static labels and requires signed gateway ingress. Both modes require
+# observation_enabled = true and constitution_enabled = true on one route.
 enabled = false
+# identity_source = "static"
 max_injected_bytes = 16384
 candidate_max_count = 128
 compile_failure_policy = "preserve_original"
@@ -67,6 +84,10 @@ injection_max_nodes = 16384
 [constitution.rehydration]
 # Process-local only. State is intentionally lost on restart and never persists
 # prompts, source, images, tool output, or request bodies.
+# Set false for shared service-Bearer deployments without trusted per-user
+# identity. This preserves current-request governance but disables zero-root
+# post-compaction rehydration and is not equivalent to the single-user path.
+enabled = true
 ttl_seconds = 3600
 max_entries = 64
 max_entry_bytes = 262144
@@ -89,6 +110,9 @@ max_images_per_request = 1
 image_overflow_policy = "retain_newest"
 enable_responses = true
 enable_chat_completions = true
+# Disabled by default. The compatibility route may explicitly select
+# drop_disabled_codex_search to remove only tool_search/web_search declarations.
+responses_tool_policy = "passthrough"
 observation_enabled = true
 constitution_enabled = false
 

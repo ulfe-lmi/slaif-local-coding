@@ -7,7 +7,8 @@ Wants=network-online.target
 Type=exec
 # Replace only these repository-local paths when installing a candidate.
 WorkingDirectory=%h/codex-work/slaif-local-coding
-# This file must be mode 0600 and contain only the environment-name credential.
+# This file must be mode 0600 and contain only configured credential values
+# (QWEN3090_API_KEY and, when enabled, the gateway service-token variable).
 EnvironmentFile=%h/.config/slaif-local-coding/adapter.env
 ExecStart=%h/codex-work/slaif-local-coding/.venv/bin/slaif-local-coding --config=%h/codex-work/slaif-local-coding/config/adapter.example.toml
 Restart=on-failure

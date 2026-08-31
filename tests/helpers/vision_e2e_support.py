@@ -952,7 +952,8 @@ def write_vision_fixture(root: Path, base_url: str, api_key_env: str) -> VisionF
         f"name = {_quoted(VISION_ROUTE)}\nmodel = {_quoted(VISION_MODEL)}\n"
         'max_images_per_request = 1\nimage_overflow_policy = "retain_newest"\n'
         "enable_responses = true\nenable_chat_completions = true\n"
-        "observation_enabled = true\nconstitution_enabled = true\n\n"
+        "observation_enabled = true\nconstitution_enabled = true\n"
+        'responses_tool_policy = "drop_disabled_codex_search"\n\n'
         '[observability]\nlog_level = "INFO"\nlog_raw_payloads = false\n'
         'metrics_enabled = true\nmetrics_host = "127.0.0.1"\n'
     )
@@ -973,10 +974,22 @@ def write_vision_fixture(root: Path, base_url: str, api_key_env: str) -> VisionF
 
 
 def write_vision_model_catalog(
-    codex_bin: Path | str, destination: Path, *, model: str = VISION_MODEL
+    codex_bin: Path | str,
+    destination: Path,
+    *,
+    model: str = VISION_MODEL,
+    environment_root: Path | None = None,
 ) -> None:
     """Derive the installed catalog schema and apply the exact vision fixture contract."""
-    write_local_model_catalog(codex_bin, destination, model=model)
+    if environment_root is None:
+        write_local_model_catalog(codex_bin, destination, model=model)
+    else:
+        write_local_model_catalog(
+            codex_bin,
+            destination,
+            model=model,
+            environment_root=environment_root,
+        )
     document = json.loads(destination.read_text(encoding="utf-8"))
     models = document.get("models")
     selected = next((item for item in models if item.get("slug") == model), None)
