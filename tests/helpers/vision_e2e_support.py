@@ -952,7 +952,8 @@ def write_vision_fixture(root: Path, base_url: str, api_key_env: str) -> VisionF
         f"name = {_quoted(VISION_ROUTE)}\nmodel = {_quoted(VISION_MODEL)}\n"
         'max_images_per_request = 1\nimage_overflow_policy = "retain_newest"\n'
         "enable_responses = true\nenable_chat_completions = true\n"
-        "observation_enabled = true\nconstitution_enabled = true\n\n"
+        "observation_enabled = true\nconstitution_enabled = true\n"
+        'responses_tool_policy = "drop_disabled_codex_search"\n\n'
         '[observability]\nlog_level = "INFO"\nlog_raw_payloads = false\n'
         'metrics_enabled = true\nmetrics_host = "127.0.0.1"\n'
     )
