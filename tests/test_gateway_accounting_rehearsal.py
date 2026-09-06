@@ -415,6 +415,7 @@ def test_strict_fake_function_stream_works_through_loopback_http() -> None:
             )
         snapshot = server.snapshot()
         boundary = snapshot["provider_boundary"]
+        assert isinstance(boundary, dict)
         assert snapshot["inference_calls"] == 3
         assert boundary["lifecycle_valid"] is True
         assert boundary["function_result_adjacent"] is True

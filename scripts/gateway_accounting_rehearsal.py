@@ -37,7 +37,7 @@ import httpx
 from prometheus_client.parser import text_string_to_metric_families
 
 try:
-    from openai import APIStatusError, OpenAI
+    from openai import APIStatusError, OpenAI  # type: ignore[import-not-found]
 except ModuleNotFoundError:  # pragma: no cover - the executable rehearsal venv supplies it
 
     class APIStatusError(Exception):  # type: ignore[no-redef]
@@ -54,7 +54,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.dont_write_bytecode = True
 
-from codex_tool_envelope_differential import (  # noqa: E402
+from codex_tool_envelope_differential import (  # type: ignore[import-not-found]  # noqa: E402
     VariantResult,
     run_differential,
 )
@@ -1157,11 +1157,11 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             streaming=streaming,
             tool_types=self._tool_types(payload),
             payload=payload,
-            **{
-                key: value
-                for key, value in observation.items()
-                if key not in {"image_count_class", "image_hash_class"}
-            },
+            request_class=str(observation.get("request_class", "unknown")),
+            tool_class=str(observation.get("tool_class", "unknown")),
+            function_result_adjacent=observation.get("function_result_adjacent") is True,
+            item_id_presence=str(observation.get("item_id_presence", "unknown")),
+            call_id_relation=str(observation.get("call_id_relation", "unknown")),
         )
 
 
@@ -1412,19 +1412,40 @@ async def _seed_database(
     encryption_key: str,
 ) -> dict[str, str]:
     sys.path.insert(0, str(gateway_root / "app"))
-    from slaif_gateway.config import Settings
-    from slaif_gateway.db.repositories.audit import AuditRepository
-    from slaif_gateway.db.repositories.institutions import InstitutionsRepository
-    from slaif_gateway.db.repositories.keys import GatewayKeysRepository
-    from slaif_gateway.db.repositories.one_time_secrets import OneTimeSecretsRepository
-    from slaif_gateway.db.repositories.owners import OwnersRepository
-    from slaif_gateway.db.repositories.pricing import PricingRulesRepository
-    from slaif_gateway.db.repositories.provider_configs import ProviderConfigsRepository
-    from slaif_gateway.db.repositories.routing import ModelRoutesRepository
-    from slaif_gateway.schemas.keys import CreateGatewayKeyInput
-    from slaif_gateway.services.key_service import KeyService
-    from slaif_gateway.services.responses_route_capabilities import default_responses_capabilities
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from slaif_gateway.config import Settings  # type: ignore[import-not-found]
+    from slaif_gateway.db.repositories.audit import (  # type: ignore[import-not-found]
+        AuditRepository,
+    )
+    from slaif_gateway.db.repositories.institutions import (  # type: ignore[import-not-found]
+        InstitutionsRepository,
+    )
+    from slaif_gateway.db.repositories.keys import (  # type: ignore[import-not-found]
+        GatewayKeysRepository,
+    )
+    from slaif_gateway.db.repositories.one_time_secrets import (  # type: ignore[import-not-found]
+        OneTimeSecretsRepository,
+    )
+    from slaif_gateway.db.repositories.owners import (  # type: ignore[import-not-found]
+        OwnersRepository,
+    )
+    from slaif_gateway.db.repositories.pricing import (  # type: ignore[import-not-found]
+        PricingRulesRepository,
+    )
+    from slaif_gateway.db.repositories.provider_configs import (  # type: ignore[import-not-found]
+        ProviderConfigsRepository,
+    )
+    from slaif_gateway.db.repositories.routing import (  # type: ignore[import-not-found]
+        ModelRoutesRepository,
+    )
+    from slaif_gateway.schemas.keys import CreateGatewayKeyInput  # type: ignore[import-not-found]
+    from slaif_gateway.services.key_service import KeyService  # type: ignore[import-not-found]
+    from slaif_gateway.services.responses_route_capabilities import (  # type: ignore[import-not-found]
+        default_responses_capabilities,
+    )
+    from sqlalchemy.ext.asyncio import (  # type: ignore[import-not-found]
+        async_sessionmaker,
+        create_async_engine,
+    )
 
     settings = Settings(
         APP_ENV="test",
@@ -1640,9 +1661,17 @@ async def _db_snapshot(
     gateway_root: Path, database_url: str, gateway_key_id: str
 ) -> dict[str, Any]:
     sys.path.insert(0, str(gateway_root / "app"))
-    from slaif_gateway.db.models import GatewayKey, ModelRoute, QuotaReservation, UsageLedger
-    from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from slaif_gateway.db.models import (  # type: ignore[import-not-found]
+        GatewayKey,
+        ModelRoute,
+        QuotaReservation,
+        UsageLedger,
+    )
+    from sqlalchemy import select  # type: ignore[import-not-found]
+    from sqlalchemy.ext.asyncio import (
+        async_sessionmaker,
+        create_async_engine,
+    )
 
     engine = create_async_engine(database_url, future=True, pool_size=2, max_overflow=0)
     factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -1750,6 +1779,11 @@ def _decimal_text(value: Decimal | int | float | str | None) -> str:
         return format(Decimal(str(value)).normalize(), "f")
     except (ArithmeticError, ValueError):
         return "missing"
+
+
+def _int_fact(value: object) -> int:
+    """Read one integer from the bounded provider snapshot."""
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 def _metric_sum(metrics: str, name: str, labels: dict[str, str] | None = None) -> int:
@@ -3050,12 +3084,17 @@ def _run_direct_composed_rehearsal(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
             fake_codex_before = None if fake_server is None else fake_server.snapshot()
+            preflight_flags = preflight.get("feature_flags", ())
             codex_facts = _run_fake_codex_turn(
                 codex,
                 fixture,
                 gateway_url,
                 seeded["plaintext_key"],
-                feature_flags=tuple(str(item) for item in preflight["feature_flags"]),
+                feature_flags=(
+                    tuple(str(item) for item in preflight_flags)
+                    if isinstance(preflight_flags, (list, tuple))
+                    else ()
+                ),
             )
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 codex_metrics_after = _adapter_metrics(http, adapter_port)
@@ -3064,7 +3103,8 @@ def _run_direct_composed_rehearsal(
             )
             fake_codex_after = None if fake_server is None else fake_server.snapshot()
             codex_provider_delta = (
-                int(fake_codex_after["inference_calls"]) - int(fake_codex_before["inference_calls"])
+                _int_fact(fake_codex_after.get("inference_calls"))
+                - _int_fact(fake_codex_before.get("inference_calls"))
                 if fake_codex_before is not None and fake_codex_after is not None
                 else 0
             )
@@ -3087,8 +3127,8 @@ def _run_direct_composed_rehearsal(
                     },
                     "accounting": {
                         "two_terminal_reservations": (
-                            int(codex_rows_after["reservation_count"])
-                            - int(codex_rows_before["reservation_count"])
+                            _int_fact(codex_rows_after["reservation_count"])
+                            - _int_fact(codex_rows_before["reservation_count"])
                             == 2
                         ),
                         "zero_pending": codex_rows_after["pending_reservation_count"] == 0,
@@ -3152,6 +3192,12 @@ def _run_direct_composed_rehearsal(
                 else:
                     os.environ[PUBLIC_KEY_ENV] = previous_public_key
             vision_summary = vision_diagnostic_summary(vision_facts)
+            vision_metrics = vision_summary.get("metrics")
+            vision_metrics_dict = vision_metrics if isinstance(vision_metrics, dict) else {}
+            vision_turns_value = vision_summary.get("turns")
+            vision_turns = (
+                vision_turns_value if isinstance(vision_turns_value, (list, tuple)) else ()
+            )
             cutover_runner = FakeCutoverRunner(temp_root / "cutover")
             dry_install = cutover_runner.install()
             installed_cutover_facts = cutover_runner.safe_facts()
@@ -3241,7 +3287,7 @@ def _run_direct_composed_rehearsal(
             }
             session_a = str(uuid.uuid4())
             session_b = str(uuid.uuid4())
-            local_tools = [
+            local_tools: list[dict[str, object]] = [
                 {
                     "type": "function",
                     "name": "local_lookup",
@@ -3259,7 +3305,7 @@ def _run_direct_composed_rehearsal(
                     "format": {"type": "text"},
                 },
             ]
-            adapter_tools = [
+            adapter_tools: list[dict[str, object]] = [
                 *local_tools,
                 {
                     "type": "tool_search",
@@ -3350,8 +3396,8 @@ def _run_direct_composed_rehearsal(
             provider_terminal = False
             if fake_server is not None and fake_before is not None:
                 fake_after = fake_server.snapshot()
-                provider_call_count = int(fake_after["inference_calls"]) - int(
-                    fake_before["inference_calls"]
+                provider_call_count = _int_fact(fake_after.get("inference_calls")) - _int_fact(
+                    fake_before.get("inference_calls")
                 )
                 boundary = fake_after["provider_boundary"]
                 if isinstance(boundary, dict):
@@ -3387,7 +3433,9 @@ def _run_direct_composed_rehearsal(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
             identity_provider_before = (
-                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else None
+                _int_fact(fake_server.snapshot().get("inference_calls"))
+                if fake_server is not None
+                else None
             )
             identity_matrix = _run_signed_identity_matrix(
                 adapter_port,
@@ -3400,7 +3448,9 @@ def _run_direct_composed_rehearsal(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
             identity_provider_after = (
-                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else None
+                _int_fact(fake_server.snapshot().get("inference_calls"))
+                if fake_server is not None
+                else None
             )
             identity_matrix["replay_no_provider_duplicate"] = (
                 identity_provider_before is not None
@@ -3558,7 +3608,9 @@ def _run_direct_composed_rehearsal(
                 raise RuntimeError("second_key_quota_not_rejected")
 
             reject_provider_before = (
-                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else 0
+                _int_fact(fake_server.snapshot().get("inference_calls"))
+                if fake_server is not None
+                else 0
             )
             invalid_status = _response_status(
                 lambda: OpenAI(
@@ -3610,7 +3662,9 @@ def _run_direct_composed_rehearsal(
             if over_quota_status not in {402, 429}:
                 raise RuntimeError("over_quota_not_rejected")
             reject_provider_after = (
-                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else 0
+                _int_fact(fake_server.snapshot().get("inference_calls"))
+                if fake_server is not None
+                else 0
             )
             failure_client = OpenAI(
                 api_key=seeded["failure_plaintext_key"],
@@ -3619,7 +3673,9 @@ def _run_direct_composed_rehearsal(
                 max_retries=0,
             )
             fake_before_failure = (
-                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else 0
+                _int_fact(fake_server.snapshot().get("inference_calls"))
+                if fake_server is not None
+                else 0
             )
             failure_status = _response_status(
                 lambda: failure_client.responses.create(
@@ -3630,7 +3686,9 @@ def _run_direct_composed_rehearsal(
                 )
             )
             fake_after_failure = (
-                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else 0
+                _int_fact(fake_server.snapshot().get("inference_calls"))
+                if fake_server is not None
+                else 0
             )
             if failure_status < 500 or failure_server.calls != 1:
                 raise RuntimeError(
@@ -3727,20 +3785,18 @@ def _run_direct_composed_rehearsal(
                         vision_facts.same_session and vision_facts.metric_deltas is not None
                     ),
                     "local_history_multiplicity": bool(
-                        isinstance(vision_summary.get("metrics"), dict)
-                        and int(vision_summary["metrics"].get("turn2_seen", 0)) >= 1
+                        _int_fact(vision_metrics_dict.get("turn2_seen")) >= 1
                     ),
                     "local_history_removal": bool(
-                        isinstance(vision_summary.get("metrics"), dict)
-                        and int(vision_summary["metrics"].get("turn2_removed", 0)) >= 1
+                        _int_fact(vision_metrics_dict.get("turn2_removed")) >= 1
                     ),
                     "governance_both_turns": all(
                         isinstance(turn, dict) and turn.get("sentinel_passed") is True
-                        for turn in vision_summary.get("turns", ())
+                        for turn in vision_turns
                     ),
                     "two_terminal_turns": all(
                         isinstance(turn, dict) and turn.get("response_success") is True
-                        for turn in vision_summary.get("turns", ())
+                        for turn in vision_turns
                     ),
                     "diagnostic": vision_summary,
                 },
