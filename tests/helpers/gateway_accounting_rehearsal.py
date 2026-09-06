@@ -32,9 +32,20 @@ STREAM_FAILURE_ORDER = (
     "response_id_mismatch",
     "normal_close_false",
     "terminal_or_close_timing_missing",
+    "provider_boundary_unobserved",
+    "provider_lifecycle_invalid",
     "local_upstream_non_2xx_or_failure",
     "gateway_accounting_nonterminal",
     "stream_contract_passed",
+)
+
+STREAM_OWNER_CLASSES = (
+    "stream_contract_passed",
+    "gateway_product_defect",
+    "gateway_rejected_stream_owner_unresolved",
+    "local_or_provider_owned",
+    "acceptance_harness_owned",
+    "unresolved",
 )
 
 
@@ -104,9 +115,15 @@ class ComposedStreamFacts:
     local_upstream_status_class: str
     local_stream_duration_bucket: str | None
     local_failure_class: str
-    local_terminal_bytes: bool
+    local_terminal_observed: bool
     gateway_reservation_terminal: bool
     gateway_ledger_terminal: bool
+    provider_boundary_observed: bool
+    provider_lifecycle_valid: bool
+    provider_terminal: bool
+    gateway_validator_contract_valid: bool
+    gateway_rejection_code_class: str
+    gateway_rejection_stage: str
     provider_call_count_class: str
     first_failure: str
     owner: str
@@ -132,6 +149,9 @@ def _first_failure(
     normal_close_timing: str | None,
     local_upstream_status_class: str,
     local_failure_class: str,
+    provider_boundary_observed: bool,
+    provider_lifecycle_valid: bool,
+    provider_terminal: bool,
     gateway_reservation_terminal: bool,
     gateway_ledger_terminal: bool,
 ) -> str:
@@ -164,6 +184,10 @@ def _first_failure(
         return "normal_close_false"
     if terminal_timing is None or normal_close_timing is None:
         return "terminal_or_close_timing_missing"
+    if not provider_boundary_observed:
+        return "provider_boundary_unobserved"
+    if not provider_lifecycle_valid or not provider_terminal:
+        return "provider_lifecycle_invalid"
     if local_upstream_status_class != "2xx" or local_failure_class != "none":
         return "local_upstream_non_2xx_or_failure"
     if not gateway_reservation_terminal or not gateway_ledger_terminal:
@@ -171,24 +195,42 @@ def _first_failure(
     return "stream_contract_passed"
 
 
-def _owner_for_failure(
+def classify_stream_owner(
     *,
     first_failure: str,
     status_class: str,
     local_upstream_status_class: str,
     local_failure_class: str,
-    local_terminal_bytes: bool,
+    provider_boundary_observed: bool,
+    provider_lifecycle_valid: bool,
+    provider_terminal: bool,
+    gateway_validator_contract_valid: bool,
+    gateway_rejection_code_class: str,
+    gateway_rejection_stage: str,
     driver_observation_failure: bool,
 ) -> str:
+    """Classify ownership only from independent boundary observations.
+
+    A downstream Gateway error is not proof that Gateway rejected a valid
+    provider lifecycle.  That historical shortcut is intentionally represented
+    by ``gateway_rejected_stream_owner_unresolved`` until both the provider
+    lifecycle and the exact clean Gateway validator result are observed.
+    """
     if first_failure == "stream_contract_passed":
         return "stream_contract_passed"
     if driver_observation_failure and status_class == "2xx":
         return "acceptance_harness_owned"
+    if local_upstream_status_class != "2xx" or local_failure_class != "none":
+        return "local_or_provider_owned"
+    independent_provider = (
+        provider_boundary_observed and provider_lifecycle_valid and provider_terminal
+    )
     if (
         status_class == "2xx"
-        and local_upstream_status_class == "2xx"
-        and local_failure_class == "none"
-        and local_terminal_bytes
+        and independent_provider
+        and gateway_validator_contract_valid
+        and gateway_rejection_code_class == "known_conflict"
+        and gateway_rejection_stage == "provider_event_validation"
         and first_failure
         in {
             "gateway_error_event",
@@ -202,9 +244,9 @@ def _owner_for_failure(
             "gateway_accounting_nonterminal",
         }
     ):
-        return "gateway_stream_owned"
-    if local_upstream_status_class != "2xx" or local_failure_class != "none":
-        return "local_or_provider_owned"
+        return "gateway_product_defect"
+    if first_failure == "gateway_error_event":
+        return "gateway_rejected_stream_owner_unresolved"
     return "unresolved"
 
 
@@ -221,9 +263,15 @@ def build_composed_stream_facts(
     local_upstream_status_class: str = "unknown",
     local_stream_duration_bucket: str | None = None,
     local_failure_class: str = "none",
-    local_terminal_bytes: bool = False,
+    local_terminal_observed: bool = False,
     gateway_reservation_terminal: bool = False,
     gateway_ledger_terminal: bool = False,
+    provider_boundary_observed: bool = False,
+    provider_lifecycle_valid: bool = False,
+    provider_terminal: bool = False,
+    gateway_validator_contract_valid: bool = False,
+    gateway_rejection_code_class: str = "unknown",
+    gateway_rejection_stage: str = "unknown",
     provider_call_count: int = -1,
     driver_observation_failure: bool = False,
 ) -> ComposedStreamFacts:
@@ -257,15 +305,23 @@ def build_composed_stream_facts(
         normal_close_timing=normal_close_timing,
         local_upstream_status_class=local_upstream_status_class,
         local_failure_class=local_failure_class,
+        provider_boundary_observed=provider_boundary_observed,
+        provider_lifecycle_valid=provider_lifecycle_valid,
+        provider_terminal=provider_terminal,
         gateway_reservation_terminal=gateway_reservation_terminal,
         gateway_ledger_terminal=gateway_ledger_terminal,
     )
-    owner = _owner_for_failure(
+    owner = classify_stream_owner(
         first_failure=first_failure,
         status_class=status_class,
         local_upstream_status_class=local_upstream_status_class,
         local_failure_class=local_failure_class,
-        local_terminal_bytes=local_terminal_bytes,
+        provider_boundary_observed=provider_boundary_observed,
+        provider_lifecycle_valid=provider_lifecycle_valid,
+        provider_terminal=provider_terminal,
+        gateway_validator_contract_valid=gateway_validator_contract_valid,
+        gateway_rejection_code_class=gateway_rejection_code_class,
+        gateway_rejection_stage=gateway_rejection_stage,
         driver_observation_failure=driver_observation_failure,
     )
     return ComposedStreamFacts(
@@ -298,9 +354,15 @@ def build_composed_stream_facts(
         local_upstream_status_class=local_upstream_status_class,
         local_stream_duration_bucket=local_stream_duration_bucket,
         local_failure_class=local_failure_class,
-        local_terminal_bytes=local_terminal_bytes,
+        local_terminal_observed=local_terminal_observed,
         gateway_reservation_terminal=gateway_reservation_terminal,
         gateway_ledger_terminal=gateway_ledger_terminal,
+        provider_boundary_observed=provider_boundary_observed,
+        provider_lifecycle_valid=provider_lifecycle_valid,
+        provider_terminal=provider_terminal,
+        gateway_validator_contract_valid=gateway_validator_contract_valid,
+        gateway_rejection_code_class=gateway_rejection_code_class,
+        gateway_rejection_stage=gateway_rejection_stage,
         provider_call_count_class=_count_class(provider_call_count),
         first_failure=first_failure,
         owner=owner,

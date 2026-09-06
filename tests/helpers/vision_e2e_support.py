@@ -1560,6 +1560,7 @@ def _run_vision_turn(
     *,
     turn: Literal[1, 2],
     timeout_seconds: float,
+    environment_root: Path | None = None,
 ) -> tuple[VisionTurnFacts, str | None]:
     output_path = fixture.repository / f".vision-last-message-{turn}.tmp"
     if turn == 1:
@@ -1592,7 +1593,11 @@ def _run_vision_turn(
             str(output_path),
             "<vision-prompt>",
         ]
-    environment = _sandbox_environment(fixture.codex_home, fixture.api_key_env)
+    environment = _sandbox_environment(
+        fixture.codex_home,
+        fixture.api_key_env,
+        environment_root=environment_root or fixture.codex_home.parent,
+    )
     event_types: Counter[str] = Counter()
     event_bytes = 0
     tool_calls = 0
@@ -1678,11 +1683,19 @@ def run_vision_e2e(
     metrics_sampler: Callable[[], str] | None = None,
     outbound_recorder: VisionOutboundRecorder | None = None,
     timeout_seconds: float = VISION_TIMEOUT_SECONDS,
+    environment_root: Path | None = None,
 ) -> VisionSessionFacts:
     """Run exactly one initial image turn and one same-session crop resume."""
     if timeout_seconds <= 0 or timeout_seconds > VISION_TIMEOUT_SECONDS:
         raise ValueError("invalid vision timeout")
-    version = _ordinary_version(codex_bin, _sandbox_environment(fixture.codex_home))
+    version = _ordinary_version(
+        codex_bin,
+        _sandbox_environment(
+            fixture.codex_home,
+            fixture.api_key_env,
+            environment_root=environment_root or fixture.codex_home.parent,
+        ),
+    )
     if version != VISION_CODEX_VERSION:
         raise RuntimeError("unsupported_codex_version")
     catalog_facts = _catalog_facts(fixture.model_catalog)
@@ -1691,7 +1704,11 @@ def run_vision_e2e(
         outbound_recorder.begin_phase(1)
     try:
         first, first_thread = _run_vision_turn(
-            codex_bin, fixture, turn=1, timeout_seconds=timeout_seconds
+            codex_bin,
+            fixture,
+            turn=1,
+            timeout_seconds=timeout_seconds,
+            environment_root=environment_root,
         )
     finally:
         if outbound_recorder is not None:
@@ -1701,7 +1718,11 @@ def run_vision_e2e(
         outbound_recorder.begin_phase(2)
     try:
         second, second_thread = _run_vision_turn(
-            codex_bin, fixture, turn=2, timeout_seconds=timeout_seconds
+            codex_bin,
+            fixture,
+            turn=2,
+            timeout_seconds=timeout_seconds,
+            environment_root=environment_root,
         )
     finally:
         if outbound_recorder is not None:

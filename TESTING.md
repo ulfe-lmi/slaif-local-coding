@@ -40,6 +40,32 @@ privacy. The adapter-side vector is
 `tests/fixtures/gateway/signed_identity_v1_vectors.json`; gateway emission and
 cross-repository acceptance remain `NOT IMPLEMENTED` and `NOT AUTHORIZED`.
 
+## Objective-005 repository-only acceptance harness
+
+The permanent bounded orchestrator is
+`scripts/gateway_accounting_rehearsal.py`. It uses one ordered C/D obligation
+manifest and the same fail-closed predicates for fake and protected modes.
+Fake mode is the only executable acceptance mode in Objective-005-p: it uses a
+detached clean Gateway at exact SHA `9d247e7f3d8fd6a588976840c4657181b7486b81`,
+the Local candidate, synthetic PostgreSQL, a strict loopback fake Qwen, and the
+task-controlled Codex 0.149.0 binary with its exact verified checksum. Use a
+temporary checkout and run:
+
+```text
+PYTHONPATH=<local-repo>:<local-repo>/src:<gateway>\
+  <gateway-venv>/bin/python scripts/gateway_accounting_rehearsal.py\
+  --gateway-root <gateway> --gateway-python <gateway-venv>/bin/python\
+  --provider-target fake --codex <codex-0.149.0>
+```
+
+The run has bounded request ordinals, zero retries, independent provider
+lifecycle/call observations, strict cleanup, and a machine gate requiring
+`missing=[]` and every obligation `PASSED`. Protected mode is read-only
+preflight only in 005-p: no protected credential, authenticated Qwen request,
+model visibility request, inference, vision traffic, or real cutover is
+authorized. `PASSED` from a focused test or report prose cannot replace the
+machine gate.
+
 ## Image-policy tests
 
 Cover nested `input_image` and `image_url` items for Responses and Chat:

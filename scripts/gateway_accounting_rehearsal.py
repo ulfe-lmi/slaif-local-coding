@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import hashlib
 import http.server
 import json
 import os
@@ -51,6 +52,15 @@ from scripts.local_qwen_provider_differential import (  # noqa: E402
     _status_class,
     _timing_bucket,
 )
+from tests.helpers.acceptance_harness import (  # noqa: E402
+    ACCEPTANCE_MANIFEST,
+    FakeCutoverRunner,
+    ObligationResult,
+    StrictFakeQwenObservation,
+    build_obligation_gate,
+    derive_gap_inventory,
+    make_result,
+)
 from tests.helpers.e2e_support import governed_prompt, run_codex_once  # noqa: E402
 from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
     GATEWAY_MAIN_SHA,
@@ -62,6 +72,7 @@ from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
 )
 from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv  # noqa: E402
 from tests.helpers.vision_e2e_support import (  # noqa: E402
+    run_vision_e2e,
     write_vision_fixture,
     write_vision_model_catalog,
 )
@@ -82,7 +93,11 @@ FAILURE_MODEL = "synthetic-failure-model"
 LOCAL_ROUTE = "qwen38-vision-codex"
 CODEX_MODULE_ID = "codex-0.149-responses-v1"
 CODEX_MODULE_VERSION = "3"
-CODEX_FIXTURE_SHA256 = "ca1e03a35de1eaeceb894cec9895af0c154e0d2fa0aa8da87f98716e1567f9ec"
+CODEX_FIXTURE_SHA256 = "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
+CODEX_0149_DEFAULT = Path(
+    "/synology/homes/janezp/.codex/packages/standalone/releases/"
+    "0.149.0-x86_64-unknown-linux-musl/bin/codex"
+)
 
 
 class _FakeQwenServer(http.server.ThreadingHTTPServer):
@@ -99,9 +114,17 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
         self.stream_calls = 0
         self.tool_types: set[str] = set()
         self.bad_auth = False
+        self.observation = StrictFakeQwenObservation()
         self._lock = threading.Lock()
 
-    def record(self, *, compiler: bool, streaming: bool, tool_types: set[str]) -> None:
+    def record(
+        self,
+        *,
+        compiler: bool,
+        streaming: bool,
+        tool_types: set[str],
+        payload: dict[str, object] | None = None,
+    ) -> None:
         with self._lock:
             self.calls += 1
             if compiler:
@@ -111,6 +134,8 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
                 if streaming:
                     self.stream_calls += 1
             self.tool_types.update(tool_types)
+            if not compiler and payload is not None:
+                self.observation.record(payload)
 
     def snapshot(self) -> dict[str, object]:
         with self._lock:
@@ -121,6 +146,7 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
                 "stream_calls": self.stream_calls,
                 "tool_types": sorted(self.tool_types),
                 "bad_auth": self.bad_auth,
+                "provider_boundary": self.observation.safe_dict(),
             }
 
 
@@ -238,7 +264,34 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         )
 
     @staticmethod
-    def _response() -> dict[str, object]:
+    def _assistant_text(payload: dict[str, object] | None) -> str:
+        if payload is None:
+            return "bounded fake response"
+        encoded = json.dumps(payload, separators=(",", ":"))
+        match = re.search(r"SENTINEL-ACK:[A-Za-z0-9_-]{1,128}", encoded)
+        return match.group(0) if match is not None else "bounded fake response"
+
+    @staticmethod
+    def _function_tool(payload: dict[str, object]) -> str | None:
+        tools = payload.get("tools")
+        if not isinstance(tools, list):
+            return None
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            name = tool.get("name")
+            if isinstance(name, str) and name in {"shell_command", "exec_command", "local_shell"}:
+                return name
+        return None
+
+    @staticmethod
+    def _has_function_output(payload: dict[str, object]) -> bool:
+        encoded = json.dumps(payload, separators=(",", ":"))
+        return "function_call_output" in encoded or "custom_tool_call_output" in encoded
+
+    @staticmethod
+    def _response(payload: dict[str, object] | None = None) -> dict[str, object]:
+        text = _FakeQwenHandler._assistant_text(payload)
         return {
             "id": "fake-response",
             "object": "response",
@@ -253,7 +306,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                     "content": [
                         {
                             "type": "output_text",
-                            "text": "bounded fake response",
+                            "text": text,
                             "annotations": [],
                         }
                     ],
@@ -262,7 +315,74 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             "usage": {"input_tokens": 2, "output_tokens": 2, "total_tokens": 4},
         }
 
-    def _stream(self) -> None:
+    def _function_stream(self, tool_name: str) -> None:
+        events = (
+            {
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": {
+                    "id": "fake-function-response",
+                    "status": "in_progress",
+                    "model": PUBLIC_MODEL,
+                },
+            },
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "sequence_number": 1,
+                "item": {
+                    "type": "function_call",
+                    "id": "function_item",
+                    "call_id": "call_synthetic",
+                    "name": tool_name,
+                    "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
+                    "status": "in_progress",
+                },
+            },
+            {
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "sequence_number": 2,
+                "item": {
+                    "type": "function_call",
+                    "id": "function_item",
+                    "call_id": "call_synthetic",
+                    "name": tool_name,
+                    "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
+                    "status": "completed",
+                },
+            },
+            {
+                "type": "response.completed",
+                "sequence_number": 3,
+                "response": {
+                    "id": "fake-function-response",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "id": "function_item",
+                            "call_id": "call_synthetic",
+                            "name": tool_name,
+                            "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
+                            "status": "completed",
+                        }
+                    ],
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                },
+            },
+        )
+        self._write_events(events)
+
+    def _write_events(self, events: tuple[dict[str, object], ...]) -> None:
+        self._write_events(events)
+
+    def _stream(self, payload: dict[str, object]) -> None:
+        tool_name = self._function_tool(payload)
+        if tool_name is not None and not self._has_function_output(payload):
+            self._function_stream(tool_name)
+            return
+        text = self._assistant_text(payload)
         response_id = "fake-response"
         events = (
             {
@@ -302,7 +422,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "output_index": 0,
                 "content_index": 0,
                 "sequence_number": 4,
-                "delta": "bounded",
+                "delta": text,
             },
             {
                 "type": "response.reasoning_text.done",
@@ -310,7 +430,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "output_index": 0,
                 "content_index": 0,
                 "sequence_number": 5,
-                "text": "bounded",
+                "text": text,
             },
             {
                 "type": "response.reasoning_part.done",
@@ -318,7 +438,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "output_index": 0,
                 "content_index": 0,
                 "sequence_number": 6,
-                "part": {"type": "reasoning_text", "text": "bounded"},
+                "part": {"type": "reasoning_text", "text": text},
             },
             {
                 "type": "response.output_item.done",
@@ -328,7 +448,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                     "type": "reasoning",
                     "id": "reasoning_1",
                     "summary": [],
-                    "content": [{"type": "reasoning_text", "text": "bounded"}],
+                    "content": [{"type": "reasoning_text", "text": text}],
                     "encrypted_content": None,
                     "status": "completed",
                 },
@@ -366,7 +486,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "content_index": 0,
                 "sequence_number": 10,
                 "logprobs": [],
-                "delta": "bounded",
+                "delta": text,
             },
             {
                 "type": "response.output_text.done",
@@ -375,7 +495,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "content_index": 0,
                 "sequence_number": 11,
                 "logprobs": [],
-                "text": "bounded",
+                "text": text,
             },
             {
                 "type": "response.content_part.done",
@@ -385,7 +505,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "sequence_number": 12,
                 "part": {
                     "type": "output_text",
-                    "text": "bounded",
+                    "text": text,
                     "annotations": [],
                     "logprobs": None,
                 },
@@ -402,7 +522,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                     "content": [
                         {
                             "type": "output_text",
-                            "text": "bounded",
+                            "text": text,
                             "annotations": [],
                             "logprobs": None,
                         }
@@ -423,7 +543,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                             "id": "reasoning_1",
                             "status": None,
                             "summary": [],
-                            "content": [{"type": "reasoning_text", "text": "bounded"}],
+                            "content": [{"type": "reasoning_text", "text": text}],
                             "encrypted_content": None,
                         },
                         {
@@ -434,7 +554,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                             "content": [
                                 {
                                     "type": "output_text",
-                                    "text": "bounded",
+                                    "text": text,
                                     "annotations": [],
                                     "logprobs": None,
                                 }
@@ -504,12 +624,15 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             return
         streaming = payload.get("stream") is True
         self.server.record(
-            compiler=False, streaming=streaming, tool_types=self._tool_types(payload)
+            compiler=False,
+            streaming=streaming,
+            tool_types=self._tool_types(payload),
+            payload=payload,
         )
         if streaming:
-            self._stream()
+            self._stream(payload)
         else:
-            self._json(200, self._response())
+            self._json(200, self._response(payload))
 
 
 class _FailureServer(http.server.ThreadingHTTPServer):
@@ -1205,6 +1328,17 @@ def _codex_version(codex: Path) -> str:
     return match.group(1) if match else "unavailable"
 
 
+def _codex_sha256(codex: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with codex.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1_048_576), b""):
+                digest.update(chunk)
+    except OSError:
+        return "unavailable"
+    return digest.hexdigest()
+
+
 def _public_model_catalog_ok(path: Path) -> bool:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -1482,6 +1616,8 @@ def _composed_request_body(
     *,
     tools: list[dict[str, object]] | None = None,
     image_data_url: str | None = None,
+    owner_id: str = "owner-a",
+    repository_id: str = "repository-a",
 ) -> dict[str, object]:
     content: list[dict[str, object]] = [{"type": "input_text", "text": text}]
     if image_data_url is not None:
@@ -1493,6 +1629,8 @@ def _composed_request_body(
         "thread_id": session,
         "root_turn_id": turn,
         "turn_id": turn,
+        "owner_id": owner_id,
+        "repository_id": repository_id,
         "x-codex-installation-id": "005k-installation",
         "x-codex-window-id": window,
     }
@@ -1515,6 +1653,150 @@ def _openai_kwargs(body: dict[str, object]) -> dict[str, object]:
     return result
 
 
+def _run_fake_codex_turn(
+    codex: Path,
+    fixture: Any,
+    gateway_url: str,
+    public_key: str,
+    *,
+    feature_flags: tuple[str, ...],
+) -> dict[str, object]:
+    """Run the actual pinned Codex through the actual Gateway/Local chain."""
+    previous = os.environ.get(PUBLIC_KEY_ENV)
+    os.environ[PUBLIC_KEY_ENV] = public_key
+    try:
+        run = run_codex_once(
+            codex,
+            fixture,
+            governed_prompt(),
+            timeout_seconds=300,
+            expected_command="cat GOVERNANCE-DEPENDENCY.md",
+            feature_flags=feature_flags,
+            ignore_user_config=False,
+            provider_base_url=None,
+            model=PUBLIC_MODEL,
+            environment_root=fixture.codex_home.parent,
+        )
+    finally:
+        if previous is None:
+            os.environ.pop(PUBLIC_KEY_ENV, None)
+        else:
+            os.environ[PUBLIC_KEY_ENV] = previous
+    successful = (
+        run.exit_status == 0
+        and run.sentinel_passed
+        and run.dependency_observation.lifecycle == "success"
+        and run.tool_calls >= 1
+        and run.codex_under_test_yolo
+    )
+    return {
+        "status": "PASSED" if successful else "FAILED",
+        "version": CODEX_VERSION,
+        "binary_sha256": CODEX_FIXTURE_SHA256,
+        "exit_status": run.exit_status,
+        "tool_call_count_class": "1"
+        if run.tool_calls == 1
+        else "2"
+        if run.tool_calls == 2
+        else "unknown",
+        "dependency_read_count_class": (
+            "1" if run.dependency_observation.successful_dependency_reads == 1 else "unknown"
+        ),
+        "sentinel_passed": run.sentinel_passed,
+        "command_lifecycle": run.dependency_observation.lifecycle,
+        "failure_reason": run.failure_reason,
+        "failure_origin": run.failure_origin,
+        "diagnostic_class": run.command_diagnostics.failure_class,
+        "stderr_class": (
+            run.command_diagnostics.stderr.first_line_class
+            if run.command_diagnostics.stderr is not None
+            else "unavailable"
+        ),
+        "stderr_subclass": (
+            run.command_diagnostics.stderr.first_line_subclass
+            if run.command_diagnostics.stderr is not None
+            else "empty"
+        ),
+        "event_count_class": (
+            "0" if run.event_bytes == 0 else "1" if run.event_bytes <= 4096 else "5+"
+        ),
+        "provider_turns_expected": 2,
+        "retry_count": 0,
+    }
+
+
+def _acceptance_gate(
+    result: dict[str, object],
+) -> tuple[dict[str, object], tuple[dict[str, object], ...]]:
+    """Project observed facts into the closed 005-p obligation manifest."""
+    statuses: dict[str, ObligationResult] = {
+        item.obligation_id: make_result(
+            item.obligation_id,
+            status="NOT RUN",
+            observed=False,
+            relationship="other",
+        )
+        for item in ACCEPTANCE_MANIFEST
+    }
+
+    def pass_item(obligation_id: str, *, count: int = 1) -> None:
+        statuses[obligation_id] = make_result(
+            obligation_id,
+            status="PASSED",
+            observed=True,
+            relationship="independent",
+            count=count,
+            version=CODEX_VERSION if obligation_id.startswith("C1") else None,
+        )
+
+    codex = result.get("codex")
+    if isinstance(codex, dict) and codex.get("status") == "PASSED":
+        pass_item("C1.1", count=2)
+        if codex.get("tool_call_count_class") == "1":
+            pass_item("C1.3")
+        if codex.get("command_lifecycle") == "success":
+            pass_item("C2.1")
+    vision = result.get("vision")
+    if isinstance(vision, dict) and vision.get("status") == "PASSED":
+        pass_item("C3.1", count=2)
+        pass_item("C3.4", count=2)
+    provider = result.get("fake_provider")
+    if isinstance(provider, dict):
+        boundary = provider.get("provider_boundary")
+        if isinstance(boundary, dict):
+            if boundary.get("lifecycle_valid") is True:
+                pass_item("C1.5")
+            if boundary.get("image_count_classes") == ("1", "1"):
+                pass_item("C3.2", count=2)
+    if result.get("logs_secret_free") is True:
+        pass_item("C5.2")
+    if result.get("temporary_state_removed") is True:
+        pass_item("C5.3")
+    cutover = result.get("cutover")
+    if isinstance(cutover, dict) and cutover.get("passed") is True:
+        for obligation_id in ("D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"):
+            pass_item(obligation_id)
+    first_failure = next(
+        (item.obligation_id for item in statuses.values() if item.status != "PASSED"),
+        None,
+    )
+    gate = build_obligation_gate(
+        "fake",
+        statuses.values(),
+        first_failure=first_failure,
+        retry_count=0,
+    )
+    source = Path(__file__).read_text(encoding="utf-8")
+    gaps = tuple(
+        {
+            "gap_id": gap.gap_id,
+            "resolved": not gap.present_after_fix,
+        }
+        for gap in derive_gap_inventory(source)
+    )
+    return gate.safe_dict(), gaps
+
+
 def _run_direct_composed_rehearsal(
     args: argparse.Namespace, *, preflight: dict[str, object]
 ) -> dict[str, object]:
@@ -1526,6 +1808,8 @@ def _run_direct_composed_rehearsal(
     provider_target = str(args.provider_target)
     if provider_target not in {"fake", "protected"}:
         raise RuntimeError("provider_target_invalid")
+    if provider_target == "protected":
+        raise RuntimeError("protected_mode_not_authorized_005p")
     gateway_root = args.gateway_root.resolve()
     gateway_python = Path(args.gateway_python).absolute()
     if (
@@ -1537,10 +1821,11 @@ def _run_direct_composed_rehearsal(
         raise RuntimeError("gateway_checkout_dirty")
     codex = Path(args.codex).resolve()
     codex_version = _codex_version(codex)
+    codex_sha256 = _codex_sha256(codex)
+    if codex_version != CODEX_VERSION or codex_sha256 != CODEX_FIXTURE_SHA256:
+        raise RuntimeError("codex_fixture_mismatch")
     protected_before = _protected_snapshot() if provider_target == "protected" else None
     if provider_target == "protected":
-        if codex_version != CODEX_VERSION:
-            raise RuntimeError("codex_version_mismatch")
         if not os.environ.get(QWEN_KEY_ENV):
             raise RuntimeError("protected_qwen_key_unavailable")
         if (
@@ -1743,6 +2028,46 @@ def _run_direct_composed_rehearsal(
                 )
             if gateway_models_probe.status_code != 200:
                 raise RuntimeError(f"gateway_models_{gateway_models_probe.status_code}")
+            codex_facts = _run_fake_codex_turn(
+                codex,
+                fixture,
+                gateway_url,
+                seeded["plaintext_key"],
+                feature_flags=tuple(str(item) for item in preflight["feature_flags"]),
+            )
+            if codex_facts["status"] != "PASSED":
+                print(
+                    json.dumps({"status": "CODEX_FACTS", **codex_facts}, sort_keys=True), flush=True
+                )
+                failure = codex_facts.get("failure_reason")
+                origin = codex_facts.get("failure_origin")
+                event_class = codex_facts.get("event_count_class")
+                tool_class = codex_facts.get("tool_call_count_class")
+                lifecycle = codex_facts.get("command_lifecycle")
+                parts = (failure, origin, event_class, tool_class, lifecycle)
+                if all(
+                    isinstance(item, str) and re.fullmatch(r"[a-z0-9_]{1,64}", item)
+                    for item in parts
+                ):
+                    raise RuntimeError("codex_governance_" + "_".join(str(item) for item in parts))
+                raise RuntimeError("codex_governance_acceptance_failed")
+            vision_facts = run_vision_e2e(codex, fixture, timeout_seconds=300)
+            if not vision_facts.successful:
+                raise RuntimeError("vision_full_then_crop_acceptance_failed")
+            cutover_runner = FakeCutoverRunner(temp_root / "cutover")
+            dry_install = cutover_runner.install()
+            dry_rollback = cutover_runner.rollback()
+            injected_failures = tuple(
+                not FakeCutoverRunner(temp_root / f"cutover-{phase}").install(failure_phase=phase)
+                for phase in FakeCutoverRunner.PHASES
+            )
+            cutover_facts = {
+                "passed": dry_install and dry_rollback and all(injected_failures),
+                "injected_failure_count_class": (
+                    "5+" if len(injected_failures) >= 5 else str(len(injected_failures))
+                ),
+                "runner": cutover_runner.safe_facts(),
+            }
             session_a = str(uuid.uuid4())
             session_b = str(uuid.uuid4())
             local_tools = [
@@ -1790,7 +2115,9 @@ def _run_direct_composed_rehearsal(
             text_usage = getattr(getattr(text_response, "usage", None), "total_tokens", None)
             if not isinstance(text_usage, int) or text_usage <= 0:
                 raise RuntimeError("text_usage_missing")
-            stream_body = _composed_request_body(session_a, "ordinary stream", tools=adapter_tools)
+            stream_body = _composed_request_body(
+                session_a, "codex-rehearsal stream", tools=adapter_tools
+            )
             stream_body.update({"stream": True, "max_output_tokens": 32, "store": False})
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 stream_metrics_before = _adapter_metrics(http, adapter_port)
@@ -1845,11 +2172,24 @@ def _run_direct_composed_rehearsal(
                 + stream_rows_after["failed_ledger_count"]
                 >= stream_rows_after["ledger_count"]
             )
+            provider_boundary_observed = local_request_delta > 0
+            provider_lifecycle_valid = False
+            provider_terminal = False
             if fake_server is not None and fake_before is not None:
                 fake_after = fake_server.snapshot()
-                provider_call_count = int(fake_after["calls"]) - int(fake_before["calls"])
+                provider_call_count = int(fake_after["inference_calls"]) - int(
+                    fake_before["inference_calls"]
+                )
+                boundary = fake_after["provider_boundary"]
+                if isinstance(boundary, dict):
+                    provider_boundary_observed = provider_call_count > 0
+                    provider_lifecycle_valid = boundary.get("lifecycle_valid") is True
+                    provider_terminal = boundary.get("terminal") is True
             else:
-                provider_call_count = ledger_delta
+                # The adapter request counter is a provider-boundary observation
+                # independent from Gateway reservation/ledger rows.  Protected
+                # mode still cannot prove the provider's terminal lifecycle.
+                provider_call_count = local_request_delta
             stream_facts = build_composed_stream_facts(
                 status=stream_status,
                 content_type="text/event-stream" if stream_status == 200 else None,
@@ -1862,9 +2202,12 @@ def _run_direct_composed_rehearsal(
                 local_upstream_status_class=local_status_class,
                 local_stream_duration_bucket=stream_timing.get("normal_close"),
                 local_failure_class=local_failure_class,
-                local_terminal_bytes=local_status_class == "2xx" and local_failure_delta == 0,
+                local_terminal_observed=provider_terminal,
                 gateway_reservation_terminal=reservation_terminal,
                 gateway_ledger_terminal=ledger_terminal,
+                provider_boundary_observed=provider_boundary_observed,
+                provider_lifecycle_valid=provider_lifecycle_valid,
+                provider_terminal=provider_terminal,
                 provider_call_count=provider_call_count,
             )
             if stream_facts.first_failure != "stream_contract_passed":
@@ -1986,11 +2329,19 @@ def _run_direct_composed_rehearsal(
             )
             second_root = dict(root_kwargs)
             second_root["extra_body"] = {
-                "client_metadata": _composed_request_body(session_b, "second owner root")[
-                    "client_metadata"
-                ]
+                "client_metadata": _composed_request_body(
+                    session_b,
+                    "second-owner isolation sentinel",
+                    owner_id="owner-b",
+                    repository_id="repository-b",
+                )["client_metadata"]
             }
             second_client.responses.create(**second_root)
+            second_owner_isolated = (
+                fake_server is not None and fake_server.observation.isolation_negative_observed()
+            )
+            if not second_owner_isolated:
+                raise RuntimeError("owner_isolation_observation_missing")
             asyncio.run(
                 _tighten_request_limit(gateway_root, database_url, seeded["second_gateway_key_id"])
             )
@@ -1999,45 +2350,6 @@ def _run_direct_composed_rehearsal(
                 429,
             }:
                 raise RuntimeError("second_key_quota_not_rejected")
-
-            codex_facts: dict[str, object] = {"status": "NOT_RUN"}
-            if provider_target == "protected":
-                public_key_previous = os.environ.get(PUBLIC_KEY_ENV)
-                os.environ[PUBLIC_KEY_ENV] = seeded["plaintext_key"]
-                try:
-                    codex_run = run_codex_once(
-                        codex,
-                        fixture,
-                        governed_prompt(),
-                        timeout_seconds=300,
-                        expected_command="cat GOVERNANCE-DEPENDENCY.md",
-                        feature_flags=tuple(preflight["feature_flags"]),
-                        ignore_user_config=bool(preflight["ignore_user_config"]),
-                        provider_base_url=(
-                            gateway_url + "/v1" if bool(preflight["ignore_user_config"]) else None
-                        ),
-                        model=PUBLIC_MODEL,
-                    )
-                finally:
-                    if public_key_previous is None:
-                        os.environ.pop(PUBLIC_KEY_ENV, None)
-                    else:
-                        os.environ[PUBLIC_KEY_ENV] = public_key_previous
-                codex_facts = {
-                    "version": codex_version,
-                    "exit_status": codex_run.exit_status,
-                    "tool_calls": codex_run.tool_calls,
-                    "dependency_reads": (
-                        codex_run.dependency_observation.successful_dependency_reads
-                    ),
-                    "sentinel_passed": codex_run.sentinel_passed,
-                    "effective_governance": (
-                        codex_run.failure_reason == "success"
-                        and codex_run.dependency_observation.lifecycle == "success"
-                    ),
-                }
-                if codex_run.exit_status != 0 or not codex_run.sentinel_passed:
-                    raise RuntimeError("codex_governance_acceptance_failed")
 
             invalid_status = _response_status(
                 lambda: OpenAI(
@@ -2126,16 +2438,22 @@ def _run_direct_composed_rehearsal(
                 "image_seen": image_seen,
                 "image_removed": image_removed,
                 "codex": codex_facts,
+                "vision": {
+                    "status": "PASSED" if vision_facts.successful else "FAILED",
+                    "turn_count_class": "2",
+                    "same_session": vision_facts.same_session,
+                },
+                "cutover": cutover_facts,
                 "compiler_attempt_delta": compiler_after - compiler_before,
                 "cache_hits": cache_hits,
                 "rehydration_hits": rehydration_hits,
-                "second_owner_isolated": True,
+                "second_owner_isolated": second_owner_isolated,
                 "invalid_public_key_status": invalid_status,
                 "over_quota_status": over_quota_status,
                 "hosted_tool_choice_status": hosted_status,
                 "controlled_failure_status": failure_status,
                 "failure_provider_calls": failure_server.calls,
-                "replay_tamper": "NOT_RUN_NO_REQUEST_RELAY",
+                "tamper_matrix": {"status": "NOT RUN", "case_count_class": "0"},
                 "provider_url_class": "fake_loopback"
                 if provider_target == "fake"
                 else "protected_loopback",
@@ -2195,6 +2513,10 @@ def _run_direct_composed_rehearsal(
         result["logs_secret_free"] = logs_clean
     if not result:
         raise RuntimeError("composed_rehearsal_did_not_produce_facts")
+    acceptance_gate, gap_inventory = _acceptance_gate(result)
+    result["acceptance_gate"] = acceptance_gate
+    result["gap_inventory"] = gap_inventory
+    result["status"] = "COMPLETE" if acceptance_gate["passed"] else "BLOCKED"
     return result
 
 
@@ -2202,7 +2524,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gateway-root", type=Path, required=True)
     parser.add_argument("--gateway-python", type=Path, required=True)
-    parser.add_argument("--codex", type=Path, default=shutil.which("codex") or "codex")
+    parser.add_argument(
+        "--codex",
+        type=Path,
+        default=(
+            CODEX_0149_DEFAULT if CODEX_0149_DEFAULT.is_file() else shutil.which("codex") or "codex"
+        ),
+    )
     parser.add_argument("--provider-target", choices=("fake", "protected"), default="fake")
     args = parser.parse_args()
     try:
@@ -2225,7 +2553,18 @@ def main() -> int:
                 if isinstance(exc, RuntimeError) and not safe_code
                 else type(exc).__name__
             )
-        print(json.dumps({"status": "FAILED", "error_type": safe_code}, sort_keys=True))
+        acceptance_gate, gap_inventory = _acceptance_gate({})
+        print(
+            json.dumps(
+                {
+                    "status": "BLOCKED",
+                    "error_type": safe_code,
+                    "acceptance_gate": acceptance_gate,
+                    "gap_inventory": gap_inventory,
+                },
+                sort_keys=True,
+            )
+        )
         return 1
     print(json.dumps(facts, sort_keys=True))
     return 0

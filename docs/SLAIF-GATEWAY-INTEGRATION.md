@@ -282,3 +282,27 @@ driver emits a fixed preflight result before any Docker/PostgreSQL/gateway/
 adapter/Qwen stage and refuses the full rehearsal when this policy rejection
 remains. No full rehearsal was rerun in 005-d. Live gateway, adapter, Qwen,
 Docker, PostgreSQL, cutover, and production acceptance remain `NOT RUN`.
+
+## Objective-005-p harness correction
+
+Objective-005-p repairs the repository-only acceptance harness; it does not
+change Gateway or Local product semantics. The permanent runner is
+`scripts/gateway_accounting_rehearsal.py`, with the closed C1–C5/D obligation
+manifest and predicates in `tests/helpers/acceptance_harness.py`. Fake mode
+executes the exact clean Gateway pin, Local candidate, synthetic PostgreSQL,
+strict fake Qwen, and task-controlled Codex 0.149.0 in private temporary state.
+Every provider call/lifecycle fact is observed at the fake boundary and is
+independent of Gateway reservation/ledger counters. The runner fails closed on
+missing obligations, retries, skipped stages, unsafe cleanup, or incomplete
+rollback evidence.
+
+005-p does not retrieve the protected Qwen credential or make authenticated,
+model, inference, or vision calls. It does not install a candidate, edit a
+Codex profile, or mutate the protected service, network, model, or port 18020.
+The exact 005-o stream result remains a real protected failure, but its
+`gateway_stream_owned` ownership assertion was not established: a Gateway
+error after Local HTTP 2xx and zero Local failure delta is classified as
+`gateway_rejected_stream_owner_unresolved` unless an independently valid
+provider lifecycle and exact clean Gateway-validator conflict prove
+`gateway_product_defect`. This correction does not rewrite 005-o or claim
+real-matrix, acceptance, cutover, or release readiness.

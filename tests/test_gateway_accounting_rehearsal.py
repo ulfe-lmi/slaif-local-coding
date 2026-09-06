@@ -92,9 +92,12 @@ def _facts(
         "local_upstream_status_class": "2xx",
         "local_stream_duration_bucket": "100-249ms",
         "local_failure_class": "none",
-        "local_terminal_bytes": True,
+        "local_terminal_observed": True,
         "gateway_reservation_terminal": True,
         "gateway_ledger_terminal": True,
+        "provider_boundary_observed": True,
+        "provider_lifecycle_valid": True,
+        "provider_terminal": True,
         "provider_call_count": 1,
     }
     options.update(kwargs)
@@ -176,7 +179,17 @@ def _facts(
         (
             "local",
             "local_upstream_non_2xx_or_failure",
-            {"local_upstream_status_class": "5xx", "local_terminal_bytes": False},
+            {"local_upstream_status_class": "5xx", "local_terminal_observed": False},
+        ),
+        (
+            "provider-boundary",
+            "provider_boundary_unobserved",
+            {"provider_boundary_observed": False},
+        ),
+        (
+            "provider-lifecycle",
+            "provider_lifecycle_invalid",
+            {"provider_lifecycle_valid": False},
         ),
         (
             "accounting",
@@ -232,14 +245,23 @@ def test_error_projection_is_fixed_and_never_exposes_error_values() -> None:
     assert "private-field-value" not in serialized
 
 
-def test_owner_mapping_uses_direct_local_and_gateway_facts() -> None:
+def test_owner_mapping_requires_independent_provider_and_validator_facts() -> None:
     gateway_owned = _facts(
         sse=_parsed((_event({"type": "error"}),), finish=True),
-        local_terminal_bytes=True,
+        local_terminal_observed=True,
     )
-    assert gateway_owned.owner == "gateway_stream_owned"
+    assert gateway_owned.owner == "gateway_rejected_stream_owner_unresolved"
 
-    local_owned = _facts(local_upstream_status_class="5xx", local_terminal_bytes=False)
+    gateway_defect = _facts(
+        sse=_parsed((_event({"type": "error"}),), finish=True),
+        local_terminal_observed=True,
+        gateway_validator_contract_valid=True,
+        gateway_rejection_code_class="known_conflict",
+        gateway_rejection_stage="provider_event_validation",
+    )
+    assert gateway_defect.owner == "gateway_product_defect"
+
+    local_owned = _facts(local_upstream_status_class="5xx", local_terminal_observed=False)
     assert local_owned.owner == "local_or_provider_owned"
 
     harness_owned = _facts(
@@ -250,3 +272,62 @@ def test_owner_mapping_uses_direct_local_and_gateway_facts() -> None:
         driver_observation_failure=True,
     )
     assert harness_owned.owner == "acceptance_harness_owned"
+
+    unresolved = _facts(
+        sse=_parsed((_event({"type": "response.created"}),), finish=True),
+        provider_lifecycle_valid=False,
+    )
+    assert unresolved.owner == "unresolved"
+
+
+def test_circular_ledger_or_local_success_cannot_prove_gateway_defect() -> None:
+    facts = _facts(
+        sse=_parsed((_event({"type": "error"}),), finish=True),
+        gateway_validator_contract_valid=False,
+        gateway_rejection_code_class="known_conflict",
+        gateway_rejection_stage="provider_event_validation",
+    )
+    assert facts.owner == "gateway_rejected_stream_owner_unresolved"
+    assert "gateway_stream_owned" not in facts.owner
+
+
+def test_owner_vocabulary_is_closed() -> None:
+    from tests.helpers.gateway_accounting_rehearsal import STREAM_OWNER_CLASSES
+
+    assert set(STREAM_OWNER_CLASSES) == {
+        "stream_contract_passed",
+        "gateway_product_defect",
+        "gateway_rejected_stream_owner_unresolved",
+        "local_or_provider_owned",
+        "acceptance_harness_owned",
+        "unresolved",
+    }
+
+
+def test_005o_bounded_snapshot_is_unresolved_without_provider_lifecycle() -> None:
+    parser = _parsed(
+        (
+            _event(
+                {
+                    "type": "error",
+                    "error": {"type": "invalid_request_error", "code": "unknown-code"},
+                }
+            ),
+        ),
+        finish=True,
+    )
+    facts = _facts(
+        sse=parser,
+        local_upstream_status_class="2xx",
+        local_failure_class="none",
+        local_terminal_observed=True,
+        provider_boundary_observed=False,
+        provider_lifecycle_valid=False,
+        provider_terminal=False,
+        gateway_reservation_terminal=True,
+        gateway_ledger_terminal=False,
+    )
+    assert facts.first_failure == "gateway_error_event"
+    assert facts.owner == "gateway_rejected_stream_owner_unresolved"
+    assert facts.error_field_names == ("code", "type")
+    assert facts.error_code_class == "unknown"

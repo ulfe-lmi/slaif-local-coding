@@ -1274,8 +1274,11 @@ def _ordinary_fingerprint(
     timeout_seconds: float,
     *,
     codex_under_test_yolo: bool,
+    environment_root: Path | None = None,
 ) -> OrdinaryInvocationFacts:
-    environment = _sandbox_environment(fixture.codex_home, fixture.api_key_env)
+    environment = _sandbox_environment(
+        fixture.codex_home, fixture.api_key_env, environment_root=environment_root
+    )
     output = str(fixture.repository / ".codex-last-message.tmp")
     raw_argv = (
         (
@@ -1402,6 +1405,7 @@ def run_codex_once(
     provider_base_url: str | None = None,
     provider_name: str = "slaif-local-coding-e2e",
     model: str = DEFAULT_MODEL,
+    environment_root: Path | None = None,
 ) -> SanitizedCodexRun:
     """Serialize one isolated run; raw stdout/stderr remain in unlinked temp files."""
     started = time.monotonic()
@@ -1430,6 +1434,7 @@ def run_codex_once(
             sandbox_mode,
             timeout_seconds,
             codex_under_test_yolo=codex_under_test_yolo,
+            environment_root=environment_root,
         )
         if expected_command is not None or codex_under_test_yolo
         else None
@@ -1502,7 +1507,7 @@ def run_codex_once(
                 env=_sandbox_environment(
                     fixture.codex_home,
                     fixture.api_key_env,
-                    environment_root=fixture.codex_home.parent,
+                    environment_root=environment_root or fixture.codex_home.parent,
                 ),
                 stdout=events,
                 stderr=diagnostics,
