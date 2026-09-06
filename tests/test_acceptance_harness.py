@@ -6,6 +6,10 @@ import pytest
 
 from tests.helpers.acceptance_harness import (
     ACCEPTANCE_MANIFEST,
+    FAKE_MANIFEST_IDS,
+    FAKE_PROJECTION_IDS,
+    FAKE_PROJECTION_TABLE,
+    FAKE_RESULT_SCHEMA_KEYS,
     PUBLIC_REQUEST_BUDGET,
     TAMPER_CASES,
     FakeCutoverRunner,
@@ -14,6 +18,7 @@ from tests.helpers.acceptance_harness import (
     derive_gap_inventory,
     evaluate_tamper_matrix,
     make_result,
+    projection_passes,
 )
 
 
@@ -52,6 +57,33 @@ def test_obligation_gate_is_fail_closed_for_missing_or_retry() -> None:
     assert gate.missing
     assert gate.first_failure == "retry_count_nonzero"
     assert not gate.passed
+
+
+def test_runtime_projection_table_is_manifest_complete_and_schema_bounded() -> None:
+    assert FAKE_PROJECTION_IDS == FAKE_MANIFEST_IDS
+    assert len(FAKE_RESULT_SCHEMA_KEYS) == len(set(FAKE_RESULT_SCHEMA_KEYS))
+    assert all(
+        projection.proving_test_node_ids[0].endswith("test_projection_positive")
+        and projection.proving_test_node_ids[1].endswith("test_projection_negative")
+        for projection in FAKE_PROJECTION_TABLE
+    )
+
+
+@pytest.mark.parametrize("projection", FAKE_PROJECTION_TABLE, ids=lambda item: item.obligation_id)
+def test_projection_positive(projection: object) -> None:
+    source_keys = projection.source_observation_keys  # type: ignore[attr-defined]
+    obligation_id = projection.obligation_id  # type: ignore[attr-defined]
+    observations = {key: True for key in source_keys}
+    assert projection_passes(obligation_id, observations)
+
+
+@pytest.mark.parametrize("projection", FAKE_PROJECTION_TABLE, ids=lambda item: item.obligation_id)
+def test_projection_negative(projection: object) -> None:
+    source_keys = projection.source_observation_keys  # type: ignore[attr-defined]
+    obligation_id = projection.obligation_id  # type: ignore[attr-defined]
+    observations = {key: True for key in source_keys}
+    observations[source_keys[-1]] = False
+    assert not projection_passes(obligation_id, observations)
 
 
 def test_strict_fake_observation_is_independent_of_gateway_rows() -> None:

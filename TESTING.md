@@ -45,7 +45,7 @@ cross-repository acceptance remain `NOT IMPLEMENTED` and `NOT AUTHORIZED`.
 The permanent bounded orchestrator is
 `scripts/gateway_accounting_rehearsal.py`. It uses one ordered C/D obligation
 manifest and the same fail-closed predicates for fake and protected modes.
-Fake mode is the only executable acceptance mode in Objective-005-p: it uses a
+Fake mode is the only executable acceptance mode in Objective-005: it uses a
 detached clean Gateway at exact SHA `9d247e7f3d8fd6a588976840c4657181b7486b81`,
 the Local candidate, synthetic PostgreSQL, a strict loopback fake Qwen, and the
 task-controlled Codex 0.149.0 binary with its exact verified checksum. Use a
@@ -61,10 +61,28 @@ PYTHONPATH=<local-repo>:<local-repo>/src:<gateway>\
 The run has bounded request ordinals, zero retries, independent provider
 lifecycle/call observations, strict cleanup, and a machine gate requiring
 `missing=[]` and every obligation `PASSED`. Protected mode is read-only
-preflight only in 005-p: no protected credential, authenticated Qwen request,
+preflight only in 005-q: no protected credential, authenticated Qwen request,
 model visibility request, inference, vision traffic, or real cutover is
 authorized. `PASSED` from a focused test or report prose cannot replace the
 machine gate.
+
+The fake provider exposes only bounded classifications. Its function path is
+one call with an eight-event lifecycle; its tool-result path is a nine-event
+assistant-message lifecycle. Each event is capped at 16 KiB, each stream at
+128 KiB, and the runner accepts at most one function call per request. The
+final JSON includes ordered obligation results and a projection table with
+source observation keys, producer, proving test nodes, and execution status.
+`missing=[]` is therefore insufficient: `passed=true` additionally requires
+every selected result to be observed, independently related, and `PASSED` with
+all projection predicates true.
+
+The 005-q implementation run repaired the recursive fake stream and its
+loopback regression passed. The exact full-chain attempt reached C1 and the
+first vision turn, then was `BLOCKED` at C3.1 because clean Gateway
+`9d247e7f3d8fd6a588976840c4657181b7486b81` rejected the Codex 0.149 resume
+history's prior `output_text` input content before Local admission. This is a
+bounded Gateway compatibility blocker, not fake-provider or protected-Qwen
+acceptance.
 
 ## Image-policy tests
 

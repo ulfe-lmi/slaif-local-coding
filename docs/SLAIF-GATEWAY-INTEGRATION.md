@@ -283,7 +283,7 @@ adapter/Qwen stage and refuses the full rehearsal when this policy rejection
 remains. No full rehearsal was rerun in 005-d. Live gateway, adapter, Qwen,
 Docker, PostgreSQL, cutover, and production acceptance remain `NOT RUN`.
 
-## Objective-005-p harness correction
+## Objective-005-p / 005-q harness correction
 
 Objective-005-p repairs the repository-only acceptance harness; it does not
 change Gateway or Local product semantics. The permanent runner is
@@ -296,7 +296,20 @@ independent of Gateway reservation/ledger counters. The runner fails closed on
 missing obligations, retries, skipped stages, unsafe cleanup, or incomplete
 rollback evidence.
 
-005-p does not retrieve the protected Qwen credential or make authenticated,
+The 005-q continuation fixes the fake provider's recursive SSE writer,
+exercises the function and message lifecycles over loopback HTTP, and adds an
+explicit runtime projection for every fake-selected C1–C5/D obligation. The
+machine result retains ordered result records and bounded projection metadata;
+`missing=[]` is not completion unless every selected result is independently
+observed and `PASSED`. The exact full-chain attempt reached C1 and the first
+vision turn, then stopped at C3.1: clean Gateway
+`9d247e7f3d8fd6a588976840c4657181b7486b81` rejected the prior assistant
+`output_text` content in the Codex 0.149 resume request before Local admission.
+The fake function-stream repair is tested, but the exact Gateway/Local/fake
+vision gate remains `BLOCKED` pending an authorized Gateway compatibility
+change; no relay or Gateway source change was introduced here.
+
+005-q does not retrieve the protected Qwen credential or make authenticated,
 model, inference, or vision calls. It does not install a candidate, edit a
 Codex profile, or mutate the protected service, network, model, or port 18020.
 The exact 005-o stream result remains a real protected failure, but its

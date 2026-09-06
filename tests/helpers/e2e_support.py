@@ -166,6 +166,9 @@ class SanitizedCodexRun:
     invocation_fingerprint: tuple[tuple[str, str], ...] = ()
     parser_recognized_events: int = 0
     parser_rejected_events: int = 0
+    error_field_names: tuple[str, ...] = ()
+    error_code_class: str = "none"
+    error_message_classes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -606,6 +609,92 @@ def parse_codex_events(
             counts[event["type"]] += 1
         visit(event)
     return counts, call_items, tuple(sorted(tools.elements()))
+
+
+def parse_codex_error_facts(
+    event_stream: Iterable[str],
+) -> tuple[tuple[str, ...], str, tuple[str, ...]]:
+    """Project error events to field names and a closed code family only."""
+    fields: set[str] = set()
+    code_class = "none"
+    message_classes: set[str] = set()
+
+    def classify(value: object) -> str:
+        if not isinstance(value, str):
+            return "none"
+        lowered = value.lower()
+        if "deserialize" in lowered or "parse" in lowered or "schema" in lowered:
+            return "schema"
+        if "sequence" in lowered or "event" in lowered:
+            return "stream"
+        if "item" in lowered or "content" in lowered:
+            return "item"
+        if "response" in lowered:
+            return "response"
+        if "hosted" in lowered or "web_search" in lowered or "tool_search" in lowered:
+            return "hosted_tool"
+        if "tool" in lowered or "function" in lowered or "command" in lowered:
+            return "tool"
+        if "model" in lowered or "provider" in lowered:
+            return "model"
+        if "config" in lowered or "profile" in lowered:
+            return "configuration"
+        if "request" in lowered or "invalid" in lowered:
+            return "invalid_request"
+        return "unknown"
+
+    for line in event_stream:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "error":
+            continue
+        fields.update(key for key in event if isinstance(key, str) and len(key) <= 64)
+        error = event.get("error")
+        if isinstance(error, dict):
+            fields.update(key for key in error if isinstance(key, str) and len(key) <= 64)
+            for key in ("code", "type"):
+                candidate = classify(error.get(key))
+                if code_class == "none" or candidate != "unknown":
+                    code_class = candidate
+        else:
+            for key in ("code", "type"):
+                candidate = classify(event.get(key))
+                if code_class == "none" or candidate != "unknown":
+                    code_class = candidate
+            message_class = classify(event.get("message"))
+            if code_class == "none" or message_class != "unknown":
+                code_class = message_class
+            message = event.get("message")
+            if isinstance(message, str):
+                if re.search(r"\b4\d\d\b", message):
+                    message_classes.add("http_4xx")
+                if re.search(r"\b5\d\d\b", message):
+                    message_classes.add("http_5xx")
+                for marker in (
+                    "empty",
+                    "event",
+                    "field",
+                    "function",
+                    "id",
+                    "invalid",
+                    "item",
+                    "missing",
+                    "output",
+                    "parse",
+                    "response",
+                    "status",
+                    "tool",
+                    "type",
+                    "unexpected",
+                    "unsupported",
+                ):
+                    if marker in message.lower():
+                        message_classes.add(marker)
+    return tuple(sorted(fields)), code_class, tuple(sorted(message_classes))
 
 
 def parse_event_parser_counts(event_stream: Iterable[str]) -> tuple[int, int]:
@@ -1274,6 +1363,7 @@ def _ordinary_fingerprint(
     timeout_seconds: float,
     *,
     codex_under_test_yolo: bool,
+    disable_unified_exec: bool = True,
     environment_root: Path | None = None,
 ) -> OrdinaryInvocationFacts:
     environment = _sandbox_environment(
@@ -1288,8 +1378,7 @@ def _ordinary_fingerprint(
             "--json",
             "--ephemeral",
             "--strict-config",
-            "--disable",
-            "unified_exec",
+            *(("--disable", "unified_exec") if disable_unified_exec else ()),
             "--cd",
             str(fixture.repository),
             "--output-last-message",
@@ -1307,8 +1396,7 @@ def _ordinary_fingerprint(
             "--json",
             "--ephemeral",
             "--strict-config",
-            "--disable",
-            "unified_exec",
+            *(("--disable", "unified_exec") if disable_unified_exec else ()),
             "--cd",
             str(fixture.repository),
             "--output-last-message",
@@ -1362,7 +1450,10 @@ def _ordinary_fingerprint(
         ("requested_executable", "/usr/bin/true"),
         ("codex_under_test_yolo", str(codex_under_test_yolo).lower()),
         ("approval_policy", "not_configured" if codex_under_test_yolo else "never"),
-        ("tool_feature_flags", "disable:unified_exec"),
+        (
+            "tool_feature_flags",
+            "disable:unified_exec" if disable_unified_exec else "default:unified_exec",
+        ),
         ("tool_catalog_sha256", _bounded_hash(fixture.model_catalog, CODEX_MAX_DIAGNOSTIC_BYTES)),
         ("noninteractive_flags", "exec,json,ephemeral"),
         ("timeout_seconds", str(timeout_seconds)),
@@ -1405,6 +1496,7 @@ def run_codex_once(
     provider_base_url: str | None = None,
     provider_name: str = "slaif-local-coding-e2e",
     model: str = DEFAULT_MODEL,
+    disable_unified_exec: bool = True,
     environment_root: Path | None = None,
 ) -> SanitizedCodexRun:
     """Serialize one isolated run; raw stdout/stderr remain in unlinked temp files."""
@@ -1420,6 +1512,9 @@ def run_codex_once(
     command_event_counts: Counter[str] = Counter()
     parser_recognized_events = 0
     parser_rejected_events = 0
+    error_field_names: tuple[str, ...] = ()
+    error_code_class = "none"
+    error_message_classes: tuple[str, ...] = ()
     dependency_observation = DependencyObservationFacts()
     final_event_ack = False
     stdout_facts = BinaryStreamFacts(0, hashlib.sha256(b"").hexdigest(), "unavailable")
@@ -1434,6 +1529,7 @@ def run_codex_once(
             sandbox_mode,
             timeout_seconds,
             codex_under_test_yolo=codex_under_test_yolo,
+            disable_unified_exec=disable_unified_exec,
             environment_root=environment_root,
         )
         if expected_command is not None or codex_under_test_yolo
@@ -1459,11 +1555,8 @@ def run_codex_once(
                 ]
             )
             argv.extend(["--json", "--ephemeral", "--strict-config"])
-            argv.extend(
-                flag
-                for feature in ("unified_exec", *feature_flags)
-                for flag in ("--disable", feature)
-            )
+            disabled_features = (("unified_exec",) if disable_unified_exec else ()) + feature_flags
+            argv.extend(flag for feature in disabled_features for flag in ("--disable", feature))
             if ignore_user_config:
                 if provider_base_url is None:
                     raise ValueError("provider_base_url is required when ignoring user config")
@@ -1537,6 +1630,12 @@ def run_codex_once(
             readable = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             counts, call_items, tools = parse_codex_events(readable)
             readable.detach()
+            events.seek(0)
+            error_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
+            error_field_names, error_code_class, error_message_classes = parse_codex_error_facts(
+                error_reader
+            )
+            error_reader.detach()
             events.seek(0)
             command_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             command_event_counts = parse_codex_command_events(command_reader)
@@ -1655,6 +1754,9 @@ def run_codex_once(
         invocation_fingerprint=(fingerprint.values if fingerprint is not None else ()),
         parser_recognized_events=parser_recognized_events,
         parser_rejected_events=parser_rejected_events,
+        error_field_names=error_field_names,
+        error_code_class=error_code_class,
+        error_message_classes=error_message_classes,
     )
 
 

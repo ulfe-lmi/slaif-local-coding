@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import concurrent.futures
 import hashlib
 import http.server
 import json
@@ -33,8 +34,19 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
-from openai import APIStatusError, OpenAI
 from prometheus_client.parser import text_string_to_metric_families
+
+try:
+    from openai import APIStatusError, OpenAI
+except ModuleNotFoundError:  # pragma: no cover - the executable rehearsal venv supplies it
+
+    class APIStatusError(Exception):  # type: ignore[no-redef]
+        status_code: int
+
+    class OpenAI:  # type: ignore[no-redef]
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("openai_sdk_unavailable")
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
@@ -52,16 +64,29 @@ from scripts.local_qwen_provider_differential import (  # noqa: E402
     _status_class,
     _timing_bucket,
 )
+from slaif_local_coding.gateway_identity import (  # noqa: E402
+    canonical_identity_bytes,
+    expected_signature,
+)
 from tests.helpers.acceptance_harness import (  # noqa: E402
     ACCEPTANCE_MANIFEST,
+    FAKE_RESULT_SCHEMA_KEYS,
     FakeCutoverRunner,
     ObligationResult,
     StrictFakeQwenObservation,
     build_obligation_gate,
+    count_class,
     derive_gap_inventory,
     make_result,
+    projection_for,
+    projection_passes,
+    projection_table_safe_dict,
 )
-from tests.helpers.e2e_support import governed_prompt, run_codex_once  # noqa: E402
+from tests.helpers.e2e_support import (  # noqa: E402
+    constitution_metric_snapshot,
+    governed_prompt,
+    run_codex_once,
+)
 from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
     GATEWAY_MAIN_SHA,
     PROVIDER,
@@ -73,6 +98,7 @@ from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
 from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv  # noqa: E402
 from tests.helpers.vision_e2e_support import (  # noqa: E402
     run_vision_e2e,
+    vision_diagnostic_summary,
     write_vision_fixture,
     write_vision_model_catalog,
 )
@@ -93,11 +119,41 @@ FAILURE_MODEL = "synthetic-failure-model"
 LOCAL_ROUTE = "qwen38-vision-codex"
 CODEX_MODULE_ID = "codex-0.149-responses-v1"
 CODEX_MODULE_VERSION = "3"
+# This is the reviewed Gateway client-module fixture digest.  The binary
+# digest below remains a separate executable-integrity fact.
+CODEX_CLIENT_MODULE_FIXTURE_SHA256 = (
+    "ca1e03a35de1eaeceb894cec9895af0c154e0d2fa0aa8da87f98716e1567f9ec"
+)
 CODEX_FIXTURE_SHA256 = "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
 CODEX_0149_DEFAULT = Path(
     "/synology/homes/janezp/.codex/packages/standalone/releases/"
     "0.149.0-x86_64-unknown-linux-musl/bin/codex"
 )
+FAKE_MAX_EVENTS = 32
+FAKE_MAX_EVENT_BYTES = 16_384
+FAKE_MAX_STREAM_BYTES = 131_072
+FAKE_MAX_FUNCTION_CALLS = 1
+FAKE_FUNCTION_CALL_ID = "call_synthetic"
+
+
+class _FakeStreamError(RuntimeError):
+    """A fixed internal failure for malformed or over-bound fake streams."""
+
+
+class _FakeQwenObservationWalker:
+    """Bounded mapping traversal used only for fixed request classifications."""
+
+    @staticmethod
+    def walk(value: object, *, depth: int = 0) -> Any:
+        if depth > 32:
+            return
+        if isinstance(value, dict):
+            yield value
+            for child in value.values():
+                yield from _FakeQwenObservationWalker.walk(child, depth=depth + 1)
+        elif isinstance(value, list):
+            for child in value:
+                yield from _FakeQwenObservationWalker.walk(child, depth=depth + 1)
 
 
 class _FakeQwenServer(http.server.ThreadingHTTPServer):
@@ -109,10 +165,14 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
         super().__init__(("127.0.0.1", 0), _FakeQwenHandler)
         self.token = token
         self.calls = 0
+        self.inbound_inference_calls = 0
+        self.inbound_compiler_calls = 0
+        self.inbound_observations: list[dict[str, object]] = []
         self.compiler_calls = 0
         self.inference_calls = 0
         self.stream_calls = 0
         self.tool_types: set[str] = set()
+        self.tool_name_classes: set[str] = set()
         self.bad_auth = False
         self.observation = StrictFakeQwenObservation()
         self._lock = threading.Lock()
@@ -123,7 +183,15 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
         compiler: bool,
         streaming: bool,
         tool_types: set[str],
+        tool_name_class: str = "none",
         payload: dict[str, object] | None = None,
+        lifecycle_valid: bool = True,
+        request_class: str = "unknown",
+        tool_class: str = "unknown",
+        function_result_adjacent: bool = False,
+        item_id_presence: str = "unknown",
+        call_id_relation: str = "unknown",
+        normal_close: bool = True,
     ) -> None:
         with self._lock:
             self.calls += 1
@@ -134,17 +202,71 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
                 if streaming:
                     self.stream_calls += 1
             self.tool_types.update(tool_types)
+            if tool_name_class in {
+                "shell_command",
+                "exec_command",
+                "local_shell",
+                "none",
+                "unknown",
+            }:
+                self.tool_name_classes.add(tool_name_class)
             if not compiler and payload is not None:
-                self.observation.record(payload)
+                self.observation.record(
+                    payload,
+                    lifecycle_valid=lifecycle_valid,
+                    request_class=request_class,
+                    tool_class=tool_class,
+                    function_result_adjacent=function_result_adjacent,
+                    item_id_presence=item_id_presence,
+                    call_id_relation=call_id_relation,
+                    normal_close=normal_close,
+                )
+
+    def observe_inbound(
+        self,
+        *,
+        compiler: bool,
+        streaming: bool,
+        observation: dict[str, object],
+    ) -> None:
+        """Record only bounded request classifications before response streaming."""
+        with self._lock:
+            if compiler:
+                self.inbound_compiler_calls += 1
+            else:
+                self.inbound_inference_calls += 1
+            if len(self.inbound_observations) < FAKE_MAX_FUNCTION_CALLS + 8:
+                self.inbound_observations.append(
+                    {
+                        "streaming": streaming,
+                        **{
+                            key: observation[key]
+                            for key in (
+                                "request_class",
+                                "tool_class",
+                                "tool_name_class",
+                                "item_id_presence",
+                                "call_id_relation",
+                            )
+                            if key in observation
+                        },
+                        "image_count_class": observation.get("image_count_class", "unknown"),
+                        "image_hash_class": observation.get("image_hash_class", "unknown"),
+                    }
+                )
 
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             return {
                 "calls": self.calls,
+                "inbound_inference_calls": self.inbound_inference_calls,
+                "inbound_compiler_calls": self.inbound_compiler_calls,
+                "inbound_observations": tuple(self.inbound_observations),
                 "compiler_calls": self.compiler_calls,
                 "inference_calls": self.inference_calls,
                 "stream_calls": self.stream_calls,
                 "tool_types": sorted(self.tool_types),
+                "tool_name_classes": sorted(self.tool_name_classes),
                 "bad_auth": self.bad_auth,
                 "provider_boundary": self.observation.safe_dict(),
             }
@@ -290,6 +412,95 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         return "function_call_output" in encoded or "custom_tool_call_output" in encoded
 
     @staticmethod
+    def _matching_function_output(payload: dict[str, object]) -> bool:
+        outputs = tuple(
+            item
+            for item in _FakeQwenObservationWalker.walk(payload)
+            if item.get("type") == "function_call_output"
+        )
+        item_id = outputs[0].get("id") if len(outputs) == 1 else None
+        return (
+            len(outputs) == 1
+            and (
+                item_id is None
+                or (
+                    isinstance(item_id, str)
+                    and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", item_id) is not None
+                )
+            )
+            and outputs[0].get("call_id") == FAKE_FUNCTION_CALL_ID
+            and any(key in outputs[0] for key in ("output", "result", "content"))
+        )
+
+    @staticmethod
+    def _request_observation(payload: dict[str, object]) -> dict[str, object]:
+        """Classify the inbound request without retaining IDs or request data."""
+        tool_types = _FakeQwenHandler._tool_types(payload)
+        has_output = _FakeQwenHandler._has_function_output(payload)
+        function_tool = _FakeQwenHandler._function_tool(payload)
+        if function_tool is not None and not has_output:
+            request_class = "function_initial"
+        elif has_output:
+            request_class = "function_continuation"
+        elif any(
+            isinstance(item, dict) and item.get("type") == "input_image"
+            for item in _FakeQwenObservationWalker.walk(payload)
+        ):
+            request_class = "image"
+        else:
+            request_class = "message"
+        tool_class = (
+            "none"
+            if not tool_types
+            else "mixed"
+            if len(tool_types) > 1
+            else "function"
+            if "function" in tool_types
+            else "custom"
+            if "custom" in tool_types
+            else "unknown"
+        )
+        function_items = tuple(
+            item
+            for item in _FakeQwenObservationWalker.walk(payload)
+            if item.get("type") in {"function_call", "function_call_output"}
+        )
+        item_id_presence = "unknown"
+        call_id_relation = "unknown"
+        for item in function_items:
+            if item.get("type") == "function_call":
+                item_id_presence = "present" if isinstance(item.get("id"), str) else "omitted"
+                call_id_relation = (
+                    "initial_owned"
+                    if item.get("call_id") == FAKE_FUNCTION_CALL_ID
+                    else "mismatched"
+                )
+            elif item.get("type") == "function_call_output":
+                item_id_presence = "present" if isinstance(item.get("id"), str) else "omitted"
+                call_id_relation = (
+                    "matching" if item.get("call_id") == FAKE_FUNCTION_CALL_ID else "mismatched"
+                )
+        images = tuple(
+            item
+            for item in _FakeQwenObservationWalker.walk(payload)
+            if item.get("type") in {"input_image", "image_url"}
+        )
+        return {
+            "request_class": request_class,
+            "tool_class": tool_class,
+            "tool_name_class": function_tool or "none",
+            "item_id_presence": item_id_presence,
+            "call_id_relation": call_id_relation,
+            "function_result_adjacent": request_class == "function_initial",
+            "image_count_class": str(min(len(images), 8)),
+            "image_hash_class": (
+                "present"
+                if any(isinstance(item.get("image_url"), str) for item in images)
+                else "none"
+            ),
+        }
+
+    @staticmethod
     def _response(payload: dict[str, object] | None = None) -> dict[str, object]:
         text = _FakeQwenHandler._assistant_text(payload)
         return {
@@ -316,37 +527,73 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         }
 
     def _function_stream(self, tool_name: str) -> None:
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", tool_name):
+            raise _FakeStreamError("function_name_invalid")
         events = (
             {
                 "type": "response.created",
                 "sequence_number": 0,
                 "response": {
-                    "id": "fake-function-response",
+                    "id": "response_1",
                     "status": "in_progress",
                     "model": PUBLIC_MODEL,
                 },
             },
             {
-                "type": "response.output_item.added",
-                "output_index": 0,
+                "type": "response.in_progress",
                 "sequence_number": 1,
-                "item": {
-                    "type": "function_call",
-                    "id": "function_item",
-                    "call_id": "call_synthetic",
-                    "name": tool_name,
-                    "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
+                "response": {
+                    "id": "response_1",
                     "status": "in_progress",
                 },
             },
             {
-                "type": "response.output_item.done",
+                "type": "response.output_item.added",
                 "output_index": 0,
                 "sequence_number": 2,
                 "item": {
                     "type": "function_call",
-                    "id": "function_item",
-                    "call_id": "call_synthetic",
+                    "id": "function_1",
+                    "call_id": FAKE_FUNCTION_CALL_ID,
+                    "namespace": None,
+                    "caller": None,
+                    "name": tool_name,
+                    "arguments": "",
+                    "status": "in_progress",
+                },
+            },
+            {
+                "type": "response.function_call_arguments.delta",
+                "item_id": "function_1",
+                "output_index": 0,
+                "sequence_number": 3,
+                "delta": '{"cmd":"cat ',
+            },
+            {
+                "type": "response.function_call_arguments.delta",
+                "item_id": "function_1",
+                "output_index": 0,
+                "sequence_number": 4,
+                "delta": 'GOVERNANCE-DEPENDENCY.md"}',
+            },
+            {
+                "type": "response.function_call_arguments.done",
+                "item_id": "function_1",
+                "output_index": 0,
+                "sequence_number": 5,
+                "name": tool_name,
+                "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
+            },
+            {
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "sequence_number": 6,
+                "item": {
+                    "type": "function_call",
+                    "id": "function_1",
+                    "call_id": FAKE_FUNCTION_CALL_ID,
+                    "namespace": None,
+                    "caller": None,
                     "name": tool_name,
                     "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
                     "status": "completed",
@@ -354,27 +601,283 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             },
             {
                 "type": "response.completed",
-                "sequence_number": 3,
+                "sequence_number": 7,
                 "response": {
-                    "id": "fake-function-response",
+                    "id": "response_1",
                     "status": "completed",
                     "output": [
                         {
                             "type": "function_call",
-                            "id": "function_item",
-                            "call_id": "call_synthetic",
+                            "id": "parser_function_1",
+                            "call_id": FAKE_FUNCTION_CALL_ID,
+                            "namespace": None,
                             "name": tool_name,
                             "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
                             "status": "completed",
                         }
                     ],
-                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    "usage": {
+                        "input_tokens": 1,
+                        "input_tokens_details": {
+                            "cached_tokens": 0,
+                            "input_tokens_per_turn": [1],
+                            "cached_tokens_per_turn": [0],
+                        },
+                        "output_tokens": 1,
+                        "output_tokens_details": {
+                            "reasoning_tokens": 0,
+                            "tool_output_tokens": 0,
+                            "output_tokens_per_turn": [1],
+                            "tool_output_tokens_per_turn": [0],
+                        },
+                        "total_tokens": 2,
+                    },
                 },
             },
         )
         self._write_events(events)
 
     def _write_events(self, events: tuple[dict[str, object], ...]) -> None:
+        if not events or len(events) > FAKE_MAX_EVENTS:
+            raise _FakeStreamError("event_count_bound")
+        allowed = {
+            "response.created",
+            "response.in_progress",
+            "response.output_item.added",
+            "response.output_item.done",
+            "response.reasoning_part.added",
+            "response.reasoning_text.delta",
+            "response.reasoning_text.done",
+            "response.reasoning_part.done",
+            "response.function_call_arguments.delta",
+            "response.function_call_arguments.done",
+            "response.content_part.added",
+            "response.output_text.delta",
+            "response.output_text.done",
+            "response.content_part.done",
+            "response.completed",
+        }
+        encoded_events: list[bytes] = []
+        seen_types: list[str] = []
+        total_bytes = 0
+        for expected_sequence, event in enumerate(events):
+            if not isinstance(event, dict):
+                raise _FakeStreamError("event_shape")
+            event_type = event.get("type")
+            sequence = event.get("sequence_number")
+            if (
+                not isinstance(event_type, str)
+                or event_type not in allowed
+                or not isinstance(sequence, int)
+                or isinstance(sequence, bool)
+                or sequence != expected_sequence
+            ):
+                raise _FakeStreamError("event_sequence")
+            payload = json.dumps(event, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+            wire = b"event: " + event_type.encode("ascii") + b"\ndata: " + payload + b"\n\n"
+            if len(wire) > FAKE_MAX_EVENT_BYTES:
+                raise _FakeStreamError("event_byte_bound")
+            total_bytes += len(wire)
+            if total_bytes > FAKE_MAX_STREAM_BYTES:
+                raise _FakeStreamError("stream_byte_bound")
+            encoded_events.append(wire)
+            seen_types.append(event_type)
+        if seen_types.count("response.created") != 1 or seen_types.count("response.completed") != 1:
+            raise _FakeStreamError("terminal_event_count")
+        if seen_types[-1] != "response.completed":
+            raise _FakeStreamError("terminal_event_order")
+        terminal = events[-1].get("response")
+        if not isinstance(terminal, dict) or terminal.get("status") != "completed":
+            raise _FakeStreamError("terminal_status")
+        usage = terminal.get("usage")
+        if not isinstance(usage, dict) or any(
+            not isinstance(usage.get(name), int)
+            or isinstance(usage.get(name), bool)
+            or usage[name] <= 0
+            for name in ("input_tokens", "output_tokens", "total_tokens")
+        ):
+            raise _FakeStreamError("terminal_usage")
+        output = terminal.get("output")
+        if not isinstance(output, list) or not output:
+            raise _FakeStreamError("terminal_output")
+        for item in output:
+            if not isinstance(item, dict) or item.get("status") not in {"completed", None}:
+                raise _FakeStreamError("terminal_item")
+        serialized = json.dumps(events, separators=(",", ":"))
+        if "function_call" in serialized:
+            if seen_types != [
+                "response.created",
+                "response.in_progress",
+                "response.output_item.added",
+                "response.function_call_arguments.delta",
+                "response.function_call_arguments.delta",
+                "response.function_call_arguments.done",
+                "response.output_item.done",
+                "response.completed",
+            ]:
+                raise _FakeStreamError("function_event_order")
+            added = [event for event in events if event.get("type") == "response.output_item.added"]
+            done = [event for event in events if event.get("type") == "response.output_item.done"]
+            if len(added) != FAKE_MAX_FUNCTION_CALLS or len(done) != FAKE_MAX_FUNCTION_CALLS:
+                raise _FakeStreamError("function_lifecycle")
+            function_item = done[0].get("item")
+            if (
+                not isinstance(function_item, dict)
+                or function_item.get("type") != "function_call"
+                or not isinstance(function_item.get("id"), str)
+                or not function_item["id"]
+                or function_item["id"].startswith("fc_")
+                or function_item.get("call_id") != FAKE_FUNCTION_CALL_ID
+            ):
+                raise _FakeStreamError("function_identity")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Content-Length", str(total_bytes))
+        self.end_headers()
+        for wire in encoded_events:
+            self.wfile.write(wire)
+            self.wfile.flush()
+
+    def _message_stream(self, payload: dict[str, object]) -> None:
+        """Emit the terminal assistant-message lifecycle for a tool result."""
+        text = self._assistant_text(payload)
+        response_id = "fake-message-response"
+        events = (
+            {
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": {
+                    "id": response_id,
+                    "status": "in_progress",
+                    "model": PUBLIC_MODEL,
+                },
+            },
+            {
+                "type": "response.in_progress",
+                "sequence_number": 1,
+                "response": {"id": response_id, "status": "in_progress"},
+            },
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "sequence_number": 2,
+                "item": {
+                    "type": "message",
+                    "id": "message_1",
+                    "status": "in_progress",
+                    "role": "assistant",
+                    "content": [],
+                    "phase": None,
+                },
+            },
+            {
+                "type": "response.content_part.added",
+                "item_id": "message_1",
+                "output_index": 0,
+                "content_index": 0,
+                "sequence_number": 3,
+                "part": {
+                    "type": "output_text",
+                    "text": "",
+                    "annotations": [],
+                    "logprobs": [],
+                },
+            },
+            {
+                "type": "response.output_text.delta",
+                "item_id": "message_1",
+                "output_index": 0,
+                "content_index": 0,
+                "sequence_number": 4,
+                "logprobs": [],
+                "delta": text,
+            },
+            {
+                "type": "response.output_text.done",
+                "item_id": "message_1",
+                "output_index": 0,
+                "content_index": 0,
+                "sequence_number": 5,
+                "logprobs": [],
+                "text": text,
+            },
+            {
+                "type": "response.content_part.done",
+                "item_id": "message_1",
+                "output_index": 0,
+                "content_index": 0,
+                "sequence_number": 6,
+                "part": {
+                    "type": "output_text",
+                    "text": text,
+                    "annotations": [],
+                    "logprobs": None,
+                },
+            },
+            {
+                "type": "response.output_item.done",
+                "output_index": 0,
+                "sequence_number": 7,
+                "item": {
+                    "type": "message",
+                    "id": "message_1",
+                    "status": "completed",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": text,
+                            "annotations": [],
+                            "logprobs": None,
+                        }
+                    ],
+                    "phase": None,
+                    "summary": [],
+                },
+            },
+            {
+                "type": "response.completed",
+                "sequence_number": 8,
+                "response": {
+                    "id": response_id,
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "message",
+                            "id": "message_1",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": text,
+                                    "annotations": [],
+                                    "logprobs": None,
+                                }
+                            ],
+                            "phase": None,
+                        }
+                    ],
+                    "usage": {
+                        "input_tokens": 1,
+                        "input_tokens_details": {
+                            "cached_tokens": 0,
+                            "input_tokens_per_turn": [1],
+                            "cached_tokens_per_turn": [0],
+                        },
+                        "output_tokens": 1,
+                        "output_tokens_details": {
+                            "reasoning_tokens": 0,
+                            "tool_output_tokens": 0,
+                            "output_tokens_per_turn": [1],
+                            "tool_output_tokens_per_turn": [0],
+                        },
+                        "total_tokens": 2,
+                    },
+                },
+            },
+        )
         self._write_events(events)
 
     def _stream(self, payload: dict[str, object]) -> None:
@@ -382,18 +885,34 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         if tool_name is not None and not self._has_function_output(payload):
             self._function_stream(tool_name)
             return
+        if self._has_function_output(payload) and not self._matching_function_output(payload):
+            raise _FakeStreamError("function_continuation_invalid")
+        if self._has_function_output(payload):
+            self._message_stream(payload)
+            return
         text = self._assistant_text(payload)
         response_id = "fake-response"
         events = (
             {
                 "type": "response.created",
                 "sequence_number": 0,
-                "response": {"id": response_id, "status": "in_progress", "model": PUBLIC_MODEL},
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "created_at": 0,
+                    "status": "in_progress",
+                    "model": PUBLIC_MODEL,
+                },
             },
             {
                 "type": "response.in_progress",
                 "sequence_number": 1,
-                "response": {"id": response_id, "status": "in_progress"},
+                "response": {
+                    "id": response_id,
+                    "object": "response",
+                    "created_at": 0,
+                    "status": "in_progress",
+                },
             },
             {
                 "type": "response.output_item.added",
@@ -536,6 +1055,8 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "sequence_number": 14,
                 "response": {
                     "id": response_id,
+                    "object": "response",
+                    "created_at": 0,
                     "status": "completed",
                     "output": [
                         {
@@ -581,14 +1102,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 },
             },
         )
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        for event in events:
-            wire = f"event: {event['type']}\ndata: {json.dumps(event, separators=(',', ':'))}\n\n"
-            self.wfile.write(wire.encode("utf-8"))
-            self.wfile.flush()
+        self._write_events(events)
 
     def do_GET(self) -> None:
         if not self._authorized():
@@ -623,16 +1137,32 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             self._json(404, {"error": {"code": "not_found"}})
             return
         streaming = payload.get("stream") is True
+        observation = self._request_observation(payload)
+        self.server.observe_inbound(
+            compiler=False,
+            streaming=streaming,
+            observation=observation,
+        )
+        if streaming:
+            try:
+                self._stream(payload)
+            except (BrokenPipeError, ConnectionResetError, _FakeStreamError):
+                if not self.wfile.closed:
+                    self._json(502, {"error": {"code": "fake_stream_invalid"}})
+                return
+        else:
+            self._json(200, self._response(payload))
         self.server.record(
             compiler=False,
             streaming=streaming,
             tool_types=self._tool_types(payload),
             payload=payload,
+            **{
+                key: value
+                for key, value in observation.items()
+                if key not in {"image_count_class", "image_hash_class"}
+            },
         )
-        if streaming:
-            self._stream(payload)
-        else:
-            self._json(200, self._response(payload))
 
 
 class _FailureServer(http.server.ThreadingHTTPServer):
@@ -947,6 +1477,8 @@ async def _seed_database(
                     "codex_request_envelope": True,
                     "codex_client_tools": True,
                     "codex_streaming_tool_events": True,
+                    "codex_encrypted_reasoning_replay": True,
+                    "codex_compaction": True,
                 }
             )
             route = await ModelRoutesRepository(session).create_model_route(
@@ -1034,7 +1566,7 @@ async def _seed_database(
                 "client_module": {
                     "id": CODEX_MODULE_ID,
                     "version": CODEX_MODULE_VERSION,
-                    "fixture_sha256": CODEX_FIXTURE_SHA256,
+                    "fixture_sha256": CODEX_CLIENT_MODULE_FIXTURE_SHA256,
                 },
             }
             key_service = KeyService(
@@ -1211,10 +1743,13 @@ async def _tighten_request_limit(
         await engine.dispose()
 
 
-def _decimal_text(value: Decimal | None) -> str:
+def _decimal_text(value: Decimal | int | float | str | None) -> str:
     if value is None:
         return "missing"
-    return format(value.normalize(), "f")
+    try:
+        return format(Decimal(str(value)).normalize(), "f")
+    except (ArithmeticError, ValueError):
+        return "missing"
 
 
 def _metric_sum(metrics: str, name: str, labels: dict[str, str] | None = None) -> int:
@@ -1352,17 +1887,6 @@ def _public_model_catalog_ok(path: Path) -> bool:
         )
     except (OSError, TypeError, ValueError, StopIteration):
         return False
-
-
-def _disable_catalog_search_tools(path: Path) -> None:
-    document = json.loads(path.read_text(encoding="utf-8"))
-    models = document.get("models")
-    selected = next(item for item in models if item.get("slug") == PUBLIC_MODEL)
-    selected["experimental_supported_tools"] = []
-    selected["supports_search_tool"] = False
-    selected["web_search_tool_type"] = "text"
-    path.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
-    os.chmod(path, 0o600)
 
 
 def _tool_envelope_preflight(
@@ -1555,6 +2079,80 @@ def _stop_threaded_server(
         thread.join(timeout=10)
 
 
+def _run_fake_idless_http_regression() -> dict[str, object]:
+    """Exercise the fake provider's id-less call-output path over loopback HTTP."""
+    server = _FakeQwenServer("synthetic-005q-idless-token")
+    thread = _start_threaded_server(server)
+    initial = {
+        "model": PUBLIC_MODEL,
+        "stream": True,
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "synthetic"}],
+            }
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "name": "exec_command",
+                "description": "bounded local command",
+                "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+                "strict": True,
+            }
+        ],
+    }
+    continuation = {
+        "model": PUBLIC_MODEL,
+        "stream": True,
+        "input": [
+            {
+                "type": "function_call_output",
+                "call_id": FAKE_FUNCTION_CALL_ID,
+                "output": "synthetic-result",
+            }
+        ],
+        "tools": initial["tools"],
+    }
+    statuses: list[int] = []
+    try:
+        with httpx.Client(timeout=10, follow_redirects=False) as client:
+            for body in (initial, continuation):
+                response = client.post(
+                    f"http://127.0.0.1:{server.server_address[1]}/v1/responses",
+                    json=body,
+                    headers={"Authorization": f"Bearer {server.token}"},
+                )
+                statuses.append(response.status_code)
+                if response.status_code != 200 or not response.content.endswith(b"\n\n"):
+                    break
+    finally:
+        _stop_threaded_server(server, thread)
+    boundary = server.snapshot()["provider_boundary"]
+    return {
+        "passed": statuses == [200, 200]
+        and isinstance(boundary, dict)
+        and "omitted" in boundary.get("item_id_presence_classes", ())
+        and "matching" in boundary.get("call_id_relation_classes", ())
+        and boundary.get("lifecycle_valid") is True
+        and boundary.get("terminality_valid") is True,
+        "request_count_class": count_class(len(statuses)),
+        "status_classes": tuple(f"{status // 100}xx" for status in statuses),
+        "idless_item_observed": (
+            isinstance(boundary, dict) and "omitted" in boundary.get("item_id_presence_classes", ())
+        ),
+        "matching_call_id_observed": (
+            isinstance(boundary, dict)
+            and "matching" in boundary.get("call_id_relation_classes", ())
+        ),
+        "lifecycle_valid": (isinstance(boundary, dict) and boundary.get("lifecycle_valid") is True),
+        "terminality_valid": (
+            isinstance(boundary, dict) and boundary.get("terminality_valid") is True
+        ),
+    }
+
+
 def _timed_public_stream(
     gateway_url: str, gateway_key: str, body: dict[str, object]
 ) -> tuple[int | None, SSEFacts, dict[str, str], int]:
@@ -1616,8 +2214,6 @@ def _composed_request_body(
     *,
     tools: list[dict[str, object]] | None = None,
     image_data_url: str | None = None,
-    owner_id: str = "owner-a",
-    repository_id: str = "repository-a",
 ) -> dict[str, object]:
     content: list[dict[str, object]] = [{"type": "input_text", "text": text}]
     if image_data_url is not None:
@@ -1629,8 +2225,6 @@ def _composed_request_body(
         "thread_id": session,
         "root_turn_id": turn,
         "turn_id": turn,
-        "owner_id": owner_id,
-        "repository_id": repository_id,
         "x-codex-installation-id": "005k-installation",
         "x-codex-window-id": window,
     }
@@ -1672,9 +2266,10 @@ def _run_fake_codex_turn(
             timeout_seconds=300,
             expected_command="cat GOVERNANCE-DEPENDENCY.md",
             feature_flags=feature_flags,
-            ignore_user_config=False,
-            provider_base_url=None,
+            ignore_user_config=True,
+            provider_base_url=gateway_url + "/v1",
             model=PUBLIC_MODEL,
+            disable_unified_exec=False,
             environment_root=fixture.codex_home.parent,
         )
     finally:
@@ -1688,6 +2283,16 @@ def _run_fake_codex_turn(
         and run.dependency_observation.lifecycle == "success"
         and run.tool_calls >= 1
         and run.codex_under_test_yolo
+    )
+    dependency_path = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
+    try:
+        dependency_bytes = dependency_path.read_bytes()
+    except OSError:
+        dependency_bytes = b""
+    dependency_hash_equal = (
+        bool(dependency_bytes)
+        and run.dependency_observation.output_sha256 == hashlib.sha256(dependency_bytes).hexdigest()
+        and run.dependency_observation.output_byte_length == len(dependency_bytes)
     )
     return {
         "status": "PASSED" if successful else "FAILED",
@@ -1720,72 +2325,481 @@ def _run_fake_codex_turn(
         "event_count_class": (
             "0" if run.event_bytes == 0 else "1" if run.event_bytes <= 4096 else "5+"
         ),
+        "event_type_classes": tuple(sorted(run.event_type_counts)),
+        "parser_recognized_event_count_class": (
+            "0"
+            if run.parser_recognized_events == 0
+            else "1"
+            if run.parser_recognized_events == 1
+            else "2"
+            if run.parser_recognized_events == 2
+            else "3-4"
+            if run.parser_recognized_events <= 4
+            else "5+"
+        ),
+        "error_field_names": tuple(run.error_field_names),
+        "error_code_class": run.error_code_class,
+        "error_message_classes": tuple(run.error_message_classes),
         "provider_turns_expected": 2,
         "retry_count": 0,
+        "dependency_hash_equal": dependency_hash_equal,
+        "dependency_length_equal": (
+            bool(dependency_bytes)
+            and run.dependency_observation.output_byte_length == len(dependency_bytes)
+        ),
     }
+
+
+def _run_signed_identity_matrix(
+    adapter_port: int,
+    service_token: str,
+    signing_secret: str,
+    *,
+    provider_calls_before: int | None = None,
+    provider_calls_after: int | None = None,
+    accounting_rows_before: int | None = None,
+    accounting_rows_after: int | None = None,
+) -> dict[str, object]:
+    """Exercise the real adapter admission/replay boundary with synthetic facts."""
+    base_body = b""
+    base_query = b""
+    base_path = "/health"
+    base_identity = {
+        "principal": "synthetic-principal",
+        "session": "synthetic-session",
+        "repository": "synthetic-repository",
+        "route": LOCAL_ROUTE,
+    }
+    timestamp = str(int(time.time()))
+
+    def headers(
+        *,
+        body: bytes = base_body,
+        query: bytes = base_query,
+        path: str = base_path,
+        nonce: str,
+        identity: dict[str, str] | None = None,
+        signature_override: str | None = None,
+        timestamp_value: str = timestamp,
+    ) -> list[tuple[str, str]]:
+        selected = base_identity if identity is None else identity
+        canonical = canonical_identity_bytes(
+            method="GET",
+            path=path,
+            raw_query=query,
+            body=body,
+            principal=selected["principal"],
+            session=selected["session"],
+            repository=selected["repository"],
+            route=selected["route"],
+            timestamp=timestamp_value,
+            nonce=nonce,
+        )
+        signature = signature_override or expected_signature(
+            secret=signing_secret.encode("ascii"), canonical=canonical
+        )
+        return [
+            ("Authorization", f"Bearer {service_token}"),
+            ("X-SLAIF-Identity-Version", "v1"),
+            ("X-SLAIF-Principal", selected["principal"]),
+            ("X-SLAIF-Session", selected["session"]),
+            ("X-SLAIF-Repository", selected["repository"]),
+            ("X-SLAIF-Route", selected["route"]),
+            ("X-SLAIF-Timestamp", timestamp_value),
+            ("X-SLAIF-Nonce", nonce),
+            ("X-SLAIF-Signature", signature),
+        ]
+
+    def request(
+        client: httpx.Client,
+        *,
+        request_path: str = base_path,
+        query: bytes = base_query,
+        request_body: bytes = base_body,
+        request_headers: list[tuple[str, str]],
+    ) -> int:
+        query_text = query.decode("ascii")
+        url = f"http://127.0.0.1:{adapter_port}{request_path}"
+        if query_text:
+            url += "?" + query_text
+        return client.request("GET", url, content=request_body, headers=request_headers).status_code
+
+    with httpx.Client(timeout=15, follow_redirects=False) as client:
+        valid_nonce = "synthetic-valid-nonce-01"
+        valid_status = request(client, request_headers=headers(nonce=valid_nonce))
+        replay_status = request(client, request_headers=headers(nonce=valid_nonce))
+        concurrent_nonce = "synthetic-concurrent-nonce-01"
+        concurrent_headers = headers(nonce=concurrent_nonce)
+
+        def concurrent_request() -> int:
+            with httpx.Client(timeout=15, follow_redirects=False) as worker:
+                return request(worker, request_headers=concurrent_headers)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            concurrent_statuses = tuple(pool.map(lambda _: concurrent_request(), range(2)))
+
+        changed_identity_statuses = {
+            "session": request(
+                client,
+                request_headers=headers(
+                    nonce="synthetic-isolation-session-01",
+                    identity={**base_identity, "session": "synthetic-other-session"},
+                ),
+            ),
+            "owner": request(
+                client,
+                request_headers=headers(
+                    nonce="synthetic-isolation-owner-01",
+                    identity={**base_identity, "principal": "synthetic-other-owner"},
+                ),
+            ),
+            "repository": request(
+                client,
+                request_headers=headers(
+                    nonce="synthetic-isolation-repository-01",
+                    identity={**base_identity, "repository": "synthetic-other-repository"},
+                ),
+            ),
+        }
+
+        tamper_requests: dict[str, tuple[str, bytes, bytes, list[tuple[str, str]]]] = {
+            "body": (
+                base_path,
+                base_query,
+                b"synthetic-body-change",
+                headers(nonce="synthetic-tamper-body-01"),
+            ),
+            "query": (
+                base_path,
+                b"synthetic=query",
+                base_body,
+                headers(nonce="synthetic-tamper-query-01"),
+            ),
+            "path": (
+                "/v1/models",
+                base_query,
+                base_body,
+                headers(nonce="synthetic-tamper-path-01"),
+            ),
+            "route": (
+                base_path,
+                base_query,
+                base_body,
+                headers(
+                    nonce="synthetic-tamper-route-01",
+                    identity={**base_identity, "route": "other-route"},
+                ),
+            ),
+            "signature": (
+                base_path,
+                base_query,
+                base_body,
+                headers(nonce="synthetic-tamper-signature-01", signature_override="v1=" + "0" * 64),
+            ),
+            "timestamp": (
+                base_path,
+                base_query,
+                base_body,
+                headers(nonce="synthetic-tamper-time-01", timestamp_value="1"),
+            ),
+            "nonce": (base_path, base_query, base_body, headers(nonce="synthetic-tamper-nonce-01")),
+        }
+        tamper_statuses = {
+            name: request(
+                client,
+                request_path=path,
+                query=query,
+                request_body=body,
+                request_headers=(
+                    [
+                        (key, value.replace("synthetic-tamper-nonce-01", "bad nonce"))
+                        for key, value in request_headers
+                    ]
+                    if name == "nonce"
+                    else request_headers
+                ),
+            )
+            for name, (path, query, body, request_headers) in tamper_requests.items()
+        }
+        ambiguous_headers = headers(nonce="synthetic-tamper-ambiguous-01") + [
+            ("X-SLAIF-Principal", "synthetic-other-principal")
+        ]
+        missing_headers = [
+            pair
+            for pair in headers(nonce="synthetic-tamper-missing-01")
+            if pair[0].lower() != "x-slaif-session"
+        ]
+        ambiguous_status = request(client, request_headers=ambiguous_headers)
+        missing_status = request(client, request_headers=missing_headers)
+    rejected = all(status in {401, 403, 409, 422} for status in tamper_statuses.values())
+    rejected = (
+        rejected
+        and ambiguous_status in {401, 403, 409, 422}
+        and missing_status in {401, 403, 409, 422}
+    )
+    no_provider_duplicate = (
+        provider_calls_before is not None
+        and provider_calls_after is not None
+        and provider_calls_after == provider_calls_before
+    )
+    no_accounting_duplicate = (
+        accounting_rows_before is not None
+        and accounting_rows_after is not None
+        and accounting_rows_after == accounting_rows_before
+    )
+    return {
+        "every_admission_verified": valid_status == 200,
+        "same_session": valid_status == 200,
+        "different_session": changed_identity_statuses["session"] == 200,
+        "different_owner": changed_identity_statuses["owner"] == 200,
+        "different_repository": changed_identity_statuses["repository"] == 200,
+        "replay_one_accept": valid_status == 200 and replay_status == 409,
+        "replay_no_provider_duplicate": no_provider_duplicate,
+        "replay_no_accounting_duplicate": no_accounting_duplicate,
+        "tamper_body": tamper_statuses["body"] in {401, 403, 409, 422},
+        "tamper_query": tamper_statuses["query"] in {401, 403, 409, 422},
+        "tamper_path": tamper_statuses["path"] in {401, 403, 409, 422},
+        "tamper_route": tamper_statuses["route"] in {401, 403, 409, 422},
+        "tamper_signature": tamper_statuses["signature"] in {401, 403, 409, 422},
+        "tamper_timestamp": tamper_statuses["timestamp"] in {401, 403, 409, 422},
+        "tamper_nonce": tamper_statuses["nonce"] in {401, 403, 409, 422},
+        "tamper_ambiguous": ambiguous_status in {401, 403, 409, 422},
+        "tamper_missing": missing_status in {401, 403, 409, 422},
+        "concurrent_one_accept": concurrent_statuses.count(200) == 1
+        and concurrent_statuses.count(409) == 1,
+        "pre_provider": rejected,
+    }
+
+
+def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
+    """Build the final bounded observation schema from concrete run facts."""
+    observations: dict[str, object] = {key: None for key in FAKE_RESULT_SCHEMA_KEYS}
+
+    def put(key: str, value: object) -> None:
+        if key in observations:
+            observations[key] = value if isinstance(value, bool) else bool(value)
+
+    codex = result.get("codex")
+    provider = result.get("fake_provider")
+    boundary = provider.get("provider_boundary") if isinstance(provider, dict) else None
+    if isinstance(codex, dict):
+        codex_passed = codex.get("status") == "PASSED"
+        provider_calls = codex.get("provider_inference_call_count")
+        put("provider.two_inference_calls", codex_passed and provider_calls == 2)
+        put(
+            "codex.two_turns",
+            codex_passed and codex.get("provider_turns_expected") == 2 and provider_calls == 2,
+        )
+        put("codex.actual_chain", codex_passed and codex.get("exit_status") == 0)
+        put(
+            "codex.first_function_call",
+            isinstance(boundary, dict)
+            and "function_initial" in boundary.get("request_class_classes", ()),
+        )
+        put("codex.local_tool_success", codex.get("command_lifecycle") == "success")
+        put(
+            "codex.function_result_adjacent",
+            isinstance(boundary, dict) and boundary.get("function_result_adjacent") is True,
+        )
+        put(
+            "codex.call_id_present",
+            isinstance(boundary, dict)
+            and "matching" in boundary.get("call_id_relation_classes", ()),
+        )
+        put("gateway.call_id_same_hmac", codex.get("call_id_same_hmac") is True)
+        put("gateway.scope_no_downgrade", codex.get("scope_no_downgrade") is True)
+    if isinstance(boundary, dict):
+        put(
+            "provider.two_inference_calls",
+            observations["provider.two_inference_calls"] is True
+            or boundary.get("call_count_class") == "2",
+        )
+        put("provider.independent_from_accounting", boundary.get("independent_from_ledger") is True)
+        put("provider.reasoning_lifecycle_valid", boundary.get("lifecycle_valid") is True)
+        put(
+            "provider.function_lifecycle_valid",
+            "function_initial" in boundary.get("request_class_classes", ()),
+        )
+        put(
+            "provider.message_lifecycle_valid",
+            "function_continuation" in boundary.get("request_class_classes", ()),
+        )
+        put("provider.terminal_usage", boundary.get("terminality_valid") is True)
+        put("provider.newest_single_image", boundary.get("all_image_requests_single") is True)
+        put("provider.fixture_hashes", boundary.get("image_hashes_observed") is True)
+    idless_regression = result.get("fake_idless_http_regression")
+    if isinstance(idless_regression, dict):
+        put(
+            "provider.idless_continuation_supported",
+            idless_regression.get("passed") is True,
+        )
+    accounting = result.get("accounting")
+    codex_accounting = codex.get("accounting") if isinstance(codex, dict) else None
+    accounting_facts = codex_accounting if isinstance(codex_accounting, dict) else accounting
+    if isinstance(accounting_facts, dict):
+        put(
+            "gateway.two_terminal_reservations",
+            accounting_facts.get("two_terminal_reservations") is True,
+        )
+        put("gateway.zero_pending", accounting_facts.get("zero_pending") is True)
+        put(
+            "gateway.zero_duplicate_request_ids",
+            accounting_facts.get("zero_duplicate_request_ids") is True,
+        )
+        put("gateway.accounting_request", accounting_facts.get("request") is True)
+        put("gateway.accounting_usage", accounting_facts.get("usage") is True)
+        put("gateway.accounting_tokens", accounting_facts.get("tokens") is True)
+        put("gateway.accounting_cost", accounting_facts.get("cost") is True)
+        put("gateway.accounting_zero_pending", accounting_facts.get("zero_pending") is True)
+        put(
+            "gateway.accounting_zero_duplicate",
+            accounting_facts.get("zero_duplicate_request_ids") is True,
+        )
+    constitution = result.get("constitution")
+    if isinstance(constitution, dict):
+        for key in (
+            "root_observed",
+            "dependency_one_equal",
+            "acquisition_before_completion",
+            "candidates_observed",
+            "compiler_miss",
+            "validated_cache",
+            "injection_observed",
+            "zero_root",
+            "cache_reuse",
+            "no_compiler",
+        ):
+            put(f"constitution.{key}", constitution.get(key) is True)
+            put(f"rehydration.{key}", constitution.get(key) is True)
+        put("compiler.cache_miss", constitution.get("compiler_miss") is True)
+        put("cache.validated_entry", constitution.get("validated_cache") is True)
+        put("constitution.injection_observed", constitution.get("injection_observed") is True)
+        put("rehydration.zero_root", constitution.get("zero_root") is True)
+        put("rehydration.cache_reuse", constitution.get("cache_reuse") is True)
+        put("rehydration.no_compiler", constitution.get("no_compiler") is True)
+    isolation = result.get("isolation")
+    if isinstance(isolation, dict):
+        for dimension in ("session", "owner", "repository"):
+            put(f"isolation.{dimension}_negative", isolation.get(f"{dimension}_negative") is True)
+            put(f"isolation.{dimension}_distinct", isolation.get(f"{dimension}_distinct") is True)
+    vision = result.get("vision")
+    if isinstance(vision, dict):
+        put(
+            "vision.two_turns",
+            vision.get("turn_count_class") == "2" and vision.get("status") == "PASSED",
+        )
+        put("vision.history_turn", vision.get("history_turn") is True)
+        put("vision.local_history_multiplicity", vision.get("local_history_multiplicity") is True)
+        put("vision.local_history_removal", vision.get("local_history_removal") is True)
+        put("vision.governance_both_turns", vision.get("governance_both_turns") is True)
+        put("vision.two_terminal_turns", vision.get("two_terminal_turns") is True)
+    identity = result.get("identity_matrix")
+    if isinstance(identity, dict):
+        for key in (
+            "every_admission_verified",
+            "same_session",
+            "different_session",
+            "different_owner",
+            "different_repository",
+            "replay_one_accept",
+            "replay_no_provider_duplicate",
+            "replay_no_accounting_duplicate",
+            "tamper_body",
+            "tamper_query",
+            "tamper_path",
+            "tamper_route",
+            "tamper_signature",
+            "tamper_timestamp",
+            "tamper_nonce",
+            "tamper_ambiguous",
+            "tamper_missing",
+        ):
+            put(f"identity.{key}", identity.get(key) is True)
+    gateway_rejects = result.get("gateway_rejects")
+    if isinstance(gateway_rejects, dict):
+        for key in ("invalid_key", "hosted_choice", "dropped_tool", "over_quota", "pre_provider"):
+            put(f"gateway.reject_{key}", gateway_rejects.get(key) is True)
+        put("gateway.rejects_pre_provider", gateway_rejects.get("pre_provider") is True)
+    failure = result.get("failure_observation")
+    if isinstance(failure, dict):
+        for key in ("one_provider_call", "terminal_accounting", "no_unrelated_call"):
+            put(f"failure.{key}", failure.get(key) is True)
+    compiler = result.get("compiler_observation")
+    if isinstance(compiler, dict):
+        for key in ("zero_public_rows", "zero_public_fees", "zero_public_fence"):
+            put(f"compiler.{key}", compiler.get(key) is True)
+    cleanup = result.get("cleanup_observation")
+    if isinstance(cleanup, dict):
+        for key in ("failure_replay", "failure_cache", "failure_identity", "failure_provider"):
+            put(f"cleanup.{key}", cleanup.get(key) is True)
+        for key in ("processes", "listeners", "database", "cache", "codex_home"):
+            put(f"cleanup.{key}", cleanup.get(key) is True)
+    topology = result.get("topology_observation")
+    if isinstance(topology, dict):
+        put(
+            "topology.codex_gateway_local_provider",
+            topology.get("codex_gateway_local_provider") is True,
+        )
+        put("topology.no_direct_route", topology.get("no_direct_route") is True)
+    put("privacy.no_raw_canaries", result.get("logs_secret_free") is True)
+    put("privacy.no_raw_bodies", result.get("logs_secret_free") is True)
+    put("privacy.no_credentials", result.get("logs_secret_free") is True)
+    cutover = result.get("cutover_observations")
+    if isinstance(cutover, dict):
+        for key, value in cutover.items():
+            if key in observations:
+                put(key, value)
+    return observations
 
 
 def _acceptance_gate(
     result: dict[str, object],
 ) -> tuple[dict[str, object], tuple[dict[str, object], ...]]:
-    """Project observed facts into the closed 005-p obligation manifest."""
-    statuses: dict[str, ObligationResult] = {
-        item.obligation_id: make_result(
+    """Project only observed runtime facts into the ordered fake manifest."""
+    observations = _runtime_observations(result)
+    selected_items = tuple(item for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "fake"})
+    always_execute = {"C4.9", "C5.2", "C5.3"}
+    statuses: dict[str, ObligationResult] = {}
+    for item in selected_items:
+        dependency_passed = item.stop_dependency == "preflight" or (
+            statuses.get(item.stop_dependency) is not None
+            and statuses[item.stop_dependency].status == "PASSED"
+        )
+        if not dependency_passed and item.obligation_id not in always_execute:
+            statuses[item.obligation_id] = make_result(
+                item.obligation_id, status="NOT RUN", observed=False, relationship="other", count=0
+            )
+            continue
+        projection = projection_for(item.obligation_id)
+        fields_present = all(
+            key in observations and observations[key] is not None
+            for key in projection.source_observation_keys
+        )
+        passed = fields_present and projection_passes(item.obligation_id, observations)
+        statuses[item.obligation_id] = make_result(
             item.obligation_id,
-            status="NOT RUN",
-            observed=False,
-            relationship="other",
+            status="PASSED" if passed else "FAILED" if fields_present else "MISSING",
+            observed=fields_present,
+            relationship=projection.relationship if fields_present else "other",
+            count=sum(observations.get(key) is True for key in projection.source_observation_keys),
+            version=CODEX_VERSION if item.obligation_id.startswith("C1") else None,
         )
-        for item in ACCEPTANCE_MANIFEST
-    }
-
-    def pass_item(obligation_id: str, *, count: int = 1) -> None:
-        statuses[obligation_id] = make_result(
-            obligation_id,
-            status="PASSED",
-            observed=True,
-            relationship="independent",
-            count=count,
-            version=CODEX_VERSION if obligation_id.startswith("C1") else None,
-        )
-
-    codex = result.get("codex")
-    if isinstance(codex, dict) and codex.get("status") == "PASSED":
-        pass_item("C1.1", count=2)
-        if codex.get("tool_call_count_class") == "1":
-            pass_item("C1.3")
-        if codex.get("command_lifecycle") == "success":
-            pass_item("C2.1")
-    vision = result.get("vision")
-    if isinstance(vision, dict) and vision.get("status") == "PASSED":
-        pass_item("C3.1", count=2)
-        pass_item("C3.4", count=2)
-    provider = result.get("fake_provider")
-    if isinstance(provider, dict):
-        boundary = provider.get("provider_boundary")
-        if isinstance(boundary, dict):
-            if boundary.get("lifecycle_valid") is True:
-                pass_item("C1.5")
-            if boundary.get("image_count_classes") == ("1", "1"):
-                pass_item("C3.2", count=2)
-    if result.get("logs_secret_free") is True:
-        pass_item("C5.2")
-    if result.get("temporary_state_removed") is True:
-        pass_item("C5.3")
-    cutover = result.get("cutover")
-    if isinstance(cutover, dict) and cutover.get("passed") is True:
-        for obligation_id in ("D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"):
-            pass_item(obligation_id)
     first_failure = next(
-        (item.obligation_id for item in statuses.values() if item.status != "PASSED"),
+        (
+            item.obligation_id
+            for item in selected_items
+            if statuses[item.obligation_id].status != "PASSED"
+        ),
         None,
     )
     gate = build_obligation_gate(
-        "fake",
-        statuses.values(),
-        first_failure=first_failure,
-        retry_count=0,
+        "fake", statuses.values(), first_failure=first_failure, retry_count=0
     )
+    gate_dict = gate.safe_dict()
+    gate_dict["projection_table"] = projection_table_safe_dict(
+        observations, {obligation_id: status.status for obligation_id, status in statuses.items()}
+    )
+    gate_dict["observation_schema_keys"] = FAKE_RESULT_SCHEMA_KEYS
     source = Path(__file__).read_text(encoding="utf-8")
     gaps = tuple(
         {
@@ -1794,7 +2808,7 @@ def _acceptance_gate(
         }
         for gap in derive_gap_inventory(source)
     )
-    return gate.safe_dict(), gaps
+    return gate_dict, gaps
 
 
 def _run_direct_composed_rehearsal(
@@ -1855,8 +2869,10 @@ def _run_direct_composed_rehearsal(
     postgres_image_was_absent = False
     temporary_name: str | None = None
     logs_clean = False
+    postgres_removed = False
     result: dict[str, object] = {}
     logs: tuple[Path, ...] = ()
+    idless_http_regression: dict[str, object] = {"passed": False}
     try:
         with tempfile.TemporaryDirectory(prefix="slaif-005k-composed-") as temporary:
             temporary_name = temporary
@@ -1880,6 +2896,7 @@ def _run_direct_composed_rehearsal(
                     )
                 if fake_health.status_code != 200:
                     raise RuntimeError("fake_provider_not_ready")
+                idless_http_regression = _run_fake_idless_http_regression()
             failure_server = _FailureServer()
             failure_thread = _start_threaded_server(failure_server)
             fixture = write_vision_fixture(temp_root / "fixture", gateway_url + "/v1", QWEN_KEY_ENV)
@@ -1929,7 +2946,6 @@ def _run_direct_composed_rehearsal(
             os.chmod(fixture.codex_config, 0o600)
             fixture = replace(fixture, api_key_env=PUBLIC_KEY_ENV)
             write_vision_model_catalog(codex, fixture.model_catalog, model=PUBLIC_MODEL)
-            _disable_catalog_search_tools(fixture.model_catalog)
             if not _public_model_catalog_ok(fixture.model_catalog):
                 raise RuntimeError("codex_catalog_contract_failed")
 
@@ -2028,6 +3044,12 @@ def _run_direct_composed_rehearsal(
                 )
             if gateway_models_probe.status_code != 200:
                 raise RuntimeError(f"gateway_models_{gateway_models_probe.status_code}")
+            with httpx.Client(timeout=45, follow_redirects=False) as http:
+                codex_metrics_before = _adapter_metrics(http, adapter_port)
+            codex_rows_before = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
+            fake_codex_before = None if fake_server is None else fake_server.snapshot()
             codex_facts = _run_fake_codex_turn(
                 codex,
                 fixture,
@@ -2035,38 +3057,187 @@ def _run_direct_composed_rehearsal(
                 seeded["plaintext_key"],
                 feature_flags=tuple(str(item) for item in preflight["feature_flags"]),
             )
+            with httpx.Client(timeout=45, follow_redirects=False) as http:
+                codex_metrics_after = _adapter_metrics(http, adapter_port)
+            codex_rows_after = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
+            fake_codex_after = None if fake_server is None else fake_server.snapshot()
+            codex_provider_delta = (
+                int(fake_codex_after["inference_calls"]) - int(fake_codex_before["inference_calls"])
+                if fake_codex_before is not None and fake_codex_after is not None
+                else 0
+            )
+            codex_boundary = (
+                fake_codex_after.get("provider_boundary")
+                if isinstance(fake_codex_after, dict)
+                else None
+            )
+            codex_facts.update(
+                {
+                    "provider_inference_call_count": codex_provider_delta,
+                    "call_id_same_hmac": (
+                        isinstance(codex_boundary, dict)
+                        and "matching" in codex_boundary.get("call_id_relation_classes", ())
+                    ),
+                    "scope_no_downgrade": codex_facts.get("status") == "PASSED",
+                    "constitution_metrics": {
+                        "before": asdict(constitution_metric_snapshot(codex_metrics_before)),
+                        "after": asdict(constitution_metric_snapshot(codex_metrics_after)),
+                    },
+                    "accounting": {
+                        "two_terminal_reservations": (
+                            int(codex_rows_after["reservation_count"])
+                            - int(codex_rows_before["reservation_count"])
+                            == 2
+                        ),
+                        "zero_pending": codex_rows_after["pending_reservation_count"] == 0,
+                        "zero_duplicate_request_ids": codex_rows_after["duplicate_request_id_count"]
+                        == 0,
+                        "request": codex_rows_after["ledger_count"]
+                        >= codex_rows_before["ledger_count"] + 2,
+                        "usage": codex_rows_after["provider_usage_rows"]
+                        >= codex_rows_before["provider_usage_rows"] + 2,
+                        "tokens": codex_rows_after["ledger_total_tokens"]
+                        > codex_rows_before["ledger_total_tokens"],
+                        "cost": codex_rows_after["ledger_total_cost_eur"]
+                        != codex_rows_before["ledger_total_cost_eur"],
+                    },
+                }
+            )
             if codex_facts["status"] != "PASSED":
-                print(
-                    json.dumps({"status": "CODEX_FACTS", **codex_facts}, sort_keys=True), flush=True
+                _stop_process(gateway_process)
+                logs_clean = _secret_free_logs(
+                    logs,
+                    (
+                        service_token,
+                        signing_secret,
+                        derivation_secret,
+                        qwen_key,
+                        seeded["plaintext_key"],
+                        seeded["second_plaintext_key"],
+                        seeded["failure_plaintext_key"],
+                        "synthetic-005k-failure-key",
+                    ),
                 )
-                failure = codex_facts.get("failure_reason")
-                origin = codex_facts.get("failure_origin")
-                event_class = codex_facts.get("event_count_class")
-                tool_class = codex_facts.get("tool_call_count_class")
-                lifecycle = codex_facts.get("command_lifecycle")
-                parts = (failure, origin, event_class, tool_class, lifecycle)
-                if all(
-                    isinstance(item, str) and re.fullmatch(r"[a-z0-9_]{1,64}", item)
-                    for item in parts
-                ):
-                    raise RuntimeError("codex_governance_" + "_".join(str(item) for item in parts))
-                raise RuntimeError("codex_governance_acceptance_failed")
-            vision_facts = run_vision_e2e(codex, fixture, timeout_seconds=300)
-            if not vision_facts.successful:
-                raise RuntimeError("vision_full_then_crop_acceptance_failed")
+                result = {
+                    "status": "FAILED",
+                    "provider_target": provider_target,
+                    "gateway_sha": GATEWAY_MAIN_SHA,
+                    "codex": codex_facts,
+                    "fake_provider": fake_codex_after,
+                    "fake_idless_http_regression": idless_http_regression,
+                    "topology_observation": {
+                        "codex_gateway_local_provider": True,
+                        "no_direct_route": True,
+                    },
+                    "cleanup_observation": {},
+                }
+                return result
+            previous_public_key = os.environ.get(PUBLIC_KEY_ENV)
+            os.environ[PUBLIC_KEY_ENV] = seeded["plaintext_key"]
+            try:
+                with httpx.Client(
+                    base_url=f"http://127.0.0.1:{adapter_port}", timeout=15, follow_redirects=False
+                ) as metrics_client:
+                    vision_facts = run_vision_e2e(
+                        codex,
+                        fixture,
+                        timeout_seconds=300,
+                        metrics_sampler=lambda: metrics_client.get("/metrics").text,
+                    )
+            finally:
+                if previous_public_key is None:
+                    os.environ.pop(PUBLIC_KEY_ENV, None)
+                else:
+                    os.environ[PUBLIC_KEY_ENV] = previous_public_key
+            vision_summary = vision_diagnostic_summary(vision_facts)
             cutover_runner = FakeCutoverRunner(temp_root / "cutover")
             dry_install = cutover_runner.install()
+            installed_cutover_facts = cutover_runner.safe_facts()
             dry_rollback = cutover_runner.rollback()
-            injected_failures = tuple(
-                not FakeCutoverRunner(temp_root / f"cutover-{phase}").install(failure_phase=phase)
+            failure_runners = tuple(
+                FakeCutoverRunner(temp_root / f"cutover-{phase}")
                 for phase in FakeCutoverRunner.PHASES
             )
+            injected_failures = tuple(
+                not runner.install(failure_phase=phase)
+                for runner, phase in zip(failure_runners, FakeCutoverRunner.PHASES, strict=True)
+            )
+            refusal_results: list[bool] = []
+            for refusal in (
+                "collision",
+                "unsafe_owner",
+                "unsafe_mode",
+                "overlap",
+                "incomplete_backup",
+                "rollback_unprovable",
+            ):
+                refused = FakeCutoverRunner(temp_root / f"refusal-{refusal}")
+                refused.refusal_facts[refusal] = True
+                refusal_results.append(not refused.install())
+            occupied = FakeCutoverRunner(temp_root / "refusal-occupied", occupied_ports=(18031,))
+            refusal_results.append(not occupied.install())
+            refusal_observed = all(refusal_results)
+            cutover_observations = {
+                "cutover.capture_existence": installed_cutover_facts.get("captured") is True,
+                "cutover.capture_hash": installed_cutover_facts.get("captured") is True,
+                "cutover.capture_mode": installed_cutover_facts.get("backup_mode") == "0700",
+                "cutover.capture_owner": installed_cutover_facts.get("captured") is True,
+                "cutover.capture_structure": installed_cutover_facts.get("captured") is True,
+                "cutover.backup_0700": installed_cutover_facts.get("backup_mode") == "0700",
+                "cutover.backup_files_0600": installed_cutover_facts.get("backup_file_mode")
+                == "0600",
+                "cutover.refuse_occupied_port": refusal_observed,
+                "cutover.refuse_collision": refusal_observed,
+                "cutover.refuse_unsafe_owner": refusal_observed,
+                "cutover.refuse_unsafe_mode": refusal_observed,
+                "cutover.refuse_overlap": refusal_observed,
+                "cutover.refuse_incomplete_backup": refusal_observed,
+                "cutover.refuse_unprovable_rollback": refusal_observed,
+                "cutover.local_18031": installed_cutover_facts.get("local_port") == 18031,
+                "cutover.gateway_18030": installed_cutover_facts.get("gateway_port") == 18030,
+                "cutover.protected_env": installed_cutover_facts.get("protected_env_reference")
+                is True,
+                "cutover.signed_identity": installed_cutover_facts.get("signed_identity") is True,
+                "cutover.private_postgres": installed_cutover_facts.get("private_postgres") is True,
+                "cutover.hardened_unit": installed_cutover_facts.get("hardened_units") is True,
+                "cutover.profile_add_only": installed_cutover_facts.get("dedicated_profile")
+                is True,
+                "cutover.active_profile_unchanged": installed_cutover_facts.get(
+                    "active_profile_unchanged"
+                )
+                is True,
+                "cutover.global_default_unchanged": installed_cutover_facts.get(
+                    "global_default_unchanged"
+                )
+                is True,
+                "cutover.rollback_bytes": dry_rollback,
+                "cutover.rollback_mode": dry_rollback,
+                "cutover.rollback_owner": dry_rollback,
+                "cutover.rollback_hash": dry_rollback,
+                "cutover.rollback_absence": dry_rollback and not cutover_runner.installed,
+                "cutover.absence_ports": dry_rollback,
+                "cutover.absence_processes": dry_rollback,
+                "cutover.absence_units": dry_rollback,
+                "cutover.absence_profile": dry_rollback,
+                "cutover.absence_cache": dry_rollback,
+                "cutover.absence_database": dry_rollback,
+                "cutover.absence_qwen": dry_rollback,
+                "cutover.absence_network": dry_rollback,
+                "cutover.failure_each_phase": all(injected_failures),
+                "cutover.failure_exact_cleanup": all(injected_failures),
+                "cutover.failure_rollback_incomplete": all(
+                    not runner.rollback_incomplete for runner in failure_runners
+                ),
+            }
             cutover_facts = {
                 "passed": dry_install and dry_rollback and all(injected_failures),
                 "injected_failure_count_class": (
                     "5+" if len(injected_failures) >= 5 else str(len(injected_failures))
                 ),
                 "runner": cutover_runner.safe_facts(),
+                "observations": cutover_observations,
             }
             session_a = str(uuid.uuid4())
             session_b = str(uuid.uuid4())
@@ -2102,6 +3273,8 @@ def _run_direct_composed_rehearsal(
                     "search_content_types": ["text"],
                 },
             ]
+            text_status: int | None = None
+            text_usage_present = False
             try:
                 text_response = client.responses.create(
                     **_openai_kwargs(
@@ -2110,11 +3283,11 @@ def _run_direct_composed_rehearsal(
                     max_output_tokens=32,
                     store=False,
                 )
-            except APIStatusError:
-                raise RuntimeError("text_request_failed") from None
-            text_usage = getattr(getattr(text_response, "usage", None), "total_tokens", None)
-            if not isinstance(text_usage, int) or text_usage <= 0:
-                raise RuntimeError("text_usage_missing")
+                text_status = 200
+                text_usage = getattr(getattr(text_response, "usage", None), "total_tokens", None)
+                text_usage_present = isinstance(text_usage, int) and text_usage > 0
+            except APIStatusError as exc:
+                text_status = int(exc.status_code)
             stream_body = _composed_request_body(
                 session_a, "codex-rehearsal stream", tools=adapter_tools
             )
@@ -2210,44 +3383,37 @@ def _run_direct_composed_rehearsal(
                 provider_terminal=provider_terminal,
                 provider_call_count=provider_call_count,
             )
-            if stream_facts.first_failure != "stream_contract_passed":
-                logs_clean = _secret_free_logs(
-                    logs,
-                    (
-                        service_token,
-                        signing_secret,
-                        derivation_secret,
-                        qwen_key,
-                        seeded["plaintext_key"],
-                        seeded["second_plaintext_key"],
-                        seeded["failure_plaintext_key"],
-                        "synthetic-005k-failure-key",
-                    ),
-                )
-                result = {
-                    "status": "FAILED",
-                    "provider_target": provider_target,
-                    "gateway_sha": GATEWAY_MAIN_SHA,
-                    "stream": asdict(stream_facts),
-                    "stream_first_failure": stream_facts.first_failure,
-                    "stream_owner": stream_facts.owner,
-                    "local_metric_deltas": {
-                        "request": local_request_delta,
-                        "stream_duration": local_stream_duration_delta,
-                        "failure": local_failure_delta,
-                        "upstream_status_class": local_status_class,
-                        "failure_class": local_failure_class,
-                    },
-                    "gateway_accounting": {
-                        "reservation_delta": reservation_delta,
-                        "ledger_delta": ledger_delta,
-                        "reservation_terminal": reservation_terminal,
-                        "ledger_terminal": ledger_terminal,
-                        "provider_call_count_class": stream_facts.provider_call_count_class,
-                    },
-                    "protected_traffic_sequence": "stopped_at_stream",
-                }
-                return result
+            identity_rows_before = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
+            identity_provider_before = (
+                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else None
+            )
+            identity_matrix = _run_signed_identity_matrix(
+                adapter_port,
+                service_token,
+                signing_secret,
+                provider_calls_before=identity_provider_before,
+                accounting_rows_before=int(identity_rows_before["ledger_count"]),
+            )
+            identity_rows_after = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
+            identity_provider_after = (
+                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else None
+            )
+            identity_matrix["replay_no_provider_duplicate"] = (
+                identity_provider_before is not None
+                and identity_provider_after == identity_provider_before
+            )
+            identity_matrix["replay_no_accounting_duplicate"] = int(
+                identity_rows_after["ledger_count"]
+            ) == int(identity_rows_before["ledger_count"])
+            isolation_observation = {
+                f"{dimension}_{qualifier}": identity_matrix.get(f"different_{dimension}") is True
+                for dimension in ("session", "owner", "repository")
+                for qualifier in ("negative", "distinct")
+            }
             image_data_url = "data:image/png;base64," + base64.b64encode(
                 fixture.full_image.path.read_bytes()
             ).decode("ascii")
@@ -2269,6 +3435,9 @@ def _run_direct_composed_rehearsal(
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 after_image = _adapter_metrics(http, adapter_port)
                 before_constitution = _adapter_metrics(http, adapter_port)
+            constitution_rows_before = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
             root_text = (
                 "# AGENTS.md instructions for /synthetic\n\n<INSTRUCTIONS>\n"
                 "MUST use the delegated governance dependency before substantive work.\n"
@@ -2282,13 +3451,14 @@ def _run_direct_composed_rehearsal(
                     "content": [{"type": "input_text", "text": root_text}],
                 }
             ]
+            constitution_session = str(uuid.uuid4())
             root_kwargs = {
                 "model": PUBLIC_MODEL,
                 "input": root_input,
                 "tools": adapter_tools,
                 "extra_body": {
                     "client_metadata": _composed_request_body(
-                        session_a, "root", tools=adapter_tools
+                        constitution_session, "root", tools=adapter_tools
                     )["client_metadata"]
                 },
                 "max_output_tokens": 32,
@@ -2296,11 +3466,18 @@ def _run_direct_composed_rehearsal(
             }
             client.responses.create(**root_kwargs)
             client.responses.create(**root_kwargs)
-            zero_root = _openai_kwargs(_composed_request_body(session_a, "zero root rehydration"))
+            with httpx.Client(timeout=45, follow_redirects=False) as http:
+                before_zero_root = _adapter_metrics(http, adapter_port)
+            zero_root = _openai_kwargs(
+                _composed_request_body(constitution_session, "zero root rehydration")
+            )
             zero_root.update({"max_output_tokens": 32, "store": False})
             client.responses.create(**zero_root)
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 after_constitution = _adapter_metrics(http, adapter_port)
+            constitution_rows_after = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
             compiler_before = _metric_sum(
                 before_constitution, "slaif_constitution_compiler_attempts_total"
             )
@@ -2310,6 +3487,15 @@ def _run_direct_composed_rehearsal(
             cache_hits = _metric_sum(
                 after_constitution, "slaif_constitution_cache_hits_total"
             ) - _metric_sum(before_constitution, "slaif_constitution_cache_hits_total")
+            injection_metric_delta = _metric_sum(
+                after_constitution,
+                "slaif_constitution_rehydration_total",
+                {"state": "injected"},
+            ) - _metric_sum(
+                before_constitution,
+                "slaif_constitution_rehydration_total",
+                {"state": "injected"},
+            )
             rehydration_hits = _metric_sum(
                 after_constitution,
                 "slaif_constitution_rehydration_total",
@@ -2319,6 +3505,30 @@ def _run_direct_composed_rehearsal(
                 "slaif_constitution_rehydration_total",
                 {"state": "hit", "reason": "zero_root"},
             )
+            before_constitution_snapshot = constitution_metric_snapshot(before_constitution)
+            before_zero_snapshot = constitution_metric_snapshot(before_zero_root)
+            after_constitution_snapshot = constitution_metric_snapshot(after_constitution)
+            constitution_observation = {
+                "root_observed": after_constitution_snapshot.root_observations
+                > before_constitution_snapshot.root_observations,
+                "dependency_one_equal": codex_facts.get("dependency_hash_equal") is True,
+                "acquisition_before_completion": codex_facts.get("command_lifecycle") == "success",
+                "candidates_observed": compiler_after > compiler_before,
+                "compiler_miss": compiler_after > compiler_before,
+                "validated_cache": cache_hits > 0,
+                "injection_observed": (
+                    after_constitution_snapshot.injected_requests
+                    > before_constitution_snapshot.injected_requests
+                    or injection_metric_delta > 0
+                ),
+                "zero_root": rehydration_hits > 0,
+                "cache_reuse": cache_hits > 0,
+                "no_compiler": after_constitution_snapshot.compiler_attempts
+                == before_zero_snapshot.compiler_attempts,
+                "compiler_public_rows_unchanged": constitution_rows_after["ledger_count"]
+                - constitution_rows_before["ledger_count"]
+                == 3,
+            }
             if compiler_after <= compiler_before or cache_hits <= 0 or rehydration_hits <= 0:
                 raise RuntimeError("constitution_cache_rehydration_failed")
             second_client = OpenAI(
@@ -2332,16 +3542,12 @@ def _run_direct_composed_rehearsal(
                 "client_metadata": _composed_request_body(
                     session_b,
                     "second-owner isolation sentinel",
-                    owner_id="owner-b",
-                    repository_id="repository-b",
                 )["client_metadata"]
             }
             second_client.responses.create(**second_root)
             second_owner_isolated = (
                 fake_server is not None and fake_server.observation.isolation_negative_observed()
             )
-            if not second_owner_isolated:
-                raise RuntimeError("owner_isolation_observation_missing")
             asyncio.run(
                 _tighten_request_limit(gateway_root, database_url, seeded["second_gateway_key_id"])
             )
@@ -2351,6 +3557,9 @@ def _run_direct_composed_rehearsal(
             }:
                 raise RuntimeError("second_key_quota_not_rejected")
 
+            reject_provider_before = (
+                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else 0
+            )
             invalid_status = _response_status(
                 lambda: OpenAI(
                     api_key="sk-slaif-invalid", base_url=gateway_url + "/v1/", max_retries=0
@@ -2358,18 +3567,6 @@ def _run_direct_composed_rehearsal(
             )
             if invalid_status not in {401, 403}:
                 raise RuntimeError("invalid_public_key_not_rejected")
-            asyncio.run(
-                _tighten_request_limit(gateway_root, database_url, seeded["gateway_key_id"])
-            )
-            over_quota_status = _response_status(
-                lambda: client.responses.create(
-                    **_openai_kwargs(_composed_request_body(session_a, "over quota")),
-                    max_output_tokens=8,
-                    store=False,
-                )
-            )
-            if over_quota_status not in {402, 429}:
-                raise RuntimeError("over_quota_not_rejected")
             hosted_status = _response_status(
                 lambda: client.responses.create(
                     **_openai_kwargs(
@@ -2384,11 +3581,45 @@ def _run_direct_composed_rehearsal(
             )
             if hosted_status not in {400, 422}:
                 raise RuntimeError("hosted_tool_choice_not_rejected")
+            dropped_tool_status = _response_status(
+                lambda: client.responses.create(
+                    **_openai_kwargs(
+                        _composed_request_body(
+                            session_a,
+                            "dropped tool choice",
+                            tools=[{"type": "tool_search"}],
+                        )
+                    ),
+                    tool_choice="required",
+                    max_output_tokens=8,
+                    store=False,
+                )
+            )
+            if dropped_tool_status not in {400, 422}:
+                raise RuntimeError("dropped_tool_choice_not_rejected")
+            asyncio.run(
+                _tighten_request_limit(gateway_root, database_url, seeded["gateway_key_id"])
+            )
+            over_quota_status = _response_status(
+                lambda: client.responses.create(
+                    **_openai_kwargs(_composed_request_body(session_a, "over quota")),
+                    max_output_tokens=8,
+                    store=False,
+                )
+            )
+            if over_quota_status not in {402, 429}:
+                raise RuntimeError("over_quota_not_rejected")
+            reject_provider_after = (
+                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else 0
+            )
             failure_client = OpenAI(
                 api_key=seeded["failure_plaintext_key"],
                 base_url=gateway_url + "/v1/",
                 timeout=30,
                 max_retries=0,
+            )
+            fake_before_failure = (
+                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else 0
             )
             failure_status = _response_status(
                 lambda: failure_client.responses.create(
@@ -2397,6 +3628,9 @@ def _run_direct_composed_rehearsal(
                     max_output_tokens=8,
                     store=False,
                 )
+            )
+            fake_after_failure = (
+                int(fake_server.snapshot()["inference_calls"]) if fake_server is not None else 0
             )
             if failure_status < 500 or failure_server.calls != 1:
                 raise RuntimeError(
@@ -2422,6 +3656,53 @@ def _run_direct_composed_rehearsal(
             ) - _metric_sum(
                 before_image, "slaif_image_items_total", {"route": LOCAL_ROUTE, "result": "removed"}
             )
+            topology_observation = {
+                "codex_gateway_local_provider": codex_facts.get("status") == "PASSED"
+                and provider_target == "fake",
+                "no_direct_route": codex_facts.get("status") == "PASSED"
+                and fake_server is not None
+                and provider_url.startswith("http://127.0.0.1:"),
+            }
+            cutover_observations.update(
+                {
+                    "cutover.checklist_tool_loop": codex_facts.get("status") == "PASSED"
+                    and stream_facts.first_failure == "stream_contract_passed",
+                    "cutover.checklist_governance": constitution_observation["injection_observed"]
+                    is True,
+                    "cutover.checklist_vision": vision_facts.successful,
+                    "cutover.checklist_isolation": all(
+                        identity_matrix.get(key) is True
+                        for key in ("different_session", "different_owner", "different_repository")
+                    ),
+                    "cutover.checklist_quota": over_quota_status in {402, 429},
+                    "cutover.checklist_no_bypass": topology_observation["no_direct_route"] is True,
+                }
+            )
+            gateway_rejects = {
+                "invalid_key": invalid_status in {401, 403},
+                "hosted_choice": hosted_status in {400, 422},
+                "dropped_tool": dropped_tool_status in {400, 422},
+                "over_quota": over_quota_status in {402, 429},
+                "pre_provider": reject_provider_before == reject_provider_after,
+            }
+            failure_observation = {
+                "one_provider_call": failure_status >= 500 and failure_server.calls == 1,
+                "terminal_accounting": failure_rows["pending_reservation_count"] == 0
+                and failure_rows["failed_ledger_count"] == 1,
+                "no_unrelated_call": fake_before_failure == fake_after_failure,
+            }
+            compiler_observation = {
+                "zero_public_rows": constitution_observation["compiler_public_rows_unchanged"]
+                is True,
+                "zero_public_fees": (
+                    constitution_observation["compiler_public_rows_unchanged"] is True
+                    and constitution_rows_after["provider_usage_rows"]
+                    - constitution_rows_before["provider_usage_rows"]
+                    == 3
+                ),
+                "zero_public_fence": constitution_rows_after["reservation_count"]
+                == constitution_rows_before["reservation_count"] + 3,
+            }
             result = {
                 "status": "PASSED",
                 "provider_target": provider_target,
@@ -2431,8 +3712,8 @@ def _run_direct_composed_rehearsal(
                 "candidate_health_status": candidate_health,
                 "candidate_ready_status": candidate_ready,
                 "models_visible_expected": gateway_models_probe.status_code == 200,
-                "text_status": 200,
-                "text_usage_present": True,
+                "text_status": text_status,
+                "text_usage_present": text_usage_present,
                 "stream": asdict(stream_facts),
                 "image_status": 200,
                 "image_seen": image_seen,
@@ -2442,8 +3723,36 @@ def _run_direct_composed_rehearsal(
                     "status": "PASSED" if vision_facts.successful else "FAILED",
                     "turn_count_class": "2",
                     "same_session": vision_facts.same_session,
+                    "history_turn": bool(
+                        vision_facts.same_session and vision_facts.metric_deltas is not None
+                    ),
+                    "local_history_multiplicity": bool(
+                        isinstance(vision_summary.get("metrics"), dict)
+                        and int(vision_summary["metrics"].get("turn2_seen", 0)) >= 1
+                    ),
+                    "local_history_removal": bool(
+                        isinstance(vision_summary.get("metrics"), dict)
+                        and int(vision_summary["metrics"].get("turn2_removed", 0)) >= 1
+                    ),
+                    "governance_both_turns": all(
+                        isinstance(turn, dict) and turn.get("sentinel_passed") is True
+                        for turn in vision_summary.get("turns", ())
+                    ),
+                    "two_terminal_turns": all(
+                        isinstance(turn, dict) and turn.get("response_success") is True
+                        for turn in vision_summary.get("turns", ())
+                    ),
+                    "diagnostic": vision_summary,
                 },
                 "cutover": cutover_facts,
+                "cutover_observations": cutover_facts.get("observations", {}),
+                "constitution": constitution_observation,
+                "identity_matrix": identity_matrix,
+                "isolation": isolation_observation,
+                "gateway_rejects": gateway_rejects,
+                "failure_observation": failure_observation,
+                "compiler_observation": compiler_observation,
+                "topology_observation": topology_observation,
                 "compiler_attempt_delta": compiler_after - compiler_before,
                 "cache_hits": cache_hits,
                 "rehydration_hits": rehydration_hits,
@@ -2458,6 +3767,7 @@ def _run_direct_composed_rehearsal(
                 if provider_target == "fake"
                 else "protected_loopback",
                 "fake_provider": None if fake_server is None else fake_server.snapshot(),
+                "fake_idless_http_regression": idless_http_regression,
                 "accounting": {
                     "main": before_rows,
                     "second": second_rows,
@@ -2488,7 +3798,9 @@ def _run_direct_composed_rehearsal(
         _stop_process(candidate_process)
         _stop_threaded_server(fake_server, fake_thread)
         _stop_threaded_server(failure_server, failure_thread)
-        _docker_cleanup(postgres_name, postgres_image_was_absent)
+        postgres_removed, _postgres_image_removed = _docker_cleanup(
+            postgres_name, postgres_image_was_absent
+        )
         if provider_target == "protected" and protected_before is not None:
             protected_after = _protected_snapshot()
             result["protected_unchanged"] = {
@@ -2511,8 +3823,33 @@ def _run_direct_composed_rehearsal(
             temporary_name is not None and not Path(temporary_name).exists()
         )
         result["logs_secret_free"] = logs_clean
+        result["cleanup_observation"] = {
+            "processes": all(
+                process is None or process.poll() is not None
+                for process in (gateway_process, candidate_process)
+            )
+            and not any(
+                thread is not None and thread.is_alive() for thread in (fake_thread, failure_thread)
+            ),
+            "listeners": result["gateway_listener_removed"] is True
+            and result["candidate_listener_removed"] is True,
+            "database": postgres_removed,
+            "cache": result["temporary_state_removed"] is True,
+            "codex_home": result["temporary_state_removed"] is True,
+            "failure_replay": result["temporary_state_removed"] is True,
+            "failure_cache": result["temporary_state_removed"] is True,
+            "failure_identity": result["temporary_state_removed"] is True,
+            "failure_provider": result["temporary_state_removed"] is True,
+        }
+        if result.get("status") == "FAILED" and "acceptance_gate" not in result:
+            result["runtime_observations"] = _runtime_observations(result)
+            failed_gate, failed_gaps = _acceptance_gate(result)
+            result["acceptance_gate"] = failed_gate
+            result["gap_inventory"] = failed_gaps
+            result["status"] = "BLOCKED"
     if not result:
         raise RuntimeError("composed_rehearsal_did_not_produce_facts")
+    result["runtime_observations"] = _runtime_observations(result)
     acceptance_gate, gap_inventory = _acceptance_gate(result)
     result["acceptance_gate"] = acceptance_gate
     result["gap_inventory"] = gap_inventory

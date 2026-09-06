@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any
 
+import httpx
 import pytest
 
+from scripts.gateway_accounting_rehearsal import _FakeQwenServer
 from scripts.local_qwen_provider_differential import SSEFacts
 from tests.helpers.gateway_accounting_rehearsal import (
     STREAM_FAILURE_ORDER,
@@ -331,3 +334,96 @@ def test_005o_bounded_snapshot_is_unresolved_without_provider_lifecycle() -> Non
     assert facts.owner == "gateway_rejected_stream_owner_unresolved"
     assert facts.error_field_names == ("code", "type")
     assert facts.error_code_class == "unknown"
+
+
+def test_strict_fake_function_stream_works_through_loopback_http() -> None:
+    server = _FakeQwenServer("synthetic-http-token")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/v1/responses"
+        initial = {
+            "model": "qwen3.8-27b",
+            "stream": True,
+            "input": [{"type": "message", "role": "user", "content": []}],
+            "tools": [{"type": "function", "name": "shell_command"}],
+        }
+        continuation = {
+            "model": "qwen3.8-27b",
+            "stream": True,
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "call_id": "call_synthetic",
+                    "output": "synthetic-result",
+                }
+            ],
+        }
+        with httpx.Client(timeout=5) as client:
+            first = client.post(
+                url, json=initial, headers={"Authorization": "Bearer synthetic-http-token"}
+            )
+            second = client.post(
+                url, json=continuation, headers={"Authorization": "Bearer synthetic-http-token"}
+            )
+            identified_continuation = dict(continuation)
+            identified_continuation["input"] = [
+                {
+                    "type": "function_call_output",
+                    "id": "parser_function_1",
+                    "call_id": "call_synthetic",
+                    "output": "synthetic-result",
+                }
+            ]
+            identified = client.post(
+                url,
+                json=identified_continuation,
+                headers={"Authorization": "Bearer synthetic-http-token"},
+            )
+            malformed = dict(continuation)
+            malformed["input"] = [
+                {
+                    "type": "function_call_output",
+                    "call_id": "wrong-call",
+                    "output": "synthetic-result",
+                }
+            ]
+            rejected = client.post(
+                url, json=malformed, headers={"Authorization": "Bearer synthetic-http-token"}
+            )
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert identified.status_code == 200
+        assert rejected.status_code == 502
+        for response in (first, second, identified):
+            frames = response.content.split(b"\n\n")
+            assert frames[-1] == b""
+            frames = frames[:-1]
+            lines = [line for frame in frames for line in frame.splitlines()]
+            assert len(lines) == len(frames) * 2
+            event_types = [
+                lines[index][len(b"event: ") :].decode("ascii") for index in range(0, len(lines), 2)
+            ]
+            payloads = [
+                json.loads(lines[index + 1][len(b"data: ") :]) for index in range(0, len(lines), 2)
+            ]
+            assert all(lines[index].startswith(b"event: ") for index in range(0, len(lines), 2))
+            assert all(lines[index + 1].startswith(b"data: ") for index in range(0, len(lines), 2))
+            assert event_types[-1] == "response.completed"
+            assert [payload["sequence_number"] for payload in payloads] == list(
+                range(len(payloads))
+            )
+        snapshot = server.snapshot()
+        boundary = snapshot["provider_boundary"]
+        assert snapshot["inference_calls"] == 3
+        assert boundary["lifecycle_valid"] is True
+        assert boundary["function_result_adjacent"] is True
+        assert "function_initial" in boundary["request_class_classes"]
+        assert "function_continuation" in boundary["request_class_classes"]
+        assert "omitted" in boundary["item_id_presence_classes"]
+        assert "matching" in boundary["call_id_relation_classes"]
+        assert boundary["terminality_valid"] is True
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

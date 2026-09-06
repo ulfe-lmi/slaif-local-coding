@@ -411,6 +411,408 @@ ACCEPTANCE_MANIFEST: tuple[AcceptanceObligation, ...] = (
 
 
 @dataclass(frozen=True)
+class ObligationProjection:
+    """The independently observed runtime fields that prove one obligation."""
+
+    obligation_id: str
+    source_observation_keys: tuple[str, ...]
+    producer: str
+    proving_test_node_ids: tuple[str, str]
+    relationship: Relationship = "independent"
+
+
+# This table is deliberately explicit and ordered with the manifest.  The
+# runner may only promote a result from these observations; adding a manifest
+# item without adding its projection is a contract error.
+FAKE_PROJECTION_TABLE: tuple[ObligationProjection, ...] = (
+    ObligationProjection(
+        "C1.1",
+        ("codex.two_turns", "codex.actual_chain"),
+        "_run_fake_codex_turn",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C1.2",
+        ("provider.two_inference_calls", "provider.independent_from_accounting"),
+        "StrictFakeQwenObservation.snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C1.3",
+        ("codex.first_function_call", "codex.local_tool_success", "codex.function_result_adjacent"),
+        "_run_fake_codex_turn",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C1.4",
+        (
+            "provider.idless_continuation_supported",
+            "codex.call_id_present",
+            "gateway.call_id_same_hmac",
+            "gateway.scope_no_downgrade",
+        ),
+        "_run_fake_idless_http_regression + _run_fake_codex_turn",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C1.5",
+        (
+            "provider.reasoning_lifecycle_valid",
+            "provider.function_lifecycle_valid",
+            "provider.message_lifecycle_valid",
+            "provider.terminal_usage",
+        ),
+        "StrictFakeQwenObservation.snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C1.6",
+        (
+            "gateway.two_terminal_reservations",
+            "gateway.zero_pending",
+            "gateway.zero_duplicate_request_ids",
+        ),
+        "_db_snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C2.1",
+        (
+            "constitution.root_observed",
+            "constitution.dependency_one_equal",
+            "constitution.acquisition_before_completion",
+        ),
+        "constitution_metric_snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+        "equal",
+    ),
+    ObligationProjection(
+        "C2.2",
+        (
+            "constitution.candidates_observed",
+            "compiler.cache_miss",
+            "cache.validated_entry",
+            "constitution.injection_observed",
+        ),
+        "constitution_metric_snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C2.3",
+        ("rehydration.zero_root", "rehydration.cache_reuse", "rehydration.no_compiler"),
+        "constitution_metric_snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C2.4",
+        ("isolation.session_negative", "isolation.session_distinct"),
+        "StrictFakeQwenObservation.isolation_negative_observed",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C2.5",
+        ("isolation.owner_negative", "isolation.owner_distinct"),
+        "StrictFakeQwenObservation.isolation_negative_observed",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C2.6",
+        ("isolation.repository_negative", "isolation.repository_distinct"),
+        "StrictFakeQwenObservation.isolation_negative_observed",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C3.1",
+        ("vision.two_turns", "vision.history_turn"),
+        "run_vision_e2e",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C3.2",
+        ("provider.newest_single_image", "provider.fixture_hashes"),
+        "StrictFakeQwenObservation.snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+        "subset",
+    ),
+    ObligationProjection(
+        "C3.3",
+        ("vision.local_history_multiplicity", "vision.local_history_removal"),
+        "run_vision_e2e",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C3.4",
+        ("vision.governance_both_turns", "vision.two_terminal_turns"),
+        "run_vision_e2e",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.1",
+        ("identity.every_admission_verified",),
+        "gateway_identity_v1",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.2",
+        (
+            "identity.same_session",
+            "identity.different_session",
+            "identity.different_owner",
+            "identity.different_repository",
+        ),
+        "gateway_identity_v1",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.3",
+        (
+            "identity.replay_one_accept",
+            "identity.replay_no_provider_duplicate",
+            "identity.replay_no_accounting_duplicate",
+        ),
+        "gateway_identity_v1",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.4",
+        (
+            "identity.tamper_body",
+            "identity.tamper_query",
+            "identity.tamper_path",
+            "identity.tamper_route",
+            "identity.tamper_signature",
+            "identity.tamper_timestamp",
+            "identity.tamper_nonce",
+            "identity.tamper_ambiguous",
+            "identity.tamper_missing",
+        ),
+        "evaluate_tamper_matrix",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.5",
+        (
+            "gateway.reject_invalid_key",
+            "gateway.reject_hosted_choice",
+            "gateway.reject_dropped_tool",
+            "gateway.reject_over_quota",
+            "gateway.rejects_pre_provider",
+        ),
+        "_response_status",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.6",
+        ("failure.one_provider_call", "failure.terminal_accounting", "failure.no_unrelated_call"),
+        "_FailureServer",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.7",
+        (
+            "gateway.accounting_request",
+            "gateway.accounting_usage",
+            "gateway.accounting_tokens",
+            "gateway.accounting_cost",
+            "gateway.accounting_zero_pending",
+            "gateway.accounting_zero_duplicate",
+        ),
+        "_db_snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.8",
+        ("compiler.zero_public_rows", "compiler.zero_public_fees", "compiler.zero_public_fence"),
+        "constitution_metric_snapshot",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C4.9",
+        (
+            "cleanup.failure_replay",
+            "cleanup.failure_cache",
+            "cleanup.failure_identity",
+            "cleanup.failure_provider",
+        ),
+        "_run_direct_composed_rehearsal",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C5.1",
+        ("topology.codex_gateway_local_provider", "topology.no_direct_route"),
+        "_run_direct_composed_rehearsal",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C5.2",
+        ("privacy.no_raw_canaries", "privacy.no_raw_bodies", "privacy.no_credentials"),
+        "_secret_free_logs",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "C5.3",
+        (
+            "cleanup.processes",
+            "cleanup.listeners",
+            "cleanup.database",
+            "cleanup.cache",
+            "cleanup.codex_home",
+        ),
+        "_run_direct_composed_rehearsal",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D1",
+        (
+            "cutover.capture_existence",
+            "cutover.capture_hash",
+            "cutover.capture_mode",
+            "cutover.capture_owner",
+            "cutover.capture_structure",
+        ),
+        "FakeCutoverRunner.capture",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D2",
+        ("cutover.backup_0700", "cutover.backup_files_0600"),
+        "FakeCutoverRunner.install",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D3",
+        (
+            "cutover.refuse_occupied_port",
+            "cutover.refuse_collision",
+            "cutover.refuse_unsafe_owner",
+            "cutover.refuse_unsafe_mode",
+            "cutover.refuse_overlap",
+            "cutover.refuse_incomplete_backup",
+            "cutover.refuse_unprovable_rollback",
+        ),
+        "FakeCutoverRunner.install",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D4",
+        (
+            "cutover.local_18031",
+            "cutover.gateway_18030",
+            "cutover.protected_env",
+            "cutover.signed_identity",
+            "cutover.private_postgres",
+            "cutover.hardened_unit",
+        ),
+        "FakeCutoverRunner.safe_facts",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D5",
+        (
+            "cutover.profile_add_only",
+            "cutover.active_profile_unchanged",
+            "cutover.global_default_unchanged",
+        ),
+        "FakeCutoverRunner.safe_facts",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D6",
+        (
+            "cutover.checklist_tool_loop",
+            "cutover.checklist_governance",
+            "cutover.checklist_vision",
+            "cutover.checklist_isolation",
+            "cutover.checklist_quota",
+            "cutover.checklist_no_bypass",
+        ),
+        "FakeCutoverRunner.safe_facts",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D7",
+        (
+            "cutover.rollback_bytes",
+            "cutover.rollback_mode",
+            "cutover.rollback_owner",
+            "cutover.rollback_hash",
+            "cutover.rollback_absence",
+        ),
+        "FakeCutoverRunner.rollback",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D8",
+        (
+            "cutover.absence_ports",
+            "cutover.absence_processes",
+            "cutover.absence_units",
+            "cutover.absence_profile",
+            "cutover.absence_cache",
+            "cutover.absence_database",
+            "cutover.absence_qwen",
+            "cutover.absence_network",
+        ),
+        "FakeCutoverRunner.safe_facts",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+    ObligationProjection(
+        "D9",
+        (
+            "cutover.failure_each_phase",
+            "cutover.failure_exact_cleanup",
+            "cutover.failure_rollback_incomplete",
+        ),
+        "FakeCutoverRunner.install",
+        ("test_projection_positive", "test_projection_negative"),
+    ),
+)
+
+FAKE_MANIFEST_IDS: tuple[str, ...] = tuple(
+    item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "fake"}
+)
+FAKE_PROJECTION_IDS: tuple[str, ...] = tuple(item.obligation_id for item in FAKE_PROJECTION_TABLE)
+FAKE_RESULT_SCHEMA_KEYS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        key for projection in FAKE_PROJECTION_TABLE for key in projection.source_observation_keys
+    )
+)
+
+
+def projection_for(obligation_id: str) -> ObligationProjection:
+    """Resolve one explicit projection without accepting unknown IDs."""
+    for projection in FAKE_PROJECTION_TABLE:
+        if projection.obligation_id == obligation_id:
+            return projection
+    raise KeyError("unknown_obligation_projection")
+
+
+def projection_passes(obligation_id: str, observations: Mapping[str, object]) -> bool:
+    """Return true only when every declared independent observation is true."""
+    projection = projection_for(obligation_id)
+    return all(observations.get(key) is True for key in projection.source_observation_keys)
+
+
+def projection_table_safe_dict(
+    observations: Mapping[str, object], statuses: Mapping[str, str]
+) -> tuple[dict[str, object], ...]:
+    """Create the bounded machine projection table for one runner execution."""
+    return tuple(
+        {
+            "obligation_id": projection.obligation_id,
+            "source_observation_keys": projection.source_observation_keys,
+            "producer": projection.producer,
+            "proving_test_node_ids": projection.proving_test_node_ids,
+            "execution_status": statuses.get(projection.obligation_id, "MISSING"),
+            "observed_field_count_class": count_class(
+                sum(observations.get(key) is True for key in projection.source_observation_keys)
+            ),
+        }
+        for projection in FAKE_PROJECTION_TABLE
+    )
+
+
+@dataclass(frozen=True)
 class ObligationResult:
     obligation_id: str
     status: Status
@@ -420,6 +822,18 @@ class ObligationResult:
     timing: TimingBucket
     fixture_hash: str | None
     version: str | None
+
+    def safe_dict(self) -> dict[str, object]:
+        return {
+            "obligation_id": self.obligation_id,
+            "status": self.status,
+            "observed": self.observed,
+            "relationship": self.relationship,
+            "count_class": self.count_class,
+            "timing": self.timing,
+            "fixture_hash": self.fixture_hash,
+            "version": self.version,
+        }
 
 
 @dataclass(frozen=True)
@@ -447,6 +861,7 @@ class ObligationGate:
             "retry_count": self.retry_count,
             "passed": self.passed,
             "result_count_class": count_class(len(self.results)),
+            "results": tuple(result.safe_dict() for result in self.results),
         }
 
 
@@ -516,12 +931,6 @@ def build_obligation_gate(
     selected = tuple(by_id[item] for item in expected if item in by_id)
     if retry_count != 0:
         first_failure = first_failure or "retry_count_nonzero"
-    if first_failure is not None:
-        selected = tuple(
-            result
-            for result in selected
-            if result.obligation_id == first_failure or result.status != "PASSED"
-        )
     return ObligationGate(mode, missing, first_failure, retry_count, selected)
 
 
@@ -585,6 +994,14 @@ class ProviderBoundaryObservation:
     image_hashes: tuple[str, ...]
     tool_type_classes: tuple[str, ...]
     direct_gateway_rows: int
+    request_class_classes: tuple[str, ...] = ()
+    tool_class_classes: tuple[str, ...] = ()
+    function_result_adjacent: bool = False
+    item_id_presence_classes: tuple[str, ...] = ()
+    call_id_relation_classes: tuple[str, ...] = ()
+    compiler_inference_classes: tuple[str, ...] = ()
+    normal_close_count: int = 0
+    terminality_valid: bool = False
 
     @property
     def terminal(self) -> bool:
@@ -598,9 +1015,20 @@ class ProviderBoundaryObservation:
             "terminal": self.terminal,
             "image_count_classes": tuple(count_class(value) for value in self.image_counts),
             "image_hash_count_class": count_class(len(self.image_hashes)),
+            "all_image_requests_single": bool(self.image_counts)
+            and all(value == 1 for value in self.image_counts if value > 0),
+            "image_hashes_observed": bool(self.image_hashes),
             "tool_type_classes": self.tool_type_classes,
             "direct_gateway_rows": self.direct_gateway_rows,
             "independent_from_ledger": True,
+            "request_class_classes": self.request_class_classes,
+            "tool_class_classes": self.tool_class_classes,
+            "function_result_adjacent": self.function_result_adjacent,
+            "item_id_presence_classes": self.item_id_presence_classes,
+            "call_id_relation_classes": self.call_id_relation_classes,
+            "compiler_inference_classes": self.compiler_inference_classes,
+            "normal_close_count_class": count_class(self.normal_close_count),
+            "terminality_valid": self.terminality_valid,
         }
 
 
@@ -616,6 +1044,14 @@ class StrictFakeQwenObservation:
         self._tool_types: set[str] = set()
         self._identity_fingerprints: set[str] = set()
         self._state_fingerprints: set[str] = set()
+        self._request_classes: set[str] = set()
+        self._tool_classes: set[str] = set()
+        self._function_result_adjacent = False
+        self._item_id_presence: set[str] = set()
+        self._call_id_relations: set[str] = set()
+        self._compiler_inference: set[str] = set()
+        self._normal_close = 0
+        self._negative_dimensions: set[str] = set()
 
     @staticmethod
     def _walk(value: object) -> Iterable[Mapping[str, object]]:
@@ -627,7 +1063,20 @@ class StrictFakeQwenObservation:
             for child in value:
                 yield from StrictFakeQwenObservation._walk(child)
 
-    def record(self, payload: Mapping[str, object], *, lifecycle_valid: bool = True) -> None:
+    def record(
+        self,
+        payload: Mapping[str, object],
+        *,
+        lifecycle_valid: bool = True,
+        request_class: str = "unknown",
+        tool_class: str = "unknown",
+        function_result_adjacent: bool = False,
+        item_id_presence: str = "unknown",
+        call_id_relation: str = "unknown",
+        compiler: bool = False,
+        normal_close: bool = True,
+        negative_dimensions: Iterable[str] = (),
+    ) -> None:
         self._calls += 1
         if lifecycle_valid:
             self._terminal += 1
@@ -646,6 +1095,41 @@ class StrictFakeQwenObservation:
             for item in self._walk(payload)
             if isinstance(item.get("type"), str)
             and item.get("type") in {"function", "custom", "tool_search", "web_search"}
+        )
+        self._request_classes.add(
+            request_class
+            if request_class
+            in {
+                "function_initial",
+                "function_continuation",
+                "message",
+                "image",
+                "compiler",
+                "unknown",
+            }
+            else "unknown"
+        )
+        self._tool_classes.add(
+            tool_class
+            if tool_class in {"function", "custom", "mixed", "none", "unknown"}
+            else "unknown"
+        )
+        self._function_result_adjacent = self._function_result_adjacent or function_result_adjacent
+        self._item_id_presence.add(
+            item_id_presence if item_id_presence in {"present", "omitted", "unknown"} else "unknown"
+        )
+        self._call_id_relations.add(
+            call_id_relation
+            if call_id_relation in {"initial_owned", "matching", "missing", "mismatched", "unknown"}
+            else "unknown"
+        )
+        self._compiler_inference.add("compiler" if compiler else "inference")
+        if normal_close:
+            self._normal_close += 1
+        self._negative_dimensions.update(
+            dimension
+            for dimension in negative_dimensions
+            if dimension in {"session", "owner", "repository"}
         )
         metadata = payload.get("client_metadata")
         if isinstance(metadata, Mapping):
@@ -670,13 +1154,28 @@ class StrictFakeQwenObservation:
             image_hashes=tuple(self._image_hashes),
             tool_type_classes=tuple(sorted(self._tool_types)),
             direct_gateway_rows=0,
+            request_class_classes=tuple(sorted(self._request_classes)),
+            tool_class_classes=tuple(sorted(self._tool_classes)),
+            function_result_adjacent=self._function_result_adjacent,
+            item_id_presence_classes=tuple(sorted(self._item_id_presence)),
+            call_id_relation_classes=tuple(sorted(self._call_id_relations)),
+            compiler_inference_classes=tuple(sorted(self._compiler_inference)),
+            normal_close_count=self._normal_close,
+            terminality_valid=self._lifecycle_valid and self._normal_close == self._calls,
         )
+
+    def safe_dict(self) -> dict[str, object]:
+        """Return the bounded provider boundary schema used by the runner."""
+        return self.snapshot().safe_dict()
 
     def identity_fingerprint_count(self) -> int:
         return len(self._identity_fingerprints)
 
     def isolation_negative_observed(self) -> bool:
         return len(self._identity_fingerprints) >= 2 and len(self._state_fingerprints) >= 2
+
+    def isolation_dimensions_observed(self) -> tuple[str, ...]:
+        return tuple(sorted(self._negative_dimensions))
 
 
 TAMPER_CASES: tuple[str, ...] = (
@@ -765,15 +1264,43 @@ class FakeCutoverRunner:
         self.events: list[str] = []
         self.installed = False
         self.rollback_incomplete = False
+        self.captured = False
+        self.active_profile_changed = False
+        self.global_default_changed = False
+        self.refusal_facts = {
+            "occupied_port": False,
+            "collision": False,
+            "unsafe_owner": False,
+            "unsafe_mode": False,
+            "overlap": False,
+            "incomplete_backup": False,
+            "rollback_unprovable": False,
+        }
+
+    def capture(self) -> bool:
+        """Capture only fixed target classes in the task-owned dry-run root."""
+        self.events.append("capture")
+        self.captured = True
+        return True
 
     def install(self, *, failure_phase: str | None = None) -> bool:
         if (
             self.spec.local_port in self.occupied_ports
             or self.spec.gateway_port in self.occupied_ports
         ):
+            self.refusal_facts["occupied_port"] = True
             self.events.append("refused_occupied_port")
             return False
+        if any(self.refusal_facts.values()):
+            self.events.append("refused_unsafe_target")
+            return False
+        self.capture()
+        if failure_phase == "capture":
+            self.rollback_incomplete = not self.rollback()
+            return False
         for phase in self.PHASES:
+            if phase == "capture":
+                continue
             self.events.append(phase)
             if failure_phase == phase:
                 self.rollback_incomplete = not self.rollback()
@@ -790,6 +1317,12 @@ class FakeCutoverRunner:
     def rollback(self) -> bool:
         self.events.append("rollback")
         self.installed = False
+        marker = self.root / "backup" / "manifest"
+        try:
+            marker.unlink()
+            marker.parent.rmdir()
+        except FileNotFoundError:
+            pass
         return True
 
     def safe_facts(self) -> dict[str, object]:
@@ -798,9 +1331,17 @@ class FakeCutoverRunner:
             "gateway_port": self.spec.gateway_port,
             "private_bind": self.spec.private_bind,
             "signed_identity": self.spec.signed_identity,
+            "protected_env_reference": self.spec.protected_env_reference,
+            "private_postgres": self.spec.private_postgres,
+            "hardened_units": self.spec.hardened_units,
+            "dedicated_profile": self.spec.dedicated_profile,
+            "active_profile_unchanged": not self.active_profile_changed,
+            "global_default_unchanged": not self.global_default_changed,
             "backup_mode": "0700",
             "backup_file_mode": "0600",
             "installed": self.installed,
+            "captured": self.captured,
             "rollback_incomplete": self.rollback_incomplete,
             "event_count_class": count_class(len(self.events)),
+            "refusal_facts": dict(self.refusal_facts),
         }
