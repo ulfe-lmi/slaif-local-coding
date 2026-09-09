@@ -4464,7 +4464,6 @@ def _run_direct_composed_rehearsal_impl(
             vision_recorder = VisionOutboundRecorder(fixture, httpx.AsyncHTTPTransport(retries=0))
             admit("vision_full", "vision", 3, "vision")
             admit("vision_crop_history", "vision", 4, "vision")
-            activate("vision_full", "vision", 3, "vision")
             vision_observer = DirectTransportObserver(
                 vision_recorder,
                 validator_factory=validator_factory,
@@ -4487,6 +4486,7 @@ def _run_direct_composed_rehearsal_impl(
                 vision_recorder=vision_recorder,
                 readiness_lifetime_id="vision",
             )
+            activate("vision_full", "vision", 3, "vision")
             candidate_runtimes.append(candidate_runtime)
             previous_public_key = os.environ.get(PUBLIC_KEY_ENV)
             os.environ[PUBLIC_KEY_ENV] = seeded["plaintext_key"]
