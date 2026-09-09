@@ -16,6 +16,7 @@ import concurrent.futures
 import hashlib
 import http.server
 import json
+import logging
 import os
 import re
 import secrets
@@ -2215,15 +2216,19 @@ class _ObservedCandidate:
     thread: threading.Thread
     observer: DirectTransportObserver
     vision_recorder: Any | None = None
+    previous_logging_disable: int = logging.NOTSET
 
     def stop(self) -> None:
-        self.server.should_exit = True
-        self.thread.join(timeout=15)
-        if self.thread.is_alive():
-            self.server.force_exit = True
-            self.thread.join(timeout=5)
-        if self.thread.is_alive():
-            raise RuntimeError("candidate_adapter_did_not_stop")
+        try:
+            self.server.should_exit = True
+            self.thread.join(timeout=15)
+            if self.thread.is_alive():
+                self.server.force_exit = True
+                self.thread.join(timeout=5)
+            if self.thread.is_alive():
+                raise RuntimeError("candidate_adapter_did_not_stop")
+        finally:
+            logging.disable(self.previous_logging_disable)
 
     def alive(self) -> bool:
         return self.thread.is_alive()
@@ -2245,6 +2250,8 @@ def _build_observed_candidate(
 
     settings = load_settings(config_path)
     app = create_app(settings, transport=observer)
+    previous_logging_disable = logging.root.manager.disable
+    logging.disable(logging.CRITICAL)
     server = uvicorn.Server(
         uvicorn.Config(
             app,
@@ -2257,7 +2264,9 @@ def _build_observed_candidate(
     )
     thread = threading.Thread(target=server.run, name="oap-005s-observed-candidate", daemon=True)
     thread.start()
-    runtime = _ObservedCandidate(server, thread, observer, vision_recorder)
+    runtime = _ObservedCandidate(
+        server, thread, observer, vision_recorder, previous_logging_disable
+    )
     try:
         with httpx.Client(timeout=5, follow_redirects=False) as client:
             status = _wait_status(client, "http://127.0.0.1:18031/healthz")
@@ -2487,7 +2496,7 @@ def _timed_public_stream(
                 bucket = _timing_bucket(time.monotonic() - started)
                 if bucket is not None:
                     timing["normal_close"] = bucket
-    except httpx.HTTPError:
+    except (httpx.HTTPError, KeyError, TypeError, ValueError):
         return status, sse, timing, chunk_count
     return status, sse, timing, chunk_count
 
@@ -4091,6 +4100,8 @@ def _run_direct_composed_rehearsal(
                 text_usage_present = isinstance(text_usage, int) and text_usage > 0
             except APIStatusError as exc:
                 text_status = int(exc.status_code)
+            except (KeyError, TypeError, ValueError):
+                text_status = None
             stream_body = _composed_request_body(
                 session_a, "codex-rehearsal stream", tools=adapter_tools
             )
