@@ -4944,7 +4944,14 @@ def _run_direct_composed_rehearsal_impl(
                 == constitution_rows_before["reservation_count"] + 3,
             }
             if candidate_runtime is not None:
-                transport_snapshots[-1] = candidate_runtime.observer.snapshot()
+                final_post_vision_snapshot = candidate_runtime.observer.snapshot()
+                transport_snapshots[-1] = final_post_vision_snapshot
+                accumulator.capture_observer(
+                    final_post_vision_snapshot,
+                    phase="finalize",
+                    ordinal=9,
+                    lifetime_id="post_vision",
+                )
             transport_observation = merge_observer_snapshots(*transport_snapshots)
             final_fake_snapshot = fake_server.snapshot() if fake_server is not None else {}
             fake_baseline = fake_codex_before if fake_codex_before is not None else {}
