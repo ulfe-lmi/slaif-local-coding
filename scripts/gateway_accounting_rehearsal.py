@@ -3123,7 +3123,7 @@ def _validate_fake_gate(path: Path | None) -> None:
     if tuple(gate.get("observation_schema_keys", ())) != FAKE_RESULT_SCHEMA_KEYS:
         raise RuntimeError("protected_fake_gate_observation_schema")
     observations = payload.get("runtime_observations")
-    if not isinstance(observations, dict) or tuple(observations) != FAKE_RESULT_SCHEMA_KEYS:
+    if not isinstance(observations, dict) or set(observations) != set(FAKE_RESULT_SCHEMA_KEYS):
         raise RuntimeError("protected_fake_gate_runtime_schema")
     if not all(value is True for value in observations.values()):
         raise RuntimeError("protected_fake_gate_runtime_not_complete")
