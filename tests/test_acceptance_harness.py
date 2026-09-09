@@ -18,6 +18,7 @@ from tests.helpers.acceptance_harness import (
     PUBLIC_REQUEST_BUDGET,
     TAMPER_CASES,
     BudgetController,
+    DispatchContext,
     FakeCutoverRunner,
     RehearsalBudget,
     RunAccumulator,
@@ -182,6 +183,37 @@ def test_dispatch_never_borrows_a_pending_next_operation() -> None:
         controller.release_dispatch()
     assert not controller.admit_dispatch("inference")
     assert controller.failure == "budget_dispatch_permission_exhausted"
+
+
+def test_dispatch_requires_the_currently_activated_operation_context() -> None:
+    controller = BudgetController()
+    assert controller.admit("codex_turn_1", lifetime_id="codex")
+    assert controller.admit("codex_turn_2", lifetime_id="codex")
+    assert controller.activate_operation(
+        "codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex"
+    )
+    assert not controller.admit_dispatch(
+        "inference",
+        context=DispatchContext("codex_turn_2", "codex", 2, "codex"),
+    )
+    assert controller.failure == "budget_dispatch_context_mismatch"
+
+
+def test_readiness_permission_is_one_shot_bounded_and_retired() -> None:
+    controller = BudgetController(
+        RehearsalBudget(operation_limits=(), dispatch_plan=(), max_readiness_probes=1)
+    )
+    assert controller.admit_readiness(lifetime_id="candidate")
+    assert controller.activate_readiness(lifetime_id="candidate")
+    assert controller.admit_dispatch(
+        "other", context=DispatchContext("readiness_probe", "candidate", 0, "candidate")
+    )
+    controller.release_dispatch()
+    assert controller.safe_dict()["readiness_consumed_count"] == 1
+    assert controller.safe_dict()["readiness_pending"] is False
+    assert controller.dispatch_context() is None
+    assert not controller.admit_readiness(lifetime_id="second")
+    assert controller.failure == "budget_readiness_limit_exhausted"
 
 
 def test_dispatch_transition_requires_explicit_activation_and_records_new_context() -> None:
@@ -401,11 +433,12 @@ def test_protected_mode_conformance_is_injected_and_never_reads_credentials() ->
         cleanup=lambda: {"complete": True},
         credential_hook=lambda: calls.append("credential"),
     )
-    assert result["status"] == "PASSED"
+    assert result["status"] == "FAILED"
     assert result["mode"] == "protected"
     assert result["credential_reads"] == 0
     assert result["credential_hook_not_called"] is True
     assert result["rows_serialized"] is True
+    assert result["selected_rows_passed"] is False
     assert result["protected_acceptance"] is False
     projection_rows = cast(tuple[dict[str, object], ...], result["projection_table"])
     assert all(row["execution_status"] == "NOT RUN" for row in projection_rows)

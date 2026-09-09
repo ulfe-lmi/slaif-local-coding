@@ -2066,17 +2066,26 @@ def _adapter_metrics(client: httpx.Client, adapter_port: int) -> str:
     return response.text
 
 
-def _wait_status(client: httpx.Client, url: str, *, headers: dict[str, str] | None = None) -> int:
+def _wait_status(
+    client: httpx.Client,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    retry: bool = True,
+) -> int:
     deadline = time.monotonic() + 45
     last_status = 0
     while time.monotonic() < deadline:
         try:
             response = client.get(url, headers=headers)
             last_status = response.status_code
-            if response.status_code < 500:
+            if response.status_code < 500 or not retry:
                 return response.status_code
         except httpx.HTTPError:
-            pass
+            if not retry:
+                return last_status
+        if not retry:
+            return last_status
         time.sleep(0.25)
     return last_status
 
@@ -2271,6 +2280,7 @@ def _build_observed_candidate(
     *,
     observer: DirectTransportObserver,
     vision_recorder: Any | None = None,
+    readiness_lifetime_id: str | None = None,
 ) -> _ObservedCandidate:
     """Launch the public app factory with a direct acceptance observer."""
     if not observer.inference_capability_ready:
@@ -2308,10 +2318,16 @@ def _build_observed_candidate(
             previous_logging_disable=previous_logging_disable,
         )
 
-    def probe(runtime: _ObservedCandidate, *, ready: bool) -> tuple[int, int]:
+    def probe(
+        runtime: _ObservedCandidate, *, ready: bool, retry_ready: bool = True
+    ) -> tuple[int, int]:
         with httpx.Client(timeout=5, follow_redirects=False) as client:
             health_status = _wait_status(client, "http://127.0.0.1:18031/healthz")
-            ready_status = _wait_status(client, "http://127.0.0.1:18031/readyz") if ready else 0
+            ready_status = (
+                _wait_status(client, "http://127.0.0.1:18031/readyz", retry=retry_ready)
+                if ready
+                else 0
+            )
         if health_status != 200 or (ready and ready_status != 200):
             runtime.stop()
             raise RuntimeError("candidate_observer_not_ready")
@@ -2320,19 +2336,25 @@ def _build_observed_candidate(
     previous_logging_disable = logging.root.manager.disable
     runtime: _ObservedCandidate | None = None
     try:
-        # /readyz performs a bounded upstream /health call.  Keep that
-        # startup-only observation out of the measured provider-dispatch plan
-        # and run it in a serial candidate lifetime before the budgeted one.
-        if observer._budget_controller is not None:  # repository-only helper seam
-            probe_runtime = launch(observer.startup_probe_observer())
-            try:
-                health_status, ready_status = probe(probe_runtime, ready=True)
-            finally:
-                if probe_runtime.alive():
-                    probe_runtime.stop()
+        budget = observer.budget_controller
+        if budget is not None:
+            if readiness_lifetime_id is None:
+                raise RuntimeError("candidate_readiness_lifetime_missing")
+            admit_readiness = getattr(budget, "admit_readiness", None)
+            activate_readiness = getattr(budget, "activate_readiness", None)
+            if not callable(admit_readiness) or not callable(activate_readiness):
+                raise RuntimeError("candidate_readiness_budget_unavailable")
+            if not admit_readiness(lifetime_id=readiness_lifetime_id):
+                raise RuntimeError(
+                    getattr(budget, "failure", None) or "candidate_readiness_not_admitted"
+                )
+            if not activate_readiness(lifetime_id=readiness_lifetime_id):
+                raise RuntimeError(
+                    getattr(budget, "failure", None) or "candidate_readiness_not_activated"
+                )
             runtime = launch(observer)
-            actual_health, _ = probe(runtime, ready=False)
-            runtime.health_status = actual_health
+            health_status, ready_status = probe(runtime, ready=True, retry_ready=False)
+            runtime.health_status = health_status
             runtime.ready_status = ready_status
         else:
             runtime = launch(observer)
@@ -3680,6 +3702,7 @@ def run_actual_protected_mode_conformance(
             == protected_ids,
             "provider_target": "fake",
             "real_protected_access": False,
+            "healthy_gate_passed": False,
         }
         return result
 
@@ -3728,6 +3751,12 @@ def run_actual_protected_mode_conformance(
     cleanup = cast(dict[str, object], cleanup_value) if isinstance(cleanup_value, dict) else {}
     conformance.update(
         {
+            "healthy_gate_passed": (
+                isinstance(gate, dict)
+                and gate.get("passed") is True
+                and gate.get("missing") == []
+                and gate.get("first_failure") is None
+            ),
             "implementation_reached": any(
                 key in result for key in ("candidate_provenance", "codex", "transport_observation")
             ),
@@ -4043,6 +4072,7 @@ def _run_direct_composed_rehearsal_impl(
                 if (
                     not isinstance(protected_conformance, dict)
                     or protected_conformance.get("all_selected_rows_serialized") is not True
+                    or protected_conformance.get("healthy_gate_passed") is not True
                     or protected_conformance.get("implementation_reached") is not True
                     or not isinstance(protected_accumulator, dict)
                     or protected_accumulator.get("first_failure") is not None
@@ -4195,11 +4225,13 @@ def _run_direct_composed_rehearsal_impl(
                     protected_dispatch_complete if protected_hooks is not None else None
                 ),
                 response_complete_hook=operation_response_complete,
+                allowed_lifetime_ids=("candidate", "codex"),
             )
             active_observer = candidate_observer
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=candidate_observer,
+                readiness_lifetime_id="candidate",
             )
             candidate_runtimes.append(candidate_runtime)
             candidate_health = candidate_runtime.health_status
@@ -4446,12 +4478,14 @@ def _run_direct_composed_rehearsal_impl(
                     protected_dispatch_complete if protected_hooks is not None else None
                 ),
                 response_complete_hook=operation_response_complete,
+                allowed_lifetime_ids=("vision",),
             )
             active_observer = vision_observer
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=vision_observer,
                 vision_recorder=vision_recorder,
+                readiness_lifetime_id="vision",
             )
             candidate_runtimes.append(candidate_runtime)
             previous_public_key = os.environ.get(PUBLIC_KEY_ENV)
@@ -4498,11 +4532,13 @@ def _run_direct_composed_rehearsal_impl(
                     protected_dispatch_complete if protected_hooks is not None else None
                 ),
                 response_complete_hook=operation_response_complete,
+                allowed_lifetime_ids=("post_vision", "identity"),
             )
             active_observer = post_vision_observer
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=post_vision_observer,
+                readiness_lifetime_id="post_vision",
             )
             candidate_runtimes.append(candidate_runtime)
             transport_snapshots.append(post_vision_observer.snapshot())
@@ -4744,7 +4780,7 @@ def _run_direct_composed_rehearsal_impl(
                     provider_boundary_observed = provider_call_count > 0
                     provider_lifecycle_valid = boundary.get("lifecycle_valid") is True
                     provider_terminal = boundary.get("terminal") is True
-                    provider_observation = {"provider_boundary": boundary}
+                    provider_observation = boundary
             else:
                 observed_stream = _observer_delta(stream_observer_before, stream_observer_after)
                 provider_call_count = _int_fact(observed_stream.get("inference_dispatched_count"))
@@ -5123,9 +5159,8 @@ def _run_direct_composed_rehearsal_impl(
             )
             topology_observation = {
                 "codex_gateway_local_provider": codex_facts.get("status") == "PASSED"
-                and provider_target == "fake",
+                and provider_target in {"fake", "protected"},
                 "no_direct_route": codex_facts.get("status") == "PASSED"
-                and fake_server is not None
                 and provider_url.startswith("http://127.0.0.1:"),
             }
             cutover_observations.update(
@@ -5310,7 +5345,12 @@ def _run_direct_composed_rehearsal_impl(
                 else "protected_loopback",
                 "fake_provider": None if fake_server is None else fake_server.snapshot(),
                 "provider_observation": (
-                    {"provider_boundary": transport_observation}
+                    {
+                        "provider_boundary": final_fake_snapshot.get("provider_boundary"),
+                        "source": "disposable_loopback_fake",
+                    }
+                    if provider_target == "protected" and protected_hooks is not None
+                    else {"provider_boundary": transport_observation}
                     if provider_target == "protected"
                     else None
                 ),

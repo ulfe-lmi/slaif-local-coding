@@ -149,6 +149,7 @@ class RehearsalBudget:
     max_stream_bytes: int = 128 * 1024
     max_concurrency: int = 1
     max_dispatches: int = 64
+    max_readiness_probes: int = 4
 
 
 @dataclass
@@ -170,6 +171,9 @@ class BudgetController:
     _dispatch_records: list[dict[str, object]] = field(init=False, default_factory=list)
     _dispatch_context: DispatchContext | None = field(init=False, default=None)
     _pending_permissions: list[dict[str, object]] = field(init=False, default_factory=list)
+    _readiness_pending: dict[str, object] | None = field(init=False, default=None)
+    _readiness_admitted: int = field(init=False, default=0)
+    _readiness_consumed: int = field(init=False, default=0)
     _failure: str | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -178,6 +182,7 @@ class BudgetController:
             self.budget.wall_seconds <= 0
             or self.budget.max_concurrency <= 0
             or self.budget.max_dispatches <= 0
+            or self.budget.max_readiness_probes < 0
         ):
             self._failure = "budget_configuration_invalid"
         if any(item.maximum < 0 or item.retries != 0 for item in self.budget.operation_limits):
@@ -287,6 +292,58 @@ class BudgetController:
             self._failure = "budget_operation_dispatch_exhausted"
             return False
         self._dispatch_context = DispatchContext(operation, phase, ordinal, lifetime_id)
+        return True
+
+    def admit_readiness(
+        self, *, phase: str = "candidate", ordinal: int = 0, lifetime_id: str
+    ) -> bool:
+        """Reserve one explicit, bounded provider-health readiness dispatch."""
+        if self._failure is not None:
+            return False
+        if not isinstance(lifetime_id, str) or not lifetime_id:
+            self._failure = "budget_readiness_lifetime_missing"
+            return False
+        if phase != "candidate" or type(ordinal) is not int or ordinal < 0:
+            self._failure = "budget_readiness_context_mismatch"
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
+        if self._readiness_pending is not None:
+            self._failure = "budget_readiness_permission_pending"
+            return False
+        if self._readiness_admitted >= self.budget.max_readiness_probes:
+            self._failure = "budget_readiness_limit_exhausted"
+            return False
+        self._readiness_pending = {
+            "operation": "readiness_probe",
+            "phase": phase,
+            "ordinal": ordinal,
+            "lifetime_id": lifetime_id,
+        }
+        self._readiness_admitted += 1
+        return True
+
+    def activate_readiness(
+        self, *, phase: str = "candidate", ordinal: int = 0, lifetime_id: str
+    ) -> bool:
+        """Activate the reserved readiness dispatch for this candidate lifetime."""
+        if self._failure is not None:
+            return False
+        pending = self._readiness_pending
+        expected = {
+            "operation": "readiness_probe",
+            "phase": phase,
+            "ordinal": ordinal,
+            "lifetime_id": lifetime_id,
+        }
+        if pending != expected:
+            self._failure = "budget_readiness_activation_mismatch"
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
+        self._dispatch_context = DispatchContext("readiness_probe", phase, ordinal, lifetime_id)
         return True
 
     def operation_complete(self, operation: str, *, lifetime_id: str) -> bool:
@@ -402,6 +459,49 @@ class BudgetController:
             self._failure = "budget_dispatch_permission_missing"
             self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
             return False
+        activated_context = self._dispatch_context
+        if activated_context is None or requested_context != activated_context:
+            if (
+                activated_context is not None
+                and requested_context.operation == activated_context.operation
+                and requested_context.lifetime_id != activated_context.lifetime_id
+            ):
+                self._failure = "budget_dispatch_lifetime_mismatch"
+            else:
+                self._failure = "budget_dispatch_context_mismatch"
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
+        if requested_context.operation == "readiness_probe":
+            pending = self._readiness_pending
+            if pending != {
+                "operation": "readiness_probe",
+                "phase": requested_context.phase,
+                "ordinal": requested_context.ordinal,
+                "lifetime_id": requested_context.lifetime_id,
+            }:
+                self._failure = "budget_readiness_permission_missing"
+                self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+                return False
+            self._readiness_pending = None
+            self._readiness_consumed += 1
+            self._dispatch_admitted += 1
+            self._active_dispatches += 1
+            counts["admitted"] += 1
+            if len(self._dispatch_records) < self.budget.max_dispatches:
+                self._dispatch_records.append(
+                    {
+                        "kind": kind,
+                        "operation": "readiness_probe",
+                        "phase": requested_context.phase,
+                        "ordinal": requested_context.ordinal,
+                        "lifetime_id": requested_context.lifetime_id,
+                        "admitted": True,
+                    }
+                )
+            # A readiness permit is one-shot.  Public dispatches must perform a
+            # later explicit activation and cannot inherit this context.
+            self._dispatch_context = None
+            return True
         permission = next(
             (
                 item
@@ -516,6 +616,7 @@ class BudgetController:
             "max_stream_bytes": self.budget.max_stream_bytes,
             "max_concurrency": self.budget.max_concurrency,
             "max_dispatches": self.budget.max_dispatches,
+            "max_readiness_probes": self.budget.max_readiness_probes,
             "operation_limits": {
                 item.operation: item.maximum for item in self.budget.operation_limits
             },
@@ -554,6 +655,9 @@ class BudgetController:
             },
             "dispatch_records": tuple(self._dispatch_records),
             "pending_permission_count": len(self._pending_permissions),
+            "readiness_admitted_count": self._readiness_admitted,
+            "readiness_consumed_count": self._readiness_consumed,
+            "readiness_pending": self._readiness_pending is not None,
             "failure_class": self._failure,
             "exhausted": self._failure is not None,
         }
@@ -596,6 +700,12 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "budget_dispatch_permission_missing",
         "budget_dispatch_permission_exhausted",
         "budget_dispatch_permission_kind_mismatch",
+        "budget_readiness_lifetime_missing",
+        "budget_readiness_context_mismatch",
+        "budget_readiness_permission_pending",
+        "budget_readiness_limit_exhausted",
+        "budget_readiness_activation_mismatch",
+        "budget_readiness_permission_missing",
         "http_status_non_2xx",
         "content_type_not_sse",
         "response_headers_timing_missing",
@@ -620,6 +730,8 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "stream_closure_invalid",
         "stream_contract_invalid",
         "manual_unready",
+        "observer_lifetime_mismatch",
+        "readiness_non_health",
     }
 )
 
@@ -913,9 +1025,12 @@ def run_protected_mode_conformance(
     except (TypeError, KeyError):
         rows_serialized = False
         fail("serialization_failure")
+    selected_rows_passed = rows_serialized and all(
+        isinstance(row, dict) and row.get("execution_status") == "PASSED" for row in table
+    )
     return {
         "status": "PASSED"
-        if first_failure is None and rows_serialized and not fake_only_observation_used
+        if first_failure is None and selected_rows_passed and not fake_only_observation_used
         else "FAILED",
         "mode": "protected",
         "protected_acceptance": False,
@@ -930,6 +1045,7 @@ def run_protected_mode_conformance(
         "direct_transport_observed": direct_transport_observed,
         "fake_only_observation_used": fake_only_observation_used,
         "rows_serialized": rows_serialized,
+        "selected_rows_passed": selected_rows_passed,
         "cleanup_snapshot_available": cleanup_facts.get("complete") is True,
         "budget": controller.safe_dict(),
         "projection_table": table,

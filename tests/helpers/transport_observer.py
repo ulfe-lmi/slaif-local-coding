@@ -125,6 +125,8 @@ def _exception_class(kind: str) -> str:
         "contract": "stream_contract_invalid",
         "manual": "manual_unready",
         "budget": "observer_budget_not_admitted",
+        "lifetime": "observer_lifetime_mismatch",
+        "readiness": "readiness_non_health",
     }.get(kind, "other")
 
 
@@ -507,6 +509,8 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         dispatch_hook: Callable[[str, str, int | None], None] | None = None,
         dispatch_complete_hook: Callable[[str, str, int | None], None] | None = None,
         response_complete_hook: ResponseCompleteHook | None = None,
+        allowed_lifetime_ids: tuple[str, ...] | None = None,
+        expected_lifetime_id: str | None = None,
     ) -> None:
         self._delegate = delegate
         self._validator_factory = validator_factory
@@ -518,6 +522,11 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         self._dispatch_hook = dispatch_hook
         self._dispatch_complete_hook = dispatch_complete_hook
         self._response_complete_hook = response_complete_hook
+        self._allowed_lifetime_ids = (
+            allowed_lifetime_ids
+            if allowed_lifetime_ids is not None
+            else ((expected_lifetime_id,) if expected_lifetime_id is not None else None)
+        )
         self._records: list[_RequestObservation] = []
         self._started = time.monotonic()
         self._ready = True
@@ -532,9 +541,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         """Whether Responses admission can construct its required validator."""
         return self._validator_factory is not None
 
-    def startup_probe_observer(self) -> DirectTransportObserver:
-        """Return a serial, unbudgeted observer for candidate readiness only."""
-        return DirectTransportObserver(self._delegate)
+    @property
+    def budget_controller(self) -> DispatchBudget | None:
+        return self._budget_controller
 
     def _latch_failure(self, kind: str) -> None:
         self._ready = False
@@ -580,6 +589,16 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             "compiler_dispatched_count": sum(record.dispatched for record in compiler),
             "compiler_responded_count": sum(record.responded for record in compiler),
             "compiler_completed_count": sum(record.completed for record in compiler),
+            "other_attempted_count": sum(record.kind == "other" for record in records),
+            "other_dispatched_count": sum(
+                record.dispatched for record in records if record.kind == "other"
+            ),
+            "other_responded_count": sum(
+                record.responded for record in records if record.kind == "other"
+            ),
+            "other_completed_count": sum(
+                record.completed for record in records if record.kind == "other"
+            ),
             "inference_attempted_count": len(inference),
             "inference_dispatched_count": sum(record.dispatched for record in inference),
             "inference_responded_count": sum(record.responded for record in inference),
@@ -701,6 +720,21 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 record.dispatch_phase = context.phase if context is not None else "unknown"
                 record.dispatch_ordinal = context.ordinal if context is not None else None
                 record.dispatch_lifetime = context.lifetime_id if context is not None else None
+                if context is None:
+                    record.exception_class = _exception_class("budget")
+                    self._latch_failure("budget")
+                    raise RuntimeError("transport_observer_dispatch_context_missing")
+                if self._allowed_lifetime_ids is not None and (
+                    context is None or context.lifetime_id not in self._allowed_lifetime_ids
+                ):
+                    record.exception_class = _exception_class("lifetime")
+                    self._latch_failure("lifetime")
+                    raise RuntimeError("transport_observer_lifetime_mismatch")
+                if context is not None and context.operation == "readiness_probe":
+                    if endpoint_class != "health":
+                        record.exception_class = _exception_class("readiness")
+                        self._latch_failure("readiness")
+                        raise RuntimeError("transport_observer_readiness_not_health")
                 admitted = self._budget_controller.admit_dispatch(
                     kind,
                     context=context,
@@ -708,7 +742,8 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             except BaseException:
                 admitted = False
             if not admitted:
-                record.exception_class = _exception_class("budget")
+                if record.exception_class is None:
+                    record.exception_class = _exception_class("budget")
                 self._latch_budget_failure()
                 raise RuntimeError("transport_observer_budget_not_admitted")
             record.dispatch_admitted = True
@@ -872,6 +907,16 @@ def merge_observer_snapshots(*snapshots: dict[str, object]) -> dict[str, object]
         "compiler_dispatched_count": sum(record.get("dispatched") is True for record in compiler),
         "compiler_responded_count": sum(record.get("responded") is True for record in compiler),
         "compiler_completed_count": sum(record.get("completed") is True for record in compiler),
+        "other_attempted_count": sum(record.get("kind") == "other" for record in records),
+        "other_dispatched_count": sum(
+            record.get("dispatched") is True for record in records if record.get("kind") == "other"
+        ),
+        "other_responded_count": sum(
+            record.get("responded") is True for record in records if record.get("kind") == "other"
+        ),
+        "other_completed_count": sum(
+            record.get("completed") is True for record in records if record.get("kind") == "other"
+        ),
         "inference_attempted_count": len(inference),
         "inference_dispatched_count": sum(record.get("dispatched") is True for record in inference),
         "inference_responded_count": sum(record.get("responded") is True for record in inference),

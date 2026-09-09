@@ -395,8 +395,8 @@ The fresh fake run at implementation
 `45f9d64976b0f2a44f6c3223d767c28f5405e1a` passed 37/37 selected obligations
 with zero missing/first-failure/retry results. Exact observer facts were 23
 total operations (6 compiler, 12 inference, and 5 other), all 23 completed
-and terminal-valid; all 12 inference operations had first-byte and normal-close
-facts. Fake-provider counters matched independently, temporary resources were
+and terminal-valid; 6 inference operations were SSE streams with first-byte
+and normal-close facts, while 6 were normal JSON responses. Fake-provider counters matched independently, temporary resources were
 cleaned, and logs were secret-free. No protected credential, inference, Qwen,
 network, active-profile, or cutover state was accessed or changed in 005-t.
 
@@ -516,8 +516,8 @@ not implied.
 The fresh exact pinned fake rehearsal at implementation
 `63920a4fa1339f013b51e64b22c233917e21f7aa` passed its machine gate: 37/37
 selected obligations and projections, 23/23 direct observer dispatches,
-`6` compiler and `12` inference dispatches, `12/12` semantic terminal-valid
-inference streams, exact fake-provider agreement, all 29 synthetic protected
+`6` compiler and `12` inference dispatches, `12/12` terminal-valid inference
+operations (6 SSE streams and 6 normal JSON responses), exact fake-provider agreement, all 29 synthetic protected
 row dispositions, and task-resource cleanup. This remains fake-only evidence;
 no protected credential, Qwen request, or port-18020 mutation occurred.
 
@@ -544,7 +544,8 @@ preserves the responded fact, and releases the dispatch slot.
 
 The fresh exact pinned fake qualification passed all 37 C1–C5/D obligations
 and projections. It recorded 23 actual direct dispatches (6 compiler, 12
-inference, 5 other), 12/12 terminal-valid inference streams, exact
+inference, 5 other), 12/12 terminal-valid inference operations (6 SSE
+streams and 6 normal JSON responses), exact
 fake-provider agreement, candidate `/healthz` and `/readyz` status 200, and
 clean disposable resources and secret-free logs. The 25-slot plan is an
 authorization ceiling rather than a measured request count. The exact Gateway
@@ -574,3 +575,20 @@ identity classes, primary/secondary failures, and cleanup snapshots. These
 executions use only a disposable loopback provider and retain
 `protected_acceptance=false`; they are orchestration evidence, not protected
 inference acceptance, cutover, merge, or release readiness.
+
+## Objective-005-aa protected predicate and startup-budget closure
+
+The protected synthetic conformance result now qualifies only when its nested
+protected `acceptance_gate` has every selected obligation and projection
+`PASSED`. Serialized rows and an empty accumulator failure are insufficient;
+`protected_acceptance=false` remains explicit. A normalized provider boundary is
+used only for the explicit disposable loopback synthetic branch. Real protected
+transport counts do not prove provider request classes, tool relationships, or
+semantic terminality, and topology evidence remains a separate projection.
+
+Candidate startup uses the same lifetime-bound direct observer as inference.
+`/readyz` receives one explicit readiness permit whose only upstream dispatch is
+`/health`; it is counted against the shared dispatch ceiling and retired after
+use. Local `/healthz` listener polling can retry, but readiness/provider health
+requests do not retry outside the run controller. Missing, stale, or different
+observer lifetime contexts fail before delegation.

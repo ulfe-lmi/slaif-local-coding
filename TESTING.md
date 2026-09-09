@@ -146,8 +146,9 @@ At implementation `45f9d64976b0f2a44f6c3223d767c28f5405e1a`, the fresh fake
 machine gate passed 37/37 selected obligations with no missing result, first
 failure, or retry. The direct observer independently recorded 23 attempted,
 dispatched, responded, completed, and terminal-valid operations: 6 compiler
-and 12 inference operations, with all 12 inference streams having first-byte
-and normal-close facts. Fake-provider counters matched exact observer counts;
+and 12 inference operations. Six inference operations were SSE streams with
+first-byte and normal-close facts; the other six were normal JSON responses.
+Fake-provider counters matched exact observer counts;
 cleanup and secret-free-log checks passed. This remains fake-only evidence and
 does not establish protected inference, cutover, or release readiness.
 
@@ -333,10 +334,11 @@ protected inference acceptance.
 The fresh exact pinned fake rehearsal at implementation
 `63920a4fa1339f013b51e64b22c233917e21f7aa` passed 37/37 selected obligations
 and projections. The direct observer recorded 23/23 dispatches, including 6
-compiler and 12 inference calls, with 12/12 inference streams semantically
-terminal-valid; fake-provider counters matched, all 29 synthetic protected
-rows serialized, and cleanup passed. This is fake-only evidence and does not
-establish protected acceptance.
+compiler and 12 inference calls. All 12 inference operations were terminal-
+valid transport observations: 6 SSE streams had semantic terminal validation
+and 6 normal JSON responses completed normally. Fake-provider counters matched,
+all 29 synthetic protected rows serialized, and cleanup passed. This is
+fake-only evidence and does not establish protected acceptance.
 
 ## Objective-005-z exact pin, operation permits, and protected-branch conformance
 
@@ -374,8 +376,9 @@ credential, Qwen request, or port-18020 mutation is implied.
 The fresh exact pinned fake qualification completed the full C1–C5/D machine
 gate: 37/37 obligations and projections passed, with 23 actual direct
 dispatches (6 compiler, 12 inference, 5 other), exact fake-provider agreement,
-12/12 inference streams terminal-valid, candidate `/healthz` and `/readyz`
-both 200, and task-resource cleanup and secret-free logs passed. The
+12/12 inference operations terminal-valid (6 SSE streams and 6 JSON responses),
+candidate `/healthz` and `/readyz` both 200, and task-resource cleanup and
+secret-free logs passed. The
 25-slot plan is an authorization ceiling; it is not reported as 25 measured
 requests. The Gateway executable was retrieved at the authorized ancestor
 `50dcc3b85d614eb1d0c6196595bf22ef5779f846`, with merged-main ancestry and
@@ -390,3 +393,22 @@ credential or Qwen request was made. Injected observer failure stopped after
 one compiler dispatch with zero inference dispatches while serializing all 29
 rows; combined projection/cleanup failure retained the same primary failure
 and bounded secondary classes.
+
+## Objective-005-aa protected predicate and startup-budget closure
+
+Protected conformance is gated by the nested protected `acceptance_gate`, not
+merely by serialized row count or an empty accumulator failure. A healthy
+synthetic run must have every selected protected obligation and projection
+`PASSED`, while `protected_acceptance=false` remains explicit. Protected
+provider predicates use normalized boundary observations only for the explicit
+disposable loopback synthetic branch; real protected transport counts do not
+prove semantic provider behavior. Topology evidence remains separate from
+provider semantic evidence.
+
+Candidate startup uses the same direct observer as the candidate lifetime. Its
+single `/readyz` upstream health request requires an explicit, one-shot,
+lifetime-bound readiness permit; readiness permits accept only `/health`, count
+against the shared 64-dispatch ceiling, and are retired after dispatch. Local
+`/healthz` listener polling may retry, but readiness/provider health requests do
+not retry outside the run controller. Dynamic observers reject missing or
+different lifetime contexts before delegation.

@@ -816,6 +816,94 @@ async def test_run_budget_admits_each_actual_dispatch_and_attributes_context() -
 
 
 @pytest.mark.asyncio
+async def test_observer_rejects_missing_context_before_delegate() -> None:
+    budget = BudgetController()
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"should-not-dispatch")
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler), budget_controller=budget)
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+    assert calls == 0
+    assert observer.snapshot()["records"][0]["dispatched"] is False  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_observer_binds_dynamic_context_to_its_lifetime() -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(
+                PublicRequestBudget(1, "codex_turn_1"),
+                PublicRequestBudget(2, "codex_turn_2"),
+            ),
+            dispatch_plan=(
+                OperationDispatchPlan("codex_turn_1", "codex", 1, (("other", 1),)),
+                OperationDispatchPlan("codex_turn_2", "codex", 2, (("other", 1),)),
+            ),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="old")
+    assert budget.admit("codex_turn_2", phase="codex", ordinal=2, lifetime_id="new")
+    assert budget.activate_operation("codex_turn_2", phase="codex", ordinal=2, lifetime_id="new")
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"should-not-dispatch")
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        expected_lifetime_id="old",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+    assert calls == 0
+    assert observer.snapshot()["failure_class"] == "observer_lifetime_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_readiness_dispatch_is_health_only_and_counted() -> None:
+    budget = BudgetController(
+        RehearsalBudget(operation_limits=(), dispatch_plan=(), max_readiness_probes=1)
+    )
+    assert budget.admit_readiness(lifetime_id="candidate")
+    assert budget.activate_readiness(lifetime_id="candidate")
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, headers={"content-type": "application/json"}, content=b"{}")
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        allowed_lifetime_ids=("candidate",),
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.get("http://fake.test/health")
+        assert response.status_code == 200
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.get("http://fake.test/v1/models")
+    assert calls == 1
+    snapshot = observer.snapshot()
+    assert snapshot["other_dispatched_count"] == 1
+    assert budget.safe_dict()["readiness_consumed_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_run_budget_deadline_is_checked_between_stream_chunks() -> None:
     now = [0.0]
     budget = BudgetController(RehearsalBudget(wall_seconds=5), clock=lambda: now[0])
