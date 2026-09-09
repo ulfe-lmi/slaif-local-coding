@@ -18,8 +18,10 @@ from scripts.gateway_accounting_rehearsal import (
     GATEWAY_APP_TREE_SHA256,
     LOCAL_ROUTE_POLICY,
     OBSERVATION_VERSION,
+    _acceptance_gate,
     _FakeQwenServer,
     _local_implementation_sha,
+    _runtime_observations,
     _tested_source_still_valid,
     _validate_fake_gate,
 )
@@ -27,6 +29,8 @@ from scripts.local_qwen_provider_differential import SSEFacts
 from tests.helpers.acceptance_harness import (
     ACCEPTANCE_MANIFEST,
     FAKE_RESULT_SCHEMA_KEYS,
+    PROTECTED_MANIFEST_IDS,
+    PROTECTED_RESULT_SCHEMA_KEYS,
     build_obligation_gate,
     make_result,
     projection_for,
@@ -514,6 +518,36 @@ def test_protected_mode_requires_complete_same_pin_fake_gate(tmp_path: Any) -> N
     with pytest.raises(RuntimeError, match="protected_fake_gate_not_complete"):
         path.write_text(json.dumps(incomplete), encoding="utf-8")
         _validate_fake_gate(path)
+
+
+def test_protected_acceptance_gate_retains_c54_and_unknown_primary_facts() -> None:
+    result: dict[str, object] = {
+        "provider_target": "protected",
+        "protected_unchanged": {
+            "pid": True,
+            "start": True,
+            "listener": True,
+            "worktree_count": True,
+        },
+        "transport_observation": {
+            "ready": False,
+            "failure_class": "manual_unready",
+            "inference_attempted_count": 2,
+            "inference_dispatched_count": 1,
+            "inference_responded_count": 0,
+            "inference_completed_count": 0,
+        },
+    }
+    observations = _runtime_observations(result)
+    assert tuple(observations) == PROTECTED_RESULT_SCHEMA_KEYS
+    gate, _gaps = _acceptance_gate(result)
+    rows = cast(list[dict[str, object]], gate["results"])
+    assert tuple(row["obligation_id"] for row in rows) == PROTECTED_MANIFEST_IDS
+    assert rows[-1]["obligation_id"] == "C5.4"
+    assert rows[-1]["status"] == "PASSED"
+    assert gate["first_failure"] == "C1.1"
+    projection_rows = cast(list[dict[str, object]], gate["projection_table"])
+    assert tuple(row["obligation_id"] for row in projection_rows) == PROTECTED_MANIFEST_IDS
 
 
 def _fixture_git(repo: Path, *arguments: str, input_text: str | None = None) -> str:

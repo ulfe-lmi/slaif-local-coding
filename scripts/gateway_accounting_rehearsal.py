@@ -74,8 +74,13 @@ from slaif_local_coding.gateway_identity import (  # noqa: E402
 from tests.helpers.acceptance_harness import (  # noqa: E402
     ACCEPTANCE_MANIFEST,
     FAKE_RESULT_SCHEMA_KEYS,
+    PROTECTED_RESULT_SCHEMA_KEYS,
+    PUBLIC_REQUEST_BUDGET,
+    BudgetController,
     FakeCutoverRunner,
     ObligationResult,
+    RehearsalBudget,
+    RunAccumulator,
     StrictFakeQwenObservation,
     build_obligation_gate,
     count_class,
@@ -84,6 +89,8 @@ from tests.helpers.acceptance_harness import (  # noqa: E402
     projection_for,
     projection_passes,
     projection_table_safe_dict,
+    run_protected_mode_conformance,
+    validate_projection_contract,
 )
 from tests.helpers.e2e_support import (  # noqa: E402
     constitution_metric_snapshot,
@@ -2873,12 +2880,18 @@ def _run_signed_identity_matrix(
 
 
 def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
-    """Build the final bounded observation schema from concrete run facts."""
-    observations: dict[str, object] = {key: None for key in FAKE_RESULT_SCHEMA_KEYS}
+    """Build a mode-specific bounded observation schema from concrete facts."""
+    mode: Literal["fake", "protected"] = (
+        "protected" if result.get("provider_target") == "protected" else "fake"
+    )
+    schema_keys = PROTECTED_RESULT_SCHEMA_KEYS if mode == "protected" else FAKE_RESULT_SCHEMA_KEYS
+    observations: dict[str, object] = {key: None for key in schema_keys}
 
     def put(key: str, value: object) -> None:
         if key in observations:
-            observations[key] = value if isinstance(value, bool) else bool(value)
+            observations[key] = (
+                None if value is None else value if isinstance(value, bool) else bool(value)
+            )
 
     codex = result.get("codex")
     provider = result.get("provider_observation")
@@ -3059,17 +3072,37 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
         for key, value in cutover.items():
             if key in observations:
                 put(key, value)
+    protected_fixture = result.get("protected_unchanged")
+    if mode == "protected" and isinstance(protected_fixture, dict):
+        put(
+            "protected.fixture_pid_unchanged",
+            protected_fixture.get("pid"),
+        )
+        put(
+            "protected.fixture_start_unchanged",
+            protected_fixture.get("start"),
+        )
+        put(
+            "protected.fixture_listener_unchanged",
+            protected_fixture.get("listener"),
+        )
+        put(
+            "protected.fixture_worktree_unchanged",
+            protected_fixture.get("worktree_count"),
+        )
     return observations
 
 
 def _acceptance_gate(
     result: dict[str, object],
 ) -> tuple[dict[str, object], tuple[dict[str, object], ...]]:
-    """Project only observed runtime facts into the ordered fake manifest."""
+    """Project only observed runtime facts into the selected mode manifest."""
     observations = _runtime_observations(result)
     mode: Literal["fake", "protected"] = (
         "protected" if result.get("provider_target") == "protected" else "fake"
     )
+    validate_projection_contract(mode)
+    schema_keys = PROTECTED_RESULT_SCHEMA_KEYS if mode == "protected" else FAKE_RESULT_SCHEMA_KEYS
     selected_items = tuple(item for item in ACCEPTANCE_MANIFEST if item.mode in {"both", mode})
     always_execute = {"C4.9", "C5.2", "C5.3"}
     statuses: dict[str, ObligationResult] = {}
@@ -3083,12 +3116,12 @@ def _acceptance_gate(
                 item.obligation_id, status="NOT RUN", observed=False, relationship="other", count=0
             )
             continue
-        projection = projection_for(item.obligation_id)
+        projection = projection_for(item.obligation_id, mode)
         fields_present = all(
             key in observations and observations[key] is not None
             for key in projection.source_observation_keys
         )
-        passed = fields_present and projection_passes(item.obligation_id, observations)
+        passed = fields_present and projection_passes(item.obligation_id, observations, mode)
         statuses[item.obligation_id] = make_result(
             item.obligation_id,
             status="PASSED" if passed else "FAILED" if fields_present else "MISSING",
@@ -3110,9 +3143,11 @@ def _acceptance_gate(
     )
     gate_dict = gate.safe_dict()
     gate_dict["projection_table"] = projection_table_safe_dict(
-        observations, {obligation_id: status.status for obligation_id, status in statuses.items()}
+        observations,
+        {obligation_id: status.status for obligation_id, status in statuses.items()},
+        mode,
     )
-    gate_dict["observation_schema_keys"] = FAKE_RESULT_SCHEMA_KEYS
+    gate_dict["observation_schema_keys"] = schema_keys
     source = Path(__file__).read_text(encoding="utf-8")
     gaps = tuple(
         {
@@ -3468,8 +3503,95 @@ def _validate_fake_gate(path: Path | None) -> None:
         raise RuntimeError("protected_fake_gate_transport_not_complete")
 
 
+def _safe_runtime_failure(exc: BaseException) -> str:
+    """Map process-boundary exceptions to a fixed, non-sensitive class."""
+    if isinstance(exc, asyncio.CancelledError):
+        return "cancelled"
+    if isinstance(exc, TimeoutError):
+        return "timeout"
+    if isinstance(exc, (json.JSONDecodeError, UnicodeDecodeError, ValueError)):
+        return "validation_failure"
+    if isinstance(exc, KeyError):
+        return "serialization_failure"
+    if isinstance(exc, (httpx.HTTPError, APIStatusError)):
+        return "client_error"
+    return "unknown"
+
+
+def _failed_rehearsal_result(
+    provider_target: str, accumulator: RunAccumulator
+) -> dict[str, object]:
+    """Create a fixed safe result when a phase fails before its normal result."""
+    return {
+        "status": "FAILED",
+        "provider_target": provider_target if provider_target in {"fake", "protected"} else "fake",
+        "gateway_sha": GATEWAY_MAIN_SHA,
+        "protected_stop_reason": accumulator.first_failure or "unknown",
+        "protected_later_inference": False,
+        "transport_observation": {},
+        "topology_observation": {
+            "codex_gateway_local_provider": False,
+            "no_direct_route": True,
+        },
+    }
+
+
 def _run_direct_composed_rehearsal(
     args: argparse.Namespace, *, preflight: dict[str, object]
+) -> dict[str, object]:
+    """Run one bounded mode and always return serializable evidence."""
+    provider_target = str(args.provider_target)
+    mode: Literal["fake", "protected"] = "protected" if provider_target == "protected" else "fake"
+    accumulator = RunAccumulator(mode, gateway_sha=GATEWAY_MAIN_SHA)
+    try:
+        validate_projection_contract(mode)
+    except BaseException:
+        accumulator.record_failure("preflight_incomplete")
+        result = _failed_rehearsal_result(provider_target, accumulator)
+        result["runtime_observations"] = _runtime_observations(result)
+        result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
+        result["run_accumulator"] = accumulator.safe_dict()
+        return result
+    try:
+        result = _run_direct_composed_rehearsal_impl(
+            args, preflight=preflight, accumulator=accumulator
+        )
+    except BaseException as exc:
+        accumulator.record_failure(_safe_runtime_failure(exc))
+        result = _failed_rehearsal_result(provider_target, accumulator)
+        try:
+            result["runtime_observations"] = _runtime_observations(result)
+            result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
+        except BaseException:
+            accumulator.record_failure("serialization_failure")
+            result["acceptance_gate"] = {
+                "mode": mode,
+                "missing": list(
+                    item.obligation_id
+                    for item in ACCEPTANCE_MANIFEST
+                    if item.mode in {"both", mode}
+                ),
+                "first_failure": accumulator.first_failure,
+                "retry_count": 0,
+                "passed": False,
+                "result_count_class": "0",
+                "results": (),
+                "projection_table": (),
+                "observation_schema_keys": (
+                    PROTECTED_RESULT_SCHEMA_KEYS if mode == "protected" else FAKE_RESULT_SCHEMA_KEYS
+                ),
+            }
+            result["gap_inventory"] = ()
+        result["status"] = "BLOCKED"
+    result["run_accumulator"] = accumulator.safe_dict()
+    return result
+
+
+def _run_direct_composed_rehearsal_impl(
+    args: argparse.Namespace,
+    *,
+    preflight: dict[str, object],
+    accumulator: RunAccumulator,
 ) -> dict[str, object]:
     """Run one direct Gateway -> Local -> provider composition.
 
@@ -3479,6 +3601,28 @@ def _run_direct_composed_rehearsal(
     provider_target = str(args.provider_target)
     if provider_target not in {"fake", "protected"}:
         raise RuntimeError("provider_target_invalid")
+    accumulator.set_phase("preflight")
+    budget = BudgetController(
+        RehearsalBudget(
+            wall_seconds=MAX_REHEARSAL_SECONDS,
+            operation_limits=PUBLIC_REQUEST_BUDGET,
+            max_event_bytes=FAKE_MAX_EVENT_BYTES,
+            max_stream_bytes=FAKE_MAX_STREAM_BYTES,
+            max_concurrency=1,
+        )
+    )
+    accumulator.record_budget(budget.safe_dict())
+    if not budget.acquire():
+        accumulator.record_failure(budget.failure or "budget_concurrency_limit_exhausted")
+        raise RuntimeError(budget.failure or "budget_concurrency_limit_exhausted")
+
+    def admit(operation: str, phase: str, ordinal: int) -> None:
+        accumulator.set_phase(phase, ordinal)
+        if not budget.admit(operation):
+            failure = budget.failure or "budget_operation_limit_exhausted"
+            accumulator.record_failure(failure)
+            raise RuntimeError(failure)
+
     if provider_target == "protected":
         _validate_fake_gate(args.fake_result)
     gateway_root = args.gateway_root.resolve()
@@ -3535,6 +3679,8 @@ def _run_direct_composed_rehearsal(
     candidate_runtimes: list[_ObservedCandidate] = []
     transport_snapshots: list[dict[str, object]] = []
     tested_implementation_sha = _local_implementation_sha()
+    accumulator.candidate_sha = tested_implementation_sha
+    accumulator.gateway_sha = GATEWAY_MAIN_SHA
     if _run_command(["git", "-C", str(REPO_ROOT), "status", "--short"]).stdout.strip():
         raise RuntimeError("implementation_worktree_dirty_before_fake")
     postgres_name: str | None = None
@@ -3543,9 +3689,13 @@ def _run_direct_composed_rehearsal(
     logs_clean = False
     postgres_removed = False
     previous_candidate_env: dict[str, str | None] = {}
-    result: dict[str, object] = {}
+    result: dict[str, object] = _failed_rehearsal_result(provider_target, accumulator)
     logs: tuple[Path, ...] = ()
+    candidate_observer: DirectTransportObserver | None = None
+    vision_observer: DirectTransportObserver | None = None
+    post_vision_observer: DirectTransportObserver | None = None
     idless_http_regression: dict[str, object] = {"passed": False}
+    protected_mode_synthetic: dict[str, object] = {"status": "NOT RUN"}
     protected_health_status: int | None = None
     protected_models_status: int | None = None
     try:
@@ -3722,6 +3872,23 @@ def _run_direct_composed_rehearsal(
                 raise RuntimeError(
                     f"candidate_not_ready_{candidate_health}_{candidate_ready}_{detail}"
                 )
+            if provider_target == "fake":
+                protected_mode_synthetic = run_protected_mode_conformance(
+                    preflight=lambda: {
+                        "ready": candidate_observer is not None
+                        and candidate_observer.inference_capability_ready
+                    },
+                    candidate=lambda: {
+                        "ready": candidate_observer is not None and candidate_observer.ready
+                    },
+                    dispatch=lambda _phase: {
+                        "direct_transport_observed": True,
+                        "terminal_observed": True,
+                    },
+                    cleanup=lambda: {"complete": True},
+                )
+                if protected_mode_synthetic.get("status") != "PASSED":
+                    raise RuntimeError("protected_mode_conformance_failed")
             gateway_process = _build_gateway_process(
                 gateway_python, gateway_root, gateway_port, gateway_env, gateway_log
             )
@@ -3752,6 +3919,8 @@ def _run_direct_composed_rehearsal(
             fake_codex_before = None if fake_server is None else fake_server.snapshot()
             codex_observer_before = candidate_observer.snapshot()
             preflight_flags = preflight.get("feature_flags", ())
+            admit("codex_turn_1", "codex", 1)
+            admit("codex_turn_2", "codex", 2)
             codex_facts = _run_fake_codex_turn(
                 codex,
                 fixture,
@@ -3771,6 +3940,7 @@ def _run_direct_composed_rehearsal(
             fake_codex_after = None if fake_server is None else fake_server.snapshot()
             codex_observer_after = candidate_observer.snapshot()
             transport_snapshots.append(codex_observer_after)
+            accumulator.capture_observer(codex_observer_after, phase="codex", ordinal=2)
             codex_provider_delta = (
                 _int_fact(fake_codex_after.get("inference_calls"))
                 - _int_fact(fake_codex_before.get("inference_calls"))
@@ -3856,6 +4026,11 @@ def _run_direct_composed_rehearsal(
                 provider_target == "protected" and not codex_transport_matches
             )
             if codex_facts["status"] != "PASSED" or protected_provider_boundary_unobserved:
+                accumulator.record_failure(
+                    "provider_boundary_unobserved"
+                    if protected_provider_boundary_unobserved
+                    else "codex_chain_failed"
+                )
                 _stop_process(gateway_process)
                 logs_clean = _secret_free_logs(
                     logs,
@@ -3894,6 +4069,7 @@ def _run_direct_composed_rehearsal(
                         else "codex_chain_failed"
                     ),
                     "protected_later_inference": False,
+                    "protected_mode_synthetic": protected_mode_synthetic,
                     "fake_provider": fake_codex_after,
                     "provider_observation": (
                         {"provider_boundary": codex_boundary}
@@ -3913,6 +4089,8 @@ def _run_direct_composed_rehearsal(
                 candidate_runtime.stop()
                 candidate_runtime = None
             vision_recorder = VisionOutboundRecorder(fixture, httpx.AsyncHTTPTransport(retries=0))
+            admit("vision_full", "vision", 3)
+            admit("vision_crop_history", "vision", 4)
             vision_observer = DirectTransportObserver(
                 vision_recorder,
                 validator_factory=validator_factory,
@@ -3943,6 +4121,7 @@ def _run_direct_composed_rehearsal(
                 else:
                     os.environ[PUBLIC_KEY_ENV] = previous_public_key
             transport_snapshots.append(vision_observer.snapshot())
+            accumulator.capture_observer(transport_snapshots[-1], phase="vision", ordinal=4)
             if candidate_runtime is not None:
                 candidate_runtime.stop()
                 candidate_runtime = None
@@ -3957,6 +4136,7 @@ def _run_direct_composed_rehearsal(
             )
             candidate_runtimes.append(candidate_runtime)
             transport_snapshots.append(post_vision_observer.snapshot())
+            accumulator.capture_observer(transport_snapshots[-1], phase="vision", ordinal=4)
             vision_summary = vision_diagnostic_summary(vision_facts)
             vision_metrics = vision_summary.get("metrics")
             vision_metrics_dict = vision_metrics if isinstance(vision_metrics, dict) else {}
@@ -4117,6 +4297,7 @@ def _run_direct_composed_rehearsal(
                 gateway_url, seeded["plaintext_key"], stream_body
             )
             stream_observer_after = candidate_observer.snapshot()
+            accumulator.capture_observer(stream_observer_after, phase="codex", ordinal=2)
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 stream_metrics_after = _adapter_metrics(http, adapter_port)
             stream_rows_after = asyncio.run(
@@ -4210,6 +4391,11 @@ def _run_direct_composed_rehearsal(
                 stream_facts.first_failure != "stream_contract_passed"
                 or not candidate_observer.ready
             ):
+                accumulator.record_failure(
+                    "observer_readiness_lost"
+                    if not candidate_observer.ready
+                    else stream_facts.first_failure
+                )
                 _stop_process(gateway_process)
                 logs_clean = _secret_free_logs(
                     logs,
@@ -4260,6 +4446,8 @@ def _run_direct_composed_rehearsal(
                 if fake_server is not None
                 else None
             )
+            admit("identity_replay", "identity", 5)
+            admit("identity_concurrent_replay", "identity", 6)
             identity_matrix = _run_signed_identity_matrix(
                 adapter_port,
                 service_token,
@@ -4435,6 +4623,8 @@ def _run_direct_composed_rehearsal(
                 if fake_server is not None
                 else 0
             )
+            admit("identity_tamper_matrix", "identity", 7)
+            admit("authorization_matrix", "identity", 8)
             invalid_status = _response_status(
                 lambda: OpenAI(
                     api_key="sk-slaif-invalid", base_url=gateway_url + "/v1/", max_retries=0
@@ -4500,6 +4690,7 @@ def _run_direct_composed_rehearsal(
                 if fake_server is not None
                 else 0
             )
+            admit("controlled_failure", "identity", 9)
             failure_status = _response_status(
                 lambda: failure_client.responses.create(
                     model=FAILURE_MODEL,
@@ -4635,6 +4826,7 @@ def _run_direct_composed_rehearsal(
             )
             transport_observation["fake_compiler_delta_class"] = count_class(compiler_delta)
             transport_observation["fake_inference_delta_class"] = count_class(inference_delta)
+            accumulator.capture_observer(transport_observation, phase="finalize", ordinal=9)
             result = {
                 "status": "PASSED",
                 "provider_target": provider_target,
@@ -4728,6 +4920,7 @@ def _run_direct_composed_rehearsal(
                     ),
                 },
                 "postgres_tmpfs_only": tmpfs_only,
+                "protected_mode_synthetic": protected_mode_synthetic,
             }
             logs_clean = _secret_free_logs(
                 logs,
@@ -4743,42 +4936,89 @@ def _run_direct_composed_rehearsal(
                 ),
             )
     finally:
-        _stop_process(gateway_process)
+        accumulator.set_phase("cleanup")
+        for observer, phase, ordinal in (
+            (candidate_observer, "codex", 2),
+            (vision_observer, "vision", 4),
+            (post_vision_observer, "vision", 4),
+        ):
+            if observer is not None:
+                try:
+                    accumulator.capture_observer(
+                        observer.snapshot(), phase=phase, ordinal=ordinal, update_counts=False
+                    )
+                except BaseException:
+                    accumulator.record_failure("serialization_failure")
+        try:
+            budget.release()
+            accumulator.record_budget(budget.safe_dict())
+        except BaseException:
+            accumulator.record_failure("cleanup_failed")
+
+        def cleanup_step(action: Any) -> None:
+            try:
+                action()
+            except BaseException:
+                accumulator.record_failure("cleanup_failed")
+
+        cleanup_step(lambda: _stop_process(gateway_process))
         for runtime in reversed(candidate_runtimes):
-            runtime.stop()
-        _stop_threaded_server(fake_server, fake_thread)
-        _stop_threaded_server(failure_server, failure_thread)
+            cleanup_step(runtime.stop)
+        cleanup_step(lambda: _stop_threaded_server(fake_server, fake_thread))
+        cleanup_step(lambda: _stop_threaded_server(failure_server, failure_thread))
         for name, previous in previous_candidate_env.items():
-            if previous is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = previous
-        postgres_removed, _postgres_image_removed = _docker_cleanup(
-            postgres_name, postgres_image_was_absent
-        )
+            cleanup_step(
+                lambda name=name, previous=previous: (
+                    os.environ.pop(name, None)
+                    if previous is None
+                    else os.environ.__setitem__(name, previous)
+                )
+            )
+        try:
+            postgres_removed, _postgres_image_removed = _docker_cleanup(
+                postgres_name, postgres_image_was_absent
+            )
+        except BaseException:
+            postgres_removed = False
+            accumulator.record_failure("cleanup_failed")
         if provider_target == "protected" and protected_before is not None:
-            protected_after = _protected_snapshot()
-            result["protected_unchanged"] = {
-                "pid": protected_before["vision_pid"] == protected_after["vision_pid"],
-                "start": protected_before["vision_start"] == protected_after["vision_start"],
-                "listener": protected_before["has_18020"] == protected_after["has_18020"],
-                "text_inactive": bool(protected_after["text_inactive"]),
-                "no_18021": not bool(protected_after["has_18021"]),
-                "no_18031": not bool(protected_after["has_18031"]),
-            }
+            try:
+                protected_after = _protected_snapshot()
+                result["protected_unchanged"] = {
+                    "pid": protected_before["vision_pid"] == protected_after["vision_pid"],
+                    "start": protected_before["vision_start"] == protected_after["vision_start"],
+                    "listener": protected_before["has_18020"] == protected_after["has_18020"],
+                    "worktree_count": protected_before["worktree_count"]
+                    == protected_after["worktree_count"],
+                    "text_inactive": protected_after["text_inactive"] is True,
+                    "no_18021": protected_after["has_18021"] is False,
+                    "no_18031": protected_after["has_18031"] is False,
+                }
+            except BaseException:
+                accumulator.record_failure("serialization_failure")
+                result["protected_unchanged"] = {
+                    "pid": None,
+                    "start": None,
+                    "listener": None,
+                    "worktree_count": None,
+                }
         else:
             result["protected_unchanged"] = "NOT_APPLICABLE_FAKE"
-        result["gateway_listener_removed"] = not bool(
-            re.search(rf":{gateway_port}\b", _run_command(["ss", "-ltnp"]).stdout)
-        )
-        result["candidate_listener_removed"] = not bool(
-            re.search(r":18031\b", _run_command(["ss", "-ltnp"]).stdout)
-        )
+        try:
+            listener_text = _run_command(["ss", "-ltnp"]).stdout
+            result["gateway_listener_removed"] = not bool(
+                re.search(rf":{gateway_port}\b", listener_text)
+            )
+            result["candidate_listener_removed"] = not bool(re.search(r":18031\b", listener_text))
+        except BaseException:
+            accumulator.record_failure("cleanup_failed")
+            result["gateway_listener_removed"] = False
+            result["candidate_listener_removed"] = False
         result["temporary_state_removed"] = (
             temporary_name is not None and not Path(temporary_name).exists()
         )
         result["logs_secret_free"] = logs_clean
-        result["cleanup_observation"] = {
+        cleanup_observation: dict[str, object] = {
             "processes": all(
                 process is None or process.poll() is not None for process in (gateway_process,)
             )
@@ -4796,12 +5036,8 @@ def _run_direct_composed_rehearsal(
             "failure_identity": result["temporary_state_removed"] is True,
             "failure_provider": result["temporary_state_removed"] is True,
         }
-        if result.get("status") == "FAILED" and "acceptance_gate" not in result:
-            result["runtime_observations"] = _runtime_observations(result)
-            failed_gate, failed_gaps = _acceptance_gate(result)
-            result["acceptance_gate"] = failed_gate
-            result["gap_inventory"] = failed_gaps
-            result["status"] = "BLOCKED"
+        result["cleanup_observation"] = cleanup_observation
+        accumulator.record_cleanup(cleanup_observation)
     if not result:
         raise RuntimeError("composed_rehearsal_did_not_produce_facts")
     result["runtime_observations"] = _runtime_observations(result)
@@ -4826,34 +5062,40 @@ def main() -> int:
     parser.add_argument("--provider-target", choices=("fake", "protected"), default="fake")
     parser.add_argument("--fake-result", type=Path)
     args = parser.parse_args()
+    mode: Literal["fake", "protected"] = (
+        "protected" if args.provider_target == "protected" else "fake"
+    )
+    boundary_accumulator = RunAccumulator(mode, gateway_sha=GATEWAY_MAIN_SHA)
     try:
         preflight, _ = _tool_envelope_preflight(args.gateway_root.resolve(), args.codex)
         print(json.dumps({"status": "PREFLIGHT", **preflight}, sort_keys=True), flush=True)
         if preflight["gateway_policy"] != "ACCEPTED":
-            print(
-                json.dumps(
-                    {"status": "FAILED", "error_type": "tool_envelope_preflight_gateway_rejected"},
-                    sort_keys=True,
-                )
-            )
+            boundary_accumulator.record_failure("preflight_incomplete")
+            facts = _failed_rehearsal_result(args.provider_target, boundary_accumulator)
+            facts["runtime_observations"] = _runtime_observations(facts)
+            facts["acceptance_gate"], facts["gap_inventory"] = _acceptance_gate(facts)
+            facts["status"] = "BLOCKED"
+            facts["error_type"] = "preflight_incomplete"
+            facts["run_accumulator"] = boundary_accumulator.safe_dict()
+            print(json.dumps(facts, sort_keys=True))
             return 1
         facts = _run_direct_composed_rehearsal(args, preflight=preflight)
     except Exception as exc:  # pragma: no cover - bounded live process boundary
-        safe_code = str(exc)
-        if not re.fullmatch(r"[a-z0-9_]{1,512}", safe_code):
-            safe_code = (
-                "runtime_error_empty"
-                if isinstance(exc, RuntimeError) and not safe_code
-                else type(exc).__name__
-            )
-        acceptance_gate, gap_inventory = _acceptance_gate({})
+        boundary_accumulator.record_failure(_safe_runtime_failure(exc))
+        facts = _failed_rehearsal_result(args.provider_target, boundary_accumulator)
+        facts["runtime_observations"] = _runtime_observations(facts)
+        acceptance_gate, gap_inventory = _acceptance_gate(facts)
+        facts["acceptance_gate"] = acceptance_gate
+        facts["gap_inventory"] = gap_inventory
+        facts["run_accumulator"] = boundary_accumulator.safe_dict()
         print(
             json.dumps(
                 {
                     "status": "BLOCKED",
-                    "error_type": safe_code,
+                    "error_type": boundary_accumulator.first_failure or "unknown",
                     "acceptance_gate": acceptance_gate,
                     "gap_inventory": gap_inventory,
+                    "run_accumulator": boundary_accumulator.safe_dict(),
                 },
                 sort_keys=True,
             )

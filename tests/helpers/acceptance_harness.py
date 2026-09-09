@@ -11,11 +11,13 @@ never retained by these helpers.
 from __future__ import annotations
 
 import ast
+import asyncio
 import hashlib
 import json
 import os
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+import time
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -71,6 +73,420 @@ PUBLIC_REQUEST_BUDGET: tuple[PublicRequestBudget, ...] = (
     PublicRequestBudget(8, "authorization_matrix"),
     PublicRequestBudget(9, "controlled_failure"),
 )
+
+
+@dataclass(frozen=True)
+class RehearsalBudget:
+    """Frozen bounds shared by fake and synthetic protected-mode execution."""
+
+    wall_seconds: float = 900.0
+    operation_limits: tuple[PublicRequestBudget, ...] = PUBLIC_REQUEST_BUDGET
+    max_event_bytes: int = 16 * 1024
+    max_stream_bytes: int = 128 * 1024
+    max_concurrency: int = 1
+
+
+@dataclass
+class BudgetController:
+    """Admission-time budget enforcement with no payload retention."""
+
+    budget: RehearsalBudget = field(default_factory=RehearsalBudget)
+    clock: Callable[[], float] = time.monotonic
+    _started: float = field(init=False)
+    _admitted: dict[str, int] = field(init=False, default_factory=dict)
+    _total_admitted: int = field(init=False, default=0)
+    _active: int = field(init=False, default=0)
+    _event_bytes: int = field(init=False, default=0)
+    _stream_bytes: int = field(init=False, default=0)
+    _failure: str | None = field(init=False, default=None)
+
+    def __post_init__(self) -> None:
+        self._started = self.clock()
+        if self.budget.wall_seconds <= 0 or self.budget.max_concurrency <= 0:
+            self._failure = "budget_configuration_invalid"
+        if any(item.maximum < 0 or item.retries != 0 for item in self.budget.operation_limits):
+            self._failure = "budget_configuration_invalid"
+
+    @property
+    def failure(self) -> str | None:
+        return self._failure
+
+    @property
+    def total_admitted(self) -> int:
+        return self._total_admitted
+
+    def admit(self, operation: str) -> bool:
+        """Reserve one named operation before any provider dispatch."""
+        if self._failure is not None:
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
+        limits = {item.operation: item.maximum for item in self.budget.operation_limits}
+        maximum = limits.get(operation)
+        if maximum is None:
+            self._failure = "budget_operation_unknown"
+            return False
+        if self._admitted.get(operation, 0) >= maximum:
+            self._failure = "budget_operation_limit_exhausted"
+            return False
+        if self._total_admitted >= sum(limits.values()):
+            self._failure = "budget_total_limit_exhausted"
+            return False
+        self._admitted[operation] = self._admitted.get(operation, 0) + 1
+        self._total_admitted += 1
+        return True
+
+    def acquire(self) -> bool:
+        """Admit one concurrent phase without exceeding the frozen bound."""
+        if self._failure is not None:
+            return False
+        if self._active >= self.budget.max_concurrency:
+            self._failure = "budget_concurrency_limit_exhausted"
+            return False
+        self._active += 1
+        return True
+
+    def release(self) -> None:
+        if self._active > 0:
+            self._active -= 1
+
+    def observe_event(self, size: int) -> bool:
+        if size < 0 or size > self.budget.max_event_bytes:
+            self._failure = "budget_event_limit_exhausted"
+            return False
+        if self._stream_bytes + size > self.budget.max_stream_bytes:
+            self._failure = "budget_stream_limit_exhausted"
+            return False
+        self._event_bytes += size
+        self._stream_bytes += size
+        return True
+
+    def safe_dict(self) -> dict[str, object]:
+        return {
+            "wall_seconds": self.budget.wall_seconds,
+            "max_event_bytes": self.budget.max_event_bytes,
+            "max_stream_bytes": self.budget.max_stream_bytes,
+            "max_concurrency": self.budget.max_concurrency,
+            "operation_limits": {
+                item.operation: item.maximum for item in self.budget.operation_limits
+            },
+            "wall_seconds_class": "bounded",
+            "operation_admitted_count_class": count_class(self._total_admitted),
+            "event_bytes_class": count_class(self._event_bytes),
+            "stream_bytes_class": count_class(self._stream_bytes),
+            "active_concurrency_class": count_class(self._active),
+            "failure_class": self._failure,
+            "exhausted": self._failure is not None,
+        }
+
+
+_SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
+    {
+        "unknown",
+        "cancelled",
+        "cleanup_failed",
+        "client_error",
+        "codex_chain_failed",
+        "compiler_failure",
+        "observer_readiness_lost",
+        "parser_failure",
+        "preflight_incomplete",
+        "resource_stop_failed",
+        "serialization_failure",
+        "stream_contract_passed",
+        "timeout",
+        "validation_failure",
+        "budget_deadline_exhausted",
+        "budget_operation_limit_exhausted",
+        "budget_total_limit_exhausted",
+        "budget_event_limit_exhausted",
+        "budget_stream_limit_exhausted",
+        "budget_concurrency_limit_exhausted",
+        "budget_operation_unknown",
+        "budget_configuration_invalid",
+        "http_status_non_2xx",
+        "content_type_not_sse",
+        "response_headers_timing_missing",
+        "first_bytes_missing",
+        "sse_unparseable",
+        "event_vocabulary_unrecognized",
+        "gateway_error_event",
+        "response_created_missing_or_duplicate",
+        "response_completed_missing_or_duplicate",
+        "terminal_status_or_output_invalid",
+        "terminal_usage_invalid",
+        "response_id_mismatch",
+        "normal_close_false",
+        "terminal_or_close_timing_missing",
+        "provider_boundary_unobserved",
+        "provider_lifecycle_invalid",
+        "local_upstream_non_2xx_or_failure",
+        "gateway_accounting_nonterminal",
+    }
+)
+
+
+def _safe_accumulator_failure(value: object) -> str:
+    return value if isinstance(value, str) and value in _SAFE_ACCUMULATOR_FAILURES else "unknown"
+
+
+@dataclass
+class RunAccumulator:
+    """Bounded, payload-free evidence retained across every runner exit."""
+
+    mode: Mode
+    candidate_sha: str | None = None
+    gateway_sha: str | None = None
+    phase: str = "preflight"
+    ordinal: int | None = None
+    first_failure: str | None = None
+    secondary_failures: list[str] = field(default_factory=list)
+    snapshots: list[dict[str, object]] = field(default_factory=list)
+    cleanup: dict[str, object] = field(default_factory=dict)
+    budget: dict[str, object] = field(default_factory=dict)
+    counts: dict[str, int | None] = field(
+        default_factory=lambda: {
+            "compiler_attempted": None,
+            "compiler_dispatched": None,
+            "compiler_responded": None,
+            "compiler_completed": None,
+            "inference_attempted": None,
+            "inference_dispatched": None,
+            "inference_responded": None,
+            "inference_completed": None,
+        }
+    )
+
+    def set_phase(self, phase: str, ordinal: int | None = None) -> None:
+        self.phase = (
+            phase
+            if phase
+            in {"preflight", "candidate", "codex", "vision", "identity", "cleanup", "finalize"}
+            else "unknown"
+        )
+        self.ordinal = ordinal if isinstance(ordinal, int) and ordinal >= 0 else None
+
+    def record_failure(self, failure: object) -> None:
+        fixed = _safe_accumulator_failure(failure)
+        if self.first_failure is None:
+            self.first_failure = fixed
+        elif fixed != self.first_failure and len(self.secondary_failures) < 4:
+            self.secondary_failures.append(fixed)
+
+    def capture_observer(
+        self,
+        snapshot: Mapping[str, object],
+        *,
+        phase: str,
+        ordinal: int | None = None,
+        update_counts: bool = True,
+    ) -> None:
+        self.set_phase(phase, ordinal)
+        names = (
+            "compiler_attempted",
+            "compiler_dispatched",
+            "compiler_responded",
+            "compiler_completed",
+            "inference_attempted",
+            "inference_dispatched",
+            "inference_responded",
+            "inference_completed",
+        )
+        if update_counts:
+            for name in names:
+                value = snapshot.get(f"{name}_count")
+                if type(value) is int and value >= 0:
+                    self.counts[name] = value
+        failure = snapshot.get("failure_class")
+        if failure is not None:
+            self.record_failure(
+                "observer_readiness_lost" if snapshot.get("ready") is not True else failure
+            )
+        if len(self.snapshots) < 16:
+            self.snapshots.append(
+                {
+                    "phase": self.phase,
+                    "ordinal": self.ordinal,
+                    "ready": snapshot.get("ready") is True,
+                    "failure_class": _safe_accumulator_failure(failure)
+                    if failure is not None
+                    else None,
+                    "compiler_attempted_count": self.counts["compiler_attempted"],
+                    "compiler_dispatched_count": self.counts["compiler_dispatched"],
+                    "compiler_responded_count": self.counts["compiler_responded"],
+                    "compiler_completed_count": self.counts["compiler_completed"],
+                    "inference_attempted_count": self.counts["inference_attempted"],
+                    "inference_dispatched_count": self.counts["inference_dispatched"],
+                    "inference_responded_count": self.counts["inference_responded"],
+                    "inference_completed_count": self.counts["inference_completed"],
+                }
+            )
+
+    def record_cleanup(self, outcome: Mapping[str, object]) -> None:
+        self.set_phase("cleanup")
+        self.cleanup = {
+            key: outcome.get(key) is True
+            for key in ("processes", "listeners", "database", "cache", "codex_home")
+            if key in outcome
+        }
+        if any(value is False for value in self.cleanup.values()):
+            self.record_failure("cleanup_failed")
+
+    def record_budget(self, budget: Mapping[str, object]) -> None:
+        self.budget = dict(budget)
+
+    def safe_dict(self) -> dict[str, object]:
+        def terminal_class(snapshot: dict[str, object]) -> str:
+            attempted = snapshot["inference_attempted_count"]
+            completed = snapshot["inference_completed_count"]
+            if type(attempted) is not int or type(completed) is not int:
+                return "unknown"
+            return (
+                "terminal_valid"
+                if attempted == completed and attempted > 0
+                else "terminal_incomplete"
+            )
+
+        return {
+            "mode": self.mode,
+            "candidate_sha": self.candidate_sha if isinstance(self.candidate_sha, str) else None,
+            "gateway_sha": self.gateway_sha if isinstance(self.gateway_sha, str) else None,
+            "phase": self.phase,
+            "ordinal": self.ordinal,
+            "first_failure": self.first_failure,
+            "secondary_failures": tuple(self.secondary_failures),
+            "counts": dict(self.counts),
+            "budget": dict(self.budget),
+            "observer_failure_classes": tuple(
+                item["failure_class"] for item in self.snapshots if item["failure_class"]
+            ),
+            "terminal_classes": tuple(terminal_class(item) for item in self.snapshots),
+            "snapshots": tuple(self.snapshots),
+            "cleanup": dict(self.cleanup),
+        }
+
+
+def run_protected_mode_conformance(
+    *,
+    preflight: Callable[[], Mapping[str, object]] | None = None,
+    candidate: Callable[[], Mapping[str, object]] | None = None,
+    dispatch: Callable[[str], Mapping[str, object]] | None = None,
+    cleanup: Callable[[], Mapping[str, object]] | None = None,
+    credential_hook: Callable[[], object] | None = None,
+    failure_phase: str | None = None,
+) -> dict[str, object]:
+    """Exercise protected phase selection with injectable, non-protected hooks."""
+    validate_projection_contract("protected")
+    controller = BudgetController(
+        RehearsalBudget(
+            operation_limits=(PUBLIC_REQUEST_BUDGET[0],),
+            max_event_bytes=16 * 1024,
+            max_stream_bytes=128 * 1024,
+        )
+    )
+    phases = ("preflight", "candidate", "dispatch", "finalize")
+    observations: dict[str, object] = {}
+    calls: list[str] = []
+    first_failure: str | None = None
+    cleanup_facts: Mapping[str, object] = {}
+    credential_reads = 0
+    direct_transport_observed = False
+    fake_only_observation_used = False
+
+    def fail(code: str) -> None:
+        nonlocal first_failure
+        if first_failure is None:
+            first_failure = code
+
+    try:
+        for phase in phases:
+            if first_failure is not None:
+                break
+            calls.append(phase)
+            if phase == "preflight":
+                if not controller.admit("codex_turn_1"):
+                    fail(controller.failure or "budget_operation_limit_exhausted")
+                    continue
+                facts = preflight() if preflight is not None else {"ready": True}
+                if facts.get("ready") is not True or failure_phase == phase:
+                    fail("preflight_incomplete")
+            elif phase == "candidate":
+                facts = candidate() if candidate is not None else {"ready": True}
+                if facts.get("ready") is not True or failure_phase == phase:
+                    fail("candidate_not_ready")
+            elif phase == "dispatch":
+                # The dispatch hook is an injected fake transport only.  A fake
+                # server observation never satisfies this protected predicate.
+                facts = (
+                    dispatch(phase)
+                    if dispatch is not None
+                    else {"direct_transport_observed": True, "terminal_observed": True}
+                )
+                fake_only_observation_used = facts.get("fake_server_observed") is True
+                direct_transport_observed = facts.get("direct_transport_observed") is True
+                observations["protected.direct_transport_observed"] = direct_transport_observed
+                observations["protected.terminal_observed"] = (
+                    facts.get("terminal_observed") is True and direct_transport_observed
+                )
+                if (
+                    failure_phase == phase
+                    or not direct_transport_observed
+                    or observations["protected.terminal_observed"] is not True
+                ):
+                    fail("provider_boundary_unobserved")
+                elif fake_only_observation_used:
+                    fail("provider_boundary_unobserved")
+            elif phase == "finalize":
+                observations["protected.cleanup_snapshot_available"] = True
+        if first_failure is None:
+            observations["protected.phase_complete"] = True
+    except (Exception, asyncio.CancelledError):
+        fail("unknown")
+    finally:
+        try:
+            cleanup_facts = cleanup() if cleanup is not None else {"complete": True}
+            if cleanup_facts.get("complete") is not True:
+                fail("cleanup_failed")
+        except (Exception, asyncio.CancelledError):
+            fail("cleanup_failed")
+    observations["protected.cleanup_snapshot_available"] = cleanup_facts.get("complete") is True
+
+    statuses = {
+        item_id: "PASSED" if first_failure is None else "NOT RUN"
+        for item_id in PROTECTED_MANIFEST_IDS
+    }
+    table = projection_table_safe_dict(observations, statuses, "protected")
+    rows_serialized = False
+    try:
+        rows_serialized = (
+            all(
+                isinstance(row, dict) and isinstance(row.get("obligation_id"), str) for row in table
+            )
+            and tuple(row["obligation_id"] for row in table) == PROTECTED_MANIFEST_IDS
+        )
+    except (TypeError, KeyError):
+        rows_serialized = False
+        fail("serialization_failure")
+    return {
+        "status": "PASSED"
+        if first_failure is None and rows_serialized and not fake_only_observation_used
+        else "FAILED",
+        "mode": "protected",
+        "selected_result_count_class": count_class(len(PROTECTED_MANIFEST_IDS)),
+        "selected_projection_ids": PROTECTED_PROJECTION_IDS,
+        "phase_classes": tuple(calls),
+        "first_failure": first_failure,
+        "later_dispatch_count": 0 if first_failure is not None else 1,
+        "credential_reads": credential_reads,
+        "credential_hook_not_called": credential_hook is None or credential_reads == 0,
+        "direct_transport_observed": direct_transport_observed,
+        "fake_only_observation_used": fake_only_observation_used,
+        "rows_serialized": rows_serialized,
+        "cleanup_snapshot_available": cleanup_facts.get("complete") is True,
+        "budget": controller.safe_dict(),
+        "projection_table": table,
+    }
 
 
 def _obligation(
@@ -772,6 +1188,18 @@ FAKE_PROJECTION_TABLE: tuple[ObligationProjection, ...] = (
     ),
 )
 
+_PROTECTED_FIXTURE_PROJECTION = ObligationProjection(
+    "C5.4",
+    (
+        "protected.fixture_pid_unchanged",
+        "protected.fixture_start_unchanged",
+        "protected.fixture_listener_unchanged",
+        "protected.fixture_worktree_unchanged",
+    ),
+    "protected_fixture_snapshot_before_cleanup",
+    ("test_protected_projection_positive", "test_protected_projection_negative"),
+)
+
 FAKE_MANIFEST_IDS: tuple[str, ...] = tuple(
     item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "fake"}
 )
@@ -781,24 +1209,79 @@ FAKE_RESULT_SCHEMA_KEYS: tuple[str, ...] = tuple(
         key for projection in FAKE_PROJECTION_TABLE for key in projection.source_observation_keys
     )
 )
+_FAKE_PROJECTIONS_BY_ID: dict[str, ObligationProjection] = {
+    item.obligation_id: item for item in FAKE_PROJECTION_TABLE
+}
+PROTECTED_MANIFEST_IDS: tuple[str, ...] = tuple(
+    item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "protected"}
+)
+PROTECTED_PROJECTION_TABLE: tuple[ObligationProjection, ...] = tuple(
+    _PROTECTED_FIXTURE_PROJECTION
+    if obligation_id == _PROTECTED_FIXTURE_PROJECTION.obligation_id
+    else _FAKE_PROJECTIONS_BY_ID[obligation_id]
+    for obligation_id in PROTECTED_MANIFEST_IDS
+)
+PROTECTED_PROJECTION_IDS: tuple[str, ...] = tuple(
+    item.obligation_id for item in PROTECTED_PROJECTION_TABLE
+)
+PROTECTED_RESULT_SCHEMA_KEYS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        key
+        for projection in PROTECTED_PROJECTION_TABLE
+        for key in projection.source_observation_keys
+    )
+)
 
 
-def projection_for(obligation_id: str) -> ObligationProjection:
+def projection_table_for(mode: Mode = "fake") -> tuple[ObligationProjection, ...]:
+    """Return the closed projection table for one execution mode."""
+    if mode == "fake":
+        return FAKE_PROJECTION_TABLE
+    if mode == "protected":
+        return PROTECTED_PROJECTION_TABLE
+    raise ValueError("unknown_projection_mode")
+
+
+def validate_projection_contract(
+    mode: Mode, table: tuple[ObligationProjection, ...] | None = None
+) -> None:
+    """Fail closed on missing, duplicate, unknown, or reordered projections."""
+    expected = tuple(
+        item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", mode}
+    )
+    selected = projection_table_for(mode) if table is None else table
+    identifiers = tuple(item.obligation_id for item in selected)
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("duplicate_projection_mapping")
+    if identifiers != expected:
+        raise ValueError("projection_mapping_incomplete_or_reordered")
+    for projection in selected:
+        if not projection.source_observation_keys or len(projection.source_observation_keys) != len(
+            set(projection.source_observation_keys)
+        ):
+            raise ValueError("projection_observation_schema_invalid")
+        if not projection.producer or len(projection.producer) > 128:
+            raise ValueError("projection_producer_invalid")
+
+
+def projection_for(obligation_id: str, mode: Mode = "fake") -> ObligationProjection:
     """Resolve one explicit projection without accepting unknown IDs."""
-    for projection in FAKE_PROJECTION_TABLE:
+    for projection in projection_table_for(mode):
         if projection.obligation_id == obligation_id:
             return projection
     raise KeyError("unknown_obligation_projection")
 
 
-def projection_passes(obligation_id: str, observations: Mapping[str, object]) -> bool:
+def projection_passes(
+    obligation_id: str, observations: Mapping[str, object], mode: Mode = "fake"
+) -> bool:
     """Return true only when every declared independent observation is true."""
-    projection = projection_for(obligation_id)
+    projection = projection_for(obligation_id, mode)
     return all(observations.get(key) is True for key in projection.source_observation_keys)
 
 
 def projection_table_safe_dict(
-    observations: Mapping[str, object], statuses: Mapping[str, str]
+    observations: Mapping[str, object], statuses: Mapping[str, str], mode: Mode = "fake"
 ) -> tuple[dict[str, object], ...]:
     """Create the bounded machine projection table for one runner execution."""
     return tuple(
@@ -812,7 +1295,7 @@ def projection_table_safe_dict(
                 sum(observations.get(key) is True for key in projection.source_observation_keys)
             ),
         }
-        for projection in FAKE_PROJECTION_TABLE
+        for projection in projection_table_for(mode)
     )
 
 

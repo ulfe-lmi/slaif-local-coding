@@ -276,3 +276,29 @@ observer readiness was lost; it produced no structured protected acceptance
 gate. Later protected matrix obligations, cutover, and release readiness are
 therefore `NOT RUN`, and no protected retry is authorized. Subsequent local
 failure containment was fake-tested only.
+
+## Objective-005-w protected projection and failure retention
+
+005-w keeps fake and protected projection tables separate. Protected selection
+now includes an explicit direct `C5.4` fixture projection and a mode-specific
+observation schema; missing, duplicate, unknown, and reordered mappings fail
+closed before credentials, candidate readiness, or provider dispatch. Fake
+server facts are not accepted as protected provider evidence.
+
+The runner retains a bounded payload-free accumulator across preflight,
+candidate, Codex, vision, identity, cleanup, and finalization. It records the
+mode, candidate/Gateway pins, phase and request ordinal, first fixed failure,
+bounded secondary failure classes, exact compiler/inference attempted,
+dispatched, responded, and completed counts, observer failure/terminal classes,
+and cleanup outcomes before teardown. Finalization is total: a later
+projection, serialization, or cleanup error is secondary and cannot replace
+the original failure or counts; unavailable observations remain unknown and are
+not converted to zero or pass.
+
+Admission-time enforcement covers the existing 900-second wall bound, nine
+ordered single-attempt public-operation budgets with zero retries, 16 KiB event
+and 128 KiB stream limits, and single-phase concurrency. The synthetic
+protected-mode conformance path uses injected fake-only hooks, proves
+first-failure stop and post-cleanup row serialization, and performs zero real
+credential, model, or protected-service access. This is orchestration evidence,
+not protected inference acceptance.

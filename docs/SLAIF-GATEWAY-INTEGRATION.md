@@ -453,3 +453,30 @@ path but ended with fixed harness `KeyError` evidence after observer readiness
 was lost, before a structured protected acceptance gate was produced. No
 protected retry was made. Later protected matrix obligations, cutover, and
 release readiness remain `NOT RUN`; this result is not protected acceptance.
+
+## Objective-005-w protected projection and failure retention
+
+005-w repairs the Local harness evidence boundary using explicit mode-specific
+projection tables. Protected mode has a direct `C5.4` fixture projection and a
+separate observation schema, so finalization cannot look up a protected row in
+the fake table. Coverage, uniqueness, unknown IDs, and ordering are validated
+before any credential, candidate-readiness, or provider-dispatch hook. Fake
+provider/server facts remain ineligible for protected provider predicates.
+
+The runner's bounded payload-free accumulator preserves mode, candidate/Gateway
+pins, phase/ordinal, first fixed failure, exact compiler/public inference
+attempted-dispatched-responded-completed counts, observer failure and terminal
+classes, and cleanup state before teardown. Finalization is total across normal,
+partial, observer-unready, validation, timeout, cancellation, client/parser,
+and cleanup-failure exits. A later projection or serialization error is recorded
+as a secondary fixed class and cannot overwrite the primary failure or counts;
+unknown observations remain `UNKNOWN`/`NOT RUN`, never zero or `PASS`.
+
+Admission control enforces the unchanged 900-second wall bound, ordered
+single-attempt/zero-retry public-operation budgets, 16 KiB event cap, 128 KiB
+stream cap, and single-phase concurrency before dispatch. The fake-only
+synthetic protected-mode conformance path uses injected hooks to verify
+protected phase selection, direct-observer requirements, first-failure stop,
+cleanup snapshot retention, and serialization of every selected row. It reads
+no real credential and makes no protected Qwen call; these facts do not claim
+protected inference acceptance, cutover, merge, or release readiness.
