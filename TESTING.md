@@ -257,3 +257,22 @@ qualification, retry, alternate prompt, or sandbox control.
 Required GitHub checks for the current PR must all be present and successful.
 Green CI is necessary, not sufficient; strategic review also inspects live-test
 evidence, scope, security, architecture, and documentation.
+
+## Objective-005-v protected acceptance
+
+The 005-v runner requires a complete fresh fake machine gate before protected
+credential access. The fake gate is bound to the exact Local source/harness,
+Gateway pin, route policy, Codex version/checksum, and direct HTTPX observer;
+its provider-boundary facts are independent of Gateway accounting. The clean
+005-v fake qualification passed all 37 selected obligations with zero missing,
+first-failure, or retry results, 12/12 terminal-valid inference observations,
+exact observer/provider agreement, cleanup, and secret-free logs.
+
+Protected mode resolves only the active vision unit MainPID, reads its unique
+nonempty `VLLM_API_KEY` entry in memory, and sends one bounded direct
+Gateway-to-Local-to-existing-provider attempt through the observer. The
+protected attempt in this round failed with a fixed harness `KeyError` after
+observer readiness was lost; it produced no structured protected acceptance
+gate. Later protected matrix obligations, cutover, and release readiness are
+therefore `NOT RUN`, and no protected retry is authorized. Subsequent local
+failure containment was fake-tested only.

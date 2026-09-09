@@ -432,3 +432,24 @@ the tested implementation SHA. Dirty relevant source/config state, production
 or harness descendants, malformed reports, multi-parent commits, and unrelated
 changed paths fail closed. No protected Qwen credential, inference, service,
 network, active-profile, or cutover state is authorized in 005-u.
+
+## Objective-005-v qualified observer and protected attempt
+
+005-v extends the existing direct Local observer to the one authorized
+protected attempt. Protected admission first validates a fresh complete fake
+machine gate bound to the exact Local source/harness, Gateway pin, route
+policy, Codex version/checksum, and observer. It then verifies the unchanged
+vision-service baseline, resolves only the active unit MainPID, and reads only
+the unique nonempty `VLLM_API_KEY` entry from that process environment into
+memory. The observer remains inside Local; no relay, Qwen instrumentation,
+service restart, configuration change, profile change, or network change is
+permitted.
+
+The fresh 005-v fake qualification passed 37/37 selected obligations with zero
+missing/first-failure/retry results, exact direct-observer/fake-provider
+agreement, 12/12 terminal-valid inference operations, cleanup, and
+secret-free logs. The single protected attempt reached the candidate/provider
+path but ended with fixed harness `KeyError` evidence after observer readiness
+was lost, before a structured protected acceptance gate was produced. No
+protected retry was made. Later protected matrix obligations, cutover, and
+release readiness remain `NOT RUN`; this result is not protected acceptance.
