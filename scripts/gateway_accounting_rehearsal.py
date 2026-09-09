@@ -3923,6 +3923,7 @@ def _run_direct_composed_rehearsal_impl(
     active_observer: DirectTransportObserver | None = None
     protected_failure_injected = False
     codex_turn_transitioned = False
+    early_return = False
 
     def protected_dispatch_complete(kind: str, phase: str, ordinal: int | None) -> None:
         nonlocal protected_failure_injected
@@ -3959,6 +3960,49 @@ def _run_direct_composed_rehearsal_impl(
         accumulator.record_failure(budget.failure or "budget_operation_activation_missing")
         if active_observer is not None:
             active_observer.mark_unready()
+
+    def finalize_result() -> None:
+        """Project the selected evidence after cleanup, including early stops."""
+        if not result:
+            raise RuntimeError("composed_rehearsal_did_not_produce_facts")
+        result["runtime_observations"] = _runtime_observations(result)
+        try:
+            if protected_hooks is not None and (
+                protected_hooks.projection_failure or protected_hooks.failure_phase == "projection"
+            ):
+                raise RuntimeError("synthetic_projection_failure")
+            acceptance_gate, gap_inventory = _acceptance_gate(result)
+        except BaseException:
+            accumulator.record_failure("serialization_failure")
+            mode: Literal["fake", "protected"] = (
+                "protected" if result.get("provider_target") == "protected" else "fake"
+            )
+            selected = tuple(item for item in ACCEPTANCE_MANIFEST if item.mode in {"both", mode})
+            statuses = {item.obligation_id: "NOT RUN" for item in selected}
+            fallback = build_obligation_gate(
+                mode,
+                [
+                    make_result(
+                        item.obligation_id,
+                        status="NOT RUN",
+                        observed=False,
+                        relationship="other",
+                        count=0,
+                    )
+                    for item in selected
+                ],
+                first_failure=accumulator.first_failure,
+                retry_count=0,
+            ).safe_dict()
+            fallback["projection_table"] = projection_table_safe_dict({}, statuses, mode)
+            fallback["observation_schema_keys"] = (
+                PROTECTED_RESULT_SCHEMA_KEYS if mode == "protected" else FAKE_RESULT_SCHEMA_KEYS
+            )
+            acceptance_gate = fallback
+            gap_inventory = ()
+        result["acceptance_gate"] = acceptance_gate
+        result["gap_inventory"] = gap_inventory
+        result["status"] = "COMPLETE" if acceptance_gate["passed"] else "BLOCKED"
 
     idless_http_regression: dict[str, object] = {"passed": False}
     protected_mode_synthetic: dict[str, object] = {"status": "NOT RUN"}
@@ -4380,6 +4424,7 @@ def _run_direct_composed_rehearsal_impl(
                     },
                     "cleanup_observation": {},
                 }
+                early_return = True
                 return result
             if candidate_runtime is not None:
                 candidate_runtime.stop()
@@ -4780,6 +4825,7 @@ def _run_direct_composed_rehearsal_impl(
                         "no_direct_route": True,
                     },
                 }
+                early_return = True
                 return result
             activate("identity_replay", "identity", 5, "identity")
             identity_rows_before = asyncio.run(
@@ -5413,46 +5459,9 @@ def _run_direct_composed_rehearsal_impl(
             cleanup_observation["cache"] = False
         result["cleanup_observation"] = cleanup_observation
         accumulator.record_cleanup(cleanup_observation)
-    if not result:
-        raise RuntimeError("composed_rehearsal_did_not_produce_facts")
-    result["runtime_observations"] = _runtime_observations(result)
-    try:
-        if protected_hooks is not None and (
-            protected_hooks.projection_failure or protected_hooks.failure_phase == "projection"
-        ):
-            raise RuntimeError("synthetic_projection_failure")
-        acceptance_gate, gap_inventory = _acceptance_gate(result)
-    except BaseException:
-        accumulator.record_failure("serialization_failure")
-        mode: Literal["fake", "protected"] = (
-            "protected" if result.get("provider_target") == "protected" else "fake"
-        )
-        selected = tuple(item for item in ACCEPTANCE_MANIFEST if item.mode in {"both", mode})
-        statuses = {item.obligation_id: "NOT RUN" for item in selected}
-        fallback = build_obligation_gate(
-            mode,
-            [
-                make_result(
-                    item.obligation_id,
-                    status="NOT RUN",
-                    observed=False,
-                    relationship="other",
-                    count=0,
-                )
-                for item in selected
-            ],
-            first_failure=accumulator.first_failure,
-            retry_count=0,
-        ).safe_dict()
-        fallback["projection_table"] = projection_table_safe_dict({}, statuses, mode)
-        fallback["observation_schema_keys"] = (
-            PROTECTED_RESULT_SCHEMA_KEYS if mode == "protected" else FAKE_RESULT_SCHEMA_KEYS
-        )
-        acceptance_gate = fallback
-        gap_inventory = ()
-    result["acceptance_gate"] = acceptance_gate
-    result["gap_inventory"] = gap_inventory
-    result["status"] = "COMPLETE" if acceptance_gate["passed"] else "BLOCKED"
+        if early_return:
+            finalize_result()
+    finalize_result()
     return result
 
 
