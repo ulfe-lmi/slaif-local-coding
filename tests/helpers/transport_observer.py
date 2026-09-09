@@ -532,6 +532,10 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         """Whether Responses admission can construct its required validator."""
         return self._validator_factory is not None
 
+    def startup_probe_observer(self) -> DirectTransportObserver:
+        """Return a serial, unbudgeted observer for candidate readiness only."""
+        return DirectTransportObserver(self._delegate)
+
     def _latch_failure(self, kind: str) -> None:
         self._ready = False
         if self._failure_class is None:

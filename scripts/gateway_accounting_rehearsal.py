@@ -2281,42 +2281,75 @@ def _build_observed_candidate(
     from slaif_local_coding.config import load_settings
 
     settings = load_settings(config_path)
-    app = create_app(settings, transport=observer)
-    previous_logging_disable = logging.root.manager.disable
-    logging.disable(logging.CRITICAL)
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app,
-            host="127.0.0.1",
-            port=18031,
-            log_level="warning",
-            access_log=False,
-            log_config=None,
+
+    def launch(candidate_observer: DirectTransportObserver) -> _ObservedCandidate:
+        app = create_app(settings, transport=candidate_observer)
+        previous_logging_disable = logging.root.manager.disable
+        logging.disable(logging.CRITICAL)
+        server = uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=18031,
+                log_level="warning",
+                access_log=False,
+                log_config=None,
+            )
         )
-    )
-    thread = threading.Thread(target=server.run, name="oap-005s-observed-candidate", daemon=True)
-    thread.start()
-    runtime = _ObservedCandidate(
-        server=server,
-        thread=thread,
-        observer=observer,
-        vision_recorder=vision_recorder,
-        previous_logging_disable=previous_logging_disable,
-    )
-    try:
+        thread = threading.Thread(
+            target=server.run, name="oap-005s-observed-candidate", daemon=True
+        )
+        thread.start()
+        return _ObservedCandidate(
+            server=server,
+            thread=thread,
+            observer=candidate_observer,
+            vision_recorder=vision_recorder,
+            previous_logging_disable=previous_logging_disable,
+        )
+
+    def probe(runtime: _ObservedCandidate, *, ready: bool) -> tuple[int, int]:
         with httpx.Client(timeout=5, follow_redirects=False) as client:
-            runtime.health_status = _wait_status(client, "http://127.0.0.1:18031/healthz")
-            runtime.ready_status = _wait_status(client, "http://127.0.0.1:18031/readyz")
+            health_status = _wait_status(client, "http://127.0.0.1:18031/healthz")
+            ready_status = _wait_status(client, "http://127.0.0.1:18031/readyz") if ready else 0
+        if health_status != 200 or (ready and ready_status != 200):
+            runtime.stop()
+            raise RuntimeError("candidate_observer_not_ready")
+        return health_status, ready_status
+
+    previous_logging_disable = logging.root.manager.disable
+    runtime: _ObservedCandidate | None = None
+    try:
+        # /readyz performs a bounded upstream /health call.  Keep that
+        # startup-only observation out of the measured provider-dispatch plan
+        # and run it in a serial candidate lifetime before the budgeted one.
+        if observer._budget_controller is not None:  # repository-only helper seam
+            probe_runtime = launch(observer.startup_probe_observer())
+            try:
+                health_status, ready_status = probe(probe_runtime, ready=True)
+            finally:
+                if probe_runtime.alive():
+                    probe_runtime.stop()
+            runtime = launch(observer)
+            actual_health, _ = probe(runtime, ready=False)
+            runtime.health_status = actual_health
+            runtime.ready_status = ready_status
+        else:
+            runtime = launch(observer)
+            health_status, ready_status = probe(runtime, ready=True)
+            runtime.health_status = health_status
+            runtime.ready_status = ready_status
         if (
-            runtime.health_status != 200
-            or runtime.ready_status != 200
-            or not thread.is_alive()
+            not runtime.thread.is_alive()
             or not observer.ready
             or not observer.inference_capability_ready
         ):
             raise RuntimeError("candidate_observer_not_ready")
     except BaseException:
-        runtime.stop()
+        if runtime is not None:
+            runtime.stop()
+        else:
+            logging.disable(previous_logging_disable)
         raise
     return runtime
 
