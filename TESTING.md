@@ -45,8 +45,8 @@ cross-repository acceptance remain `NOT IMPLEMENTED` and `NOT AUTHORIZED`.
 The permanent bounded orchestrator is
 `scripts/gateway_accounting_rehearsal.py`. It uses one ordered C/D obligation
 manifest and the same fail-closed predicates for fake and protected modes.
-Fake mode is the only executable acceptance mode in Objective-005: it uses a
-detached clean Gateway at exact SHA `9d247e7f3d8fd6a588976840c4657181b7486b81`,
+Fake and conditionally protected modes use a clean detached Gateway at exact
+implementation SHA `50dcc3b85d614eb1d0c6196595bf22ef5779f846`,
 the Local candidate, synthetic PostgreSQL, a strict loopback fake Qwen, and the
 task-controlled Codex 0.149.0 binary with its exact verified checksum. Use a
 temporary checkout and run:
@@ -60,11 +60,12 @@ PYTHONPATH=<local-repo>:<local-repo>/src:<gateway>\
 
 The run has bounded request ordinals, zero retries, independent provider
 lifecycle/call observations, strict cleanup, and a machine gate requiring
-`missing=[]` and every obligation `PASSED`. Protected mode is read-only
-preflight only in 005-q: no protected credential, authenticated Qwen request,
-model visibility request, inference, vision traffic, or real cutover is
-authorized. `PASSED` from a focused test or report prose cannot replace the
-machine gate.
+`missing=[]` and every obligation `PASSED`. Protected mode is available only
+after the complete fake machine gate, under the active order's unchanged
+credential, service, request, and cleanup limits. It is one bounded
+authenticated run against the existing protected vision service; it is not a
+cutover or release claim. `PASSED` from a focused test or report prose cannot
+replace the machine gate.
 
 The fake provider exposes only bounded classifications. Its function path is
 one call with an eight-event lifecycle; its tool-result path is a nine-event
@@ -77,12 +78,22 @@ every selected result to be observed, independently related, and `PASSED` with
 all projection predicates true.
 
 The 005-q implementation run repaired the recursive fake stream and its
-loopback regression passed. The exact full-chain attempt reached C1 and the
-first vision turn, then was `BLOCKED` at C3.1 because clean Gateway
-`9d247e7f3d8fd6a588976840c4657181b7486b81` rejected the Codex 0.149 resume
-history's prior `output_text` input content before Local admission. This is a
-bounded Gateway compatibility blocker, not fake-provider or protected-Qwen
-acceptance.
+loopback regression passed. The 005-r continuation re-pins the accepted
+Gateway Objective-161 implementation and re-runs the complete fake gate,
+including actual Codex 0.149 same-session full-image → resumed crop history,
+before any protected call. The prior 005-q rejection at C3.1 against
+`9d247e7f3d8fd6a588976840c4657181b7486b81` remains historical evidence only.
+
+The 005-r fake run passed the complete selected machine gate: 37/37 C1–C5/D
+results were `PASSED`, with no missing result, first failure, or retry, and
+temporary-process, listener, database, cache, Codex-home, and secret-free-log
+cleanup all passed. The one authorized protected attempt reached the exact
+Gateway → Local → existing vision-Qwen path, but protected provider-call and
+terminal-lifecycle observations are not available without a provider-side
+relay or model-service mutation. It therefore failed closed at the first
+protected C1.1 boundary and does not establish protected acceptance. The
+harness now stops before later protected inference when that independent
+provider boundary is unobserved; no protected retry is authorized.
 
 ## Image-policy tests
 

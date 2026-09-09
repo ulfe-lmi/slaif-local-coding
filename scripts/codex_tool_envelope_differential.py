@@ -30,7 +30,7 @@ from tests.helpers.capture_codex_tool_types import (  # noqa: E402
 from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv  # noqa: E402
 from tests.helpers.vision_e2e_support import VISION_MODEL  # noqa: E402
 
-GATEWAY_MAIN_SHA = "9d247e7f3d8fd6a588976840c4657181b7486b81"
+GATEWAY_MAIN_SHA = "50dcc3b85d614eb1d0c6196595bf22ef5779f846"
 CODEX_VERSION = "0.149.0"
 ROUTE_CAPABILITIES: dict[str, object] = {
     "responses": {

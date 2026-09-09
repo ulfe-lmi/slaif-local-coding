@@ -11,7 +11,7 @@ from scripts.local_qwen_provider_differential import (
     _status_class,
 )
 
-GATEWAY_MAIN_SHA = "9d247e7f3d8fd6a588976840c4657181b7486b81"
+GATEWAY_MAIN_SHA = "50dcc3b85d614eb1d0c6196595bf22ef5779f846"
 PUBLIC_MODEL = "qwen3.8-27b"
 UPSTREAM_MODEL = "qwen3.8-27b"
 PROVIDER = "local-coding"

@@ -319,3 +319,34 @@ error after Local HTTP 2xx and zero Local failure delta is classified as
 provider lifecycle and exact clean Gateway-validator conflict prove
 `gateway_product_defect`. This correction does not rewrite 005-o or claim
 real-matrix, acceptance, cutover, or release readiness.
+
+## Objective-005-r / Gateway Objective-161 continuation
+
+The active 005-r continuation uses the accepted, merged Gateway Objective-161
+implementation at exact clean detached SHA
+`50dcc3b85d614eb1d0c6196595bf22ef5779f846`. Its separate immutable Gateway
+report is `ad1c556a539130c08dc1063b3e9a25a0af2e5a85`, whose first parent is
+that implementation SHA; the merged Gateway main authority is
+`d142fd7f04c46fac3469b9b9bba1bd2068aabad8`. These are provenance facts, not
+Local or Gateway code changes in this repository.
+
+005-r first re-observes the complete repository-only fake C1–C5/D matrix
+through actual Codex 0.149.0, Gateway, Local, and the strict fake provider,
+including the same-session full-image then resumed crop/history request. Only
+an entirely passing fake machine gate permits one bounded protected matrix
+against the pre-existing vision service on port 18020. Protected credentials,
+model traffic, and service state remain outside the fake phase; no restart,
+profile change, cutover, or release is implied. Results and remaining limits
+belong to the immutable 005-r report, while the 005-q report and earlier
+terminal artifacts remain unchanged historical evidence.
+
+The fresh 005-r fake run completed the exact machine gate with 37/37 selected
+C1–C5/D obligations `PASSED`, `missing=[]`, null first failure, zero retries,
+and bounded cleanup. The single authorized protected attempt reached the
+existing vision-Qwen service through the exact Gateway and Local candidate,
+with the protected service identity and listener unchanged. Protected
+provider-call and terminal-lifecycle facts could not be observed independently
+without a provider relay or protected-service mutation, so protected C1.1
+failed closed and the protected matrix is not accepted. The runner now stops
+before later protected inference when that boundary is unavailable; no
+protected retry, cutover, or release is claimed.

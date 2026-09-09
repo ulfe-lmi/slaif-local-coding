@@ -412,24 +412,40 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         return "function_call_output" in encoded or "custom_tool_call_output" in encoded
 
     @staticmethod
+    def _function_output_count(payload: dict[str, object]) -> int:
+        return sum(
+            item.get("type") == "function_call_output"
+            for item in _FakeQwenObservationWalker.walk(payload)
+        )
+
+    @staticmethod
+    def _input_image_count(payload: dict[str, object]) -> int:
+        return sum(
+            item.get("type") == "input_image" for item in _FakeQwenObservationWalker.walk(payload)
+        )
+
+    @staticmethod
     def _matching_function_output(payload: dict[str, object]) -> bool:
         outputs = tuple(
             item
             for item in _FakeQwenObservationWalker.walk(payload)
             if item.get("type") == "function_call_output"
         )
-        item_id = outputs[0].get("id") if len(outputs) == 1 else None
-        return (
-            len(outputs) == 1
-            and (
-                item_id is None
-                or (
-                    isinstance(item_id, str)
-                    and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", item_id) is not None
+        if not outputs:
+            return False
+        return all(
+            (
+                (
+                    item.get("id") is None
+                    or (
+                        isinstance(item.get("id"), str)
+                        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", item["id"]) is not None
+                    )
                 )
+                and item.get("call_id") == FAKE_FUNCTION_CALL_ID
+                and any(key in item for key in ("output", "result", "content"))
             )
-            and outputs[0].get("call_id") == FAKE_FUNCTION_CALL_ID
-            and any(key in outputs[0] for key in ("output", "result", "content"))
+            for item in outputs
         )
 
     @staticmethod
@@ -882,7 +898,11 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
 
     def _stream(self, payload: dict[str, object]) -> None:
         tool_name = self._function_tool(payload)
-        if tool_name is not None and not self._has_function_output(payload):
+        output_count = self._function_output_count(payload)
+        if tool_name is not None and (
+            not self._has_function_output(payload)
+            or (self._input_image_count(payload) >= 2 and output_count == 1)
+        ):
             self._function_stream(tool_name)
             return
         if self._has_function_output(payload) and not self._matching_function_output(payload):
@@ -2845,6 +2865,41 @@ def _acceptance_gate(
     return gate_dict, gaps
 
 
+def _validate_fake_gate(path: Path | None) -> None:
+    """Require one complete same-pin fake gate before protected traffic."""
+    if path is None:
+        raise RuntimeError("protected_fake_gate_missing")
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        raise RuntimeError("protected_fake_gate_unreadable") from None
+    if len(raw) > 2 * 1024 * 1024:
+        raise RuntimeError("protected_fake_gate_too_large")
+    try:
+        lines = raw.splitlines()
+        payload = json.loads(lines[-1]) if lines else None
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        raise RuntimeError("protected_fake_gate_invalid") from None
+    if not isinstance(payload, dict):
+        raise RuntimeError("protected_fake_gate_invalid")
+    gate = payload.get("acceptance_gate")
+    results = gate.get("results") if isinstance(gate, dict) else None
+    if not (
+        payload.get("status") == "COMPLETE"
+        and payload.get("provider_target") == "fake"
+        and payload.get("gateway_sha") == GATEWAY_MAIN_SHA
+        and isinstance(gate, dict)
+        and gate.get("passed") is True
+        and gate.get("missing") == []
+        and gate.get("first_failure") is None
+        and gate.get("retry_count") == 0
+        and isinstance(results, list)
+        and results
+        and all(isinstance(item, dict) and item.get("status") == "PASSED" for item in results)
+    ):
+        raise RuntimeError("protected_fake_gate_not_complete")
+
+
 def _run_direct_composed_rehearsal(
     args: argparse.Namespace, *, preflight: dict[str, object]
 ) -> dict[str, object]:
@@ -2857,7 +2912,7 @@ def _run_direct_composed_rehearsal(
     if provider_target not in {"fake", "protected"}:
         raise RuntimeError("provider_target_invalid")
     if provider_target == "protected":
-        raise RuntimeError("protected_mode_not_authorized_005p")
+        _validate_fake_gate(args.fake_result)
     gateway_root = args.gateway_root.resolve()
     gateway_python = Path(args.gateway_python).absolute()
     if (
@@ -3145,7 +3200,8 @@ def _run_direct_composed_rehearsal(
                     },
                 }
             )
-            if codex_facts["status"] != "PASSED":
+            protected_provider_boundary_unobserved = provider_target == "protected"
+            if codex_facts["status"] != "PASSED" or protected_provider_boundary_unobserved:
                 _stop_process(gateway_process)
                 logs_clean = _secret_free_logs(
                     logs,
@@ -3165,6 +3221,12 @@ def _run_direct_composed_rehearsal(
                     "provider_target": provider_target,
                     "gateway_sha": GATEWAY_MAIN_SHA,
                     "codex": codex_facts,
+                    "protected_stop_reason": (
+                        "protected_provider_boundary_unobserved"
+                        if protected_provider_boundary_unobserved
+                        else "codex_chain_failed"
+                    ),
+                    "protected_later_inference": False,
                     "fake_provider": fake_codex_after,
                     "fake_idless_http_regression": idless_http_regression,
                     "topology_observation": {
@@ -3925,6 +3987,7 @@ def main() -> int:
         ),
     )
     parser.add_argument("--provider-target", choices=("fake", "protected"), default="fake")
+    parser.add_argument("--fake-result", type=Path)
     args = parser.parse_args()
     try:
         preflight, _ = _tool_envelope_preflight(args.gateway_root.resolve(), args.codex)

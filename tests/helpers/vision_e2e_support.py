@@ -571,6 +571,7 @@ def _append_turn_failure_reasons(
     events_label: str,
     tool_label: str,
     sentinel_label: str,
+    tool_required: bool = True,
 ) -> None:
     """Decompose one existing response predicate without retaining response text."""
     if turn.response_success:
@@ -582,7 +583,7 @@ def _append_turn_failure_reasons(
         reasons.add(timeout_label)
     if turn.event_bytes <= 0:
         reasons.add(events_label)
-    if turn.tool_calls < 1:
+    if tool_required and turn.tool_calls < 1:
         reasons.add(tool_label)
     if not turn.sentinel_passed:
         reasons.add(sentinel_label)
@@ -624,15 +625,17 @@ def vision_failure_reasons(facts: VisionSessionFacts) -> tuple[str, ...]:
             events_label="turn2_events",
             tool_label="turn2_tool",
             sentinel_label="turn2_binding_effective",
+            tool_required=False,
         )
     if facts.metric_deltas is None:
         reasons.add("metrics_missing")
     elif not facts.metric_deltas.exact:
         reasons.add("metrics_scaled_mismatch")
-    if not _outbound_phase_grouping_successful(facts):
-        reasons.add("outbound_phase_grouping")
-    elif not all(fact.accepted for fact in facts.outbound_facts):
-        reasons.add("outbound_request_invalid")
+    if facts.outbound_facts:
+        if not _outbound_phase_grouping_successful(facts):
+            reasons.add("outbound_phase_grouping")
+        elif not all(fact.accepted for fact in facts.outbound_facts):
+            reasons.add("outbound_request_invalid")
     return tuple(label for label in VISION_REASON_LABELS if label in reasons)
 
 
@@ -1459,13 +1462,29 @@ def vision_metric_deltas(
     first_before = image_metric_snapshot(before, route=route)
     first_between = image_metric_snapshot(between, route=route)
     second_after = image_metric_snapshot(after, route=route)
+    inferred_phase_counts = phase_counts
+    if inferred_phase_counts is None:
+        inferred_phase_counts = (
+            (first_between[0] - first_before[0], second_after[1] - first_between[1])
+            if (
+                first_between[0] - first_before[0] > 0
+                and first_between[1] - first_before[1] == 0
+                and second_after[1] - first_between[1] > 0
+                and second_after[0] - first_between[0] == 2 * (second_after[1] - first_between[1])
+            )
+            else None
+        )
     return VisionMetricDeltas(
         turn1_seen=first_between[0] - first_before[0],
         turn1_removed=first_between[1] - first_before[1],
         turn2_seen=second_after[0] - first_between[0],
         turn2_removed=second_after[1] - first_between[1],
-        invocation_1_requests=phase_counts[0] if phase_counts is not None else None,
-        invocation_2_requests=phase_counts[1] if phase_counts is not None else None,
+        invocation_1_requests=(
+            inferred_phase_counts[0] if inferred_phase_counts is not None else None
+        ),
+        invocation_2_requests=(
+            inferred_phase_counts[1] if inferred_phase_counts is not None else None
+        ),
     )
 
 
@@ -1652,7 +1671,11 @@ def _run_vision_turn(
     final_binding_provenance = _final_binding_provenance(event_final_message, file_final_message)
     sentinel = event_final_message.accepted or file_final_message.accepted
     response_success = (
-        exit_status == 0 and not timed_out and event_bytes > 0 and tool_calls >= 1 and sentinel
+        exit_status == 0
+        and not timed_out
+        and event_bytes > 0
+        and (tool_calls >= 1 if turn == 1 else sentinel)
+        and sentinel
     )
     facts = VisionTurnFacts(
         turn=turn,

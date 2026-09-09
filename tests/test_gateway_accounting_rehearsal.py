@@ -9,9 +9,10 @@ from typing import Any
 import httpx
 import pytest
 
-from scripts.gateway_accounting_rehearsal import _FakeQwenServer
+from scripts.gateway_accounting_rehearsal import _FakeQwenServer, _validate_fake_gate
 from scripts.local_qwen_provider_differential import SSEFacts
 from tests.helpers.gateway_accounting_rehearsal import (
+    GATEWAY_MAIN_SHA,
     STREAM_FAILURE_ORDER,
     ComposedStreamFacts,
     build_composed_stream_facts,
@@ -428,3 +429,70 @@ def test_strict_fake_function_stream_works_through_loopback_http() -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def test_strict_fake_resume_image_history_starts_a_new_function_turn() -> None:
+    server = _FakeQwenServer("synthetic-vision-token")
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/v1/responses"
+        headers = {"Authorization": "Bearer synthetic-vision-token"}
+        history_input: list[dict[str, object]] = [
+            {"type": "input_image", "image_url": "synthetic-full"},
+            {"type": "input_image", "image_url": "synthetic-crop"},
+            {
+                "type": "function_call_output",
+                "call_id": "call_synthetic",
+                "output": "synthetic-result",
+            },
+        ]
+        history = {
+            "model": "qwen3.8-27b",
+            "stream": True,
+            "input": history_input,
+            "tools": [{"type": "function", "name": "shell_command"}],
+        }
+        continuation = dict(history)
+        continuation["input"] = [
+            *history_input,
+            {
+                "type": "function_call_output",
+                "call_id": "call_synthetic",
+                "output": "synthetic-result-2",
+            },
+        ]
+        with httpx.Client(timeout=5) as client:
+            first = client.post(url, json=history, headers=headers)
+            second = client.post(url, json=continuation, headers=headers)
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert b'"type":"function_call"' in first.content
+        assert b'"type":"message"' in second.content
+        assert server.snapshot()["inference_calls"] == 2
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_protected_mode_requires_complete_same_pin_fake_gate(tmp_path: Any) -> None:
+    valid = {
+        "status": "COMPLETE",
+        "provider_target": "fake",
+        "gateway_sha": GATEWAY_MAIN_SHA,
+        "acceptance_gate": {
+            "passed": True,
+            "missing": [],
+            "first_failure": None,
+            "retry_count": 0,
+            "results": [{"status": "PASSED"}],
+        },
+    }
+    path = tmp_path / "fake-result.json"
+    path.write_text(json.dumps(valid), encoding="utf-8")
+    _validate_fake_gate(path)
+    valid["acceptance_gate"]["passed"] = False  # type: ignore[index]
+    path.write_text(json.dumps(valid), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="protected_fake_gate_not_complete"):
+        _validate_fake_gate(path)
