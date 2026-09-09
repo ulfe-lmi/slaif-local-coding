@@ -251,6 +251,13 @@ class _StreamState:
             return
         if not self.first_byte:
             self.first_byte = True
+        if self.content_type != "sse":
+            self.byte_count += len(chunk)
+            if self.byte_count > MAX_STREAM_BYTES:
+                self.byte_count = MAX_STREAM_BYTES + 1
+                self.overflow = True
+                self._fail("overflow")
+            return
         for value in chunk:
             if self.byte_count >= MAX_STREAM_BYTES:
                 self.byte_count = MAX_STREAM_BYTES + 1
