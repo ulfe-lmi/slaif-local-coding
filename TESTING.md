@@ -123,6 +123,25 @@ regular-file descriptor and reads only cap-plus-one bytes, with duplicate-key,
 non-finite, nested-schema, source-dirty, identity, projection, and negative
 result checks failing closed.
 
+The 005-u continuation completes the stream lifecycle contract. Observation
+finalization is separate from delegate ownership: normal JSON and SSE
+exhaustion, explicit early close, cancellation, timeout, truncation, and
+delegate exceptions close the underlying stream exactly once. Repeated response
+close is idempotent, close failures cannot replace an original stream error or
+cancellation, and abnormal lifecycle state is never terminal-valid. A bounded
+loopback server using the real HTTPX `AsyncHTTPTransport` withholds terminal
+output until the client has received the first chunk, proving first-byte
+streaming, exact bytes/status/headers, connection return, and no extra dispatch.
+
+Responses validator/profile construction is an admission prerequisite before
+the delegate can be called. Missing, raising, or invalid factories record an
+attempt without a dispatch, latch readiness, and prevent later inference
+admission; compiler/health handling remains available without an inference
+bypass. The fake-gate tested-source check is round-neutral: it accepts the
+tested head or one verified single-parent immutable report-publication child
+whose report names that implementation SHA, while dirty relevant source or any
+production/harness/config descendant invalidates reuse.
+
 At implementation `45f9d64976b0f2a44f6c3223d767c28f5405e1a`, the fresh fake
 machine gate passed 37/37 selected obligations with no missing result, first
 failure, or retry. The direct observer independently recorded 23 attempted,

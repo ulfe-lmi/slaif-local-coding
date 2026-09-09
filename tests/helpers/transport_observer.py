@@ -290,10 +290,10 @@ class _StreamState:
             self.buffer.clear()
         self.normal_close = True
 
-    def abnormal_close(self) -> None:
+    def abnormal_close(self, kind: str = "closure") -> None:
         self.buffer.clear()
         self.normal_close = False
-        self._fail("closure")
+        self._fail(kind)
 
     @property
     def terminal_valid(self) -> bool:
@@ -320,7 +320,7 @@ class _RequestObservation:
     kind: str
     endpoint_class: str
     attempted: bool = True
-    dispatched: bool = True
+    dispatched: bool = False
     responded: bool = False
     completed: bool = False
     status_class: str = "unknown"
@@ -366,7 +366,8 @@ class _ObservedStream(httpx.AsyncByteStream):
         self._owner = owner
         self._record = record
         self._state = state
-        self._finished = False
+        self._observation_finished = False
+        self._delegate_close_task: asyncio.Task[None] | None = None
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         try:
@@ -376,38 +377,51 @@ class _ObservedStream(httpx.AsyncByteStream):
                 yield chunk
             self._state.finish()
             self._owner._finish_stream(self._record, self._state)
-            self._finished = True
+            self._observation_finished = True
         except asyncio.CancelledError:
             self._record.exception_class = _exception_class("cancelled")
-            self._state.abnormal_close()
+            self._state.abnormal_close("cancelled")
             self._owner._finish_abnormal(self._record, self._state)
-            self._finished = True
-            await self._close_delegate()
+            self._observation_finished = True
+            await self._close_delegate(suppress_error=True)
             raise
         except BaseException:
             self._record.exception_class = _exception_class("stream")
-            self._state._fail("stream")
+            self._state.abnormal_close("stream")
             self._owner._finish_abnormal(self._record, self._state)
-            self._finished = True
-            await self._close_delegate()
+            self._observation_finished = True
+            await self._close_delegate(suppress_error=True)
+            raise
+        try:
+            await self._close_delegate(suppress_error=False)
+        except BaseException:
+            self._state.abnormal_close("closure")
+            self._owner._finish_delegate_close_failure(self._record, self._state)
             raise
 
-    async def _close_delegate(self) -> None:
+    async def _close_delegate(self, *, suppress_error: bool) -> None:
+        if self._delegate_close_task is None:
+            self._delegate_close_task = asyncio.create_task(self._stream.aclose())
         try:
-            await self._stream.aclose()
+            await asyncio.shield(self._delegate_close_task)
+        except asyncio.CancelledError:
+            try:
+                await self._delegate_close_task
+            except BaseException:
+                pass
+            if not suppress_error:
+                raise
         except BaseException:
+            if not suppress_error:
+                raise
             # The caller's original cancellation/stream error is authoritative.
-            return
 
     async def aclose(self) -> None:
-        if self._finished:
-            return
-        try:
-            await self._stream.aclose()
-        finally:
-            self._state.abnormal_close()
+        if not self._observation_finished:
+            self._state.abnormal_close("closure")
             self._owner._finish_abnormal(self._record, self._state)
-            self._finished = True
+            self._observation_finished = True
+        await self._close_delegate(suppress_error=False)
 
 
 class DirectTransportObserver(httpx.AsyncBaseTransport):
@@ -433,6 +447,11 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
     @property
     def ready(self) -> bool:
         return self._ready and len(self._records) < MAX_OBSERVED_REQUESTS
+
+    @property
+    def inference_capability_ready(self) -> bool:
+        """Whether Responses admission can construct its required validator."""
+        return self._validator_factory is not None
 
     def _latch_failure(self, kind: str) -> None:
         self._ready = False
@@ -504,6 +523,27 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         )
         record = _RequestObservation(len(self._records) + 1, kind, endpoint_class)
         self._records.append(record)
+        validator: StreamEventValidator | None = None
+        if kind == "inference":
+            if self._validator_factory is None:
+                record.exception_class = _exception_class("validator")
+                self._latch_failure("validator")
+                raise RuntimeError("transport_observer_validator_unavailable")
+            try:
+                candidate = self._validator_factory(request)
+                validate = getattr(candidate, "validate", None)
+                if not callable(validate):
+                    raise ValueError("validator_profile_invalid")
+                validator = candidate
+            except asyncio.CancelledError:
+                record.exception_class = _exception_class("cancelled")
+                self._latch_failure("cancelled")
+                raise
+            except BaseException:
+                record.exception_class = _exception_class("validator")
+                self._latch_failure("validator")
+                raise RuntimeError("transport_observer_validator_unavailable") from None
+        record.dispatched = True
         try:
             response = await self._delegate.handle_async_request(request)
         except asyncio.CancelledError:
@@ -525,20 +565,6 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             if "json" in content_type_lower
             else "other"
         )
-        validator: StreamEventValidator | None = None
-        if kind == "inference" and record.content_type_class == "sse":
-            if self._validator_factory is None:
-                await response.aclose()
-                record.exception_class = _exception_class("validator")
-                self._latch_failure("validator")
-                raise RuntimeError("transport_observer_validator_unavailable")
-            try:
-                validator = self._validator_factory(request)
-            except BaseException:
-                await response.aclose()
-                record.exception_class = _exception_class("validator")
-                self._latch_failure("validator")
-                raise RuntimeError("transport_observer_validator_unavailable") from None
         state = _StreamState(record.content_type_class, time.monotonic(), validator)
         response.stream = _ObservedStream(
             cast(httpx.AsyncByteStream, response.stream), self, record, state
@@ -575,6 +601,20 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.event_type_classes = tuple(sorted(set(state.event_types)))
         self._latch_state_failure(state)
         self._latch_failure(state.failure_kind or "closure")
+
+    def _finish_delegate_close_failure(
+        self, record: _RequestObservation, state: _StreamState
+    ) -> None:
+        """Invalidate a semantically finalized stream whose delegate did not close."""
+        record.completed = False
+        record.terminal_valid = False
+        record.normal_close = False
+        record.exception_class = _exception_class("closure")
+        record.stream_bytes_class = _count_class(state.byte_count)
+        record.event_count_class = _count_class(state.event_count)
+        record.event_type_classes = tuple(sorted(set(state.event_types)))
+        self._latch_state_failure(state)
+        self._latch_failure("closure")
 
     async def aclose(self) -> None:
         await self._delegate.aclose()

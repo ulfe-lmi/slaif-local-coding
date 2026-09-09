@@ -399,3 +399,36 @@ and terminal-valid; all 12 inference operations had first-byte and normal-close
 facts. Fake-provider counters matched independently, temporary resources were
 cleaned, and logs were secret-free. No protected credential, inference, Qwen,
 network, active-profile, or cutover state was accessed or changed in 005-t.
+
+## Objective-005-u stream closure and pre-dispatch proof
+
+005-u keeps the direct Local transport and exact pinned Gateway validator
+architecture unchanged while closing two observer safety gaps. Stream
+observation finalization is now separate from delegate closure. Normal JSON and
+SSE exhaustion, explicit early close, cancellation, timeout, truncation, and
+delegate exceptions close the underlying stream exactly once; repeated close is
+idempotent, original stream errors/cancellation remain authoritative, and a
+cancelled, truncated, or abnormally closed stream is never terminal-valid.
+
+A bounded loopback server and the real HTTPX `AsyncHTTPTransport` test sends a
+first SSE frame, waits for the client to receive it, and only then releases the
+terminal frames. The test checks first-byte backpressure, exact body bytes,
+status/headers, delegate closure/connection return, and the single dispatch.
+Framing and semantic unit tests remain bounded, while the existing fake matrix
+continues to use the actual pinned Gateway `ResponsesStreamEventValidator` and
+request-scoped candidate factory.
+
+Validator/profile construction is an admission prerequisite for Responses
+inference and occurs before `delegate.handle_async_request`. Missing, raising,
+or invalid factories therefore cause zero upstream dispatch, record the
+attempt separately, latch observer readiness, and block subsequent inference
+admission. Compiler and health requests retain their non-inference handling;
+candidate startup checks that inference capability is actually present.
+
+Fake-gate source reuse is round-neutral and Git-topology checked. A tested head
+may be reused directly, or only through one verified single-parent immutable
+report-publication child that adds exactly its corresponding report and names
+the tested implementation SHA. Dirty relevant source/config state, production
+or harness descendants, malformed reports, multi-parent commits, and unrelated
+changed paths fail closed. No protected Qwen credential, inference, service,
+network, active-profile, or cutover state is authorized in 005-u.

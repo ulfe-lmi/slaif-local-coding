@@ -2125,6 +2125,8 @@ def _build_observed_candidate(
     vision_recorder: Any | None = None,
 ) -> _ObservedCandidate:
     """Launch the public app factory with a direct acceptance observer."""
+    if not observer.inference_capability_ready:
+        raise RuntimeError("candidate_observer_capability_unavailable")
     if not observer.ready:
         raise RuntimeError("candidate_observer_not_ready")
     from slaif_local_coding.app import create_app
@@ -2148,7 +2150,12 @@ def _build_observed_candidate(
     try:
         with httpx.Client(timeout=5, follow_redirects=False) as client:
             status = _wait_status(client, "http://127.0.0.1:18031/healthz")
-        if status != 200 or not thread.is_alive() or not observer.ready:
+        if (
+            status != 200
+            or not thread.is_alive()
+            or not observer.ready
+            or not observer.inference_capability_ready
+        ):
             raise RuntimeError("candidate_observer_not_ready")
     except BaseException:
         runtime.stop()
@@ -2156,8 +2163,9 @@ def _build_observed_candidate(
     return runtime
 
 
-def _local_implementation_sha() -> str:
-    result = _run_command(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"])
+def _local_implementation_sha(repo_root: Path | None = None) -> str:
+    root = REPO_ROOT if repo_root is None else repo_root
+    result = _run_command(["git", "-C", str(root), "rev-parse", "HEAD"])
     value = result.stdout.strip()
     if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", value):
         raise RuntimeError("local_implementation_sha_unavailable")
@@ -2991,17 +2999,15 @@ def _acceptance_gate(
 
 
 def _tested_source_still_valid(tested_sha: str) -> bool:
-    """Allow only clean source at the tested head or a report-only descendant."""
+    """Allow a tested head or one verified immutable report-only child."""
     if not re.fullmatch(r"[0-9a-f]{40}", tested_sha):
         return False
+    root = REPO_ROOT
     status = _run_command(
-        ["git", "-C", str(REPO_ROOT), "status", "--porcelain=v1", "--untracked-files=all"]
+        ["git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=all"]
     )
     if status.returncode != 0:
         return False
-    dirty_paths = tuple(
-        line[3:].split(" -> ", 1)[-1] for line in status.stdout.splitlines() if len(line) >= 4
-    )
     relevant_prefixes = (
         "src/",
         "scripts/",
@@ -3010,25 +3016,59 @@ def _tested_source_still_valid(tested_sha: str) -> bool:
         "pyproject.toml",
         "uv.lock",
     )
-    if any(
-        path != "oap/reports/005-s-observed-transport-and-pretraffic-safety.md"
-        and (path in relevant_prefixes or path.startswith(relevant_prefixes))
-        for path in dirty_paths
-    ):
+    dirty_paths: list[str] = []
+    for line in status.stdout.splitlines():
+        if len(line) < 4:
+            return False
+        raw_path = line[3:]
+        if line[:2].strip() in {"R", "C"} and " -> " in raw_path:
+            dirty_paths.extend(raw_path.split(" -> ", 1))
+        else:
+            dirty_paths.append(raw_path)
+    if any(path in relevant_prefixes or path.startswith(relevant_prefixes) for path in dirty_paths):
         return False
-    current = _local_implementation_sha()
+    current = _local_implementation_sha(root)
     if current == tested_sha:
         return True
     ancestor = _run_command(
-        ["git", "-C", str(REPO_ROOT), "merge-base", "--is-ancestor", tested_sha, current]
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", tested_sha, current]
     )
-    changed = _run_command(
-        ["git", "-C", str(REPO_ROOT), "diff", "--name-only", f"{tested_sha}..{current}"]
-    )
-    if ancestor.returncode != 0 or changed.returncode != 0:
+    if ancestor.returncode != 0:
         return False
-    paths = tuple(line for line in changed.stdout.splitlines() if line)
-    return paths == ("oap/reports/005-s-observed-transport-and-pretraffic-safety.md",)
+
+    parents = _run_command(["git", "-C", str(root), "show", "-s", "--format=%P", current])
+    parent_values = parents.stdout.strip().split()
+    if parents.returncode != 0 or parent_values != [tested_sha]:
+        return False
+    subject = _run_command(["git", "-C", str(root), "show", "-s", "--format=%s", current])
+    if subject.returncode != 0 or "report" not in subject.stdout.lower():
+        return False
+
+    changed = _run_command(
+        ["git", "-C", str(root), "diff-tree", "--no-commit-id", "--name-status", "-r", current]
+    )
+    changed_rows = tuple(
+        tuple(value.split("\t", 1)) for value in changed.stdout.splitlines() if value
+    )
+    if changed.returncode != 0 or len(changed_rows) != 1:
+        return False
+    status_code, report_path = changed_rows[0]
+    if status_code != "A" or not re.fullmatch(r"oap/reports/[A-Za-z0-9._-]+\.md", report_path):
+        return False
+    if (
+        _run_command(
+            ["git", "-C", str(root), "cat-file", "-e", f"{tested_sha}:{report_path}"]
+        ).returncode
+        == 0
+    ):
+        return False
+    report = _run_command(["git", "-C", str(root), "show", f"{current}:{report_path}"])
+    if report.returncode != 0:
+        return False
+    return (
+        report.stdout.count(f"Implementation head SHA: {tested_sha}") == 1
+        and report.stdout.count("Report publication commit: SELF") == 1
+    )
 
 
 def _read_fake_gate_file(path: Path) -> bytes:

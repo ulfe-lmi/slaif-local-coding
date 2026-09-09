@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import threading
+from pathlib import Path
 from typing import Any, cast
 
 import httpx
@@ -17,6 +20,7 @@ from scripts.gateway_accounting_rehearsal import (
     OBSERVATION_VERSION,
     _FakeQwenServer,
     _local_implementation_sha,
+    _tested_source_still_valid,
     _validate_fake_gate,
 )
 from scripts.local_qwen_provider_differential import SSEFacts
@@ -510,6 +514,117 @@ def test_protected_mode_requires_complete_same_pin_fake_gate(tmp_path: Any) -> N
     with pytest.raises(RuntimeError, match="protected_fake_gate_not_complete"):
         path.write_text(json.dumps(incomplete), encoding="utf-8")
         _validate_fake_gate(path)
+
+
+def _fixture_git(repo: Path, *arguments: str, input_text: str | None = None) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *arguments],
+        input=input_text,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _source_reuse_fixture(tmp_path: Path) -> tuple[Path, str]:
+    repo = tmp_path / "source-reuse"
+    repo.mkdir()
+    _fixture_git(repo, "init", "--quiet", "--initial-branch=main")
+    _fixture_git(repo, "config", "user.email", "synthetic@example.invalid")
+    _fixture_git(repo, "config", "user.name", "synthetic")
+    (repo / "src").mkdir()
+    (repo / "src" / "module.py").write_text("value = 1\n", encoding="utf-8")
+    _fixture_git(repo, "add", "src/module.py")
+    _fixture_git(repo, "commit", "--quiet", "-m", "implementation")
+    tested = _fixture_git(repo, "rev-parse", "HEAD")
+    return repo, tested
+
+
+def _commit_fixture_report(
+    repo: Path, tested: str, *, path: str = "oap/reports/other-round.md"
+) -> str:
+    report = repo / path
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(
+        f"Implementation head SHA: {tested}\nReport publication commit: SELF\n",
+        encoding="utf-8",
+    )
+    _fixture_git(repo, "add", path)
+    _fixture_git(repo, "commit", "--quiet", "-m", "oap: publish fixture report")
+    return _fixture_git(repo, "rev-parse", "HEAD")
+
+
+def test_tested_source_reuse_accepts_verified_round_neutral_report_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.gateway_accounting_rehearsal as rehearsal
+
+    repo, tested = _source_reuse_fixture(tmp_path)
+    _commit_fixture_report(repo, tested)
+    monkeypatch.setattr(rehearsal, "REPO_ROOT", repo)
+    assert _tested_source_still_valid(tested) is True
+
+
+def test_tested_source_reuse_rejects_dirty_relevant_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.gateway_accounting_rehearsal as rehearsal
+
+    repo, tested = _source_reuse_fixture(tmp_path)
+    _commit_fixture_report(repo, tested)
+    (repo / "src" / "module.py").write_text("value = 2\n", encoding="utf-8")
+    monkeypatch.setattr(rehearsal, "REPO_ROOT", repo)
+    assert _tested_source_still_valid(tested) is False
+
+
+def test_tested_source_reuse_rejects_changed_production_after_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.gateway_accounting_rehearsal as rehearsal
+
+    repo, tested = _source_reuse_fixture(tmp_path)
+    _commit_fixture_report(repo, tested)
+    (repo / "src" / "module.py").write_text("value = 2\n", encoding="utf-8")
+    _fixture_git(repo, "add", "src/module.py")
+    _fixture_git(repo, "commit", "--quiet", "-m", "production change")
+    monkeypatch.setattr(rehearsal, "REPO_ROOT", repo)
+    assert _tested_source_still_valid(tested) is False
+
+
+def test_tested_source_reuse_rejects_unverified_report_commit_shapes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.gateway_accounting_rehearsal as rehearsal
+
+    repo, tested = _source_reuse_fixture(tmp_path)
+    report = repo / "oap" / "reports" / "round.md"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text(f"Implementation head SHA: {tested}\n", encoding="utf-8")
+    (repo / "notes.md").write_text("not a report\n", encoding="utf-8")
+    _fixture_git(repo, "add", "oap/reports/round.md", "notes.md")
+    _fixture_git(repo, "commit", "--quiet", "-m", "oap: publish malformed report")
+    monkeypatch.setattr(rehearsal, "REPO_ROOT", repo)
+    assert _tested_source_still_valid(tested) is False
+
+    valid_report_commit = _commit_fixture_report(repo, tested, path="oap/reports/second.md")
+    tree = _fixture_git(repo, "rev-parse", f"{valid_report_commit}^{{tree}}")
+    merge = subprocess.run(
+        ["git", "-C", str(repo), "commit-tree", tree, "-p", tested, "-p", valid_report_commit],
+        input="oap: publish merge report\n",
+        capture_output=True,
+        text=True,
+        check=True,
+        env={
+            **os.environ,
+            "GIT_AUTHOR_NAME": "synthetic",
+            "GIT_AUTHOR_EMAIL": "synthetic@example.invalid",
+            "GIT_COMMITTER_NAME": "synthetic",
+            "GIT_COMMITTER_EMAIL": "synthetic@example.invalid",
+        },
+    ).stdout.strip()
+    _fixture_git(repo, "update-ref", "HEAD", merge)
+    assert _tested_source_still_valid(tested) is False
 
 
 def _complete_fake_payload() -> dict[str, object]:

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Mapping
+from contextlib import suppress
+from pathlib import Path
 from typing import cast
 
 import httpx
@@ -106,6 +108,76 @@ class _ChunkStream(httpx.AsyncByteStream):
         self.closed = True
 
 
+class _CountingChunkStream(_ChunkStream):
+    def __init__(self, chunks: tuple[bytes, ...]) -> None:
+        super().__init__(chunks)
+        self.close_calls = 0
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
+        await super().aclose()
+
+
+class _ErrorStream(_CountingChunkStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"partial"
+        raise RuntimeError("synthetic-stream-error")
+
+
+class _CloseErrorStream(_CountingChunkStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"partial"
+        raise RuntimeError("synthetic-stream-error")
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
+        raise RuntimeError("synthetic-close-error")
+
+
+class _BlockingStream(_CountingChunkStream):
+    def __init__(self) -> None:
+        super().__init__((b"partial",))
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"partial"
+        self.started.set()
+        await self.release.wait()
+
+
+class _WrappingAsyncTransport(httpx.AsyncBaseTransport):
+    """Wrap real AsyncHTTPTransport responses to count delegate stream closure."""
+
+    def __init__(self) -> None:
+        self.inner = httpx.AsyncHTTPTransport(retries=0)
+        self.dispatches = 0
+        self.close_calls = 0
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.dispatches += 1
+        response = await self.inner.handle_async_request(request)
+        response.stream = _CountingNetworkStream(cast(httpx.AsyncByteStream, response.stream), self)
+        return response
+
+    async def aclose(self) -> None:
+        await self.inner.aclose()
+
+
+class _CountingNetworkStream(httpx.AsyncByteStream):
+    def __init__(self, stream: httpx.AsyncByteStream, owner: _WrappingAsyncTransport) -> None:
+        self.stream = stream
+        self.owner = owner
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        async for chunk in self.stream:
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.owner.close_calls += 1
+        await self.stream.aclose()
+
+
 @pytest.mark.asyncio
 async def test_direct_observer_preserves_stream_and_validates_crlf_chunking() -> None:
     expected = _stream_bytes(ending=b"\r\n\r\n")
@@ -132,6 +204,113 @@ async def test_direct_observer_preserves_stream_and_validates_crlf_chunking() ->
     assert snapshot["inference_first_byte_count"] == 1
     assert snapshot["inference_normal_close_count"] == 1
     assert snapshot["records"][0]["completed"] is True  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ("/v1/chat/completions", "/v1/responses"))
+async def test_normal_exhaustion_closes_json_and_sse_delegate_once(path: str) -> None:
+    is_sse = path == "/v1/responses"
+    stream = _CountingChunkStream((_stream_bytes() if is_sse else b'{"choices":[]}',))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream" if is_sse else "application/json"},
+            stream=stream,
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler), validator_factory=_validator, validator_source="test"
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", f"http://fake.test{path}", content=b"synthetic")
+        response = await client.send(request, stream=True)
+        await response.aread()
+        await response.aclose()
+        await response.aclose()
+    assert stream.close_calls == 1
+    assert observer.snapshot()["records"][0]["completed"] is True  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_real_async_http_transport_preserves_first_chunk_and_closes_connection() -> None:
+    expected = _stream_bytes()
+    separator = expected.index(b"\n\n") + 2
+    first = expected[:separator]
+    remainder = expected[separator:]
+    release_terminal = asyncio.Event()
+    first_written = asyncio.Event()
+    server_done = asyncio.Event()
+    terminal_written = False
+
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        nonlocal terminal_written
+        try:
+            headers = await reader.readuntil(b"\r\n\r\n")
+            content_length = next(
+                (
+                    int(line.split(b":", 1)[1].strip())
+                    for line in headers.split(b"\r\n")
+                    if line.lower().startswith(b"content-length:")
+                ),
+                0,
+            )
+            if content_length:
+                await reader.readexactly(content_length)
+            writer.write(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/event-stream\r\n"
+                b"X-Observer-Test: loopback\r\n"
+                b"Connection: close\r\n\r\n" + first
+            )
+            await writer.drain()
+            first_written.set()
+            await release_terminal.wait()
+            terminal_written = True
+            writer.write(remainder)
+            await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            server_done.set()
+
+    server = await asyncio.start_server(handler, "127.0.0.1", 0)
+    serve_task = asyncio.create_task(server.serve_forever())
+    delegate = _WrappingAsyncTransport()
+    observer = DirectTransportObserver(
+        delegate, validator_factory=_validator, validator_source="test"
+    )
+    received: list[bytes] = []
+    try:
+        async with httpx.AsyncClient(transport=observer, timeout=5) as client:
+            async with client.stream(
+                "POST",
+                f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/v1/responses",
+                content=b"synthetic",
+            ) as response:
+                assert response.status_code == 200
+                assert response.headers["x-observer-test"] == "loopback"
+                async for chunk in response.aiter_raw():
+                    received.append(chunk)
+                    if len(received) == 1:
+                        await asyncio.wait_for(first_written.wait(), timeout=1)
+                        assert terminal_written is False
+                        release_terminal.set()
+    finally:
+        release_terminal.set()
+        await asyncio.wait_for(server_done.wait(), timeout=1)
+        server.close()
+        await server.wait_closed()
+        serve_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await serve_task
+
+    assert b"".join(received) == expected
+    assert delegate.dispatches == 1
+    assert delegate.close_calls == 1
+    snapshot = observer.snapshot()
+    assert snapshot["inference_attempted_count"] == 1
+    assert snapshot["inference_terminal_valid_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -263,6 +442,184 @@ async def test_malformed_or_overflow_stream_latches_before_later_dispatch() -> N
 
 
 @pytest.mark.asyncio
+async def test_early_close_is_idempotent_and_closes_delegate_once() -> None:
+    stream = _CountingChunkStream((b"partial",))
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        await response.aclose()
+        await response.aclose()
+    assert stream.close_calls == 1
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["terminal_valid"] is False
+    assert observer.ready is False
+
+
+@pytest.mark.asyncio
+async def test_cancelled_stream_closes_delegate_once_and_preserves_cancellation() -> None:
+    stream = _BlockingStream()
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        read_task = asyncio.create_task(response.aread())
+        await asyncio.wait_for(stream.started.wait(), timeout=1)
+        read_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await read_task
+        await response.aclose()
+    assert stream.close_calls == 1
+    assert observer.snapshot()["records"][0]["exception_class"] == "cancelled"  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_timeout_stream_closes_delegate_once() -> None:
+    stream = _BlockingStream()
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(response.aread(), timeout=0.05)
+        await response.aclose()
+    assert stream.close_calls == 1
+    assert observer.snapshot()["records"][0]["terminal_valid"] is False  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_truncated_stream_closes_delegate_once_and_is_not_terminal_valid() -> None:
+    stream = _CountingChunkStream((_stream_bytes()[:-2],))
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=stream
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+        await response.aclose()
+    assert stream.close_calls == 1
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["normal_close"] is True
+    assert record["terminal_valid"] is False
+    assert observer.ready is False
+
+
+@pytest.mark.asyncio
+async def test_stream_exception_preserves_original_error_and_closes_once() -> None:
+    stream = _ErrorStream((b"partial",))
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        with pytest.raises(RuntimeError, match="synthetic-stream-error"):
+            await response.aread()
+        await response.aclose()
+    assert stream.close_calls == 1
+    assert observer.snapshot()["records"][0]["exception_class"] == "stream_error"  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_close_error_does_not_replace_original_stream_error() -> None:
+    stream = _CloseErrorStream((b"partial",))
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        with pytest.raises(RuntimeError, match="synthetic-stream-error"):
+            await response.aread()
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("factory_kind", ("missing", "raising", "invalid"))
+async def test_validator_profile_preflight_blocks_inference_before_delegate(
+    factory_kind: str,
+) -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"should-not-dispatch")
+
+    def raising_factory(_request: httpx.Request) -> _AcceptingValidator:
+        raise ValueError("synthetic-profile-error")
+
+    def invalid_factory(_request: httpx.Request) -> object:
+        return object()
+
+    factory = {
+        "missing": None,
+        "raising": raising_factory,
+        "invalid": invalid_factory,
+    }[factory_kind]
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        validator_factory=factory,  # type: ignore[arg-type]
+        validator_source="test",
+    )
+    assert observer.ready is True
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="transport_observer_validator_unavailable"):
+            await client.post("http://fake.test/v1/responses", content=b"invalid-profile")
+        with pytest.raises(RuntimeError, match="transport_observer_not_ready"):
+            await client.post("http://fake.test/v1/responses", content=b"second")
+    assert calls == 0
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is False
+    assert snapshot["inference_dispatched_count"] == 0
+    record = snapshot["records"][0]  # type: ignore[index]
+    assert record["attempted"] is True
+    assert record["dispatched"] is False
+    assert record["exception_class"] == "validator_error"
+
+
+def test_candidate_preflight_reports_missing_inference_capability(tmp_path: Path) -> None:
+    from scripts.gateway_accounting_rehearsal import _build_observed_candidate
+
+    observer = DirectTransportObserver(httpx.MockTransport(lambda _request: httpx.Response(200)))
+    with pytest.raises(RuntimeError, match="candidate_observer_capability_unavailable"):
+        _build_observed_candidate(tmp_path, observer=observer)
+
+
+@pytest.mark.asyncio
 async def test_delegate_error_is_fixed_class_and_stops_dispatch() -> None:
     calls = 0
 
@@ -274,9 +631,9 @@ async def test_delegate_error_is_fixed_class_and_stops_dispatch() -> None:
     observer = DirectTransportObserver(httpx.MockTransport(handler))
     async with httpx.AsyncClient(transport=observer) as client:
         with pytest.raises(ValueError, match="private-error-value"):
-            await client.post("http://private.invalid/v1/responses", content=b"synthetic")
+            await client.post("http://private.invalid/v1/chat/completions", content=b"synthetic")
         with pytest.raises(RuntimeError, match="transport_observer_not_ready"):
-            await client.post("http://private.invalid/v1/responses", content=b"synthetic")
+            await client.post("http://private.invalid/v1/chat/completions", content=b"synthetic")
     record = observer.snapshot()["records"][0]  # type: ignore[index]
     assert record["exception_class"] == "delegate_error"
     assert "private-error-value" not in json.dumps(observer.snapshot())
