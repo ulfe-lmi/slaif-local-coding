@@ -1705,6 +1705,7 @@ def run_vision_e2e(
     *,
     metrics_sampler: Callable[[], str] | None = None,
     outbound_recorder: VisionOutboundRecorder | None = None,
+    phase_transition: Callable[[], None] | None = None,
     timeout_seconds: float = VISION_TIMEOUT_SECONDS,
     environment_root: Path | None = None,
 ) -> VisionSessionFacts:
@@ -1736,6 +1737,8 @@ def run_vision_e2e(
     finally:
         if outbound_recorder is not None:
             outbound_recorder.end_phase(1)
+    if phase_transition is not None:
+        phase_transition()
     between = metrics_sampler() if metrics_sampler is not None else None
     if outbound_recorder is not None:
         outbound_recorder.begin_phase(2)

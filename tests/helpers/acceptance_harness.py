@@ -117,8 +117,8 @@ class OperationDispatchPlan:
 PUBLIC_DISPATCH_PLAN: tuple[OperationDispatchPlan, ...] = (
     OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 2), ("inference", 1))),
     OperationDispatchPlan("codex_turn_2", "codex", 2, (("inference", 1),)),
-    OperationDispatchPlan("vision_full", "vision", 3, (("inference", 2),)),
-    OperationDispatchPlan("vision_crop_history", "vision", 4, (("inference", 2),)),
+    OperationDispatchPlan("vision_full", "vision", 3, (("compiler", 1), ("inference", 2))),
+    OperationDispatchPlan("vision_crop_history", "vision", 4, (("compiler", 1), ("inference", 2))),
     OperationDispatchPlan(
         "identity_replay",
         "codex",
@@ -130,7 +130,7 @@ PUBLIC_DISPATCH_PLAN: tuple[OperationDispatchPlan, ...] = (
         "identity_concurrent_replay",
         "identity",
         6,
-        (("compiler", 4), ("inference", 5)),
+        (("compiler", 2), ("inference", 5)),
     ),
     OperationDispatchPlan("identity_tamper_matrix", "identity", 7, ()),
     OperationDispatchPlan("authorization_matrix", "identity", 8, ()),

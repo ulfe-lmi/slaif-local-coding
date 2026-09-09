@@ -4373,7 +4373,7 @@ def _run_direct_composed_rehearsal_impl(
                 candidate_runtime = None
             vision_recorder = VisionOutboundRecorder(fixture, httpx.AsyncHTTPTransport(retries=0))
             admit("vision_full", "vision", 3, "vision")
-            admit("vision_crop_history", "vision", 4, "post_vision")
+            admit("vision_crop_history", "vision", 4, "vision")
             activate("vision_full", "vision", 3, "vision")
             vision_observer = DirectTransportObserver(
                 vision_recorder,
@@ -4408,6 +4408,9 @@ def _run_direct_composed_rehearsal_impl(
                         timeout_seconds=300,
                         metrics_sampler=lambda: metrics_client.get("/metrics").text,
                         outbound_recorder=vision_recorder,
+                        phase_transition=lambda: activate(
+                            "vision_crop_history", "vision", 4, "vision"
+                        ),
                     )
             finally:
                 if previous_public_key is None:
@@ -4424,7 +4427,6 @@ def _run_direct_composed_rehearsal_impl(
             if candidate_runtime is not None:
                 candidate_runtime.stop()
                 candidate_runtime = None
-            activate("vision_crop_history", "vision", 4, "post_vision")
             post_vision_observer = DirectTransportObserver(
                 httpx.AsyncHTTPTransport(retries=0),
                 validator_factory=validator_factory,
