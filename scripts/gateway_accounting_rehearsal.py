@@ -4154,25 +4154,31 @@ def _run_direct_composed_rehearsal_impl(
                 # the shared-path evidence.  This separate call exercises the
                 # real runner wrapper's protected branch with an injected
                 # preflight stop and no protected side effects.
-                protected_mode_synthetic = run_actual_protected_mode_conformance(
-                    args,
-                    preflight=preflight,
-                    dependencies=ProtectedRuntimeHooks(
-                        host_preflight=lambda: {
-                            "vision_active": True,
-                            "has_18020": True,
-                            "vision_pid": PROTECTED_VISION_PID,
-                            "vision_start_wall": PROTECTED_VISION_START,
-                            "vision_restarts": "0",
-                            "worktree_count": 7,
-                            "text_inactive": True,
-                            "has_18021": False,
-                            "has_18031": False,
-                        },
-                        main_pid=lambda: PROTECTED_VISION_PID,
-                        credential_source=lambda _pid: "synthetic-protected-key",
-                    ),
-                )
+                outer_fake_key = os.environ.pop(QWEN_KEY_ENV, None)
+                try:
+                    protected_mode_synthetic = run_actual_protected_mode_conformance(
+                        args,
+                        preflight=preflight,
+                        dependencies=ProtectedRuntimeHooks(
+                            host_preflight=lambda: {
+                                "vision_active": True,
+                                "has_18020": True,
+                                "vision_pid": PROTECTED_VISION_PID,
+                                "vision_start_wall": PROTECTED_VISION_START,
+                                "vision_restarts": "0",
+                                "worktree_count": 7,
+                                "text_inactive": True,
+                                "has_18021": False,
+                                "has_18031": False,
+                            },
+                            main_pid=lambda: PROTECTED_VISION_PID,
+                            credential_source=lambda _pid: "synthetic-protected-key",
+                        ),
+                    )
+                finally:
+                    os.environ.pop(QWEN_KEY_ENV, None)
+                    if outer_fake_key is not None:
+                        os.environ[QWEN_KEY_ENV] = outer_fake_key
                 protected_conformance = protected_mode_synthetic.get("protected_conformance")
                 if (
                     not isinstance(protected_conformance, dict)
