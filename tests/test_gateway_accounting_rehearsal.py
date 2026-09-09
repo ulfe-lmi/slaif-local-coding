@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -18,12 +19,14 @@ from scripts.gateway_accounting_rehearsal import (
     GATEWAY_APP_TREE_SHA256,
     LOCAL_ROUTE_POLICY,
     OBSERVATION_VERSION,
+    ProtectedRuntimeHooks,
     _acceptance_gate,
     _FakeQwenServer,
     _local_implementation_sha,
     _runtime_observations,
     _tested_source_still_valid,
     _validate_fake_gate,
+    run_actual_protected_mode_conformance,
 )
 from scripts.local_qwen_provider_differential import SSEFacts
 from tests.helpers.acceptance_harness import (
@@ -548,6 +551,66 @@ def test_protected_acceptance_gate_retains_c54_and_unknown_primary_facts() -> No
     assert gate["first_failure"] == "C1.1"
     projection_rows = cast(list[dict[str, object]], gate["projection_table"])
     assert tuple(row["obligation_id"] for row in projection_rows) == PROTECTED_MANIFEST_IDS
+
+
+def test_actual_protected_conformance_requires_explicit_synthetic_dependencies() -> None:
+    args = argparse.Namespace(
+        provider_target="fake",
+        gateway_root=Path("/synthetic/gateway"),
+        gateway_python=Path("/synthetic/python"),
+        codex=Path("/synthetic/codex"),
+        fake_result=None,
+    )
+    result = run_actual_protected_mode_conformance(
+        args, preflight={"ready": True}, dependencies=None
+    )
+    assert result["status"] == "FAILED"
+    assert result["protected_acceptance"] is False
+    assert result["protected_conformance"]["real_protected_access"] is False  # type: ignore[index]
+    assert len(result["acceptance_gate"]["results"]) == len(PROTECTED_MANIFEST_IDS)  # type: ignore[index]
+
+
+def test_actual_shared_runner_protected_preflight_failure_serializes_all_rows_without_access() -> (
+    None
+):
+    accesses: list[str] = []
+    args = argparse.Namespace(
+        provider_target="fake",
+        gateway_root=Path("/synthetic/gateway"),
+        gateway_python=Path("/synthetic/python"),
+        codex=Path("/synthetic/codex"),
+        fake_result=None,
+    )
+
+    def host_preflight() -> dict[str, object]:
+        accesses.append("host")
+        return {"ready": True}
+
+    def main_pid() -> str:
+        accesses.append("pid")
+        return "synthetic-pid"
+
+    def credential_source(_pid: str) -> str:
+        accesses.append("credential")
+        return "synthetic-key"
+
+    dependencies = ProtectedRuntimeHooks(
+        host_preflight=host_preflight,
+        main_pid=main_pid,
+        credential_source=credential_source,
+        failure_phase="preflight",
+    )
+    result = run_actual_protected_mode_conformance(
+        args, preflight={"ready": True}, dependencies=dependencies
+    )
+    assert result["status"] == "BLOCKED"
+    assert result["protected_acceptance"] is False
+    assert accesses == []
+    conformance = result["protected_conformance"]
+    assert conformance["selected_result_count"] == len(PROTECTED_MANIFEST_IDS)  # type: ignore[index]
+    assert conformance["selected_result_disposition_count"] == len(PROTECTED_MANIFEST_IDS)  # type: ignore[index]
+    assert conformance["all_selected_rows_serialized"] is True  # type: ignore[index]
+    assert conformance["real_protected_access"] is False  # type: ignore[index]
 
 
 def _fixture_git(repo: Path, *arguments: str, input_text: str | None = None) -> str:

@@ -172,6 +172,139 @@ def test_run_accumulator_preserves_primary_failure_and_counts_before_cleanup() -
     assert "manual_unready" not in encoded
 
 
+def test_run_accumulator_uses_semantic_terminal_facts_not_lifecycle_counts() -> None:
+    accumulator = RunAccumulator("protected")
+    accumulator.capture_observer(
+        {
+            "ready": False,
+            "failure_class": "stream_validation_invalid",
+            "inference_attempted_count": 1,
+            "inference_dispatched_count": 1,
+            "inference_responded_count": 1,
+            "inference_completed_count": 1,
+            "inference_terminal_valid_count": 0,
+            "records": (
+                {
+                    "ordinal": 1,
+                    "kind": "inference",
+                    "terminal_valid": False,
+                    "completed": True,
+                    "normal_close": True,
+                },
+            ),
+        },
+        phase="codex",
+        ordinal=2,
+        lifetime_id="counterexample",
+    )
+    facts = accumulator.safe_dict()
+    assert facts["first_failure"] == "stream_validation_invalid"
+    assert facts["counts"]["inference_attempted"] == 1  # type: ignore[index]
+    assert facts["counts"]["inference_completed"] == 1  # type: ignore[index]
+    assert facts["counts"]["inference_terminal_valid"] == 0  # type: ignore[index]
+    assert facts["terminal_classes"] == ("terminal_invalid",)
+    assert "terminal_valid" not in facts["terminal_classes"]
+
+
+def test_run_accumulator_preserves_unknown_and_incomplete_terminal_observations() -> None:
+    accumulator = RunAccumulator("protected")
+    accumulator.capture_observer(
+        {
+            "ready": True,
+            "inference_attempted_count": 1,
+            "inference_dispatched_count": 0,
+            "inference_responded_count": 0,
+            "inference_completed_count": 0,
+        },
+        phase="preflight",
+        ordinal=0,
+        lifetime_id="absent",
+    )
+    accumulator.capture_observer(
+        {
+            "ready": False,
+            "failure_class": "cancelled",
+            "inference_attempted_count": 1,
+            "inference_dispatched_count": 1,
+            "inference_responded_count": 1,
+            "inference_completed_count": 0,
+            "inference_terminal_valid_count": 0,
+            "records": (
+                {
+                    "ordinal": 1,
+                    "kind": "inference",
+                    "terminal_valid": False,
+                    "completed": False,
+                    "normal_close": False,
+                },
+            ),
+        },
+        phase="codex",
+        ordinal=1,
+        lifetime_id="cancelled",
+    )
+    facts = accumulator.safe_dict()
+    assert facts["terminal_classes"] == ("unknown", "terminal_incomplete")
+    assert facts["first_failure"] == "cancelled"
+
+
+def test_run_accumulator_sums_distinct_lifetimes_and_does_not_double_count_updates() -> None:
+    accumulator = RunAccumulator("fake")
+    valid_record = {
+        "ordinal": 1,
+        "kind": "inference",
+        "terminal_valid": True,
+        "completed": True,
+        "normal_close": True,
+    }
+    accumulator.capture_observer(
+        {
+            "ready": True,
+            "inference_attempted_count": 1,
+            "inference_dispatched_count": 1,
+            "inference_responded_count": 1,
+            "inference_completed_count": 1,
+            "inference_terminal_valid_count": 1,
+            "records": (valid_record,),
+        },
+        phase="vision",
+        ordinal=1,
+        lifetime_id="first",
+    )
+    accumulator.capture_observer(
+        {
+            "ready": True,
+            "inference_attempted_count": 1,
+            "inference_dispatched_count": 1,
+            "inference_responded_count": 1,
+            "inference_completed_count": 1,
+            "inference_terminal_valid_count": 1,
+            "records": (valid_record,),
+        },
+        phase="vision",
+        ordinal=1,
+        lifetime_id="second",
+    )
+    accumulator.capture_observer(
+        {
+            "ready": True,
+            "inference_attempted_count": 0,
+            "inference_dispatched_count": 0,
+            "inference_responded_count": 0,
+            "inference_completed_count": 0,
+            "inference_terminal_valid_count": 0,
+            "records": (),
+        },
+        phase="vision",
+        ordinal=1,
+        lifetime_id="first",
+    )
+    facts = accumulator.safe_dict()
+    assert facts["counts"]["inference_attempted"] == 2  # type: ignore[index]
+    assert facts["counts"]["inference_terminal_valid"] == 2  # type: ignore[index]
+    assert facts["terminal_classes"] == ("terminal_valid", "terminal_valid")
+
+
 def test_protected_mode_conformance_is_injected_and_never_reads_credentials() -> None:
     calls: list[str] = []
     result = run_protected_mode_conformance(

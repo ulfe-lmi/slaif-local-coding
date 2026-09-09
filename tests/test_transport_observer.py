@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
 from typing import cast
@@ -10,6 +10,7 @@ from typing import cast
 import httpx
 import pytest
 
+from tests.helpers.acceptance_harness import BudgetController, RehearsalBudget
 from tests.helpers.transport_observer import (
     MAX_EVENT_BYTES,
     MAX_STREAM_BYTES,
@@ -144,6 +145,33 @@ class _BlockingStream(_CountingChunkStream):
         yield b"partial"
         self.started.set()
         await self.release.wait()
+
+
+class _AdvancingChunkStream(_CountingChunkStream):
+    def __init__(self, chunks: tuple[bytes, ...], advance: Callable[[], None]) -> None:
+        super().__init__(chunks)
+        self._advance = advance
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            yield chunk
+            self._advance()
+
+
+class _BlockingTransport(httpx.AsyncBaseTransport):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def handle_async_request(self, _request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        self.started.set()
+        await self.release.wait()
+        return httpx.Response(200, content=b'{"choices":[]}')
+
+    async def aclose(self) -> None:
+        return
 
 
 class _WrappingAsyncTransport(httpx.AsyncBaseTransport):
@@ -638,6 +666,124 @@ async def test_delegate_error_is_fixed_class_and_stops_dispatch() -> None:
     assert record["exception_class"] == "delegate_error"
     assert "private-error-value" not in json.dumps(observer.snapshot())
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_budget_admits_each_actual_dispatch_and_attributes_context() -> None:
+    now = [0.0]
+    budget = BudgetController(
+        RehearsalBudget(wall_seconds=5, max_dispatches=1), clock=lambda: now[0]
+    )
+    budget.set_dispatch_context("vision", 4)
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_ChunkStream((_stream_bytes(),)),
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/responses", content=b"synthetic")
+    assert calls == 1
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["dispatch_phase"] == "vision"
+    assert record["dispatch_ordinal"] == 4
+    assert record["dispatch_admitted"] is True
+    assert budget.safe_dict()["dispatch_admitted_count"] == 1
+    assert observer.snapshot()["records"][1]["dispatched"] is False  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_run_budget_deadline_is_checked_between_stream_chunks() -> None:
+    now = [0.0]
+    budget = BudgetController(RehearsalBudget(wall_seconds=5), clock=lambda: now[0])
+    expected = _stream_bytes()
+    separator = expected.index(b"\n\n") + 2
+    stream = _AdvancingChunkStream(
+        (expected[:separator], expected[separator:]), lambda: now.__setitem__(0, 5.0)
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=stream
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=lambda: ("codex", 2),
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_exhausted"):
+            await client.post("http://fake.test/v1/responses", content=b"synthetic")
+    assert observer.snapshot()["failure_class"] == "budget_deadline_exhausted"
+    assert observer.snapshot()["records"][0]["terminal_valid"] is False  # type: ignore[index]
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_budget_rejects_event_overflow_without_second_delegate_call() -> None:
+    budget = BudgetController(
+        RehearsalBudget(max_event_bytes=4, max_stream_bytes=32, max_dispatches=2)
+    )
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200, headers={"content-type": "application/json"}, stream=_ChunkStream((b"12345",))
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=lambda: ("codex", 1),
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_exhausted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+        with pytest.raises(RuntimeError, match="observer_not_ready"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+    assert calls == 1
+    assert budget.failure == "budget_event_limit_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_run_budget_holds_concurrency_until_stream_lifetime_ends() -> None:
+    budget = BudgetController(RehearsalBudget(max_dispatches=4))
+    delegate = _BlockingTransport()
+    observer = DirectTransportObserver(
+        delegate,
+        budget_controller=budget,
+        dispatch_context=lambda: ("codex", 1),
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        first_task = asyncio.create_task(
+            client.post("http://fake.test/v1/chat/completions", content=b"first")
+        )
+        await asyncio.wait_for(delegate.started.wait(), timeout=1)
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"second")
+        delegate.release.set()
+        with suppress(RuntimeError):
+            await first_task
+    assert delegate.calls == 1
+    assert budget.failure == "budget_concurrency_limit_exhausted"
 
 
 def test_exact_counts_reject_bucket_collisions() -> None:

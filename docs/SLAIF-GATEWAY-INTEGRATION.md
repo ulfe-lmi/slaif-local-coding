@@ -480,3 +480,35 @@ protected phase selection, direct-observer requirements, first-failure stop,
 cleanup snapshot retention, and serialization of every selected row. It reads
 no real credential and makes no protected Qwen call; these facts do not claim
 protected inference acceptance, cutover, merge, or release readiness.
+
+## Objective-005-x runner budget and terminal proof
+
+005-x keeps the 005-w observer/app-factory topology and closes its three
+repository-only harness gaps. `RunAccumulator` retains exact per-lifetime
+compiler/inference lifecycle counts separately from semantic terminal-valid
+observations. A terminal-valid class is emitted only from an observer record
+validated by the pinned stream validator and the expected terminal relationship;
+equal attempted/completed counts alone are insufficient. Invalid-but-consumed,
+truncated, cancelled, and absent observations remain distinct fixed classes,
+including `UNKNOWN` where no semantic observation exists.
+
+The run-owned `BudgetController` now admits every actual direct observer
+dispatch immediately before delegate invocation. Operation-attempt reservations
+remain separate from individual compiler, inference, and other request counts;
+each dispatch records only its safe phase/ordinal attribution. The same
+controller checks the 900-second deadline before dispatch and between stream
+chunks, enforces the existing event/stream/64-observation limits, holds
+single-phase concurrency for the full response-stream lifetime, and prevents
+later delegate calls after a latched failure. Sequential candidate lifetimes
+share the controller, so aggregate limits cannot reset when an observer is
+recreated.
+
+The actual shared runner exposes explicit synthetic-only protected-boundary
+hooks for repository tests: host preflight, MainPID, credential source,
+loopback provider selection, bounded clock, dispatch observation, and injected
+failure points. Missing hooks fail closed. Synthetic conformance serializes all
+29 protected-selected dispositions and is labelled orchestration evidence only;
+it cannot read `/proc`, protected credentials, or call port 18020. The healthy
+qualification path remains the actual Gateway → Local → strict fake-provider
+path. Protected inference acceptance, cutover, merge, and release readiness are
+not implied.

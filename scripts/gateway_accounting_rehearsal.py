@@ -29,10 +29,11 @@ import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 
 import httpx
@@ -89,7 +90,6 @@ from tests.helpers.acceptance_harness import (  # noqa: E402
     projection_for,
     projection_passes,
     projection_table_safe_dict,
-    run_protected_mode_conformance,
     validate_projection_contract,
 )
 from tests.helpers.e2e_support import (  # noqa: E402
@@ -155,6 +155,26 @@ FAKE_MAX_EVENT_BYTES = 16_384
 FAKE_MAX_STREAM_BYTES = 131_072
 FAKE_MAX_FUNCTION_CALLS = 1
 FAKE_FUNCTION_CALL_ID = "call_synthetic"
+
+
+@dataclass(frozen=True)
+class ProtectedRuntimeHooks:
+    """Explicit synthetic seams for the actual protected runner branch.
+
+    These hooks replace only external protected boundaries.  They are never
+    populated by the command-line runner and therefore cannot redirect a real
+    protected invocation accidentally.
+    """
+
+    host_preflight: Callable[[], dict[str, object]]
+    main_pid: Callable[[], str]
+    credential_source: Callable[[str], str]
+    provider_target: Literal["fake"] = "fake"
+    clock: Callable[[], float] = time.monotonic
+    dispatch_hook: Callable[[str, str, int | None], None] | None = None
+    failure_phase: str | None = None
+    require_fake_gate: bool = False
+    synthetic_only: bool = True
 
 
 def _gateway_stream_validator_factory(gateway_root: Path) -> Any:
@@ -3536,6 +3556,92 @@ def _failed_rehearsal_result(
     }
 
 
+def run_actual_protected_mode_conformance(
+    args: argparse.Namespace,
+    *,
+    preflight: dict[str, object],
+    dependencies: ProtectedRuntimeHooks | None,
+) -> dict[str, object]:
+    """Run the shared runner with explicit synthetic protected boundaries.
+
+    This is test support only.  A missing dependency is a failed conformance,
+    never a default-ready result, and the synthetic provider is always a
+    disposable loopback fake.  The command-line entry point does not construct
+    these hooks.
+    """
+    mode: Literal["fake", "protected"] = "protected"
+    if (
+        dependencies is None
+        or not dependencies.synthetic_only
+        or dependencies.provider_target != "fake"
+        or not callable(dependencies.host_preflight)
+        or not callable(dependencies.main_pid)
+        or not callable(dependencies.credential_source)
+    ):
+        accumulator = RunAccumulator(mode, gateway_sha=GATEWAY_MAIN_SHA)
+        accumulator.record_failure("preflight_incomplete")
+        result = _failed_rehearsal_result("protected", accumulator)
+        result["protected_acceptance"] = False
+        result["evidence_kind"] = "synthetic_orchestration_only"
+        result["synthetic_dependency_missing"] = True
+        result["runtime_observations"] = _runtime_observations(result)
+        result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
+        result["run_accumulator"] = accumulator.safe_dict()
+        protected_ids = tuple(
+            item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "protected"}
+        )
+        gate = result["acceptance_gate"]
+        rows_value = gate.get("results", ()) if isinstance(gate, dict) else ()
+        rows = (
+            cast(tuple[dict[str, object], ...], rows_value)
+            if isinstance(rows_value, (list, tuple))
+            else ()
+        )
+        result["protected_conformance"] = {
+            "selected_result_count": len(protected_ids),
+            "selected_result_disposition_count": len(rows),
+            "all_selected_rows_serialized": tuple(row["obligation_id"] for row in rows)
+            == protected_ids,
+            "provider_target": "fake",
+            "real_protected_access": False,
+        }
+        return result
+
+    synthetic_args = argparse.Namespace(**vars(args))
+    synthetic_args.provider_target = "protected"
+    synthetic_args._protected_runtime_hooks = dependencies
+    try:
+        result = _run_direct_composed_rehearsal(synthetic_args, preflight=preflight)
+    except BaseException as exc:
+        accumulator = RunAccumulator(mode, gateway_sha=GATEWAY_MAIN_SHA)
+        accumulator.record_failure(_safe_runtime_failure(exc))
+        result = _failed_rehearsal_result("protected", accumulator)
+        result["runtime_observations"] = _runtime_observations(result)
+        result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
+        result["run_accumulator"] = accumulator.safe_dict()
+    result["protected_acceptance"] = False
+    result["evidence_kind"] = "synthetic_orchestration_only"
+    gate = result.get("acceptance_gate")
+    result_rows = gate.get("results") if isinstance(gate, dict) else ()
+    protected_ids = tuple(
+        item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "protected"}
+    )
+    result["protected_conformance"] = {
+        "selected_result_count": len(protected_ids),
+        "selected_result_disposition_count": (
+            len(result_rows) if isinstance(result_rows, (list, tuple)) else 0
+        ),
+        "all_selected_rows_serialized": (
+            isinstance(result_rows, (list, tuple))
+            and tuple(row.get("obligation_id") for row in result_rows if isinstance(row, dict))
+            == protected_ids
+        ),
+        "provider_target": dependencies.provider_target,
+        "real_protected_access": False,
+    }
+    return result
+
+
 def _run_direct_composed_rehearsal(
     args: argparse.Namespace, *, preflight: dict[str, object]
 ) -> dict[str, object]:
@@ -3601,6 +3707,9 @@ def _run_direct_composed_rehearsal_impl(
     provider_target = str(args.provider_target)
     if provider_target not in {"fake", "protected"}:
         raise RuntimeError("provider_target_invalid")
+    protected_hooks = getattr(args, "_protected_runtime_hooks", None)
+    if protected_hooks is not None and not isinstance(protected_hooks, ProtectedRuntimeHooks):
+        raise RuntimeError("protected_runtime_hooks_invalid")
     accumulator.set_phase("preflight")
     budget = BudgetController(
         RehearsalBudget(
@@ -3609,21 +3718,26 @@ def _run_direct_composed_rehearsal_impl(
             max_event_bytes=FAKE_MAX_EVENT_BYTES,
             max_stream_bytes=FAKE_MAX_STREAM_BYTES,
             max_concurrency=1,
-        )
+        ),
+        clock=protected_hooks.clock if protected_hooks is not None else time.monotonic,
     )
     accumulator.record_budget(budget.safe_dict())
-    if not budget.acquire():
-        accumulator.record_failure(budget.failure or "budget_concurrency_limit_exhausted")
-        raise RuntimeError(budget.failure or "budget_concurrency_limit_exhausted")
+
+    if protected_hooks is not None and protected_hooks.failure_phase == "preflight":
+        accumulator.record_failure("preflight_incomplete")
+        raise RuntimeError("synthetic_preflight_failure")
 
     def admit(operation: str, phase: str, ordinal: int) -> None:
         accumulator.set_phase(phase, ordinal)
+        budget.set_dispatch_context(phase, ordinal)
         if not budget.admit(operation):
             failure = budget.failure or "budget_operation_limit_exhausted"
             accumulator.record_failure(failure)
             raise RuntimeError(failure)
 
-    if provider_target == "protected":
+    if provider_target == "protected" and (
+        protected_hooks is None or protected_hooks.require_fake_gate
+    ):
         _validate_fake_gate(args.fake_result)
     gateway_root = args.gateway_root.resolve()
     gateway_python = Path(args.gateway_python).absolute()
@@ -3640,7 +3754,13 @@ def _run_direct_composed_rehearsal_impl(
     if codex_version != CODEX_VERSION or codex_sha256 != CODEX_FIXTURE_SHA256:
         raise RuntimeError("codex_fixture_mismatch")
     validator_factory = _gateway_stream_validator_factory(gateway_root)
-    protected_before = _protected_snapshot() if provider_target == "protected" else None
+    protected_before = (
+        protected_hooks.host_preflight()
+        if provider_target == "protected" and protected_hooks is not None
+        else _protected_snapshot()
+        if provider_target == "protected"
+        else None
+    )
     qwen_key = ""
     if provider_target == "protected":
         if (
@@ -3655,12 +3775,20 @@ def _run_direct_composed_rehearsal_impl(
             raise RuntimeError("protected_vision_fixture_not_active")
         if not protected_before["text_inactive"] or protected_before["has_18021"]:
             raise RuntimeError("protected_fixture_precondition_failed")
-        protected_pid = _protected_main_pid()
+        protected_pid = (
+            protected_hooks.main_pid() if protected_hooks is not None else _protected_main_pid()
+        )
         if protected_pid != protected_before["vision_pid"]:
             raise RuntimeError("protected_vision_identity_changed")
         if QWEN_KEY_ENV in os.environ:
             raise RuntimeError("protected_external_key_present")
-        qwen_key = _read_protected_qwen_key(protected_pid)
+        qwen_key = (
+            protected_hooks.credential_source(protected_pid)
+            if protected_hooks is not None
+            else _read_protected_qwen_key(protected_pid)
+        )
+        if not isinstance(qwen_key, str) or not qwen_key:
+            raise RuntimeError("protected_qwen_key_unavailable")
     gateway_port = _free_loopback_port()
     adapter_port = _free_loopback_port(18031)
     if adapter_port != 18031:
@@ -3704,7 +3832,8 @@ def _run_direct_composed_rehearsal_impl(
             temp_root = Path(temporary)
             gateway_log = temp_root / "gateway.log"
             logs = (gateway_log,)
-            if provider_target == "fake":
+            synthetic_provider = provider_target == "fake" or protected_hooks is not None
+            if synthetic_provider:
                 fake_server = _FakeQwenServer("synthetic-005k-qwen-token")
                 fake_thread = _start_threaded_server(fake_server)
                 provider_url = f"http://127.0.0.1:{fake_server.server_address[1]}"
@@ -3717,7 +3846,7 @@ def _run_direct_composed_rehearsal_impl(
             ):
                 previous_candidate_env[name] = os.environ.get(name)
                 os.environ[name] = value
-            if provider_target == "fake":
+            if synthetic_provider:
                 previous_candidate_env[QWEN_KEY_ENV] = os.environ.get(QWEN_KEY_ENV)
             else:
                 previous_candidate_env[QWEN_KEY_ENV] = None
@@ -3842,6 +3971,11 @@ def _run_direct_composed_rehearsal_impl(
                 httpx.AsyncHTTPTransport(retries=0),
                 validator_factory=validator_factory,
                 validator_source="gateway_responses_stream_validator",
+                budget_controller=budget,
+                dispatch_context=budget.dispatch_context,
+                dispatch_hook=(
+                    protected_hooks.dispatch_hook if protected_hooks is not None else None
+                ),
             )
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
@@ -3873,22 +4007,26 @@ def _run_direct_composed_rehearsal_impl(
                     f"candidate_not_ready_{candidate_health}_{candidate_ready}_{detail}"
                 )
             if provider_target == "fake":
-                protected_mode_synthetic = run_protected_mode_conformance(
-                    preflight=lambda: {
-                        "ready": candidate_observer is not None
-                        and candidate_observer.inference_capability_ready
-                    },
-                    candidate=lambda: {
-                        "ready": candidate_observer is not None and candidate_observer.ready
-                    },
-                    dispatch=lambda _phase: {
-                        "direct_transport_observed": True,
-                        "terminal_observed": True,
-                    },
-                    cleanup=lambda: {"complete": True},
+                # The healthy actual Gateway/Local/fake-provider run above is
+                # the shared-path evidence.  This separate call exercises the
+                # real runner wrapper's protected branch with an injected
+                # preflight stop and no protected side effects.
+                protected_mode_synthetic = run_actual_protected_mode_conformance(
+                    args,
+                    preflight=preflight,
+                    dependencies=ProtectedRuntimeHooks(
+                        host_preflight=lambda: {"ready": True},
+                        main_pid=lambda: "synthetic-pid",
+                        credential_source=lambda _pid: "synthetic-protected-key",
+                        failure_phase="preflight",
+                    ),
                 )
-                if protected_mode_synthetic.get("status") != "PASSED":
-                    raise RuntimeError("protected_mode_conformance_failed")
+                protected_conformance = protected_mode_synthetic.get("protected_conformance")
+                if (
+                    not isinstance(protected_conformance, dict)
+                    or protected_conformance.get("all_selected_rows_serialized") is not True
+                ):
+                    raise RuntimeError("protected_mode_conformance_rows_missing")
             gateway_process = _build_gateway_process(
                 gateway_python, gateway_root, gateway_port, gateway_env, gateway_log
             )
@@ -3940,7 +4078,9 @@ def _run_direct_composed_rehearsal_impl(
             fake_codex_after = None if fake_server is None else fake_server.snapshot()
             codex_observer_after = candidate_observer.snapshot()
             transport_snapshots.append(codex_observer_after)
-            accumulator.capture_observer(codex_observer_after, phase="codex", ordinal=2)
+            accumulator.capture_observer(
+                codex_observer_after, phase="codex", ordinal=2, lifetime_id="codex"
+            )
             codex_provider_delta = (
                 _int_fact(fake_codex_after.get("inference_calls"))
                 - _int_fact(fake_codex_before.get("inference_calls"))
@@ -4095,6 +4235,11 @@ def _run_direct_composed_rehearsal_impl(
                 vision_recorder,
                 validator_factory=validator_factory,
                 validator_source="gateway_responses_stream_validator",
+                budget_controller=budget,
+                dispatch_context=budget.dispatch_context,
+                dispatch_hook=(
+                    protected_hooks.dispatch_hook if protected_hooks is not None else None
+                ),
             )
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
@@ -4121,7 +4266,12 @@ def _run_direct_composed_rehearsal_impl(
                 else:
                     os.environ[PUBLIC_KEY_ENV] = previous_public_key
             transport_snapshots.append(vision_observer.snapshot())
-            accumulator.capture_observer(transport_snapshots[-1], phase="vision", ordinal=4)
+            accumulator.capture_observer(
+                transport_snapshots[-1],
+                phase="vision",
+                ordinal=4,
+                lifetime_id="vision",
+            )
             if candidate_runtime is not None:
                 candidate_runtime.stop()
                 candidate_runtime = None
@@ -4129,6 +4279,11 @@ def _run_direct_composed_rehearsal_impl(
                 httpx.AsyncHTTPTransport(retries=0),
                 validator_factory=validator_factory,
                 validator_source="gateway_responses_stream_validator",
+                budget_controller=budget,
+                dispatch_context=budget.dispatch_context,
+                dispatch_hook=(
+                    protected_hooks.dispatch_hook if protected_hooks is not None else None
+                ),
             )
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
@@ -4136,7 +4291,12 @@ def _run_direct_composed_rehearsal_impl(
             )
             candidate_runtimes.append(candidate_runtime)
             transport_snapshots.append(post_vision_observer.snapshot())
-            accumulator.capture_observer(transport_snapshots[-1], phase="vision", ordinal=4)
+            accumulator.capture_observer(
+                transport_snapshots[-1],
+                phase="vision",
+                ordinal=4,
+                lifetime_id="post_vision",
+            )
             vision_summary = vision_diagnostic_summary(vision_facts)
             vision_metrics = vision_summary.get("metrics")
             vision_metrics_dict = vision_metrics if isinstance(vision_metrics, dict) else {}
@@ -4297,7 +4457,9 @@ def _run_direct_composed_rehearsal_impl(
                 gateway_url, seeded["plaintext_key"], stream_body
             )
             stream_observer_after = candidate_observer.snapshot()
-            accumulator.capture_observer(stream_observer_after, phase="codex", ordinal=2)
+            accumulator.capture_observer(
+                stream_observer_after, phase="codex", ordinal=2, lifetime_id="codex"
+            )
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 stream_metrics_after = _adapter_metrics(http, adapter_port)
             stream_rows_after = asyncio.run(
@@ -4826,7 +4988,13 @@ def _run_direct_composed_rehearsal_impl(
             )
             transport_observation["fake_compiler_delta_class"] = count_class(compiler_delta)
             transport_observation["fake_inference_delta_class"] = count_class(inference_delta)
-            accumulator.capture_observer(transport_observation, phase="finalize", ordinal=9)
+            accumulator.capture_observer(
+                transport_observation,
+                phase="finalize",
+                ordinal=9,
+                update_counts=False,
+                lifetime_id="merged",
+            )
             result = {
                 "status": "PASSED",
                 "provider_target": provider_target,
@@ -4937,15 +5105,19 @@ def _run_direct_composed_rehearsal_impl(
             )
     finally:
         accumulator.set_phase("cleanup")
-        for observer, phase, ordinal in (
-            (candidate_observer, "codex", 2),
-            (vision_observer, "vision", 4),
-            (post_vision_observer, "vision", 4),
+        for observer, phase, ordinal, lifetime_id in (
+            (candidate_observer, "codex", 2, "codex"),
+            (vision_observer, "vision", 4, "vision"),
+            (post_vision_observer, "vision", 4, "post_vision"),
         ):
             if observer is not None:
                 try:
                     accumulator.capture_observer(
-                        observer.snapshot(), phase=phase, ordinal=ordinal, update_counts=False
+                        observer.snapshot(),
+                        phase=phase,
+                        ordinal=ordinal,
+                        update_counts=False,
+                        lifetime_id=lifetime_id,
                     )
                 except BaseException:
                     accumulator.record_failure("serialization_failure")
@@ -4983,7 +5155,11 @@ def _run_direct_composed_rehearsal_impl(
             accumulator.record_failure("cleanup_failed")
         if provider_target == "protected" and protected_before is not None:
             try:
-                protected_after = _protected_snapshot()
+                protected_after = (
+                    protected_hooks.host_preflight()
+                    if protected_hooks is not None
+                    else _protected_snapshot()
+                )
                 result["protected_unchanged"] = {
                     "pid": protected_before["vision_pid"] == protected_after["vision_pid"],
                     "start": protected_before["vision_start"] == protected_after["vision_start"],

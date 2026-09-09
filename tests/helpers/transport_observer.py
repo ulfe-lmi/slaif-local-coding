@@ -63,6 +63,23 @@ class StreamEventValidator(Protocol):
 ValidatorFactory = Callable[[httpx.Request], StreamEventValidator]
 
 
+class DispatchBudget(Protocol):
+    """Small seam for the run-owned budget controller."""
+
+    @property
+    def failure(self) -> str | None: ...
+
+    def admit_dispatch(
+        self, kind: str, *, phase: str | None = None, ordinal: int | None = None
+    ) -> bool: ...
+
+    def release_dispatch(self) -> None: ...
+
+    def observe_event(self, size: int) -> bool: ...
+
+    def safe_dict(self) -> dict[str, object]: ...
+
+
 def _status_class(status: int) -> str:
     return f"{status // 100}xx" if 100 <= status <= 599 else "unknown"
 
@@ -104,6 +121,7 @@ def _exception_class(kind: str) -> str:
         "closure": "stream_closure_invalid",
         "contract": "stream_contract_invalid",
         "manual": "manual_unready",
+        "budget": "observer_budget_not_admitted",
     }.get(kind, "other")
 
 
@@ -332,9 +350,13 @@ class _RequestObservation:
     event_count_class: str = "0"
     event_type_classes: tuple[str, ...] = ()
     exception_class: str | None = None
+    dispatch_phase: str = "unknown"
+    dispatch_ordinal: int | None = None
+    dispatch_admitted: bool = False
+    dispatch_active: bool = field(default=False, repr=False)
 
     def safe_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "ordinal": self.ordinal,
             "kind": self.kind,
             "endpoint_class": self.endpoint_class,
@@ -352,6 +374,19 @@ class _RequestObservation:
             "event_type_classes": self.event_type_classes,
             "exception_class": self.exception_class,
         }
+        if (
+            self.dispatch_admitted
+            or self.dispatch_phase != "unknown"
+            or self.dispatch_ordinal is not None
+        ):
+            result.update(
+                {
+                    "dispatch_phase": self.dispatch_phase,
+                    "dispatch_ordinal": self.dispatch_ordinal,
+                    "dispatch_admitted": self.dispatch_admitted,
+                }
+            )
+        return result
 
 
 class _ObservedStream(httpx.AsyncByteStream):
@@ -372,6 +407,9 @@ class _ObservedStream(httpx.AsyncByteStream):
     async def __aiter__(self) -> AsyncIterator[bytes]:
         try:
             async for chunk in self._stream:
+                if not self._owner._observe_chunk(self._state, len(chunk)):
+                    self._state.abnormal_close("budget")
+                    raise RuntimeError("transport_observer_budget_exhausted")
                 self._state.consume(chunk)
                 self._owner._latch_state_failure(self._state)
                 yield chunk
@@ -383,21 +421,29 @@ class _ObservedStream(httpx.AsyncByteStream):
             self._state.abnormal_close("cancelled")
             self._owner._finish_abnormal(self._record, self._state)
             self._observation_finished = True
-            await self._close_delegate(suppress_error=True)
+            try:
+                await self._close_delegate(suppress_error=True)
+            finally:
+                self._owner._release_dispatch(self._record)
             raise
         except BaseException:
             self._record.exception_class = _exception_class("stream")
             self._state.abnormal_close("stream")
             self._owner._finish_abnormal(self._record, self._state)
             self._observation_finished = True
-            await self._close_delegate(suppress_error=True)
+            try:
+                await self._close_delegate(suppress_error=True)
+            finally:
+                self._owner._release_dispatch(self._record)
             raise
         try:
             await self._close_delegate(suppress_error=False)
         except BaseException:
             self._state.abnormal_close("closure")
             self._owner._finish_delegate_close_failure(self._record, self._state)
+            self._owner._release_dispatch(self._record)
             raise
+        self._owner._release_dispatch(self._record)
 
     async def _close_delegate(self, *, suppress_error: bool) -> None:
         if self._delegate_close_task is None:
@@ -421,7 +467,10 @@ class _ObservedStream(httpx.AsyncByteStream):
             self._state.abnormal_close("closure")
             self._owner._finish_abnormal(self._record, self._state)
             self._observation_finished = True
-        await self._close_delegate(suppress_error=False)
+        try:
+            await self._close_delegate(suppress_error=False)
+        finally:
+            self._owner._release_dispatch(self._record)
 
 
 class DirectTransportObserver(httpx.AsyncBaseTransport):
@@ -433,12 +482,18 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         *,
         validator_factory: ValidatorFactory | None = None,
         validator_source: str = "unavailable",
+        budget_controller: DispatchBudget | None = None,
+        dispatch_context: Callable[[], tuple[str, int | None]] | None = None,
+        dispatch_hook: Callable[[str, str, int | None], None] | None = None,
     ) -> None:
         self._delegate = delegate
         self._validator_factory = validator_factory
         self._validator_source = (
             validator_source if validator_factory is not None else "unavailable"
         )
+        self._budget_controller = budget_controller
+        self._dispatch_context = dispatch_context
+        self._dispatch_hook = dispatch_hook
         self._records: list[_RequestObservation] = []
         self._started = time.monotonic()
         self._ready = True
@@ -456,11 +511,24 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
     def _latch_failure(self, kind: str) -> None:
         self._ready = False
         if self._failure_class is None:
-            self._failure_class = _exception_class(kind)
+            self._failure_class = (
+                kind
+                if kind.startswith("budget_") or kind == "observer_budget_not_admitted"
+                else _exception_class(kind)
+            )
+
+    def _latch_budget_failure(self) -> None:
+        failure = getattr(self._budget_controller, "failure", None)
+        self._latch_failure(
+            failure if isinstance(failure, str) and failure.startswith("budget_") else "budget"
+        )
 
     def _latch_state_failure(self, state: _StreamState) -> None:
         if state.failure_kind is not None:
-            self._latch_failure(state.failure_kind)
+            if state.failure_kind == "budget":
+                self._latch_budget_failure()
+            else:
+                self._latch_failure(state.failure_kind)
 
     def mark_unready(self) -> None:
         """Stop later dispatches after an observer-side readiness failure."""
@@ -505,7 +573,31 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             **{f"{name}_class": _count_class(value) for name, value in counts.items()},
             "records": tuple(record.safe_dict() for record in records),
             "elapsed_class": "unknown" if time.monotonic() < self._started else "bounded",
+            "dispatch_budget": (
+                self._budget_controller.safe_dict()
+                if self._budget_controller is not None
+                and callable(getattr(self._budget_controller, "safe_dict", None))
+                else None
+            ),
         }
+
+    def _observe_chunk(self, state: _StreamState, size: int) -> bool:
+        if self._budget_controller is None:
+            return True
+        try:
+            permitted = self._budget_controller.observe_event(size)
+        except BaseException:
+            permitted = False
+        if not permitted:
+            self._latch_budget_failure()
+        return permitted
+
+    def _release_dispatch(self, record: _RequestObservation) -> None:
+        if not record.dispatch_active:
+            return
+        record.dispatch_active = False
+        if self._budget_controller is not None:
+            self._budget_controller.release_dispatch()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         if not self._ready:
@@ -543,16 +635,48 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 record.exception_class = _exception_class("validator")
                 self._latch_failure("validator")
                 raise RuntimeError("transport_observer_validator_unavailable") from None
+        if self._budget_controller is not None:
+            try:
+                phase, ordinal = (
+                    self._dispatch_context()
+                    if self._dispatch_context is not None
+                    else ("unknown", None)
+                )
+                record.dispatch_phase = phase if isinstance(phase, str) else "unknown"
+                record.dispatch_ordinal = ordinal if type(ordinal) is int else None
+                admitted = self._budget_controller.admit_dispatch(
+                    kind,
+                    phase=record.dispatch_phase,
+                    ordinal=record.dispatch_ordinal,
+                )
+            except BaseException:
+                admitted = False
+            if not admitted:
+                record.exception_class = _exception_class("budget")
+                self._latch_budget_failure()
+                raise RuntimeError("transport_observer_budget_not_admitted")
+            record.dispatch_admitted = True
+            record.dispatch_active = True
+            if self._dispatch_hook is not None:
+                try:
+                    self._dispatch_hook(kind, record.dispatch_phase, record.dispatch_ordinal)
+                except BaseException:
+                    record.exception_class = "observer_dispatch_hook_error"
+                    self._release_dispatch(record)
+                    self._latch_failure("dispatch_hook")
+                    raise RuntimeError("transport_observer_dispatch_hook_failed") from None
         record.dispatched = True
         try:
             response = await self._delegate.handle_async_request(request)
         except asyncio.CancelledError:
             record.exception_class = _exception_class("cancelled")
             self._latch_failure("cancelled")
+            self._release_dispatch(record)
             raise
         except BaseException:
             record.exception_class = _exception_class("delegate")
             self._latch_failure("delegate")
+            self._release_dispatch(record)
             raise
         record.responded = True
         record.status_class = _status_class(response.status_code)

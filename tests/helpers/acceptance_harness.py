@@ -84,6 +84,7 @@ class RehearsalBudget:
     max_event_bytes: int = 16 * 1024
     max_stream_bytes: int = 128 * 1024
     max_concurrency: int = 1
+    max_dispatches: int = 64
 
 
 @dataclass
@@ -96,13 +97,23 @@ class BudgetController:
     _admitted: dict[str, int] = field(init=False, default_factory=dict)
     _total_admitted: int = field(init=False, default=0)
     _active: int = field(init=False, default=0)
+    _active_dispatches: int = field(init=False, default=0)
     _event_bytes: int = field(init=False, default=0)
     _stream_bytes: int = field(init=False, default=0)
+    _dispatch_attempted: int = field(init=False, default=0)
+    _dispatch_admitted: int = field(init=False, default=0)
+    _dispatch_counts: dict[str, dict[str, int]] = field(init=False, default_factory=dict)
+    _dispatch_records: list[dict[str, object]] = field(init=False, default_factory=list)
+    _dispatch_context: tuple[str, int | None] = field(init=False, default=("unknown", None))
     _failure: str | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         self._started = self.clock()
-        if self.budget.wall_seconds <= 0 or self.budget.max_concurrency <= 0:
+        if (
+            self.budget.wall_seconds <= 0
+            or self.budget.max_concurrency <= 0
+            or self.budget.max_dispatches <= 0
+        ):
             self._failure = "budget_configuration_invalid"
         if any(item.maximum < 0 or item.retries != 0 for item in self.budget.operation_limits):
             self._failure = "budget_configuration_invalid"
@@ -137,6 +148,88 @@ class BudgetController:
         self._total_admitted += 1
         return True
 
+    def set_dispatch_context(self, phase: str, ordinal: int | None) -> None:
+        """Set the safe phase/ordinal attached to the next transport call."""
+        valid_phases = {
+            "preflight",
+            "candidate",
+            "codex",
+            "vision",
+            "identity",
+            "cleanup",
+            "finalize",
+        }
+        safe_phase = phase if phase in valid_phases else "unknown"
+        safe_ordinal = ordinal if type(ordinal) is int and ordinal >= 0 else None
+        self._dispatch_context = (safe_phase, safe_ordinal)
+
+    def dispatch_context(self) -> tuple[str, int | None]:
+        return self._dispatch_context
+
+    def _dispatch_record(
+        self, kind: str, *, admitted: bool, phase: str, ordinal: int | None
+    ) -> None:
+        if len(self._dispatch_records) >= self.budget.max_dispatches:
+            return
+        self._dispatch_records.append(
+            {
+                "kind": kind,
+                "phase": phase,
+                "ordinal": ordinal,
+                "admitted": admitted,
+            }
+        )
+
+    def admit_dispatch(
+        self,
+        kind: str,
+        *,
+        phase: str | None = None,
+        ordinal: int | None = None,
+    ) -> bool:
+        """Admit one actual HTTPX dispatch immediately before delegation.
+
+        Operation admissions describe the ordered rehearsal operations.  This
+        separate admission covers every resulting compiler/inference/other
+        request and therefore cannot be bypassed by a client making an extra
+        request inside an already-admitted operation.
+        """
+        safe_phase, safe_ordinal = self._dispatch_context
+        if phase is not None:
+            self.set_dispatch_context(phase, ordinal)
+            safe_phase, safe_ordinal = self._dispatch_context
+        self._dispatch_attempted += 1
+        counts = self._dispatch_counts.setdefault(kind, {"attempted": 0, "admitted": 0})
+        counts["attempted"] += 1
+        if kind not in {"compiler", "inference", "other"}:
+            self._failure = self._failure or "budget_dispatch_kind_unknown"
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
+        if self._failure is not None:
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
+        if self._dispatch_admitted >= self.budget.max_dispatches:
+            self._failure = "budget_dispatch_limit_exhausted"
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
+        if self._active_dispatches >= self.budget.max_concurrency:
+            self._failure = "budget_concurrency_limit_exhausted"
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
+        self._dispatch_admitted += 1
+        self._active_dispatches += 1
+        counts["admitted"] += 1
+        self._dispatch_record(kind, admitted=True, phase=safe_phase, ordinal=safe_ordinal)
+        return True
+
+    def release_dispatch(self) -> None:
+        if self._active_dispatches > 0:
+            self._active_dispatches -= 1
+
     def acquire(self) -> bool:
         """Admit one concurrent phase without exceeding the frozen bound."""
         if self._failure is not None:
@@ -152,6 +245,11 @@ class BudgetController:
             self._active -= 1
 
     def observe_event(self, size: int) -> bool:
+        if self._failure is not None:
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
         if size < 0 or size > self.budget.max_event_bytes:
             self._failure = "budget_event_limit_exhausted"
             return False
@@ -168,6 +266,7 @@ class BudgetController:
             "max_event_bytes": self.budget.max_event_bytes,
             "max_stream_bytes": self.budget.max_stream_bytes,
             "max_concurrency": self.budget.max_concurrency,
+            "max_dispatches": self.budget.max_dispatches,
             "operation_limits": {
                 item.operation: item.maximum for item in self.budget.operation_limits
             },
@@ -176,6 +275,15 @@ class BudgetController:
             "event_bytes_class": count_class(self._event_bytes),
             "stream_bytes_class": count_class(self._stream_bytes),
             "active_concurrency_class": count_class(self._active),
+            "active_dispatch_class": count_class(self._active_dispatches),
+            "dispatch_attempted_count": self._dispatch_attempted,
+            "dispatch_admitted_count": self._dispatch_admitted,
+            "dispatch_attempted_count_class": count_class(self._dispatch_attempted),
+            "dispatch_admitted_count_class": count_class(self._dispatch_admitted),
+            "dispatch_counts": {
+                kind: dict(values) for kind, values in sorted(self._dispatch_counts.items())
+            },
+            "dispatch_records": tuple(self._dispatch_records),
             "failure_class": self._failure,
             "exhausted": self._failure is not None,
         }
@@ -205,6 +313,8 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "budget_concurrency_limit_exhausted",
         "budget_operation_unknown",
         "budget_configuration_invalid",
+        "budget_dispatch_kind_unknown",
+        "budget_dispatch_limit_exhausted",
         "http_status_non_2xx",
         "content_type_not_sse",
         "response_headers_timing_missing",
@@ -223,6 +333,12 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "provider_lifecycle_invalid",
         "local_upstream_non_2xx_or_failure",
         "gateway_accounting_nonterminal",
+        "stream_validation_invalid",
+        "stream_framing_invalid",
+        "stream_overflow",
+        "stream_closure_invalid",
+        "stream_contract_invalid",
+        "manual_unready",
     }
 )
 
@@ -255,7 +371,13 @@ class RunAccumulator:
             "inference_dispatched": None,
             "inference_responded": None,
             "inference_completed": None,
+            "compiler_terminal_valid": None,
+            "inference_terminal_valid": None,
         }
+    )
+    _lifetime_counts: dict[str, dict[str, int]] = field(init=False, default_factory=dict)
+    _terminal_observations: dict[tuple[str, int], dict[str, object]] = field(
+        init=False, default_factory=dict
     )
 
     def set_phase(self, phase: str, ordinal: int | None = None) -> None:
@@ -281,8 +403,10 @@ class RunAccumulator:
         phase: str,
         ordinal: int | None = None,
         update_counts: bool = True,
+        lifetime_id: str | None = None,
     ) -> None:
         self.set_phase(phase, ordinal)
+        lifetime = lifetime_id or f"{self.phase}:{self.ordinal}"
         names = (
             "compiler_attempted",
             "compiler_dispatched",
@@ -292,24 +416,73 @@ class RunAccumulator:
             "inference_dispatched",
             "inference_responded",
             "inference_completed",
+            "compiler_terminal_valid",
+            "inference_terminal_valid",
         )
         if update_counts:
+            lifetime_counts = self._lifetime_counts.setdefault(lifetime, {})
             for name in names:
                 value = snapshot.get(f"{name}_count")
                 if type(value) is int and value >= 0:
-                    self.counts[name] = value
+                    lifetime_counts[name] = max(lifetime_counts.get(name, 0), value)
+            for name in names:
+                values = [entry.get(name) for entry in self._lifetime_counts.values()]
+                known = [value for value in values if type(value) is int and value >= 0]
+                self.counts[name] = sum(known) if known else None
+        records = snapshot.get("records")
+        if isinstance(records, (list, tuple)):
+            for record in records:
+                if not isinstance(record, Mapping) or record.get("kind") != "inference":
+                    continue
+                local_ordinal = record.get("ordinal")
+                if type(local_ordinal) is not int or local_ordinal < 0:
+                    continue
+                terminal_valid = record.get("terminal_valid")
+                if terminal_valid is True:
+                    terminal_class = "terminal_valid"
+                elif terminal_valid is False:
+                    terminal_class = (
+                        "terminal_invalid"
+                        if record.get("completed") is True and record.get("normal_close") is True
+                        else "terminal_incomplete"
+                    )
+                else:
+                    terminal_class = "unknown"
+                self._terminal_observations[(lifetime, local_ordinal)] = {
+                    "lifetime": lifetime,
+                    "ordinal": local_ordinal,
+                    "terminal_class": terminal_class,
+                    "terminal_valid": terminal_valid if type(terminal_valid) is bool else None,
+                }
+        elif update_counts and self.counts.get("inference_attempted") is not None:
+            # An attempted request without a per-ordinal semantic observation is
+            # evidence of absence, never evidence of a valid terminal.
+            self._terminal_observations.setdefault(
+                (lifetime, -1),
+                {
+                    "lifetime": lifetime,
+                    "ordinal": None,
+                    "terminal_class": "unknown",
+                    "terminal_valid": None,
+                },
+            )
         failure = snapshot.get("failure_class")
         if failure is not None:
-            self.record_failure(
-                "observer_readiness_lost" if snapshot.get("ready") is not True else failure
-            )
+            if failure == "manual_unready":
+                self.record_failure("observer_readiness_lost")
+            else:
+                self.record_failure(failure)
+                if snapshot.get("ready") is not True and failure != "observer_readiness_lost":
+                    self.record_failure("observer_readiness_lost")
         if len(self.snapshots) < 16:
             self.snapshots.append(
                 {
                     "phase": self.phase,
                     "ordinal": self.ordinal,
                     "ready": snapshot.get("ready") is True,
-                    "failure_class": _safe_accumulator_failure(failure)
+                    "failure_class": _safe_accumulator_failure(
+                        "observer_readiness_lost" if failure == "manual_unready" else failure
+                    )
                     if failure is not None
                     else None,
                     "compiler_attempted_count": self.counts["compiler_attempted"],
@@ -320,16 +493,16 @@ class RunAccumulator:
                     "inference_dispatched_count": self.counts["inference_dispatched"],
                     "inference_responded_count": self.counts["inference_responded"],
                     "inference_completed_count": self.counts["inference_completed"],
+                    "compiler_terminal_valid_count": self.counts["compiler_terminal_valid"],
+                    "inference_terminal_valid_count": self.counts["inference_terminal_valid"],
                 }
             )
 
     def record_cleanup(self, outcome: Mapping[str, object]) -> None:
         self.set_phase("cleanup")
-        self.cleanup = {
-            key: outcome.get(key) is True
-            for key in ("processes", "listeners", "database", "cache", "codex_home")
-            if key in outcome
-        }
+        for key in ("processes", "listeners", "database", "cache", "codex_home"):
+            if key in outcome and key not in self.cleanup:
+                self.cleanup[key] = outcome.get(key) is True
         if any(value is False for value in self.cleanup.values()):
             self.record_failure("cleanup_failed")
 
@@ -337,17 +510,6 @@ class RunAccumulator:
         self.budget = dict(budget)
 
     def safe_dict(self) -> dict[str, object]:
-        def terminal_class(snapshot: dict[str, object]) -> str:
-            attempted = snapshot["inference_attempted_count"]
-            completed = snapshot["inference_completed_count"]
-            if type(attempted) is not int or type(completed) is not int:
-                return "unknown"
-            return (
-                "terminal_valid"
-                if attempted == completed and attempted > 0
-                else "terminal_incomplete"
-            )
-
         return {
             "mode": self.mode,
             "candidate_sha": self.candidate_sha if isinstance(self.candidate_sha, str) else None,
@@ -361,7 +523,10 @@ class RunAccumulator:
             "observer_failure_classes": tuple(
                 item["failure_class"] for item in self.snapshots if item["failure_class"]
             ),
-            "terminal_classes": tuple(terminal_class(item) for item in self.snapshots),
+            "terminal_classes": tuple(
+                item["terminal_class"] for item in self._terminal_observations.values()
+            ),
+            "terminal_observations": tuple(self._terminal_observations.values()),
             "snapshots": tuple(self.snapshots),
             "cleanup": dict(self.cleanup),
         }
@@ -376,7 +541,9 @@ def run_protected_mode_conformance(
     credential_hook: Callable[[], object] | None = None,
     failure_phase: str | None = None,
 ) -> dict[str, object]:
-    """Exercise protected phase selection with injectable, non-protected hooks."""
+    """Retained legacy phase contract; all dependencies must be explicit."""
+    if any(hook is None for hook in (preflight, candidate, dispatch, cleanup)):
+        raise ValueError("protected_conformance_dependencies_required")
     validate_projection_contract("protected")
     controller = BudgetController(
         RehearsalBudget(
@@ -471,7 +638,7 @@ def run_protected_mode_conformance(
         else "FAILED",
         "mode": "protected",
         "protected_acceptance": False,
-        "evidence_kind": "synthetic_orchestration_only",
+        "evidence_kind": "legacy_unit_contract_not_acceptance",
         "selected_result_count_class": count_class(len(PROTECTED_MANIFEST_IDS)),
         "selected_projection_ids": PROTECTED_PROJECTION_IDS,
         "phase_classes": tuple(calls),

@@ -302,3 +302,30 @@ protected-mode conformance path uses injected fake-only hooks, proves
 first-failure stop and post-cleanup row serialization, and performs zero real
 credential, model, or protected-service access. This is orchestration evidence,
 not protected inference acceptance.
+
+## Objective-005-x runner budget and terminal proof
+
+The observer's run-owned `BudgetController` admits each actual compiler,
+inference, or other direct HTTPX dispatch immediately before delegation. It
+records exact safe phase/ordinal facts independently of the nine ordered
+operation-attempt reservations. Deadline checks run before every dispatch and
+between stream chunks; event, aggregate stream, dispatch-count, and active
+stream concurrency bounds are enforced without resetting across candidate
+lifetime changes. A latched budget or observer failure prevents later delegate
+calls while cleanup remains available.
+
+`RunAccumulator` aggregates monotonically within a named observer lifetime and
+sums distinct lifetimes without double counting repeated snapshots. It retains
+semantic terminal-valid counters and per-ordinal terminal classes separately
+from attempted/responded/completed/closed state. Invalid-but-consumed and
+truncated/cancelled records are not terminal-valid, and absent semantic records
+remain `UNKNOWN`; lifecycle-count equality never upgrades a record to valid.
+
+The actual shared runner can be exercised in tests with explicit
+`ProtectedRuntimeHooks`. These hooks are synthetic-only and cover host
+preflight, MainPID, credential source, loopback provider target, bounded clock,
+dispatch observation, and failure injection. Missing hooks fail closed. The
+synthetic run serializes all 29 protected-selected result dispositions, keeps
+`protected_acceptance=false`, and performs no `/proc` credential read, protected
+Qwen request, or port-18020 mutation. This is orchestration evidence, not
+protected inference acceptance.
