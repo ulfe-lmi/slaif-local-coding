@@ -138,6 +138,32 @@ def test_budget_controller_enforces_admission_before_dispatch() -> None:
     assert bounded.failure == "budget_stream_limit_exhausted"
 
 
+def test_dispatch_permission_is_explicit_per_operation_and_consumed() -> None:
+    controller = BudgetController()
+
+    assert not controller.admit_dispatch("inference", phase="codex", ordinal=1)
+    assert controller.failure == "budget_dispatch_permission_missing"
+
+    controller = BudgetController()
+    assert controller.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert controller.admit_dispatch("inference")
+    controller.release_dispatch()
+    assert not controller.admit_dispatch("inference")
+    assert controller.failure == "budget_dispatch_permission_kind_mismatch"
+
+
+def test_dispatch_permission_rejects_wrong_phase_and_cross_lifetime_reuse() -> None:
+    controller = BudgetController()
+    assert controller.admit("codex_turn_1", phase="codex", ordinal=1)
+    controller.set_dispatch_context("vision", 3)
+    assert not controller.admit_dispatch("inference")
+    assert controller.failure == "budget_dispatch_permission_missing"
+
+    fresh_lifetime = BudgetController()
+    assert not fresh_lifetime.admit_dispatch("inference", phase="codex", ordinal=1)
+    assert fresh_lifetime.failure == "budget_dispatch_permission_missing"
+
+
 def test_run_accumulator_preserves_primary_failure_and_counts_before_cleanup() -> None:
     accumulator = RunAccumulator("protected", candidate_sha="a" * 40, gateway_sha="b" * 40)
     accumulator.capture_observer(

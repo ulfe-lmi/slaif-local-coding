@@ -337,3 +337,26 @@ compiler and 12 inference calls, with 12/12 inference streams semantically
 terminal-valid; fake-provider counters matched, all 29 synthetic protected
 rows serialized, and cleanup passed. This is fake-only evidence and does not
 establish protected acceptance.
+
+## Objective-005-y operation permits and protected-branch conformance
+
+005-y keeps logical operation attempts separate from the transport requests
+they authorize. A finite measured plan is consumed immediately before
+delegation for the existing 23-request shape: 6 compiler, 12 inference, and 5
+other requests. Missing, exhausted, wrong-kind, and wrong-phase permissions
+fail closed with zero delegate calls; pre-provider rejection operations have
+explicit zero transport slots. The prior 900-second, 64-observation, 16 KiB
+frame, 128 KiB stream, and single-active-stream limits remain unchanged.
+
+The direct observer applies cumulative byte/deadline checks to network chunks
+and the 16 KiB check to each completed SSE frame. Coalesced legal frames remain
+valid even when their network chunk is larger than one frame; an oversized
+frame or cumulative stream latches failure, closes the stream, and prevents
+later dispatch.
+
+The shared protected-mode runner accepts synthetic-only host, PID,
+credential-source, clock, loopback-provider, dispatch-completion, projection,
+and cleanup seams. Healthy and injected post-dispatch executions retain phase
+traces, bounded counters, selected dispositions, failure classes, and cleanup
+facts. Results remain explicitly `protected_acceptance=false`; no protected
+credential, Qwen request, or port-18020 mutation is implied.

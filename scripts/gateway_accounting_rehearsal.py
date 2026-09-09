@@ -172,7 +172,10 @@ class ProtectedRuntimeHooks:
     provider_target: Literal["fake"] = "fake"
     clock: Callable[[], float] = time.monotonic
     dispatch_hook: Callable[[str, str, int | None], None] | None = None
+    dispatch_complete_hook: Callable[[str, str, int | None], None] | None = None
     failure_phase: str | None = None
+    projection_failure: bool = False
+    cleanup_failure: bool = False
     require_fake_gate: bool = False
     synthetic_only: bool = True
 
@@ -3658,7 +3661,7 @@ def run_actual_protected_mode_conformance(
     protected_ids = tuple(
         item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "protected"}
     )
-    result["protected_conformance"] = {
+    conformance = {
         "selected_result_count": len(protected_ids),
         "selected_result_disposition_count": (
             len(result_rows) if isinstance(result_rows, (list, tuple)) else 0
@@ -3671,6 +3674,51 @@ def run_actual_protected_mode_conformance(
         "provider_target": dependencies.provider_target,
         "real_protected_access": False,
     }
+    result["protected_conformance"] = conformance
+    accumulator_value = result.get("run_accumulator")
+    run_accumulator_facts = (
+        cast(dict[str, object], accumulator_value) if isinstance(accumulator_value, dict) else {}
+    )
+    snapshots_value = run_accumulator_facts.get("snapshots", ())
+    snapshots = snapshots_value if isinstance(snapshots_value, (list, tuple)) else ()
+    counts_value = run_accumulator_facts.get("counts")
+    counts = cast(dict[str, object], counts_value) if isinstance(counts_value, dict) else {}
+    cleanup_value = run_accumulator_facts.get("cleanup")
+    cleanup = cast(dict[str, object], cleanup_value) if isinstance(cleanup_value, dict) else {}
+    conformance.update(
+        {
+            "implementation_reached": any(
+                key in result for key in ("candidate_provenance", "codex", "transport_observation")
+            ),
+            "phase_trace": tuple(
+                snapshot.get("phase")
+                for snapshot in snapshots
+                if isinstance(snapshot, dict) and isinstance(snapshot.get("phase"), str)
+            ),
+            "dispatch_counts": {
+                key: counts.get(key)
+                for key in (
+                    "compiler_attempted",
+                    "compiler_dispatched",
+                    "compiler_responded",
+                    "compiler_completed",
+                    "inference_attempted",
+                    "inference_dispatched",
+                    "inference_responded",
+                    "inference_completed",
+                )
+            },
+            "primary_failure": run_accumulator_facts.get("first_failure"),
+            "secondary_failure_classes": run_accumulator_facts.get("secondary_failures", ()),
+            "cleanup_snapshot": cleanup,
+            "source_identities": {
+                "runner": "scripts.gateway_accounting_rehearsal.py",
+                "local": "src/slaif_local_coding",
+                "observer": OBSERVATION_VERSION,
+                "provider": "disposable_loopback_fake",
+            },
+        }
+    )
     return result
 
 
@@ -3761,8 +3809,7 @@ def _run_direct_composed_rehearsal_impl(
 
     def admit(operation: str, phase: str, ordinal: int) -> None:
         accumulator.set_phase(phase, ordinal)
-        budget.set_dispatch_context(phase, ordinal)
-        if not budget.admit(operation):
+        if not budget.admit(operation, phase=phase, ordinal=ordinal):
             failure = budget.failure or "budget_operation_limit_exhausted"
             accumulator.record_failure(failure)
             raise RuntimeError(failure)
@@ -3823,6 +3870,22 @@ def _run_direct_composed_rehearsal_impl(
     candidate_observer: DirectTransportObserver | None = None
     vision_observer: DirectTransportObserver | None = None
     post_vision_observer: DirectTransportObserver | None = None
+    active_observer: DirectTransportObserver | None = None
+    protected_failure_injected = False
+
+    def protected_dispatch_complete(kind: str, phase: str, ordinal: int | None) -> None:
+        nonlocal protected_failure_injected
+        if (
+            protected_hooks is not None
+            and protected_hooks.failure_phase in {"post_dispatch", "observer"}
+            and not protected_failure_injected
+            and active_observer is not None
+        ):
+            protected_failure_injected = True
+            active_observer.mark_unready()
+        if protected_hooks is not None and protected_hooks.dispatch_complete_hook is not None:
+            protected_hooks.dispatch_complete_hook(kind, phase, ordinal)
+
     idless_http_regression: dict[str, object] = {"passed": False}
     protected_mode_synthetic: dict[str, object] = {"status": "NOT RUN"}
     protected_health_status: int | None = None
@@ -3977,7 +4040,11 @@ def _run_direct_composed_rehearsal_impl(
                 dispatch_hook=(
                     protected_hooks.dispatch_hook if protected_hooks is not None else None
                 ),
+                dispatch_complete_hook=(
+                    protected_dispatch_complete if protected_hooks is not None else None
+                ),
             )
+            active_observer = candidate_observer
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=candidate_observer,
@@ -4019,7 +4086,6 @@ def _run_direct_composed_rehearsal_impl(
                         host_preflight=lambda: {"ready": True},
                         main_pid=lambda: "synthetic-pid",
                         credential_source=lambda _pid: "synthetic-protected-key",
-                        failure_phase="preflight",
                     ),
                 )
                 protected_conformance = protected_mode_synthetic.get("protected_conformance")
@@ -4241,7 +4307,11 @@ def _run_direct_composed_rehearsal_impl(
                 dispatch_hook=(
                     protected_hooks.dispatch_hook if protected_hooks is not None else None
                 ),
+                dispatch_complete_hook=(
+                    protected_dispatch_complete if protected_hooks is not None else None
+                ),
             )
+            active_observer = vision_observer
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=vision_observer,
@@ -4285,7 +4355,11 @@ def _run_direct_composed_rehearsal_impl(
                 dispatch_hook=(
                     protected_hooks.dispatch_hook if protected_hooks is not None else None
                 ),
+                dispatch_complete_hook=(
+                    protected_dispatch_complete if protected_hooks is not None else None
+                ),
             )
+            active_observer = post_vision_observer
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=post_vision_observer,
@@ -4426,6 +4500,10 @@ def _run_direct_composed_rehearsal_impl(
                     "search_content_types": ["text"],
                 },
             ]
+            # Operation 5 owns the two ordinary codex Requests calls below;
+            # its explicit plan then transitions to the five signed /health
+            # observations used by the identity matrix.
+            admit("identity_replay", "codex", 5)
             text_status: int | None = None
             text_usage_present = False
             try:
@@ -4607,6 +4685,7 @@ def _run_direct_composed_rehearsal_impl(
                     },
                 }
                 return result
+            budget.set_dispatch_context("identity", 5)
             identity_rows_before = asyncio.run(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
@@ -4615,8 +4694,6 @@ def _run_direct_composed_rehearsal_impl(
                 if fake_server is not None
                 else None
             )
-            admit("identity_replay", "identity", 5)
-            admit("identity_concurrent_replay", "identity", 6)
             identity_matrix = _run_signed_identity_matrix(
                 adapter_port,
                 service_token,
@@ -4644,6 +4721,7 @@ def _run_direct_composed_rehearsal_impl(
                 for dimension in ("session", "owner", "repository")
                 for qualifier in ("negative", "distinct")
             }
+            admit("identity_concurrent_replay", "identity", 6)
             image_data_url = "data:image/png;base64," + base64.b64encode(
                 fixture.full_image.path.read_bytes()
             ).decode("ascii")
@@ -5226,12 +5304,51 @@ def _run_direct_composed_rehearsal_impl(
             "failure_identity": result["temporary_state_removed"] is True,
             "failure_provider": result["temporary_state_removed"] is True,
         }
+        if protected_hooks is not None and (
+            protected_hooks.cleanup_failure or protected_hooks.failure_phase == "cleanup"
+        ):
+            # Synthetic-only finalization injection.  Keep this as a bounded
+            # cleanup fact so the primary observer failure cannot be replaced.
+            cleanup_observation["cache"] = False
         result["cleanup_observation"] = cleanup_observation
         accumulator.record_cleanup(cleanup_observation)
     if not result:
         raise RuntimeError("composed_rehearsal_did_not_produce_facts")
     result["runtime_observations"] = _runtime_observations(result)
-    acceptance_gate, gap_inventory = _acceptance_gate(result)
+    try:
+        if protected_hooks is not None and (
+            protected_hooks.projection_failure or protected_hooks.failure_phase == "projection"
+        ):
+            raise RuntimeError("synthetic_projection_failure")
+        acceptance_gate, gap_inventory = _acceptance_gate(result)
+    except BaseException:
+        accumulator.record_failure("serialization_failure")
+        mode: Literal["fake", "protected"] = (
+            "protected" if result.get("provider_target") == "protected" else "fake"
+        )
+        selected = tuple(item for item in ACCEPTANCE_MANIFEST if item.mode in {"both", mode})
+        statuses = {item.obligation_id: "NOT RUN" for item in selected}
+        fallback = build_obligation_gate(
+            mode,
+            [
+                make_result(
+                    item.obligation_id,
+                    status="NOT RUN",
+                    observed=False,
+                    relationship="other",
+                    count=0,
+                )
+                for item in selected
+            ],
+            first_failure=accumulator.first_failure,
+            retry_count=0,
+        ).safe_dict()
+        fallback["projection_table"] = projection_table_safe_dict({}, statuses, mode)
+        fallback["observation_schema_keys"] = (
+            PROTECTED_RESULT_SCHEMA_KEYS if mode == "protected" else FAKE_RESULT_SCHEMA_KEYS
+        )
+        acceptance_gate = fallback
+        gap_inventory = ()
     result["acceptance_gate"] = acceptance_gate
     result["gap_inventory"] = gap_inventory
     result["status"] = "COMPLETE" if acceptance_gate["passed"] else "BLOCKED"

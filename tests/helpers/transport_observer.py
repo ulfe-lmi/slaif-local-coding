@@ -75,7 +75,9 @@ class DispatchBudget(Protocol):
 
     def release_dispatch(self) -> None: ...
 
-    def observe_event(self, size: int) -> bool: ...
+    def observe_chunk(self, size: int) -> bool: ...
+
+    def observe_frame(self, size: int) -> bool: ...
 
     def safe_dict(self) -> dict[str, object]: ...
 
@@ -155,6 +157,7 @@ class _StreamState:
     normal_close: bool = False
     _response_id_digest: bytes | None = field(default=None, repr=False)
     failure_kind: str | None = field(default=None, repr=False)
+    frame_observer: Callable[[int], bool] | None = field(default=None, repr=False)
 
     def _fail(self, kind: str) -> None:
         self.validation_failed = True
@@ -171,6 +174,10 @@ class _StreamState:
         self.event_types.append(event_class)
 
     def _consume_frame(self, frame: bytes) -> None:
+        if self.frame_observer is not None and not self.frame_observer(len(frame)):
+            self.overflow = True
+            self._fail("budget")
+            return
         if not frame or len(frame) > MAX_EVENT_BYTES:
             self.malformed = True
             self._fail("framing")
@@ -295,6 +302,8 @@ class _StreamState:
                 frame = bytes(self.buffer[:frame_length])
                 del self.buffer[:]
                 self._consume_frame(frame)
+                if self.failure_kind == "budget":
+                    return
             elif len(self.buffer) > MAX_EVENT_BYTES + 4:
                 self.overflow = True
                 self._fail("overflow")
@@ -412,6 +421,9 @@ class _ObservedStream(httpx.AsyncByteStream):
                     raise RuntimeError("transport_observer_budget_exhausted")
                 self._state.consume(chunk)
                 self._owner._latch_state_failure(self._state)
+                if self._state.failure_kind == "budget":
+                    self._state.abnormal_close("budget")
+                    raise RuntimeError("transport_observer_budget_exhausted")
                 yield chunk
             self._state.finish()
             self._owner._finish_stream(self._record, self._state)
@@ -485,6 +497,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         budget_controller: DispatchBudget | None = None,
         dispatch_context: Callable[[], tuple[str, int | None]] | None = None,
         dispatch_hook: Callable[[str, str, int | None], None] | None = None,
+        dispatch_complete_hook: Callable[[str, str, int | None], None] | None = None,
     ) -> None:
         self._delegate = delegate
         self._validator_factory = validator_factory
@@ -494,6 +507,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         self._budget_controller = budget_controller
         self._dispatch_context = dispatch_context
         self._dispatch_hook = dispatch_hook
+        self._dispatch_complete_hook = dispatch_complete_hook
         self._records: list[_RequestObservation] = []
         self._started = time.monotonic()
         self._ready = True
@@ -585,7 +599,18 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         if self._budget_controller is None:
             return True
         try:
-            permitted = self._budget_controller.observe_event(size)
+            permitted = self._budget_controller.observe_chunk(size)
+        except BaseException:
+            permitted = False
+        if not permitted:
+            self._latch_budget_failure()
+        return permitted
+
+    def _observe_frame(self, size: int) -> bool:
+        if self._budget_controller is None:
+            return True
+        try:
+            permitted = self._budget_controller.observe_frame(size)
         except BaseException:
             permitted = False
         if not permitted:
@@ -678,6 +703,14 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             self._latch_failure("delegate")
             self._release_dispatch(record)
             raise
+        if self._dispatch_complete_hook is not None:
+            try:
+                self._dispatch_complete_hook(kind, record.dispatch_phase, record.dispatch_ordinal)
+            except BaseException:
+                record.exception_class = "observer_dispatch_complete_hook_error"
+                self._release_dispatch(record)
+                self._latch_failure("dispatch_hook")
+                raise RuntimeError("transport_observer_dispatch_complete_hook_failed") from None
         record.responded = True
         record.status_class = _status_class(response.status_code)
         content_type = response.headers.get("content-type", "")
@@ -689,7 +722,12 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             if "json" in content_type_lower
             else "other"
         )
-        state = _StreamState(record.content_type_class, time.monotonic(), validator)
+        state = _StreamState(
+            record.content_type_class,
+            time.monotonic(),
+            validator,
+            frame_observer=self._observe_frame if record.content_type_class == "sse" else None,
+        )
         response.stream = _ObservedStream(
             cast(httpx.AsyncByteStream, response.stream), self, record, state
         )

@@ -19,7 +19,7 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 Status = Literal["PASSED", "FAILED", "SKIPPED", "NOT RUN", "BLOCKED", "MISSING"]
 Mode = Literal["fake", "protected"]
@@ -76,11 +76,65 @@ PUBLIC_REQUEST_BUDGET: tuple[PublicRequestBudget, ...] = (
 
 
 @dataclass(frozen=True)
+class OperationDispatchPlan:
+    """Finite transport slots belonging to one logical public operation.
+
+    Logical operation attempts and provider API requests are intentionally
+    different counters.  The plan is the bridge between them: every actual
+    compiler/inference/other request must consume one of these slots.  A slot
+    is consumed at transport admission, never when the enclosing subprocess
+    is started.
+    """
+
+    operation: str
+    phase: str
+    ordinal: int
+    dispatch_limits: tuple[tuple[str, int], ...]
+    allowed_phases: tuple[str, ...] = ()
+
+    def limits(self) -> dict[str, int]:
+        return dict(self.dispatch_limits)
+
+    def phases(self) -> tuple[str, ...]:
+        return self.allowed_phases or (self.phase,)
+
+
+# This is the measured 005-x direct-observer request map.  The nine entries
+# remain maximum-one logical attempts; their finite transport slots explain
+# the separate 23-request run (6 compiler, 12 inference, 5 other) without
+# granting an unassigned/default inference request.  Operations 7 and 8 are
+# intentionally pre-provider rejection matrices and have no provider slots.
+PUBLIC_DISPATCH_PLAN: tuple[OperationDispatchPlan, ...] = (
+    OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 2), ("inference", 1))),
+    OperationDispatchPlan("codex_turn_2", "codex", 2, (("inference", 1),)),
+    OperationDispatchPlan("vision_full", "vision", 3, (("inference", 2),)),
+    OperationDispatchPlan("vision_crop_history", "vision", 4, (("inference", 2),)),
+    OperationDispatchPlan(
+        "identity_replay",
+        "codex",
+        5,
+        (("inference", 2), ("other", 5)),
+        allowed_phases=("codex", "identity"),
+    ),
+    OperationDispatchPlan(
+        "identity_concurrent_replay",
+        "identity",
+        6,
+        (("compiler", 4), ("inference", 5)),
+    ),
+    OperationDispatchPlan("identity_tamper_matrix", "identity", 7, ()),
+    OperationDispatchPlan("authorization_matrix", "identity", 8, ()),
+    OperationDispatchPlan("controlled_failure", "identity", 9, (("inference", 1),)),
+)
+
+
+@dataclass(frozen=True)
 class RehearsalBudget:
     """Frozen bounds shared by fake and synthetic protected-mode execution."""
 
     wall_seconds: float = 900.0
     operation_limits: tuple[PublicRequestBudget, ...] = PUBLIC_REQUEST_BUDGET
+    dispatch_plan: tuple[OperationDispatchPlan, ...] = PUBLIC_DISPATCH_PLAN
     max_event_bytes: int = 16 * 1024
     max_stream_bytes: int = 128 * 1024
     max_concurrency: int = 1
@@ -105,6 +159,7 @@ class BudgetController:
     _dispatch_counts: dict[str, dict[str, int]] = field(init=False, default_factory=dict)
     _dispatch_records: list[dict[str, object]] = field(init=False, default_factory=list)
     _dispatch_context: tuple[str, int | None] = field(init=False, default=("unknown", None))
+    _pending_permissions: list[dict[str, object]] = field(init=False, default_factory=list)
     _failure: str | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -126,8 +181,10 @@ class BudgetController:
     def total_admitted(self) -> int:
         return self._total_admitted
 
-    def admit(self, operation: str) -> bool:
-        """Reserve one named operation before any provider dispatch."""
+    def admit(
+        self, operation: str, *, phase: str | None = None, ordinal: int | None = None
+    ) -> bool:
+        """Reserve one logical operation and enqueue its finite dispatch slots."""
         if self._failure is not None:
             return False
         if self.clock() - self._started >= self.budget.wall_seconds:
@@ -144,12 +201,42 @@ class BudgetController:
         if self._total_admitted >= sum(limits.values()):
             self._failure = "budget_total_limit_exhausted"
             return False
+        plan = next(
+            (item for item in self.budget.dispatch_plan if item.operation == operation), None
+        )
+        if plan is None:
+            self._failure = "budget_operation_plan_unknown"
+            return False
+        requested_phase = plan.phase if phase is None else phase
+        requested_ordinal = plan.ordinal if ordinal is None else ordinal
+        if requested_phase not in plan.phases() or requested_ordinal != plan.ordinal:
+            self._failure = "budget_operation_context_mismatch"
+            return False
         self._admitted[operation] = self._admitted.get(operation, 0) + 1
         self._total_admitted += 1
+        remaining = plan.limits()
+        if any(value > 0 for value in remaining.values()):
+            self._pending_permissions.append(
+                {
+                    "operation": operation,
+                    "phase": plan.phase,
+                    "ordinal": plan.ordinal,
+                    "allowed_phases": plan.phases(),
+                    "remaining": remaining,
+                }
+            )
+        if self._dispatch_context == ("unknown", None) or (
+            self._dispatch_context[0] != requested_phase
+        ):
+            self._dispatch_context = (requested_phase, requested_ordinal)
         return True
 
     def set_dispatch_context(self, phase: str, ordinal: int | None) -> None:
-        """Set the safe phase/ordinal attached to the next transport call."""
+        """Set the requested phase for the next transport permission.
+
+        This method never grants permission.  Only an explicitly admitted
+        plan entry can be consumed by :meth:`admit_dispatch`.
+        """
         valid_phases = {
             "preflight",
             "candidate",
@@ -187,13 +274,7 @@ class BudgetController:
         phase: str | None = None,
         ordinal: int | None = None,
     ) -> bool:
-        """Admit one actual HTTPX dispatch immediately before delegation.
-
-        Operation admissions describe the ordered rehearsal operations.  This
-        separate admission covers every resulting compiler/inference/other
-        request and therefore cannot be bypassed by a client making an extra
-        request inside an already-admitted operation.
-        """
+        """Consume one current operation/phase permission before delegation."""
         safe_phase, safe_ordinal = self._dispatch_context
         if phase is not None:
             self.set_dispatch_context(phase, ordinal)
@@ -220,10 +301,55 @@ class BudgetController:
             self._failure = "budget_concurrency_limit_exhausted"
             self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
             return False
+        permission = next(
+            (
+                item
+                for item in self._pending_permissions
+                if safe_phase in cast(tuple[str, ...], item["allowed_phases"])
+            ),
+            None,
+        )
+        if permission is None:
+            self._failure = "budget_dispatch_permission_missing"
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
+        remaining = cast(dict[str, int], permission["remaining"])
+        if remaining.get(kind, 0) <= 0:
+            self._failure = "budget_dispatch_permission_kind_mismatch"
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
+        remaining[kind] -= 1
+        safe_phase = cast(str, permission["phase"])
+        safe_ordinal = cast(int, permission["ordinal"])
+        operation = cast(str, permission["operation"])
         self._dispatch_admitted += 1
         self._active_dispatches += 1
         counts["admitted"] += 1
-        self._dispatch_record(kind, admitted=True, phase=safe_phase, ordinal=safe_ordinal)
+        if len(self._dispatch_records) < self.budget.max_dispatches:
+            self._dispatch_records.append(
+                {
+                    "kind": kind,
+                    "operation": operation,
+                    "phase": safe_phase,
+                    "ordinal": safe_ordinal,
+                    "admitted": True,
+                }
+            )
+        if all(value == 0 for value in remaining.values()):
+            self._pending_permissions.remove(permission)
+            next_permission = next(
+                (
+                    item
+                    for item in self._pending_permissions
+                    if safe_phase in cast(tuple[str, ...], item["allowed_phases"])
+                ),
+                None,
+            )
+            if next_permission is not None:
+                self._dispatch_context = (
+                    cast(str, next_permission["phase"]),
+                    cast(int, next_permission["ordinal"]),
+                )
         return True
 
     def release_dispatch(self) -> None:
@@ -245,6 +371,24 @@ class BudgetController:
             self._active -= 1
 
     def observe_event(self, size: int) -> bool:
+        """Backward-compatible combined chunk+frame observation helper."""
+        return self.observe_chunk(size) and self.observe_frame(size)
+
+    def observe_chunk(self, size: int) -> bool:
+        """Apply cumulative bytes/deadline checks to one network chunk."""
+        if self._failure is not None:
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
+        if self._stream_bytes + size > self.budget.max_stream_bytes:
+            self._failure = "budget_stream_limit_exhausted"
+            return False
+        self._stream_bytes += size
+        return True
+
+    def observe_frame(self, size: int) -> bool:
+        """Apply the per-SSE-frame bound at an incremental frame boundary."""
         if self._failure is not None:
             return False
         if self.clock() - self._started >= self.budget.wall_seconds:
@@ -253,11 +397,7 @@ class BudgetController:
         if size < 0 or size > self.budget.max_event_bytes:
             self._failure = "budget_event_limit_exhausted"
             return False
-        if self._stream_bytes + size > self.budget.max_stream_bytes:
-            self._failure = "budget_stream_limit_exhausted"
-            return False
         self._event_bytes += size
-        self._stream_bytes += size
         return True
 
     def safe_dict(self) -> dict[str, object]:
@@ -270,6 +410,16 @@ class BudgetController:
             "operation_limits": {
                 item.operation: item.maximum for item in self.budget.operation_limits
             },
+            "dispatch_plan": tuple(
+                {
+                    "operation": item.operation,
+                    "phase": item.phase,
+                    "ordinal": item.ordinal,
+                    "dispatch_limits": dict(item.dispatch_limits),
+                    "allowed_phases": item.phases(),
+                }
+                for item in self.budget.dispatch_plan
+            ),
             "wall_seconds_class": "bounded",
             "operation_admitted_count_class": count_class(self._total_admitted),
             "event_bytes_class": count_class(self._event_bytes),
@@ -284,6 +434,7 @@ class BudgetController:
                 kind: dict(values) for kind, values in sorted(self._dispatch_counts.items())
             },
             "dispatch_records": tuple(self._dispatch_records),
+            "pending_permission_count": len(self._pending_permissions),
             "failure_class": self._failure,
             "exhausted": self._failure is not None,
         }
@@ -312,9 +463,13 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "budget_stream_limit_exhausted",
         "budget_concurrency_limit_exhausted",
         "budget_operation_unknown",
+        "budget_operation_plan_unknown",
+        "budget_operation_context_mismatch",
         "budget_configuration_invalid",
         "budget_dispatch_kind_unknown",
         "budget_dispatch_limit_exhausted",
+        "budget_dispatch_permission_missing",
+        "budget_dispatch_permission_kind_mismatch",
         "http_status_non_2xx",
         "content_type_not_sse",
         "response_headers_timing_missing",

@@ -520,3 +520,30 @@ selected obligations and projections, 23/23 direct observer dispatches,
 inference streams, exact fake-provider agreement, all 29 synthetic protected
 row dispositions, and task-resource cleanup. This remains fake-only evidence;
 no protected credential, Qwen request, or port-18020 mutation occurred.
+
+## Objective-005-y operation permits and protected-branch conformance
+
+005-y makes the existing operation/request distinction executable. The
+repository-only controller has a finite plan for the measured 23 direct
+requests (6 compiler, 12 inference, 5 other), and each request consumes a
+current phase/kind permission at the direct HTTPX observer immediately before
+delegate invocation. Missing, exhausted, wrong-kind, wrong-phase, and
+cross-lifetime requests fail closed without a delegate call. The nine logical
+operations remain maximum-one with zero retries and retain the prior wall,
+observation, frame, stream, and concurrency maxima.
+
+SSE enforcement is split at the correct boundary. Network chunks contribute to
+the cumulative stream byte limit; completed frames are checked independently
+against the 16 KiB frame limit by the incremental parser. Coalesced legal
+frames are not rejected merely because their containing network chunk is larger
+than one frame, while an oversized frame or stream stops subsequent dispatch
+and closes the delegate.
+
+The shared protected-mode runner supports synthetic-only healthy and
+post-dispatch failure/finalization executions through the existing
+`ProtectedRuntimeHooks` seam. It records bounded phase traces, exact
+compiler/inference lifecycle counts, selected protected dispositions, source
+identity classes, primary/secondary failures, and cleanup snapshots. These
+executions use only a disposable loopback provider and retain
+`protected_acceptance=false`; they are orchestration evidence, not protected
+inference acceptance, cutover, merge, or release readiness.
