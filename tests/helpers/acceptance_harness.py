@@ -452,10 +452,7 @@ def run_protected_mode_conformance(
             fail("cleanup_failed")
     observations["protected.cleanup_snapshot_available"] = cleanup_facts.get("complete") is True
 
-    statuses = {
-        item_id: "PASSED" if first_failure is None else "NOT RUN"
-        for item_id in PROTECTED_MANIFEST_IDS
-    }
+    statuses = {item_id: "NOT RUN" for item_id in PROTECTED_MANIFEST_IDS}
     table = projection_table_safe_dict(observations, statuses, "protected")
     rows_serialized = False
     try:
@@ -473,6 +470,8 @@ def run_protected_mode_conformance(
         if first_failure is None and rows_serialized and not fake_only_observation_used
         else "FAILED",
         "mode": "protected",
+        "protected_acceptance": False,
+        "evidence_kind": "synthetic_orchestration_only",
         "selected_result_count_class": count_class(len(PROTECTED_MANIFEST_IDS)),
         "selected_projection_ids": PROTECTED_PROJECTION_IDS,
         "phase_classes": tuple(calls),

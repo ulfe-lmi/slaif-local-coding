@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -185,6 +186,9 @@ def test_protected_mode_conformance_is_injected_and_never_reads_credentials() ->
     assert result["credential_reads"] == 0
     assert result["credential_hook_not_called"] is True
     assert result["rows_serialized"] is True
+    assert result["protected_acceptance"] is False
+    projection_rows = cast(tuple[dict[str, object], ...], result["projection_table"])
+    assert all(row["execution_status"] == "NOT RUN" for row in projection_rows)
     assert calls == []
 
 
