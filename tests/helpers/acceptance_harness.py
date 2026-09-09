@@ -111,14 +111,14 @@ class OperationDispatchPlan:
 
 # This is the measured 005-x direct-observer request map.  The nine entries
 # remain maximum-one logical attempts; their finite transport slots explain
-# the separate 25-request run (6 compiler, 14 inference, 5 other) without
+# the separate 25-slot allowance (6 compiler, 14 inference, 5 other) without
 # granting an unassigned/default inference request.  Operations 7 and 8 are
 # intentionally pre-provider rejection matrices and have no provider slots.
 PUBLIC_DISPATCH_PLAN: tuple[OperationDispatchPlan, ...] = (
     OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 2), ("inference", 1))),
     OperationDispatchPlan("codex_turn_2", "codex", 2, (("inference", 1),)),
-    OperationDispatchPlan("vision_full", "vision", 3, (("compiler", 1), ("inference", 2))),
-    OperationDispatchPlan("vision_crop_history", "vision", 4, (("compiler", 1), ("inference", 2))),
+    OperationDispatchPlan("vision_full", "vision", 3, (("compiler", 2), ("inference", 2))),
+    OperationDispatchPlan("vision_crop_history", "vision", 4, (("inference", 2),)),
     OperationDispatchPlan(
         "identity_replay",
         "codex",

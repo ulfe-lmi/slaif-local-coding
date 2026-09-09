@@ -341,8 +341,9 @@ establish protected acceptance.
 ## Objective-005-z exact pin, operation permits, and protected-branch conformance
 
 005-z keeps logical operation attempts separate from the transport requests
-they authorize. The finite measured plan is 25 requests: 6 compiler, 14
-inference, and 5 other requests. Reservation never changes the current
+they authorize. The finite plan authorizes 25 slots: 6 compiler, 14
+inference, and 5 other requests. A fresh run may consume fewer slots; its
+allowance is not a measured request count. Reservation never changes the current
 operation. A caller must explicitly activate the exact operation, phase,
 ordinal, and lifetime before each logical transition; each actual dispatch then
 consumes only that matching kind slot. Missing, exhausted, wrong-kind,

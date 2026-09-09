@@ -525,8 +525,9 @@ no protected credential, Qwen request, or port-18020 mutation occurred.
 
 005-z makes the existing operation/request distinction executable and binds it
 to the exact retrieved Gateway ancestor. The repository-only controller has a
-finite plan for the measured 25 direct requests (6 compiler, 14 inference, 5
-other). Reservation never advances the current operation: a caller explicitly
+finite 25-slot plan (6 compiler, 14 inference, 5 other). A fresh run may
+consume fewer slots; the allowance is not a measured request count. Reservation
+never advances the current operation: a caller explicitly
 activates the exact operation, phase, ordinal, and lifetime, and each request
 consumes only the matching kind slot at the direct HTTPX observer immediately
 before delegate invocation. Missing, exhausted, wrong-kind, wrong-phase,
