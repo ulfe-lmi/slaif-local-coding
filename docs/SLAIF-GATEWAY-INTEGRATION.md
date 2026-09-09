@@ -512,3 +512,11 @@ it cannot read `/proc`, protected credentials, or call port 18020. The healthy
 qualification path remains the actual Gateway → Local → strict fake-provider
 path. Protected inference acceptance, cutover, merge, and release readiness are
 not implied.
+
+The fresh exact pinned fake rehearsal at implementation
+`63920a4fa1339f013b51e64b22c233917e21f7aa` passed its machine gate: 37/37
+selected obligations and projections, 23/23 direct observer dispatches,
+`6` compiler and `12` inference dispatches, `12/12` semantic terminal-valid
+inference streams, exact fake-provider agreement, all 29 synthetic protected
+row dispositions, and task-resource cleanup. This remains fake-only evidence;
+no protected credential, Qwen request, or port-18020 mutation occurred.

@@ -24,6 +24,7 @@ from scripts.gateway_accounting_rehearsal import (
     _FakeQwenServer,
     _local_implementation_sha,
     _runtime_observations,
+    _select_protected_runtime,
     _tested_source_still_valid,
     _validate_fake_gate,
     run_actual_protected_mode_conformance,
@@ -611,6 +612,47 @@ def test_actual_shared_runner_protected_preflight_failure_serializes_all_rows_wi
     assert conformance["selected_result_disposition_count"] == len(PROTECTED_MANIFEST_IDS)  # type: ignore[index]
     assert conformance["all_selected_rows_serialized"] is True  # type: ignore[index]
     assert conformance["real_protected_access"] is False  # type: ignore[index]
+
+
+def test_actual_protected_selector_uses_explicit_synthetic_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+    baseline = {
+        "vision_active": True,
+        "has_18020": True,
+        "vision_pid": "23961",
+        "vision_start_wall": "Sun 2026-09-06 18:57:26 CEST",
+        "vision_restarts": "0",
+        "worktree_count": 7,
+        "text_inactive": True,
+        "has_18021": False,
+    }
+
+    def host_preflight() -> dict[str, object]:
+        calls.append("host")
+        return baseline
+
+    def main_pid() -> str:
+        calls.append("pid")
+        return "23961"
+
+    def credential_source(_pid: str) -> str:
+        calls.append("credential")
+        return "synthetic-key"
+
+    monkeypatch.delenv("QWEN3090_API_KEY", raising=False)
+    selected, pid, key = _select_protected_runtime(
+        ProtectedRuntimeHooks(
+            host_preflight=host_preflight,
+            main_pid=main_pid,
+            credential_source=credential_source,
+        )
+    )
+    assert selected == baseline
+    assert pid == "23961"
+    assert key == "synthetic-key"
+    assert calls == ["host", "pid", "credential"]
 
 
 def _fixture_git(repo: Path, *arguments: str, input_text: str | None = None) -> str:

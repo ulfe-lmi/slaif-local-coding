@@ -329,3 +329,11 @@ synthetic run serializes all 29 protected-selected result dispositions, keeps
 `protected_acceptance=false`, and performs no `/proc` credential read, protected
 Qwen request, or port-18020 mutation. This is orchestration evidence, not
 protected inference acceptance.
+
+The fresh exact pinned fake rehearsal at implementation
+`63920a4fa1339f013b51e64b22c233917e21f7aa` passed 37/37 selected obligations
+and projections. The direct observer recorded 23/23 dispatches, including 6
+compiler and 12 inference calls, with 12/12 inference streams semantically
+terminal-valid; fake-provider counters matched, all 29 synthetic protected
+rows serialized, and cleanup passed. This is fake-only evidence and does not
+establish protected acceptance.

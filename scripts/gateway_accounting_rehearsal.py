@@ -2319,6 +2319,38 @@ def _local_implementation_sha(repo_root: Path | None = None) -> str:
     return value
 
 
+def _select_protected_runtime(
+    hooks: ProtectedRuntimeHooks | None = None,
+) -> tuple[dict[str, object], str, str]:
+    """Select the protected fixture through either live or synthetic seams."""
+    protected_before = hooks.host_preflight() if hooks is not None else _protected_snapshot()
+    if (
+        not protected_before
+        or not protected_before["vision_active"]
+        or not protected_before["has_18020"]
+        or protected_before["vision_pid"] != PROTECTED_VISION_PID
+        or protected_before["vision_start_wall"] != PROTECTED_VISION_START
+        or protected_before["vision_restarts"] != "0"
+        or protected_before["worktree_count"] != 7
+    ):
+        raise RuntimeError("protected_vision_fixture_not_active")
+    if not protected_before["text_inactive"] or protected_before["has_18021"]:
+        raise RuntimeError("protected_fixture_precondition_failed")
+    protected_pid = hooks.main_pid() if hooks is not None else _protected_main_pid()
+    if protected_pid != protected_before["vision_pid"]:
+        raise RuntimeError("protected_vision_identity_changed")
+    if QWEN_KEY_ENV in os.environ:
+        raise RuntimeError("protected_external_key_present")
+    qwen_key = (
+        hooks.credential_source(protected_pid)
+        if hooks is not None
+        else _read_protected_qwen_key(protected_pid)
+    )
+    if not isinstance(qwen_key, str) or not qwen_key:
+        raise RuntimeError("protected_qwen_key_unavailable")
+    return protected_before, protected_pid, qwen_key
+
+
 def _docker_start_postgres() -> tuple[str, int, bool, bool, str | None, str | None]:
     running_before = _running_container_facts()
     image_before, image_id_before, digest_before = _image_fingerprint()
@@ -3754,41 +3786,10 @@ def _run_direct_composed_rehearsal_impl(
     if codex_version != CODEX_VERSION or codex_sha256 != CODEX_FIXTURE_SHA256:
         raise RuntimeError("codex_fixture_mismatch")
     validator_factory = _gateway_stream_validator_factory(gateway_root)
-    protected_before = (
-        protected_hooks.host_preflight()
-        if provider_target == "protected" and protected_hooks is not None
-        else _protected_snapshot()
-        if provider_target == "protected"
-        else None
-    )
+    protected_before: dict[str, object] | None = None
     qwen_key = ""
     if provider_target == "protected":
-        if (
-            not protected_before
-            or not protected_before["vision_active"]
-            or not protected_before["has_18020"]
-            or protected_before["vision_pid"] != PROTECTED_VISION_PID
-            or protected_before["vision_start_wall"] != PROTECTED_VISION_START
-            or protected_before["vision_restarts"] != "0"
-            or protected_before["worktree_count"] != 7
-        ):
-            raise RuntimeError("protected_vision_fixture_not_active")
-        if not protected_before["text_inactive"] or protected_before["has_18021"]:
-            raise RuntimeError("protected_fixture_precondition_failed")
-        protected_pid = (
-            protected_hooks.main_pid() if protected_hooks is not None else _protected_main_pid()
-        )
-        if protected_pid != protected_before["vision_pid"]:
-            raise RuntimeError("protected_vision_identity_changed")
-        if QWEN_KEY_ENV in os.environ:
-            raise RuntimeError("protected_external_key_present")
-        qwen_key = (
-            protected_hooks.credential_source(protected_pid)
-            if protected_hooks is not None
-            else _read_protected_qwen_key(protected_pid)
-        )
-        if not isinstance(qwen_key, str) or not qwen_key:
-            raise RuntimeError("protected_qwen_key_unavailable")
+        protected_before, _protected_pid, qwen_key = _select_protected_runtime(protected_hooks)
     gateway_port = _free_loopback_port()
     adapter_port = _free_loopback_port(18031)
     if adapter_port != 18031:
