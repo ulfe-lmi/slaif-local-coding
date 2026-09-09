@@ -542,6 +542,23 @@ and `/readyz` results separately. If a post-dispatch hook raises after the
 delegate returned, the observer closes that returned stream exactly once,
 preserves the responded fact, and releases the dispatch slot.
 
+The fresh exact pinned fake qualification passed all 37 C1–C5/D obligations
+and projections. It recorded 23 actual direct dispatches (6 compiler, 12
+inference, 5 other), 12/12 terminal-valid inference streams, exact
+fake-provider agreement, candidate `/healthz` and `/readyz` status 200, and
+clean disposable resources and secret-free logs. The 25-slot plan is an
+authorization ceiling rather than a measured request count. The exact Gateway
+executable ancestor `50dcc3b85d614eb1d0c6196595bf22ef5779f846` was retrieved
+and verified against merged-main ancestry and app-tree identity.
+
+The healthy synthetic protected branch ran through the same shared runner with
+a disposable loopback provider and recorded 6 compiler and 12 inference
+operations, all 29 protected dispositions, no primary failure, and unchanged
+protected-fixture facts. It remains explicitly non-accepting: no protected
+credential, Qwen request, port-18020 mutation, cutover, merge, or release claim
+is made. Observer, projection, and cleanup failure injections preserve the
+primary failure, serialize all 29 rows, and perform no later inference.
+
 SSE enforcement is split at the correct boundary. Network chunks contribute to
 the cumulative stream byte limit; completed frames are checked independently
 against the 16 KiB frame limit by the incremental parser. Coalesced legal

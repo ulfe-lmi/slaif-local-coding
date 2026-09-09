@@ -370,3 +370,23 @@ and cleanup seams. Healthy and injected post-dispatch executions retain phase
 traces, bounded counters, selected dispositions, failure classes, and cleanup
 facts. Results remain explicitly `protected_acceptance=false`; no protected
 credential, Qwen request, or port-18020 mutation is implied.
+
+The fresh exact pinned fake qualification completed the full C1–C5/D machine
+gate: 37/37 obligations and projections passed, with 23 actual direct
+dispatches (6 compiler, 12 inference, 5 other), exact fake-provider agreement,
+12/12 inference streams terminal-valid, candidate `/healthz` and `/readyz`
+both 200, and task-resource cleanup and secret-free logs passed. The
+25-slot plan is an authorization ceiling; it is not reported as 25 measured
+requests. The Gateway executable was retrieved at the authorized ancestor
+`50dcc3b85d614eb1d0c6196595bf22ef5779f846`, with merged-main ancestry and
+app-tree identity verified.
+
+The same run exercised the healthy synthetic protected branch through the
+shared runner using only a disposable loopback provider: 6 compiler and 12
+inference lifecycle counts, all 29 protected rows serialized, no primary
+failure, and all protected fixture invariants unchanged. This remains
+orchestration evidence with `protected_acceptance=false`; no protected
+credential or Qwen request was made. Injected observer failure stopped after
+one compiler dispatch with zero inference dispatches while serializing all 29
+rows; combined projection/cleanup failure retained the same primary failure
+and bounded secondary classes.
