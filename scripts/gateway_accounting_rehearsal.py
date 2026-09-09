@@ -5351,7 +5351,8 @@ def _run_direct_composed_rehearsal_impl(
                 )
                 result["protected_unchanged"] = {
                     "pid": protected_before["vision_pid"] == protected_after["vision_pid"],
-                    "start": protected_before["vision_start"] == protected_after["vision_start"],
+                    "start": protected_before["vision_start_wall"]
+                    == protected_after["vision_start_wall"],
                     "listener": protected_before["has_18020"] == protected_after["has_18020"],
                     "worktree_count": protected_before["worktree_count"]
                     == protected_after["worktree_count"],
