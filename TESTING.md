@@ -338,15 +338,24 @@ terminal-valid; fake-provider counters matched, all 29 synthetic protected
 rows serialized, and cleanup passed. This is fake-only evidence and does not
 establish protected acceptance.
 
-## Objective-005-y operation permits and protected-branch conformance
+## Objective-005-z exact pin, operation permits, and protected-branch conformance
 
-005-y keeps logical operation attempts separate from the transport requests
-they authorize. A finite measured plan is consumed immediately before
-delegation for the existing 23-request shape: 6 compiler, 12 inference, and 5
-other requests. Missing, exhausted, wrong-kind, and wrong-phase permissions
-fail closed with zero delegate calls; pre-provider rejection operations have
+005-z keeps logical operation attempts separate from the transport requests
+they authorize. The finite measured plan is 25 requests: 6 compiler, 14
+inference, and 5 other requests. Reservation never changes the current
+operation. A caller must explicitly activate the exact operation, phase,
+ordinal, and lifetime before each logical transition; each actual dispatch then
+consumes only that matching kind slot. Missing, exhausted, wrong-kind,
+wrong-phase, wrong-ordinal, stale-lifetime, and expired-run permissions fail
+closed with zero delegate calls; pre-provider rejection operations have
 explicit zero transport slots. The prior 900-second, 64-observation, 16 KiB
 frame, 128 KiB stream, and single-active-stream limits remain unchanged.
+
+The Codex two-turn transition is authorized only after the first inference
+response is terminal-valid. Candidate readiness records bounded `/healthz` and
+`/readyz` statuses separately. A post-dispatch hook failure closes the returned
+upstream stream exactly once, preserves the response observation, and releases
+the active dispatch slot.
 
 The direct observer applies cumulative byte/deadline checks to network chunks
 and the 16 KiB check to each completed SSE frame. Coalesced legal frames remain

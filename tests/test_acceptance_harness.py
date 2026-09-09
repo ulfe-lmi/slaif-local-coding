@@ -122,14 +122,14 @@ def test_budget_controller_enforces_admission_before_dispatch() -> None:
         max_concurrency=1,
     )
     controller = BudgetController(budget, clock=lambda: now[0])
-    assert controller.admit("codex_turn_1")
-    assert not controller.admit("codex_turn_1")
+    assert controller.admit("codex_turn_1", lifetime_id="test")
+    assert not controller.admit("codex_turn_1", lifetime_id="test")
     assert controller.failure == "budget_operation_limit_exhausted"
 
     now[0] = 100.0
     expired = BudgetController(budget, clock=lambda: now[0])
     now[0] = 106.0
-    assert not expired.admit("codex_turn_1")
+    assert not expired.admit("codex_turn_1", lifetime_id="test")
     assert expired.failure == "budget_deadline_exhausted"
 
     bounded = BudgetController(budget)
@@ -141,11 +141,14 @@ def test_budget_controller_enforces_admission_before_dispatch() -> None:
 def test_dispatch_permission_is_explicit_per_operation_and_consumed() -> None:
     controller = BudgetController()
 
-    assert not controller.admit_dispatch("inference", phase="codex", ordinal=1)
+    assert not controller.admit_dispatch("inference")
     assert controller.failure == "budget_dispatch_permission_missing"
 
     controller = BudgetController()
-    assert controller.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert controller.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert controller.activate_operation(
+        "codex_turn_1", phase="codex", ordinal=1, lifetime_id="test"
+    )
     assert controller.admit_dispatch("inference")
     controller.release_dispatch()
     assert not controller.admit_dispatch("inference")
@@ -154,14 +157,72 @@ def test_dispatch_permission_is_explicit_per_operation_and_consumed() -> None:
 
 def test_dispatch_permission_rejects_wrong_phase_and_cross_lifetime_reuse() -> None:
     controller = BudgetController()
-    assert controller.admit("codex_turn_1", phase="codex", ordinal=1)
-    controller.set_dispatch_context("vision", 3)
+    assert controller.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert controller.activate_operation(
+        "codex_turn_1", phase="codex", ordinal=1, lifetime_id="test"
+    )
+    controller.set_dispatch_context("codex_turn_1", "vision", 3, "test")
     assert not controller.admit_dispatch("inference")
-    assert controller.failure == "budget_dispatch_permission_missing"
+    assert controller.failure == "budget_dispatch_context_mismatch"
 
     fresh_lifetime = BudgetController()
-    assert not fresh_lifetime.admit_dispatch("inference", phase="codex", ordinal=1)
+    assert not fresh_lifetime.admit_dispatch("inference")
     assert fresh_lifetime.failure == "budget_dispatch_permission_missing"
+
+
+def test_dispatch_never_borrows_a_pending_next_operation() -> None:
+    controller = BudgetController()
+    assert controller.admit("codex_turn_1", lifetime_id="codex")
+    assert controller.admit("codex_turn_2", lifetime_id="codex")
+    assert controller.activate_operation(
+        "codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex"
+    )
+    for kind in ("compiler", "compiler", "inference"):
+        assert controller.admit_dispatch(kind)
+        controller.release_dispatch()
+    assert not controller.admit_dispatch("inference")
+    assert controller.failure == "budget_dispatch_permission_exhausted"
+
+
+def test_dispatch_transition_requires_explicit_activation_and_records_new_context() -> None:
+    controller = BudgetController()
+    assert controller.admit("codex_turn_1", lifetime_id="codex")
+    assert controller.admit("codex_turn_2", lifetime_id="codex")
+    assert controller.activate_operation(
+        "codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex"
+    )
+    for kind in ("compiler", "compiler", "inference"):
+        assert controller.admit_dispatch(kind)
+        controller.release_dispatch()
+    assert controller.activate_operation(
+        "codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex"
+    )
+    assert controller.admit_dispatch("inference")
+    record = controller.safe_dict()["dispatch_records"][-1]  # type: ignore[index]
+    assert record["operation"] == "codex_turn_2"
+    assert record["ordinal"] == 2
+
+
+def test_dispatch_rejects_stale_lifetime_and_expiry_between_operations() -> None:
+    now = [0.0]
+    budget = RehearsalBudget(wall_seconds=5.0)
+    controller = BudgetController(budget, clock=lambda: now[0])
+    assert controller.admit("codex_turn_1", lifetime_id="old")
+    assert controller.activate_operation(
+        "codex_turn_1", phase="codex", ordinal=1, lifetime_id="old"
+    )
+    controller.set_dispatch_context("codex_turn_1", "codex", 1, "new")
+    assert not controller.admit_dispatch("inference")
+    assert controller.failure == "budget_dispatch_lifetime_mismatch"
+
+    now = [0.0]
+    expired = BudgetController(budget, clock=lambda: now[0])
+    assert expired.admit("codex_turn_1", lifetime_id="codex")
+    now[0] = 5.0
+    assert not expired.activate_operation(
+        "codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex"
+    )
+    assert expired.failure == "budget_deadline_exhausted"
 
 
 def test_run_accumulator_preserves_primary_failure_and_counts_before_cleanup() -> None:

@@ -2247,6 +2247,8 @@ class _ObservedCandidate:
     observer: DirectTransportObserver
     vision_recorder: Any | None = None
     previous_logging_disable: int = logging.NOTSET
+    health_status: int = 0
+    ready_status: int = 0
 
     def stop(self) -> None:
         try:
@@ -2295,13 +2297,19 @@ def _build_observed_candidate(
     thread = threading.Thread(target=server.run, name="oap-005s-observed-candidate", daemon=True)
     thread.start()
     runtime = _ObservedCandidate(
-        server, thread, observer, vision_recorder, previous_logging_disable
+        server=server,
+        thread=thread,
+        observer=observer,
+        vision_recorder=vision_recorder,
+        previous_logging_disable=previous_logging_disable,
     )
     try:
         with httpx.Client(timeout=5, follow_redirects=False) as client:
-            status = _wait_status(client, "http://127.0.0.1:18031/healthz")
+            runtime.health_status = _wait_status(client, "http://127.0.0.1:18031/healthz")
+            runtime.ready_status = _wait_status(client, "http://127.0.0.1:18031/readyz")
         if (
-            status != 200
+            runtime.health_status != 200
+            or runtime.ready_status != 200
             or not thread.is_alive()
             or not observer.ready
             or not observer.inference_capability_ready
@@ -3807,10 +3815,19 @@ def _run_direct_composed_rehearsal_impl(
         accumulator.record_failure("preflight_incomplete")
         raise RuntimeError("synthetic_preflight_failure")
 
-    def admit(operation: str, phase: str, ordinal: int) -> None:
+    def admit(operation: str, phase: str, ordinal: int, lifetime_id: str) -> None:
         accumulator.set_phase(phase, ordinal)
-        if not budget.admit(operation, phase=phase, ordinal=ordinal):
+        if not budget.admit(operation, phase=phase, ordinal=ordinal, lifetime_id=lifetime_id):
             failure = budget.failure or "budget_operation_limit_exhausted"
+            accumulator.record_failure(failure)
+            raise RuntimeError(failure)
+
+    def activate(operation: str, phase: str, ordinal: int, lifetime_id: str) -> None:
+        accumulator.set_phase(phase, ordinal)
+        if not budget.activate_operation(
+            operation, phase=phase, ordinal=ordinal, lifetime_id=lifetime_id
+        ):
+            failure = budget.failure or "budget_operation_activation_missing"
             accumulator.record_failure(failure)
             raise RuntimeError(failure)
 
@@ -3872,6 +3889,7 @@ def _run_direct_composed_rehearsal_impl(
     post_vision_observer: DirectTransportObserver | None = None
     active_observer: DirectTransportObserver | None = None
     protected_failure_injected = False
+    codex_turn_transitioned = False
 
     def protected_dispatch_complete(kind: str, phase: str, ordinal: int | None) -> None:
         nonlocal protected_failure_injected
@@ -3885,6 +3903,29 @@ def _run_direct_composed_rehearsal_impl(
             active_observer.mark_unready()
         if protected_hooks is not None and protected_hooks.dispatch_complete_hook is not None:
             protected_hooks.dispatch_complete_hook(kind, phase, ordinal)
+
+    def operation_response_complete(
+        kind: str,
+        operation: str,
+        _phase: str,
+        _ordinal: int | None,
+        terminal_valid: bool,
+    ) -> None:
+        """Authorize the next Codex turn only after the prior response ends."""
+        nonlocal codex_turn_transitioned
+        if (
+            codex_turn_transitioned
+            or kind != "inference"
+            or operation != "codex_turn_1"
+            or not terminal_valid
+        ):
+            return
+        if budget.activate_operation("codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex"):
+            codex_turn_transitioned = True
+            return
+        accumulator.record_failure(budget.failure or "budget_operation_activation_missing")
+        if active_observer is not None:
+            active_observer.mark_unready()
 
     idless_http_regression: dict[str, object] = {"passed": False}
     protected_mode_synthetic: dict[str, object] = {"status": "NOT RUN"}
@@ -4043,6 +4084,7 @@ def _run_direct_composed_rehearsal_impl(
                 dispatch_complete_hook=(
                     protected_dispatch_complete if protected_hooks is not None else None
                 ),
+                response_complete_hook=operation_response_complete,
             )
             active_observer = candidate_observer
             candidate_runtime = _build_observed_candidate(
@@ -4050,8 +4092,8 @@ def _run_direct_composed_rehearsal_impl(
                 observer=candidate_observer,
             )
             candidate_runtimes.append(candidate_runtime)
-            candidate_ready = 200
-            candidate_health = 200
+            candidate_health = candidate_runtime.health_status
+            candidate_ready = candidate_runtime.ready_status
             if candidate_health != 200 or candidate_ready != 200:
                 with httpx.Client(timeout=10, follow_redirects=False) as http:
                     readiness_probe = http.get(f"http://127.0.0.1:{adapter_port}/readyz")
@@ -4124,8 +4166,9 @@ def _run_direct_composed_rehearsal_impl(
             fake_codex_before = None if fake_server is None else fake_server.snapshot()
             codex_observer_before = candidate_observer.snapshot()
             preflight_flags = preflight.get("feature_flags", ())
-            admit("codex_turn_1", "codex", 1)
-            admit("codex_turn_2", "codex", 2)
+            admit("codex_turn_1", "codex", 1, "codex")
+            admit("codex_turn_2", "codex", 2, "codex")
+            activate("codex_turn_1", "codex", 1, "codex")
             codex_facts = _run_fake_codex_turn(
                 codex,
                 fixture,
@@ -4296,8 +4339,9 @@ def _run_direct_composed_rehearsal_impl(
                 candidate_runtime.stop()
                 candidate_runtime = None
             vision_recorder = VisionOutboundRecorder(fixture, httpx.AsyncHTTPTransport(retries=0))
-            admit("vision_full", "vision", 3)
-            admit("vision_crop_history", "vision", 4)
+            admit("vision_full", "vision", 3, "vision")
+            admit("vision_crop_history", "vision", 4, "post_vision")
+            activate("vision_full", "vision", 3, "vision")
             vision_observer = DirectTransportObserver(
                 vision_recorder,
                 validator_factory=validator_factory,
@@ -4310,6 +4354,7 @@ def _run_direct_composed_rehearsal_impl(
                 dispatch_complete_hook=(
                     protected_dispatch_complete if protected_hooks is not None else None
                 ),
+                response_complete_hook=operation_response_complete,
             )
             active_observer = vision_observer
             candidate_runtime = _build_observed_candidate(
@@ -4346,6 +4391,7 @@ def _run_direct_composed_rehearsal_impl(
             if candidate_runtime is not None:
                 candidate_runtime.stop()
                 candidate_runtime = None
+            activate("vision_crop_history", "vision", 4, "post_vision")
             post_vision_observer = DirectTransportObserver(
                 httpx.AsyncHTTPTransport(retries=0),
                 validator_factory=validator_factory,
@@ -4358,6 +4404,7 @@ def _run_direct_composed_rehearsal_impl(
                 dispatch_complete_hook=(
                     protected_dispatch_complete if protected_hooks is not None else None
                 ),
+                response_complete_hook=operation_response_complete,
             )
             active_observer = post_vision_observer
             candidate_runtime = _build_observed_candidate(
@@ -4503,7 +4550,8 @@ def _run_direct_composed_rehearsal_impl(
             # Operation 5 owns the two ordinary codex Requests calls below;
             # its explicit plan then transitions to the five signed /health
             # observations used by the identity matrix.
-            admit("identity_replay", "codex", 5)
+            admit("identity_replay", "codex", 5, "identity")
+            activate("identity_replay", "codex", 5, "identity")
             text_status: int | None = None
             text_usage_present = False
             try:
@@ -4685,7 +4733,7 @@ def _run_direct_composed_rehearsal_impl(
                     },
                 }
                 return result
-            budget.set_dispatch_context("identity", 5)
+            activate("identity_replay", "identity", 5, "identity")
             identity_rows_before = asyncio.run(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
@@ -4721,7 +4769,8 @@ def _run_direct_composed_rehearsal_impl(
                 for dimension in ("session", "owner", "repository")
                 for qualifier in ("negative", "distinct")
             }
-            admit("identity_concurrent_replay", "identity", 6)
+            admit("identity_concurrent_replay", "identity", 6, "identity")
+            activate("identity_concurrent_replay", "identity", 6, "identity")
             image_data_url = "data:image/png;base64," + base64.b64encode(
                 fixture.full_image.path.read_bytes()
             ).decode("ascii")
@@ -4870,8 +4919,10 @@ def _run_direct_composed_rehearsal_impl(
                 if fake_server is not None
                 else 0
             )
-            admit("identity_tamper_matrix", "identity", 7)
-            admit("authorization_matrix", "identity", 8)
+            admit("identity_tamper_matrix", "identity", 7, "identity")
+            activate("identity_tamper_matrix", "identity", 7, "identity")
+            admit("authorization_matrix", "identity", 8, "identity")
+            activate("authorization_matrix", "identity", 8, "identity")
             invalid_status = _response_status(
                 lambda: OpenAI(
                     api_key="sk-slaif-invalid", base_url=gateway_url + "/v1/", max_retries=0
@@ -4937,7 +4988,8 @@ def _run_direct_composed_rehearsal_impl(
                 if fake_server is not None
                 else 0
             )
-            admit("controlled_failure", "identity", 9)
+            admit("controlled_failure", "identity", 9, "identity")
+            activate("controlled_failure", "identity", 9, "identity")
             failure_status = _response_status(
                 lambda: failure_client.responses.create(
                     model=FAILURE_MODEL,

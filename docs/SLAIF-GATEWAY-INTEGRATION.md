@@ -521,16 +521,25 @@ inference streams, exact fake-provider agreement, all 29 synthetic protected
 row dispositions, and task-resource cleanup. This remains fake-only evidence;
 no protected credential, Qwen request, or port-18020 mutation occurred.
 
-## Objective-005-y operation permits and protected-branch conformance
+## Objective-005-z exact pin, operation permits, and protected-branch conformance
 
-005-y makes the existing operation/request distinction executable. The
-repository-only controller has a finite plan for the measured 23 direct
-requests (6 compiler, 12 inference, 5 other), and each request consumes a
-current phase/kind permission at the direct HTTPX observer immediately before
-delegate invocation. Missing, exhausted, wrong-kind, wrong-phase, and
-cross-lifetime requests fail closed without a delegate call. The nine logical
-operations remain maximum-one with zero retries and retain the prior wall,
-observation, frame, stream, and concurrency maxima.
+005-z makes the existing operation/request distinction executable and binds it
+to the exact retrieved Gateway ancestor. The repository-only controller has a
+finite plan for the measured 25 direct requests (6 compiler, 14 inference, 5
+other). Reservation never advances the current operation: a caller explicitly
+activates the exact operation, phase, ordinal, and lifetime, and each request
+consumes only the matching kind slot at the direct HTTPX observer immediately
+before delegate invocation. Missing, exhausted, wrong-kind, wrong-phase,
+wrong-ordinal, stale-lifetime, and expired-run requests fail closed without a
+delegate call. The nine logical operations remain maximum-one with zero
+retries and retain the prior wall, observation, frame, stream, and concurrency
+maxima.
+
+The actual Codex turn transition is authorized only after a terminal-valid
+turn-1 inference response. Candidate qualification records bounded `/healthz`
+and `/readyz` results separately. If a post-dispatch hook raises after the
+delegate returned, the observer closes that returned stream exactly once,
+preserves the responded fact, and releases the dispatch slot.
 
 SSE enforcement is split at the correct boundary. Network chunks contribute to
 the cumulative stream byte limit; completed frames are checked independently

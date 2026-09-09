@@ -409,7 +409,8 @@ async def test_frame_cap_is_checked_at_sse_boundaries_not_network_chunks(
         else tuple(payload[index : index + 97] for index in range(0, len(payload), 97))
     )
     budget = BudgetController(RehearsalBudget(max_event_bytes=10_000, max_stream_bytes=128 * 1024))
-    assert budget.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
     observer = DirectTransportObserver(
         httpx.MockTransport(
             lambda _request: httpx.Response(
@@ -433,7 +434,8 @@ async def test_frame_cap_is_checked_at_sse_boundaries_not_network_chunks(
 @pytest.mark.asyncio
 async def test_oversized_completed_frame_stops_the_stream() -> None:
     budget = BudgetController(RehearsalBudget(max_event_bytes=100, max_stream_bytes=128 * 1024))
-    assert budget.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
     calls = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -774,7 +776,8 @@ async def test_run_budget_admits_each_actual_dispatch_and_attributes_context() -
     budget = BudgetController(
         RehearsalBudget(wall_seconds=5, max_dispatches=1), clock=lambda: now[0]
     )
-    assert budget.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
     calls = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -811,7 +814,8 @@ async def test_run_budget_admits_each_actual_dispatch_and_attributes_context() -
 async def test_run_budget_deadline_is_checked_between_stream_chunks() -> None:
     now = [0.0]
     budget = BudgetController(RehearsalBudget(wall_seconds=5), clock=lambda: now[0])
-    assert budget.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
     expected = _stream_bytes()
     separator = expected.index(b"\n\n") + 2
     stream = _AdvancingChunkStream(
@@ -826,7 +830,7 @@ async def test_run_budget_deadline_is_checked_between_stream_chunks() -> None:
         validator_factory=_validator,
         validator_source="test",
         budget_controller=budget,
-        dispatch_context=lambda: ("codex", 2),
+        dispatch_context=budget.dispatch_context,
     )
     async with httpx.AsyncClient(transport=observer) as client:
         with pytest.raises(RuntimeError, match="budget_exhausted"):
@@ -841,7 +845,8 @@ async def test_run_budget_rejects_event_overflow_without_second_delegate_call() 
     budget = BudgetController(
         RehearsalBudget(max_event_bytes=4, max_stream_bytes=4, max_dispatches=2)
     )
-    assert budget.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
     calls = 0
 
     def handler(_request: httpx.Request) -> httpx.Response:
@@ -854,7 +859,7 @@ async def test_run_budget_rejects_event_overflow_without_second_delegate_call() 
     observer = DirectTransportObserver(
         httpx.MockTransport(handler),
         budget_controller=budget,
-        dispatch_context=lambda: ("codex", 1),
+        dispatch_context=budget.dispatch_context,
     )
     async with httpx.AsyncClient(transport=observer) as client:
         with pytest.raises(RuntimeError, match="budget_exhausted"):
@@ -868,12 +873,13 @@ async def test_run_budget_rejects_event_overflow_without_second_delegate_call() 
 @pytest.mark.asyncio
 async def test_run_budget_holds_concurrency_until_stream_lifetime_ends() -> None:
     budget = BudgetController(RehearsalBudget(max_dispatches=4))
-    assert budget.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
     delegate = _BlockingTransport()
     observer = DirectTransportObserver(
         delegate,
         budget_controller=budget,
-        dispatch_context=lambda: ("codex", 1),
+        dispatch_context=budget.dispatch_context,
     )
     async with httpx.AsyncClient(transport=observer) as client:
         first_task = asyncio.create_task(
@@ -892,7 +898,8 @@ async def test_run_budget_holds_concurrency_until_stream_lifetime_ends() -> None
 @pytest.mark.asyncio
 async def test_dispatch_complete_hook_can_stop_after_one_actual_dispatch() -> None:
     budget = BudgetController()
-    assert budget.admit("codex_turn_1", phase="codex", ordinal=1)
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
     calls = 0
     holder: dict[str, DirectTransportObserver] = {}
 
@@ -921,6 +928,84 @@ async def test_dispatch_complete_hook_can_stop_after_one_actual_dispatch() -> No
     assert record["dispatched"] is True
     assert record["responded"] is True
     assert observer.snapshot()["ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_dispatch_complete_hook_failure_closes_returned_stream_once() -> None:
+    budget = BudgetController()
+    assert budget.admit("codex_turn_1", lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    stream = _CountingChunkStream((b'{"choices":[]}',))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "application/json"}, stream=stream)
+
+    def fail_after_response(_kind: str, _phase: str, _ordinal: int | None) -> None:
+        raise RuntimeError("synthetic-dispatch-complete-failure")
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        dispatch_complete_hook=fail_after_response,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="transport_observer_dispatch_complete_hook_failed"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["dispatched"] is True
+    assert record["responded"] is True
+    assert record["completed"] is False
+    assert stream.close_calls == 1
+    assert budget.safe_dict()["active_dispatch_class"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_terminal_response_explicitly_authorizes_next_operation() -> None:
+    budget = BudgetController()
+    assert budget.admit("codex_turn_1", lifetime_id="codex")
+    assert budget.admit("codex_turn_2", lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    transitions: list[tuple[str, str, int | None, bool]] = []
+
+    def transition(
+        kind: str,
+        operation: str,
+        _phase: str,
+        ordinal: int | None,
+        terminal_valid: bool,
+    ) -> None:
+        transitions.append((kind, operation, ordinal, terminal_valid))
+        if kind == "inference" and operation == "codex_turn_1" and terminal_valid:
+            assert budget.activate_operation(
+                "codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex"
+            )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_stream_bytes(),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        response_complete_hook=transition,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    assert transitions == [("inference", "codex_turn_1", 1, True)]
+    active = budget.safe_dict()["active_context"]
+    assert active == {
+        "operation": "codex_turn_2",
+        "phase": "codex",
+        "ordinal": 2,
+        "lifetime_id": "codex",
+    }
 
 
 def test_exact_counts_reject_bucket_collisions() -> None:

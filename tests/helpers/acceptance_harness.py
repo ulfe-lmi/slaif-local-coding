@@ -42,6 +42,16 @@ SAFE_TIMINGS: frozenset[str] = frozenset(
 
 
 @dataclass(frozen=True)
+class DispatchContext:
+    """The explicit operation context authorized for one transport lifetime."""
+
+    operation: str
+    phase: str
+    ordinal: int | None
+    lifetime_id: str | None
+
+
+@dataclass(frozen=True)
 class AcceptanceObligation:
     """One finite acceptance obligation and its dependency boundary."""
 
@@ -101,7 +111,7 @@ class OperationDispatchPlan:
 
 # This is the measured 005-x direct-observer request map.  The nine entries
 # remain maximum-one logical attempts; their finite transport slots explain
-# the separate 23-request run (6 compiler, 12 inference, 5 other) without
+# the separate 25-request run (6 compiler, 14 inference, 5 other) without
 # granting an unassigned/default inference request.  Operations 7 and 8 are
 # intentionally pre-provider rejection matrices and have no provider slots.
 PUBLIC_DISPATCH_PLAN: tuple[OperationDispatchPlan, ...] = (
@@ -158,7 +168,7 @@ class BudgetController:
     _dispatch_admitted: int = field(init=False, default=0)
     _dispatch_counts: dict[str, dict[str, int]] = field(init=False, default_factory=dict)
     _dispatch_records: list[dict[str, object]] = field(init=False, default_factory=list)
-    _dispatch_context: tuple[str, int | None] = field(init=False, default=("unknown", None))
+    _dispatch_context: DispatchContext | None = field(init=False, default=None)
     _pending_permissions: list[dict[str, object]] = field(init=False, default_factory=list)
     _failure: str | None = field(init=False, default=None)
 
@@ -182,10 +192,18 @@ class BudgetController:
         return self._total_admitted
 
     def admit(
-        self, operation: str, *, phase: str | None = None, ordinal: int | None = None
+        self,
+        operation: str,
+        *,
+        phase: str | None = None,
+        ordinal: int | None = None,
+        lifetime_id: str | None = None,
     ) -> bool:
         """Reserve one logical operation and enqueue its finite dispatch slots."""
         if self._failure is not None:
+            return False
+        if not isinstance(lifetime_id, str) or not lifetime_id:
+            self._failure = "budget_operation_lifetime_missing"
             return False
         if self.clock() - self._started >= self.budget.wall_seconds:
             self._failure = "budget_deadline_exhausted"
@@ -221,21 +239,69 @@ class BudgetController:
                     "operation": operation,
                     "phase": plan.phase,
                     "ordinal": plan.ordinal,
+                    "lifetime_id": lifetime_id,
                     "allowed_phases": plan.phases(),
                     "remaining": remaining,
                 }
             )
-        if self._dispatch_context == ("unknown", None) or (
-            self._dispatch_context[0] != requested_phase
-        ):
-            self._dispatch_context = (requested_phase, requested_ordinal)
         return True
 
-    def set_dispatch_context(self, phase: str, ordinal: int | None) -> None:
-        """Set the requested phase for the next transport permission.
+    def activate_operation(
+        self, operation: str, *, phase: str, ordinal: int, lifetime_id: str
+    ) -> bool:
+        """Explicitly make one admitted operation current.
 
-        This method never grants permission.  Only an explicitly admitted
-        plan entry can be consumed by :meth:`admit_dispatch`.
+        Admission reserves a finite plan but never changes the current
+        operation.  Callers must perform this transition at a real logical
+        boundary before the next provider request.
+        """
+        if self._failure is not None:
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
+        plan = next(
+            (item for item in self.budget.dispatch_plan if item.operation == operation), None
+        )
+        if plan is None:
+            self._failure = "budget_operation_plan_unknown"
+            return False
+        if self._admitted.get(operation, 0) <= 0:
+            self._failure = "budget_operation_activation_missing"
+            return False
+        if not isinstance(lifetime_id, str) or not lifetime_id:
+            self._failure = "budget_operation_lifetime_missing"
+            return False
+        if phase not in plan.phases() or ordinal != plan.ordinal:
+            self._failure = "budget_operation_context_mismatch"
+            return False
+        pending = next(
+            (
+                item
+                for item in self._pending_permissions
+                if item["operation"] == operation and item["lifetime_id"] == lifetime_id
+            ),
+            None,
+        )
+        if pending is None and any(value > 0 for value in plan.limits().values()):
+            self._failure = "budget_operation_dispatch_exhausted"
+            return False
+        self._dispatch_context = DispatchContext(operation, phase, ordinal, lifetime_id)
+        return True
+
+    def set_dispatch_context(
+        self,
+        operation: str,
+        phase: str,
+        ordinal: int | None,
+        lifetime_id: str | None,
+    ) -> None:
+        """Set a raw requested context for a negative admission test.
+
+        This method never grants permission or advances to another operation.
+        Production callers should use :meth:`activate_operation`; retaining a
+        separate setter lets tests prove that a stale/wrong context is rejected
+        immediately before delegation.
         """
         valid_phases = {
             "preflight",
@@ -248,9 +314,13 @@ class BudgetController:
         }
         safe_phase = phase if phase in valid_phases else "unknown"
         safe_ordinal = ordinal if type(ordinal) is int and ordinal >= 0 else None
-        self._dispatch_context = (safe_phase, safe_ordinal)
+        safe_operation = operation if isinstance(operation, str) and operation else "unknown"
+        safe_lifetime = lifetime_id if isinstance(lifetime_id, str) and lifetime_id else None
+        self._dispatch_context = DispatchContext(
+            safe_operation, safe_phase, safe_ordinal, safe_lifetime
+        )
 
-    def dispatch_context(self) -> tuple[str, int | None]:
+    def dispatch_context(self) -> DispatchContext | None:
         return self._dispatch_context
 
     def _dispatch_record(
@@ -271,14 +341,29 @@ class BudgetController:
         self,
         kind: str,
         *,
+        context: DispatchContext | None = None,
+        operation: str | None = None,
         phase: str | None = None,
         ordinal: int | None = None,
+        lifetime_id: str | None = None,
     ) -> bool:
-        """Consume one current operation/phase permission before delegation."""
-        safe_phase, safe_ordinal = self._dispatch_context
-        if phase is not None:
-            self.set_dispatch_context(phase, ordinal)
-            safe_phase, safe_ordinal = self._dispatch_context
+        """Consume one exact current operation permission before delegation."""
+        requested_context = context
+        if requested_context is None and any(
+            value is not None for value in (operation, phase, ordinal, lifetime_id)
+        ):
+            if operation is None or phase is None or ordinal is None or lifetime_id is None:
+                self._failure = self._failure or "budget_dispatch_context_missing"
+                self._dispatch_attempted += 1
+                counts = self._dispatch_counts.setdefault(kind, {"attempted": 0, "admitted": 0})
+                counts["attempted"] += 1
+                self._dispatch_record(kind, admitted=False, phase="unknown", ordinal=None)
+                return False
+            requested_context = DispatchContext(operation, phase, ordinal, lifetime_id)
+        if requested_context is None:
+            requested_context = self._dispatch_context
+        safe_phase = requested_context.phase if requested_context is not None else "unknown"
+        safe_ordinal = requested_context.ordinal if requested_context is not None else None
         self._dispatch_attempted += 1
         counts = self._dispatch_counts.setdefault(kind, {"attempted": 0, "admitted": 0})
         counts["attempted"] += 1
@@ -301,16 +386,39 @@ class BudgetController:
             self._failure = "budget_concurrency_limit_exhausted"
             self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
             return False
+        if requested_context is None:
+            self._failure = "budget_dispatch_permission_missing"
+            self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+            return False
         permission = next(
             (
                 item
                 for item in self._pending_permissions
-                if safe_phase in cast(tuple[str, ...], item["allowed_phases"])
+                if item["operation"] == requested_context.operation
+                and item["lifetime_id"] == requested_context.lifetime_id
+                and item["ordinal"] == requested_context.ordinal
+                and requested_context.phase in cast(tuple[str, ...], item["allowed_phases"])
             ),
             None,
         )
         if permission is None:
-            self._failure = "budget_dispatch_permission_missing"
+            same_operation = tuple(
+                item
+                for item in self._pending_permissions
+                if item["operation"] == requested_context.operation
+            )
+            if same_operation and all(
+                item["lifetime_id"] != requested_context.lifetime_id for item in same_operation
+            ):
+                self._failure = "budget_dispatch_lifetime_mismatch"
+            elif same_operation:
+                self._failure = "budget_dispatch_context_mismatch"
+            elif any(
+                item["operation"] == requested_context.operation for item in self._dispatch_records
+            ):
+                self._failure = "budget_dispatch_permission_exhausted"
+            else:
+                self._failure = "budget_dispatch_permission_missing"
             self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
             return False
         remaining = cast(dict[str, int], permission["remaining"])
@@ -319,9 +427,10 @@ class BudgetController:
             self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
             return False
         remaining[kind] -= 1
-        safe_phase = cast(str, permission["phase"])
-        safe_ordinal = cast(int, permission["ordinal"])
+        safe_phase = requested_context.phase
+        safe_ordinal = requested_context.ordinal
         operation = cast(str, permission["operation"])
+        lifetime_id = cast(str, permission["lifetime_id"])
         self._dispatch_admitted += 1
         self._active_dispatches += 1
         counts["admitted"] += 1
@@ -332,24 +441,12 @@ class BudgetController:
                     "operation": operation,
                     "phase": safe_phase,
                     "ordinal": safe_ordinal,
+                    "lifetime_id": lifetime_id,
                     "admitted": True,
                 }
             )
         if all(value == 0 for value in remaining.values()):
             self._pending_permissions.remove(permission)
-            next_permission = next(
-                (
-                    item
-                    for item in self._pending_permissions
-                    if safe_phase in cast(tuple[str, ...], item["allowed_phases"])
-                ),
-                None,
-            )
-            if next_permission is not None:
-                self._dispatch_context = (
-                    cast(str, next_permission["phase"]),
-                    cast(int, next_permission["ordinal"]),
-                )
         return True
 
     def release_dispatch(self) -> None:
@@ -428,6 +525,16 @@ class BudgetController:
             "active_dispatch_class": count_class(self._active_dispatches),
             "dispatch_attempted_count": self._dispatch_attempted,
             "dispatch_admitted_count": self._dispatch_admitted,
+            "active_context": (
+                {
+                    "operation": self._dispatch_context.operation,
+                    "phase": self._dispatch_context.phase,
+                    "ordinal": self._dispatch_context.ordinal,
+                    "lifetime_id": self._dispatch_context.lifetime_id,
+                }
+                if self._dispatch_context is not None
+                else None
+            ),
             "dispatch_attempted_count_class": count_class(self._dispatch_attempted),
             "dispatch_admitted_count_class": count_class(self._dispatch_admitted),
             "dispatch_counts": {
@@ -465,10 +572,17 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "budget_operation_unknown",
         "budget_operation_plan_unknown",
         "budget_operation_context_mismatch",
+        "budget_operation_lifetime_missing",
+        "budget_operation_activation_missing",
+        "budget_operation_dispatch_exhausted",
         "budget_configuration_invalid",
         "budget_dispatch_kind_unknown",
+        "budget_dispatch_context_missing",
+        "budget_dispatch_context_mismatch",
+        "budget_dispatch_lifetime_mismatch",
         "budget_dispatch_limit_exhausted",
         "budget_dispatch_permission_missing",
+        "budget_dispatch_permission_exhausted",
         "budget_dispatch_permission_kind_mismatch",
         "http_status_non_2xx",
         "content_type_not_sse",
@@ -727,7 +841,7 @@ def run_protected_mode_conformance(
                 break
             calls.append(phase)
             if phase == "preflight":
-                if not controller.admit("codex_turn_1"):
+                if not controller.admit("codex_turn_1", lifetime_id="legacy"):
                     fail(controller.failure or "budget_operation_limit_exhausted")
                     continue
                 facts = preflight() if preflight is not None else {"ready": True}

@@ -22,6 +22,8 @@ from typing import Protocol, cast
 
 import httpx
 
+from tests.helpers.acceptance_harness import DispatchContext
+
 MAX_OBSERVED_REQUESTS = 64
 MAX_EVENT_BYTES = 16 * 1024
 MAX_STREAM_BYTES = 128 * 1024
@@ -61,6 +63,7 @@ class StreamEventValidator(Protocol):
 
 
 ValidatorFactory = Callable[[httpx.Request], StreamEventValidator]
+ResponseCompleteHook = Callable[[str, str, str, int | None, bool], None]
 
 
 class DispatchBudget(Protocol):
@@ -69,9 +72,7 @@ class DispatchBudget(Protocol):
     @property
     def failure(self) -> str | None: ...
 
-    def admit_dispatch(
-        self, kind: str, *, phase: str | None = None, ordinal: int | None = None
-    ) -> bool: ...
+    def admit_dispatch(self, kind: str, *, context: DispatchContext | None = None) -> bool: ...
 
     def release_dispatch(self) -> None: ...
 
@@ -359,8 +360,10 @@ class _RequestObservation:
     event_count_class: str = "0"
     event_type_classes: tuple[str, ...] = ()
     exception_class: str | None = None
+    dispatch_operation: str = "unknown"
     dispatch_phase: str = "unknown"
     dispatch_ordinal: int | None = None
+    dispatch_lifetime: str | None = None
     dispatch_admitted: bool = False
     dispatch_active: bool = field(default=False, repr=False)
 
@@ -385,13 +388,17 @@ class _RequestObservation:
         }
         if (
             self.dispatch_admitted
+            or self.dispatch_operation != "unknown"
             or self.dispatch_phase != "unknown"
             or self.dispatch_ordinal is not None
+            or self.dispatch_lifetime is not None
         ):
             result.update(
                 {
+                    "dispatch_operation": self.dispatch_operation,
                     "dispatch_phase": self.dispatch_phase,
                     "dispatch_ordinal": self.dispatch_ordinal,
+                    "dispatch_lifetime": self.dispatch_lifetime,
                     "dispatch_admitted": self.dispatch_admitted,
                 }
             )
@@ -427,6 +434,7 @@ class _ObservedStream(httpx.AsyncByteStream):
                 yield chunk
             self._state.finish()
             self._owner._finish_stream(self._record, self._state)
+            self._owner._run_response_complete_hook(self._record)
             self._observation_finished = True
         except asyncio.CancelledError:
             self._record.exception_class = _exception_class("cancelled")
@@ -495,9 +503,10 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         validator_factory: ValidatorFactory | None = None,
         validator_source: str = "unavailable",
         budget_controller: DispatchBudget | None = None,
-        dispatch_context: Callable[[], tuple[str, int | None]] | None = None,
+        dispatch_context: Callable[[], DispatchContext | None] | None = None,
         dispatch_hook: Callable[[str, str, int | None], None] | None = None,
         dispatch_complete_hook: Callable[[str, str, int | None], None] | None = None,
+        response_complete_hook: ResponseCompleteHook | None = None,
     ) -> None:
         self._delegate = delegate
         self._validator_factory = validator_factory
@@ -508,6 +517,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         self._dispatch_context = dispatch_context
         self._dispatch_hook = dispatch_hook
         self._dispatch_complete_hook = dispatch_complete_hook
+        self._response_complete_hook = response_complete_hook
         self._records: list[_RequestObservation] = []
         self._started = time.monotonic()
         self._ready = True
@@ -624,6 +634,24 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         if self._budget_controller is not None:
             self._budget_controller.release_dispatch()
 
+    def _run_response_complete_hook(self, record: _RequestObservation) -> None:
+        if self._response_complete_hook is None:
+            return
+        try:
+            self._response_complete_hook(
+                record.kind,
+                record.dispatch_operation,
+                record.dispatch_phase,
+                record.dispatch_ordinal,
+                record.terminal_valid,
+            )
+        except asyncio.CancelledError:
+            record.exception_class = _exception_class("cancelled")
+            self._latch_failure("cancelled")
+        except BaseException:
+            record.exception_class = "observer_response_complete_hook_error"
+            self._latch_failure("dispatch_hook")
+
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         if not self._ready:
             raise RuntimeError("transport_observer_not_ready")
@@ -662,17 +690,16 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 raise RuntimeError("transport_observer_validator_unavailable") from None
         if self._budget_controller is not None:
             try:
-                phase, ordinal = (
-                    self._dispatch_context()
-                    if self._dispatch_context is not None
-                    else ("unknown", None)
-                )
-                record.dispatch_phase = phase if isinstance(phase, str) else "unknown"
-                record.dispatch_ordinal = ordinal if type(ordinal) is int else None
+                context = self._dispatch_context() if self._dispatch_context is not None else None
+                if not isinstance(context, DispatchContext):
+                    context = None
+                record.dispatch_operation = context.operation if context is not None else "unknown"
+                record.dispatch_phase = context.phase if context is not None else "unknown"
+                record.dispatch_ordinal = context.ordinal if context is not None else None
+                record.dispatch_lifetime = context.lifetime_id if context is not None else None
                 admitted = self._budget_controller.admit_dispatch(
                     kind,
-                    phase=record.dispatch_phase,
-                    ordinal=record.dispatch_ordinal,
+                    context=context,
                 )
             except BaseException:
                 admitted = False
@@ -703,14 +730,6 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             self._latch_failure("delegate")
             self._release_dispatch(record)
             raise
-        if self._dispatch_complete_hook is not None:
-            try:
-                self._dispatch_complete_hook(kind, record.dispatch_phase, record.dispatch_ordinal)
-            except BaseException:
-                record.exception_class = "observer_dispatch_complete_hook_error"
-                self._release_dispatch(record)
-                self._latch_failure("dispatch_hook")
-                raise RuntimeError("transport_observer_dispatch_complete_hook_failed") from None
         record.responded = True
         record.status_class = _status_class(response.status_code)
         content_type = response.headers.get("content-type", "")
@@ -722,6 +741,28 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             if "json" in content_type_lower
             else "other"
         )
+        if self._dispatch_complete_hook is not None:
+            try:
+                self._dispatch_complete_hook(kind, record.dispatch_phase, record.dispatch_ordinal)
+            except asyncio.CancelledError:
+                record.exception_class = _exception_class("cancelled")
+                self._latch_failure("cancelled")
+                try:
+                    await response.aclose()
+                except BaseException:
+                    pass
+                self._release_dispatch(record)
+                raise
+            except BaseException:
+                record.exception_class = "observer_dispatch_complete_hook_error"
+                self._latch_failure("dispatch_hook")
+                try:
+                    await response.aclose()
+                except BaseException:
+                    pass
+                self._release_dispatch(record)
+                self._latch_failure("dispatch_hook")
+                raise RuntimeError("transport_observer_dispatch_complete_hook_failed") from None
         state = _StreamState(
             record.content_type_class,
             time.monotonic(),
