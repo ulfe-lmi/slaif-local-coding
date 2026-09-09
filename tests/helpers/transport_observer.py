@@ -4,16 +4,21 @@ The observer sits inside the disposable Local candidate.  It delegates the
 same ``httpx.Request`` and response stream to the real network transport while
 retaining only bounded, fixed-class facts.  It is deliberately not a relay,
 production middleware, or provider instrumentation.
+
+Responses SSE semantics are supplied by the accepted Gateway validator through
+``validator_factory``.  This module owns framing, boundedness, and safe
+observation; it does not copy Gateway event policy.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Protocol, cast
 
 import httpx
 
@@ -21,6 +26,41 @@ MAX_OBSERVED_REQUESTS = 64
 MAX_EVENT_BYTES = 16 * 1024
 MAX_STREAM_BYTES = 128 * 1024
 MAX_EVENT_TYPES = 32
+
+_RESPONSE_ID_EVENTS = frozenset({"response.created", "response.in_progress", "response.completed"})
+_EVENT_CLASSES = {
+    "response.created": "response.created",
+    "response.in_progress": "response.in_progress",
+    "response.output_text.delta": "response.output_text.delta",
+    "response.output_text.done": "response.output_text.done",
+    "response.output_item.added": "response.output_item.added",
+    "response.output_item.done": "response.output_item.done",
+    "response.function_call_arguments.delta": "response.function_call_arguments.delta",
+    "response.function_call_arguments.done": "response.function_call_arguments.done",
+    "response.custom_tool_call_input.delta": "response.custom_tool_call_input.delta",
+    "response.reasoning_summary_part.added": "response.reasoning_summary_part.added",
+    "response.reasoning_summary_text.delta": "response.reasoning_summary_text.delta",
+    "response.reasoning_summary_text.done": "response.reasoning_summary_text.done",
+    "response.reasoning_text.delta": "response.reasoning_text.delta",
+    "response.reasoning_text.done": "response.reasoning_text.done",
+    "response.reasoning_part.added": "response.reasoning_part.added",
+    "response.reasoning_part.done": "response.reasoning_part.done",
+    "response.content_part.added": "response.content_part.added",
+    "response.content_part.done": "response.content_part.done",
+    "response.completed": "response.completed",
+    "response.failed": "error",
+    "response.incomplete": "error",
+    "error": "error",
+}
+
+
+class StreamEventValidator(Protocol):
+    """Minimal interface implemented by the exact Gateway validator."""
+
+    def validate(self, payload: Mapping[str, object] | None) -> bool: ...
+
+
+ValidatorFactory = Callable[[httpx.Request], StreamEventValidator]
 
 
 def _status_class(status: int) -> str:
@@ -41,118 +81,228 @@ def _count_class(value: int) -> str:
     return "5+"
 
 
+def _endpoint_class(path: str) -> str:
+    return {
+        "/v1/responses": "responses",
+        "/v1/chat/completions": "chat_completions",
+        "/health": "health",
+        "/v1/models": "models",
+    }.get(path, "other")
+
+
+def _exception_class(kind: str) -> str:
+    return {
+        "cancelled": "cancelled",
+        "delegate": "delegate_error",
+        "stream": "stream_error",
+        "validator": "validator_error",
+        "not_ready": "observer_not_ready",
+        "bound": "observer_bound_exceeded",
+        "framing": "stream_framing_invalid",
+        "validation": "stream_validation_invalid",
+        "overflow": "stream_overflow",
+        "closure": "stream_closure_invalid",
+        "contract": "stream_contract_invalid",
+        "manual": "manual_unready",
+    }.get(kind, "other")
+
+
+def _safe_json_loads(value: bytes) -> object:
+    def reject_constant(_value: str) -> None:
+        raise ValueError("non_finite_json")
+
+    return json.loads(value, parse_constant=reject_constant)
+
+
 @dataclass
 class _StreamState:
     content_type: str
     started: float
-    buffer: bytes = b""
+    validator: StreamEventValidator | None = None
+    buffer: bytearray = field(default_factory=bytearray)
     byte_count: int = 0
+    event_count: int = 0
     event_types: list[str] = field(default_factory=list)
     created_count: int = 0
     completed_count: int = 0
     error_event: bool = False
     malformed: bool = False
+    validation_failed: bool = False
     overflow: bool = False
     terminal_status_valid: bool = False
+    terminal_output_valid: bool = False
     terminal_usage_valid: bool = False
     first_byte: bool = False
     terminal_event: bool = False
     normal_close: bool = False
+    _response_id_digest: bytes | None = field(default=None, repr=False)
+    failure_kind: str | None = field(default=None, repr=False)
 
-    def consume(self, chunk: bytes) -> None:
-        if not chunk:
-            return
-        if not self.first_byte:
-            self.first_byte = True
-        self.byte_count += len(chunk)
-        if self.byte_count > MAX_STREAM_BYTES:
+    def _fail(self, kind: str) -> None:
+        self.validation_failed = True
+        if self.failure_kind is None:
+            self.failure_kind = kind
+
+    def _append_event_class(self, event_name: str) -> None:
+        self.event_count += 1
+        event_class = _EVENT_CLASSES.get(event_name, "other")
+        if len(self.event_types) >= MAX_EVENT_TYPES:
             self.overflow = True
+            self._fail("overflow")
             return
-        self.buffer += chunk
-        if len(self.buffer) > MAX_EVENT_BYTES:
-            self.overflow = True
-            self.buffer = b""
-            return
-        while b"\n\n" in self.buffer:
-            frame, self.buffer = self.buffer.split(b"\n\n", 1)
-            self._consume_frame(frame)
+        self.event_types.append(event_class)
 
     def _consume_frame(self, frame: bytes) -> None:
         if not frame or len(frame) > MAX_EVENT_BYTES:
             self.malformed = True
+            self._fail("framing")
             return
+
         event_name: str | None = None
         data_parts: list[bytes] = []
         for line in frame.replace(b"\r\n", b"\n").split(b"\n"):
             if line.startswith(b"event:"):
+                if event_name is not None:
+                    self.malformed = True
+                    self._fail("framing")
+                    continue
                 try:
                     event_name = line[6:].strip().decode("ascii")
                 except UnicodeDecodeError:
                     self.malformed = True
+                    self._fail("framing")
             elif line.startswith(b"data:"):
                 data_parts.append(line[5:].lstrip())
             elif line.startswith(b":") or not line:
                 continue
             else:
                 self.malformed = True
-        if event_name is None or len(data_parts) != 1:
+                self._fail("framing")
+
+        # A comment-only SSE frame is valid and carries no event.  Data frames
+        # without an explicit event are not part of the reviewed Gateway wire.
+        if event_name is None and not data_parts:
+            return
+        if event_name is None or not data_parts or len(data_parts) > MAX_EVENT_TYPES:
             self.malformed = True
+            self._fail("framing")
             return
-        if len(data_parts[0]) > MAX_EVENT_BYTES:
+        self._append_event_class(event_name)
+        data = b"\n".join(data_parts)
+        if len(data) > MAX_EVENT_BYTES:
             self.overflow = True
+            self._fail("overflow")
             return
-        if len(self.event_types) < MAX_EVENT_TYPES:
-            self.event_types.append(event_name)
-        else:
-            self.overflow = True
         try:
-            payload = json.loads(data_parts[0])
+            payload = _safe_json_loads(data)
         except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
             self.malformed = True
+            self._fail("framing")
             return
-        if not isinstance(payload, dict) or not isinstance(event_name, str):
+        if not isinstance(payload, dict):
             self.malformed = True
+            self._fail("validation")
             return
+        if payload.get("type") != event_name:
+            self._fail("validation")
         if event_name == "error":
             self.error_event = True
-            return
-        if event_name == "response.unknown":
-            self.malformed = True
-        elif not event_name.startswith("response."):
-            self.malformed = True
+
+        if event_name in _RESPONSE_ID_EVENTS:
+            response = payload.get("response")
+            response_id = response.get("id") if isinstance(response, Mapping) else None
+            if not isinstance(response_id, str) or not response_id:
+                self._fail("validation")
+            else:
+                response_id_digest = hashlib.sha256(response_id.encode("utf-8")).digest()
+                if self._response_id_digest is None:
+                    self._response_id_digest = response_id_digest
+                elif response_id_digest != self._response_id_digest:
+                    self._fail("validation")
+
+        try:
+            valid = self.validator is not None and self.validator.validate(
+                cast(Mapping[str, object], payload)
+            )
+        except BaseException:
+            valid = False
+            self._fail("validator")
+        if not valid:
+            self._fail("validation" if self.failure_kind != "validator" else "validator")
+
         if event_name == "response.created":
             self.created_count += 1
         elif event_name == "response.completed":
             self.completed_count += 1
             self.terminal_event = True
             response = payload.get("response")
-            if isinstance(response, dict):
+            if isinstance(response, Mapping):
                 self.terminal_status_valid = response.get("status") == "completed"
+                output = response.get("output")
+                self.terminal_output_valid = isinstance(output, list) and bool(output)
                 usage = response.get("usage")
-                self.terminal_usage_valid = isinstance(usage, dict) and all(
-                    isinstance(usage.get(name), int)
-                    and not isinstance(usage.get(name), bool)
-                    and usage.get(name, 0) > 0
+                self.terminal_usage_valid = isinstance(usage, Mapping) and all(
+                    type(usage.get(name)) is int and usage.get(name, 0) >= 0
                     for name in ("input_tokens", "output_tokens", "total_tokens")
                 )
+
+    def consume(self, chunk: bytes) -> None:
+        if not chunk or self.overflow:
+            return
+        if not self.first_byte:
+            self.first_byte = True
+        for value in chunk:
+            if self.byte_count >= MAX_STREAM_BYTES:
+                self.byte_count = MAX_STREAM_BYTES + 1
+                self.overflow = True
+                self._fail("overflow")
+                self.buffer.clear()
+                return
+            self.byte_count += 1
+            self.buffer.append(value)
+            delimiter_length = 0
+            if self.buffer.endswith(b"\n\n"):
+                delimiter_length = 2
+            elif self.buffer.endswith(b"\r\n\r\n"):
+                delimiter_length = 4
+            if delimiter_length:
+                frame_length = len(self.buffer) - delimiter_length
+                frame = bytes(self.buffer[:frame_length])
+                del self.buffer[:]
+                self._consume_frame(frame)
+            elif len(self.buffer) > MAX_EVENT_BYTES + 4:
+                self.overflow = True
+                self._fail("overflow")
+                self.buffer.clear()
+                return
 
     def finish(self) -> None:
         if self.buffer:
             self.malformed = True
+            self._fail("framing")
+            self.buffer.clear()
         self.normal_close = True
+
+    def abnormal_close(self) -> None:
+        self.buffer.clear()
+        self.normal_close = False
+        self._fail("closure")
 
     @property
     def terminal_valid(self) -> bool:
         return (
             self.normal_close
             and self.first_byte
+            and self.validator is not None
             and not self.malformed
+            and not self.validation_failed
             and not self.overflow
             and not self.error_event
             and self.created_count == 1
             and self.completed_count == 1
             and self.event_types[-1:] == ["response.completed"]
             and self.terminal_status_valid
+            and self.terminal_output_valid
             and self.terminal_usage_valid
         )
 
@@ -161,7 +311,7 @@ class _StreamState:
 class _RequestObservation:
     ordinal: int
     kind: str
-    path: str
+    endpoint_class: str
     attempted: bool = True
     dispatched: bool = True
     responded: bool = False
@@ -180,7 +330,7 @@ class _RequestObservation:
         return {
             "ordinal": self.ordinal,
             "kind": self.kind,
-            "path": self.path,
+            "endpoint_class": self.endpoint_class,
             "attempted": self.attempted,
             "dispatched": self.dispatched,
             "responded": self.responded,
@@ -209,74 +359,124 @@ class _ObservedStream(httpx.AsyncByteStream):
         self._owner = owner
         self._record = record
         self._state = state
+        self._finished = False
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         try:
             async for chunk in self._stream:
                 self._state.consume(chunk)
+                self._owner._latch_state_failure(self._state)
                 yield chunk
             self._state.finish()
             self._owner._finish_stream(self._record, self._state)
+            self._finished = True
         except asyncio.CancelledError:
+            self._record.exception_class = _exception_class("cancelled")
+            self._state.abnormal_close()
+            self._owner._finish_abnormal(self._record, self._state)
+            self._finished = True
+            await self._close_delegate()
             raise
-        except BaseException as exc:
-            self._record.exception_class = type(exc).__name__
-            self._record.completed = False
+        except BaseException:
+            self._record.exception_class = _exception_class("stream")
+            self._state._fail("stream")
+            self._owner._finish_abnormal(self._record, self._state)
+            self._finished = True
+            await self._close_delegate()
             raise
 
+    async def _close_delegate(self) -> None:
+        try:
+            await self._stream.aclose()
+        except BaseException:
+            # The caller's original cancellation/stream error is authoritative.
+            return
+
     async def aclose(self) -> None:
-        await self._stream.aclose()
+        if self._finished:
+            return
+        try:
+            await self._stream.aclose()
+        finally:
+            self._state.abnormal_close()
+            self._owner._finish_abnormal(self._record, self._state)
+            self._finished = True
 
 
 class DirectTransportObserver(httpx.AsyncBaseTransport):
     """Observe real Local-to-upstream transport dispatch without a relay."""
 
-    def __init__(self, delegate: httpx.AsyncBaseTransport) -> None:
+    def __init__(
+        self,
+        delegate: httpx.AsyncBaseTransport,
+        *,
+        validator_factory: ValidatorFactory | None = None,
+        validator_source: str = "unavailable",
+    ) -> None:
         self._delegate = delegate
+        self._validator_factory = validator_factory
+        self._validator_source = (
+            validator_source if validator_factory is not None else "unavailable"
+        )
         self._records: list[_RequestObservation] = []
         self._started = time.monotonic()
         self._ready = True
+        self._failure_class: str | None = None
 
     @property
     def ready(self) -> bool:
         return self._ready and len(self._records) < MAX_OBSERVED_REQUESTS
 
+    def _latch_failure(self, kind: str) -> None:
+        self._ready = False
+        if self._failure_class is None:
+            self._failure_class = _exception_class(kind)
+
+    def _latch_state_failure(self, state: _StreamState) -> None:
+        if state.failure_kind is not None:
+            self._latch_failure(state.failure_kind)
+
     def mark_unready(self) -> None:
         """Stop later dispatches after an observer-side readiness failure."""
-        self._ready = False
+        self._latch_failure("manual")
 
     @property
     def records(self) -> tuple[dict[str, object], ...]:
         return tuple(record.safe_dict() for record in self._records)
 
-    def snapshot(self) -> dict[str, object]:
-        records = tuple(self._records)
+    @staticmethod
+    def _counts(records: tuple[_RequestObservation, ...]) -> dict[str, int]:
         compiler = tuple(record for record in records if record.kind == "compiler")
         inference = tuple(record for record in records if record.kind == "inference")
         return {
-            "observer_version": "direct-httpx-v1",
+            "attempted_count": len(records),
+            "dispatched_count": sum(record.dispatched for record in records),
+            "responded_count": sum(record.responded for record in records),
+            "completed_count": sum(record.completed for record in records),
+            "terminal_valid_count": sum(record.terminal_valid for record in records),
+            "compiler_attempted_count": len(compiler),
+            "compiler_dispatched_count": sum(record.dispatched for record in compiler),
+            "compiler_responded_count": sum(record.responded for record in compiler),
+            "compiler_completed_count": sum(record.completed for record in compiler),
+            "inference_attempted_count": len(inference),
+            "inference_dispatched_count": sum(record.dispatched for record in inference),
+            "inference_responded_count": sum(record.responded for record in inference),
+            "inference_completed_count": sum(record.completed for record in inference),
+            "inference_terminal_valid_count": sum(record.terminal_valid for record in inference),
+            "inference_first_byte_count": sum(record.first_byte for record in inference),
+            "inference_normal_close_count": sum(record.normal_close for record in inference),
+        }
+
+    def snapshot(self) -> dict[str, object]:
+        records = tuple(self._records)
+        counts = self._counts(records)
+        return {
+            "observer_version": "direct-httpx-v2",
+            "validator_source": self._validator_source,
             "ready": self.ready,
-            "attempted_count_class": _count_class(len(records)),
-            "dispatched_count_class": _count_class(sum(record.dispatched for record in records)),
-            "responded_count_class": _count_class(sum(record.responded for record in records)),
-            "completed_count_class": _count_class(sum(record.completed for record in records)),
-            "compiler_attempted_count_class": _count_class(len(compiler)),
-            "compiler_completed_count_class": _count_class(
-                sum(record.completed for record in compiler)
-            ),
-            "inference_attempted_count_class": _count_class(len(inference)),
-            "inference_completed_count_class": _count_class(
-                sum(record.completed for record in inference)
-            ),
-            "inference_terminal_valid_count_class": _count_class(
-                sum(record.terminal_valid for record in inference)
-            ),
-            "inference_first_byte_count_class": _count_class(
-                sum(record.first_byte for record in inference)
-            ),
-            "inference_normal_close_count_class": _count_class(
-                sum(record.normal_close for record in inference)
-            ),
+            "failure_class": self._failure_class,
+            **counts,
+            **{f"{name}_class": _count_class(value) for name, value in counts.items()},
             "records": tuple(record.safe_dict() for record in records),
             "elapsed_class": "unknown" if time.monotonic() < self._started else "bounded",
         }
@@ -285,53 +485,89 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         if not self._ready:
             raise RuntimeError("transport_observer_not_ready")
         if len(self._records) >= MAX_OBSERVED_REQUESTS:
-            self._ready = False
+            self._latch_failure("bound")
             raise RuntimeError("transport_observer_request_bound_exceeded")
-        path = request.url.path
+        endpoint_class = _endpoint_class(request.url.path)
         kind = (
             "compiler"
-            if path == "/v1/chat/completions"
+            if endpoint_class == "chat_completions"
             else "inference"
-            if path == "/v1/responses"
+            if endpoint_class == "responses"
             else "other"
         )
-        record = _RequestObservation(len(self._records) + 1, kind, path)
+        record = _RequestObservation(len(self._records) + 1, kind, endpoint_class)
         self._records.append(record)
         try:
             response = await self._delegate.handle_async_request(request)
         except asyncio.CancelledError:
+            record.exception_class = _exception_class("cancelled")
+            self._latch_failure("cancelled")
             raise
-        except BaseException as exc:
-            record.exception_class = type(exc).__name__
+        except BaseException:
+            record.exception_class = _exception_class("delegate")
+            self._latch_failure("delegate")
             raise
         record.responded = True
         record.status_class = _status_class(response.status_code)
         content_type = response.headers.get("content-type", "")
+        content_type_lower = content_type.lower()
         record.content_type_class = (
             "sse"
-            if "text/event-stream" in content_type
+            if "text/event-stream" in content_type_lower
             else "json"
-            if "json" in content_type
+            if "json" in content_type_lower
             else "other"
         )
-        state = _StreamState(record.content_type_class, time.monotonic())
+        validator: StreamEventValidator | None = None
+        if kind == "inference" and record.content_type_class == "sse":
+            if self._validator_factory is None:
+                await response.aclose()
+                record.exception_class = _exception_class("validator")
+                self._latch_failure("validator")
+                raise RuntimeError("transport_observer_validator_unavailable")
+            try:
+                validator = self._validator_factory(request)
+            except BaseException:
+                await response.aclose()
+                record.exception_class = _exception_class("validator")
+                self._latch_failure("validator")
+                raise RuntimeError("transport_observer_validator_unavailable") from None
+        state = _StreamState(record.content_type_class, time.monotonic(), validator)
         response.stream = _ObservedStream(
             cast(httpx.AsyncByteStream, response.stream), self, record, state
         )
         return response
 
     def _finish_stream(self, record: _RequestObservation, state: _StreamState) -> None:
+        if record.completed:
+            return
         record.completed = True
         record.first_byte = state.first_byte
+        is_inference_sse = record.kind == "inference" and record.content_type_class == "sse"
         record.terminal_valid = (
             state.terminal_valid
-            if record.kind == "inference" and record.content_type_class == "sse"
+            if is_inference_sse
             else state.normal_close and not state.overflow and not state.malformed
         )
         record.normal_close = state.normal_close
         record.stream_bytes_class = _count_class(state.byte_count)
-        record.event_count_class = _count_class(len(state.event_types))
+        record.event_count_class = _count_class(state.event_count)
         record.event_type_classes = tuple(sorted(set(state.event_types)))
+        if is_inference_sse and not record.terminal_valid:
+            self._latch_failure(state.failure_kind or "contract")
+
+    def _finish_abnormal(self, record: _RequestObservation, state: _StreamState) -> None:
+        if record.completed:
+            return
+        record.completed = False
+        record.first_byte = state.first_byte
+        record.terminal_valid = False
+        record.normal_close = False
+        record.stream_bytes_class = _count_class(state.byte_count)
+        record.event_count_class = _count_class(state.event_count)
+        record.event_type_classes = tuple(sorted(set(state.event_types)))
+        self._latch_state_failure(state)
+        self._latch_failure(state.failure_kind or "closure")
 
     async def aclose(self) -> None:
         await self._delegate.aclose()
@@ -340,55 +576,74 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
 def observer_dispatch_matches_fake(
     snapshot: dict[str, object], *, compiler_calls: int, inference_calls: int
 ) -> bool:
-    """Compare independent transport dispatch counts with fake-server counts."""
+    """Compare exact independent dispatch counts with fake-server counts."""
     return (
-        snapshot.get("compiler_attempted_count_class") == _count_class(compiler_calls)
-        and snapshot.get("inference_attempted_count_class") == _count_class(inference_calls)
-        and snapshot.get("inference_terminal_valid_count_class") == _count_class(inference_calls)
+        snapshot.get("compiler_attempted_count") == compiler_calls
+        and snapshot.get("compiler_dispatched_count") == compiler_calls
+        and snapshot.get("inference_attempted_count") == inference_calls
+        and snapshot.get("inference_dispatched_count") == inference_calls
+        and snapshot.get("inference_terminal_valid_count") == inference_calls
     )
 
 
 def merge_observer_snapshots(*snapshots: dict[str, object]) -> dict[str, object]:
-    """Merge sequential candidate lifetimes without retaining raw transport data."""
+    """Merge sequential lifetimes while preserving unique global ordinals."""
     records: list[dict[str, object]] = []
     ready = True
+    global_ordinal = 0
     for snapshot in snapshots:
         ready = ready and snapshot.get("ready") is True
         values = snapshot.get("records", ())
-        if isinstance(values, (list, tuple)):
-            records.extend(value for value in values if isinstance(value, dict))
+        if not isinstance(values, (list, tuple)):
+            raise ValueError("observer_records_schema")
+        expected_ordinal = 1
+        for value in values:
+            if not isinstance(value, dict) or value.get("ordinal") != expected_ordinal:
+                raise ValueError("observer_ordinal_collision")
+            expected_ordinal += 1
+            global_ordinal += 1
+            record = dict(value)
+            record["lifetime_ordinal"] = record["ordinal"]
+            record["ordinal"] = global_ordinal
+            records.append(record)
     compiler = [record for record in records if record.get("kind") == "compiler"]
     inference = [record for record in records if record.get("kind") == "inference"]
+    counts = {
+        "attempted_count": len(records),
+        "dispatched_count": sum(record.get("dispatched") is True for record in records),
+        "responded_count": sum(record.get("responded") is True for record in records),
+        "completed_count": sum(record.get("completed") is True for record in records),
+        "terminal_valid_count": sum(record.get("terminal_valid") is True for record in records),
+        "compiler_attempted_count": len(compiler),
+        "compiler_dispatched_count": sum(record.get("dispatched") is True for record in compiler),
+        "compiler_responded_count": sum(record.get("responded") is True for record in compiler),
+        "compiler_completed_count": sum(record.get("completed") is True for record in compiler),
+        "inference_attempted_count": len(inference),
+        "inference_dispatched_count": sum(record.get("dispatched") is True for record in inference),
+        "inference_responded_count": sum(record.get("responded") is True for record in inference),
+        "inference_completed_count": sum(record.get("completed") is True for record in inference),
+        "inference_terminal_valid_count": sum(
+            record.get("terminal_valid") is True for record in inference
+        ),
+        "inference_first_byte_count": sum(record.get("first_byte") is True for record in inference),
+        "inference_normal_close_count": sum(
+            record.get("normal_close") is True for record in inference
+        ),
+    }
     return {
-        "observer_version": "direct-httpx-v1",
+        "observer_version": "direct-httpx-v2",
+        "validator_source": "gateway_responses_stream_validator",
         "ready": ready,
-        "attempted_count_class": _count_class(len(records)),
-        "dispatched_count_class": _count_class(
-            sum(record.get("dispatched") is True for record in records)
+        "failure_class": next(
+            (
+                snapshot.get("failure_class")
+                for snapshot in snapshots
+                if snapshot.get("failure_class") is not None
+            ),
+            None,
         ),
-        "responded_count_class": _count_class(
-            sum(record.get("responded") is True for record in records)
-        ),
-        "completed_count_class": _count_class(
-            sum(record.get("completed") is True for record in records)
-        ),
-        "compiler_attempted_count_class": _count_class(len(compiler)),
-        "compiler_completed_count_class": _count_class(
-            sum(record.get("completed") is True for record in compiler)
-        ),
-        "inference_attempted_count_class": _count_class(len(inference)),
-        "inference_completed_count_class": _count_class(
-            sum(record.get("completed") is True for record in inference)
-        ),
-        "inference_terminal_valid_count_class": _count_class(
-            sum(record.get("terminal_valid") is True for record in inference)
-        ),
-        "inference_first_byte_count_class": _count_class(
-            sum(record.get("first_byte") is True for record in inference)
-        ),
-        "inference_normal_close_count_class": _count_class(
-            sum(record.get("normal_close") is True for record in inference)
-        ),
+        **counts,
+        **{f"{name}_class": _count_class(value) for name, value in counts.items()},
         "records": tuple(records),
         "elapsed_class": "bounded",
     }

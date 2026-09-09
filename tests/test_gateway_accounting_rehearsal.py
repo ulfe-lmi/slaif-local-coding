@@ -512,12 +512,7 @@ def test_protected_mode_requires_complete_same_pin_fake_gate(tmp_path: Any) -> N
         _validate_fake_gate(path)
 
 
-def test_protected_gate_accepts_only_complete_projected_current_fake_result(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "scripts.gateway_accounting_rehearsal._tested_source_still_valid", lambda _sha: True
-    )
+def _complete_fake_payload() -> dict[str, object]:
     results = [
         make_result(
             item.obligation_id,
@@ -531,12 +526,14 @@ def test_protected_gate_accepts_only_complete_projected_current_fake_result(
         if item.mode in {"both", "fake"}
     ]
     gate = build_obligation_gate("fake", results).safe_dict()
+    gate["results"] = list(gate["results"])
     observations = {key: True for key in FAKE_RESULT_SCHEMA_KEYS}
     gate["projection_table"] = projection_table_safe_dict(
         observations, {item.obligation_id: "PASSED" for item in results}
     )
+    gate["projection_table"] = list(gate["projection_table"])
     gate["observation_schema_keys"] = FAKE_RESULT_SCHEMA_KEYS
-    payload = {
+    return {
         "status": "COMPLETE",
         "provider_target": "fake",
         "gateway_sha": GATEWAY_MAIN_SHA,
@@ -558,11 +555,22 @@ def test_protected_gate_accepts_only_complete_projected_current_fake_result(
             "observer_version": OBSERVATION_VERSION,
             "ready": True,
             "matches_fake_provider": True,
+            "inference_attempted_count": 2,
+            "inference_terminal_valid_count": 2,
             "inference_attempted_count_class": "2",
             "inference_terminal_valid_count_class": "2",
         },
         "acceptance_gate": gate,
     }
+
+
+def test_protected_gate_accepts_only_complete_projected_current_fake_result(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "scripts.gateway_accounting_rehearsal._tested_source_still_valid", lambda _sha: True
+    )
+    payload = _complete_fake_payload()
     path = tmp_path / "fake-result.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     _validate_fake_gate(path)
@@ -571,3 +579,69 @@ def test_protected_gate_accepts_only_complete_projected_current_fake_result(
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(RuntimeError, match="protected_fake_gate"):
         _validate_fake_gate(path)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda payload: payload["acceptance_gate"]["results"].pop(),
+        lambda payload: payload["acceptance_gate"]["results"].__setitem__(
+            1, payload["acceptance_gate"]["results"][0]
+        ),
+        lambda payload: payload["acceptance_gate"]["results"].reverse(),
+        lambda payload: payload["acceptance_gate"]["results"].append(
+            payload["acceptance_gate"]["results"][0]
+        ),
+        lambda payload: payload["runtime_observations"].__setitem__(
+            FAKE_RESULT_SCHEMA_KEYS[0], False
+        ),
+        lambda payload: payload["runtime_observations"].pop(FAKE_RESULT_SCHEMA_KEYS[0]),
+        lambda payload: payload["acceptance_gate"]["results"][0].__setitem__(
+            "relationship", "other"
+        ),
+        lambda payload: payload["acceptance_gate"]["projection_table"].__setitem__(
+            0, {**payload["acceptance_gate"]["projection_table"][0], "execution_status": "FAILED"}
+        ),
+        lambda payload: payload["acceptance_gate"].__setitem__("retry_count", 1),
+        lambda payload: payload["candidate_provenance"].__setitem__("gateway_sha", "0" * 40),
+        lambda payload: payload["candidate_provenance"].__setitem__("codex_version", "0.148.0"),
+        lambda payload: payload["candidate_provenance"].__setitem__(
+            "observer_version", "direct-httpx-v1"
+        ),
+        lambda payload: payload["transport_observation"].__setitem__(
+            "inference_terminal_valid_count", 1
+        ),
+        lambda payload: payload["acceptance_gate"].__setitem__("passed", False),
+    ),
+)
+def test_protected_gate_rejects_independent_negative_evidence(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, mutation: Any
+) -> None:
+    monkeypatch.setattr(
+        "scripts.gateway_accounting_rehearsal._tested_source_still_valid", lambda _sha: True
+    )
+    payload = _complete_fake_payload()
+    mutation(payload)
+    path = tmp_path / "fake-result.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="protected_fake_gate"):
+        _validate_fake_gate(path)
+
+
+def test_protected_gate_enforces_cap_before_reading(tmp_path: Any) -> None:
+    path = tmp_path / "oversized-result.json"
+    with path.open("wb") as handle:
+        handle.truncate(2 * 1024 * 1024 + 1)
+    with pytest.raises(RuntimeError, match="protected_fake_gate_too_large"):
+        _validate_fake_gate(path)
+
+
+def test_protected_gate_rejects_duplicate_and_nonfinite_json(tmp_path: Any) -> None:
+    duplicate = tmp_path / "duplicate-result.json"
+    duplicate.write_text('{"status":"COMPLETE","status":"COMPLETE"}\n', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="protected_fake_gate_invalid"):
+        _validate_fake_gate(duplicate)
+    nonfinite = tmp_path / "nonfinite-result.json"
+    nonfinite.write_text('{"status":"COMPLETE","value":NaN}\n', encoding="utf-8")
+    with pytest.raises(RuntimeError, match="protected_fake_gate_invalid"):
+        _validate_fake_gate(nonfinite)

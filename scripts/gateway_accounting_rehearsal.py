@@ -21,6 +21,7 @@ import re
 import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -134,7 +135,7 @@ CODEX_CLIENT_MODULE_FIXTURE_SHA256 = (
 CODEX_FIXTURE_SHA256 = "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
 GATEWAY_APP_TREE_SHA256 = "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57"
 LOCAL_ROUTE_POLICY = "qwen38-vision-codex/retain_newest/signed_identity_v1"
-OBSERVATION_VERSION = "direct-httpx-v1"
+OBSERVATION_VERSION = "direct-httpx-v2"
 CODEX_0149_DEFAULT = Path(
     "/synology/homes/janezp/.codex/packages/standalone/releases/"
     "0.149.0-x86_64-unknown-linux-musl/bin/codex"
@@ -144,6 +145,46 @@ FAKE_MAX_EVENT_BYTES = 16_384
 FAKE_MAX_STREAM_BYTES = 131_072
 FAKE_MAX_FUNCTION_CALLS = 1
 FAKE_FUNCTION_CALL_ID = "call_synthetic"
+
+
+def _gateway_stream_validator_factory(gateway_root: Path) -> Any:
+    """Inject the exact pinned Gateway Responses validator into observation."""
+    sys.path.insert(0, str(gateway_root / "app"))
+    from slaif_gateway.modules.clients.codex_0149 import (  # type: ignore[import-not-found]
+        codex_0149_declared_tool_taxonomy,
+        codex_0149_streaming_tool_events_requested,
+    )
+    from slaif_gateway.providers.streaming import (  # type: ignore[import-not-found]
+        ResponsesStreamEventValidator,
+        ResponsesStreamValidationProfile,
+    )
+
+    def factory(request: httpx.Request) -> Any:
+        content = request.content
+        if not isinstance(content, bytes) or len(content) > 2 * 1024 * 1024:
+            raise ValueError("validator_profile_request_unavailable")
+
+        def reject_constant(_value: str) -> None:
+            raise ValueError("non_finite_json")
+
+        try:
+            payload = json.loads(content, parse_constant=reject_constant)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raise ValueError("validator_profile_request_invalid") from None
+        if not isinstance(payload, dict):
+            raise ValueError("validator_profile_request_invalid")
+        declarations = codex_0149_declared_tool_taxonomy(payload)
+        streaming_tools = codex_0149_streaming_tool_events_requested(payload)
+        profile = ResponsesStreamValidationProfile(
+            codex_streaming_tool_events=streaming_tools,
+            codex_0149_function_tool_events=streaming_tools,
+            codex_encrypted_reasoning_replay=False,
+            declared_client_tools=declarations,
+            codex_reasoning_events=True,
+        )
+        return ResponsesStreamEventValidator(profile)
+
+    return factory
 
 
 class _FakeStreamError(RuntimeError):
@@ -2084,6 +2125,8 @@ def _build_observed_candidate(
     vision_recorder: Any | None = None,
 ) -> _ObservedCandidate:
     """Launch the public app factory with a direct acceptance observer."""
+    if not observer.ready:
+        raise RuntimeError("candidate_observer_not_ready")
     from slaif_local_coding.app import create_app
     from slaif_local_coding.config import load_settings
 
@@ -2948,11 +2991,34 @@ def _acceptance_gate(
 
 
 def _tested_source_still_valid(tested_sha: str) -> bool:
-    """Allow only a report-only descendant after the fake run."""
+    """Allow only clean source at the tested head or a report-only descendant."""
+    if not re.fullmatch(r"[0-9a-f]{40}", tested_sha):
+        return False
+    status = _run_command(
+        ["git", "-C", str(REPO_ROOT), "status", "--porcelain=v1", "--untracked-files=all"]
+    )
+    if status.returncode != 0:
+        return False
+    dirty_paths = tuple(
+        line[3:].split(" -> ", 1)[-1] for line in status.stdout.splitlines() if len(line) >= 4
+    )
+    relevant_prefixes = (
+        "src/",
+        "scripts/",
+        "tests/",
+        "config/",
+        "pyproject.toml",
+        "uv.lock",
+    )
+    if any(
+        path != "oap/reports/005-s-observed-transport-and-pretraffic-safety.md"
+        and (path in relevant_prefixes or path.startswith(relevant_prefixes))
+        for path in dirty_paths
+    ):
+        return False
     current = _local_implementation_sha()
     if current == tested_sha:
-        status = _run_command(["git", "-C", str(REPO_ROOT), "status", "--short"])
-        return status.returncode == 0 and not status.stdout.strip()
+        return True
     ancestor = _run_command(
         ["git", "-C", str(REPO_ROOT), "merge-base", "--is-ancestor", tested_sha, current]
     )
@@ -2965,28 +3031,77 @@ def _tested_source_still_valid(tested_sha: str) -> bool:
     return paths == ("oap/reports/005-s-observed-transport-and-pretraffic-safety.md",)
 
 
-def _validate_fake_gate(path: Path | None) -> None:
-    """Require complete, independently projected fake evidence before traffic."""
-    if path is None:
-        raise RuntimeError("protected_fake_gate_missing")
+def _read_fake_gate_file(path: Path) -> bytes:
+    """Read at most the evidence cap from one owned regular file."""
+    max_bytes = 2 * 1024 * 1024
     if path.is_symlink():
         raise RuntimeError("protected_fake_gate_unsafe_file")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
-        stat_result = path.stat()
-        if not path.is_file() or stat_result.st_uid != os.getuid():
-            raise RuntimeError("protected_fake_gate_unsafe_file")
-        raw = path.read_bytes()
+        descriptor = os.open(path, flags)
     except OSError:
         raise RuntimeError("protected_fake_gate_unreadable") from None
-    if len(raw) > 2 * 1024 * 1024:
-        raise RuntimeError("protected_fake_gate_too_large")
+    try:
+        stat_result = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(stat_result.st_mode)
+            or stat_result.st_uid != os.getuid()
+            or stat_result.st_nlink != 1
+        ):
+            raise RuntimeError("protected_fake_gate_unsafe_file")
+        chunks: list[bytes] = []
+        total = 0
+        while total <= max_bytes:
+            chunk = os.read(descriptor, max_bytes + 1 - total)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        if total > max_bytes:
+            raise RuntimeError("protected_fake_gate_too_large")
+        return b"".join(chunks)
+    except RuntimeError:
+        raise
+    except OSError:
+        raise RuntimeError("protected_fake_gate_unreadable") from None
+    finally:
+        os.close(descriptor)
+
+
+def _decode_fake_gate(raw: bytes) -> dict[str, object]:
+    """Decode one bounded JSON-lines result with duplicate/non-finite rejection."""
+
+    def reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate_json_key")
+            result[key] = value
+        return result
+
+    def reject_constant(_value: str) -> None:
+        raise ValueError("non_finite_json")
+
     try:
         lines = raw.splitlines()
-        payload = json.loads(lines[-1]) if lines else None
+        payload = json.loads(
+            lines[-1] if lines else b"",
+            object_pairs_hook=reject_duplicate_pairs,
+            parse_constant=reject_constant,
+        )
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         raise RuntimeError("protected_fake_gate_invalid") from None
     if not isinstance(payload, dict):
         raise RuntimeError("protected_fake_gate_invalid")
+    return payload
+
+
+def _validate_fake_gate(path: Path | None) -> None:
+    """Require complete, independently projected fake evidence before traffic."""
+    if path is None:
+        raise RuntimeError("protected_fake_gate_missing")
+    raw = _read_fake_gate_file(path)
+    payload = _decode_fake_gate(raw)
     gate = payload.get("acceptance_gate")
     if not isinstance(gate, dict):
         raise RuntimeError("protected_fake_gate_not_complete")
@@ -3024,6 +3139,16 @@ def _validate_fake_gate(path: Path | None) -> None:
         "run_provenance",
         "observer_version",
     }
+    expected_result_keys = {
+        "obligation_id",
+        "status",
+        "observed",
+        "relationship",
+        "count_class",
+        "timing",
+        "fixture_hash",
+        "version",
+    }
     valid_header = (
         payload.get("status") == "COMPLETE"
         and payload.get("provider_target") == "fake"
@@ -3033,7 +3158,9 @@ def _validate_fake_gate(path: Path | None) -> None:
         and gate.get("passed") is True
         and gate.get("missing") == []
         and gate.get("first_failure") is None
+        and type(gate.get("retry_count")) is int
         and gate.get("retry_count") == 0
+        and gate.get("result_count_class") == count_class(len(expected_ids))
         and tuple(item.get("obligation_id") for item in results if isinstance(item, dict))
         == expected_ids
         and isinstance(candidate, dict)
@@ -3057,18 +3184,34 @@ def _validate_fake_gate(path: Path | None) -> None:
     for item, obligation_id in zip(results, expected_ids, strict=True):
         projection = projection_for(obligation_id)
         if (
-            set(item)
-            != {
-                "obligation_id",
-                "status",
-                "observed",
-                "relationship",
-                "count_class",
-                "timing",
-                "fixture_hash",
-                "version",
-            }
+            set(item) != expected_result_keys
             or item.get("obligation_id") != obligation_id
+            or item.get("status") not in {"PASSED"}
+            or type(item.get("observed")) is not bool
+            or item.get("observed") is not True
+            or item.get("relationship") != projection.relationship
+            or item.get("count_class") not in {"1", "2", "3-4", "5+"}
+            or item.get("timing")
+            not in {
+                "0-9ms",
+                "10-49ms",
+                "50-99ms",
+                "100-249ms",
+                "250-999ms",
+                "1000ms+",
+                "unknown",
+            }
+            or (
+                item.get("fixture_hash") is not None
+                and (
+                    not isinstance(item.get("fixture_hash"), str)
+                    or re.fullmatch(r"[0-9a-f]{64}", item["fixture_hash"]) is None
+                )
+            )
+            or (
+                item.get("version") is not None
+                and (not isinstance(item.get("version"), str) or len(item["version"]) > 64)
+            )
         ):
             raise RuntimeError("protected_fake_gate_result_schema")
         if (
@@ -3118,6 +3261,9 @@ def _validate_fake_gate(path: Path | None) -> None:
             or tuple(item.get("proving_test_node_ids", ())) != projection.proving_test_node_ids
             or item.get("execution_status") != "PASSED"
             or item.get("observed_field_count_class") not in {"1", "2", "3-4", "5+"}
+            or not isinstance(item.get("source_observation_keys"), list)
+            or not isinstance(item.get("proving_test_node_ids"), list)
+            or not isinstance(item.get("producer"), str)
         ):
             raise RuntimeError("protected_fake_gate_projection_not_observed")
     if tuple(gate.get("observation_schema_keys", ())) != FAKE_RESULT_SCHEMA_KEYS:
@@ -3125,7 +3271,7 @@ def _validate_fake_gate(path: Path | None) -> None:
     observations = payload.get("runtime_observations")
     if not isinstance(observations, dict) or set(observations) != set(FAKE_RESULT_SCHEMA_KEYS):
         raise RuntimeError("protected_fake_gate_runtime_schema")
-    if not all(value is True for value in observations.values()):
+    if not all(type(value) is bool and value is True for value in observations.values()):
         raise RuntimeError("protected_fake_gate_runtime_not_complete")
     transport = payload.get("transport_observation")
     if (
@@ -3133,7 +3279,12 @@ def _validate_fake_gate(path: Path | None) -> None:
         or transport.get("observer_version") != OBSERVATION_VERSION
         or transport.get("ready") is not True
         or transport.get("matches_fake_provider") is not True
+        or type(transport.get("inference_attempted_count")) is not int
+        or type(transport.get("inference_terminal_valid_count")) is not int
         or transport.get("inference_attempted_count_class") not in {"2", "3-4", "5+"}
+        or transport.get("inference_attempted_count") < 2
+        or transport.get("inference_terminal_valid_count")
+        != transport.get("inference_attempted_count")
         or transport.get("inference_terminal_valid_count_class")
         != transport.get("inference_attempted_count_class")
     ):
@@ -3169,6 +3320,7 @@ def _run_direct_composed_rehearsal(
     codex_sha256 = _codex_sha256(codex)
     if codex_version != CODEX_VERSION or codex_sha256 != CODEX_FIXTURE_SHA256:
         raise RuntimeError("codex_fixture_mismatch")
+    validator_factory = _gateway_stream_validator_factory(gateway_root)
     protected_before = _protected_snapshot() if provider_target == "protected" else None
     if provider_target == "protected":
         if not os.environ.get(QWEN_KEY_ENV):
@@ -3330,7 +3482,11 @@ def _run_direct_composed_rehearsal(
                     encryption_key=synthetic["encryption_key"],
                 )
             )
-            candidate_observer = DirectTransportObserver(httpx.AsyncHTTPTransport(retries=0))
+            candidate_observer = DirectTransportObserver(
+                httpx.AsyncHTTPTransport(retries=0),
+                validator_factory=validator_factory,
+                validator_source="gateway_responses_stream_validator",
+            )
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=candidate_observer,
@@ -3527,7 +3683,11 @@ def _run_direct_composed_rehearsal(
                 candidate_runtime.stop()
                 candidate_runtime = None
             vision_recorder = VisionOutboundRecorder(fixture, httpx.AsyncHTTPTransport(retries=0))
-            vision_observer = DirectTransportObserver(vision_recorder)
+            vision_observer = DirectTransportObserver(
+                vision_recorder,
+                validator_factory=validator_factory,
+                validator_source="gateway_responses_stream_validator",
+            )
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=vision_observer,
@@ -3556,7 +3716,11 @@ def _run_direct_composed_rehearsal(
             if candidate_runtime is not None:
                 candidate_runtime.stop()
                 candidate_runtime = None
-            post_vision_observer = DirectTransportObserver(httpx.AsyncHTTPTransport(retries=0))
+            post_vision_observer = DirectTransportObserver(
+                httpx.AsyncHTTPTransport(retries=0),
+                validator_factory=validator_factory,
+                validator_source="gateway_responses_stream_validator",
+            )
             candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
                 observer=post_vision_observer,
