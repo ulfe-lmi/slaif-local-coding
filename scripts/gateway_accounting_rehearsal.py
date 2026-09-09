@@ -27,13 +27,14 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
+import uvicorn
 from prometheus_client.parser import text_string_to_metric_families
 
 try:
@@ -96,7 +97,13 @@ from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
     build_composed_stream_facts,
 )
 from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv  # noqa: E402
+from tests.helpers.transport_observer import (  # noqa: E402
+    DirectTransportObserver,
+    merge_observer_snapshots,
+    observer_dispatch_matches_fake,
+)
 from tests.helpers.vision_e2e_support import (  # noqa: E402
+    VisionOutboundRecorder,
     run_vision_e2e,
     vision_diagnostic_summary,
     write_vision_fixture,
@@ -125,6 +132,9 @@ CODEX_CLIENT_MODULE_FIXTURE_SHA256 = (
     "ca1e03a35de1eaeceb894cec9895af0c154e0d2fa0aa8da87f98716e1567f9ec"
 )
 CODEX_FIXTURE_SHA256 = "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
+GATEWAY_APP_TREE_SHA256 = "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57"
+LOCAL_ROUTE_POLICY = "qwen38-vision-codex/retain_newest/signed_identity_v1"
+OBSERVATION_VERSION = "direct-httpx-v1"
 CODEX_0149_DEFAULT = Path(
     "/synology/homes/janezp/.codex/packages/standalone/releases/"
     "0.149.0-x86_64-unknown-linux-musl/bin/codex"
@@ -2045,6 +2055,72 @@ def _build_candidate_process(
         raise
 
 
+@dataclass
+class _ObservedCandidate:
+    """Disposable in-process candidate used only by the fake rehearsal."""
+
+    server: uvicorn.Server
+    thread: threading.Thread
+    observer: DirectTransportObserver
+    vision_recorder: Any | None = None
+
+    def stop(self) -> None:
+        self.server.should_exit = True
+        self.thread.join(timeout=15)
+        if self.thread.is_alive():
+            self.server.force_exit = True
+            self.thread.join(timeout=5)
+        if self.thread.is_alive():
+            raise RuntimeError("candidate_adapter_did_not_stop")
+
+    def alive(self) -> bool:
+        return self.thread.is_alive()
+
+
+def _build_observed_candidate(
+    config_path: Path,
+    *,
+    observer: DirectTransportObserver,
+    vision_recorder: Any | None = None,
+) -> _ObservedCandidate:
+    """Launch the public app factory with a direct acceptance observer."""
+    from slaif_local_coding.app import create_app
+    from slaif_local_coding.config import load_settings
+
+    settings = load_settings(config_path)
+    app = create_app(settings, transport=observer)
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=18031,
+            log_level="warning",
+            access_log=False,
+            log_config=None,
+        )
+    )
+    thread = threading.Thread(target=server.run, name="oap-005s-observed-candidate", daemon=True)
+    thread.start()
+    runtime = _ObservedCandidate(server, thread, observer, vision_recorder)
+    try:
+        with httpx.Client(timeout=5, follow_redirects=False) as client:
+            status = _wait_status(client, "http://127.0.0.1:18031/healthz")
+        if status != 200 or not thread.is_alive() or not observer.ready:
+            raise RuntimeError("candidate_observer_not_ready")
+    except BaseException:
+        runtime.stop()
+        raise
+    return runtime
+
+
+def _local_implementation_sha() -> str:
+    result = _run_command(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"])
+    value = result.stdout.strip()
+    if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", value):
+        raise RuntimeError("local_implementation_sha_unavailable")
+    return value
+
+
 def _docker_start_postgres() -> tuple[str, int, bool, bool, str | None, str | None]:
     running_before = _running_container_facts()
     image_before, image_id_before, digest_before = _image_fingerprint()
@@ -2681,6 +2757,12 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
         put("provider.terminal_usage", boundary.get("terminality_valid") is True)
         put("provider.newest_single_image", boundary.get("all_image_requests_single") is True)
         put("provider.fixture_hashes", boundary.get("image_hashes_observed") is True)
+    transport = result.get("transport_observation")
+    if isinstance(transport, dict):
+        put(
+            "provider.transport_boundary_matches_fake",
+            transport.get("matches_fake_provider") is True,
+        )
     idless_regression = result.get("fake_idless_http_regression")
     if isinstance(idless_regression, dict):
         put(
@@ -2865,11 +2947,34 @@ def _acceptance_gate(
     return gate_dict, gaps
 
 
+def _tested_source_still_valid(tested_sha: str) -> bool:
+    """Allow only a report-only descendant after the fake run."""
+    current = _local_implementation_sha()
+    if current == tested_sha:
+        status = _run_command(["git", "-C", str(REPO_ROOT), "status", "--short"])
+        return status.returncode == 0 and not status.stdout.strip()
+    ancestor = _run_command(
+        ["git", "-C", str(REPO_ROOT), "merge-base", "--is-ancestor", tested_sha, current]
+    )
+    changed = _run_command(
+        ["git", "-C", str(REPO_ROOT), "diff", "--name-only", f"{tested_sha}..{current}"]
+    )
+    if ancestor.returncode != 0 or changed.returncode != 0:
+        return False
+    paths = tuple(line for line in changed.stdout.splitlines() if line)
+    return paths == ("oap/reports/005-s-observed-transport-and-pretraffic-safety.md",)
+
+
 def _validate_fake_gate(path: Path | None) -> None:
-    """Require one complete same-pin fake gate before protected traffic."""
+    """Require complete, independently projected fake evidence before traffic."""
     if path is None:
         raise RuntimeError("protected_fake_gate_missing")
+    if path.is_symlink():
+        raise RuntimeError("protected_fake_gate_unsafe_file")
     try:
+        stat_result = path.stat()
+        if not path.is_file() or stat_result.st_uid != os.getuid():
+            raise RuntimeError("protected_fake_gate_unsafe_file")
         raw = path.read_bytes()
     except OSError:
         raise RuntimeError("protected_fake_gate_unreadable") from None
@@ -2883,21 +2988,156 @@ def _validate_fake_gate(path: Path | None) -> None:
     if not isinstance(payload, dict):
         raise RuntimeError("protected_fake_gate_invalid")
     gate = payload.get("acceptance_gate")
-    results = gate.get("results") if isinstance(gate, dict) else None
-    if not (
+    if not isinstance(gate, dict):
+        raise RuntimeError("protected_fake_gate_not_complete")
+    results_value = gate.get("results")
+    if not isinstance(results_value, list) or not all(
+        isinstance(item, dict) for item in results_value
+    ):
+        raise RuntimeError("protected_fake_gate_result_schema")
+    results = results_value
+    expected_ids = tuple(
+        item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "fake"}
+    )
+    expected_gate_keys = {
+        "mode",
+        "missing",
+        "first_failure",
+        "retry_count",
+        "passed",
+        "result_count_class",
+        "results",
+        "projection_table",
+        "observation_schema_keys",
+    }
+    candidate = payload.get("candidate_provenance")
+    candidate_keys = {
+        "implementation_sha",
+        "tested_worktree_clean",
+        "local_source",
+        "harness_source",
+        "route_policy",
+        "gateway_sha",
+        "gateway_app_tree_sha256",
+        "codex_version",
+        "codex_binary_sha256",
+        "run_provenance",
+        "observer_version",
+    }
+    valid_header = (
         payload.get("status") == "COMPLETE"
         and payload.get("provider_target") == "fake"
         and payload.get("gateway_sha") == GATEWAY_MAIN_SHA
-        and isinstance(gate, dict)
+        and set(gate) == expected_gate_keys
+        and gate.get("mode") == "fake"
         and gate.get("passed") is True
         and gate.get("missing") == []
         and gate.get("first_failure") is None
         and gate.get("retry_count") == 0
-        and isinstance(results, list)
-        and results
-        and all(isinstance(item, dict) and item.get("status") == "PASSED" for item in results)
-    ):
+        and tuple(item.get("obligation_id") for item in results if isinstance(item, dict))
+        == expected_ids
+        and isinstance(candidate, dict)
+        and set(candidate) == candidate_keys
+        and isinstance(candidate.get("implementation_sha"), str)
+        and re.fullmatch(r"[0-9a-f]{40}", candidate["implementation_sha"]) is not None
+        and candidate.get("tested_worktree_clean") is True
+        and _tested_source_still_valid(candidate["implementation_sha"])
+        and candidate.get("local_source") == "src/slaif_local_coding"
+        and candidate.get("harness_source") == "scripts/gateway_accounting_rehearsal.py"
+        and candidate.get("route_policy") == LOCAL_ROUTE_POLICY
+        and candidate.get("gateway_sha") == GATEWAY_MAIN_SHA
+        and candidate.get("gateway_app_tree_sha256") == GATEWAY_APP_TREE_SHA256
+        and candidate.get("codex_version") == CODEX_VERSION
+        and candidate.get("codex_binary_sha256") == CODEX_FIXTURE_SHA256
+        and candidate.get("run_provenance") == "fresh_fake_direct_httpx_loopback"
+        and candidate.get("observer_version") == OBSERVATION_VERSION
+    )
+    if not valid_header:
         raise RuntimeError("protected_fake_gate_not_complete")
+    for item, obligation_id in zip(results, expected_ids, strict=True):
+        projection = projection_for(obligation_id)
+        if (
+            set(item)
+            != {
+                "obligation_id",
+                "status",
+                "observed",
+                "relationship",
+                "count_class",
+                "timing",
+                "fixture_hash",
+                "version",
+            }
+            or item.get("obligation_id") != obligation_id
+        ):
+            raise RuntimeError("protected_fake_gate_result_schema")
+        if (
+            item.get("status") != "PASSED"
+            or item.get("observed") is not True
+            or item.get("relationship") != projection.relationship
+            or item.get("count_class") not in {"1", "2", "3-4", "5+"}
+            or item.get("timing")
+            not in {
+                "0-9ms",
+                "10-49ms",
+                "50-99ms",
+                "100-249ms",
+                "250-999ms",
+                "1000ms+",
+                "unknown",
+            }
+            or (item.get("version") != CODEX_VERSION and obligation_id.startswith("C1"))
+        ):
+            raise RuntimeError("protected_fake_gate_result_not_observed")
+    projection_table_value = gate.get("projection_table")
+    if not isinstance(projection_table_value, list) or not all(
+        isinstance(item, dict) for item in projection_table_value
+    ):
+        raise RuntimeError("protected_fake_gate_projection_schema")
+    projection_table = projection_table_value
+    if (
+        not isinstance(projection_table, list)
+        or tuple(item.get("obligation_id") for item in projection_table if isinstance(item, dict))
+        != expected_ids
+    ):
+        raise RuntimeError("protected_fake_gate_projection_schema")
+    for item in projection_table:
+        projection = projection_for(str(item.get("obligation_id")))
+        if set(item) != {
+            "obligation_id",
+            "source_observation_keys",
+            "producer",
+            "proving_test_node_ids",
+            "execution_status",
+            "observed_field_count_class",
+        }:
+            raise RuntimeError("protected_fake_gate_projection_schema")
+        if (
+            tuple(item.get("source_observation_keys", ())) != projection.source_observation_keys
+            or item.get("producer") != projection.producer
+            or tuple(item.get("proving_test_node_ids", ())) != projection.proving_test_node_ids
+            or item.get("execution_status") != "PASSED"
+            or item.get("observed_field_count_class") not in {"1", "2", "3-4", "5+"}
+        ):
+            raise RuntimeError("protected_fake_gate_projection_not_observed")
+    if tuple(gate.get("observation_schema_keys", ())) != FAKE_RESULT_SCHEMA_KEYS:
+        raise RuntimeError("protected_fake_gate_observation_schema")
+    observations = payload.get("runtime_observations")
+    if not isinstance(observations, dict) or tuple(observations) != FAKE_RESULT_SCHEMA_KEYS:
+        raise RuntimeError("protected_fake_gate_runtime_schema")
+    if not all(value is True for value in observations.values()):
+        raise RuntimeError("protected_fake_gate_runtime_not_complete")
+    transport = payload.get("transport_observation")
+    if (
+        not isinstance(transport, dict)
+        or transport.get("observer_version") != OBSERVATION_VERSION
+        or transport.get("ready") is not True
+        or transport.get("matches_fake_provider") is not True
+        or transport.get("inference_attempted_count_class") not in {"2", "3-4", "5+"}
+        or transport.get("inference_terminal_valid_count_class")
+        != transport.get("inference_attempted_count_class")
+    ):
+        raise RuntimeError("protected_fake_gate_transport_not_complete")
 
 
 def _run_direct_composed_rehearsal(
@@ -2912,7 +3152,9 @@ def _run_direct_composed_rehearsal(
     if provider_target not in {"fake", "protected"}:
         raise RuntimeError("provider_target_invalid")
     if provider_target == "protected":
-        _validate_fake_gate(args.fake_result)
+        # 005-s qualifies the observer and fake gate only.  It does not
+        # authorize another protected attempt or a protected credential read.
+        raise RuntimeError("protected_attempt_not_authorized_005s")
     gateway_root = args.gateway_root.resolve()
     gateway_python = Path(args.gateway_python).absolute()
     if (
@@ -2953,12 +3195,18 @@ def _run_direct_composed_rehearsal(
     failure_server: _FailureServer | None = None
     failure_thread: threading.Thread | None = None
     gateway_process: subprocess.Popen[bytes] | None = None
-    candidate_process: subprocess.Popen[bytes] | None = None
+    candidate_runtime: _ObservedCandidate | None = None
+    candidate_runtimes: list[_ObservedCandidate] = []
+    transport_snapshots: list[dict[str, object]] = []
+    tested_implementation_sha = _local_implementation_sha()
+    if _run_command(["git", "-C", str(REPO_ROOT), "status", "--short"]).stdout.strip():
+        raise RuntimeError("implementation_worktree_dirty_before_fake")
     postgres_name: str | None = None
     postgres_image_was_absent = False
     temporary_name: str | None = None
     logs_clean = False
     postgres_removed = False
+    previous_candidate_env: dict[str, str | None] = {}
     result: dict[str, object] = {}
     logs: tuple[Path, ...] = ()
     idless_http_regression: dict[str, object] = {"passed": False}
@@ -2967,17 +3215,22 @@ def _run_direct_composed_rehearsal(
             temporary_name = temporary
             temp_root = Path(temporary)
             gateway_log = temp_root / "gateway.log"
-            candidate_log = temp_root / "candidate.log"
-            logs = (gateway_log, candidate_log)
+            logs = (gateway_log,)
             if provider_target == "fake":
                 fake_server = _FakeQwenServer("synthetic-005k-qwen-token")
                 fake_thread = _start_threaded_server(fake_server)
                 provider_url = f"http://127.0.0.1:{fake_server.server_address[1]}"
                 qwen_key = fake_server.token
-            else:
-                provider_url = "http://127.0.0.1:18020"
-                qwen_key = os.environ[QWEN_KEY_ENV]
+            else:  # protected mode is rejected above before credential access
+                raise RuntimeError("protected_attempt_not_authorized_005s")
             if provider_target == "fake":
+                for name, value in (
+                    (SERVICE_TOKEN_ENV, service_token),
+                    (SIGNING_SECRET_ENV, signing_secret),
+                    (QWEN_KEY_ENV, qwen_key),
+                ):
+                    previous_candidate_env[name] = os.environ.get(name)
+                    os.environ[name] = value
                 with httpx.Client(timeout=10, follow_redirects=False) as http:
                     fake_health = http.get(
                         f"{provider_url}/health",
@@ -3077,18 +3330,14 @@ def _run_direct_composed_rehearsal(
                     encryption_key=synthetic["encryption_key"],
                 )
             )
-            candidate_process = _build_candidate_process(
-                gateway_python,
+            candidate_observer = DirectTransportObserver(httpx.AsyncHTTPTransport(retries=0))
+            candidate_runtime = _build_observed_candidate(
                 fixture.adapter_config,
-                _candidate_environment(service_token, qwen_key, signing_secret),
-                candidate_log,
+                observer=candidate_observer,
             )
-            with httpx.Client(timeout=45, follow_redirects=False) as http:
-                candidate_ready = _wait_status(http, f"http://127.0.0.1:{adapter_port}/readyz")
-                candidate_health = _wait_status(
-                    http,
-                    f"http://127.0.0.1:{adapter_port}/healthz",
-                )
+            candidate_runtimes.append(candidate_runtime)
+            candidate_ready = 200
+            candidate_health = 200
             if candidate_health != 200 or candidate_ready != 200:
                 with httpx.Client(timeout=10, follow_redirects=False) as http:
                     readiness_probe = http.get(f"http://127.0.0.1:{adapter_port}/readyz")
@@ -3157,11 +3406,30 @@ def _run_direct_composed_rehearsal(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
             fake_codex_after = None if fake_server is None else fake_server.snapshot()
+            transport_snapshots.append(candidate_observer.snapshot())
             codex_provider_delta = (
                 _int_fact(fake_codex_after.get("inference_calls"))
                 - _int_fact(fake_codex_before.get("inference_calls"))
                 if fake_codex_before is not None and fake_codex_after is not None
                 else 0
+            )
+            codex_compiler_delta = (
+                _int_fact(fake_codex_after.get("compiler_calls"))
+                - _int_fact(fake_codex_before.get("compiler_calls"))
+                if fake_codex_before is not None and fake_codex_after is not None
+                else 0
+            )
+            codex_inference_delta = (
+                _int_fact(fake_codex_after.get("inbound_inference_calls"))
+                - _int_fact(fake_codex_before.get("inbound_inference_calls"))
+                if fake_codex_before is not None and fake_codex_after is not None
+                else 0
+            )
+            codex_transport = candidate_observer.snapshot()
+            codex_transport_matches = observer_dispatch_matches_fake(
+                codex_transport,
+                compiler_calls=codex_compiler_delta,
+                inference_calls=codex_inference_delta,
             )
             codex_boundary = (
                 fake_codex_after.get("provider_boundary")
@@ -3171,6 +3439,8 @@ def _run_direct_composed_rehearsal(
             codex_facts.update(
                 {
                     "provider_inference_call_count": codex_provider_delta,
+                    "transport_observation": codex_transport,
+                    "transport_dispatch_matches_fake": codex_transport_matches,
                     "call_id_same_hmac": (
                         isinstance(codex_boundary, dict)
                         and "matching" in codex_boundary.get("call_id_relation_classes", ())
@@ -3200,6 +3470,9 @@ def _run_direct_composed_rehearsal(
                     },
                 }
             )
+            if not codex_transport_matches:
+                codex_facts["status"] = "FAILED"
+                codex_facts["failure_reason"] = "transport_observation_mismatch"
             protected_provider_boundary_unobserved = provider_target == "protected"
             if codex_facts["status"] != "PASSED" or protected_provider_boundary_unobserved:
                 _stop_process(gateway_process)
@@ -3220,6 +3493,19 @@ def _run_direct_composed_rehearsal(
                     "status": "FAILED",
                     "provider_target": provider_target,
                     "gateway_sha": GATEWAY_MAIN_SHA,
+                    "candidate_provenance": {
+                        "implementation_sha": tested_implementation_sha,
+                        "tested_worktree_clean": True,
+                        "local_source": "src/slaif_local_coding",
+                        "harness_source": "scripts/gateway_accounting_rehearsal.py",
+                        "route_policy": LOCAL_ROUTE_POLICY,
+                        "gateway_sha": GATEWAY_MAIN_SHA,
+                        "gateway_app_tree_sha256": GATEWAY_APP_TREE_SHA256,
+                        "codex_version": CODEX_VERSION,
+                        "codex_binary_sha256": CODEX_FIXTURE_SHA256,
+                        "run_provenance": "fresh_fake_direct_httpx_loopback",
+                        "observer_version": OBSERVATION_VERSION,
+                    },
                     "codex": codex_facts,
                     "protected_stop_reason": (
                         "protected_provider_boundary_unobserved"
@@ -3228,6 +3514,7 @@ def _run_direct_composed_rehearsal(
                     ),
                     "protected_later_inference": False,
                     "fake_provider": fake_codex_after,
+                    "transport_observation": candidate_observer.snapshot(),
                     "fake_idless_http_regression": idless_http_regression,
                     "topology_observation": {
                         "codex_gateway_local_provider": True,
@@ -3236,6 +3523,17 @@ def _run_direct_composed_rehearsal(
                     "cleanup_observation": {},
                 }
                 return result
+            if candidate_runtime is not None:
+                candidate_runtime.stop()
+                candidate_runtime = None
+            vision_recorder = VisionOutboundRecorder(fixture, httpx.AsyncHTTPTransport(retries=0))
+            vision_observer = DirectTransportObserver(vision_recorder)
+            candidate_runtime = _build_observed_candidate(
+                fixture.adapter_config,
+                observer=vision_observer,
+                vision_recorder=vision_recorder,
+            )
+            candidate_runtimes.append(candidate_runtime)
             previous_public_key = os.environ.get(PUBLIC_KEY_ENV)
             os.environ[PUBLIC_KEY_ENV] = seeded["plaintext_key"]
             try:
@@ -3247,12 +3545,24 @@ def _run_direct_composed_rehearsal(
                         fixture,
                         timeout_seconds=300,
                         metrics_sampler=lambda: metrics_client.get("/metrics").text,
+                        outbound_recorder=vision_recorder,
                     )
             finally:
                 if previous_public_key is None:
                     os.environ.pop(PUBLIC_KEY_ENV, None)
                 else:
                     os.environ[PUBLIC_KEY_ENV] = previous_public_key
+            transport_snapshots.append(vision_observer.snapshot())
+            if candidate_runtime is not None:
+                candidate_runtime.stop()
+                candidate_runtime = None
+            post_vision_observer = DirectTransportObserver(httpx.AsyncHTTPTransport(retries=0))
+            candidate_runtime = _build_observed_candidate(
+                fixture.adapter_config,
+                observer=post_vision_observer,
+            )
+            candidate_runtimes.append(candidate_runtime)
+            transport_snapshots.append(post_vision_observer.snapshot())
             vision_summary = vision_diagnostic_summary(vision_facts)
             vision_metrics = vision_summary.get("metrics")
             vision_metrics_dict = vision_metrics if isinstance(vision_metrics, dict) else {}
@@ -3823,10 +4133,64 @@ def _run_direct_composed_rehearsal(
                 "zero_public_fence": constitution_rows_after["reservation_count"]
                 == constitution_rows_before["reservation_count"] + 3,
             }
+            if candidate_runtime is not None:
+                transport_snapshots[-1] = candidate_runtime.observer.snapshot()
+            transport_observation = merge_observer_snapshots(*transport_snapshots)
+            final_fake_snapshot = fake_server.snapshot() if fake_server is not None else {}
+            transport_observation["matches_fake_provider"] = (
+                fake_server is not None
+                and observer_dispatch_matches_fake(
+                    transport_observation,
+                    compiler_calls=(
+                        _int_fact(final_fake_snapshot.get("compiler_calls"))
+                        - _int_fact(fake_codex_before.get("compiler_calls"))
+                    ),
+                    inference_calls=(
+                        _int_fact(final_fake_snapshot.get("inbound_inference_calls"))
+                        - _int_fact(fake_codex_before.get("inbound_inference_calls"))
+                    ),
+                )
+            )
+            transport_observation["phase_observations"] = tuple(
+                {
+                    key: value
+                    for key, value in snapshot.items()
+                    if key
+                    in {
+                        "attempted_count_class",
+                        "compiler_attempted_count_class",
+                        "inference_attempted_count_class",
+                        "inference_terminal_valid_count_class",
+                        "ready",
+                    }
+                }
+                for snapshot in transport_snapshots
+            )
+            transport_observation["fake_compiler_delta_class"] = count_class(
+                _int_fact(final_fake_snapshot.get("compiler_calls"))
+                - _int_fact(fake_codex_before.get("compiler_calls"))
+            )
+            transport_observation["fake_inference_delta_class"] = count_class(
+                _int_fact(final_fake_snapshot.get("inference_calls"))
+                - _int_fact(fake_codex_before.get("inference_calls"))
+            )
             result = {
                 "status": "PASSED",
                 "provider_target": provider_target,
                 "gateway_sha": GATEWAY_MAIN_SHA,
+                "candidate_provenance": {
+                    "implementation_sha": tested_implementation_sha,
+                    "tested_worktree_clean": True,
+                    "local_source": "src/slaif_local_coding",
+                    "harness_source": "scripts/gateway_accounting_rehearsal.py",
+                    "route_policy": LOCAL_ROUTE_POLICY,
+                    "gateway_sha": GATEWAY_MAIN_SHA,
+                    "gateway_app_tree_sha256": GATEWAY_APP_TREE_SHA256,
+                    "codex_version": CODEX_VERSION,
+                    "codex_binary_sha256": CODEX_FIXTURE_SHA256,
+                    "run_provenance": "fresh_fake_direct_httpx_loopback",
+                    "observer_version": OBSERVATION_VERSION,
+                },
                 "gateway_health_status": gateway_health,
                 "gateway_ready_status": gateway_ready,
                 "candidate_health_status": candidate_health,
@@ -3870,6 +4234,7 @@ def _run_direct_composed_rehearsal(
                 "gateway_rejects": gateway_rejects,
                 "failure_observation": failure_observation,
                 "compiler_observation": compiler_observation,
+                "transport_observation": transport_observation,
                 "topology_observation": topology_observation,
                 "compiler_attempt_delta": compiler_after - compiler_before,
                 "cache_hits": cache_hits,
@@ -3913,9 +4278,15 @@ def _run_direct_composed_rehearsal(
             )
     finally:
         _stop_process(gateway_process)
-        _stop_process(candidate_process)
+        for runtime in reversed(candidate_runtimes):
+            runtime.stop()
         _stop_threaded_server(fake_server, fake_thread)
         _stop_threaded_server(failure_server, failure_thread)
+        for name, previous in previous_candidate_env.items():
+            if previous is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous
         postgres_removed, _postgres_image_removed = _docker_cleanup(
             postgres_name, postgres_image_was_absent
         )
@@ -3943,9 +4314,9 @@ def _run_direct_composed_rehearsal(
         result["logs_secret_free"] = logs_clean
         result["cleanup_observation"] = {
             "processes": all(
-                process is None or process.poll() is not None
-                for process in (gateway_process, candidate_process)
+                process is None or process.poll() is not None for process in (gateway_process,)
             )
+            and all(not runtime.alive() for runtime in candidate_runtimes)
             and not any(
                 thread is not None and thread.is_alive() for thread in (fake_thread, failure_thread)
             ),

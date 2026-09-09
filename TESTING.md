@@ -95,6 +95,20 @@ protected C1.1 boundary and does not establish protected acceptance. The
 harness now stops before later protected inference when that independent
 provider boundary is unobserved; no protected retry is authorized.
 
+The 005-s round does not retry protected traffic. Its fake-only observer
+qualification uses the existing Local `create_app(settings, transport=...)`
+seam and a direct HTTPX transport inside the disposable candidate; it adds no
+relay and does not mutate Qwen. The observer records bounded attempted,
+dispatched, responded, and completed facts, separates compiler from public
+inference, and independently cross-checks fake-provider loopback counters.
+Bounded SSE first-byte, event, usage, terminal, closure, overflow, malformed,
+cancel, and disconnect facts remain distinct. Missing or lost observer
+readiness stops the next dispatch before credentials or inference. The fake
+gate binds ordered obligations and projections to candidate source/harness
+identity, route policy, Gateway pin/app tree, Codex version/checksum,
+implementation SHA, and run provenance; only a report-only child may reuse
+that tested implementation.
+
 ## Image-policy tests
 
 Cover nested `input_image` and `image_url` items for Responses and Chat:

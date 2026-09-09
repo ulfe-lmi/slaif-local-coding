@@ -350,3 +350,17 @@ without a provider relay or protected-service mutation, so protected C1.1
 failed closed and the protected matrix is not accepted. The runner now stops
 before later protected inference when that boundary is unavailable; no
 protected retry, cutover, or release is claimed.
+
+The 005-s runner does not retry protected traffic. Its fake-only qualification
+uses the existing Local `create_app(settings, transport=...)` seam with a
+direct HTTPX transport observer inside the disposable candidate; it adds no
+relay and makes no protected-service mutation. The observer keeps attempted,
+dispatched, responded, and completed states separate, classifies compiler and
+public inference independently, and parses only bounded event/usage facts
+while passing the same request and stream through to the real loopback fake
+transport. Its facts are cross-checked with independent fake-server counters
+and bound to the exact ordered projection table, candidate source/harness
+identity, route policy, Gateway pin/app tree, Codex version/checksum,
+implementation SHA, and run provenance. Observer readiness and candidate,
+identity, and budget prerequisites are established before any credential read
+or provider dispatch; a lost observer stops later dispatches.

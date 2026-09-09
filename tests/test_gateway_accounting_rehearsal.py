@@ -9,8 +9,25 @@ from typing import Any
 import httpx
 import pytest
 
-from scripts.gateway_accounting_rehearsal import _FakeQwenServer, _validate_fake_gate
+from scripts.gateway_accounting_rehearsal import (
+    CODEX_FIXTURE_SHA256,
+    CODEX_VERSION,
+    GATEWAY_APP_TREE_SHA256,
+    LOCAL_ROUTE_POLICY,
+    OBSERVATION_VERSION,
+    _FakeQwenServer,
+    _local_implementation_sha,
+    _validate_fake_gate,
+)
 from scripts.local_qwen_provider_differential import SSEFacts
+from tests.helpers.acceptance_harness import (
+    ACCEPTANCE_MANIFEST,
+    FAKE_RESULT_SCHEMA_KEYS,
+    build_obligation_gate,
+    make_result,
+    projection_for,
+    projection_table_safe_dict,
+)
 from tests.helpers.gateway_accounting_rehearsal import (
     GATEWAY_MAIN_SHA,
     STREAM_FAILURE_ORDER,
@@ -477,7 +494,7 @@ def test_strict_fake_resume_image_history_starts_a_new_function_turn() -> None:
 
 
 def test_protected_mode_requires_complete_same_pin_fake_gate(tmp_path: Any) -> None:
-    valid = {
+    incomplete = {
         "status": "COMPLETE",
         "provider_target": "fake",
         "gateway_sha": GATEWAY_MAIN_SHA,
@@ -490,9 +507,67 @@ def test_protected_mode_requires_complete_same_pin_fake_gate(tmp_path: Any) -> N
         },
     }
     path = tmp_path / "fake-result.json"
-    path.write_text(json.dumps(valid), encoding="utf-8")
-    _validate_fake_gate(path)
-    valid["acceptance_gate"]["passed"] = False  # type: ignore[index]
-    path.write_text(json.dumps(valid), encoding="utf-8")
     with pytest.raises(RuntimeError, match="protected_fake_gate_not_complete"):
+        path.write_text(json.dumps(incomplete), encoding="utf-8")
+        _validate_fake_gate(path)
+
+
+def test_protected_gate_accepts_only_complete_projected_current_fake_result(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "scripts.gateway_accounting_rehearsal._tested_source_still_valid", lambda _sha: True
+    )
+    results = [
+        make_result(
+            item.obligation_id,
+            status="PASSED",
+            observed=True,
+            relationship=projection_for(item.obligation_id).relationship,
+            count=2,
+            version=CODEX_VERSION if item.obligation_id.startswith("C1") else None,
+        )
+        for item in ACCEPTANCE_MANIFEST
+        if item.mode in {"both", "fake"}
+    ]
+    gate = build_obligation_gate("fake", results).safe_dict()
+    observations = {key: True for key in FAKE_RESULT_SCHEMA_KEYS}
+    gate["projection_table"] = projection_table_safe_dict(
+        observations, {item.obligation_id: "PASSED" for item in results}
+    )
+    gate["observation_schema_keys"] = FAKE_RESULT_SCHEMA_KEYS
+    payload = {
+        "status": "COMPLETE",
+        "provider_target": "fake",
+        "gateway_sha": GATEWAY_MAIN_SHA,
+        "candidate_provenance": {
+            "implementation_sha": _local_implementation_sha(),
+            "tested_worktree_clean": True,
+            "local_source": "src/slaif_local_coding",
+            "harness_source": "scripts/gateway_accounting_rehearsal.py",
+            "route_policy": LOCAL_ROUTE_POLICY,
+            "gateway_sha": GATEWAY_MAIN_SHA,
+            "gateway_app_tree_sha256": GATEWAY_APP_TREE_SHA256,
+            "codex_version": CODEX_VERSION,
+            "codex_binary_sha256": CODEX_FIXTURE_SHA256,
+            "run_provenance": "fresh_fake_direct_httpx_loopback",
+            "observer_version": OBSERVATION_VERSION,
+        },
+        "runtime_observations": observations,
+        "transport_observation": {
+            "observer_version": OBSERVATION_VERSION,
+            "ready": True,
+            "matches_fake_provider": True,
+            "inference_attempted_count_class": "2",
+            "inference_terminal_valid_count_class": "2",
+        },
+        "acceptance_gate": gate,
+    }
+    path = tmp_path / "fake-result.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    _validate_fake_gate(path)
+
+    payload["acceptance_gate"]["results"][1]["obligation_id"] = "C1.1"  # type: ignore[index]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="protected_fake_gate"):
         _validate_fake_gate(path)
