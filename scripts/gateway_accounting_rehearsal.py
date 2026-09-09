@@ -3971,6 +3971,39 @@ def _run_direct_composed_rehearsal_impl(
             gateway_log = temp_root / "gateway.log"
             logs = (gateway_log,)
             synthetic_provider = provider_target == "fake" or protected_hooks is not None
+            if provider_target == "fake":
+                # Run the healthy synthetic protected branch before this outer
+                # candidate binds 18031.  The two candidate lifetimes must be
+                # serial; a nested bind would be an invalid qualification.
+                protected_mode_synthetic = run_actual_protected_mode_conformance(
+                    args,
+                    preflight=preflight,
+                    dependencies=ProtectedRuntimeHooks(
+                        host_preflight=lambda: {
+                            "vision_active": True,
+                            "has_18020": True,
+                            "vision_pid": PROTECTED_VISION_PID,
+                            "vision_start_wall": PROTECTED_VISION_START,
+                            "vision_restarts": "0",
+                            "worktree_count": 7,
+                            "text_inactive": True,
+                            "has_18021": False,
+                            "has_18031": False,
+                        },
+                        main_pid=lambda: PROTECTED_VISION_PID,
+                        credential_source=lambda _pid: "synthetic-protected-key",
+                    ),
+                )
+                protected_conformance = protected_mode_synthetic.get("protected_conformance")
+                protected_accumulator = protected_mode_synthetic.get("run_accumulator")
+                if (
+                    not isinstance(protected_conformance, dict)
+                    or protected_conformance.get("all_selected_rows_serialized") is not True
+                    or protected_conformance.get("implementation_reached") is not True
+                    or not isinstance(protected_accumulator, dict)
+                    or protected_accumulator.get("first_failure") is not None
+                ):
+                    raise RuntimeError("protected_mode_conformance_incomplete")
             if synthetic_provider:
                 fake_server = _FakeQwenServer("synthetic-005k-qwen-token")
                 fake_thread = _start_threaded_server(fake_server)
@@ -4149,42 +4182,6 @@ def _run_direct_composed_rehearsal_impl(
                 raise RuntimeError(
                     f"candidate_not_ready_{candidate_health}_{candidate_ready}_{detail}"
                 )
-            if provider_target == "fake":
-                # The healthy actual Gateway/Local/fake-provider run above is
-                # the shared-path evidence.  This separate call exercises the
-                # real runner wrapper's protected branch with an injected
-                # preflight stop and no protected side effects.
-                outer_fake_key = os.environ.pop(QWEN_KEY_ENV, None)
-                try:
-                    protected_mode_synthetic = run_actual_protected_mode_conformance(
-                        args,
-                        preflight=preflight,
-                        dependencies=ProtectedRuntimeHooks(
-                            host_preflight=lambda: {
-                                "vision_active": True,
-                                "has_18020": True,
-                                "vision_pid": PROTECTED_VISION_PID,
-                                "vision_start_wall": PROTECTED_VISION_START,
-                                "vision_restarts": "0",
-                                "worktree_count": 7,
-                                "text_inactive": True,
-                                "has_18021": False,
-                                "has_18031": False,
-                            },
-                            main_pid=lambda: PROTECTED_VISION_PID,
-                            credential_source=lambda _pid: "synthetic-protected-key",
-                        ),
-                    )
-                finally:
-                    os.environ.pop(QWEN_KEY_ENV, None)
-                    if outer_fake_key is not None:
-                        os.environ[QWEN_KEY_ENV] = outer_fake_key
-                protected_conformance = protected_mode_synthetic.get("protected_conformance")
-                if (
-                    not isinstance(protected_conformance, dict)
-                    or protected_conformance.get("all_selected_rows_serialized") is not True
-                ):
-                    raise RuntimeError("protected_mode_conformance_rows_missing")
             gateway_process = _build_gateway_process(
                 gateway_python, gateway_root, gateway_port, gateway_env, gateway_log
             )
