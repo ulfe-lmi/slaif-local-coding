@@ -4452,13 +4452,19 @@ def _run_direct_composed_rehearsal_impl(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
             fake_before = None if fake_server is None else fake_server.snapshot()
-            stream_observer_before = candidate_observer.snapshot()
+            active_stream_observer = (
+                post_vision_observer if post_vision_observer is not None else candidate_observer
+            )
+            stream_observer_before = active_stream_observer.snapshot()
             stream_status, stream_sse, stream_timing, stream_chunk_count = _timed_public_stream(
                 gateway_url, seeded["plaintext_key"], stream_body
             )
-            stream_observer_after = candidate_observer.snapshot()
+            stream_observer_after = active_stream_observer.snapshot()
             accumulator.capture_observer(
-                stream_observer_after, phase="codex", ordinal=2, lifetime_id="codex"
+                stream_observer_after,
+                phase="codex",
+                ordinal=2,
+                lifetime_id="post_vision",
             )
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 stream_metrics_after = _adapter_metrics(http, adapter_port)
