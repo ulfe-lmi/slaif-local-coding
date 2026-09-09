@@ -31,7 +31,7 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -136,6 +136,8 @@ CODEX_FIXTURE_SHA256 = "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd0
 GATEWAY_APP_TREE_SHA256 = "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57"
 LOCAL_ROUTE_POLICY = "qwen38-vision-codex/retain_newest/signed_identity_v1"
 OBSERVATION_VERSION = "direct-httpx-v2"
+PROTECTED_VISION_PID = "23961"
+PROTECTED_VISION_START = "Sun 2026-09-06 18:57:26 CEST"
 CODEX_0149_DEFAULT = Path(
     "/synology/homes/janezp/.codex/packages/standalone/releases/"
     "0.149.0-x86_64-unknown-linux-musl/bin/codex"
@@ -1356,7 +1358,7 @@ def _protected_snapshot() -> dict[str, object]:
             "--user",
             "show",
             "qwen-serving-vision.service",
-            "--property=ActiveState,SubState,MainPID,ExecMainStartTimestampMonotonic",
+            "--property=ActiveState,SubState,MainPID,ExecMainStartTimestampMonotonic,ExecMainStartTimestamp,NRestarts",
             "--no-pager",
         ]
     )
@@ -1371,6 +1373,16 @@ def _protected_snapshot() -> dict[str, object]:
         ]
     )
     listeners = _run_command(["ss", "-ltnp"])
+    qwen_status = _run_command(
+        [
+            "git",
+            "-C",
+            "/synology/homes/janezp/qwen-serving",
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+        ]
+    )
     values: dict[str, str] = {}
     for line in unit.stdout.splitlines():
         if "=" in line:
@@ -1387,11 +1399,110 @@ def _protected_snapshot() -> dict[str, object]:
         and values.get("SubState") == "running",
         "vision_pid": values.get("MainPID"),
         "vision_start": values.get("ExecMainStartTimestampMonotonic"),
+        "vision_start_wall": values.get("ExecMainStartTimestamp"),
+        "vision_restarts": values.get("NRestarts"),
         "text_inactive": text_values.get("ActiveState") == "inactive"
         and text_values.get("MainPID") == "0",
         "has_18020": bool(re.search(r":18020\b", listener_text)),
         "has_18021": bool(re.search(r":18021\b", listener_text)),
         "has_18031": bool(re.search(r":18031\b", listener_text)),
+        "worktree_count": len(tuple(line for line in qwen_status.stdout.splitlines() if line)),
+    }
+
+
+def _protected_main_pid() -> str:
+    """Resolve only the active vision unit's MainPID, without exposing it."""
+    result = _run_command(
+        ["systemctl", "--user", "show", "qwen-serving-vision.service", "-p", "MainPID", "--value"]
+    )
+    pid = result.stdout.strip()
+    if result.returncode != 0 or not re.fullmatch(r"[1-9][0-9]{0,8}", pid):
+        raise RuntimeError("protected_vision_mainpid_unavailable")
+    return pid
+
+
+def _read_protected_qwen_key(expected_pid: str) -> str:
+    """Read exactly one protected VLLM_API_KEY entry from the verified MainPID."""
+    if expected_pid != _protected_main_pid():
+        raise RuntimeError("protected_vision_identity_changed")
+    path = Path("/proc") / expected_pid / "environ"
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        raise RuntimeError("protected_qwen_key_unavailable") from None
+    try:
+        raw = bytearray()
+        while len(raw) <= 1_048_576:
+            chunk = os.read(descriptor, 65_537)
+            if not chunk:
+                break
+            raw.extend(chunk)
+        if len(raw) > 1_048_576:
+            raise RuntimeError("protected_qwen_environment_too_large")
+        entries = [item for item in bytes(raw).split(b"\0") if item.startswith(b"VLLM_API_KEY=")]
+        if len(entries) != 1 or entries[0] == b"VLLM_API_KEY=":
+            raise RuntimeError("protected_qwen_key_unavailable")
+        try:
+            value = entries[0].removeprefix(b"VLLM_API_KEY=").decode("ascii")
+        except UnicodeDecodeError:
+            raise RuntimeError("protected_qwen_key_unavailable") from None
+        if not value or any(char in value for char in "\r\n"):
+            raise RuntimeError("protected_qwen_key_unavailable")
+        return value
+    except OSError:
+        raise RuntimeError("protected_qwen_key_unavailable") from None
+    finally:
+        os.close(descriptor)
+
+
+def _observer_delta(before: dict[str, object], after: dict[str, object]) -> dict[str, object]:
+    """Return fixed facts for newly observed Local-to-provider requests."""
+    before_records = before.get("records", ())
+    after_records = after.get("records", ())
+    if not isinstance(before_records, (list, tuple)) or not isinstance(
+        after_records, (list, tuple)
+    ):
+        return {
+            "inference_attempted_count": 0,
+            "inference_dispatched_count": 0,
+            "compiler_dispatched_count": 0,
+            "provider_boundary_observed": False,
+            "provider_lifecycle_valid": False,
+            "provider_terminal": False,
+            "provider_boundary": {},
+        }
+    new_records = tuple(after_records[len(before_records) :])
+    inference = tuple(
+        item for item in new_records if isinstance(item, dict) and item.get("kind") == "inference"
+    )
+    compiler = tuple(
+        item for item in new_records if isinstance(item, dict) and item.get("kind") == "compiler"
+    )
+    dispatched_inference = tuple(item for item in inference if item.get("dispatched") is True)
+    terminal_inference = tuple(
+        item for item in dispatched_inference if item.get("terminal_valid") is True
+    )
+    boundary = {
+        "call_count_class": count_class(len(dispatched_inference)),
+        "lifecycle_valid": bool(dispatched_inference)
+        and len(terminal_inference) == len(dispatched_inference),
+        "terminal": bool(dispatched_inference)
+        and len(terminal_inference) == len(dispatched_inference),
+        "terminality_valid": bool(dispatched_inference)
+        and len(terminal_inference) == len(dispatched_inference),
+        "independent_from_ledger": True,
+    }
+    return {
+        "inference_attempted_count": len(inference),
+        "inference_dispatched_count": len(dispatched_inference),
+        "compiler_dispatched_count": sum(item.get("dispatched") is True for item in compiler),
+        "provider_boundary_observed": bool(dispatched_inference),
+        "provider_lifecycle_valid": bool(dispatched_inference)
+        and len(terminal_inference) == len(dispatched_inference),
+        "provider_terminal": bool(dispatched_inference)
+        and len(terminal_inference) == len(dispatched_inference),
+        "provider_boundary": boundary,
     }
 
 
@@ -2761,7 +2872,9 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
             observations[key] = value if isinstance(value, bool) else bool(value)
 
     codex = result.get("codex")
-    provider = result.get("fake_provider")
+    provider = result.get("provider_observation")
+    if not isinstance(provider, dict):
+        provider = result.get("fake_provider")
     boundary = provider.get("provider_boundary") if isinstance(provider, dict) else None
     if isinstance(codex, dict):
         codex_passed = codex.get("status") == "PASSED"
@@ -2811,8 +2924,9 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
     transport = result.get("transport_observation")
     if isinstance(transport, dict):
         put(
-            "provider.transport_boundary_matches_fake",
-            transport.get("matches_fake_provider") is True,
+            "provider.transport_boundary_observed",
+            transport.get("provider_boundary_observed") is True
+            or transport.get("matches_fake_provider") is True,
         )
     idless_regression = result.get("fake_idless_http_regression")
     if isinstance(idless_regression, dict):
@@ -2944,7 +3058,10 @@ def _acceptance_gate(
 ) -> tuple[dict[str, object], tuple[dict[str, object], ...]]:
     """Project only observed runtime facts into the ordered fake manifest."""
     observations = _runtime_observations(result)
-    selected_items = tuple(item for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "fake"})
+    mode: Literal["fake", "protected"] = (
+        "protected" if result.get("provider_target") == "protected" else "fake"
+    )
+    selected_items = tuple(item for item in ACCEPTANCE_MANIFEST if item.mode in {"both", mode})
     always_execute = {"C4.9", "C5.2", "C5.3"}
     statuses: dict[str, ObligationResult] = {}
     for item in selected_items:
@@ -2980,7 +3097,7 @@ def _acceptance_gate(
         None,
     )
     gate = build_obligation_gate(
-        "fake", statuses.values(), first_failure=first_failure, retry_count=0
+        mode, statuses.values(), first_failure=first_failure, retry_count=0
     )
     gate_dict = gate.safe_dict()
     gate_dict["projection_table"] = projection_table_safe_dict(
@@ -3065,10 +3182,16 @@ def _tested_source_still_valid(tested_sha: str) -> bool:
     report = _run_command(["git", "-C", str(root), "show", f"{current}:{report_path}"])
     if report.returncode != 0:
         return False
-    return (
-        report.stdout.count(f"Implementation head SHA: {tested_sha}") == 1
-        and report.stdout.count("Report publication commit: SELF") == 1
+    implementation_markers = re.findall(
+        rf"(?m)^[ \t]*(?:[-*][ \t]+)?Implementation head SHA:[ \t]+"
+        rf"(?:`({tested_sha})`|({tested_sha}))[ \t]*$",
+        report.stdout,
     )
+    self_markers = re.findall(
+        r"(?m)^[ \t]*(?:[-*][ \t]+)?Report publication commit:[ \t]+SELF[ \t]*$",
+        report.stdout,
+    )
+    return len(implementation_markers) == 1 and len(self_markers) == 1
 
 
 def _read_fake_gate_file(path: Path) -> bytes:
@@ -3348,9 +3471,7 @@ def _run_direct_composed_rehearsal(
     if provider_target not in {"fake", "protected"}:
         raise RuntimeError("provider_target_invalid")
     if provider_target == "protected":
-        # 005-s qualifies the observer and fake gate only.  It does not
-        # authorize another protected attempt or a protected credential read.
-        raise RuntimeError("protected_attempt_not_authorized_005s")
+        _validate_fake_gate(args.fake_result)
     gateway_root = args.gateway_root.resolve()
     gateway_python = Path(args.gateway_python).absolute()
     if (
@@ -3367,17 +3488,26 @@ def _run_direct_composed_rehearsal(
         raise RuntimeError("codex_fixture_mismatch")
     validator_factory = _gateway_stream_validator_factory(gateway_root)
     protected_before = _protected_snapshot() if provider_target == "protected" else None
+    qwen_key = ""
     if provider_target == "protected":
-        if not os.environ.get(QWEN_KEY_ENV):
-            raise RuntimeError("protected_qwen_key_unavailable")
         if (
             not protected_before
             or not protected_before["vision_active"]
             or not protected_before["has_18020"]
+            or protected_before["vision_pid"] != PROTECTED_VISION_PID
+            or protected_before["vision_start_wall"] != PROTECTED_VISION_START
+            or protected_before["vision_restarts"] != "0"
+            or protected_before["worktree_count"] != 7
         ):
             raise RuntimeError("protected_vision_fixture_not_active")
         if not protected_before["text_inactive"] or protected_before["has_18021"]:
             raise RuntimeError("protected_fixture_precondition_failed")
+        protected_pid = _protected_main_pid()
+        if protected_pid != protected_before["vision_pid"]:
+            raise RuntimeError("protected_vision_identity_changed")
+        if QWEN_KEY_ENV in os.environ:
+            raise RuntimeError("protected_external_key_present")
+        qwen_key = _read_protected_qwen_key(protected_pid)
     gateway_port = _free_loopback_port()
     adapter_port = _free_loopback_port(18031)
     if adapter_port != 18031:
@@ -3407,6 +3537,8 @@ def _run_direct_composed_rehearsal(
     result: dict[str, object] = {}
     logs: tuple[Path, ...] = ()
     idless_http_regression: dict[str, object] = {"passed": False}
+    protected_health_status: int | None = None
+    protected_models_status: int | None = None
     try:
         with tempfile.TemporaryDirectory(prefix="slaif-005k-composed-") as temporary:
             temporary_name = temporary
@@ -3418,16 +3550,20 @@ def _run_direct_composed_rehearsal(
                 fake_thread = _start_threaded_server(fake_server)
                 provider_url = f"http://127.0.0.1:{fake_server.server_address[1]}"
                 qwen_key = fake_server.token
-            else:  # protected mode is rejected above before credential access
-                raise RuntimeError("protected_attempt_not_authorized_005s")
+            else:
+                provider_url = "http://127.0.0.1:18020"
+            for name, value in (
+                (SERVICE_TOKEN_ENV, service_token),
+                (SIGNING_SECRET_ENV, signing_secret),
+            ):
+                previous_candidate_env[name] = os.environ.get(name)
+                os.environ[name] = value
             if provider_target == "fake":
-                for name, value in (
-                    (SERVICE_TOKEN_ENV, service_token),
-                    (SIGNING_SECRET_ENV, signing_secret),
-                    (QWEN_KEY_ENV, qwen_key),
-                ):
-                    previous_candidate_env[name] = os.environ.get(name)
-                    os.environ[name] = value
+                previous_candidate_env[QWEN_KEY_ENV] = os.environ.get(QWEN_KEY_ENV)
+            else:
+                previous_candidate_env[QWEN_KEY_ENV] = None
+            os.environ[QWEN_KEY_ENV] = qwen_key
+            if provider_target == "fake":
                 with httpx.Client(timeout=10, follow_redirects=False) as http:
                     fake_health = http.get(
                         f"{provider_url}/health",
@@ -3436,6 +3572,22 @@ def _run_direct_composed_rehearsal(
                 if fake_health.status_code != 200:
                     raise RuntimeError("fake_provider_not_ready")
                 idless_http_regression = _run_fake_idless_http_regression()
+            else:
+                with httpx.Client(timeout=15, follow_redirects=False) as http:
+                    protected_health = http.get(
+                        f"{provider_url}/health",
+                        headers={"Authorization": f"Bearer {qwen_key}"},
+                    )
+                    protected_models = http.get(
+                        f"{provider_url}/v1/models",
+                        headers={"Authorization": f"Bearer {qwen_key}"},
+                    )
+                protected_health_status = protected_health.status_code
+                protected_models_status = protected_models.status_code
+                if protected_health_status != 200:
+                    raise RuntimeError("protected_health_not_ready")
+                if protected_models_status != 200:
+                    raise RuntimeError("protected_models_not_ready")
             failure_server = _FailureServer()
             failure_thread = _start_threaded_server(failure_server)
             fixture = write_vision_fixture(temp_root / "fixture", gateway_url + "/v1", QWEN_KEY_ENV)
@@ -3589,6 +3741,7 @@ def _run_direct_composed_rehearsal(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
             fake_codex_before = None if fake_server is None else fake_server.snapshot()
+            codex_observer_before = candidate_observer.snapshot()
             preflight_flags = preflight.get("feature_flags", ())
             codex_facts = _run_fake_codex_turn(
                 codex,
@@ -3607,35 +3760,51 @@ def _run_direct_composed_rehearsal(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
             fake_codex_after = None if fake_server is None else fake_server.snapshot()
-            transport_snapshots.append(candidate_observer.snapshot())
+            codex_observer_after = candidate_observer.snapshot()
+            transport_snapshots.append(codex_observer_after)
             codex_provider_delta = (
                 _int_fact(fake_codex_after.get("inference_calls"))
                 - _int_fact(fake_codex_before.get("inference_calls"))
                 if fake_codex_before is not None and fake_codex_after is not None
-                else 0
+                else _int_fact(
+                    _observer_delta(codex_observer_before, codex_observer_after).get(
+                        "inference_dispatched_count"
+                    )
+                )
             )
             codex_compiler_delta = (
                 _int_fact(fake_codex_after.get("compiler_calls"))
                 - _int_fact(fake_codex_before.get("compiler_calls"))
                 if fake_codex_before is not None and fake_codex_after is not None
-                else 0
+                else _int_fact(
+                    _observer_delta(codex_observer_before, codex_observer_after).get(
+                        "compiler_dispatched_count"
+                    )
+                )
             )
             codex_inference_delta = (
                 _int_fact(fake_codex_after.get("inbound_inference_calls"))
                 - _int_fact(fake_codex_before.get("inbound_inference_calls"))
                 if fake_codex_before is not None and fake_codex_after is not None
-                else 0
+                else codex_provider_delta
             )
-            codex_transport = candidate_observer.snapshot()
-            codex_transport_matches = observer_dispatch_matches_fake(
-                codex_transport,
-                compiler_calls=codex_compiler_delta,
-                inference_calls=codex_inference_delta,
+            codex_transport = codex_observer_after
+            codex_delta = _observer_delta(codex_observer_before, codex_observer_after)
+            codex_transport_matches = (
+                observer_dispatch_matches_fake(
+                    codex_transport,
+                    compiler_calls=codex_compiler_delta,
+                    inference_calls=codex_inference_delta,
+                )
+                if fake_server is not None
+                else codex_delta["provider_boundary_observed"] is True
+                and codex_delta["provider_lifecycle_valid"] is True
+                and codex_delta["provider_terminal"] is True
             )
             codex_boundary = (
                 fake_codex_after.get("provider_boundary")
                 if isinstance(fake_codex_after, dict)
-                else None
+                else codex_delta.get("provider_boundary")
             )
             codex_facts.update(
                 {
@@ -3674,7 +3843,9 @@ def _run_direct_composed_rehearsal(
             if not codex_transport_matches:
                 codex_facts["status"] = "FAILED"
                 codex_facts["failure_reason"] = "transport_observation_mismatch"
-            protected_provider_boundary_unobserved = provider_target == "protected"
+            protected_provider_boundary_unobserved = (
+                provider_target == "protected" and not codex_transport_matches
+            )
             if codex_facts["status"] != "PASSED" or protected_provider_boundary_unobserved:
                 _stop_process(gateway_process)
                 logs_clean = _secret_free_logs(
@@ -3715,6 +3886,11 @@ def _run_direct_composed_rehearsal(
                     ),
                     "protected_later_inference": False,
                     "fake_provider": fake_codex_after,
+                    "provider_observation": (
+                        {"provider_boundary": codex_boundary}
+                        if provider_target == "protected"
+                        else None
+                    ),
                     "transport_observation": candidate_observer.snapshot(),
                     "fake_idless_http_regression": idless_http_regression,
                     "topology_observation": {
@@ -3925,9 +4101,11 @@ def _run_direct_composed_rehearsal(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
             fake_before = None if fake_server is None else fake_server.snapshot()
+            stream_observer_before = candidate_observer.snapshot()
             stream_status, stream_sse, stream_timing, stream_chunk_count = _timed_public_stream(
                 gateway_url, seeded["plaintext_key"], stream_body
             )
+            stream_observer_after = candidate_observer.snapshot()
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 stream_metrics_after = _adapter_metrics(http, adapter_port)
             stream_rows_after = asyncio.run(
@@ -3975,6 +4153,7 @@ def _run_direct_composed_rehearsal(
             provider_boundary_observed = local_request_delta > 0
             provider_lifecycle_valid = False
             provider_terminal = False
+            provider_observation: dict[str, object] = {}
             if fake_server is not None and fake_before is not None:
                 fake_after = fake_server.snapshot()
                 provider_call_count = _int_fact(fake_after.get("inference_calls")) - _int_fact(
@@ -3985,11 +4164,17 @@ def _run_direct_composed_rehearsal(
                     provider_boundary_observed = provider_call_count > 0
                     provider_lifecycle_valid = boundary.get("lifecycle_valid") is True
                     provider_terminal = boundary.get("terminal") is True
+                    provider_observation = {"provider_boundary": boundary}
             else:
-                # The adapter request counter is a provider-boundary observation
-                # independent from Gateway reservation/ledger rows.  Protected
-                # mode still cannot prove the provider's terminal lifecycle.
-                provider_call_count = local_request_delta
+                observed_stream = _observer_delta(stream_observer_before, stream_observer_after)
+                provider_call_count = _int_fact(observed_stream.get("inference_dispatched_count"))
+                provider_boundary_observed = observed_stream["provider_boundary_observed"] is True
+                provider_lifecycle_valid = observed_stream["provider_lifecycle_valid"] is True
+                provider_terminal = observed_stream["provider_terminal"] is True
+                observed_boundary = observed_stream.get("provider_boundary")
+                provider_observation = (
+                    observed_boundary if isinstance(observed_boundary, dict) else {}
+                )
             stream_facts = build_composed_stream_facts(
                 status=stream_status,
                 content_type="text/event-stream" if stream_status == 200 else None,
@@ -4010,6 +4195,52 @@ def _run_direct_composed_rehearsal(
                 provider_terminal=provider_terminal,
                 provider_call_count=provider_call_count,
             )
+            if provider_target == "protected" and (
+                stream_facts.first_failure != "stream_contract_passed"
+                or not candidate_observer.ready
+            ):
+                _stop_process(gateway_process)
+                logs_clean = _secret_free_logs(
+                    logs,
+                    (
+                        service_token,
+                        signing_secret,
+                        derivation_secret,
+                        qwen_key,
+                        seeded["plaintext_key"],
+                        seeded["second_plaintext_key"],
+                        seeded["failure_plaintext_key"],
+                        "synthetic-005k-failure-key",
+                    ),
+                )
+                result = {
+                    "status": "FAILED",
+                    "provider_target": provider_target,
+                    "gateway_sha": GATEWAY_MAIN_SHA,
+                    "gateway_health_status": gateway_health,
+                    "gateway_ready_status": gateway_ready,
+                    "candidate_health_status": candidate_health,
+                    "candidate_ready_status": candidate_ready,
+                    "protected_health_status": protected_health_status,
+                    "protected_models_status": protected_models_status,
+                    "models_visible_expected": protected_models_status == 200,
+                    "text_status": text_status,
+                    "text_usage_present": text_usage_present,
+                    "stream": asdict(stream_facts),
+                    "provider_observation": {
+                        "provider_boundary": provider_observation,
+                    },
+                    "transport_observation": stream_observer_after,
+                    "protected_stop_reason": "protected_stream_boundary_failed",
+                    "protected_later_inference": False,
+                    "fake_provider": None,
+                    "fake_idless_http_regression": idless_http_regression,
+                    "topology_observation": {
+                        "codex_gateway_local_provider": True,
+                        "no_direct_route": True,
+                    },
+                }
+                return result
             identity_rows_before = asyncio.run(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
@@ -4346,19 +4577,23 @@ def _run_direct_composed_rehearsal(
                 transport_snapshots[-1] = candidate_runtime.observer.snapshot()
             transport_observation = merge_observer_snapshots(*transport_snapshots)
             final_fake_snapshot = fake_server.snapshot() if fake_server is not None else {}
+            fake_baseline = fake_codex_before if fake_codex_before is not None else {}
             transport_observation["matches_fake_provider"] = (
                 fake_server is not None
                 and observer_dispatch_matches_fake(
                     transport_observation,
                     compiler_calls=(
                         _int_fact(final_fake_snapshot.get("compiler_calls"))
-                        - _int_fact(fake_codex_before.get("compiler_calls"))
+                        - _int_fact(fake_baseline.get("compiler_calls"))
                     ),
                     inference_calls=(
                         _int_fact(final_fake_snapshot.get("inbound_inference_calls"))
-                        - _int_fact(fake_codex_before.get("inbound_inference_calls"))
+                        - _int_fact(fake_baseline.get("inbound_inference_calls"))
                     ),
                 )
+            )
+            transport_observation["provider_boundary_observed"] = (
+                _int_fact(transport_observation.get("inference_dispatched_count")) > 0
             )
             transport_observation["phase_observations"] = tuple(
                 {
@@ -4375,14 +4610,20 @@ def _run_direct_composed_rehearsal(
                 }
                 for snapshot in transport_snapshots
             )
-            transport_observation["fake_compiler_delta_class"] = count_class(
+            compiler_delta = (
                 _int_fact(final_fake_snapshot.get("compiler_calls"))
                 - _int_fact(fake_codex_before.get("compiler_calls"))
+                if fake_server is not None and fake_codex_before is not None
+                else _int_fact(transport_observation.get("compiler_dispatched_count"))
             )
-            transport_observation["fake_inference_delta_class"] = count_class(
+            inference_delta = (
                 _int_fact(final_fake_snapshot.get("inference_calls"))
                 - _int_fact(fake_codex_before.get("inference_calls"))
+                if fake_server is not None and fake_codex_before is not None
+                else _int_fact(transport_observation.get("inference_dispatched_count"))
             )
+            transport_observation["fake_compiler_delta_class"] = count_class(compiler_delta)
+            transport_observation["fake_inference_delta_class"] = count_class(inference_delta)
             result = {
                 "status": "PASSED",
                 "provider_target": provider_target,
@@ -4459,6 +4700,11 @@ def _run_direct_composed_rehearsal(
                 if provider_target == "fake"
                 else "protected_loopback",
                 "fake_provider": None if fake_server is None else fake_server.snapshot(),
+                "provider_observation": (
+                    {"provider_boundary": transport_observation}
+                    if provider_target == "protected"
+                    else None
+                ),
                 "fake_idless_http_regression": idless_http_regression,
                 "accounting": {
                     "main": before_rows,

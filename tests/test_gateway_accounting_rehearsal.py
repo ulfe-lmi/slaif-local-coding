@@ -542,12 +542,17 @@ def _source_reuse_fixture(tmp_path: Path) -> tuple[Path, str]:
 
 
 def _commit_fixture_report(
-    repo: Path, tested: str, *, path: str = "oap/reports/other-round.md"
+    repo: Path,
+    tested: str,
+    *,
+    path: str = "oap/reports/other-round.md",
+    backticked: bool = False,
 ) -> str:
     report = repo / path
     report.parent.mkdir(parents=True, exist_ok=True)
+    marker = f"`{tested}`" if backticked else tested
     report.write_text(
-        f"Implementation head SHA: {tested}\nReport publication commit: SELF\n",
+        f"- Implementation head SHA: {marker}\n- Report publication commit: SELF\n",
         encoding="utf-8",
     )
     _fixture_git(repo, "add", path)
@@ -562,6 +567,17 @@ def test_tested_source_reuse_accepts_verified_round_neutral_report_child(
 
     repo, tested = _source_reuse_fixture(tmp_path)
     _commit_fixture_report(repo, tested)
+    monkeypatch.setattr(rehearsal, "REPO_ROOT", repo)
+    assert _tested_source_still_valid(tested) is True
+
+
+def test_tested_source_reuse_accepts_markdown_backticked_sha_marker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.gateway_accounting_rehearsal as rehearsal
+
+    repo, tested = _source_reuse_fixture(tmp_path)
+    _commit_fixture_report(repo, tested, backticked=True)
     monkeypatch.setattr(rehearsal, "REPO_ROOT", repo)
     assert _tested_source_still_valid(tested) is True
 
@@ -605,6 +621,26 @@ def test_tested_source_reuse_rejects_unverified_report_commit_shapes(
     _fixture_git(repo, "add", "oap/reports/round.md", "notes.md")
     _fixture_git(repo, "commit", "--quiet", "-m", "oap: publish malformed report")
     monkeypatch.setattr(rehearsal, "REPO_ROOT", repo)
+    assert _tested_source_still_valid(tested) is False
+
+    wrong = repo / "oap" / "reports" / "wrong.md"
+    wrong.write_text(
+        "- Implementation head SHA: " + "0" * 40 + "\n- Report publication commit: SELF\n",
+        encoding="utf-8",
+    )
+    _fixture_git(repo, "add", "oap/reports/wrong.md")
+    _fixture_git(repo, "commit", "--quiet", "-m", "oap: publish wrong marker")
+    assert _tested_source_still_valid(tested) is False
+
+    duplicate = repo / "oap" / "reports" / "duplicate.md"
+    duplicate.write_text(
+        f"- Implementation head SHA: `{tested}`\n"
+        f"- Implementation head SHA: {tested}\n"
+        "- Report publication commit: SELF\n",
+        encoding="utf-8",
+    )
+    _fixture_git(repo, "add", "oap/reports/duplicate.md")
+    _fixture_git(repo, "commit", "--quiet", "-m", "oap: publish duplicate marker")
     assert _tested_source_still_valid(tested) is False
 
     valid_report_commit = _commit_fixture_report(repo, tested, path="oap/reports/second.md")
@@ -671,6 +707,7 @@ def _complete_fake_payload() -> dict[str, object]:
             "observer_version": OBSERVATION_VERSION,
             "ready": True,
             "matches_fake_provider": True,
+            "provider_boundary_observed": True,
             "inference_attempted_count": 2,
             "inference_terminal_valid_count": 2,
             "inference_attempted_count_class": "2",

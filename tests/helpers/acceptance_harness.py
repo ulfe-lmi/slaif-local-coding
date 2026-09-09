@@ -436,9 +436,9 @@ FAKE_PROJECTION_TABLE: tuple[ObligationProjection, ...] = (
         (
             "provider.two_inference_calls",
             "provider.independent_from_accounting",
-            "provider.transport_boundary_matches_fake",
+            "provider.transport_boundary_observed",
         ),
-        "StrictFakeQwenObservation.snapshot + DirectTransportObserver",
+        "provider-boundary observer + independent provider facts",
         ("test_projection_positive", "test_projection_negative"),
     ),
     ObligationProjection(
