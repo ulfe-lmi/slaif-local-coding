@@ -289,6 +289,18 @@ class BudgetController:
         self._dispatch_context = DispatchContext(operation, phase, ordinal, lifetime_id)
         return True
 
+    def operation_complete(self, operation: str, *, lifetime_id: str) -> bool:
+        """Return whether an admitted operation has consumed every planned slot."""
+        plan = next(
+            (item for item in self.budget.dispatch_plan if item.operation == operation), None
+        )
+        if plan is None or self._admitted.get(operation, 0) <= 0:
+            return False
+        return not any(
+            item["operation"] == operation and item["lifetime_id"] == lifetime_id
+            for item in self._pending_permissions
+        )
+
     def set_dispatch_context(
         self,
         operation: str,

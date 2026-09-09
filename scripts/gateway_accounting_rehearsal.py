@@ -3948,9 +3948,9 @@ def _run_direct_composed_rehearsal_impl(
         nonlocal codex_turn_transitioned
         if (
             codex_turn_transitioned
-            or kind != "inference"
             or operation != "codex_turn_1"
             or not terminal_valid
+            or not budget.operation_complete("codex_turn_1", lifetime_id="codex")
         ):
             return
         if budget.activate_operation("codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex"):

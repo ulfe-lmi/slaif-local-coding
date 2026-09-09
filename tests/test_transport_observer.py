@@ -10,7 +10,12 @@ from typing import cast
 import httpx
 import pytest
 
-from tests.helpers.acceptance_harness import BudgetController, RehearsalBudget
+from tests.helpers.acceptance_harness import (
+    BudgetController,
+    OperationDispatchPlan,
+    PublicRequestBudget,
+    RehearsalBudget,
+)
 from tests.helpers.transport_observer import (
     MAX_EVENT_BYTES,
     MAX_STREAM_BYTES,
@@ -962,7 +967,18 @@ async def test_dispatch_complete_hook_failure_closes_returned_stream_once() -> N
 
 @pytest.mark.asyncio
 async def test_terminal_response_explicitly_authorizes_next_operation() -> None:
-    budget = BudgetController()
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(
+                PublicRequestBudget(1, "codex_turn_1"),
+                PublicRequestBudget(2, "codex_turn_2"),
+            ),
+            dispatch_plan=(
+                OperationDispatchPlan("codex_turn_1", "codex", 1, (("inference", 1),)),
+                OperationDispatchPlan("codex_turn_2", "codex", 2, (("inference", 1),)),
+            ),
+        )
+    )
     assert budget.admit("codex_turn_1", lifetime_id="codex")
     assert budget.admit("codex_turn_2", lifetime_id="codex")
     assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
