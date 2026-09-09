@@ -364,3 +364,38 @@ identity, route policy, Gateway pin/app tree, Codex version/checksum,
 implementation SHA, and run provenance. Observer readiness and candidate,
 identity, and budget prerequisites are established before any credential read
 or provider dispatch; a lost observer stops later dispatches.
+
+## Objective-005-t strict observer and evidence correction
+
+005-t retains the direct Local transport architecture and injects the exact
+clean Gateway `50dcc3b85d614eb1d0c6196595bf22ef5779f846` Responses stream
+validator plus its request-scoped Codex 0.149 route/tool profile. The Local
+observer owns only bounded framing and safe facts: LF/CRLF, split-at-every-byte,
+coalesced events, comments, frame/stream caps, payload/event-type agreement,
+and fixed error/event classes. It does not retain raw event names, response
+IDs, paths, exception types, request bodies, arguments, or credentials.
+
+Semantic validation is not a prefix or display-bucket check. The pinned
+Gateway validator enforces the approved event payloads, response-ID and
+sequence relationships, lifecycle/item relationships, terminal output, and
+usage contract. Exact integer counts are compared against independent fake
+provider counters before bounded display classes; merged disposable lifetimes
+remap per-lifetime ordinals to unique global ordinals and preserve any prior
+failure. Invalid, overflowed, truncated, cancelled, delegated, or abnormally
+closed streams latch observer failure and prevent every later dispatch.
+
+The fake-result gate reads an owned regular descriptor with a cap-plus-one
+bounded read, rejects duplicate JSON keys/non-finite values and malformed
+nested evidence, and permits a report-only descendant only while relevant
+source/config state remains clean. Independent negative tests cover missing,
+duplicate, reordered, extra, false, stale, skipped, failed, retried, unsafe,
+oversized, and mismatched evidence.
+
+The fresh fake run at implementation
+`45f9d64976b0f2a44f6c3223d767c28f5405e1a` passed 37/37 selected obligations
+with zero missing/first-failure/retry results. Exact observer facts were 23
+total operations (6 compiler, 12 inference, and 5 other), all 23 completed
+and terminal-valid; all 12 inference operations had first-byte and normal-close
+facts. Fake-provider counters matched independently, temporary resources were
+cleaned, and logs were secret-free. No protected credential, inference, Qwen,
+network, active-profile, or cutover state was accessed or changed in 005-t.

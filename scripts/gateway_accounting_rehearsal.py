@@ -3274,19 +3274,24 @@ def _validate_fake_gate(path: Path | None) -> None:
     if not all(type(value) is bool and value is True for value in observations.values()):
         raise RuntimeError("protected_fake_gate_runtime_not_complete")
     transport = payload.get("transport_observation")
+    if not isinstance(transport, dict):
+        raise RuntimeError("protected_fake_gate_transport_not_complete")
     if (
-        not isinstance(transport, dict)
-        or transport.get("observer_version") != OBSERVATION_VERSION
+        transport.get("observer_version") != OBSERVATION_VERSION
         or transport.get("ready") is not True
         or transport.get("matches_fake_provider") is not True
-        or type(transport.get("inference_attempted_count")) is not int
-        or type(transport.get("inference_terminal_valid_count")) is not int
         or transport.get("inference_attempted_count_class") not in {"2", "3-4", "5+"}
-        or transport.get("inference_attempted_count") < 2
-        or transport.get("inference_terminal_valid_count")
-        != transport.get("inference_attempted_count")
         or transport.get("inference_terminal_valid_count_class")
         != transport.get("inference_attempted_count_class")
+    ):
+        raise RuntimeError("protected_fake_gate_transport_not_complete")
+    attempted_count = transport.get("inference_attempted_count")
+    terminal_count = transport.get("inference_terminal_valid_count")
+    if (
+        type(attempted_count) is not int
+        or type(terminal_count) is not int
+        or attempted_count < 2
+        or terminal_count != attempted_count
     ):
         raise RuntimeError("protected_fake_gate_transport_not_complete")
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Mapping
+from typing import cast
 
 import httpx
 import pytest
@@ -298,21 +299,21 @@ def test_exact_counts_reject_bucket_collisions() -> None:
 
 
 def test_merge_assigns_global_ordinals_and_preserves_failed_lifetime() -> None:
-    first = {
+    first: dict[str, object] = {
         "ready": False,
         "failure_class": "stream_validation_invalid",
         "records": ({"ordinal": 1, "kind": "inference", "terminal_valid": False},),
     }
-    second = {
+    second: dict[str, object] = {
         "ready": True,
         "failure_class": None,
         "records": ({"ordinal": 1, "kind": "inference", "terminal_valid": True},),
     }
     merged = merge_observer_snapshots(first, second)
-    records = merged["records"]
+    records = cast(tuple[dict[str, object], ...], merged["records"])
     assert merged["ready"] is False
-    assert [record["ordinal"] for record in records] == [1, 2]  # type: ignore[index]
-    assert [record["lifetime_ordinal"] for record in records] == [1, 1]  # type: ignore[index]
+    assert [record["ordinal"] for record in records] == [1, 2]
+    assert [record["lifetime_ordinal"] for record in records] == [1, 1]
 
 
 def test_merge_rejects_missing_or_duplicate_lifetime_ordinals() -> None:

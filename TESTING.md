@@ -109,6 +109,29 @@ identity, route policy, Gateway pin/app tree, Codex version/checksum,
 implementation SHA, and run provenance; only a report-only child may reuse
 that tested implementation.
 
+The 005-t continuation tightens this evidence contract. Responses SSE framing
+is incremental and invariant across LF/CRLF, one-byte boundaries, and coalesced
+chunks; semantic validity is delegated to the exact pinned Gateway
+`ResponsesStreamEventValidator` with its request-scoped Codex route/tool
+profile. Unknown event names and fields remain invalid and are projected only
+to closed classes. Exact bounded attempted/dispatched/responded/completed and
+compiler/inference counters are compared before display buckets, and merged
+candidate lifetimes receive unique global ordinals. Any malformed, overflowed,
+truncated, cancelled, or validator-failed stream latches observer readiness
+false and prevents later dispatch. Evidence-file validation uses an owned
+regular-file descriptor and reads only cap-plus-one bytes, with duplicate-key,
+non-finite, nested-schema, source-dirty, identity, projection, and negative
+result checks failing closed.
+
+At implementation `45f9d64976b0f2a44f6c3223d767c28f5405e1a`, the fresh fake
+machine gate passed 37/37 selected obligations with no missing result, first
+failure, or retry. The direct observer independently recorded 23 attempted,
+dispatched, responded, completed, and terminal-valid operations: 6 compiler
+and 12 inference operations, with all 12 inference streams having first-byte
+and normal-close facts. Fake-provider counters matched exact observer counts;
+cleanup and secret-free-log checks passed. This remains fake-only evidence and
+does not establish protected inference, cutover, or release readiness.
+
 ## Image-policy tests
 
 Cover nested `input_image` and `image_url` items for Responses and Chat:

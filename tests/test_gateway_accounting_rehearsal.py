@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -526,12 +526,13 @@ def _complete_fake_payload() -> dict[str, object]:
         if item.mode in {"both", "fake"}
     ]
     gate = build_obligation_gate("fake", results).safe_dict()
-    gate["results"] = list(gate["results"])
+    gate_results = cast(list[dict[str, object]], gate["results"])
+    gate["results"] = list(gate_results)
     observations = {key: True for key in FAKE_RESULT_SCHEMA_KEYS}
     gate["projection_table"] = projection_table_safe_dict(
         observations, {item.obligation_id: "PASSED" for item in results}
     )
-    gate["projection_table"] = list(gate["projection_table"])
+    gate["projection_table"] = list(cast(tuple[dict[str, object], ...], gate["projection_table"]))
     gate["observation_schema_keys"] = FAKE_RESULT_SCHEMA_KEYS
     return {
         "status": "COMPLETE",
