@@ -4167,6 +4167,7 @@ def _run_direct_composed_rehearsal_impl(
                             "worktree_count": 7,
                             "text_inactive": True,
                             "has_18021": False,
+                            "has_18031": False,
                         },
                         main_pid=lambda: PROTECTED_VISION_PID,
                         credential_source=lambda _pid: "synthetic-protected-key",
