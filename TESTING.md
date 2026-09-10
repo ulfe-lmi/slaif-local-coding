@@ -412,3 +412,14 @@ against the shared 64-dispatch ceiling, and are retired after dispatch. Local
 `/healthz` listener polling may retry, but readiness/provider health requests do
 not retry outside the run controller. Dynamic observers reject missing or
 different lifetime contexts before delegation.
+
+The final 005-aa evidence is retained under
+`oap/evidence/005-aa/index.json`, bound to tested source
+`ee72a19d45a5eaba0329daaddd571742ca81a586` and the evidence-only descendant
+`2a7420998e3734d929142f3da0efdcf2664292f9`. The fresh fake gate passed 37/37
+obligations and projections with 26/26 direct dispatches (6 compiler, 12
+inference, 8 other), including 3/3 consumed readiness permits. The healthy
+synthetic protected gate passed 29/29 rows; observer, combined
+projection/cleanup, and pre-dispatch cases failed closed with all 29 rows
+serialized and bounded primary/secondary failure classes. No real protected
+access was made.
