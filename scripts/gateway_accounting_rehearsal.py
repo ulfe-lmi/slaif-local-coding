@@ -4031,7 +4031,17 @@ def _run_direct_composed_rehearsal_impl(
                     "credential_hook_calls": 0,
                     "provider_dispatches": 0,
                     "protected_later_inference": False,
+                    "cleanup_observation": {
+                        "processes": True,
+                        "listeners": True,
+                        "database": True,
+                        "cache": True,
+                        "codex_home": True,
+                    },
                 }
+            )
+            accumulator.record_cleanup(
+                cast(dict[str, object], preflight_result["cleanup_observation"])
             )
             return preflight_result
 
@@ -4131,7 +4141,7 @@ def _run_direct_composed_rehearsal_impl(
             and protected_hooks.failure_phase in {"post_dispatch", "observer"}
             and not protected_failure_injected
             and active_observer is not None
-            and kind in {"compiler", "inference"}
+            and kind == "inference"
         ):
             protected_failure_injected = True
             active_observer.mark_unready()
@@ -4215,14 +4225,19 @@ def _run_direct_composed_rehearsal_impl(
             gateway_log = temp_root / "gateway.log"
             logs = (gateway_log,)
             synthetic_provider = provider_target == "fake" or protected_hooks is not None
+            protected_mode_synthetic_cases: dict[str, dict[str, object]] = {}
             if provider_target == "fake":
                 # Run the healthy synthetic protected branch before this outer
                 # candidate binds 18031.  The two candidate lifetimes must be
                 # serial; a nested bind would be an invalid qualification.
-                protected_mode_synthetic = run_actual_protected_mode_conformance(
-                    args,
-                    preflight=preflight,
-                    dependencies=ProtectedRuntimeHooks(
+                def synthetic_protected_hooks(
+                    *,
+                    failure_phase: str | None = None,
+                    projection_failure: bool = False,
+                    cleanup_failure: bool = False,
+                    mapping_valid: bool = True,
+                ) -> ProtectedRuntimeHooks:
+                    return ProtectedRuntimeHooks(
                         host_preflight=lambda: {
                             "vision_active": True,
                             "has_18020": True,
@@ -4236,9 +4251,18 @@ def _run_direct_composed_rehearsal_impl(
                         },
                         main_pid=lambda: PROTECTED_VISION_PID,
                         credential_source=lambda _pid: "synthetic-protected-key",
-                        mapping_dependency_check=lambda: True,
-                    ),
+                        mapping_dependency_check=lambda: mapping_valid,
+                        failure_phase=failure_phase,
+                        projection_failure=projection_failure,
+                        cleanup_failure=cleanup_failure,
+                    )
+
+                protected_mode_synthetic = run_actual_protected_mode_conformance(
+                    args,
+                    preflight=preflight,
+                    dependencies=synthetic_protected_hooks(),
                 )
+                protected_mode_synthetic_cases["healthy"] = protected_mode_synthetic
                 protected_conformance = protected_mode_synthetic.get("protected_conformance")
                 protected_accumulator = protected_mode_synthetic.get("run_accumulator")
                 if (
@@ -4250,6 +4274,34 @@ def _run_direct_composed_rehearsal_impl(
                     or protected_accumulator.get("first_failure") is not None
                 ):
                     raise RuntimeError("protected_mode_conformance_incomplete")
+                for name, options in (
+                    ("observer_failure_after_dispatch", {"failure_phase": "observer"}),
+                    (
+                        "observer_projection_cleanup_failure",
+                        {
+                            "failure_phase": "observer",
+                            "projection_failure": True,
+                            "cleanup_failure": True,
+                        },
+                    ),
+                    (
+                        "predispatch_mapping_dependency_failure",
+                        {"mapping_valid": False},
+                    ),
+                ):
+                    case = run_actual_protected_mode_conformance(
+                        args,
+                        preflight=preflight,
+                        dependencies=synthetic_protected_hooks(**options),
+                    )
+                    protected_mode_synthetic_cases[name] = case
+                    case_conformance = case.get("protected_conformance")
+                    if (
+                        not isinstance(case_conformance, dict)
+                        or case_conformance.get("all_selected_rows_serialized") is not True
+                        or case.get("status") not in {"BLOCKED", "FAILED"}
+                    ):
+                        raise RuntimeError("protected_mode_failure_case_incomplete")
             if synthetic_provider:
                 fake_server = _FakeQwenServer(
                     "synthetic-005k-qwen-token",
@@ -4665,6 +4717,7 @@ def _run_direct_composed_rehearsal_impl(
                     ),
                     "protected_later_inference": False,
                     "protected_mode_synthetic": protected_mode_synthetic,
+                    "protected_mode_synthetic_cases": protected_mode_synthetic_cases,
                     "fake_provider": fake_codex_after,
                     "provider_observation": (
                         {"provider_boundary": codex_boundary}
@@ -5083,6 +5136,8 @@ def _run_direct_composed_rehearsal_impl(
                     "transport_observation": stream_observer_after,
                     "protected_stop_reason": "protected_stream_boundary_failed",
                     "protected_later_inference": False,
+                    "protected_mode_synthetic": protected_mode_synthetic,
+                    "protected_mode_synthetic_cases": protected_mode_synthetic_cases,
                     "fake_provider": None,
                     "fake_idless_http_regression": idless_http_regression,
                     "topology_observation": {
@@ -5622,6 +5677,7 @@ def _run_direct_composed_rehearsal_impl(
                 },
                 "postgres_tmpfs_only": tmpfs_only,
                 "protected_mode_synthetic": protected_mode_synthetic,
+                "protected_mode_synthetic_cases": protected_mode_synthetic_cases,
             }
             logs_clean = _secret_free_logs(
                 logs,
