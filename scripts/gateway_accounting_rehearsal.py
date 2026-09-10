@@ -3613,15 +3613,25 @@ def _run_replay_ownership_negative_matrix(
 ) -> dict[str, int | None]:
     """Send only pre-provider companion ownership negatives through Gateway."""
 
-    def continuation(*, call_id: str | None) -> dict[str, object]:
-        item: dict[str, object] = {
+    def continuation(*, call_id: str | None, include_call: bool = False) -> dict[str, object]:
+        output_item: dict[str, object] = {
             "type": "function_call_output",
             "output": "synthetic companion result",
         }
         if call_id is not None:
-            item["call_id"] = call_id
+            output_item["call_id"] = call_id
         body = dict(continuation_body)
-        body["input"] = [item]
+        if include_call:
+            call_item = {
+                "type": "function_call",
+                "call_id": call_id,
+                "name": "local_lookup",
+                "arguments": "{}",
+                "status": "completed",
+            }
+            body["input"] = [call_item, output_item]
+        else:
+            body["input"] = [output_item]
         return body
 
     def post_status(gateway_key: str, body: Mapping[str, object]) -> int | None:
@@ -3649,9 +3659,26 @@ def _run_replay_ownership_negative_matrix(
     return {
         "missing_call_id": post_status(primary_key, continuation(call_id=None)),
         "mismatched_call_id": post_status(
-            primary_key, continuation(call_id="synthetic-unowned-call")
+            primary_key,
+            {
+                **continuation(call_id=call_id, include_call=True),
+                "input": [
+                    {
+                        "type": "function_call",
+                        "call_id": call_id,
+                        "name": "local_lookup",
+                        "arguments": "{}",
+                        "status": "completed",
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "synthetic-unowned-call",
+                        "output": "synthetic companion result",
+                    },
+                ],
+            },
         ),
-        "wrong_key": post_status(second_key, continuation(call_id=call_id)),
+        "wrong_key": post_status(second_key, continuation(call_id=call_id, include_call=True)),
     }
 
 
