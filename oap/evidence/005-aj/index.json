@@ -1,0 +1,117 @@
+{
+  "schema": "oap-005-aj-index-v1",
+  "status": "PARTIAL",
+  "objective": "Preserve verified semantic checkpoints, requalify fake/synthetic acceptance, and conditionally attempt one protected matrix",
+  "tested_implementation_sha": "b17f46025160cb7b6f6746177644035d6dce3c95",
+  "tested_worktree_clean": true,
+  "uid": 1029,
+  "euid": 1029,
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "source_identity": {
+    "loaded_module_paths": {
+      "scripts.local_qwen_provider_differential": "scripts/local_qwen_provider_differential.py",
+      "tests.helpers.acceptance_harness": "tests/helpers/acceptance_harness.py",
+      "tests.helpers.transport_observer": "tests/helpers/transport_observer.py"
+    },
+    "loaded_module_sha256": {
+      "scripts.local_qwen_provider_differential": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "tests.helpers.acceptance_harness": "d9c762cd0a7913235a9de6f0765c75f4a29500fb4de6d082b71c5f1bc523b006",
+      "tests.helpers.transport_observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13"
+    },
+    "paths": {
+      "observer": "tests/helpers/transport_observer.py",
+      "projection": "tests/helpers/acceptance_harness.py",
+      "provider_sse": "scripts/local_qwen_provider_differential.py",
+      "runner": "scripts/gateway_accounting_rehearsal.py"
+    },
+    "sha256": {
+      "observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13",
+      "projection": "d9c762cd0a7913235a9de6f0765c75f4a29500fb4de6d082b71c5f1bc523b006",
+      "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "runner": "ddb2f508be53c023f4bfab9ceef666f8b5a33f056f5aa54ca8d321396d215720"
+    }
+  },
+  "fake_run": {
+    "status": "COMPLETE",
+    "implementation_sha": "b17f46025160cb7b6f6746177644035d6dce3c95",
+    "machine_gate": {
+      "passed": true,
+      "selected_rows": 37,
+      "passed_rows": 37,
+      "missing": [],
+      "first_failure": null,
+      "projection_count": 37
+    },
+    "semantic_checkpoint": 1,
+    "protected_traffic": false
+  },
+  "synthetic_protected_run": {
+    "status": "COMPLETE",
+    "selected_rows": 29,
+    "healthy_case": {
+      "status": "COMPLETE",
+      "all_rows": null,
+      "gate": true
+    },
+    "later_phase_case": {
+      "status": "BLOCKED",
+      "first_failure": "observer_readiness_lost",
+      "first_failure_context": {
+        "cause": "observer_readiness_lost",
+        "kind": "inference",
+        "lifetime_id": "vision",
+        "operation": "vision_full",
+        "ordinal": 3,
+        "phase": "vision"
+      },
+      "manifest_first_failure": "C1.4",
+      "row_statuses": [
+        {
+          "status": "NOT RUN",
+          "count": 21
+        },
+        {
+          "status": "PASSED",
+          "count": 8
+        }
+      ],
+      "all_rows": null
+    },
+    "case_count": 6
+  },
+  "protected_run": {
+    "status": "BLOCKED",
+    "implementation_sha": "570a16d0dd44b29f83cabca331f2053d88b1bf99",
+    "preflight": {
+      "fake_gate_validation": "BLOCKED",
+      "safe_error_class": "protected_fake_gate_not_complete",
+      "cause": "validator schema did not yet admit the newly emitted runtime_failure gate field",
+      "credential_resolution": "NOT RUN",
+      "protected_health_probe": "NOT RUN",
+      "protected_models_probe": "NOT RUN",
+      "candidate_startup": "NOT RUN"
+    },
+    "credential_resolution": "NOT RUN",
+    "provider_dispatches": 0,
+    "retry_count": 0
+  },
+  "protected_fixture": {
+    "service": "qwen-serving-vision.service",
+    "pid": "23961",
+    "start": "Sun 2026-09-06 18:57:26 CEST",
+    "restarts": 0,
+    "listener_18020": true,
+    "qwen_changed_paths": 7
+  },
+  "privacy": {
+    "raw_payloads_retained": false,
+    "credential_retained": false
+  },
+  "cutover": false,
+  "merge": false,
+  "release_ready": false
+}

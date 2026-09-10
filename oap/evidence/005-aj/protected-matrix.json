@@ -1,0 +1,71 @@
+{
+  "schema": "oap-005-aj-protected-matrix-v1",
+  "status": "BLOCKED",
+  "mode": "protected",
+  "execution_mode": "real-protected",
+  "run_provenance": "one_authorized_attempt_preflight_blocked_no_retry",
+  "implementation_sha": "570a16d0dd44b29f83cabca331f2053d88b1bf99",
+  "current_round_implementation_sha": "b17f46025160cb7b6f6746177644035d6dce3c95",
+  "gateway": {
+    "execute_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+    "app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57"
+  },
+  "codex": {
+    "version": "0.149.0",
+    "binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
+  },
+  "uid": 1029,
+  "euid": 1029,
+  "command": "PYTHONPATH=<local-repo>:<local-repo>/src:<gateway> <gateway-venv>/bin/python scripts/gateway_accounting_rehearsal.py --provider-target protected --fake-result <validated-fake-result> --codex <codex-0.149.0>",
+  "preflight": {
+    "fake_gate_validation": "BLOCKED",
+    "safe_error_class": "protected_fake_gate_not_complete",
+    "cause": "validator schema did not yet admit the newly emitted runtime_failure gate field",
+    "credential_resolution": "NOT RUN",
+    "protected_health_probe": "NOT RUN",
+    "protected_models_probe": "NOT RUN",
+    "candidate_startup": "NOT RUN"
+  },
+  "first_failure": {
+    "runner_safe_class": "unknown",
+    "context": null
+  },
+  "protected_later_inference": false,
+  "retry_count": 0,
+  "dispatch_counts": {
+    "attempted": 0,
+    "dispatched": 0,
+    "responded": 0,
+    "completed": 0
+  },
+  "bytes": {
+    "received": 0,
+    "accepted": 0,
+    "rejected": 0
+  },
+  "fixture_before": {
+    "service": "qwen-serving-vision.service",
+    "pid": "23961",
+    "start": "Sun 2026-09-06 18:57:26 CEST",
+    "restarts": 0,
+    "listener_18020": true,
+    "qwen_changed_paths": 7
+  },
+  "fixture_after": {
+    "service": "qwen-serving-vision.service",
+    "pid": "23961",
+    "start": "Sun 2026-09-06 18:57:26 CEST",
+    "restarts": 0,
+    "listener_18020": true,
+    "qwen_changed_paths": 7
+  },
+  "fixture_mutated": false,
+  "protected_acceptance": false,
+  "cutover": false,
+  "merge": false,
+  "privacy": {
+    "credential_retained": false,
+    "raw_payloads_retained": false,
+    "logs_secret_free": true
+  }
+}
