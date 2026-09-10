@@ -435,7 +435,7 @@ tool classes, optional item-ID presence, matching call-ID relation, approved
 fixture hashes, stream-validator lifecycle facts, and endpoint/method-scoped
 preflight health/model observations without retaining payloads.
 
-The fresh run at implementation `caaace3b322051b7cbcbbfe4595ac93964377c1d`
+The fresh run at implementation `a127290b172969d0267e11774f5c25c3563a5eac`
 passed the complete outer fake machine gate: 37/37 obligations and
 projections, 26/26 direct dispatches, 6 compiler, 12 inference, 8 other, and
 12/12 terminal-valid inference observations. The healthy synthetic protected

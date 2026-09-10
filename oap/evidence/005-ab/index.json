@@ -1,6 +1,6 @@
 {
   "evidence_version": "005-ab-sanitized-v1",
-  "tested_source_sha": "caaace3b322051b7cbcbbfe4595ac93964377c1d",
+  "tested_source_sha": "a127290b172969d0267e11774f5c25c3563a5eac",
   "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
   "gateway_main_sha": "d142fd7f04c46fac3469b9b9bba1bd2068aabad8",
   "gateway_report_sha": "ad1c556a539130c08dc1063b3e9a25a0af2e5a85",
@@ -9,7 +9,7 @@
   "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
   "observer_version": "direct-httpx-v2",
   "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
-  "run_output_sha256": "1bae3c99c6d4c0022e2eb09830dcc4e777536da75e03c7502aa2f7fab6e1728",
+  "run_output_sha256": "02827b40d3757a66e3cb83ba1d3c5154a05c728249ab2de78e255e3f6ae1da3e",
   "command": "PYTHONPATH=<local-repo>:<local-repo>/src:<gateway> <gateway-venv>/bin/python scripts/gateway_accounting_rehearsal.py --gateway-root <gateway> --gateway-python <gateway-venv>/bin/python --provider-target fake --codex <codex-0.149.0>",
   "command_case_selectors": {
     "healthy": ".protected_mode_synthetic_cases.healthy",
@@ -19,7 +19,7 @@
   },
   "outer_fake_machine_gate": {
     "artifact_path": "oap/evidence/005-ab/fake-machine-gate.json",
-    "artifact_sha256": "908266169cdfac2cb0a6cb7b4008c71f80e2b0d0e3e2c43f06def59245b66729",
+    "artifact_sha256": "a8bb3d0184e6ed39e25bde1d116e27c51b8ebbb73e4e148dd5808ed964845b53",
     "status": "COMPLETE",
     "gate_passed": true,
     "obligations": 37,
@@ -30,10 +30,10 @@
     "fake_provider_agreement": true
   },
   "protected_cases": [
-    {"name":"healthy","artifact_path":"oap/evidence/005-ab/protected-healthy.json","artifact_sha256":"01c29fc7aa47076e90db5f04c5228506ce7710a5fd05dfe503f77fab5d970c06","status":"COMPLETE","gate_passed":true,"rows":29},
-    {"name":"observer_failure_after_dispatch","artifact_path":"oap/evidence/005-ab/protected-observer-failure.json","artifact_sha256":"e942a53ad3ac9d8311f8211f594c4d3402cc656c7e9c0694aad37ba5d45db0de","status":"BLOCKED","gate_passed":false,"rows":29},
-    {"name":"observer_projection_cleanup_failure","artifact_path":"oap/evidence/005-ab/protected-combined-failure.json","artifact_sha256":"ba2a475d3225fb715a24842cbf7111c120fb15ff26a9606e68e565bab4e7f484","status":"BLOCKED","gate_passed":false,"rows":29},
-    {"name":"predispatch_mapping_dependency_failure","artifact_path":"oap/evidence/005-ab/protected-predispatch-failure.json","artifact_sha256":"1a64b74dfa6ae4df6f12dfa94cca8f0279cc410b372afa6d4d657606984afc60","status":"BLOCKED","gate_passed":false,"rows":29}
+    {"name":"healthy","artifact_path":"oap/evidence/005-ab/protected-healthy.json","artifact_sha256":"001d6d93da32c6cd70a305bf79a71dc9ee535a0dac7a6fbfcb1c9a5adc1f12d3","status":"COMPLETE","gate_passed":true,"rows":29},
+    {"name":"observer_failure_after_dispatch","artifact_path":"oap/evidence/005-ab/protected-observer-failure.json","artifact_sha256":"496dd86a7360b79b13e70bda62670a1dd78163a90bcb2c22bc4377a1b5f6b9ba","status":"BLOCKED","gate_passed":false,"rows":29},
+    {"name":"observer_projection_cleanup_failure","artifact_path":"oap/evidence/005-ab/protected-combined-failure.json","artifact_sha256":"42ffa50a33c341f9bc94ea90890ebe4c125fe9fec0345e9c53c83a291e71da7e","status":"BLOCKED","gate_passed":false,"rows":29},
+    {"name":"predispatch_mapping_dependency_failure","artifact_path":"oap/evidence/005-ab/protected-predispatch-failure.json","artifact_sha256":"4b68cec8dafc445741617083ecffac9fd71c5d5516a3022e4a4c1c42888c5f51","status":"BLOCKED","gate_passed":false,"rows":29}
   ],
   "live_fixture_read_only": {
     "vision_active": true,

@@ -1,6 +1,6 @@
 {
   "evidence_version": "005-ab-sanitized-v1",
-  "tested_source_sha": "caaace3b322051b7cbcbbfe4595ac93964377c1d",
+  "tested_source_sha": "a127290b172969d0267e11774f5c25c3563a5eac",
   "case": "outer_fake_machine_gate",
   "status": "COMPLETE",
   "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",

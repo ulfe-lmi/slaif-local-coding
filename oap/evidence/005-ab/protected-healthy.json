@@ -1,6 +1,6 @@
 {
   "evidence_version": "005-ab-sanitized-v1",
-  "tested_source_sha": "caaace3b322051b7cbcbbfe4595ac93964377c1d",
+  "tested_source_sha": "a127290b172969d0267e11774f5c25c3563a5eac",
   "case": "healthy",
   "status": "COMPLETE",
   "protected_acceptance": false,
