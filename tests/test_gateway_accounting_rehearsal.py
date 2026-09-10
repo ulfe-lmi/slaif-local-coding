@@ -1294,6 +1294,68 @@ def test_protected_acceptance_gate_retains_c54_and_unknown_primary_facts() -> No
     assert tuple(row["obligation_id"] for row in projection_rows) == PROTECTED_MANIFEST_IDS
 
 
+def test_acceptance_gate_projects_completed_codex_before_later_runtime_stop() -> None:
+    boundary = {
+        "call_count_class": "2",
+        "lifecycle_valid": True,
+        "terminality_valid": True,
+        "request_class_classes": ("function_continuation", "function_initial"),
+        "function_result_adjacent": True,
+        "call_id_relation_classes": ("matching",),
+        "independent_from_ledger": True,
+    }
+    result: dict[str, object] = {
+        "provider_target": "fake",
+        "run_accumulator": {
+            "first_failure": "observer_readiness_lost",
+            "first_failure_context": {
+                "kind": "inference",
+                "operation": "vision_full",
+                "phase": "vision",
+                "ordinal": 3,
+                "lifetime_id": "vision",
+            },
+        },
+        "phase_checkpoints": (
+            {
+                "phase": "codex",
+                "lifetime_id": "codex",
+                "evidence_kind": "semantic",
+                "phase_facts": {"codex": {"status": "PASSED"}},
+            },
+        ),
+        "codex": {
+            "status": "PASSED",
+            "provider_inference_call_count": 2,
+            "provider_turns_expected": 2,
+            "exit_status": 0,
+            "command_lifecycle": "success",
+            "sentinel_passed": True,
+            "tool_call_count_class": "1",
+            "call_id_same_hmac": False,
+            "scope_no_downgrade": True,
+        },
+        "provider_observation": {"provider_boundary": boundary},
+        "transport_observation": {"provider_boundary_observed": True},
+        "accounting": {
+            "two_terminal_reservations": True,
+            "zero_pending": True,
+            "zero_duplicate_request_ids": True,
+        },
+    }
+    gate, _gaps = _acceptance_gate(result)
+    rows = {row["obligation_id"]: row for row in cast(list[dict[str, object]], gate["results"])}
+    assert rows["C1.1"]["status"] == "PASSED"
+    assert rows["C1.2"]["status"] == "PASSED"
+    assert rows["C1.3"]["status"] == "PASSED"
+    assert rows["C1.5"]["status"] == "PASSED"
+    assert rows["C1.6"]["status"] == "PASSED"
+    assert rows["C1.4"]["status"] == "NOT RUN"
+    assert rows["C2.1"]["status"] == "NOT RUN"
+    assert gate["first_failure"] == "C1.4"
+    assert gate["runtime_failure"]["class"] == "observer_readiness_lost"  # type: ignore[index]
+
+
 def test_actual_protected_conformance_requires_explicit_synthetic_dependencies() -> None:
     args = argparse.Namespace(
         provider_target="fake",

@@ -685,3 +685,20 @@ failures remain secondary. Source-bound Objective-005-ai artifacts belong under
 cutover, merge, or release acceptance.
 The final fake qualification also includes a five-case synthetic set with a
 Codex-complete then first-vision-response stop and preserved cleanup evidence.
+
+## Objective-005-aj semantic checkpoints and protected acceptance
+
+Before entering a later phase, the repository-only runner records a bounded
+semantic checkpoint for the verified Codex phase. It preserves client
+verification, direct provider terminal/canonical relationships, governance and
+accounting facts, and response-byte totals without retaining raw payloads,
+identifiers, tool content, or source content. A later exception or generic
+projection therefore cannot erase a successful earlier phase.
+
+The acceptance manifest keeps its earliest unsatisfied row separate from the
+runtime failure context. Unexecuted companion and later obligations remain
+`NOT RUN`, while genuine earlier observations retain their actual disposition.
+Projection and cleanup failures are secondary evidence. Source-bound
+Objective-005-aj artifacts belong under `oap/evidence/005-aj/`; this contract
+does not authorize protected retries, service mutation, cutover, merge, or
+release acceptance.

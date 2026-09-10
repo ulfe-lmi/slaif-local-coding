@@ -979,6 +979,32 @@ def _safe_accumulator_failure(value: object) -> str:
     return value if isinstance(value, str) and value in _SAFE_ACCUMULATOR_FAILURES else "unknown"
 
 
+def _safe_checkpoint_value(value: object, *, depth: int = 0) -> object:
+    """Keep phase checkpoints bounded and payload-free.
+
+    Callers must provide already-projected semantic facts.  This final guard
+    prevents an accidental nested payload, bytes value, or unbounded sequence
+    from crossing into the accumulator/evidence path.
+    """
+    if depth > 4:
+        return None
+    if value is None or isinstance(value, bool):
+        return value
+    if type(value) is int and 0 <= value <= 1_000_000:
+        return value
+    if isinstance(value, str) and len(value) <= 128:
+        return value
+    if isinstance(value, Mapping):
+        result: dict[str, object] = {}
+        for key, child in list(value.items())[:64]:
+            if isinstance(key, str) and len(key) <= 64:
+                result[key] = _safe_checkpoint_value(child, depth=depth + 1)
+        return result
+    if isinstance(value, (list, tuple)):
+        return tuple(_safe_checkpoint_value(child, depth=depth + 1) for child in value[:64])
+    return None
+
+
 @dataclass
 class RunAccumulator:
     """Bounded, payload-free evidence retained across every runner exit."""
@@ -1258,6 +1284,42 @@ class RunAccumulator:
                     "inference_terminal_valid_count": self.counts["inference_terminal_valid"],
                 }
             )
+
+    def record_phase_facts(
+        self,
+        facts: Mapping[str, object],
+        *,
+        phase: str,
+        ordinal: int | None = None,
+        lifetime_id: str | None = None,
+        evidence_kind: str = "semantic",
+    ) -> None:
+        """Attach projected facts to the phase checkpoint before advancing.
+
+        The runner supplies only fixed-class client/provider/accounting facts;
+        this method adds a bounded final serialization guard and never accepts
+        raw request, response, ID, or tool content.
+        """
+        self.set_phase(phase, ordinal)
+        lifetime = lifetime_id or f"{self.phase}:{self.ordinal}"
+        key = (lifetime, self.phase, self.ordinal)
+        checkpoint = self._phase_checkpoints.setdefault(
+            key,
+            {
+                "lifetime_id": lifetime,
+                "phase": self.phase,
+                "ordinal": self.ordinal,
+                "completed": False,
+                "ready": False,
+                "failure_class": None,
+                "counts": {},
+                "response_count": 0,
+            },
+        )
+        checkpoint["evidence_kind"] = (
+            evidence_kind if evidence_kind in {"semantic", "transport"} else "unknown"
+        )
+        checkpoint["phase_facts"] = _safe_checkpoint_value(facts)
 
     def record_cleanup(self, outcome: Mapping[str, object]) -> None:
         self.set_phase("cleanup")

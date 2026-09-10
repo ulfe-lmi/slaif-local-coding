@@ -1843,6 +1843,111 @@ def _protected_provider_observation(transport: Mapping[str, object]) -> dict[str
     }
 
 
+_CHECKPOINT_BOUNDARY_KEYS = (
+    "call_count_class",
+    "lifecycle_valid",
+    "terminal_count_class",
+    "terminal",
+    "image_count_classes",
+    "image_hash_count_class",
+    "all_image_requests_single",
+    "image_hashes_observed",
+    "tool_type_classes",
+    "independent_from_ledger",
+    "request_class_classes",
+    "tool_class_classes",
+    "function_result_adjacent",
+    "item_id_presence_classes",
+    "call_id_relation_classes",
+    "compiler_inference_classes",
+    "normal_close_count_class",
+    "terminality_valid",
+    "canonical_candidate_availability_classes",
+    "canonical_candidate_count_classes",
+    "canonical_summary_relation_classes",
+    "pending_scope_availability_classes",
+    "continuation_count_class",
+)
+
+
+def _checkpoint_provider_boundary(snapshot: Mapping[str, object]) -> dict[str, object]:
+    """Retain only fixed-class provider relationships for a phase checkpoint."""
+    boundary = snapshot.get("provider_boundary")
+    if not isinstance(boundary, Mapping):
+        return {}
+    return {key: boundary[key] for key in _CHECKPOINT_BOUNDARY_KEYS if key in boundary}
+
+
+def _codex_phase_checkpoint(
+    codex_facts: Mapping[str, object], observer_snapshot: Mapping[str, object]
+) -> dict[str, object]:
+    """Project actual Codex/provider/accounting facts before the next phase."""
+    client_value = codex_facts.get("client_verification")
+    client = client_value if isinstance(client_value, Mapping) else {}
+    client_verification = {
+        key: client[key]
+        for key in (
+            "status",
+            "exit_status",
+            "failure_origin",
+            "sentinel_passed",
+            "command_lifecycle",
+        )
+        if key in client
+    }
+    accounting_value = codex_facts.get("accounting")
+    accounting = accounting_value if isinstance(accounting_value, Mapping) else {}
+    accounting_facts = {
+        key: accounting[key]
+        for key in (
+            "two_terminal_reservations",
+            "zero_pending",
+            "zero_duplicate_request_ids",
+            "request",
+            "usage",
+            "tokens",
+            "cost",
+        )
+        if key in accounting
+    }
+    provider_boundary = _checkpoint_provider_boundary(observer_snapshot)
+    return {
+        "evidence_kind": "semantic",
+        "codex": {
+            "status": codex_facts.get("status")
+            if codex_facts.get("status") in {"PASSED", "FAILED"}
+            else "unknown",
+            "client_verification": client_verification,
+            "provider_inference_call_count": codex_facts.get("provider_inference_call_count"),
+            "provider_turns_expected": codex_facts.get("provider_turns_expected"),
+            "exit_status": codex_facts.get("exit_status"),
+            "command_lifecycle": codex_facts.get("command_lifecycle"),
+            "sentinel_passed": codex_facts.get("sentinel_passed"),
+            "tool_call_count_class": codex_facts.get("tool_call_count_class"),
+            "dependency_hash_equal": codex_facts.get("dependency_hash_equal"),
+            "dependency_length_equal": codex_facts.get("dependency_length_equal"),
+            "call_id_same_hmac": codex_facts.get("call_id_same_hmac"),
+            "scope_no_downgrade": codex_facts.get("scope_no_downgrade"),
+        },
+        "provider_observation": {
+            "provider_boundary": provider_boundary,
+            "source": "direct_transport_observer",
+            "fake_oracle": "unavailable",
+        },
+        "transport_observation": {
+            "provider_boundary_observed": bool(provider_boundary),
+            "matches_fake_provider": codex_facts.get("transport_dispatch_matches_fake")
+            if isinstance(codex_facts.get("transport_dispatch_matches_fake"), bool)
+            else None,
+        },
+        "accounting": accounting_facts,
+        "governance": {
+            "dependency_one_equal": codex_facts.get("dependency_hash_equal"),
+            "acquisition_before_completion": codex_facts.get("command_lifecycle") == "success",
+        },
+    }
+
+
 async def _protected_provider_preflight(
     observer: DirectTransportObserver,
     provider_url: str,
@@ -3889,12 +3994,6 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
             "codex.function_result_adjacent",
             isinstance(boundary, dict) and boundary.get("function_result_adjacent") is True,
         )
-        put(
-            "codex.call_id_present",
-            False,
-        )
-        put("gateway.call_id_same_hmac", False)
-        put("gateway.scope_no_downgrade", False)
     if isinstance(boundary, dict):
         put(
             "provider.two_inference_calls",
@@ -3937,11 +4036,21 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
             companion.get("gateway_call_id_same_hmac") is True,
         )
         put("gateway.scope_no_downgrade", companion.get("scope_no_downgrade") is True)
-    else:
+    elif isinstance(companion, dict):
         put("provider.idless_continuation_supported", False)
         put("codex.call_id_present", False)
         put("gateway.call_id_same_hmac", False)
         put("gateway.scope_no_downgrade", False)
+    else:
+        accumulator = result.get("run_accumulator")
+        runtime_failed = isinstance(accumulator, Mapping) and isinstance(
+            accumulator.get("first_failure"), str
+        )
+        if not runtime_failed:
+            put("provider.idless_continuation_supported", False)
+            put("codex.call_id_present", False)
+            put("gateway.call_id_same_hmac", False)
+            put("gateway.scope_no_downgrade", False)
     accounting = result.get("accounting")
     codex_accounting = codex.get("accounting") if isinstance(codex, dict) else None
     accounting_facts = codex_accounting if isinstance(codex_accounting, dict) else accounting
@@ -4091,6 +4200,19 @@ def _acceptance_gate(
     schema_keys = PROTECTED_RESULT_SCHEMA_KEYS if mode == "protected" else FAKE_RESULT_SCHEMA_KEYS
     selected_items = tuple(item for item in ACCEPTANCE_MANIFEST if item.mode in {"both", mode})
     always_execute = {"C4.9", "C5.2", "C5.3"}
+    accumulator = result.get("run_accumulator")
+    runtime_failure = (
+        accumulator.get("first_failure")
+        if isinstance(accumulator, Mapping) and isinstance(accumulator.get("first_failure"), str)
+        else None
+    )
+    phase_checkpoints = result.get("phase_checkpoints")
+    checkpointed_phase = isinstance(phase_checkpoints, (list, tuple)) and any(
+        isinstance(item, Mapping)
+        and item.get("evidence_kind") == "semantic"
+        and isinstance(item.get("phase_facts"), Mapping)
+        for item in phase_checkpoints
+    )
     statuses: dict[str, ObligationResult] = {}
     for item in selected_items:
         dependency_passed = item.stop_dependency == "preflight" or (
@@ -4107,6 +4229,15 @@ def _acceptance_gate(
             key in observations and observations[key] is not None
             for key in projection.source_observation_keys
         )
+        if runtime_failure is not None and checkpointed_phase and not fields_present:
+            statuses[item.obligation_id] = make_result(
+                item.obligation_id,
+                status="NOT RUN",
+                observed=False,
+                relationship="other",
+                count=0,
+            )
+            continue
         passed = fields_present and projection_passes(item.obligation_id, observations, mode)
         statuses[item.obligation_id] = make_result(
             item.obligation_id,
@@ -4134,6 +4265,16 @@ def _acceptance_gate(
         mode,
     )
     gate_dict["observation_schema_keys"] = schema_keys
+    gate_dict["runtime_failure"] = (
+        {
+            "class": runtime_failure,
+            "context": accumulator.get("first_failure_context")
+            if isinstance(accumulator, Mapping)
+            else None,
+        }
+        if runtime_failure is not None
+        else None
+    )
     source = Path(__file__).read_text(encoding="utf-8")
     gaps = tuple(
         {
@@ -4617,9 +4758,9 @@ def run_actual_protected_mode_conformance(
         result["protected_acceptance"] = False
         result["evidence_kind"] = "synthetic_orchestration_only"
         result["synthetic_dependency_missing"] = True
+        _attach_accumulator_evidence(result, accumulator)
         result["runtime_observations"] = _runtime_observations(result)
         result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
-        _attach_accumulator_evidence(result, accumulator)
         protected_ids = tuple(
             item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "protected"}
         )
@@ -4650,9 +4791,9 @@ def run_actual_protected_mode_conformance(
         accumulator = RunAccumulator(mode, gateway_sha=GATEWAY_MAIN_SHA)
         accumulator.record_failure(_safe_runtime_failure(exc))
         result = _failed_rehearsal_result("protected", accumulator)
+        _attach_accumulator_evidence(result, accumulator)
         result["runtime_observations"] = _runtime_observations(result)
         result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
-        _attach_accumulator_evidence(result, accumulator)
     result["protected_acceptance"] = False
     result["evidence_kind"] = "synthetic_orchestration_only"
     gate = result.get("acceptance_gate")
@@ -4745,9 +4886,9 @@ def _run_direct_composed_rehearsal(
     except BaseException:
         accumulator.record_failure("preflight_incomplete")
         result = _failed_rehearsal_result(provider_target, accumulator)
+        _attach_accumulator_evidence(result, accumulator)
         result["runtime_observations"] = _runtime_observations(result)
         result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
-        _attach_accumulator_evidence(result, accumulator)
         return result
     try:
         result = _run_direct_composed_rehearsal_impl(
@@ -4755,7 +4896,14 @@ def _run_direct_composed_rehearsal(
         )
     except BaseException as exc:
         accumulator.record_failure(_safe_runtime_failure(exc))
+        protected_hooks = getattr(args, "_protected_runtime_hooks", None)
+        if (
+            isinstance(protected_hooks, ProtectedRuntimeHooks)
+            and protected_hooks.projection_failure
+        ):
+            accumulator.record_failure("serialization_failure")
         result = _failed_rehearsal_result(provider_target, accumulator)
+        _attach_accumulator_evidence(result, accumulator)
         try:
             result["runtime_observations"] = _runtime_observations(result)
             result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
@@ -4795,6 +4943,23 @@ def _attach_accumulator_evidence(result: dict[str, object], accumulator: RunAccu
     """Publish all-lifetime totals without conflating candidate readiness."""
     facts = accumulator.safe_dict()
     result["run_accumulator"] = facts
+    phase_checkpoints_value = facts.get("phase_checkpoints", ())
+    phase_checkpoints = (
+        phase_checkpoints_value if isinstance(phase_checkpoints_value, (list, tuple)) else ()
+    )
+    result["phase_checkpoints"] = phase_checkpoints
+    for checkpoint in phase_checkpoints:
+        if not isinstance(checkpoint, Mapping):
+            continue
+        phase_facts = checkpoint.get("phase_facts")
+        if not isinstance(phase_facts, Mapping):
+            continue
+        # Preserve the first actual Codex checkpoint when a later observer
+        # lifetime reuses the same phase name.
+        if checkpoint.get("phase") == "codex":
+            for key in ("codex", "provider_observation", "transport_observation", "accounting"):
+                if key in phase_facts:
+                    result.setdefault(key, phase_facts[key])
     result["all_lifetime_counts"] = facts.get("all_lifetime_counts", facts.get("counts"))
     result.setdefault("candidate_only_observation", {"status": "NOT RUN"})
 
@@ -5137,6 +5302,14 @@ def _run_direct_composed_rehearsal_impl(
                     (
                         "vision_failure_after_codex",
                         {"failure_phase": "vision_response"},
+                    ),
+                    (
+                        "vision_failure_projection_cleanup",
+                        {
+                            "failure_phase": "vision_response",
+                            "projection_failure": True,
+                            "cleanup_failure": True,
+                        },
                     ),
                 ):
                     case = run_actual_protected_mode_conformance(
@@ -5493,6 +5666,13 @@ def _run_direct_composed_rehearsal_impl(
                     },
                     "local_observation_status": ("PASSED" if codex_transport_matches else "FAILED"),
                 }
+            )
+            accumulator.record_phase_facts(
+                _codex_phase_checkpoint(codex_facts, codex_transport),
+                phase="codex",
+                ordinal=2,
+                lifetime_id="codex",
+                evidence_kind=("semantic" if codex_transport_matches else "transport"),
             )
             if not codex_transport_matches:
                 codex_facts["status"] = "FAILED"

@@ -577,6 +577,36 @@ def test_run_accumulator_retains_completed_phase_and_first_failure_context() -> 
     )
 
 
+def test_run_accumulator_retains_bounded_semantic_phase_facts() -> None:
+    accumulator = RunAccumulator("protected")
+    accumulator.record_phase_facts(
+        {
+            "codex": {"status": "PASSED", "client_verification": {"status": "PASSED"}},
+            "provider": {"request_class_classes": ("function_initial",)},
+        },
+        phase="codex",
+        ordinal=2,
+        lifetime_id="codex",
+    )
+    accumulator.record_phase_facts(
+        {"raw_body": b"must-not-cross", "nested": {"value": "safe"}},
+        phase="vision",
+        ordinal=3,
+        lifetime_id="vision",
+    )
+    facts = accumulator.safe_dict()
+    checkpoints = cast(tuple[dict[str, object], ...], facts["phase_checkpoints"])
+    codex = next(item for item in checkpoints if item["lifetime_id"] == "codex")
+    assert codex["evidence_kind"] == "semantic"
+    assert codex["phase_facts"] == {
+        "codex": {"status": "PASSED", "client_verification": {"status": "PASSED"}},
+        "provider": {"request_class_classes": ("function_initial",)},
+    }
+    encoded = json.dumps(facts)
+    assert "must-not-cross" not in encoded
+    assert "raw_body" in encoded
+
+
 def test_protected_mode_conformance_is_injected_and_never_reads_credentials() -> None:
     calls: list[str] = []
     result = run_protected_mode_conformance(

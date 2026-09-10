@@ -626,3 +626,19 @@ The final fake qualification includes five serial synthetic protected cases:
 healthy, the existing observer/projection/cleanup/pre-dispatch failures, and
 a Codex-complete then first-vision-response stop whose vision context and
 earlier Codex checkpoint remain serialized.
+
+## Objective-005-aj semantic checkpoints and protected acceptance
+
+The shared runner checkpoints the verified Codex phase before entering vision.
+The checkpoint retains only bounded client-verification, direct provider
+relationship, governance, accounting, and per-response/all-lifetime byte facts;
+it never retains requests, responses, IDs, tool content, or source content.
+Later exceptions and generic failure projection must preserve those facts.
+
+The manifest's earliest unsatisfied obligation is distinct from the chronological
+runtime stop. A Codex-complete then `vision_full`/ordinal-3 stop therefore keeps
+the verified earlier rows, marks the unexecuted companion and later rows `NOT
+RUN`, and retains the first runtime context plus all 29 bounded dispositions.
+Projection and cleanup failures are secondary and cannot replace the primary
+failure or erase the completed Codex checkpoint. Objective-005-aj artifacts are
+source-bound under `oap/evidence/005-aj/`.
