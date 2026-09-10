@@ -1,0 +1,735 @@
+{
+  "schema": "oap-005-aj-protected-matrix-v2",
+  "status": "BLOCKED",
+  "mode": "protected",
+  "execution_mode": "real-protected",
+  "run_provenance": "one_real_protected_direct_httpx_loopback",
+  "implementation_sha": "a56472704d82c8778c74abe7276017fb6466298b",
+  "gateway": {
+    "execute_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+    "app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57"
+  },
+  "codex": {
+    "version": "0.149.0",
+    "binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
+  },
+  "uid": 1029,
+  "euid": 1029,
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "command": "PYTHONPATH=<local-repo>:<local-repo>/src:<gateway> <gateway-venv>/bin/python scripts/gateway_accounting_rehearsal.py --provider-target protected --fake-result <validated-fake-result> --codex <codex-0.1490>",
+  "credential_resolution": "completed_bounded_in_memory",
+  "credential_persisted": false,
+  "provider_preflight": {
+    "probes_admitted": 2,
+    "passed_to_codex": true,
+    "status_codes_retained": false
+  },
+  "first_failure": "stream_overflow",
+  "first_failure_context": {
+    "cause": "stream_overflow",
+    "kind": "inference",
+    "lifetime_id": "vision",
+    "operation": "vision_full",
+    "ordinal": 3,
+    "phase": "vision"
+  },
+  "secondary_failures": [
+    "observer_readiness_lost",
+    "validation_failure"
+  ],
+  "protected_later_inference": false,
+  "retry_count": 0,
+  "dispatch_counts": {
+    "attempted": 12,
+    "admitted": 12,
+    "compiler": 4,
+    "inference": 4,
+    "other": 4
+  },
+  "all_lifetime_counts": {
+    "compiler_attempted": 4,
+    "compiler_completed": 4,
+    "compiler_dispatched": 4,
+    "compiler_responded": 4,
+    "compiler_terminal_valid": null,
+    "inference_attempted": 4,
+    "inference_completed": 4,
+    "inference_dispatched": 4,
+    "inference_responded": 4,
+    "inference_terminal_valid": 3,
+    "other_attempted": 4,
+    "other_completed": 4,
+    "other_dispatched": 4,
+    "other_responded": 4,
+    "other_terminal_valid": 4
+  },
+  "response_byte_evidence": [
+    {
+      "all_lifetime": {
+        "max_stream_bytes": 131072,
+        "response_accepted_bytes_total": 270197,
+        "response_received_bytes_total": 270197,
+        "response_rejected_bytes_total": 0,
+        "response_rejected_chunks_total": 0,
+        "stream_bytes_total": 270197
+      },
+      "lifetime_id": "provider_preflight",
+      "ordinal": 0,
+      "phase": "preflight",
+      "responses": [
+        {
+          "accepted_bytes": 0,
+          "kind": "other",
+          "ordinal": 1,
+          "received_bytes": 0,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 517,
+          "kind": "other",
+          "ordinal": 2,
+          "received_bytes": 517,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        }
+      ]
+    },
+    {
+      "all_lifetime": {
+        "max_stream_bytes": 131072,
+        "response_accepted_bytes_total": 270197,
+        "response_received_bytes_total": 270197,
+        "response_rejected_bytes_total": 0,
+        "response_rejected_chunks_total": 0,
+        "stream_bytes_total": 270197
+      },
+      "lifetime_id": "codex",
+      "ordinal": 2,
+      "phase": "codex",
+      "responses": [
+        {
+          "accepted_bytes": 0,
+          "kind": "other",
+          "ordinal": 1,
+          "received_bytes": 0,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 6418,
+          "kind": "compiler",
+          "ordinal": 2,
+          "received_bytes": 6418,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 59020,
+          "kind": "inference",
+          "ordinal": 3,
+          "received_bytes": 59020,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 5415,
+          "kind": "compiler",
+          "ordinal": 4,
+          "received_bytes": 5415,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 59777,
+          "kind": "inference",
+          "ordinal": 5,
+          "received_bytes": 59777,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        }
+      ]
+    },
+    {
+      "all_lifetime": {
+        "max_stream_bytes": 131072,
+        "response_accepted_bytes_total": 270197,
+        "response_received_bytes_total": 270197,
+        "response_rejected_bytes_total": 0,
+        "response_rejected_chunks_total": 0,
+        "stream_bytes_total": 270197
+      },
+      "lifetime_id": "vision",
+      "ordinal": 4,
+      "phase": "vision",
+      "responses": [
+        {
+          "accepted_bytes": 0,
+          "kind": "other",
+          "ordinal": 1,
+          "received_bytes": 0,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 7671,
+          "kind": "compiler",
+          "ordinal": 2,
+          "received_bytes": 7671,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 58779,
+          "kind": "inference",
+          "ordinal": 3,
+          "received_bytes": 58779,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 5219,
+          "kind": "compiler",
+          "ordinal": 4,
+          "received_bytes": 5219,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 67381,
+          "kind": "inference",
+          "ordinal": 5,
+          "received_bytes": 67381,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        }
+      ]
+    }
+  ],
+  "acceptance_gate": {
+    "passed": false,
+    "first_failure": "C1.4",
+    "runtime_failure": {
+      "class": "stream_overflow",
+      "context": {
+        "cause": "stream_overflow",
+        "kind": "inference",
+        "lifetime_id": "vision",
+        "operation": "vision_full",
+        "ordinal": 3,
+        "phase": "vision"
+      }
+    },
+    "results": [
+      {
+        "count_class": "2",
+        "fixture_hash": null,
+        "obligation_id": "C1.1",
+        "observed": true,
+        "relationship": "independent",
+        "status": "PASSED",
+        "timing": "unknown",
+        "version": "0.149.0"
+      },
+      {
+        "count_class": "3-4",
+        "fixture_hash": null,
+        "obligation_id": "C1.2",
+        "observed": true,
+        "relationship": "independent",
+        "status": "PASSED",
+        "timing": "unknown",
+        "version": "0.149.0"
+      },
+      {
+        "count_class": "3-4",
+        "fixture_hash": null,
+        "obligation_id": "C1.3",
+        "observed": true,
+        "relationship": "independent",
+        "status": "PASSED",
+        "timing": "unknown",
+        "version": "0.149.0"
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C1.4",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "3-4",
+        "fixture_hash": null,
+        "obligation_id": "C1.5",
+        "observed": true,
+        "relationship": "independent",
+        "status": "PASSED",
+        "timing": "unknown",
+        "version": "0.149.0"
+      },
+      {
+        "count_class": "3-4",
+        "fixture_hash": null,
+        "obligation_id": "C1.6",
+        "observed": true,
+        "relationship": "independent",
+        "status": "PASSED",
+        "timing": "unknown",
+        "version": "0.149.0"
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C2.1",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C2.2",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C2.3",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C2.4",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C2.5",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C2.6",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C3.1",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C3.2",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C3.3",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C3.4",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C4.1",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C4.2",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C4.3",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C4.4",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C4.5",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C4.6",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "5+",
+        "fixture_hash": null,
+        "obligation_id": "C4.7",
+        "observed": true,
+        "relationship": "independent",
+        "status": "PASSED",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C4.8",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "3-4",
+        "fixture_hash": null,
+        "obligation_id": "C4.9",
+        "observed": true,
+        "relationship": "independent",
+        "status": "PASSED",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C5.1",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C5.2",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "5+",
+        "fixture_hash": null,
+        "obligation_id": "C5.3",
+        "observed": true,
+        "relationship": "independent",
+        "status": "PASSED",
+        "timing": "unknown",
+        "version": null
+      },
+      {
+        "count_class": "0",
+        "fixture_hash": null,
+        "obligation_id": "C5.4",
+        "observed": false,
+        "relationship": "other",
+        "status": "NOT RUN",
+        "timing": "unknown",
+        "version": null
+      }
+    ],
+    "all_selected_rows_serialized": true
+  },
+  "codex_checkpoint": [
+    {
+      "completed": true,
+      "counts": {
+        "compiler_attempted": 2,
+        "compiler_completed": 2,
+        "compiler_dispatched": 2,
+        "compiler_responded": 2,
+        "inference_attempted": 2,
+        "inference_completed": 2,
+        "inference_dispatched": 2,
+        "inference_responded": 2,
+        "inference_terminal_valid": 2,
+        "other_attempted": 1,
+        "other_completed": 1,
+        "other_dispatched": 1,
+        "other_responded": 1,
+        "other_terminal_valid": 1
+      },
+      "evidence_kind": "semantic",
+      "failure_class": null,
+      "lifetime_id": "codex",
+      "ordinal": 2,
+      "phase": "codex",
+      "phase_facts": {
+        "accounting": {
+          "cost": true,
+          "request": true,
+          "tokens": true,
+          "two_terminal_reservations": true,
+          "usage": true,
+          "zero_duplicate_request_ids": true,
+          "zero_pending": true
+        },
+        "codex": {
+          "call_id_same_hmac": true,
+          "client_verification": {
+            "command_lifecycle": "success",
+            "exit_status": 0,
+            "failure_origin": "success",
+            "sentinel_passed": true,
+            "status": "PASSED"
+          },
+          "command_lifecycle": "success",
+          "dependency_hash_equal": true,
+          "dependency_length_equal": true,
+          "exit_status": 0,
+          "provider_inference_call_count": 2,
+          "provider_turns_expected": 2,
+          "scope_no_downgrade": true,
+          "sentinel_passed": true,
+          "status": "PASSED",
+          "tool_call_count_class": "2"
+        },
+        "evidence_kind": "semantic",
+        "governance": {
+          "acquisition_before_completion": true,
+          "dependency_one_equal": true
+        },
+        "provider_observation": {
+          "fake_oracle": "unavailable",
+          "provider_boundary": {
+            "all_image_requests_single": true,
+            "call_count_class": "2",
+            "call_id_relation_classes": [
+              "initial_owned",
+              "matching"
+            ],
+            "canonical_candidate_availability_classes": [
+              "available",
+              "none"
+            ],
+            "canonical_candidate_count_classes": [
+              "1",
+              "0"
+            ],
+            "canonical_summary_relation_classes": [
+              "different"
+            ],
+            "compiler_inference_classes": [
+              "compiler",
+              "inference"
+            ],
+            "continuation_count_class": "1",
+            "function_result_adjacent": true,
+            "image_count_classes": [
+              "0",
+              "0"
+            ],
+            "image_hash_count_class": "0",
+            "image_hashes_observed": false,
+            "independent_from_ledger": true,
+            "item_id_presence_classes": [
+              "present"
+            ],
+            "lifecycle_valid": true,
+            "normal_close_count_class": "2",
+            "pending_scope_availability_classes": [
+              "available",
+              "unavailable"
+            ],
+            "request_class_classes": [
+              "function_continuation",
+              "function_initial"
+            ],
+            "terminal": true,
+            "terminal_count_class": "2",
+            "terminality_valid": true,
+            "tool_class_classes": [
+              "mixed"
+            ],
+            "tool_type_classes": [
+              "custom",
+              "function"
+            ]
+          },
+          "source": "direct_transport_observer"
+        },
+        "transport_observation": {
+          "matches_fake_provider": true,
+          "provider_boundary_observed": true
+        }
+      },
+      "ready": true,
+      "response_count": 5
+    }
+  ],
+  "provider_boundary": {
+    "all_image_requests_single": true,
+    "call_count_class": "2",
+    "call_id_relation_classes": [
+      "initial_owned",
+      "matching"
+    ],
+    "canonical_candidate_availability_classes": [
+      "available",
+      "none"
+    ],
+    "canonical_candidate_count_classes": [
+      "1",
+      "0"
+    ],
+    "canonical_summary_relation_classes": [
+      "different"
+    ],
+    "compiler_inference_classes": [
+      "compiler",
+      "inference"
+    ],
+    "continuation_count_class": "1",
+    "function_result_adjacent": true,
+    "image_count_classes": [
+      "0",
+      "0"
+    ],
+    "image_hash_count_class": "0",
+    "image_hashes_observed": false,
+    "independent_from_ledger": true,
+    "item_id_presence_classes": [
+      "present"
+    ],
+    "lifecycle_valid": true,
+    "normal_close_count_class": "2",
+    "pending_scope_availability_classes": [
+      "available",
+      "unavailable"
+    ],
+    "request_class_classes": [
+      "function_continuation",
+      "function_initial"
+    ],
+    "terminal": true,
+    "terminal_count_class": "2",
+    "terminality_valid": true,
+    "tool_class_classes": [
+      "mixed"
+    ],
+    "tool_type_classes": [
+      "custom",
+      "function"
+    ]
+  },
+  "cleanup": {
+    "cache": true,
+    "codex_home": true,
+    "database": true,
+    "failure_cache": true,
+    "failure_identity": true,
+    "failure_provider": true,
+    "failure_replay": true,
+    "listeners": true,
+    "processes": true
+  },
+  "fixture_before": {
+    "service": "qwen-serving-vision.service",
+    "pid": "23961",
+    "start": "Sun 2026-09-06 18:57:26 CEST",
+    "restarts": 0,
+    "listener_18020": true,
+    "qwen_changed_paths": 7
+  },
+  "fixture_after": {
+    "service": "qwen-serving-vision.service",
+    "pid": "23961",
+    "start": "Sun 2026-09-06 18:57:26 CEST",
+    "restarts": 0,
+    "listener_18020": true,
+    "qwen_changed_paths": 7
+  },
+  "fixture_mutated": false,
+  "protected_acceptance": false,
+  "cutover": false,
+  "merge": false,
+  "privacy": {
+    "logs_secret_free": "NOT RETAINED IN EARLY STOP",
+    "raw_payloads_retained": false,
+    "credential_retained": false
+  }
+}
