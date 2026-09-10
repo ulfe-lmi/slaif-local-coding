@@ -1,0 +1,58 @@
+{
+  "schema": "oap-005-al-index-v1",
+  "status": "BLOCKED",
+  "objective": "Identity-replay validation-stage localization, deterministic companion fixture correction, and bounded protected closure",
+  "implementation_sha": "88b94e6669698a551e1ac9affac8716bd814e18d",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "artifacts": {
+    "fake_machine_gate": "oap/evidence/005-al/fake-machine-gate.json",
+    "protected_attempt_1": "oap/evidence/005-al/protected-attempt-1.json"
+  },
+  "attempts": {
+    "authorized_maximum": 2,
+    "performed": 1,
+    "attempt_1": {
+      "status": "BLOCKED",
+      "first_failure": "stream_validation_invalid",
+      "validation_stage": "gateway_validator",
+      "operation": "identity_replay",
+      "ordinal": 5,
+      "later_protected_inference": false
+    },
+    "attempt_2": "NOT RUN: conditional harness-only ownership was not demonstrated"
+  },
+  "fake_qualification": {
+    "status": "COMPLETE",
+    "machine_gate": "37/37",
+    "direct_dispatches": {
+      "total": 26,
+      "compiler": 6,
+      "inference": 12,
+      "other": 8
+    },
+    "inference_terminal_valid": "12/12",
+    "validation": "PASSED",
+    "cleanup": "PASSED",
+    "privacy": "PASSED"
+  },
+  "protected_fixture": {
+    "before_after_equal": true,
+    "vision_pid": "23961",
+    "vision_start": "Sun 2026-09-06 18:57:26 CEST",
+    "restarts": 0,
+    "listener_18020": true,
+    "listener_18021": false,
+    "listener_18031": false,
+    "qwen_changed_paths": 7,
+    "mutated": false
+  },
+  "privacy": {
+    "raw_payloads_committed": false,
+    "credentials_committed": false,
+    "protected_result_retained_in_repo": false
+  }
+}

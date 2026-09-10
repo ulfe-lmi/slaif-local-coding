@@ -1,0 +1,134 @@
+{
+  "schema": "oap-005-al-protected-attempt-v1",
+  "status": "BLOCKED",
+  "attempt": 1,
+  "execution_mode": "real-protected",
+  "run_provenance": "fresh_real_protected_direct_httpx_qwen",
+  "implementation_sha": "88b94e6669698a551e1ac9affac8716bd814e18d",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex": {
+    "version": "0.149.0",
+    "binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+    "client_status": "PASSED",
+    "exit_status": 0,
+    "provider_turns_expected": 2
+  },
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "preflight": {
+    "uid": 1029,
+    "vision_unit": "qwen-serving-vision.service",
+    "vision_active": true,
+    "vision_pid": "23961",
+    "vision_start": "Sun 2026-09-06 18:57:26 CEST",
+    "vision_restarts": 0,
+    "listener_18020": true,
+    "text_unit_inactive": true,
+    "listener_18021": false,
+    "listener_18031": false,
+    "qwen_changed_paths": 7
+  },
+  "first_failure": {
+    "class": "stream_validation_invalid",
+    "validation_stage": "gateway_validator",
+    "kind": "inference",
+    "lifetime_id": "identity",
+    "operation": "identity_replay",
+    "ordinal": 5,
+    "phase": "codex"
+  },
+  "protected_gate": {
+    "passed": false,
+    "selected_rows": 29,
+    "passed_rows_before_stop": 8,
+    "missing": [],
+    "first_unsatisfied": "C1.4",
+    "retry_count": 0,
+    "later_protected_inference_dispatched": false
+  },
+  "dispatch_counts": {
+    "attempted": 15,
+    "dispatched": 15,
+    "compiler": 4,
+    "inference": 6,
+    "inference_terminal_valid": 5,
+    "other": 5
+  },
+  "inference_terminal_valid": "5/6",
+  "response_limits": {
+    "per_response_bytes": 131072,
+    "acceptance_frame_bytes": 131072,
+    "maximum_observed_response_bytes": 104750,
+    "rejected_bytes": 0,
+    "rejected_chunks": 0
+  },
+  "completed_phase_checkpoints": [
+    {
+      "lifetime_id": "provider_preflight",
+      "phase": "preflight",
+      "ordinal": 0,
+      "completed": true,
+      "response_count": 2
+    },
+    {
+      "lifetime_id": "codex",
+      "phase": "codex",
+      "ordinal": 2,
+      "completed": true,
+      "response_count": 5
+    },
+    {
+      "lifetime_id": "vision",
+      "phase": "vision",
+      "ordinal": 4,
+      "completed": true,
+      "response_count": 6
+    },
+    {
+      "lifetime_id": "post_vision",
+      "phase": "vision",
+      "ordinal": 4,
+      "completed": false,
+      "failure_class": "stream_validation_invalid",
+      "response_count": 2
+    }
+  ],
+  "fixture_after": {
+    "vision_active": true,
+    "vision_pid": "23961",
+    "vision_start": "Sun 2026-09-06 18:57:26 CEST",
+    "vision_restarts": 0,
+    "listener_18020": true,
+    "text_unit_inactive": true,
+    "listener_18021": false,
+    "listener_18031": false,
+    "qwen_changed_paths": 7,
+    "before_after_equal": true,
+    "mutated": false
+  },
+  "cleanup": {
+    "cache": true,
+    "codex_home": true,
+    "database": true,
+    "failure_cache": true,
+    "failure_identity": true,
+    "failure_provider": true,
+    "failure_replay": true,
+    "listeners": true,
+    "processes": true
+  },
+  "privacy": {
+    "result_and_stderr_files_mode": "0600",
+    "stderr_bytes": 0,
+    "raw_payloads_committed": false,
+    "credential_retained": false,
+    "runner_logs_secret_free": true
+  },
+  "ownership": {
+    "harness_fixture_correction": "implemented_and_fake_qualified",
+    "protected_failure_owner": "unresolved_gateway_validator_boundary",
+    "generic_validator_rejection_proves_harness_only": false,
+    "attempt_2_eligible": false,
+    "attempt_2_reason": "No bounded non-protected proof isolates the protected validator rejection to the local harness."
+  }
+}
