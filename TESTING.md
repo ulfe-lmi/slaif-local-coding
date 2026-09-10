@@ -505,3 +505,17 @@ missing-ID, mismatched-ID, or wrong-session facts cannot promote C1.4. Negative
 correlation cases must stop before provider advancement and leave accounting
 non-pending. The companion replaces the two existing `identity_replay`
 inference slots; it adds no operation, retry, provider call, or budget ceiling.
+
+The final 005-ad qualification at implementation `c5bdcf08999158521ae149f60f5b7c6bd2d92a1d`
+passed the complete fake machine gate: 37/37 obligations and projections,
+26/26 direct observer dispatches (6 compiler, 12 inference, 8 other), 12/12
+terminal-valid inference observations, and exact fake-provider counter
+agreement. The actual `identity_replay` companion passed with a streamed
+returned function call, a non-streaming continuation omitting only the
+optional item ID, matching the mandatory call ID, same admitted relationship,
+terminal accounting, and zero pending/duplicate request IDs. Natural Codex
+shape was recorded separately with the item ID present. The healthy synthetic
+protected branch, with the fake semantic oracle unavailable, serialized and
+passed all 29 selected rows; observer-failure, combined projection/cleanup,
+and pre-dispatch mapping cases each serialized all 29 rows and stopped as
+designed. Real protected inference remained `NOT RUN`.

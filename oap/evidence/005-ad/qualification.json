@@ -1,0 +1,213 @@
+{
+  "identifier": "005-ad",
+  "status": "COMPLETE",
+  "tested_source_sha": "c5bdcf08999158521ae149f60f5b7c6bd2d92a1d",
+  "post_qualification_attestation": {
+    "tested_source_remains_code_head": "c5bdcf08999158521ae149f60f5b7c6bd2d92a1d",
+    "changes_after_qualification": ["TESTING.md", "oap/evidence/005-ad/qualification.json"],
+    "code_or_runtime_configuration_changed": false,
+    "reuse_basis": "documentation and sanitized evidence only"
+  },
+  "source_identity": {
+    "local_package": "src/slaif_local_coding",
+    "runner": "scripts/gateway_accounting_rehearsal.py",
+    "observer": "tests/helpers/transport_observer.py",
+    "acceptance_projection": "tests/helpers/acceptance_harness.py",
+    "provider_sse_facts": "scripts/local_qwen_provider_differential.py",
+    "runner_sha256": "5a6c54b96f4d255382dc73cdda7201f5389bb3416ed6e81e1ada66c866b94370",
+    "observer_sha256": "6a509bf47792a02c1e23152577121bb560516f418f44a145ce90129b777f7a5f",
+    "projection_sha256": "185499529ce27a1930cdf912640c132e025b7c8f3a6f784c9a279e1cb0188175",
+    "provider_sse_sha256": "4f3198c9a71165b2e868197aeca5d85ab9c77d8ab85b8f6e93a7b6af70104c9b"
+  },
+  "qualification": {
+    "command": "PYTHONPATH=<repo>:<repo>/src:<repo>/scripts:<gateway>/app <gateway-venv>/bin/python scripts/gateway_accounting_rehearsal.py --gateway-root <gateway> --gateway-python <gateway-venv>/bin/python --provider-target fake --codex <codex-0.149.0>",
+    "gateway": {
+      "commit": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+      "app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+      "clean": true,
+      "merged_main_ancestry": true
+    },
+    "codex": {
+      "version": "0.149.0",
+      "sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
+    },
+    "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+    "protected_access": false,
+    "finite_plan": {
+      "artifact": "oap/evidence/005-ad/slot-plan.json",
+      "artifact_sha256": "d36bc864ceb0631a714aa3a972ddb8be87c4fa0a9912cbb3d727aaebd8467317",
+      "macro_operations": 9,
+      "max_attempts_per_macro_operation": 1,
+      "retries": 0,
+      "aggregate_observation_ceiling": 64,
+      "mapping": [
+        {"operation": "codex_turn_1", "compiler": 2, "inference": 1, "other": 0},
+        {"operation": "codex_turn_2", "compiler": 0, "inference": 1, "other": 0},
+        {"operation": "vision_full", "compiler": 2, "inference": 2, "other": 0},
+        {"operation": "vision_crop_history", "compiler": 0, "inference": 2, "other": 0},
+        {"operation": "identity_replay", "compiler": 0, "inference": 2, "other": 5},
+        {"operation": "identity_concurrent_replay", "compiler": 2, "inference": 5, "other": 0},
+        {"operation": "identity_tamper_matrix", "compiler": 0, "inference": 0, "other": 0},
+        {"operation": "authorization_matrix", "compiler": 0, "inference": 0, "other": 0},
+        {"operation": "controlled_failure", "compiler": 0, "inference": 1, "other": 0}
+      ]
+    },
+    "fake_gate": {
+      "status": "PASSED",
+      "obligation_count": 37,
+      "projection_count": 37,
+      "missing": [],
+      "first_failure": null,
+      "retry_count": 0,
+      "row_ids": [
+        "C1.1", "C1.2", "C1.3", "C1.4", "C1.5", "C1.6",
+        "C2.1", "C2.2", "C2.3", "C2.4", "C2.5", "C2.6",
+        "C3.1", "C3.2", "C3.3", "C3.4", "C4.1", "C4.2",
+        "C4.3", "C4.4", "C4.5", "C4.6", "C4.7", "C4.8",
+        "C4.9", "C5.1", "C5.2", "C5.3", "C5.4", "D1", "D2",
+        "D3", "D4", "D5", "D6", "D7", "D8", "D9"
+      ],
+      "row_status": "all PASSED",
+      "direct_observer": {
+        "attempted": 26,
+        "dispatched": 26,
+        "responded": 26,
+        "completed": 26,
+        "compiler": 6,
+        "inference": 12,
+        "other": 8,
+        "inference_terminal_valid": 12,
+        "inference_sse": 6,
+        "inference_json": 6,
+        "provider_counter_agreement": true,
+        "ready": true
+      },
+      "cleanup": {
+        "processes": true,
+        "listeners": true,
+        "database": true,
+        "cache": true,
+        "codex_home": true,
+        "secret_free_logs": true
+      }
+    },
+    "companion": {
+      "location": "identity_replay/codex/ordinal-5/lifetime-identity",
+      "initial": {
+        "response_shape": "stream_sse",
+        "status_class": "2xx",
+        "returned_function_call": true,
+        "returned_call_id_present": true,
+        "terminal_valid": true
+      },
+      "continuation": {
+        "response_shape": "json_nonstream",
+        "status_class": "2xx",
+        "optional_item_id": "omitted",
+        "mandatory_call_id": "matching",
+        "terminal_valid": true
+      },
+      "relationship": {
+        "same_admitted_operation_phase_ordinal_lifetime_session": true,
+        "gateway_call_id_same_hmac": true,
+        "scope_no_downgrade": true,
+        "two_terminal_reservations": true,
+        "zero_pending": true,
+        "zero_duplicate_request_ids": true
+      },
+      "natural_codex_shape": {
+        "recorded_separately": true,
+        "optional_item_id": "present",
+        "mandatory_call_id": "matching",
+        "used_as_idless_evidence": false
+      },
+      "negative_boundary_tests": {
+        "present_item_id": "FAILED_AS_POSITIVE",
+        "mismatched_call_id": "FAILED_AS_POSITIVE",
+        "missing_call_id": "FAILED_AS_POSITIVE",
+        "focused_positive_predicate_without_composed_companion": "FAILED_AS_POSITIVE"
+      }
+    },
+    "synthetic_protected": {
+      "semantic_fake_oracle": "unavailable",
+      "healthy": {
+        "status": "PASSED",
+        "selected_rows": 29,
+        "all_rows_serialized": true,
+        "first_failure": null,
+        "real_protected_access": false,
+        "preflight_health_status": 200,
+        "preflight_models_status": 200,
+        "dispatch_counts": {"compiler": 6, "inference": 12, "other": 10}
+      },
+      "failure_cases": {
+        "observer_failure_after_dispatch": {
+          "status": "BLOCKED",
+          "selected_rows": 29,
+          "all_rows_serialized": true,
+          "first_failure": "observer_readiness_lost",
+          "dispatch_counts": {"compiler": 1, "inference": 1, "other": 3},
+          "real_protected_access": false
+        },
+        "observer_projection_cleanup_failure": {
+          "status": "BLOCKED",
+          "selected_rows": 29,
+          "all_rows_serialized": true,
+          "first_failure": "observer_readiness_lost",
+          "dispatch_counts": {"compiler": 1, "inference": 1, "other": 3},
+          "real_protected_access": false
+        },
+        "predispatch_mapping_dependency_failure": {
+          "status": "BLOCKED",
+          "selected_rows": 29,
+          "all_rows_serialized": true,
+          "first_failure": "preflight_mapping_dependency_invalid",
+          "dispatch_counts": {"compiler": 0, "inference": 0, "other": 0},
+          "real_protected_access": false
+        }
+      }
+    }
+  },
+  "repository_checks": {
+    "pytest": "PASSED: 774 passed, 8 skipped",
+    "mypy": "PASSED: uv run --frozen mypy src tests; 57 source files",
+    "ruff_check": "PASSED",
+    "ruff_format": "PASSED: 269 files",
+    "compileall": "PASSED",
+    "bash_n": "PASSED",
+    "uv_lock_check": "PASSED",
+    "uv_pip_check": "PASSED",
+    "uv_build_wheel": "PASSED: package-only wheel; 26 files",
+    "python_build_module": "BLOCKED: host Python lacks ensurepip; uv build alternative passed",
+    "github_ci": {
+      "check": "test",
+      "status": "SUCCESS",
+      "run_id": 34434333147,
+      "job_id": 102736176806
+    }
+  },
+  "live_host_read_only": {
+    "host": "hinton1",
+    "vision_unit": "qwen-serving-vision.service",
+    "vision_active": true,
+    "vision_main_pid": "23961",
+    "vision_start": "Sun 2026-09-06 18:57:26 CEST",
+    "vision_restarts": "0",
+    "port_18020_listener": true,
+    "health_status": 200,
+    "text_unit_inactive": true,
+    "port_18021_free": true,
+    "port_18030_free": true,
+    "port_18031_free": true,
+    "qwen_worktree_change_count": 7,
+    "protected_mutation": false,
+    "protected_authenticated_inference": "NOT RUN"
+  },
+  "privacy": {
+    "raw_call_ids": false,
+    "raw_payloads": false,
+    "credentials": false,
+    "private_urls": false,
+    "raw_logs": false
+  }
+}
