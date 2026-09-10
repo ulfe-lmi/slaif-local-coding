@@ -919,7 +919,14 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             "unknown",
         }
         allowed_tool_classes = {"function", "custom", "mixed", "none", "unknown"}
-        allowed_tool_types = {"function", "custom", "tool_search", "web_search", "unknown"}
+        allowed_tool_types = {
+            "function",
+            "custom",
+            "namespace",
+            "tool_search",
+            "web_search",
+            "unknown",
+        }
         allowed_presence = {"present", "omitted", "unknown"}
         allowed_relations = {"initial_owned", "matching", "missing", "mismatched", "unknown"}
         request_class = facts.get("request_class", "unknown")
