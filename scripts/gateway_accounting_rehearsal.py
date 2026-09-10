@@ -3539,6 +3539,122 @@ def _run_signed_identity_matrix(
     }
 
 
+def _replay_ownership_negative_observation(
+    statuses: Mapping[str, int | None],
+    *,
+    provider_calls_before: int,
+    provider_calls_after: int,
+    primary_rows_before: Mapping[str, object],
+    primary_rows_after: Mapping[str, object],
+    second_rows_before: Mapping[str, object],
+    second_rows_after: Mapping[str, object],
+) -> dict[str, object]:
+    """Project companion ownership negatives without retaining IDs or bodies."""
+    expected_cases = ("missing_call_id", "mismatched_call_id", "wrong_key")
+    status_classes = {case: _status_class(statuses.get(case)) for case in expected_cases}
+
+    def accounting_unchanged(before: Mapping[str, object], after: Mapping[str, object]) -> bool:
+        fields = (
+            "reservation_count",
+            "finalized_reservation_count",
+            "pending_reservation_count",
+            "ledger_count",
+            "finalized_ledger_count",
+            "failed_ledger_count",
+            "duplicate_request_id_count",
+            "provider_usage_rows",
+            "key_requests_used",
+            "key_tokens_used",
+            "ledger_total_tokens",
+            "ledger_total_cost_eur",
+        )
+        return all(before.get(field) == after.get(field) for field in fields)
+
+    all_denied = all(status_classes[case] == "4xx" for case in expected_cases)
+    provider_unchanged = provider_calls_after == provider_calls_before
+    primary_unchanged = accounting_unchanged(primary_rows_before, primary_rows_after)
+    second_unchanged = accounting_unchanged(second_rows_before, second_rows_after)
+    zero_pending = all(
+        rows.get("pending_reservation_count") == 0
+        for rows in (primary_rows_after, second_rows_after)
+    )
+    zero_duplicates = all(
+        rows.get("duplicate_request_id_count") == 0
+        for rows in (primary_rows_after, second_rows_after)
+    )
+    return {
+        "passed": (
+            all_denied
+            and provider_unchanged
+            and primary_unchanged
+            and second_unchanged
+            and zero_pending
+            and zero_duplicates
+        ),
+        "scope": "gateway_responses_companion",
+        "request_count_class": count_class(len(expected_cases)),
+        "missing_call_id_status_class": status_classes["missing_call_id"],
+        "mismatched_call_id_status_class": status_classes["mismatched_call_id"],
+        "wrong_key_status_class": status_classes["wrong_key"],
+        "all_denied": all_denied,
+        "provider_calls_unchanged": provider_unchanged,
+        "primary_accounting_unchanged": primary_unchanged,
+        "second_key_accounting_unchanged": second_unchanged,
+        "zero_pending": zero_pending,
+        "zero_duplicate_request_ids": zero_duplicates,
+    }
+
+
+def _run_replay_ownership_negative_matrix(
+    gateway_url: str,
+    primary_key: str,
+    second_key: str,
+    continuation_body: Mapping[str, object],
+) -> dict[str, int | None]:
+    """Send only pre-provider companion ownership negatives through Gateway."""
+
+    def continuation(*, call_id: str | None) -> dict[str, object]:
+        item: dict[str, object] = {
+            "type": "function_call_output",
+            "output": "synthetic companion result",
+        }
+        if call_id is not None:
+            item["call_id"] = call_id
+        body = dict(continuation_body)
+        body["input"] = [item]
+        return body
+
+    def post_status(gateway_key: str, body: Mapping[str, object]) -> int | None:
+        try:
+            with httpx.Client(timeout=45, follow_redirects=False) as http:
+                response = http.post(
+                    f"{gateway_url}/v1/responses",
+                    headers={
+                        "Authorization": f"Bearer {gateway_key}",
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                    content=json.dumps(body, separators=(",", ":")).encode("utf-8"),
+                )
+                return response.status_code
+        except httpx.HTTPError:
+            return None
+
+    returned_call_id = continuation_body.get("input")
+    call_id: str | None = None
+    if isinstance(returned_call_id, list) and returned_call_id:
+        first_item = returned_call_id[0]
+        if isinstance(first_item, dict) and isinstance(first_item.get("call_id"), str):
+            call_id = first_item["call_id"]
+    return {
+        "missing_call_id": post_status(primary_key, continuation(call_id=None)),
+        "mismatched_call_id": post_status(
+            primary_key, continuation(call_id="synthetic-unowned-call")
+        ),
+        "wrong_key": post_status(second_key, continuation(call_id=call_id)),
+    }
+
+
 def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
     """Build a mode-specific bounded observation schema from concrete facts."""
     mode: Literal["fake", "protected"] = (
@@ -5666,11 +5782,59 @@ def _run_direct_composed_rehearsal_impl(
             identity_rows_before = asyncio.run(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
+            ownership_second_rows_before = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["second_gateway_key_id"])
+            )
             identity_provider_before = (
                 _int_fact(fake_server.snapshot().get("inference_calls"))
                 if fake_server is not None
                 else None
             )
+            ownership_statuses = _run_replay_ownership_negative_matrix(
+                gateway_url,
+                seeded["plaintext_key"],
+                seeded["second_plaintext_key"],
+                companion_continuation_body,
+            )
+            ownership_rows_after = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+            )
+            ownership_second_rows_after = asyncio.run(
+                _db_snapshot(gateway_root, database_url, seeded["second_gateway_key_id"])
+            )
+            ownership_provider_after = (
+                _int_fact(fake_server.snapshot().get("inference_calls"))
+                if fake_server is not None
+                else None
+            )
+            ownership_negative = _replay_ownership_negative_observation(
+                ownership_statuses,
+                provider_calls_before=identity_provider_before or 0,
+                provider_calls_after=ownership_provider_after or 0,
+                primary_rows_before=identity_rows_before,
+                primary_rows_after=ownership_rows_after,
+                second_rows_before=ownership_second_rows_before,
+                second_rows_after=ownership_second_rows_after,
+            )
+            if ownership_negative["passed"] is not True:
+                accumulator.record_failure("replay_ownership_negative_failed")
+                result = {
+                    "status": "FAILED",
+                    "provider_target": provider_target,
+                    "gateway_sha": GATEWAY_MAIN_SHA,
+                    "candidate_provenance": _candidate_provenance(
+                        tested_implementation_sha, run_id
+                    ),
+                    "idless_composed_companion": idless_composed_companion,
+                    "replay_ownership_negative": ownership_negative,
+                    "transport_observation": companion_observer.snapshot(),
+                    "topology_observation": {
+                        "codex_gateway_local_provider": True,
+                        "no_direct_route": True,
+                    },
+                }
+                early_return = True
+                return result
             identity_matrix = _run_signed_identity_matrix(
                 adapter_port,
                 service_token,
@@ -6173,6 +6337,7 @@ def _run_direct_composed_rehearsal_impl(
                         for row in (before_rows, second_rows, failure_rows)
                     ),
                 },
+                "replay_ownership_negative": ownership_negative,
                 "postgres_tmpfs_only": tmpfs_only,
                 "protected_mode_synthetic": protected_mode_synthetic,
                 "protected_mode_synthetic_cases": protected_mode_synthetic_cases,

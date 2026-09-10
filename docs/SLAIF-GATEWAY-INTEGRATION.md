@@ -631,3 +631,24 @@ hook and provider dispatches before cleanup. This is repository-only
 orchestration evidence and remains `protected_acceptance=false`; it is not
 protected inference acceptance, cutover, merge, or release readiness. The
 sanitized machine evidence is under `oap/evidence/005-ab/`.
+
+## Objective-005-af same-UID protected acceptance
+
+005-af preserves the exact 005-ae observer, source-bound fake gate, protected
+projection, and no-whole-harness-elevation boundary. Fake qualification and
+evidence validation run as the current UID against an owned 0600 regular file;
+the existing bounded Docker helper remains the only privileged operation.
+
+The composed fake run adds a bounded Gateway-boundary ownership-negative
+proof after the real id-less companion. It uses the existing two test keys to
+exercise missing-call-ID, mismatched-call-ID, and wrong-key continuation
+requests. The generated facts require all three 4xx denials before provider
+advancement, unchanged provider and per-key accounting, and zero pending or
+duplicate request IDs. No extra inference request or Gateway implementation
+change is introduced.
+
+The resulting source-bound evidence is retained under `oap/evidence/005-af/`.
+One protected matrix is attempted only after the clean fake gate, all required
+checks, unchanged vision-service preflight, and same-UID evidence validation.
+Protected acceptance, installed cutover, merge, and release readiness remain
+separate decisions.

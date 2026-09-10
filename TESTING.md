@@ -542,3 +542,23 @@ observed-field counts, incomplete lifecycle counters, and missing direct
 records. Evidence is generated from the runner result; hand-written all-PASS
 lists are not accepted. Protected acceptance, cutover, merge, and release
 readiness remain separate decisions.
+
+## Objective-005-af same-UID protected acceptance
+
+The 005-af rehearsal runs its fake producer, validator, evidence handling, and
+protected harness as the current execution UID. The fake result is an owned
+0600 regular file with one link and is validated again under that same UID
+before any protected credential resolution. The bounded Docker helper remains
+the only privileged boundary; the whole runner is never elevated.
+
+After the actual id-less companion, the fake qualification sends exactly three
+additional Responses requests through the Gateway using the existing primary
+and second test keys: missing call ID, mismatched call ID, and the valid call ID
+under the second key. All must be denied as 4xx before provider dispatch, with
+unchanged primary/second-key accounting and zero pending or duplicate request
+IDs. These are pre-provider negative checks and add no inference allowance.
+
+The fresh source-bound fake result and four serial synthetic protected cases
+remain prerequisites for one newly authorized protected matrix. A protected
+failure remains first-boundary evidence only; no protected retry, Qwen/service
+mutation, cutover, merge, or release claim is permitted.

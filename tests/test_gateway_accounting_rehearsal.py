@@ -29,6 +29,7 @@ from scripts.gateway_accounting_rehearsal import (
     _protected_provider_observation,
     _protected_provider_preflight,
     _provider_request_observation,
+    _replay_ownership_negative_observation,
     _ReturnedCallIDCapture,
     _runtime_observations,
     _select_protected_runtime,
@@ -741,6 +742,83 @@ def test_idless_companion_requires_omission_and_same_call_relationship(
         },
     )
     assert facts["passed"] is (item_id_presence == "omitted" and call_id_relation == "matching")
+
+
+def test_replay_ownership_negatives_require_gateway_denial_and_no_side_effects() -> None:
+    before = {
+        "reservation_count": 2,
+        "finalized_reservation_count": 2,
+        "pending_reservation_count": 0,
+        "ledger_count": 2,
+        "finalized_ledger_count": 2,
+        "failed_ledger_count": 0,
+        "duplicate_request_id_count": 0,
+        "provider_usage_rows": 2,
+        "key_requests_used": 2,
+        "key_tokens_used": 4,
+        "ledger_total_tokens": 4,
+        "ledger_total_cost_eur": "0.000004",
+    }
+    facts = _replay_ownership_negative_observation(
+        {
+            "missing_call_id": 422,
+            "mismatched_call_id": 404,
+            "wrong_key": 404,
+        },
+        provider_calls_before=3,
+        provider_calls_after=3,
+        primary_rows_before=before,
+        primary_rows_after=dict(before),
+        second_rows_before=before,
+        second_rows_after=dict(before),
+    )
+    assert facts["passed"] is True
+    assert facts["all_denied"] is True
+    assert facts["provider_calls_unchanged"] is True
+    assert facts["primary_accounting_unchanged"] is True
+    assert facts["second_key_accounting_unchanged"] is True
+    assert facts["zero_pending"] is True
+    assert facts["zero_duplicate_request_ids"] is True
+
+
+@pytest.mark.parametrize(
+    ("statuses", "provider_after", "primary_after"),
+    (
+        ({"missing_call_id": 200, "mismatched_call_id": 404, "wrong_key": 404}, 3, None),
+        ({"missing_call_id": 422, "mismatched_call_id": 404, "wrong_key": 404}, 4, None),
+        ({"missing_call_id": 422, "mismatched_call_id": 404, "wrong_key": 404}, 3, 3),
+    ),
+)
+def test_replay_ownership_negative_projection_fails_on_acceptance_or_side_effect(
+    statuses: dict[str, int], provider_after: int, primary_after: int | None
+) -> None:
+    before = {
+        "reservation_count": 1,
+        "finalized_reservation_count": 1,
+        "pending_reservation_count": 0,
+        "ledger_count": 1,
+        "finalized_ledger_count": 1,
+        "failed_ledger_count": 0,
+        "duplicate_request_id_count": 0,
+        "provider_usage_rows": 1,
+        "key_requests_used": 1,
+        "key_tokens_used": 2,
+        "ledger_total_tokens": 2,
+        "ledger_total_cost_eur": "0.000002",
+    }
+    after = dict(before)
+    if primary_after is not None:
+        after["ledger_count"] = primary_after
+    facts = _replay_ownership_negative_observation(
+        statuses,
+        provider_calls_before=3,
+        provider_calls_after=provider_after,
+        primary_rows_before=before,
+        primary_rows_after=after,
+        second_rows_before=before,
+        second_rows_after=dict(before),
+    )
+    assert facts["passed"] is False
 
 
 def test_present_only_runtime_facts_do_not_pass_c14() -> None:
