@@ -4096,7 +4096,7 @@ def _run_direct_composed_rehearsal_impl(
             else:
                 previous_candidate_env[QWEN_KEY_ENV] = None
             os.environ[QWEN_KEY_ENV] = qwen_key
-            if provider_target == "fake":
+            if provider_target == "fake" or protected_hooks is not None:
                 with httpx.Client(timeout=10, follow_redirects=False) as http:
                     fake_health = http.get(
                         f"{provider_url}/health",
