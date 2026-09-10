@@ -628,12 +628,20 @@ def test_actual_shared_runner_mapping_failure_precedes_credentials_and_provider(
         accesses.append("credential")
         return "synthetic-key"
 
+    def host_preflight() -> dict[str, object]:
+        accesses.append("host")
+        return {}
+
+    def main_pid() -> str:
+        accesses.append("pid")
+        return "synthetic-pid"
+
     result = run_actual_protected_mode_conformance(
         args,
         preflight={"ready": True},
         dependencies=ProtectedRuntimeHooks(
-            host_preflight=lambda: accesses.append("host") or {},
-            main_pid=lambda: accesses.append("pid") or "synthetic-pid",
+            host_preflight=host_preflight,
+            main_pid=main_pid,
             credential_source=credential_source,
             mapping_dependency_check=lambda: False,
         ),
@@ -647,10 +655,10 @@ def test_actual_shared_runner_mapping_failure_precedes_credentials_and_provider(
     accumulator = result["run_accumulator"]
     assert isinstance(accumulator, dict)
     assert accumulator["first_failure"] == "preflight_mapping_dependency_invalid"
-    assert all(value == 0 for value in accumulator["counts"].values())  # type: ignore[union-attr]
+    assert all(value == 0 for value in accumulator["counts"].values())
     gate = result["acceptance_gate"]
     assert isinstance(gate, dict)
-    assert len(gate["results"]) == len(PROTECTED_MANIFEST_IDS)  # type: ignore[arg-type]
+    assert len(gate["results"]) == len(PROTECTED_MANIFEST_IDS)
     assert result["protected_conformance"]["all_selected_rows_serialized"] is True  # type: ignore[index]
 
 

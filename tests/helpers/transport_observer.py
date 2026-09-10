@@ -446,6 +446,11 @@ def _representative_image_count(value: object) -> int:
     return classes.get(value, -1)
 
 
+def _bounded_sequence(value: object) -> tuple[object, ...]:
+    """Return a bounded iterable only for the closed list/tuple fact shape."""
+    return tuple(value) if isinstance(value, (list, tuple)) else ()
+
+
 def _provider_boundary_from_records(
     records: tuple[Mapping[str, object], ...],
 ) -> dict[str, object]:
@@ -462,11 +467,7 @@ def _provider_boundary_from_records(
     image_hash_values = tuple(
         value
         for record in inference
-        for value in (
-            record.get("image_hashes", ())
-            if isinstance(record.get("image_hashes", ()), (list, tuple))
-            else ()
-        )
+        for value in _bounded_sequence(record.get("image_hashes", ()))
         if isinstance(value, str) and len(value) == 64
     )
     image_hashes = image_hash_values
@@ -515,7 +516,7 @@ def _provider_boundary_from_records(
             {
                 value
                 for record in inference
-                for value in record.get("tool_type_classes", ())
+                for value in _bounded_sequence(record.get("tool_type_classes", ()))
                 if isinstance(value, str)
             }
         )

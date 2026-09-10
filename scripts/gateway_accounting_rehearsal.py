@@ -3965,7 +3965,10 @@ def _run_direct_composed_rehearsal(
     if "acceptance_gate" not in result:
         result["runtime_observations"] = _runtime_observations(result)
         result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
-        result["status"] = "COMPLETE" if result["acceptance_gate"]["passed"] else "BLOCKED"
+        gate = result.get("acceptance_gate")
+        result["status"] = (
+            "COMPLETE" if isinstance(gate, dict) and gate.get("passed") is True else "BLOCKED"
+        )
     result["run_accumulator"] = accumulator.safe_dict()
     return result
 
