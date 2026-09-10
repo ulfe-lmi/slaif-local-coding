@@ -1,0 +1,48 @@
+{
+  "evidence_version": "005-ad-slot-plan-v1",
+  "status": "PLAN_PUBLISHED_BEFORE_QUALIFICATION",
+  "implementation_source_sha": "7b2cb05b51be65ba4f15984a59b5f4a1798a6fb0",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "observer_version": "direct-httpx-v2",
+  "operation_limits": {
+    "maximum_macro_operations": 9,
+    "maximum_attempts_per_operation": 1,
+    "retries": 0,
+    "aggregate_dispatch_ceiling": 64,
+    "wall_seconds": 900
+  },
+  "dispatch_slots": [
+    {"ordinal": 1, "operation": "codex_turn_1", "phase": "codex", "compiler": 2, "inference": 1, "other": 0},
+    {"ordinal": 2, "operation": "codex_turn_2", "phase": "codex", "compiler": 0, "inference": 1, "other": 0},
+    {"ordinal": 3, "operation": "vision_full", "phase": "vision", "compiler": 2, "inference": 2, "other": 0},
+    {"ordinal": 4, "operation": "vision_crop_history", "phase": "vision", "compiler": 0, "inference": 2, "other": 0},
+    {"ordinal": 5, "operation": "identity_replay", "phase": "codex", "compiler": 0, "inference": 2, "other": 0,
+     "inference_mapping": ["companion_initial_tool_stream", "companion_idless_continuation_json"]},
+    {"ordinal": 5, "operation": "identity_replay", "phase": "identity", "compiler": 0, "inference": 0, "other": 5,
+     "inference_mapping": []},
+    {"ordinal": 6, "operation": "identity_concurrent_replay", "phase": "identity", "compiler": 2, "inference": 5, "other": 0},
+    {"ordinal": 7, "operation": "identity_tamper_matrix", "phase": "identity", "compiler": 0, "inference": 0, "other": 0},
+    {"ordinal": 8, "operation": "authorization_matrix", "phase": "identity", "compiler": 0, "inference": 0, "other": 0},
+    {"ordinal": 9, "operation": "controlled_failure", "phase": "identity", "compiler": 0, "inference": 1, "other": 0}
+  ],
+  "planned_totals": {"compiler": 6, "inference": 14, "other": 5},
+  "companion_contract": {
+    "initial": "one actual streamed function call returned by Gateway-Local-provider",
+    "continuation": "one non-streaming function_call_output with mandatory call_id and no optional item id",
+    "same_relationship": ["operation", "phase", "ordinal", "lifetime", "session"],
+    "terminal_requirements": ["initial_sse", "continuation_json", "two_accounting_reservations", "zero_pending", "zero_duplicate_request_ids"],
+    "natural_codex_shape_reported_separately": true,
+    "focused_fake_regression_is_not_matrix_evidence": true
+  },
+  "negative_scope": {
+    "missing_call_id": "existing direct-observer correlation scope",
+    "mismatched_call_id": "existing direct-observer correlation scope",
+    "wrong_session_or_key_ownership": "existing scoped correlation and identity matrix scope",
+    "provider_advancement": "must remain zero for rejected negative cases",
+    "pending_accounting": "must remain zero for rejected negative cases"
+  },
+  "protected_access": false,
+  "real_protected_acceptance": "NOT RUN"
+}
