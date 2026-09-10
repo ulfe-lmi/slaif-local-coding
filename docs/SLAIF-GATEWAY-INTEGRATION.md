@@ -683,3 +683,5 @@ the manifest's earliest unsatisfied obligation; later projection or cleanup
 failures remain secondary. Source-bound Objective-005-ai artifacts belong under
 `oap/evidence/005-ai/`; this evidence does not authorize protected retries,
 cutover, merge, or release acceptance.
+The final fake qualification also includes a five-case synthetic set with a
+Codex-complete then first-vision-response stop and preserved cleanup evidence.

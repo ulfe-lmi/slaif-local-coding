@@ -1,0 +1,20 @@
+{
+  "schema": "oap-005-ai-real-protected-matrix-v1",
+  "status": "NOT RUN",
+  "mode": "real-protected",
+  "execution_mode": "real-protected",
+  "implementation_sha": "5d3b0c3dca0a79905a3ac60e611b2b5dbd856d32",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "uid": 1029,
+  "euid": 1029,
+  "reason": "005-ai explicitly prohibits protected credentials, Qwen inference, retry, and diagnostic traffic",
+  "retry_count": 0,
+  "protected_later_inference": false,
+  "protected_acceptance": false,
+  "fixture_mutated": false,
+  "privacy": {
+    "credentials_accessed": false,
+    "raw_payloads_retained": false,
+    "protected_request_sent": false
+  }
+}

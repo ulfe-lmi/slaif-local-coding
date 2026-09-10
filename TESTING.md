@@ -622,3 +622,7 @@ earliest unsatisfied row. Per-response byte evidence and all-lifetime totals
 are retained as counts/classes only; projection or cleanup failures are
 secondary and cannot replace the first failure. Objective-005-ai qualification
 artifacts, when generated, are source-bound under `oap/evidence/005-ai/`.
+The final fake qualification includes five serial synthetic protected cases:
+healthy, the existing observer/projection/cleanup/pre-dispatch failures, and
+a Codex-complete then first-vision-response stop whose vision context and
+earlier Codex checkpoint remain serialized.
