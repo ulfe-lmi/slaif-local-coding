@@ -261,7 +261,9 @@ def _request_observation(payload: dict[str, object]) -> dict[str, object]:
         tuple(item for item in tools if isinstance(item, dict)) if isinstance(tools, list) else ()
     )
     tool_types = tuple(item["type"] for item in tool_items if isinstance(item.get("type"), str))
-    function_tools = tuple(item for item in tool_items if item.get("type") == "function")
+    function_tools = tuple(
+        item for item in _FakeQwenObservationWalker.walk(tools) if item.get("type") == "function"
+    )
     function_items = tuple(
         item
         for item in _FakeQwenObservationWalker.walk(payload)
@@ -644,9 +646,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         tools = payload.get("tools")
         if not isinstance(tools, list):
             return None
-        for tool in tools:
-            if not isinstance(tool, dict):
-                continue
+        for tool in _FakeQwenObservationWalker.walk(tools):
             name = tool.get("name")
             if isinstance(name, str) and name in {
                 "shell_command",
@@ -5343,13 +5343,13 @@ def _run_direct_composed_rehearsal_impl(
             # one non-streaming continuation.  The later phase still owns the
             # five signed /health observations used by the identity matrix.
             companion_tools = [
-                *adapter_tools,
                 {
                     "type": "namespace",
                     "name": "companion",
                     "description": "bounded local namespace",
                     "tools": [local_tools[0]],
                 },
+                *adapter_tools[2:],
             ]
             admit("identity_replay", "codex", 5, "identity")
             activate("identity_replay", "codex", 5, "identity")
