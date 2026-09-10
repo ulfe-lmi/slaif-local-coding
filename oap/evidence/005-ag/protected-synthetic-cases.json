@@ -4,7 +4,7 @@
   "mode": "protected-synthetic",
   "real_protected_access": false,
   "protected_acceptance": false,
-  "source_tested_implementation_sha": "6f2b87cc662da367d244bfa1ef0f7e5d4ef697dc",
+  "source_tested_implementation_sha": "f83022da790ef747ae743f961401a2e04b555b8f",
   "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
   "observer_version": "direct-httpx-v2",
   "selected_rows": 29,
