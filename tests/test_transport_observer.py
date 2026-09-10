@@ -424,7 +424,9 @@ async def test_repeated_legal_event_categories_do_not_exhaust_category_storage(
     async with httpx.AsyncClient(transport=observer) as client:
         response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
         await response.aread()
-    record = observer.snapshot()["records"][0]
+    records = observer.snapshot()["records"]
+    assert isinstance(records, (list, tuple))
+    record = cast(dict[str, object], records[0])
     assert observer.snapshot()["inference_terminal_valid_count"] == 1
     assert isinstance(record, dict)
     assert record["event_count_class"] == "5+"

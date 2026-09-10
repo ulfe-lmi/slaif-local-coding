@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import threading
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -77,7 +78,7 @@ class _ObserverStream(httpx.AsyncByteStream):
     def __init__(self, payload: bytes) -> None:
         self.payload = payload
 
-    async def __aiter__(self):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
         yield self.payload
 
     async def aclose(self) -> None:
