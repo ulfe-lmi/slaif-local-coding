@@ -1,0 +1,74 @@
+{
+  "schema": "oap-005-ah-evidence-index-v1",
+  "status": "BLOCKED",
+  "tested_implementation_sha": "6c66ab49ff718c42b9dde095f28f835274db83f0",
+  "uid": 1029,
+  "euid": 1029,
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "observer_version": "direct-httpx-v2",
+  "source_sha256": {
+    "runner": "1d903c13ec3421be26bc0a8f9b6799be0d1f9410dbc3e7a7fc5f75a3bb284261",
+    "observer": "f64f37582e6133b93b89f7553c503c6dc45e237ad3a71b68ed57d4e5b3c66ad5",
+    "projection": "1530adb4acfa32bf5b057778c7798271f4b21e180de4c51e6354fdfd17e9d90d",
+    "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0"
+  },
+  "source_paths": {
+    "runner": "scripts/gateway_accounting_rehearsal.py",
+    "observer": "tests/helpers/transport_observer.py",
+    "projection": "tests/helpers/acceptance_harness.py",
+    "provider_sse": "scripts/local_qwen_provider_differential.py"
+  },
+  "runs": {
+    "fake": {
+      "path": "oap/evidence/005-ah/fake-machine-gate.json",
+      "raw_result_sha256": "8beaae769cff41e1463493ca167f05e8fb5b8c7aea2af38fbd46635de2202238",
+      "status": "COMPLETE",
+      "execution_mode": "fake",
+      "run_provenance": "fresh_fake_direct_httpx_loopback",
+      "run_id": "d765269861844443a0af66a615afaa5e"
+    },
+    "synthetic_protected": {
+      "path": "oap/evidence/005-ah/protected-synthetic-cases.json",
+      "status": "COMPLETE",
+      "execution_mode": "synthetic-protected",
+      "run_provenance": "fresh_synthetic_protected_direct_httpx_loopback",
+      "real_protected_access": false
+    },
+    "real_protected": {
+      "path": "oap/evidence/005-ah/protected-matrix.json",
+      "raw_result_sha256": "9e90bf5a30b184ae5983885c3df1249a3fb49e1a06fc01e15e93e2d23c570444",
+      "status": "BLOCKED",
+      "execution_mode": "real-protected",
+      "run_provenance": "fresh_real_protected_direct_httpx_qwen",
+      "first_failure": "budget_stream_limit_exhausted",
+      "retry_count": 0
+    }
+  },
+  "protected_fixture": {
+    "vision_service": "active/running",
+    "vision_pid_before": "23961",
+    "vision_pid_after": "23961",
+    "vision_start_before": "Sun 2026-09-06 18:57:26 CEST",
+    "vision_start_after": "Sun 2026-09-06 18:57:26 CEST",
+    "vision_restarts_before": 0,
+    "vision_restarts_after": 0,
+    "port_18020_before": true,
+    "port_18020_after": true,
+    "qwen_worktree_changed_paths_before": 7,
+    "qwen_worktree_changed_paths_after": 7,
+    "port_18031_after": false,
+    "mutation": false
+  },
+  "privacy": {
+    "raw_ids_or_digests_retained": false,
+    "raw_payloads_retained": false,
+    "credentials_retained": false,
+    "secret_free_logs": true
+  },
+  "cutover": false,
+  "merge": false
+}
