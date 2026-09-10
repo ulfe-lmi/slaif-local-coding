@@ -295,7 +295,7 @@ def _request_observation(payload: dict[str, object]) -> dict[str, object]:
         if "custom" in tool_types
         else "unknown"
     )
-    known_tool_names = {"shell_command", "exec_command", "local_shell"}
+    known_tool_names = {"shell_command", "exec_command", "local_shell", "local_lookup"}
     function_tool_name = next(
         (item.get("name") for item in function_tools if item.get("name") in known_tool_names),
         "unknown" if function_tools else "none",
@@ -648,7 +648,12 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             if not isinstance(tool, dict):
                 continue
             name = tool.get("name")
-            if isinstance(name, str) and name in {"shell_command", "exec_command", "local_shell"}:
+            if isinstance(name, str) and name in {
+                "shell_command",
+                "exec_command",
+                "local_shell",
+                "local_lookup",
+            }:
                 return name
         return None
 
@@ -5340,7 +5345,7 @@ def _run_direct_composed_rehearsal_impl(
             companion_tools: list[dict[str, object]] = [
                 {
                     "type": "function",
-                    "name": "exec_command",
+                    "name": "local_lookup",
                     "description": "bounded local command",
                     "parameters": {
                         "type": "object",
