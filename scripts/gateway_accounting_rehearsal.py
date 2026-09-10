@@ -3156,7 +3156,7 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
     elif isinstance(boundary, dict):
         put(
             "provider.idless_continuation_supported",
-            "omitted" in boundary.get("item_id_presence_classes", ())
+            bool(set(boundary.get("item_id_presence_classes", ())) & {"omitted", "present"})
             and "matching" in boundary.get("call_id_relation_classes", ())
             and boundary.get("lifecycle_valid") is True,
         )
