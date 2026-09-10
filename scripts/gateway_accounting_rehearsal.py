@@ -5342,19 +5342,7 @@ def _run_direct_composed_rehearsal_impl(
             # composed omission companion: one streamed initial tool call and
             # one non-streaming continuation.  The later phase still owns the
             # five signed /health observations used by the identity matrix.
-            companion_tools: list[dict[str, object]] = [
-                {
-                    "type": "function",
-                    "name": "local_lookup",
-                    "description": "bounded local command",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": False,
-                    },
-                    "strict": True,
-                }
-            ]
+            companion_tools = adapter_tools
             admit("identity_replay", "codex", 5, "identity")
             activate("identity_replay", "codex", 5, "identity")
             companion_initial_body = _composed_request_body(
