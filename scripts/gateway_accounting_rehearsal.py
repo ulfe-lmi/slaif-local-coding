@@ -2913,13 +2913,20 @@ def _returned_call_id_from_sse_frame(frame: bytes) -> str | None:
             continue
         else:
             return None
-    if event_name != "response.completed" or not data_parts:
+    if not data_parts:
         return None
     try:
         payload = json.loads(b"\n".join(data_parts))
     except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
         return None
     if not isinstance(payload, dict):
+        return None
+    payload_event_name = payload.get("type")
+    if not isinstance(payload_event_name, str):
+        return None
+    if event_name is not None and event_name != payload_event_name:
+        return None
+    if payload_event_name != "response.completed":
         return None
     response = payload.get("response")
     output = response.get("output") if isinstance(response, dict) else None

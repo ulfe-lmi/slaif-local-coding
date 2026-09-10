@@ -1585,7 +1585,7 @@ FAKE_PROJECTION_TABLE: tuple[ObligationProjection, ...] = (
             "gateway.call_id_same_hmac",
             "gateway.scope_no_downgrade",
         ),
-        "_run_fake_idless_http_regression + _run_fake_codex_turn",
+        "_idless_composed_companion",
         ("test_projection_positive", "test_projection_negative"),
     ),
     ObligationProjection(

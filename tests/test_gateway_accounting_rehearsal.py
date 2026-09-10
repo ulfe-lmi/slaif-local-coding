@@ -660,7 +660,10 @@ async def test_direct_observer_correlates_actual_returned_call_to_idless_continu
 
 
 @pytest.mark.parametrize("chunk_size", (1, 4096))
-def test_returned_call_capture_handles_split_and_coalesced_sse(chunk_size: int) -> None:
+@pytest.mark.parametrize("with_event_name", (False, True))
+def test_returned_call_capture_handles_split_and_coalesced_sse(
+    chunk_size: int, with_event_name: bool
+) -> None:
     payload = {
         "type": "response.completed",
         "response": {
@@ -669,12 +672,8 @@ def test_returned_call_capture_handles_split_and_coalesced_sse(chunk_size: int) 
             "output": [{"type": "function_call", "id": "item-real", "call_id": "call-real"}],
         },
     }
-    frame = (
-        b"event: response.completed\n"
-        + b"data: "
-        + json.dumps(payload, separators=(",", ":")).encode()
-        + b"\n\n"
-    )
+    event_line = b"event: response.completed\n" if with_event_name else b""
+    frame = event_line + b"data: " + json.dumps(payload, separators=(",", ":")).encode() + b"\n\n"
     capture = _ReturnedCallIDCapture()
     for offset in range(0, len(frame), chunk_size):
         capture.consume(frame[offset : offset + chunk_size])
