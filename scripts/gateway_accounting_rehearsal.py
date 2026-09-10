@@ -3412,6 +3412,7 @@ def _run_fake_codex_turn(
         and run.tool_calls >= 1
         and run.codex_under_test_yolo
     )
+    client_failure_origin = "success" if successful else run.failure_origin
     dependency_path = fixture.repository / "GOVERNANCE-DEPENDENCY.md"
     try:
         dependency_bytes = dependency_path.read_bytes()
@@ -3427,7 +3428,7 @@ def _run_fake_codex_turn(
         "client_verification": {
             "status": "PASSED" if successful else "FAILED",
             "exit_status": run.exit_status,
-            "failure_origin": run.failure_origin,
+            "failure_origin": client_failure_origin,
             "failure_reason": run.failure_reason,
             "sentinel_passed": run.sentinel_passed,
             "command_lifecycle": run.dependency_observation.lifecycle,
@@ -3446,7 +3447,7 @@ def _run_fake_codex_turn(
         "sentinel_passed": run.sentinel_passed,
         "command_lifecycle": run.dependency_observation.lifecycle,
         "failure_reason": run.failure_reason,
-        "failure_origin": run.failure_origin,
+        "failure_origin": client_failure_origin,
         "diagnostic_class": run.command_diagnostics.failure_class,
         "stderr_class": (
             run.command_diagnostics.stderr.first_line_class
