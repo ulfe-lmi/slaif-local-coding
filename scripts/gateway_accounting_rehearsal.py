@@ -5349,7 +5349,7 @@ def _run_direct_composed_rehearsal_impl(
             # composed omission companion: one streamed initial tool call and
             # one non-streaming continuation.  The later phase still owns the
             # five signed /health observations used by the identity matrix.
-            companion_tools = [
+            companion_tools: list[dict[str, object]] = [
                 *adapter_tools,
                 {
                     "type": "namespace",
