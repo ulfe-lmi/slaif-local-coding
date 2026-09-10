@@ -5782,59 +5782,63 @@ def _run_direct_composed_rehearsal_impl(
             identity_rows_before = asyncio.run(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
-            ownership_second_rows_before = asyncio.run(
-                _db_snapshot(gateway_root, database_url, seeded["second_gateway_key_id"])
-            )
             identity_provider_before = (
                 _int_fact(fake_server.snapshot().get("inference_calls"))
                 if fake_server is not None
                 else None
             )
-            ownership_statuses = _run_replay_ownership_negative_matrix(
-                gateway_url,
-                seeded["plaintext_key"],
-                seeded["second_plaintext_key"],
-                companion_continuation_body,
-            )
-            ownership_rows_after = asyncio.run(
-                _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
-            )
-            ownership_second_rows_after = asyncio.run(
-                _db_snapshot(gateway_root, database_url, seeded["second_gateway_key_id"])
-            )
-            ownership_provider_after = (
-                _int_fact(fake_server.snapshot().get("inference_calls"))
-                if fake_server is not None
-                else None
-            )
-            ownership_negative = _replay_ownership_negative_observation(
-                ownership_statuses,
-                provider_calls_before=identity_provider_before or 0,
-                provider_calls_after=ownership_provider_after or 0,
-                primary_rows_before=identity_rows_before,
-                primary_rows_after=ownership_rows_after,
-                second_rows_before=ownership_second_rows_before,
-                second_rows_after=ownership_second_rows_after,
-            )
-            if ownership_negative["passed"] is not True:
-                accumulator.record_failure("replay_ownership_negative_failed")
-                result = {
-                    "status": "FAILED",
-                    "provider_target": provider_target,
-                    "gateway_sha": GATEWAY_MAIN_SHA,
-                    "candidate_provenance": _candidate_provenance(
-                        tested_implementation_sha, run_id
-                    ),
-                    "idless_composed_companion": idless_composed_companion,
-                    "replay_ownership_negative": ownership_negative,
-                    "transport_observation": companion_observer.snapshot(),
-                    "topology_observation": {
-                        "codex_gateway_local_provider": True,
-                        "no_direct_route": True,
-                    },
-                }
-                early_return = True
-                return result
+            ownership_negative: dict[str, object] = {
+                "passed": False,
+                "status": "NOT RUN",
+                "scope": "gateway_responses_companion",
+            }
+            if provider_target == "fake":
+                if fake_server is None:
+                    raise RuntimeError("fake_provider_missing")
+                ownership_second_rows_before = asyncio.run(
+                    _db_snapshot(gateway_root, database_url, seeded["second_gateway_key_id"])
+                )
+                ownership_statuses = _run_replay_ownership_negative_matrix(
+                    gateway_url,
+                    seeded["plaintext_key"],
+                    seeded["second_plaintext_key"],
+                    companion_continuation_body,
+                )
+                ownership_rows_after = asyncio.run(
+                    _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+                )
+                ownership_second_rows_after = asyncio.run(
+                    _db_snapshot(gateway_root, database_url, seeded["second_gateway_key_id"])
+                )
+                ownership_provider_after = _int_fact(fake_server.snapshot().get("inference_calls"))
+                ownership_negative = _replay_ownership_negative_observation(
+                    ownership_statuses,
+                    provider_calls_before=identity_provider_before or 0,
+                    provider_calls_after=ownership_provider_after,
+                    primary_rows_before=identity_rows_before,
+                    primary_rows_after=ownership_rows_after,
+                    second_rows_before=ownership_second_rows_before,
+                    second_rows_after=ownership_second_rows_after,
+                )
+                if ownership_negative["passed"] is not True:
+                    accumulator.record_failure("replay_ownership_negative_failed")
+                    result = {
+                        "status": "FAILED",
+                        "provider_target": provider_target,
+                        "gateway_sha": GATEWAY_MAIN_SHA,
+                        "candidate_provenance": _candidate_provenance(
+                            tested_implementation_sha, run_id
+                        ),
+                        "idless_composed_companion": idless_composed_companion,
+                        "replay_ownership_negative": ownership_negative,
+                        "transport_observation": companion_observer.snapshot(),
+                        "topology_observation": {
+                            "codex_gateway_local_provider": True,
+                            "no_direct_route": True,
+                        },
+                    }
+                    early_return = True
+                    return result
             identity_matrix = _run_signed_identity_matrix(
                 adapter_port,
                 service_token,
