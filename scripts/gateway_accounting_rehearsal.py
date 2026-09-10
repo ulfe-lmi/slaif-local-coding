@@ -4154,14 +4154,13 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
             put(f"cleanup.{key}", cleanup.get(key) is True)
     topology = result.get("topology_observation")
     if isinstance(topology, dict):
-        put(
-            "topology.codex_gateway_local_provider",
-            topology.get("codex_gateway_local_provider") is True,
-        )
-        put("topology.no_direct_route", topology.get("no_direct_route") is True)
-    put("privacy.no_raw_canaries", result.get("logs_secret_free") is True)
-    put("privacy.no_raw_bodies", result.get("logs_secret_free") is True)
-    put("privacy.no_credentials", result.get("logs_secret_free") is True)
+        for key in ("codex_gateway_local_provider", "no_direct_route"):
+            if key in topology:
+                put(f"topology.{key}", topology.get(key) is True)
+    if "logs_secret_free" in result:
+        put("privacy.no_raw_canaries", result.get("logs_secret_free") is True)
+        put("privacy.no_raw_bodies", result.get("logs_secret_free") is True)
+        put("privacy.no_credentials", result.get("logs_secret_free") is True)
     cutover = result.get("cutover_observations")
     if isinstance(cutover, dict):
         for key, value in cutover.items():
@@ -4692,10 +4691,7 @@ def _failed_rehearsal_result(
         "protected_stop_reason": accumulator.first_failure or "unknown",
         "protected_later_inference": False,
         "transport_observation": {},
-        "topology_observation": {
-            "codex_gateway_local_provider": False,
-            "no_direct_route": True,
-        },
+        "topology_observation": {},
     }
 
 
@@ -4958,8 +4954,13 @@ def _attach_accumulator_evidence(result: dict[str, object], accumulator: RunAccu
         # lifetime reuses the same phase name.
         if checkpoint.get("phase") == "codex":
             for key in ("codex", "provider_observation", "transport_observation", "accounting"):
-                if key in phase_facts:
-                    result.setdefault(key, phase_facts[key])
+                if key in phase_facts and (key not in result or result[key] in ({}, None)):
+                    result[key] = phase_facts[key]
+    cleanup = facts.get("cleanup")
+    if isinstance(cleanup, Mapping) and (
+        "cleanup_observation" not in result or result["cleanup_observation"] in ({}, None)
+    ):
+        result["cleanup_observation"] = dict(cleanup)
     result["all_lifetime_counts"] = facts.get("all_lifetime_counts", facts.get("counts"))
     result.setdefault("candidate_only_observation", {"status": "NOT RUN"})
 

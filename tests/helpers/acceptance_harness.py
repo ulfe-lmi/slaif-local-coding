@@ -1329,7 +1329,17 @@ class RunAccumulator:
 
     def record_cleanup(self, outcome: Mapping[str, object]) -> None:
         self.set_phase("cleanup")
-        for key in ("processes", "listeners", "database", "cache", "codex_home"):
+        for key in (
+            "processes",
+            "listeners",
+            "database",
+            "cache",
+            "codex_home",
+            "failure_replay",
+            "failure_cache",
+            "failure_identity",
+            "failure_provider",
+        ):
             if key in outcome and key not in self.cleanup:
                 self.cleanup[key] = outcome.get(key) is True
         if any(value is False for value in self.cleanup.values()):
