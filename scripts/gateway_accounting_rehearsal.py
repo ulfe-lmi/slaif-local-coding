@@ -3961,6 +3961,7 @@ def _run_direct_composed_rehearsal_impl(
             and protected_hooks.failure_phase in {"post_dispatch", "observer"}
             and not protected_failure_injected
             and active_observer is not None
+            and kind in {"compiler", "inference"}
         ):
             protected_failure_injected = True
             active_observer.mark_unready()
