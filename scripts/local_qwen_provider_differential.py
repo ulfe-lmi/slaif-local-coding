@@ -75,6 +75,7 @@ KNOWN_EVENT_TYPES = frozenset(
         "response.reasoning_text.delta",
         "response.reasoning_text.done",
         "response.function_call_arguments.delta",
+        "response.function_call_arguments.done",
         "response.reasoning_part.added",
         "response.reasoning_part.done",
         "response.custom_tool_call_input.delta",

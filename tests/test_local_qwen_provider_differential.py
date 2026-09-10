@@ -282,6 +282,7 @@ def test_fixed_vocabulary_matches_gateway_codex_contract_and_rejects_unknowns() 
         "response.reasoning_part.added",
         "response.reasoning_part.done",
         "response.function_call_arguments.delta",
+        "response.function_call_arguments.done",
         "response.custom_tool_call_input.delta",
         "response.failed",
         "response.incomplete",
