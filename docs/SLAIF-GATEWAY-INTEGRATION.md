@@ -658,3 +658,28 @@ the independent provider-boundary predicate was unavailable; no later
 protected inference was dispatched, and the vision fixture remained unchanged.
 Protected acceptance, installed cutover, merge, and release readiness remain
 separate decisions.
+
+## Objective-005-ai per-response byte budget and stop evidence
+
+The repository-only direct observer now binds stream-byte accounting to each
+actual admitted HTTP response lifetime. The existing 128 KiB `max_stream_bytes`
+limit is unchanged and applies per response, while a separate all-lifetime
+counter records total observed traffic for safe evidence. Only a valid response
+start can reset the current counter; rejected or concurrent dispatches and
+response closure do not reset an active stream or clear a latched failure.
+
+Per-response received, accepted, rejected, and rejected-chunk counts are
+retained without payloads. Incremental SSE frame accounting remains distinct
+from network-chunk and response-stream accounting. The connected observer
+tests cover sequential legal responses exceeding 128 KiB in aggregate, mixed
+response types, exact-bound and genuine single-response overflow,
+split/coalesced Gateway-validated SSE, admission races, closure/cancellation,
+and fail-closed later-dispatch suppression.
+
+The shared accumulator retains bounded completed-phase checkpoints and freezes
+the first runtime failure with its phase, operation, request ordinal, request
+kind, lifetime, and cause before cleanup. This runtime fact is separate from
+the manifest's earliest unsatisfied obligation; later projection or cleanup
+failures remain secondary. Source-bound Objective-005-ai artifacts belong under
+`oap/evidence/005-ai/`; this evidence does not authorize protected retries,
+cutover, merge, or release acceptance.

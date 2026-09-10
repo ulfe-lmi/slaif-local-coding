@@ -134,6 +134,10 @@ def test_budget_controller_enforces_admission_before_dispatch() -> None:
     assert expired.failure == "budget_deadline_exhausted"
 
     bounded = BudgetController(budget)
+    assert bounded.admit("codex_turn_1", lifetime_id="test")
+    assert bounded.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert bounded.admit_dispatch("compiler")
+    assert bounded.begin_response()
     assert bounded.observe_event(4)
     assert not bounded.observe_event(3)
     assert bounded.failure == "budget_stream_limit_exhausted"
@@ -450,6 +454,127 @@ def test_run_accumulator_sums_distinct_lifetimes_and_does_not_double_count_updat
     assert set(lifetime_counts) == {"first", "second"}
     assert all(snapshot["lifetime_id"] in {"first", "second"} for snapshot in snapshots)
     assert facts["terminal_classes"] == ("terminal_valid", "terminal_valid")
+
+
+def test_run_accumulator_retains_completed_phase_and_first_failure_context() -> None:
+    accumulator = RunAccumulator("fake")
+    accumulator.capture_observer(
+        {
+            "ready": True,
+            "failure_class": None,
+            "compiler_attempted_count": 1,
+            "compiler_dispatched_count": 1,
+            "compiler_responded_count": 1,
+            "compiler_completed_count": 1,
+            "inference_attempted_count": 1,
+            "inference_dispatched_count": 1,
+            "inference_responded_count": 1,
+            "inference_completed_count": 1,
+            "inference_terminal_valid_count": 1,
+            "records": (
+                {
+                    "ordinal": 1,
+                    "kind": "inference",
+                    "completed": True,
+                    "normal_close": True,
+                    "terminal_valid": True,
+                    "response_received_bytes": 100,
+                    "response_accepted_bytes": 100,
+                    "response_rejected_bytes": 0,
+                    "response_rejected_chunk_count": 0,
+                },
+            ),
+            "dispatch_budget": {
+                "max_stream_bytes": 131072,
+                "response_received_bytes_total": 100,
+                "response_accepted_bytes_total": 100,
+                "response_rejected_bytes_total": 0,
+                "response_rejected_chunks_total": 0,
+                "stream_bytes_total": 100,
+            },
+        },
+        phase="codex",
+        ordinal=2,
+        lifetime_id="codex",
+    )
+    accumulator.capture_observer(
+        {
+            "ready": False,
+            "failure_class": "budget_stream_limit_exhausted",
+            "failure_context": {
+                "kind": "inference",
+                "operation": "vision_full",
+                "phase": "vision",
+                "ordinal": 3,
+                "lifetime_id": "vision",
+                "cause": "budget_stream_limit_exhausted",
+            },
+            "inference_attempted_count": 1,
+            "inference_dispatched_count": 1,
+            "inference_responded_count": 1,
+            "inference_completed_count": 0,
+            "inference_terminal_valid_count": 0,
+            "records": (
+                {
+                    "ordinal": 1,
+                    "kind": "inference",
+                    "completed": False,
+                    "normal_close": False,
+                    "terminal_valid": False,
+                    "response_received_bytes": 131073,
+                    "response_accepted_bytes": 131072,
+                    "response_rejected_bytes": 1,
+                    "response_rejected_chunk_count": 1,
+                },
+            ),
+            "dispatch_budget": {
+                "max_stream_bytes": 131072,
+                "response_received_bytes_total": 131173,
+                "response_accepted_bytes_total": 131172,
+                "response_rejected_bytes_total": 1,
+                "response_rejected_chunks_total": 1,
+                "stream_bytes_total": 131172,
+            },
+        },
+        phase="vision",
+        ordinal=3,
+        lifetime_id="vision",
+    )
+    accumulator.record_failure("serialization_failure")
+    accumulator.record_cleanup(
+        {"processes": True, "listeners": True, "database": True, "cache": False}
+    )
+    facts = accumulator.safe_dict()
+    assert facts["first_failure"] == "budget_stream_limit_exhausted"
+    assert facts["first_failure_context"] == {
+        "kind": "inference",
+        "operation": "vision_full",
+        "phase": "vision",
+        "ordinal": 3,
+        "lifetime_id": "vision",
+        "cause": "budget_stream_limit_exhausted",
+    }
+    assert facts["counts"]["compiler_completed"] == 1  # type: ignore[index]
+    assert facts["counts"]["inference_attempted"] == 2  # type: ignore[index]
+    completed = cast(tuple[dict[str, object], ...], facts["completed_phases"])
+    assert [(item["phase"], item["lifetime_id"]) for item in completed] == [("codex", "codex")]
+    byte_evidence = cast(tuple[dict[str, object], ...], facts["response_byte_evidence"])
+    vision_bytes = next(item for item in byte_evidence if item["lifetime_id"] == "vision")
+    assert vision_bytes["responses"] == (
+        {
+            "ordinal": 1,
+            "kind": "inference",
+            "received_bytes": 131073,
+            "accepted_bytes": 131072,
+            "rejected_bytes": 1,
+            "rejected_chunk_count": 1,
+        },
+    )
+    assert facts["secondary_failures"] == (
+        "observer_readiness_lost",
+        "serialization_failure",
+        "cleanup_failed",
+    )
 
 
 def test_protected_mode_conformance_is_injected_and_never_reads_credentials() -> None:

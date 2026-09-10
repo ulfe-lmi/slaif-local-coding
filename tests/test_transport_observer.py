@@ -655,6 +655,162 @@ async def test_frame_cap_is_checked_at_sse_boundaries_not_network_chunks(
 
 
 @pytest.mark.asyncio
+async def test_stream_budget_is_per_response_while_totals_remain_run_wide() -> None:
+    response_bytes = b"x" * 70_014
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(PublicRequestBudget(1, "codex_turn_1"),),
+            dispatch_plan=(OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 2),)),),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_ChunkStream((response_bytes,)),
+            )
+        ),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        first = await client.post("http://fake.test/v1/chat/completions", content=b"first")
+        second = await client.post("http://fake.test/v1/chat/completions", content=b"second")
+    assert first.content == response_bytes
+    assert second.content == response_bytes
+    assert budget.failure is None
+    facts = budget.safe_dict()
+    assert facts["stream_bytes_total"] == 140_028
+    lifetimes = facts["response_byte_lifetimes"]
+    assert lifetimes == (
+        {
+            "response_ordinal": 1,
+            "received_bytes": 70_014,
+            "accepted_bytes": 70_014,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "configured_limit": MAX_STREAM_BYTES,
+        },
+        {
+            "response_ordinal": 2,
+            "received_bytes": 70_014,
+            "accepted_bytes": 70_014,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "configured_limit": MAX_STREAM_BYTES,
+        },
+    )
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    assert [record["response_accepted_bytes"] for record in records] == [
+        70_014,
+        70_014,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mixed_response_lifetimes_keep_byte_counters_separate() -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(
+                PublicRequestBudget(1, "codex_turn_1"),
+                PublicRequestBudget(2, "codex_turn_2"),
+            ),
+            dispatch_plan=(
+                OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 1),)),
+                OperationDispatchPlan("codex_turn_2", "codex", 2, (("inference", 1),)),
+            ),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.admit("codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    payload = _stream_bytes()
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={
+                    "content-type": (
+                        "application/json"
+                        if request.url.path == "/v1/chat/completions"
+                        else "text/event-stream"
+                    )
+                },
+                stream=_ChunkStream(
+                    (b"compiler",) if request.url.path == "/v1/chat/completions" else (payload,)
+                ),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        compiler = await client.post("http://fake.test/v1/chat/completions", content=b"compiler")
+        assert compiler.content == b"compiler"
+        assert budget.activate_operation(
+            "codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex"
+        )
+        response = await client.post("http://fake.test/v1/responses", content=b"inference")
+        assert response.status_code == 200
+        await response.aread()
+    assert budget.failure is None
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    assert [record["response_received_bytes"] for record in records] == [
+        len(b"compiler"),
+        len(payload),
+    ]
+    assert budget.safe_dict()["stream_bytes_total"] == len(b"compiler") + len(payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("overflow", (False, True))
+async def test_exact_response_bound_and_single_response_overflow_are_distinct(
+    overflow: bool,
+) -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(PublicRequestBudget(1, "codex_turn_1"),),
+            dispatch_plan=(OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 1),)),),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    chunks = (b"x" * MAX_STREAM_BYTES, b"y") if overflow else (b"x" * MAX_STREAM_BYTES,)
+    stream = _CountingChunkStream(chunks)
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=stream,
+            )
+        ),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        if overflow:
+            with pytest.raises(RuntimeError, match="budget_exhausted"):
+                await client.post("http://fake.test/v1/chat/completions", content=b"overflow")
+        else:
+            response = await client.post("http://fake.test/v1/chat/completions", content=b"exact")
+            assert len(response.content) == MAX_STREAM_BYTES
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["response_received_bytes"] == MAX_STREAM_BYTES + (1 if overflow else 0)
+    assert record["response_accepted_bytes"] == MAX_STREAM_BYTES
+    assert record["response_rejected_bytes"] == (1 if overflow else 0)
+    assert record["response_rejected_chunk_count"] == (1 if overflow else 0)
+    assert budget.safe_dict()["stream_bytes_total"] == MAX_STREAM_BYTES
+    assert budget.failure == ("budget_stream_limit_exhausted" if overflow else None)
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_oversized_completed_frame_stops_the_stream() -> None:
     budget = BudgetController(RehearsalBudget(max_event_bytes=100, max_stream_bytes=128 * 1024))
     assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
@@ -1247,6 +1403,49 @@ async def test_run_budget_holds_concurrency_until_stream_lifetime_ends() -> None
         with suppress(RuntimeError):
             await first_task
     assert delegate.calls == 1
+    assert budget.failure == "budget_concurrency_limit_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_rejected_concurrent_admission_cannot_reset_inflight_response_bytes() -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(PublicRequestBudget(1, "codex_turn_1"),),
+            dispatch_plan=(OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 1),)),),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    stream = _BlockingStream()
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=stream,
+            )
+        ),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        read_task = asyncio.create_task(response.aread())
+        await asyncio.wait_for(stream.started.wait(), timeout=1)
+        current = budget.safe_dict()["current_response_bytes"]
+        assert isinstance(current, dict)
+        assert current["accepted_bytes"] == len(b"partial")
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"second")
+        current = budget.safe_dict()["current_response_bytes"]
+        assert isinstance(current, dict)
+        assert current["accepted_bytes"] == len(b"partial")
+        stream.release.set()
+        await read_task
+    assert budget.safe_dict()["response_byte_lifetimes"][0]["accepted_bytes"] == len(  # type: ignore[index]
+        b"partial"
+    )
     assert budget.failure == "budget_concurrency_limit_exhausted"
 
 

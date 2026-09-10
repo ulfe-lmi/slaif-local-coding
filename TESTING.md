@@ -595,3 +595,30 @@ cases, cleanup, and secret-free logging. The single protected attempt stopped
 at `C1.1` because independent provider-boundary acceptance was unavailable;
 later protected inference was not run and the protected fixture remained
 unchanged.
+
+## Objective-005-ai per-response byte budget and stop evidence
+
+The shared `BudgetController` opens a byte-accounting lifetime only after an
+admitted direct HTTP response is returned. `max_stream_bytes` remains the
+unchanged 128 KiB per-response cap; sequential responses reset only their
+current counter at a valid response start while separately retaining bounded
+all-lifetime totals. Dispatch rejection, stale context, concurrency failure,
+stream closure, cancellation, and semantic failure cannot reset an active
+response or clear the run's stop latch.
+
+The direct observer records exact safe per-response received, accepted, and
+rejected byte counts plus rejected-chunk counts. Network-chunk bytes remain
+separate from incremental SSE frame bytes and no response is buffered for
+qualification. The connected tests use unread asynchronous streams and cover
+legal responses whose combined bytes exceed 128 KiB, mixed compiler/inference
+lifetimes, exact-bound and single-response overflow, split/coalesced validated
+SSE, rejected concurrent admission, timeout/cancellation/close handling, and
+zero later dispatch after a latched failure.
+
+`RunAccumulator` retains completed phase checkpoints and freezes the first
+runtime failure's bounded phase, operation, ordinal, kind, lifetime, and cause
+before cleanup. These facts remain separate from the acceptance manifest's
+earliest unsatisfied row. Per-response byte evidence and all-lifetime totals
+are retained as counts/classes only; projection or cleanup failures are
+secondary and cannot replace the first failure. Objective-005-ai qualification
+artifacts, when generated, are source-bound under `oap/evidence/005-ai/`.

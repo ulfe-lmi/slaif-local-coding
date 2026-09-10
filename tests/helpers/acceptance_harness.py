@@ -168,6 +168,16 @@ class BudgetController:
     _active_dispatches: int = field(init=False, default=0)
     _event_bytes: int = field(init=False, default=0)
     _stream_bytes: int = field(init=False, default=0)
+    _stream_bytes_total: int = field(init=False, default=0)
+    _response_received_bytes_total: int = field(init=False, default=0)
+    _response_rejected_bytes_total: int = field(init=False, default=0)
+    _response_rejected_chunks_total: int = field(init=False, default=0)
+    _response_received_bytes: int = field(init=False, default=0)
+    _response_rejected_bytes: int = field(init=False, default=0)
+    _response_rejected_chunks: int = field(init=False, default=0)
+    _response_sequence: int = field(init=False, default=0)
+    _response_active: bool = field(init=False, default=False)
+    _response_byte_lifetimes: list[dict[str, int]] = field(init=False, default_factory=list)
     _dispatch_attempted: int = field(init=False, default=0)
     _dispatch_admitted: int = field(init=False, default=0)
     _dispatch_counts: dict[str, dict[str, int]] = field(init=False, default_factory=dict)
@@ -682,6 +692,50 @@ class BudgetController:
         if self._active_dispatches > 0:
             self._active_dispatches -= 1
 
+    def begin_response(self) -> bool:
+        """Start byte accounting for one admitted HTTP response lifetime.
+
+        Response bytes are deliberately separate from dispatch admission.  A
+        rejected, stale, or concurrent dispatch cannot reset an in-flight
+        response; only a response returned by an active admitted dispatch can
+        open a new byte lifetime.
+        """
+        if self._failure is not None:
+            return False
+        if self._active_dispatches != 1:
+            self._failure = "budget_response_lifetime_missing"
+            return False
+        if self._response_active:
+            self._failure = "budget_response_lifetime_pending"
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
+        self._response_sequence += 1
+        self._response_active = True
+        self._stream_bytes = 0
+        self._response_received_bytes = 0
+        self._response_rejected_bytes = 0
+        self._response_rejected_chunks = 0
+        return True
+
+    def finish_response(self) -> None:
+        """Close the current response byte lifetime without clearing failure."""
+        if not self._response_active:
+            return
+        if len(self._response_byte_lifetimes) < self.budget.max_dispatches:
+            self._response_byte_lifetimes.append(
+                {
+                    "response_ordinal": self._response_sequence,
+                    "received_bytes": self._response_received_bytes,
+                    "accepted_bytes": self._stream_bytes,
+                    "rejected_bytes": self._response_rejected_bytes,
+                    "rejected_chunk_count": self._response_rejected_chunks,
+                    "configured_limit": self.budget.max_stream_bytes,
+                }
+            )
+        self._response_active = False
+
     def acquire(self) -> bool:
         """Admit one concurrent phase without exceeding the frozen bound."""
         if self._failure is not None:
@@ -702,19 +756,43 @@ class BudgetController:
 
     def observe_chunk(self, size: int) -> bool:
         """Apply cumulative bytes/deadline checks to one network chunk."""
+        if not isinstance(size, int) or size < 0:
+            self._failure = "budget_stream_limit_exhausted"
+            return False
+        if not self._response_active:
+            self._failure = "budget_response_lifetime_missing"
+            return False
+        self._response_received_bytes += size
+        self._response_received_bytes_total += size
         if self._failure is not None:
+            self._response_rejected_bytes += size
+            self._response_rejected_chunks += 1
+            self._response_rejected_bytes_total += size
+            self._response_rejected_chunks_total += 1
             return False
         if self.clock() - self._started >= self.budget.wall_seconds:
             self._failure = "budget_deadline_exhausted"
+            self._response_rejected_bytes += size
+            self._response_rejected_chunks += 1
+            self._response_rejected_bytes_total += size
+            self._response_rejected_chunks_total += 1
             return False
         if self._stream_bytes + size > self.budget.max_stream_bytes:
             self._failure = "budget_stream_limit_exhausted"
+            self._response_rejected_bytes += size
+            self._response_rejected_chunks += 1
+            self._response_rejected_bytes_total += size
+            self._response_rejected_chunks_total += 1
             return False
         self._stream_bytes += size
+        self._stream_bytes_total += size
         return True
 
     def observe_frame(self, size: int) -> bool:
         """Apply the per-SSE-frame bound at an incremental frame boundary."""
+        if not self._response_active:
+            self._failure = "budget_response_lifetime_missing"
+            return False
         if self._failure is not None:
             return False
         if self.clock() - self._started >= self.budget.wall_seconds:
@@ -752,6 +830,24 @@ class BudgetController:
             "operation_admitted_count_class": count_class(self._total_admitted),
             "event_bytes_class": count_class(self._event_bytes),
             "stream_bytes_class": count_class(self._stream_bytes),
+            "stream_bytes_total": self._stream_bytes_total,
+            "stream_bytes_total_class": count_class(self._stream_bytes_total),
+            "response_received_bytes_total": self._response_received_bytes_total,
+            "response_accepted_bytes_total": self._stream_bytes_total,
+            "response_rejected_bytes_total": self._response_rejected_bytes_total,
+            "response_rejected_chunks_total": self._response_rejected_chunks_total,
+            "response_active": self._response_active,
+            "response_byte_lifetimes": tuple(self._response_byte_lifetimes),
+            "current_response_bytes": {
+                "response_ordinal": self._response_sequence,
+                "received_bytes": self._response_received_bytes,
+                "accepted_bytes": self._stream_bytes,
+                "rejected_bytes": self._response_rejected_bytes,
+                "rejected_chunk_count": self._response_rejected_chunks,
+                "configured_limit": self.budget.max_stream_bytes,
+            }
+            if self._response_active
+            else None,
             "active_concurrency_class": count_class(self._active),
             "active_dispatch_class": count_class(self._active_dispatches),
             "dispatch_attempted_count": self._dispatch_attempted,
@@ -844,6 +940,8 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "budget_provider_probe_limit_exhausted",
         "budget_provider_probe_activation_mismatch",
         "budget_provider_probe_permission_missing",
+        "budget_response_lifetime_missing",
+        "budget_response_lifetime_pending",
         "preflight_mapping_dependency_invalid",
         "http_status_non_2xx",
         "content_type_not_sse",
@@ -891,6 +989,7 @@ class RunAccumulator:
     phase: str = "preflight"
     ordinal: int | None = None
     first_failure: str | None = None
+    first_failure_context: dict[str, object] | None = None
     secondary_failures: list[str] = field(default_factory=list)
     snapshots: list[dict[str, object]] = field(default_factory=list)
     cleanup: dict[str, object] = field(default_factory=dict)
@@ -918,6 +1017,10 @@ class RunAccumulator:
     _terminal_observations: dict[tuple[str, int], dict[str, object]] = field(
         init=False, default_factory=dict
     )
+    _phase_checkpoints: dict[tuple[str, str, int | None], dict[str, object]] = field(
+        init=False, default_factory=dict
+    )
+    _response_byte_evidence: dict[str, dict[str, object]] = field(init=False, default_factory=dict)
 
     def set_phase(self, phase: str, ordinal: int | None = None) -> None:
         self.phase = (
@@ -928,12 +1031,38 @@ class RunAccumulator:
         )
         self.ordinal = ordinal if isinstance(ordinal, int) and ordinal >= 0 else None
 
-    def record_failure(self, failure: object) -> None:
+    def record_failure(
+        self, failure: object, *, context: Mapping[str, object] | None = None
+    ) -> None:
         fixed = _safe_accumulator_failure(failure)
         if self.first_failure is None:
             self.first_failure = fixed
+            if context is not None:
+                self.first_failure_context = self._safe_failure_context(context, fixed)
+        elif (
+            self.first_failure == fixed
+            and self.first_failure_context is None
+            and context is not None
+        ):
+            self.first_failure_context = self._safe_failure_context(context, fixed)
         elif fixed != self.first_failure and len(self.secondary_failures) < 4:
             self.secondary_failures.append(fixed)
+
+    @staticmethod
+    def _safe_failure_context(context: Mapping[str, object], cause: str) -> dict[str, object]:
+        ordinal = context.get("ordinal")
+        return {
+            "kind": context.get("kind") if isinstance(context.get("kind"), str) else None,
+            "operation": context.get("operation")
+            if isinstance(context.get("operation"), str)
+            else None,
+            "phase": context.get("phase") if isinstance(context.get("phase"), str) else None,
+            "ordinal": ordinal if isinstance(ordinal, int) and ordinal >= 0 else None,
+            "lifetime_id": context.get("lifetime_id")
+            if isinstance(context.get("lifetime_id"), str)
+            else None,
+            "cause": cause,
+        }
 
     def capture_observer(
         self,
@@ -963,6 +1092,7 @@ class RunAccumulator:
             "other_completed",
             "other_terminal_valid",
         )
+        lifetime_counts = self._lifetime_counts.get(lifetime, {})
         if update_counts:
             lifetime_counts = self._lifetime_counts.setdefault(lifetime, {})
             for name in names:
@@ -973,6 +1103,78 @@ class RunAccumulator:
                 values = [entry.get(name) for entry in self._lifetime_counts.values()]
                 known = [value for value in values if type(value) is int and value >= 0]
                 self.counts[name] = sum(known) if known else None
+        byte_records: list[dict[str, object]] = []
+        records = snapshot.get("records")
+        if isinstance(records, (list, tuple)):
+            for record in records:
+                if not isinstance(record, Mapping):
+                    continue
+                if not all(
+                    type(record.get(name)) is int and record.get(name, 0) >= 0
+                    for name in (
+                        "response_received_bytes",
+                        "response_accepted_bytes",
+                        "response_rejected_bytes",
+                        "response_rejected_chunk_count",
+                    )
+                ):
+                    continue
+                byte_records.append(
+                    {
+                        "ordinal": record.get("ordinal"),
+                        "kind": record.get("kind")
+                        if record.get("kind") in {"compiler", "inference", "other"}
+                        else "unknown",
+                        "received_bytes": record["response_received_bytes"],
+                        "accepted_bytes": record["response_accepted_bytes"],
+                        "rejected_bytes": record["response_rejected_bytes"],
+                        "rejected_chunk_count": record["response_rejected_chunk_count"],
+                    }
+                )
+        budget_snapshot = snapshot.get("dispatch_budget")
+        safe_budget_bytes: dict[str, object] = {}
+        if isinstance(budget_snapshot, Mapping):
+            for name in (
+                "max_stream_bytes",
+                "response_received_bytes_total",
+                "response_accepted_bytes_total",
+                "response_rejected_bytes_total",
+                "response_rejected_chunks_total",
+                "stream_bytes_total",
+            ):
+                value = budget_snapshot.get(name)
+                if type(value) is int and value >= 0:
+                    safe_budget_bytes[name] = value
+        self._response_byte_evidence[lifetime] = {
+            "lifetime_id": lifetime,
+            "phase": self.phase,
+            "ordinal": self.ordinal,
+            "responses": tuple(byte_records),
+            "all_lifetime": safe_budget_bytes,
+        }
+        failure_value = snapshot.get("failure_class")
+        if failure_value is None and isinstance(budget_snapshot, Mapping):
+            failure_value = budget_snapshot.get("failure_class")
+        safe_failure = (
+            "observer_readiness_lost"
+            if failure_value == "manual_unready"
+            else _safe_accumulator_failure(failure_value)
+            if failure_value is not None
+            else None
+        )
+        checkpoint: dict[str, object] = {
+            "lifetime_id": lifetime,
+            "phase": self.phase,
+            "ordinal": self.ordinal,
+            "completed": snapshot.get("ready") is True and safe_failure is None,
+            "ready": snapshot.get("ready") is True,
+            "failure_class": safe_failure,
+            "counts": {
+                name: lifetime_counts.get(name) for name in names if name in lifetime_counts
+            },
+            "response_count": len(byte_records),
+        }
+        self._phase_checkpoints[(lifetime, self.phase, self.ordinal)] = checkpoint
         records = snapshot.get("records")
         if isinstance(records, (list, tuple)):
             for record in records:
@@ -1010,12 +1212,22 @@ class RunAccumulator:
                     "terminal_valid": None,
                 },
             )
-        failure = snapshot.get("failure_class")
+        failure = failure_value
+        failure_context_value = snapshot.get("failure_context")
+        failure_context = (
+            failure_context_value if isinstance(failure_context_value, Mapping) else None
+        )
         if failure is not None:
             if failure == "manual_unready":
-                self.record_failure("observer_readiness_lost")
+                self.record_failure(
+                    "observer_readiness_lost",
+                    context=failure_context,
+                )
             else:
-                self.record_failure(failure)
+                self.record_failure(
+                    failure,
+                    context=failure_context,
+                )
                 if snapshot.get("ready") is not True and failure != "observer_readiness_lost":
                     self.record_failure("observer_readiness_lost")
         if len(self.snapshots) < 16:
@@ -1030,6 +1242,10 @@ class RunAccumulator:
                     )
                     if failure is not None
                     else None,
+                    "failure_context": (
+                        dict(failure_context) if failure_context is not None else None
+                    ),
+                    "completed": snapshot.get("ready") is True and failure is None,
                     "compiler_attempted_count": self.counts["compiler_attempted"],
                     "compiler_dispatched_count": self.counts["compiler_dispatched"],
                     "compiler_responded_count": self.counts["compiler_responded"],
@@ -1065,6 +1281,9 @@ class RunAccumulator:
             "phase": self.phase,
             "ordinal": self.ordinal,
             "first_failure": self.first_failure,
+            "first_failure_context": (
+                dict(self.first_failure_context) if self.first_failure_context is not None else None
+            ),
             "secondary_failures": tuple(self.secondary_failures),
             "counts": dict(self.counts),
             "all_lifetime_counts": dict(self.counts),
@@ -1077,6 +1296,13 @@ class RunAccumulator:
                 item["terminal_class"] for item in self._terminal_observations.values()
             ),
             "terminal_observations": tuple(self._terminal_observations.values()),
+            "phase_checkpoints": tuple(self._phase_checkpoints.values()),
+            "completed_phases": tuple(
+                checkpoint
+                for checkpoint in self._phase_checkpoints.values()
+                if checkpoint["completed"] is True
+            ),
+            "response_byte_evidence": tuple(self._response_byte_evidence.values()),
             "snapshots": tuple(self.snapshots),
             "cleanup": dict(self.cleanup),
         }
