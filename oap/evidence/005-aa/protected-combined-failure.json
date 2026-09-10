@@ -1,0 +1,14 @@
+{
+  "tested_source_sha": "ee72a19d45a5eaba0329daaddd571742ca81a586",
+  "case": "observer_plus_projection_cleanup_failure",
+  "status": "BLOCKED",
+  "safe_result_sha256": "b799b622a2f1c7fcba0670b1002528e36738e2019cf00f802909a6a92461b937",
+  "protected_acceptance": false,
+  "gate": {"passed": false, "first_failure": "observer_readiness_lost", "missing": 0, "rows": 29, "all_rows_serialized": true},
+  "primary_failure": "observer_readiness_lost",
+  "secondary_failures": ["codex_chain_failed", "cleanup_failed", "serialization_failure"],
+  "dispatch_counts": {"attempted": 2, "admitted": 2, "readiness_admitted": 1, "readiness_consumed": 1, "readiness_pending": false, "compiler_attempted": 1, "compiler_dispatched": 1, "compiler_responded": 1, "compiler_completed": 1, "inference_dispatched": 0},
+  "row_statuses": ["NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN"],
+  "cleanup": {"processes": true, "listeners": true, "database": true, "cache": false, "codex_home": true},
+  "raw_payloads_retained": false
+}
