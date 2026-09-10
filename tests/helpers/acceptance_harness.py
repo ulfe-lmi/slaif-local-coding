@@ -1200,7 +1200,13 @@ class RunAccumulator:
             },
             "response_count": len(byte_records),
         }
-        self._phase_checkpoints[(lifetime, self.phase, self.ordinal)] = checkpoint
+        checkpoint_key = (lifetime, self.phase, self.ordinal)
+        previous_checkpoint = self._phase_checkpoints.get(checkpoint_key)
+        if previous_checkpoint is not None:
+            for key in ("evidence_kind", "phase_facts"):
+                if key in previous_checkpoint:
+                    checkpoint[key] = previous_checkpoint[key]
+        self._phase_checkpoints[checkpoint_key] = checkpoint
         records = snapshot.get("records")
         if isinstance(records, (list, tuple)):
             for record in records:

@@ -588,6 +588,12 @@ def test_run_accumulator_retains_bounded_semantic_phase_facts() -> None:
         ordinal=2,
         lifetime_id="codex",
     )
+    accumulator.capture_observer(
+        {"ready": True, "failure_class": None},
+        phase="codex",
+        ordinal=2,
+        lifetime_id="codex",
+    )
     accumulator.record_phase_facts(
         {"raw_body": b"must-not-cross", "nested": {"value": "safe"}},
         phase="vision",
