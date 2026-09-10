@@ -29,7 +29,7 @@ import tempfile
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
 from decimal import Decimal
 from pathlib import Path
@@ -107,6 +107,7 @@ from tests.helpers.gateway_accounting_rehearsal import (  # noqa: E402
 )
 from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv  # noqa: E402
 from tests.helpers.transport_observer import (  # noqa: E402
+    CallIDCorrelation,
     DirectTransportObserver,
     merge_observer_snapshots,
     observer_dispatch_matches_fake,
@@ -241,6 +242,118 @@ class _FakeQwenObservationWalker:
                 yield from _FakeQwenObservationWalker.walk(child, depth=depth + 1)
 
 
+def _opaque_call_id_digest(value: object) -> bytes | None:
+    """Hash one bounded transient call ID without retaining the identifier."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 512
+        or any(char in value for char in "\r\n")
+    ):
+        return None
+    return hashlib.sha256(value.encode("utf-8")).digest()
+
+
+def _request_observation(payload: dict[str, object]) -> dict[str, object]:
+    """Classify exact Responses items without fixture IDs or text searching."""
+    tools = payload.get("tools")
+    tool_items = (
+        tuple(item for item in tools if isinstance(item, dict)) if isinstance(tools, list) else ()
+    )
+    tool_types = tuple(item["type"] for item in tool_items if isinstance(item.get("type"), str))
+    function_tools = tuple(item for item in tool_items if item.get("type") == "function")
+    function_items = tuple(
+        item
+        for item in _FakeQwenObservationWalker.walk(payload)
+        if item.get("type") in {"function_call", "function_call_output"}
+    )
+    output_items = tuple(
+        item for item in function_items if item.get("type") == "function_call_output"
+    )
+    call_items = output_items or tuple(
+        item for item in function_items if item.get("type") == "function_call"
+    )
+    if function_tools and not output_items:
+        request_class = "function_initial"
+    elif output_items:
+        request_class = "function_continuation"
+    elif any(
+        item.get("type") in {"input_image", "image_url"}
+        for item in _FakeQwenObservationWalker.walk(payload)
+    ):
+        request_class = "image"
+    else:
+        request_class = "message"
+    tool_class = (
+        "none"
+        if not tool_types
+        else "mixed"
+        if len(set(tool_types)) > 1
+        else "function"
+        if "function" in tool_types
+        else "custom"
+        if "custom" in tool_types
+        else "unknown"
+    )
+    known_tool_names = {"shell_command", "exec_command", "local_shell"}
+    function_tool_name = next(
+        (item.get("name") for item in function_tools if item.get("name") in known_tool_names),
+        "unknown" if function_tools else "none",
+    )
+    output_call_id_digests = tuple(
+        digest
+        for item in output_items
+        for digest in (_opaque_call_id_digest(item.get("call_id")),)
+        if digest is not None
+    )
+    output_missing_call_id = bool(output_items) and any(
+        _opaque_call_id_digest(item.get("call_id")) is None for item in output_items
+    )
+    item_id_presence = "unknown"
+    if call_items:
+        has_id = tuple(
+            isinstance(item.get("id"), str) and bool(item.get("id")) for item in call_items
+        )
+        item_id_presence = "present" if all(has_id) else "omitted" if not any(has_id) else "unknown"
+    session_digest = "none"
+    metadata = payload.get("client_metadata")
+    if isinstance(metadata, dict) and isinstance(metadata.get("session_id"), str):
+        session_digest = hashlib.sha256(metadata["session_id"].encode("utf-8")).hexdigest()
+    images = tuple(
+        item
+        for item in _FakeQwenObservationWalker.walk(payload)
+        if item.get("type") in {"input_image", "image_url"}
+    )
+    image_hashes = tuple(
+        hashlib.sha256(value.encode("utf-8")).hexdigest()
+        for item in images
+        for value in (
+            item.get("image_url")
+            if isinstance(item.get("image_url"), str)
+            else item.get("image_url", {}).get("url")
+            if isinstance(item.get("image_url"), dict)
+            else None,
+        )
+        if isinstance(value, str) and len(value) <= 8 * 1024 * 1024
+    )
+    return {
+        "request_class": request_class,
+        "tool_class": tool_class,
+        "tool_name_class": function_tool_name,
+        "item_id_presence": item_id_presence,
+        "call_id_relation": "initial_owned" if request_class == "function_initial" else "unknown",
+        "function_result_adjacent": False,
+        "image_count_class": str(min(len(images), 8)),
+        "image_hash_class": "present" if image_hashes else "none",
+        "image_count": len(images),
+        "image_hashes": image_hashes,
+        "tool_type_classes": tuple(sorted(set(tool_types))),
+        "_function_output_call_id_digests": output_call_id_digests,
+        "_function_output_missing_call_id": output_missing_call_id,
+        "_session_digest": session_digest,
+    }
+
+
 class _FakeQwenServer(http.server.ThreadingHTTPServer):
     """Direct fake provider; it intentionally has no relay/status endpoint."""
 
@@ -261,7 +374,53 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
         self.tool_name_classes: set[str] = set()
         self.bad_auth = False
         self.observation = StrictFakeQwenObservation()
+        self._call_correlation = CallIDCorrelation()
         self._lock = threading.Lock()
+
+    def observe_request(self, payload: dict[str, object]) -> dict[str, object]:
+        observation = _request_observation(payload)
+        session_digest = str(observation.get("_session_digest", "none"))
+        key = ("fake", "fake", session_digest)
+        if observation.get("request_class") == "function_continuation":
+            history_call_ids = tuple(
+                digest
+                for item in _FakeQwenObservationWalker.walk(payload)
+                if item.get("type") == "function_call"
+                for digest in (_opaque_call_id_digest(item.get("call_id")),)
+                if digest is not None
+            )
+            if history_call_ids:
+                self._call_correlation.register(key, history_call_ids)
+            output_digests = cast(
+                tuple[bytes, ...], observation["_function_output_call_id_digests"]
+            )
+            if (
+                not history_call_ids
+                and output_digests
+                and not self._call_correlation.has_pending(key)
+            ):
+                self._call_correlation.register(key, output_digests[-1:])
+            relation = self._call_correlation.relation(
+                key,
+                output_digests[-1:],
+                missing_call_id=observation["_function_output_missing_call_id"] is True,
+                consume=False,
+            )
+            observation["call_id_relation"] = relation
+            observation["function_result_adjacent"] = relation == "matching"
+        elif observation.get("request_class") == "function_initial":
+            observation["call_id_relation"] = "initial_owned"
+        return observation
+
+    def register_returned_call(self, payload: dict[str, object]) -> None:
+        observation = _request_observation(payload)
+        if observation.get("request_class") != "function_initial":
+            return
+        session_digest = str(observation.get("_session_digest", "none"))
+        self._call_correlation.register(
+            ("fake", "fake", session_digest),
+            (hashlib.sha256(FAKE_FUNCTION_CALL_ID.encode("utf-8")).digest(),),
+        )
 
     def record(
         self,
@@ -495,8 +654,10 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
 
     @staticmethod
     def _has_function_output(payload: dict[str, object]) -> bool:
-        encoded = json.dumps(payload, separators=(",", ":"))
-        return "function_call_output" in encoded or "custom_tool_call_output" in encoded
+        return any(
+            item.get("type") == "function_call_output"
+            for item in _FakeQwenObservationWalker.walk(payload)
+        )
 
     @staticmethod
     def _function_output_count(payload: dict[str, object]) -> int:
@@ -529,7 +690,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                         and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", item["id"]) is not None
                     )
                 )
-                and item.get("call_id") == FAKE_FUNCTION_CALL_ID
+                and _opaque_call_id_digest(item.get("call_id")) is not None
                 and any(key in item for key in ("output", "result", "content"))
             )
             for item in outputs
@@ -537,82 +698,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
 
     @staticmethod
     def _request_observation(payload: dict[str, object]) -> dict[str, object]:
-        """Classify the inbound request without retaining IDs or request data."""
-        tool_types = _FakeQwenHandler._tool_types(payload)
-        has_output = _FakeQwenHandler._has_function_output(payload)
-        function_tool = _FakeQwenHandler._function_tool(payload)
-        if function_tool is not None and not has_output:
-            request_class = "function_initial"
-        elif has_output:
-            request_class = "function_continuation"
-        elif any(
-            isinstance(item, dict) and item.get("type") == "input_image"
-            for item in _FakeQwenObservationWalker.walk(payload)
-        ):
-            request_class = "image"
-        else:
-            request_class = "message"
-        tool_class = (
-            "none"
-            if not tool_types
-            else "mixed"
-            if len(tool_types) > 1
-            else "function"
-            if "function" in tool_types
-            else "custom"
-            if "custom" in tool_types
-            else "unknown"
-        )
-        function_items = tuple(
-            item
-            for item in _FakeQwenObservationWalker.walk(payload)
-            if item.get("type") in {"function_call", "function_call_output"}
-        )
-        item_id_presence = "unknown"
-        call_id_relation = "unknown"
-        for item in function_items:
-            if item.get("type") == "function_call":
-                item_id_presence = "present" if isinstance(item.get("id"), str) else "omitted"
-                call_id_relation = (
-                    "initial_owned"
-                    if item.get("call_id") == FAKE_FUNCTION_CALL_ID
-                    else "mismatched"
-                )
-            elif item.get("type") == "function_call_output":
-                item_id_presence = "present" if isinstance(item.get("id"), str) else "omitted"
-                call_id_relation = (
-                    "matching" if item.get("call_id") == FAKE_FUNCTION_CALL_ID else "mismatched"
-                )
-        images = tuple(
-            item
-            for item in _FakeQwenObservationWalker.walk(payload)
-            if item.get("type") in {"input_image", "image_url"}
-        )
-        image_hashes = tuple(
-            hashlib.sha256(value.encode("utf-8")).hexdigest()
-            for item in images
-            for value in (
-                item.get("image_url")
-                if isinstance(item.get("image_url"), str)
-                else item.get("image_url", {}).get("url")
-                if isinstance(item.get("image_url"), dict)
-                else None,
-            )
-            if isinstance(value, str) and len(value) <= 8 * 1024 * 1024
-        )
-        return {
-            "request_class": request_class,
-            "tool_class": tool_class,
-            "tool_name_class": function_tool or "none",
-            "item_id_presence": item_id_presence,
-            "call_id_relation": call_id_relation,
-            "function_result_adjacent": request_class == "function_initial",
-            "image_count_class": str(min(len(images), 8)),
-            "image_hash_class": ("present" if image_hashes else "none"),
-            "image_count": len(images),
-            "image_hashes": image_hashes,
-            "tool_type_classes": tuple(sorted(tool_types)),
-        }
+        return _request_observation(payload)
 
     @staticmethod
     def _response(payload: dict[str, object] | None = None) -> dict[str, object]:
@@ -1255,12 +1341,18 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             self._json(404, {"error": {"code": "not_found"}})
             return
         streaming = payload.get("stream") is True
-        observation = self._request_observation(payload)
+        observation = self.server.observe_request(payload)
         self.server.observe_inbound(
             compiler=False,
             streaming=streaming,
             observation=observation,
         )
+        if (
+            observation.get("request_class") == "function_continuation"
+            and observation.get("call_id_relation") != "matching"
+        ):
+            self._json(502, {"error": {"code": "function_continuation_invalid"}})
+            return
         if streaming:
             try:
                 self._stream(payload)
@@ -1270,6 +1362,8 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 return
         else:
             self._json(200, self._response(payload))
+        if streaming and observation.get("request_class") == "function_initial":
+            self.server.register_returned_call(payload)
         self.server.record(
             compiler=False,
             streaming=streaming,
@@ -1569,7 +1663,7 @@ def _provider_request_observation(request: httpx.Request) -> dict[str, object]:
         raise ValueError("provider_request_body_invalid") from None
     if not isinstance(payload, dict):
         raise ValueError("provider_request_body_invalid")
-    return _FakeQwenHandler._request_observation(payload)
+    return _request_observation(payload)
 
 
 def _direct_provider_boundary_complete(value: object, *, expected_calls: int) -> bool:
@@ -1584,6 +1678,40 @@ def _direct_provider_boundary_complete(value: object, *, expected_calls: int) ->
         and "function_continuation" in value.get("request_class_classes", ())
         and "matching" in value.get("call_id_relation_classes", ())
     )
+
+
+def _protected_provider_observation(transport: Mapping[str, object]) -> dict[str, object]:
+    """Project protected facts from the shared direct observer only."""
+    boundary = transport.get("provider_boundary")
+    return {
+        "provider_boundary": boundary if isinstance(boundary, dict) else {},
+        "source": "direct_transport_observer",
+        "fake_oracle": "unavailable",
+    }
+
+
+async def _protected_provider_preflight(
+    observer: DirectTransportObserver,
+    provider_url: str,
+    qwen_key: str,
+    admit_probe: Callable[[str], None],
+) -> tuple[int, int | None]:
+    """Count health/models through the same observer for every protected mode."""
+    async with httpx.AsyncClient(transport=observer, timeout=15, follow_redirects=False) as http:
+        admit_probe("/health")
+        health_response = await http.get(
+            f"{provider_url}/health",
+            headers={"Authorization": f"Bearer {qwen_key}"},
+        )
+        health_status = health_response.status_code
+        if health_status != 200 or not observer.ready:
+            return health_status, None
+        admit_probe("/v1/models")
+        models_response = await http.get(
+            f"{provider_url}/v1/models",
+            headers={"Authorization": f"Bearer {qwen_key}"},
+        )
+    return health_status, models_response.status_code
 
 
 def _provider_preflight_complete(result: dict[str, object]) -> bool:
@@ -4337,7 +4465,7 @@ def _run_direct_composed_rehearsal_impl(
                 if fake_health.status_code != 200:
                     raise RuntimeError("fake_provider_not_ready")
                 idless_http_regression = _run_fake_idless_http_regression()
-            elif protected_hooks is not None:
+            elif provider_target == "protected":
                 provider_preflight_observer = DirectTransportObserver(
                     httpx.AsyncHTTPTransport(retries=0),
                     validator_factory=validator_factory,
@@ -4346,25 +4474,15 @@ def _run_direct_composed_rehearsal_impl(
                     dispatch_context=budget.dispatch_context,
                     allowed_lifetime_ids=("provider_preflight",),
                 )
-
-                async def protected_provider_preflight() -> tuple[int, int]:
-                    async with httpx.AsyncClient(
-                        transport=provider_preflight_observer, timeout=15, follow_redirects=False
-                    ) as http:
-                        admit_provider_probe("/health")
-                        health_response = await http.get(
-                            f"{provider_url}/health",
-                            headers={"Authorization": f"Bearer {qwen_key}"},
-                        )
-                        admit_provider_probe("/v1/models")
-                        models_response = await http.get(
-                            f"{provider_url}/v1/models",
-                            headers={"Authorization": f"Bearer {qwen_key}"},
-                        )
-                    return health_response.status_code, models_response.status_code
+                assert provider_preflight_observer is not None
 
                 protected_health_status, protected_models_status = asyncio.run(
-                    protected_provider_preflight()
+                    _protected_provider_preflight(
+                        provider_preflight_observer,
+                        provider_url,
+                        qwen_key,
+                        admit_provider_probe,
+                    )
                 )
                 accumulator.capture_observer(
                     provider_preflight_observer.snapshot(),
@@ -4378,22 +4496,6 @@ def _run_direct_composed_rehearsal_impl(
                 if protected_models_status != 200:
                     raise RuntimeError("protected_models_not_ready")
                 idless_http_regression = _run_fake_idless_http_regression()
-            else:
-                with httpx.Client(timeout=15, follow_redirects=False) as http:
-                    protected_health = http.get(
-                        f"{provider_url}/health",
-                        headers={"Authorization": f"Bearer {qwen_key}"},
-                    )
-                    protected_models = http.get(
-                        f"{provider_url}/v1/models",
-                        headers={"Authorization": f"Bearer {qwen_key}"},
-                    )
-                protected_health_status = protected_health.status_code
-                protected_models_status = protected_models.status_code
-                if protected_health_status != 200:
-                    raise RuntimeError("protected_health_not_ready")
-                if protected_models_status != 200:
-                    raise RuntimeError("protected_models_not_ready")
             failure_server = _FailureServer()
             failure_thread = _start_threaded_server(failure_server)
             fixture = write_vision_fixture(temp_root / "fixture", gateway_url + "/v1", QWEN_KEY_ENV)
@@ -4723,7 +4825,7 @@ def _run_direct_composed_rehearsal_impl(
                     "protected_mode_synthetic_cases": protected_mode_synthetic_cases,
                     "fake_provider": fake_codex_after,
                     "provider_observation": (
-                        {"provider_boundary": codex_boundary}
+                        _protected_provider_observation(candidate_observer.snapshot())
                         if provider_target == "protected"
                         else None
                     ),
@@ -5054,7 +5156,6 @@ def _run_direct_composed_rehearsal_impl(
             provider_boundary_observed = local_request_delta > 0
             provider_lifecycle_valid = False
             provider_terminal = False
-            provider_observation: dict[str, object] = {}
             if provider_target == "fake" and fake_server is not None and fake_before is not None:
                 fake_after = fake_server.snapshot()
                 provider_call_count = _int_fact(fake_after.get("inference_calls")) - _int_fact(
@@ -5065,17 +5166,12 @@ def _run_direct_composed_rehearsal_impl(
                     provider_boundary_observed = provider_call_count > 0
                     provider_lifecycle_valid = boundary.get("lifecycle_valid") is True
                     provider_terminal = boundary.get("terminal") is True
-                    provider_observation = boundary
             else:
                 observed_stream = _observer_delta(stream_observer_before, stream_observer_after)
                 provider_call_count = _int_fact(observed_stream.get("inference_dispatched_count"))
                 provider_boundary_observed = observed_stream["provider_boundary_observed"] is True
                 provider_lifecycle_valid = observed_stream["provider_lifecycle_valid"] is True
                 provider_terminal = observed_stream["provider_terminal"] is True
-                observed_boundary = observed_stream.get("provider_boundary")
-                provider_observation = (
-                    observed_boundary if isinstance(observed_boundary, dict) else {}
-                )
             stream_facts = build_composed_stream_facts(
                 status=stream_status,
                 content_type="text/event-stream" if stream_status == 200 else None,
@@ -5133,9 +5229,7 @@ def _run_direct_composed_rehearsal_impl(
                     "text_status": text_status,
                     "text_usage_present": text_usage_present,
                     "stream": asdict(stream_facts),
-                    "provider_observation": {
-                        "provider_boundary": provider_observation,
-                    },
+                    "provider_observation": _protected_provider_observation(stream_observer_after),
                     "transport_observation": stream_observer_after,
                     "protected_stop_reason": "protected_stream_boundary_failed",
                     "protected_later_inference": False,
@@ -5657,13 +5751,7 @@ def _run_direct_composed_rehearsal_impl(
                     else fake_server.snapshot()
                 ),
                 "provider_observation": (
-                    {
-                        "provider_boundary": transport_observation.get("provider_boundary"),
-                        "source": "direct_transport_observer",
-                        "fake_oracle": "unavailable",
-                    }
-                    if provider_target == "protected" and protected_hooks is not None
-                    else {"provider_boundary": transport_observation}
+                    _protected_provider_observation(transport_observation)
                     if provider_target == "protected"
                     else None
                 ),

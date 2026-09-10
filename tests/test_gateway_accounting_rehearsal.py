@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import subprocess
@@ -23,6 +24,9 @@ from scripts.gateway_accounting_rehearsal import (
     _acceptance_gate,
     _FakeQwenServer,
     _local_implementation_sha,
+    _protected_provider_observation,
+    _protected_provider_preflight,
+    _provider_request_observation,
     _runtime_observations,
     _select_protected_runtime,
     _tested_source_still_valid,
@@ -35,6 +39,10 @@ from tests.helpers.acceptance_harness import (
     FAKE_RESULT_SCHEMA_KEYS,
     PROTECTED_MANIFEST_IDS,
     PROTECTED_RESULT_SCHEMA_KEYS,
+    BudgetController,
+    OperationDispatchPlan,
+    PublicRequestBudget,
+    RehearsalBudget,
     build_obligation_gate,
     make_result,
     projection_for,
@@ -46,10 +54,34 @@ from tests.helpers.gateway_accounting_rehearsal import (
     ComposedStreamFacts,
     build_composed_stream_facts,
 )
+from tests.helpers.transport_observer import DirectTransportObserver
 
 
 def _event(payload: dict[str, object]) -> bytes:
     return b"data: " + json.dumps(payload, separators=(",", ":")).encode() + b"\n\n"
+
+
+class _ObserverValidator:
+    def validate(self, payload: object) -> bool:
+        return isinstance(payload, dict) and payload.get("type") in {
+            "response.created",
+            "response.completed",
+        }
+
+
+def _observer_validator(_request: httpx.Request) -> _ObserverValidator:
+    return _ObserverValidator()
+
+
+class _ObserverStream(httpx.AsyncByteStream):
+    def __init__(self, payload: bytes) -> None:
+        self.payload = payload
+
+    async def __aiter__(self):
+        yield self.payload
+
+    async def aclose(self) -> None:
+        return
 
 
 def _created(response_id: str = "response-1") -> bytes:
@@ -503,6 +535,219 @@ def test_strict_fake_resume_image_history_starts_a_new_function_turn() -> None:
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+def _observer_frame(event_type: str, payload: dict[str, object]) -> bytes:
+    return (
+        b"event: "
+        + event_type.encode("ascii")
+        + b"\n"
+        + b"data: "
+        + json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        + b"\n\n"
+    )
+
+
+def _observer_response(*, call_id: str | None = None) -> bytes:
+    output = (
+        [{"type": "function_call", "id": "item-real", "call_id": call_id}]
+        if call_id is not None
+        else [{"type": "message", "id": "item-message"}]
+    )
+    return b"".join(
+        (
+            _observer_frame(
+                "response.created",
+                {
+                    "type": "response.created",
+                    "response": {"id": "response-real", "status": "in_progress"},
+                },
+            ),
+            _observer_frame(
+                "response.completed",
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "id": "response-real",
+                        "status": "completed",
+                        "output": output,
+                        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    },
+                },
+            ),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_direct_observer_correlates_actual_returned_call_to_idless_continuation() -> None:
+    dispatch_plan = (
+        OperationDispatchPlan("codex_turn_1", "codex", 1, (("inference", 1),)),
+        OperationDispatchPlan("codex_turn_2", "codex", 2, (("inference", 1),)),
+    )
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(
+                PublicRequestBudget(1, "codex_turn_1"),
+                PublicRequestBudget(2, "codex_turn_2"),
+            ),
+            dispatch_plan=dispatch_plan,
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.admit("codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    responses = iter((_observer_response(call_id="call-real-a"), _observer_response()))
+
+    def transition(
+        kind: str, operation: str, _phase: str, _ordinal: int | None, terminal_valid: bool
+    ) -> None:
+        if kind == "inference" and operation == "codex_turn_1" and terminal_valid:
+            assert budget.activate_operation(
+                "codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex"
+            )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ObserverStream(next(responses)),
+            )
+        ),
+        validator_factory=_observer_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        request_classifier=_provider_request_observation,
+        response_complete_hook=transition,
+    )
+    metadata = {"session_id": "session-real-a"}
+    initial = {
+        "model": "synthetic",
+        "stream": True,
+        "client_metadata": metadata,
+        "input": [{"type": "message", "role": "user", "content": []}],
+        "tools": [{"type": "function", "name": "non_fixture_tool"}],
+    }
+    continuation = {
+        "model": "synthetic",
+        "stream": True,
+        "client_metadata": metadata,
+        "input": [
+            {
+                "type": "function_call_output",
+                "call_id": "call-real-a",
+                "output": "synthetic-result",
+            }
+        ],
+    }
+    async with httpx.AsyncClient(transport=observer) as client:
+        first = await client.post("http://fake.test/v1/responses", json=initial)
+        await first.aread()
+        second = await client.post("http://fake.test/v1/responses", json=continuation)
+        await second.aread()
+    boundary = observer.snapshot()["provider_boundary"]
+    assert isinstance(boundary, dict)
+    assert boundary["lifecycle_valid"] is True
+    assert boundary["function_result_adjacent"] is True
+    assert "matching" in boundary["call_id_relation_classes"]
+    assert "omitted" in boundary["item_id_presence_classes"]
+    assert "initial_owned" in boundary["call_id_relation_classes"]
+
+
+def test_request_classifier_ignores_type_names_in_ordinary_text() -> None:
+    request = httpx.Request(
+        "POST",
+        "http://provider.test/v1/responses",
+        content=json.dumps(
+            {
+                "input": [
+                    {
+                        "type": "message",
+                        "content": [{"type": "input_text", "text": "function_call_output"}],
+                    }
+                ]
+            }
+        ).encode("utf-8"),
+    )
+    facts = _provider_request_observation(request)
+    assert facts["request_class"] == "message"
+    assert facts["call_id_relation"] == "unknown"
+    assert facts["_function_output_call_id_digests"] == ()
+
+
+def test_shared_protected_preflight_stops_before_models_after_health_failure() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(503 if request.url.path == "/health" else 200, json={})
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    statuses = asyncio.run(
+        _protected_provider_preflight(
+            observer,
+            "http://provider.test",
+            "synthetic-key",
+            lambda endpoint: None,
+        )
+    )
+    assert statuses == (503, None)
+    assert calls == ["/health"]
+    assert observer.snapshot()["other_dispatched_count"] == 1
+
+
+def test_shared_protected_preflight_counts_both_probe_endpoints() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, json={})
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    statuses = asyncio.run(
+        _protected_provider_preflight(
+            observer,
+            "http://provider.test",
+            "synthetic-key",
+            lambda endpoint: None,
+        )
+    )
+    assert statuses == (200, 200)
+    assert calls == ["/health", "/v1/models"]
+    assert observer.snapshot()["other_dispatched_count"] == 2
+
+
+def test_shared_protected_preflight_stops_after_observer_failure() -> None:
+    calls: list[str] = []
+    observer: DirectTransportObserver
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        observer.mark_unready()
+        return httpx.Response(200, json={})
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    statuses = asyncio.run(
+        _protected_provider_preflight(
+            observer,
+            "http://provider.test",
+            "synthetic-key",
+            lambda endpoint: None,
+        )
+    )
+    assert statuses == (200, None)
+    assert calls == ["/health"]
+
+
+def test_protected_projection_is_direct_observer_shaped_for_all_runtime_modes() -> None:
+    snapshot = {"provider_boundary": {"call_count_class": "2", "lifecycle_valid": True}}
+    assert _protected_provider_observation(snapshot) == {
+        "provider_boundary": snapshot["provider_boundary"],
+        "source": "direct_transport_observer",
+        "fake_oracle": "unavailable",
+    }
 
 
 def test_protected_mode_requires_complete_same_pin_fake_gate(tmp_path: Any) -> None:

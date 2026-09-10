@@ -455,3 +455,23 @@ compiler, inference, and other dispatches, zero credential-hook calls, and no
 provider access. All synthetic resources cleaned up, except the deliberately
 injected cleanup-failure fact in that case. The protected fixture was not
 authenticated or mutated.
+
+## Objective-005-ac fixture-independent acceptance corrections
+
+The protected runner uses one counted, deadline- and 64-dispatch-bounded
+health/models preflight and one direct-observer semantic projection whether
+synthetic runtime hooks are present or absent. A failed health or observer
+boundary stops later model/provider dispatch. Hook seams select only synthetic
+resource boundaries, clocks, or explicit failure injection; they do not select
+an alternate acceptance predicate. Real protected inference and the protected
+matrix remain `NOT RUN` unless separately ordered.
+
+Provider call/result evidence is derived from validated returned function-call
+items and the admitted continuation in the same phase, session, and observer
+lifetime. IDs are transient opaque digests only; ordinary text mentioning an
+item type, an unpaired output, a mismatched or reordered ID, and an ID-less
+item without the matching call ID do not satisfy the continuation predicate.
+The observer retains bounded distinct event categories plus scalar event
+counts, so repeated legal SSE deltas do not consume category storage. The
+16-KiB event and 128-KiB stream limits, exact Gateway validator, lifecycle
+closure rules, and synthetic failure cases remain unchanged.

@@ -28,6 +28,7 @@ MAX_OBSERVED_REQUESTS = 64
 MAX_EVENT_BYTES = 16 * 1024
 MAX_STREAM_BYTES = 128 * 1024
 MAX_EVENT_TYPES = 32
+MAX_CORRELATION_IDS = 8
 
 _RESPONSE_ID_EVENTS = frozenset({"response.created", "response.in_progress", "response.completed"})
 _EVENT_CLASSES = {
@@ -65,6 +66,51 @@ class StreamEventValidator(Protocol):
 ValidatorFactory = Callable[[httpx.Request], StreamEventValidator]
 RequestClassifier = Callable[[httpx.Request], Mapping[str, object]]
 ResponseCompleteHook = Callable[[str, str, str, int | None, bool], None]
+CorrelationKey = tuple[str, str, str]
+
+
+class CallIDCorrelation:
+    """Correlate opaque returned call IDs with one admitted continuation.
+
+    Only digests cross this boundary.  The correlation key binds the relation
+    to the operation, observer lifetime, and client-session digest, so a
+    structurally similar item from another owner or lifetime cannot satisfy
+    the continuation predicate.
+    """
+
+    def __init__(self) -> None:
+        self._pending: dict[CorrelationKey, tuple[bytes, ...]] = {}
+
+    def register(self, key: CorrelationKey, call_id_digests: tuple[bytes, ...]) -> None:
+        if not call_id_digests or len(call_id_digests) > MAX_CORRELATION_IDS:
+            return
+        self._pending[key] = tuple(call_id_digests)
+
+    def has_pending(self, key: CorrelationKey) -> bool:
+        return key in self._pending
+
+    def consume(self, key: CorrelationKey, call_id_digests: tuple[bytes, ...]) -> None:
+        if self._pending.get(key) == call_id_digests:
+            del self._pending[key]
+
+    def relation(
+        self,
+        key: CorrelationKey,
+        call_id_digests: tuple[bytes, ...],
+        *,
+        missing_call_id: bool,
+        consume: bool = True,
+    ) -> str:
+        if missing_call_id:
+            return "missing"
+        expected = self._pending.get(key)
+        if expected is None or not call_id_digests:
+            return "mismatched"
+        if call_id_digests != expected:
+            return "mismatched"
+        if consume:
+            del self._pending[key]
+        return "matching"
 
 
 class DispatchBudget(Protocol):
@@ -148,7 +194,8 @@ class _StreamState:
     buffer: bytearray = field(default_factory=bytearray)
     byte_count: int = 0
     event_count: int = 0
-    event_types: list[str] = field(default_factory=list)
+    event_types: set[str] = field(default_factory=set)
+    last_event_type: str | None = None
     created_count: int = 0
     completed_count: int = 0
     error_event: bool = False
@@ -164,6 +211,8 @@ class _StreamState:
     _response_id_digest: bytes | None = field(default=None, repr=False)
     failure_kind: str | None = field(default=None, repr=False)
     frame_observer: Callable[[int], bool] | None = field(default=None, repr=False)
+    correlation_key: CorrelationKey | None = field(default=None, repr=False)
+    returned_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
 
     def _fail(self, kind: str) -> None:
         self.validation_failed = True
@@ -173,11 +222,12 @@ class _StreamState:
     def _append_event_class(self, event_name: str) -> None:
         self.event_count += 1
         event_class = _EVENT_CLASSES.get(event_name, "other")
-        if len(self.event_types) >= MAX_EVENT_TYPES:
+        if event_class not in self.event_types and len(self.event_types) >= MAX_EVENT_TYPES:
             self.overflow = True
             self._fail("overflow")
             return
-        self.event_types.append(event_class)
+        self.event_types.add(event_class)
+        self.last_event_type = event_class
 
     def _consume_frame(self, frame: bytes) -> None:
         if self.frame_observer is not None and not self.frame_observer(len(frame)):
@@ -260,6 +310,19 @@ class _StreamState:
             self._fail("validator")
         if not valid:
             self._fail("validation" if self.failure_kind != "validator" else "validator")
+        elif event_name == "response.completed":
+            response = payload.get("response")
+            output = response.get("output") if isinstance(response, Mapping) else None
+            if isinstance(output, list) and len(output) <= MAX_CORRELATION_IDS:
+                digests: list[bytes] = []
+                for item in output:
+                    if not isinstance(item, Mapping) or item.get("type") != "function_call":
+                        continue
+                    call_id = item.get("call_id")
+                    if not isinstance(call_id, str) or not call_id or len(call_id) > 512:
+                        continue
+                    digests.append(hashlib.sha256(call_id.encode("utf-8")).digest())
+                self.returned_call_id_digests = tuple(digests)
 
         if event_name == "response.created":
             self.created_count += 1
@@ -340,7 +403,7 @@ class _StreamState:
             and not self.error_event
             and self.created_count == 1
             and self.completed_count == 1
-            and self.event_types[-1:] == ["response.completed"]
+            and self.last_event_type == "response.completed"
             and self.terminal_status_valid
             and self.terminal_output_valid
             and self.terminal_usage_valid
@@ -380,6 +443,10 @@ class _RequestObservation:
     image_hashes: tuple[str, ...] = ()
     tool_type_classes: tuple[str, ...] = ()
     request_facts_observed: bool = False
+    function_output_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
+    function_output_missing_call_id: bool = field(default=False, repr=False)
+    correlation_key: CorrelationKey | None = field(default=None, repr=False)
+    correlation_managed: bool = field(default=False, repr=False)
 
     def safe_dict(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -681,6 +748,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             else ((expected_lifetime_id,) if expected_lifetime_id is not None else None)
         )
         self._request_classifier = request_classifier
+        self._call_correlation = CallIDCorrelation()
         self._records: list[_RequestObservation] = []
         self._started = time.monotonic()
         self._ready = True
@@ -886,6 +954,27 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         function_result_adjacent = facts.get("function_result_adjacent", False)
         if type(function_result_adjacent) is not bool:
             raise ValueError("request_fact_boolean_invalid")
+        output_digests = facts.get("_function_output_call_id_digests", ())
+        output_digests_managed = "_function_output_call_id_digests" in facts
+        if (
+            not isinstance(output_digests, (list, tuple))
+            or len(output_digests) > MAX_CORRELATION_IDS
+        ):
+            raise ValueError("request_fact_call_ids_invalid")
+        if any(not isinstance(value, bytes) or len(value) != 32 for value in output_digests):
+            raise ValueError("request_fact_call_ids_invalid")
+        missing_call_id = facts.get("_function_output_missing_call_id", False)
+        if type(missing_call_id) is not bool:
+            raise ValueError("request_fact_boolean_invalid")
+        session_digest = facts.get("_session_digest", "none")
+        if not isinstance(session_digest, str) or (
+            session_digest != "none"
+            and (
+                len(session_digest) != 64
+                or any(char not in "0123456789abcdef" for char in session_digest)
+            )
+        ):
+            raise ValueError("request_fact_session_invalid")
         record.request_class = request_class
         record.tool_class = tool_class
         record.function_result_adjacent = function_result_adjacent
@@ -895,6 +984,38 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.image_hashes = safe_hashes
         record.tool_type_classes = safe_tool_types
         record.request_facts_observed = True
+        record.function_output_call_id_digests = tuple(output_digests)
+        record.function_output_missing_call_id = missing_call_id
+        record.correlation_key = ("unscoped", "unscoped", session_digest)
+        record.correlation_managed = output_digests_managed
+
+    def _apply_call_correlation(
+        self, record: _RequestObservation, context: DispatchContext | None
+    ) -> None:
+        if not record.request_facts_observed or not record.correlation_managed:
+            return
+        if record.correlation_key is None:
+            return
+        # Codex turn 1 -> turn 2 and vision full -> crop are one logical
+        # continuation family even though the finite budget uses separate
+        # operation slots.  The phase still prevents cross-family reuse.
+        operation = context.phase if context is not None else "unscoped"
+        lifetime = context.lifetime_id if context is not None else "unscoped"
+        session_digest = record.correlation_key[2]
+        key = (operation, lifetime or "unscoped", session_digest)
+        record.correlation_key = key
+        if record.request_class == "function_initial":
+            record.call_id_relation = "initial_owned"
+            return
+        if record.request_class != "function_continuation":
+            return
+        record.call_id_relation = self._call_correlation.relation(
+            key,
+            record.function_output_call_id_digests,
+            missing_call_id=record.function_output_missing_call_id,
+            consume=False,
+        )
+        record.function_result_adjacent = record.call_id_relation == "matching"
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         if not self._ready:
@@ -912,9 +1033,21 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         )
         record = _RequestObservation(len(self._records) + 1, kind, endpoint_class)
         self._records.append(record)
+        context: DispatchContext | None = None
+        if self._budget_controller is not None:
+            try:
+                candidate_context = (
+                    self._dispatch_context() if self._dispatch_context is not None else None
+                )
+                if isinstance(candidate_context, DispatchContext):
+                    context = candidate_context
+            except BaseException:
+                context = None
         if kind == "inference" and self._request_classifier is not None:
             try:
-                self._apply_request_facts(record, self._request_classifier(request))
+                facts = self._request_classifier(request)
+                self._apply_request_facts(record, facts)
+                self._apply_call_correlation(record, context)
             except asyncio.CancelledError:
                 record.exception_class = _exception_class("cancelled")
                 self._latch_failure("cancelled")
@@ -945,9 +1078,6 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 raise RuntimeError("transport_observer_validator_unavailable") from None
         if self._budget_controller is not None:
             try:
-                context = self._dispatch_context() if self._dispatch_context is not None else None
-                if not isinstance(context, DispatchContext):
-                    context = None
                 record.dispatch_operation = context.operation if context is not None else "unknown"
                 record.dispatch_phase = context.phase if context is not None else "unknown"
                 record.dispatch_ordinal = context.ordinal if context is not None else None
@@ -994,6 +1124,10 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                     self._release_dispatch(record)
                     self._latch_failure("dispatch_hook")
                     raise RuntimeError("transport_observer_dispatch_hook_failed") from None
+        if record.call_id_relation == "matching" and record.correlation_key is not None:
+            self._call_correlation.consume(
+                record.correlation_key, record.function_output_call_id_digests
+            )
         record.dispatched = True
         try:
             response = await self._delegate.handle_async_request(request)
@@ -1045,6 +1179,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             time.monotonic(),
             validator,
             frame_observer=self._observe_frame if record.content_type_class == "sse" else None,
+            correlation_key=record.correlation_key,
         )
         response.stream = _ObservedStream(
             cast(httpx.AsyncByteStream, response.stream), self, record, state
@@ -1066,6 +1201,8 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.stream_bytes_class = _count_class(state.byte_count)
         record.event_count_class = _count_class(state.event_count)
         record.event_type_classes = tuple(sorted(set(state.event_types)))
+        if record.terminal_valid and state.correlation_key is not None:
+            self._call_correlation.register(state.correlation_key, state.returned_call_id_digests)
         if is_inference_sse and not record.terminal_valid:
             self._latch_failure(state.failure_kind or "contract")
 

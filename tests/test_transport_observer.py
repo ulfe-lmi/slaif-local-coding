@@ -19,6 +19,7 @@ from tests.helpers.acceptance_harness import (
 from tests.helpers.transport_observer import (
     MAX_EVENT_BYTES,
     MAX_STREAM_BYTES,
+    CallIDCorrelation,
     DirectTransportObserver,
     merge_observer_snapshots,
     observer_dispatch_matches_fake,
@@ -364,6 +365,102 @@ async def test_coalesced_frames_do_not_trigger_event_cap() -> None:
         response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
         await response.aread()
     assert observer.snapshot()["inference_terminal_valid_count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chunks", ("coalesced", "split"))
+async def test_repeated_legal_event_categories_do_not_exhaust_category_storage(
+    chunks: str,
+) -> None:
+    events = [
+        _frame(
+            "response.created",
+            {
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": {"id": "response-1", "status": "in_progress"},
+            },
+        )
+    ]
+    events.extend(
+        _frame(
+            "response.output_text.delta",
+            {"type": "response.output_text.delta", "sequence_number": index, "delta": "x"},
+        )
+        for index in range(1, 47)
+    )
+    events.append(
+        _frame(
+            "response.completed",
+            {
+                "type": "response.completed",
+                "sequence_number": 47,
+                "response": {
+                    "id": "response-1",
+                    "status": "completed",
+                    "output": [{"type": "message"}],
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                },
+            },
+        )
+    )
+    payload = b"".join(events)
+    selected_chunks = (
+        (payload,)
+        if chunks == "coalesced"
+        else tuple(payload[index : index + 31] for index in range(0, len(payload), 31))
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream(selected_chunks),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    record = observer.snapshot()["records"][0]
+    assert observer.snapshot()["inference_terminal_valid_count"] == 1
+    assert isinstance(record, dict)
+    assert record["event_count_class"] == "5+"
+    assert record["event_type_classes"] == (
+        "response.completed",
+        "response.created",
+        "response.output_text.delta",
+    )
+
+
+def test_call_id_correlation_is_opaque_and_scope_bound() -> None:
+    import hashlib
+
+    def digest(value: str) -> bytes:
+        return hashlib.sha256(value.encode("utf-8")).digest()
+
+    correlation = CallIDCorrelation()
+    key = ("codex", "codex", "session-a")
+    correlation.register(key, (digest("call-a"), digest("call-b")))
+    assert (
+        correlation.relation(key, (digest("call-a"), digest("call-b")), missing_call_id=False)
+        == "matching"
+    )
+    assert correlation.relation(key, (digest("call-a"),), missing_call_id=False) == "mismatched"
+    correlation.register(key, (digest("call-a"), digest("call-b")))
+    assert (
+        correlation.relation(key, (digest("call-b"), digest("call-a")), missing_call_id=False)
+        == "mismatched"
+    )
+    assert (
+        correlation.relation(
+            ("vision", "codex", "session-a"), (digest("call-a"),), missing_call_id=False
+        )
+        == "mismatched"
+    )
+    assert correlation.relation(key, (), missing_call_id=True) == "missing"
 
 
 @pytest.mark.asyncio
