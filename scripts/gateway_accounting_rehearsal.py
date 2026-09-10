@@ -4457,6 +4457,7 @@ def _validate_fake_gate(path: Path | None) -> None:
         "results",
         "projection_table",
         "observation_schema_keys",
+        "runtime_failure",
     }
     candidate = payload.get("candidate_provenance")
     candidate_keys = {

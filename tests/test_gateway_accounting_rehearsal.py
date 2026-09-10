@@ -1681,6 +1681,7 @@ def _complete_fake_payload() -> dict[str, object]:
     )
     gate["projection_table"] = list(cast(tuple[dict[str, object], ...], gate["projection_table"]))
     gate["observation_schema_keys"] = FAKE_RESULT_SCHEMA_KEYS
+    gate["runtime_failure"] = None
     return {
         "status": "COMPLETE",
         "provider_target": "fake",
