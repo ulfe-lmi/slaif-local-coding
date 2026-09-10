@@ -2701,6 +2701,67 @@ def _local_implementation_sha(repo_root: Path | None = None) -> str:
     return value
 
 
+def _sha256_file(path: Path) -> str:
+    """Hash one bounded source file without retaining or exposing its contents."""
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(64 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        raise RuntimeError("source_identity_unavailable") from None
+    return digest.hexdigest()
+
+
+def _source_identity() -> dict[str, object]:
+    """Describe the exact repository source and loaded helper modules in use."""
+    source_files = {
+        "runner": REPO_ROOT / "scripts/gateway_accounting_rehearsal.py",
+        "observer": REPO_ROOT / "tests/helpers/transport_observer.py",
+        "projection": REPO_ROOT / "tests/helpers/acceptance_harness.py",
+        "provider_sse": REPO_ROOT / "scripts/local_qwen_provider_differential.py",
+    }
+    loaded_modules = {
+        "tests.helpers.acceptance_harness": source_files["projection"],
+        "tests.helpers.transport_observer": source_files["observer"],
+        "scripts.local_qwen_provider_differential": source_files["provider_sse"],
+    }
+    loaded_paths: dict[str, str] = {}
+    loaded_hashes: dict[str, str] = {}
+    for module_name, expected_path in loaded_modules.items():
+        module = sys.modules.get(module_name)
+        module_path = Path(getattr(module, "__file__", "")).resolve() if module else Path()
+        if module_path != expected_path.resolve():
+            raise RuntimeError("source_identity_module_mismatch")
+        loaded_paths[module_name] = str(module_path.relative_to(REPO_ROOT))
+        loaded_hashes[module_name] = _sha256_file(module_path)
+    return {
+        "paths": {name: str(path.relative_to(REPO_ROOT)) for name, path in source_files.items()},
+        "sha256": {name: _sha256_file(path) for name, path in source_files.items()},
+        "loaded_module_paths": loaded_paths,
+        "loaded_module_sha256": loaded_hashes,
+    }
+
+
+def _candidate_provenance(implementation_sha: str, run_id: str) -> dict[str, object]:
+    """Build source-bound provenance for a result produced by this runner."""
+    return {
+        "implementation_sha": implementation_sha,
+        "tested_worktree_clean": True,
+        "local_source": "src/slaif_local_coding",
+        "harness_source": "scripts/gateway_accounting_rehearsal.py",
+        "route_policy": LOCAL_ROUTE_POLICY,
+        "gateway_sha": GATEWAY_MAIN_SHA,
+        "gateway_app_tree_sha256": GATEWAY_APP_TREE_SHA256,
+        "codex_version": CODEX_VERSION,
+        "codex_binary_sha256": CODEX_FIXTURE_SHA256,
+        "run_provenance": "fresh_fake_direct_httpx_loopback",
+        "run_id": run_id,
+        "observer_version": OBSERVATION_VERSION,
+        "source_identity": _source_identity(),
+    }
+
+
 def _select_protected_runtime(
     hooks: ProtectedRuntimeHooks | None = None,
 ) -> tuple[dict[str, object], str, str]:
@@ -3957,7 +4018,9 @@ def _validate_fake_gate(path: Path | None) -> None:
         "codex_version",
         "codex_binary_sha256",
         "run_provenance",
+        "run_id",
         "observer_version",
+        "source_identity",
     }
     expected_result_keys = {
         "obligation_id",
@@ -3997,7 +4060,10 @@ def _validate_fake_gate(path: Path | None) -> None:
         and candidate.get("codex_version") == CODEX_VERSION
         and candidate.get("codex_binary_sha256") == CODEX_FIXTURE_SHA256
         and candidate.get("run_provenance") == "fresh_fake_direct_httpx_loopback"
+        and isinstance(candidate.get("run_id"), str)
+        and re.fullmatch(r"[0-9a-f]{32}", candidate["run_id"]) is not None
         and candidate.get("observer_version") == OBSERVATION_VERSION
+        and candidate.get("source_identity") == _source_identity()
     )
     if not valid_header:
         raise RuntimeError("protected_fake_gate_not_complete")
@@ -4060,6 +4126,7 @@ def _validate_fake_gate(path: Path | None) -> None:
     projection_table = projection_table_value
     if (
         not isinstance(projection_table, list)
+        or len(projection_table) != len(expected_ids)
         or tuple(item.get("obligation_id") for item in projection_table if isinstance(item, dict))
         != expected_ids
     ):
@@ -4080,7 +4147,8 @@ def _validate_fake_gate(path: Path | None) -> None:
             or item.get("producer") != projection.producer
             or tuple(item.get("proving_test_node_ids", ())) != projection.proving_test_node_ids
             or item.get("execution_status") != "PASSED"
-            or item.get("observed_field_count_class") not in {"1", "2", "3-4", "5+"}
+            or item.get("observed_field_count_class")
+            != count_class(len(projection.source_observation_keys))
             or not isinstance(item.get("source_observation_keys"), list)
             or not isinstance(item.get("proving_test_node_ids"), list)
             or not isinstance(item.get("producer"), str)
@@ -4106,12 +4174,39 @@ def _validate_fake_gate(path: Path | None) -> None:
     ):
         raise RuntimeError("protected_fake_gate_transport_not_complete")
     attempted_count = transport.get("inference_attempted_count")
+    dispatched_count = transport.get("inference_dispatched_count")
+    responded_count = transport.get("inference_responded_count")
+    completed_count = transport.get("inference_completed_count")
     terminal_count = transport.get("inference_terminal_valid_count")
     if (
         type(attempted_count) is not int
+        or type(dispatched_count) is not int
+        or type(responded_count) is not int
+        or type(completed_count) is not int
         or type(terminal_count) is not int
         or attempted_count < 2
+        or dispatched_count != attempted_count
+        or responded_count != attempted_count
+        or completed_count != attempted_count
         or terminal_count != attempted_count
+    ):
+        raise RuntimeError("protected_fake_gate_transport_not_complete")
+    records_value = transport.get("records")
+    inference_records = (
+        [record for record in records_value if isinstance(record, dict)]
+        if isinstance(records_value, list)
+        else []
+    )
+    inference_records = [
+        record for record in inference_records if record.get("kind") == "inference"
+    ]
+    if len(inference_records) != attempted_count or not all(
+        record.get("dispatched") is True
+        and record.get("responded") is True
+        and record.get("completed") is True
+        and record.get("terminal_valid") is True
+        and record.get("normal_close") is True
+        for record in inference_records
     ):
         raise RuntimeError("protected_fake_gate_transport_not_complete")
 
@@ -4399,6 +4494,7 @@ def _run_direct_composed_rehearsal_impl(
     protected_hooks = getattr(args, "_protected_runtime_hooks", None)
     if protected_hooks is not None and not isinstance(protected_hooks, ProtectedRuntimeHooks):
         raise RuntimeError("protected_runtime_hooks_invalid")
+    run_id = uuid.uuid4().hex
     accumulator.set_phase("preflight")
     budget = BudgetController(
         RehearsalBudget(
@@ -5086,19 +5182,9 @@ def _run_direct_composed_rehearsal_impl(
                     "status": "FAILED",
                     "provider_target": provider_target,
                     "gateway_sha": GATEWAY_MAIN_SHA,
-                    "candidate_provenance": {
-                        "implementation_sha": tested_implementation_sha,
-                        "tested_worktree_clean": True,
-                        "local_source": "src/slaif_local_coding",
-                        "harness_source": "scripts/gateway_accounting_rehearsal.py",
-                        "route_policy": LOCAL_ROUTE_POLICY,
-                        "gateway_sha": GATEWAY_MAIN_SHA,
-                        "gateway_app_tree_sha256": GATEWAY_APP_TREE_SHA256,
-                        "codex_version": CODEX_VERSION,
-                        "codex_binary_sha256": CODEX_FIXTURE_SHA256,
-                        "run_provenance": "fresh_fake_direct_httpx_loopback",
-                        "observer_version": OBSERVATION_VERSION,
-                    },
+                    "candidate_provenance": _candidate_provenance(
+                        tested_implementation_sha, run_id
+                    ),
                     "codex": codex_facts,
                     "protected_stop_reason": (
                         "protected_provider_boundary_unobserved"
@@ -5990,19 +6076,7 @@ def _run_direct_composed_rehearsal_impl(
                 "status": "PASSED",
                 "provider_target": provider_target,
                 "gateway_sha": GATEWAY_MAIN_SHA,
-                "candidate_provenance": {
-                    "implementation_sha": tested_implementation_sha,
-                    "tested_worktree_clean": True,
-                    "local_source": "src/slaif_local_coding",
-                    "harness_source": "scripts/gateway_accounting_rehearsal.py",
-                    "route_policy": LOCAL_ROUTE_POLICY,
-                    "gateway_sha": GATEWAY_MAIN_SHA,
-                    "gateway_app_tree_sha256": GATEWAY_APP_TREE_SHA256,
-                    "codex_version": CODEX_VERSION,
-                    "codex_binary_sha256": CODEX_FIXTURE_SHA256,
-                    "run_provenance": "fresh_fake_direct_httpx_loopback",
-                    "observer_version": OBSERVATION_VERSION,
-                },
+                "candidate_provenance": _candidate_provenance(tested_implementation_sha, run_id),
                 "gateway_health_status": gateway_health,
                 "gateway_ready_status": gateway_ready,
                 "candidate_health_status": candidate_health,

@@ -32,6 +32,7 @@ from scripts.gateway_accounting_rehearsal import (
     _ReturnedCallIDCapture,
     _runtime_observations,
     _select_protected_runtime,
+    _source_identity,
     _tested_source_still_valid,
     _validate_fake_gate,
     run_actual_protected_mode_conformance,
@@ -1257,7 +1258,9 @@ def _complete_fake_payload() -> dict[str, object]:
             "codex_version": CODEX_VERSION,
             "codex_binary_sha256": CODEX_FIXTURE_SHA256,
             "run_provenance": "fresh_fake_direct_httpx_loopback",
+            "run_id": "0" * 32,
             "observer_version": OBSERVATION_VERSION,
+            "source_identity": _source_identity(),
         },
         "runtime_observations": observations,
         "transport_observation": {
@@ -1266,9 +1269,30 @@ def _complete_fake_payload() -> dict[str, object]:
             "matches_fake_provider": True,
             "provider_boundary_observed": True,
             "inference_attempted_count": 2,
+            "inference_dispatched_count": 2,
+            "inference_responded_count": 2,
+            "inference_completed_count": 2,
             "inference_terminal_valid_count": 2,
             "inference_attempted_count_class": "2",
             "inference_terminal_valid_count_class": "2",
+            "records": [
+                {
+                    "kind": "inference",
+                    "dispatched": True,
+                    "responded": True,
+                    "completed": True,
+                    "terminal_valid": True,
+                    "normal_close": True,
+                },
+                {
+                    "kind": "inference",
+                    "dispatched": True,
+                    "responded": True,
+                    "completed": True,
+                    "terminal_valid": True,
+                    "normal_close": True,
+                },
+            ],
         },
         "acceptance_gate": gate,
     }
@@ -1318,8 +1342,16 @@ def test_protected_gate_accepts_only_complete_projected_current_fake_result(
         lambda payload: payload["candidate_provenance"].__setitem__(
             "observer_version", "direct-httpx-v1"
         ),
+        lambda payload: payload["candidate_provenance"].__setitem__("run_id", "0" * 31),
+        lambda payload: payload["candidate_provenance"]["source_identity"]["sha256"].__setitem__(
+            "runner", "0" * 64
+        ),
         lambda payload: payload["transport_observation"].__setitem__(
             "inference_terminal_valid_count", 1
+        ),
+        lambda payload: payload["transport_observation"]["records"].pop(),
+        lambda payload: payload["acceptance_gate"]["projection_table"][0].__setitem__(
+            "observed_field_count_class", "1"
         ),
         lambda payload: payload["acceptance_gate"].__setitem__("passed", False),
     ),

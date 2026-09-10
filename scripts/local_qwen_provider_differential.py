@@ -332,7 +332,9 @@ class SSEFacts:
     error_type_class: str = "unknown"
     _line_buffer: bytearray = field(default_factory=bytearray)
     _data_lines: list[bytes] = field(default_factory=list)
+    _event_name: str | None = None
     _event_bytes: int = 0
+    _frame_bytes: int = 0
 
     def consume(self, chunk: bytes) -> None:
         if not chunk:
@@ -356,8 +358,23 @@ class SSEFacts:
         if len(line) > MAX_EVENT_BYTES:
             self.parseable = False
             return
+        self._frame_bytes += len(line)
+        if self._frame_bytes > MAX_EVENT_BYTES:
+            self.parseable = False
         if line == b"":
             self._finish_event()
+        elif line.startswith(b":"):
+            return
+        elif line.startswith(b"event:"):
+            if self._event_name is not None:
+                self.parseable = False
+                return
+            try:
+                self._event_name = line[6:].strip().decode("ascii")
+                if not self._event_name:
+                    self.parseable = False
+            except UnicodeDecodeError:
+                self.parseable = False
         elif line.startswith(b"data:"):
             data = line[5:]
             if data.startswith(b" "):
@@ -367,15 +384,27 @@ class SSEFacts:
                 self.parseable = False
             else:
                 self._data_lines.append(data)
+        else:
+            self.parseable = False
 
     def _finish_event(self) -> None:
         if not self._data_lines:
+            if self._event_name is not None:
+                self.parseable = False
+            self._event_name = None
+            self._frame_bytes = 0
             self._event_bytes = 0
             return
         raw = b"\n".join(self._data_lines)
         self._data_lines.clear()
+        event_name = self._event_name
+        self._event_name = None
+        self._frame_bytes = 0
         self._event_bytes = 0
         if raw == b"[DONE]":
+            if event_name is not None:
+                self.parseable = False
+                return
             self.event_counts["done"] = self.event_counts.get("done", 0) + 1
             return
         try:
@@ -387,6 +416,9 @@ class SSEFacts:
             self.parseable = False
             return
         event_type = payload["type"]
+        if event_name is not None and event_name != event_type:
+            self.parseable = False
+            return
         self.event_counts[event_type] = self.event_counts.get(event_type, 0) + 1
         if event_type not in KNOWN_EVENT_TYPES:
             self.unknown_events = True
@@ -468,9 +500,11 @@ class SSEFacts:
         if self._line_buffer:
             self._consume_line(bytes(self._line_buffer).rstrip(b"\r"))
             self._line_buffer.clear()
-        if self._data_lines:
+        if self._data_lines or self._event_name is not None:
             self.parseable = False
             self._data_lines.clear()
+            self._event_name = None
+            self._frame_bytes = 0
         self.normal_close = True
 
     def summary(self, *, status: int | None, content_type: str | None) -> dict[str, object]:

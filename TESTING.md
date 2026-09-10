@@ -519,3 +519,26 @@ protected branch, with the fake semantic oracle unavailable, serialized and
 passed all 29 selected rows; observer-failure, combined projection/cleanup,
 and pre-dispatch mapping cases each serialized all 29 rows and stopped as
 designed. Real protected inference remained `NOT RUN`.
+
+## Objective-005-ae qualified framing and source-bound evidence
+
+The direct provider observer accepts the exact Gateway-approved typed Responses
+SSE representations with an explicit `event` header, data-only typed frames,
+or a bounded mixture of both. An explicit header must match the JSON payload's
+`type`; missing, empty, or unknown types, malformed frames, invalid ordering,
+terminal/usage errors, duplicate terminals, and abnormal closure remain
+fail-closed. Framing stays incremental and bounded at 16 KiB per frame and
+128 KiB per stream, with comment handling, LF/CRLF, split/coalesced chunks,
+close-once behavior, and the exact injected Gateway validator preserved.
+
+Fresh fake qualification results are source-bound before any protected
+credential access. The runner records the exact implementation SHA, a bounded
+per-run identifier, hashes for the runner/observer/projection/provider-facts
+source files, loaded helper-module paths and hashes, exact fake-manifest row
+order/cardinality/status, and direct-observer inference lifecycle records.
+The protected fake-gate validator rejects stale source/module hashes, invalid
+run identity, missing/extra/reordered rows or projections, inconsistent
+observed-field counts, incomplete lifecycle counters, and missing direct
+records. Evidence is generated from the runner result; hand-written all-PASS
+lists are not accepted. Protected acceptance, cutover, merge, and release
+readiness remain separate decisions.

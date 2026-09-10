@@ -28,6 +28,10 @@ def _event(payload: dict[str, object]) -> bytes:
     return b"data: " + json.dumps(payload, separators=(",", ":")).encode() + b"\n\n"
 
 
+def _event_with_header(event_type: str, payload: dict[str, object]) -> bytes:
+    return b"event: " + event_type.encode("ascii") + b"\n" + _event(payload)
+
+
 def _created() -> bytes:
     return _event({"type": "response.created", "response": {"id": "response-1"}})
 
@@ -141,6 +145,24 @@ def test_sse_parser_handles_arbitrary_chunk_boundaries() -> None:
     assert split.summary(status=200, content_type="text/event-stream") == whole.summary(
         status=200, content_type="text/event-stream"
     )
+
+
+def test_sse_parser_requires_matching_explicit_event_type() -> None:
+    matching = SSEFacts()
+    matching.consume(_event_with_header("response.created", {"type": "response.created"}))
+    matching.finish()
+    assert matching.parseable is True
+
+    conflicting = SSEFacts()
+    conflicting.consume(_event_with_header("response.created", {"type": "response.completed"}))
+    conflicting.finish()
+    assert conflicting.parseable is False
+
+    unknown = SSEFacts()
+    unknown.consume(_event({"type": "response.unknown"}))
+    unknown.finish()
+    assert unknown.parseable is True
+    assert unknown.unknown_events is True
 
 
 def test_sse_parser_enforces_per_line_and_total_stream_bounds() -> None:

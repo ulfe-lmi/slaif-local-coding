@@ -260,15 +260,16 @@ class _StreamState:
                 self.malformed = True
                 self._fail("framing")
 
-        # A comment-only SSE frame is valid and carries no event.  Data frames
-        # without an explicit event are not part of the reviewed Gateway wire.
+        # A comment-only SSE frame is valid and carries no event.  Responses
+        # also permits typed data-only frames; in that representation the
+        # payload's type is the event name.  The exact Gateway validator below
+        # remains the semantic oracle for the completed payload.
         if event_name is None and not data_parts:
             return
-        if event_name is None or not data_parts or len(data_parts) > MAX_EVENT_TYPES:
+        if not data_parts or len(data_parts) > MAX_EVENT_TYPES:
             self.malformed = True
             self._fail("framing")
             return
-        self._append_event_class(event_name)
         data = b"\n".join(data_parts)
         if len(data) > MAX_EVENT_BYTES:
             self.overflow = True
@@ -284,8 +285,21 @@ class _StreamState:
             self.malformed = True
             self._fail("validation")
             return
-        if payload.get("type") != event_name:
+
+        payload_event_name = payload.get("type")
+        if not isinstance(payload_event_name, str) or not payload_event_name:
+            self.malformed = True
+            self._fail("framing")
+            return
+        if event_name is None:
+            event_name = payload_event_name
+        elif payload_event_name != event_name:
             self._fail("validation")
+        if event_name not in _EVENT_CLASSES:
+            self._append_event_class(event_name)
+            self._fail("validation")
+            return
+        self._append_event_class(event_name)
         if event_name == "error":
             self.error_event = True
 

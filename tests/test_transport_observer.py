@@ -42,13 +42,17 @@ def _validator(_request: httpx.Request) -> _AcceptingValidator:
     return _AcceptingValidator()
 
 
-def _frame(event_type: str, payload: dict[str, object], ending: bytes = b"\n\n") -> bytes:
+def _frame(event_type: str, payload: Mapping[str, object], ending: bytes = b"\n\n") -> bytes:
     return (
         f"event: {event_type}\n".encode()
         + b"data: "
         + json.dumps(payload, separators=(",", ":")).encode()
         + ending
     )
+
+
+def _data_frame(payload: Mapping[str, object], ending: bytes = b"\n\n") -> bytes:
+    return b"data: " + json.dumps(payload, separators=(",", ":")).encode() + ending
 
 
 def _stream_bytes(
@@ -365,6 +369,113 @@ async def test_coalesced_frames_do_not_trigger_event_cap() -> None:
         response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
         await response.aread()
     assert observer.snapshot()["inference_terminal_valid_count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", (b"\n\n", b"\r\n\r\n"))
+async def test_data_only_and_explicit_event_frames_use_same_validator_path(ending: bytes) -> None:
+    created = {
+        "type": "response.created",
+        "response": {"id": "response-1", "status": "in_progress"},
+    }
+    delta = {"type": "response.output_text.delta", "delta": "x"}
+    completed = {
+        "type": "response.completed",
+        "response": {
+            "id": "response-1",
+            "status": "completed",
+            "output": [{"type": "message"}],
+            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        },
+    }
+    payload = b"".join(
+        (
+            _frame("response.created", created, ending),
+            _data_frame(delta, ending),
+            _frame("response.completed", completed, ending),
+        )
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream(
+                    tuple(payload[index : index + 5] for index in range(0, len(payload), 5))
+                ),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is True
+    assert snapshot["inference_terminal_valid_count"] == 1
+    assert snapshot["records"][0]["event_type_classes"] == (  # type: ignore[index]
+        "response.completed",
+        "response.created",
+        "response.output_text.delta",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {"response": {"id": "response-1"}},
+        {"type": "response.unknown", "response": {"id": "response-1"}},
+    ),
+)
+async def test_data_only_missing_or_unknown_type_fails_closed(
+    payload: dict[str, object],
+) -> None:
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_data_frame(payload),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    assert observer.snapshot()["ready"] is False
+    assert observer.snapshot()["inference_terminal_valid_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_explicit_event_type_conflict_fails_closed() -> None:
+    completed = {
+        "type": "response.completed",
+        "response": {
+            "id": "response-1",
+            "status": "completed",
+            "output": [{"type": "message"}],
+            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        },
+    }
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_frame("response.created", completed),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    assert observer.snapshot()["ready"] is False
 
 
 @pytest.mark.asyncio
