@@ -5394,7 +5394,7 @@ def _run_direct_composed_rehearsal_impl(
                         observer.snapshot(),
                         phase=phase,
                         ordinal=ordinal,
-                        update_counts=False,
+                        update_counts=True,
                         lifetime_id=lifetime_id,
                     )
                 except BaseException:

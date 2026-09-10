@@ -732,6 +732,8 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "manual_unready",
         "observer_lifetime_mismatch",
         "readiness_non_health",
+        "observer_dispatch_hook_error",
+        "observer_response_complete_hook_error",
     }
 )
 

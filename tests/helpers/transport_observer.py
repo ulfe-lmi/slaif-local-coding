@@ -127,6 +127,7 @@ def _exception_class(kind: str) -> str:
         "budget": "observer_budget_not_admitted",
         "lifetime": "observer_lifetime_mismatch",
         "readiness": "readiness_non_health",
+        "dispatch_hook": "observer_dispatch_hook_error",
     }.get(kind, "other")
 
 
