@@ -27,6 +27,7 @@ from scripts.gateway_accounting_rehearsal import (
     _candidate_only_observation,
     _candidate_provenance,
     _FakeQwenServer,
+    _idless_companion_initial_body,
     _idless_companion_observation,
     _local_implementation_sha,
     _protected_provider_observation,
@@ -850,6 +851,35 @@ def test_returned_call_capture_rejects_summary_only_identity() -> None:
     capture.finish(stream_valid=True)
     assert capture.value is None
     assert capture.safe_facts()["canonical_candidate_availability"] == "none"
+
+
+def test_returned_call_capture_distinguishes_validator_and_candidate_stages() -> None:
+    validator_rejection = _event(
+        {"type": "response.failed", "response": {"id": "response-real", "status": "failed"}}
+    )
+    capture = _ReturnedCallIDCapture(validator=_ObserverValidator())
+    capture.consume(validator_rejection)
+    capture.finish(stream_valid=True)
+    assert capture.safe_facts()["validation_stage"] == "gateway_validator"
+
+    malformed_candidate = _event(
+        {
+            "type": "response.output_item.done",
+            "item": {"type": "function_call", "call_id": "call-real"},
+        }
+    )
+    capture = _ReturnedCallIDCapture(validator=_ObserverValidator())
+    capture.consume(malformed_candidate)
+    capture.finish(stream_valid=True)
+    assert capture.safe_facts()["validation_stage"] == "replay_candidate"
+
+
+def test_idless_companion_initial_request_forces_the_declared_function() -> None:
+    tools: list[dict[str, object]] = [{"type": "function", "name": "local_lookup"}]
+    body = _idless_companion_initial_body("session-a", tools)
+    assert body["tool_choice"] == {"type": "function", "name": "local_lookup"}
+    assert body["max_output_tokens"] == 32
+    assert body["input"][0]["content"][0]["text"] == "Call local_lookup with no arguments."  # type: ignore[index]
 
 
 def test_returned_call_capture_retains_frame_buffer_overflow_facts() -> None:

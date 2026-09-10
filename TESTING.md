@@ -660,3 +660,20 @@ or candidate-type failures do not receive fabricated overflow sizes. The
 subtype and observed/bound facts remain attached to the first failure through
 normal close, projection, and cleanup without retaining event fragments or
 payloads.
+
+## Objective-005-al identity replay validation and closure
+
+The bounded observer tests distinguish the finite semantic validation stages
+`event_class`, `event_name_payload_type`, `gateway_validator`,
+`response_identity`, `replay_candidate`, and `other_validation`. Stage facts
+are retained only with the existing fixed failure context and are propagated
+through accumulator cleanup; framing, overflow, budget, and closure remain
+distinct. Tests assert that no raw event content or identifiers enter the
+serialized facts.
+
+The identity-replay companion fixture explicitly selects the declared
+`local_lookup` function and keeps `max_output_tokens=32`, preserving the
+two-request ID-less continuation contract. Exact fake qualification and any
+authorized protected matrix are reported separately under `oap/evidence/`;
+this contract does not treat focused tests or fake evidence as protected
+acceptance.

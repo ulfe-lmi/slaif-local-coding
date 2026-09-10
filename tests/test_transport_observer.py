@@ -456,8 +456,13 @@ async def test_data_only_missing_or_unknown_type_fails_closed(
     async with httpx.AsyncClient(transport=observer) as client:
         response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
         await response.aread()
-    assert observer.snapshot()["ready"] is False
-    assert observer.snapshot()["inference_terminal_valid_count"] == 0
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is False
+    assert snapshot["inference_terminal_valid_count"] == 0
+    context = cast(dict[str, object], snapshot["failure_context"])
+    assert context["validation_stage"] == (
+        "event_name_payload_type" if "type" not in payload else "event_class"
+    )
 
 
 @pytest.mark.asyncio
@@ -485,7 +490,85 @@ async def test_explicit_event_type_conflict_fails_closed() -> None:
     async with httpx.AsyncClient(transport=observer) as client:
         response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
         await response.aread()
-    assert observer.snapshot()["ready"] is False
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is False
+    context = cast(dict[str, object], snapshot["failure_context"])
+    assert context["validation_stage"] == "event_name_payload_type"
+
+
+@pytest.mark.asyncio
+async def test_response_identity_failure_is_separate_from_validator_rejection() -> None:
+    payload = b"".join(
+        (
+            _frame(
+                "response.created",
+                {
+                    "type": "response.created",
+                    "response": {"id": "response-1", "status": "in_progress"},
+                },
+            ),
+            _frame(
+                "response.output_text.delta",
+                {"type": "response.output_text.delta", "delta": "x"},
+            ),
+            _frame(
+                "response.completed",
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "id": "response-2",
+                        "status": "completed",
+                        "output": [{"type": "message"}],
+                        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    },
+                },
+            ),
+        )
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((payload,)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["failure_class"] == "stream_validation_invalid"
+    context = cast(dict[str, object], snapshot["failure_context"])
+    assert context["validation_stage"] == "response_identity"
+
+
+@pytest.mark.asyncio
+async def test_exact_gateway_validator_rejection_has_closed_stage() -> None:
+    rejected = {
+        "type": "response.failed",
+        "response": {"id": "response-1", "status": "failed"},
+    }
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_data_frame(rejected),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["failure_class"] == "stream_validation_invalid"
+    context = cast(dict[str, object], snapshot["failure_context"])
+    assert context["validation_stage"] == "gateway_validator"
 
 
 @pytest.mark.asyncio
@@ -771,6 +854,7 @@ def test_structural_cardinality_and_type_failures_are_distinct() -> None:
     typed_state = _StreamState("sse", 0.0, validator=WrongCandidateType())  # type: ignore[arg-type]
     typed_state._take_canonical_candidates()
     assert typed_state.failure_kind == "validation"
+    assert typed_state.validation_stage == "replay_candidate"
     assert typed_state.overflow_subtype is None
     assert typed_state.overflow_observed is None
     assert typed_state.overflow_bound is None

@@ -22,7 +22,11 @@ from typing import Protocol, cast
 
 import httpx
 
-from tests.helpers.acceptance_harness import DispatchContext, ProviderBoundaryObservation
+from tests.helpers.acceptance_harness import (
+    VALIDATION_STAGES,
+    DispatchContext,
+    ProviderBoundaryObservation,
+)
 
 MAX_OBSERVED_REQUESTS = 64
 # Acceptance-only frame cap.  It is intentionally equal to, but independent
@@ -44,6 +48,11 @@ _OVERFLOW_SUBTYPES = frozenset(
         "response_bytes",
     }
 )
+
+
+def _safe_validation_stage(value: object) -> str | None:
+    return value if isinstance(value, str) and value in VALIDATION_STAGES else None
+
 
 _RESPONSE_ID_EVENTS = frozenset({"response.created", "response.in_progress", "response.completed"})
 _EVENT_CLASSES = {
@@ -263,6 +272,7 @@ class _StreamState:
     normal_close: bool = False
     _response_id_digest: bytes | None = field(default=None, repr=False)
     failure_kind: str | None = field(default=None, repr=False)
+    validation_stage: str | None = field(default=None, repr=False)
     frame_observer: Callable[[int], bool] | None = field(default=None, repr=False)
     correlation_key: CorrelationKey | None = field(default=None, repr=False)
     returned_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
@@ -274,6 +284,7 @@ class _StreamState:
         self,
         kind: str,
         *,
+        validation_stage: str | None = None,
         overflow_subtype: str | None = None,
         overflow_observed: int | None = None,
         overflow_bound: int | None = None,
@@ -281,6 +292,7 @@ class _StreamState:
         self.validation_failed = True
         if self.failure_kind is None:
             self.failure_kind = kind
+            self.validation_stage = _safe_validation_stage(validation_stage)
             if (
                 kind == "overflow"
                 and overflow_subtype in _OVERFLOW_SUBTYPES
@@ -322,19 +334,19 @@ class _StreamState:
     def _take_canonical_candidates(self) -> None:
         """Consume only the exact validator's validated replay candidates."""
         if self.validator is None:
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
             return
         take_candidates = getattr(self.validator, "take_replay_reference_candidates", None)
         if not callable(take_candidates):
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
             return
         try:
             candidates = take_candidates()
         except BaseException:
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
             return
         if not isinstance(candidates, tuple):
-            self._fail("validation")
+            self._fail("validation", validation_stage="replay_candidate")
             return
         if len(candidates) > MAX_CORRELATION_IDS:
             self._fail(
@@ -347,7 +359,7 @@ class _StreamState:
         for candidate in candidates:
             item_kind = getattr(candidate, "item_kind", None)
             if item_kind not in {"function_call", "custom_tool_call", "reasoning"}:
-                self._fail("validation")
+                self._fail("validation", validation_stage="replay_candidate")
                 continue
             if item_kind == "reasoning":
                 continue
@@ -360,7 +372,7 @@ class _StreamState:
                 or any(char in item_id for char in "\r\n")
                 or call_id_digest is None
             ):
-                self._fail("validation")
+                self._fail("validation", validation_stage="replay_candidate")
                 continue
             self.canonical_candidate_count += 1
             if len(self.returned_call_id_digests) >= MAX_CORRELATION_IDS:
@@ -459,21 +471,20 @@ class _StreamState:
             return
         if not isinstance(payload, dict):
             self.malformed = True
-            self._fail("validation")
+            self._fail("validation", validation_stage="other_validation")
             return
 
         payload_event_name = payload.get("type")
         if not isinstance(payload_event_name, str) or not payload_event_name:
-            self.malformed = True
-            self._fail("framing")
+            self._fail("validation", validation_stage="event_name_payload_type")
             return
         if event_name is None:
             event_name = payload_event_name
         elif payload_event_name != event_name:
-            self._fail("validation")
+            self._fail("validation", validation_stage="event_name_payload_type")
         if event_name not in _EVENT_CLASSES:
             self._append_event_class(event_name)
-            self._fail("validation")
+            self._fail("validation", validation_stage="event_class")
             return
         self._append_event_class(event_name)
         if event_name == "error":
@@ -483,13 +494,13 @@ class _StreamState:
             response = payload.get("response")
             response_id = response.get("id") if isinstance(response, Mapping) else None
             if not isinstance(response_id, str) or not response_id:
-                self._fail("validation")
+                self._fail("validation", validation_stage="response_identity")
             else:
                 response_id_digest = hashlib.sha256(response_id.encode("utf-8")).digest()
                 if self._response_id_digest is None:
                     self._response_id_digest = response_id_digest
                 elif response_id_digest != self._response_id_digest:
-                    self._fail("validation")
+                    self._fail("validation", validation_stage="response_identity")
 
         try:
             valid = self.validator is not None and self.validator.validate(
@@ -497,9 +508,12 @@ class _StreamState:
             )
         except BaseException:
             valid = False
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
         if not valid:
-            self._fail("validation" if self.failure_kind != "validator" else "validator")
+            self._fail(
+                "validation" if self.failure_kind != "validator" else "validator",
+                validation_stage="gateway_validator",
+            )
         else:
             self._take_canonical_candidates()
             if event_name == "response.completed":
@@ -632,6 +646,7 @@ class _RequestObservation:
     overflow_observed: int | None = None
     overflow_bound: int | None = None
     exception_class: str | None = None
+    validation_stage: str | None = None
     dispatch_operation: str = "unknown"
     dispatch_phase: str = "unknown"
     dispatch_ordinal: int | None = None
@@ -682,6 +697,8 @@ class _RequestObservation:
             "overflow_bound": self.overflow_bound,
             "exception_class": self.exception_class,
         }
+        if self.validation_stage is not None:
+            result["validation_stage"] = self.validation_stage
         if self.request_facts_observed:
             result.update(
                 {
@@ -1066,6 +1083,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 "cause": self._failure_class,
             }
             failure_context.update(_safe_overflow_context(context))
+            validation_stage = _safe_validation_stage(context.get("validation_stage"))
+            if validation_stage is not None:
+                failure_context["validation_stage"] = validation_stage
             self._failure_context = failure_context
 
     @staticmethod
@@ -1082,6 +1102,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             ),
         }
         result.update(_safe_overflow_context(state.__dict__))
+        validation_stage = _safe_validation_stage(state.validation_stage)
+        if validation_stage is not None:
+            result["validation_stage"] = validation_stage
         return result
 
     @staticmethod
@@ -1096,6 +1119,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             "lifetime_id": record.dispatch_lifetime,
         }
         result.update(_safe_overflow_context(record.__dict__))
+        validation_stage = _safe_validation_stage(record.validation_stage)
+        if validation_stage is not None:
+            result["validation_stage"] = validation_stage
         return result
 
     def _latch_budget_failure(
@@ -1587,6 +1613,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.overflow_subtype = state.overflow_subtype
         record.overflow_observed = state.overflow_observed
         record.overflow_bound = state.overflow_bound
+        record.validation_stage = state.validation_stage
         record.canonical_candidate_count = state.canonical_candidate_count
         record.canonical_candidate_availability = (
             "available"
@@ -1623,6 +1650,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.overflow_subtype = state.overflow_subtype
         record.overflow_observed = state.overflow_observed
         record.overflow_bound = state.overflow_bound
+        record.validation_stage = state.validation_stage
         self._latch_state_failure(state)
         self._latch_failure(state.failure_kind or "closure")
 
@@ -1644,6 +1672,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.overflow_subtype = state.overflow_subtype
         record.overflow_observed = state.overflow_observed
         record.overflow_bound = state.overflow_bound
+        record.validation_stage = state.validation_stage
         self._latch_state_failure(state)
         self._latch_failure("closure")
 

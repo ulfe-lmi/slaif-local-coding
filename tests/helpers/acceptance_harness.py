@@ -989,6 +989,17 @@ _SAFE_OVERFLOW_SUBTYPES: frozenset[str] = frozenset(
     }
 )
 
+VALIDATION_STAGES: frozenset[str] = frozenset(
+    {
+        "event_class",
+        "event_name_payload_type",
+        "gateway_validator",
+        "response_identity",
+        "replay_candidate",
+        "other_validation",
+    }
+)
+
 
 def _safe_accumulator_failure(value: object) -> str:
     return value if isinstance(value, str) and value in _SAFE_ACCUMULATOR_FAILURES else "unknown"
@@ -1122,6 +1133,9 @@ class RunAccumulator:
                     "overflow_bound": bound,
                 }
             )
+        validation_stage = context.get("validation_stage")
+        if isinstance(validation_stage, str) and validation_stage in VALIDATION_STAGES:
+            result["validation_stage"] = validation_stage
         return result
 
     def capture_observer(

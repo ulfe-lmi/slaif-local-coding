@@ -720,3 +720,22 @@ Overflow evidence is payload-free and uses only the closed subtypes
 integer values. Framing, validator, and budget failures remain distinct;
 candidate type failures do not receive an invented size. These first-failure
 facts survive normal close, projection, and cleanup.
+
+## Objective-005-al identity replay validation and closure
+
+The acceptance-only observer and returned-call capture now retain one finite
+`validation_stage` alongside the existing fixed failure class when semantic
+validation fails: `event_class`, `event_name_payload_type`,
+`gateway_validator`, `response_identity`, `replay_candidate`, or
+`other_validation`. Framing, budget, overflow, and closure failures remain
+separate. The stage is propagated through the existing observer record,
+first-failure context, accumulator, projection, and cleanup paths without
+retaining event bodies, names outside the existing finite vocabulary, IDs,
+arguments, prompts, or exception text.
+
+The identity-replay companion's initial request is an explicit
+`local_lookup` function call with the existing 32-token ceiling. This corrects
+the harness fixture's prior reliance on automatic tool selection while
+preserving the actual streamed function call, canonical call-ID capture,
+ID-less continuation, owner/scope binding, and accounting checks. Protected
+acceptance remains a separate result of the order-authorized bounded matrix.

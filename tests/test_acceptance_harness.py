@@ -329,6 +329,15 @@ def test_run_accumulator_uses_semantic_terminal_facts_not_lifecycle_counts() -> 
             "inference_responded_count": 1,
             "inference_completed_count": 1,
             "inference_terminal_valid_count": 0,
+            "failure_context": {
+                "kind": "inference",
+                "operation": "identity_replay",
+                "phase": "codex",
+                "ordinal": 5,
+                "lifetime_id": "identity",
+                "cause": "stream_validation_invalid",
+                "validation_stage": "response_identity",
+            },
             "records": (
                 {
                     "ordinal": 1,
@@ -350,6 +359,7 @@ def test_run_accumulator_uses_semantic_terminal_facts_not_lifecycle_counts() -> 
     assert facts["counts"]["inference_terminal_valid"] == 0  # type: ignore[index]
     assert facts["terminal_classes"] == ("terminal_invalid",)
     assert "terminal_valid" not in facts["terminal_classes"]
+    assert facts["first_failure_context"]["validation_stage"] == "response_identity"  # type: ignore[index]
 
 
 def test_run_accumulator_preserves_unknown_and_incomplete_terminal_observations() -> None:

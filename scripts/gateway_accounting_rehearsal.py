@@ -77,6 +77,7 @@ from tests.helpers.acceptance_harness import (  # noqa: E402
     FAKE_RESULT_SCHEMA_KEYS,
     PROTECTED_RESULT_SCHEMA_KEYS,
     PUBLIC_REQUEST_BUDGET,
+    VALIDATION_STAGES,
     BudgetController,
     FakeCutoverRunner,
     ObligationResult,
@@ -3199,6 +3200,7 @@ class _ReturnedCallIDCapture:
     summary_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
     canonical_summary_relation: str = "unknown"
     failure_class: str | None = field(default=None, repr=False)
+    validation_stage: str | None = field(default=None, repr=False)
     overflow_subtype: str | None = field(default=None, repr=False)
     overflow_observed: int | None = field(default=None, repr=False)
     overflow_bound: int | None = field(default=None, repr=False)
@@ -3207,6 +3209,7 @@ class _ReturnedCallIDCapture:
         self,
         failure_class: str,
         *,
+        validation_stage: str | None = None,
         overflow_subtype: str | None = None,
         overflow_observed: int | None = None,
         overflow_bound: int | None = None,
@@ -3215,6 +3218,8 @@ class _ReturnedCallIDCapture:
         if self.failure_class is not None:
             return
         self.failure_class = failure_class
+        if isinstance(validation_stage, str) and validation_stage in VALIDATION_STAGES:
+            self.validation_stage = validation_stage
         if (
             failure_class == "overflow"
             and overflow_subtype
@@ -3256,24 +3261,24 @@ class _ReturnedCallIDCapture:
             return
         event_name, payload = parsed
         if self.validator is None:
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
             return
         validate = getattr(self.validator, "validate", None)
         take_candidates = getattr(self.validator, "take_replay_reference_candidates", None)
         if not callable(validate) or not callable(take_candidates):
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
             return
         try:
             valid = validate(payload)
             candidates = take_candidates()
         except BaseException:
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
             return
         if not valid:
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
             return
         if not isinstance(candidates, tuple):
-            self._fail("validator")
+            self._fail("validation", validation_stage="replay_candidate")
             return
         if len(candidates) > FAKE_MAX_EVENTS:
             self._fail(
@@ -3284,12 +3289,16 @@ class _ReturnedCallIDCapture:
             )
             return
         for candidate in candidates:
-            if getattr(candidate, "item_kind", None) not in {"function_call", "custom_tool_call"}:
+            item_kind = getattr(candidate, "item_kind", None)
+            if item_kind == "reasoning":
+                continue
+            if item_kind not in {"function_call", "custom_tool_call"}:
+                self._fail("validation", validation_stage="replay_candidate")
                 continue
             call_id = getattr(candidate, "call_id", None)
             item_id = getattr(candidate, "item_id", None)
             if not self._valid_identifier(item_id) or not self._valid_identifier(call_id):
-                self._fail("validator")
+                self._fail("validation", validation_stage="replay_candidate")
                 continue
             assert isinstance(call_id, str)
             self.canonical_candidate_count += 1
@@ -3342,7 +3351,7 @@ class _ReturnedCallIDCapture:
             self._fail("framing")
             self.buffer.clear()
         if not stream_valid and self.failure_class is None:
-            self._fail("validator")
+            self._fail("validator", validation_stage="gateway_validator")
         if not stream_valid or self.invalid or len(self.canonical_call_ids) != 1:
             self.value = None
             return
@@ -3363,6 +3372,8 @@ class _ReturnedCallIDCapture:
         }
         if self.failure_class is not None:
             facts["failure_class"] = self.failure_class
+        if self.validation_stage is not None:
+            facts["validation_stage"] = self.validation_stage
         if self.overflow_subtype is not None:
             facts.update(
                 {
@@ -3544,6 +3555,22 @@ def _composed_request_body(
     if tools is not None:
         result["tools"] = tools
     return result
+
+
+def _idless_companion_initial_body(
+    session: str, tools: list[dict[str, object]]
+) -> dict[str, object]:
+    """Build the deterministic initial function-call side of the companion."""
+    body = _composed_request_body(session, "Call local_lookup with no arguments.", tools=tools)
+    body.update(
+        {
+            "stream": True,
+            "max_output_tokens": 32,
+            "store": False,
+            "tool_choice": {"type": "function", "name": "local_lookup"},
+        }
+    )
+    return body
 
 
 def _openai_kwargs(body: dict[str, object]) -> dict[str, object]:
@@ -6064,10 +6091,7 @@ def _run_direct_composed_rehearsal_impl(
             ]
             admit("identity_replay", "codex", 5, "identity")
             activate("identity_replay", "codex", 5, "identity")
-            companion_initial_body = _composed_request_body(
-                session_a, "idless companion initial", tools=companion_tools
-            )
-            companion_initial_body.update({"stream": True, "max_output_tokens": 32, "store": False})
+            companion_initial_body = _idless_companion_initial_body(session_a, companion_tools)
             companion_observer = (
                 post_vision_observer if post_vision_observer is not None else candidate_observer
             )
