@@ -904,6 +904,46 @@ async def test_readiness_dispatch_is_health_only_and_counted() -> None:
 
 
 @pytest.mark.asyncio
+async def test_direct_observer_projects_provider_request_facts_without_payloads() -> None:
+    def classify(_request: httpx.Request) -> Mapping[str, object]:
+        return {
+            "request_class": "function_continuation",
+            "tool_class": "function",
+            "function_result_adjacent": True,
+            "item_id_presence": "omitted",
+            "call_id_relation": "matching",
+            "image_count": 1,
+            "image_hashes": ("a" * 64,),
+            "tool_type_classes": ("function",),
+        }
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_stream_bytes(),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        request_classifier=classify,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", json={"bounded": True})
+        await response.aread()
+    boundary = observer.snapshot()["provider_boundary"]
+    assert isinstance(boundary, dict)
+    assert boundary["call_count_class"] == "1"
+    assert boundary["lifecycle_valid"] is True
+    assert boundary["function_result_adjacent"] is True
+    assert boundary["item_id_presence_classes"] == ("omitted",)
+    assert boundary["call_id_relation_classes"] == ("matching",)
+    assert boundary["image_hashes_observed"] is True
+    assert boundary["all_image_requests_single"] is True
+
+
+@pytest.mark.asyncio
 async def test_run_budget_deadline_is_checked_between_stream_chunks() -> None:
     now = [0.0]
     budget = BudgetController(RehearsalBudget(wall_seconds=5), clock=lambda: now[0])

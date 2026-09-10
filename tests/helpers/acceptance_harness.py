@@ -49,6 +49,8 @@ class DispatchContext:
     phase: str
     ordinal: int | None
     lifetime_id: str | None
+    endpoint: str | None = None
+    method: str | None = None
 
 
 @dataclass(frozen=True)
@@ -150,6 +152,7 @@ class RehearsalBudget:
     max_concurrency: int = 1
     max_dispatches: int = 64
     max_readiness_probes: int = 4
+    max_provider_preflight_probes: int = 2
 
 
 @dataclass
@@ -174,6 +177,9 @@ class BudgetController:
     _readiness_pending: dict[str, object] | None = field(init=False, default=None)
     _readiness_admitted: int = field(init=False, default=0)
     _readiness_consumed: int = field(init=False, default=0)
+    _provider_probe_pending: dict[str, object] | None = field(init=False, default=None)
+    _provider_probe_admitted: int = field(init=False, default=0)
+    _provider_probe_consumed: int = field(init=False, default=0)
     _failure: str | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
@@ -183,6 +189,7 @@ class BudgetController:
             or self.budget.max_concurrency <= 0
             or self.budget.max_dispatches <= 0
             or self.budget.max_readiness_probes < 0
+            or self.budget.max_provider_preflight_probes < 0
         ):
             self._failure = "budget_configuration_invalid"
         if any(item.maximum < 0 or item.retries != 0 for item in self.budget.operation_limits):
@@ -346,6 +353,78 @@ class BudgetController:
         self._dispatch_context = DispatchContext("readiness_probe", phase, ordinal, lifetime_id)
         return True
 
+    def admit_provider_probe(
+        self,
+        endpoint: str,
+        *,
+        method: str = "GET",
+        phase: str = "preflight",
+        ordinal: int = 0,
+        lifetime_id: str = "provider_preflight",
+    ) -> bool:
+        """Reserve one exact protected-provider preflight endpoint request."""
+        if self._failure is not None:
+            return False
+        if endpoint not in {"/health", "/v1/models"} or method != "GET":
+            self._failure = "budget_provider_probe_context_mismatch"
+            return False
+        if phase != "preflight" or type(ordinal) is not int or ordinal != 0:
+            self._failure = "budget_provider_probe_context_mismatch"
+            return False
+        if not isinstance(lifetime_id, str) or not lifetime_id:
+            self._failure = "budget_provider_probe_lifetime_missing"
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
+        if self._provider_probe_pending is not None:
+            self._failure = "budget_provider_probe_permission_pending"
+            return False
+        if self._provider_probe_admitted >= self.budget.max_provider_preflight_probes:
+            self._failure = "budget_provider_probe_limit_exhausted"
+            return False
+        self._provider_probe_pending = {
+            "operation": "provider_probe",
+            "endpoint": endpoint,
+            "method": method,
+            "phase": phase,
+            "ordinal": ordinal,
+            "lifetime_id": lifetime_id,
+        }
+        self._provider_probe_admitted += 1
+        return True
+
+    def activate_provider_probe(
+        self,
+        endpoint: str,
+        *,
+        method: str = "GET",
+        phase: str = "preflight",
+        ordinal: int = 0,
+        lifetime_id: str = "provider_preflight",
+    ) -> bool:
+        """Activate the one-shot endpoint/method-scoped provider probe."""
+        if self._failure is not None:
+            return False
+        expected = {
+            "operation": "provider_probe",
+            "endpoint": endpoint,
+            "method": method,
+            "phase": phase,
+            "ordinal": ordinal,
+            "lifetime_id": lifetime_id,
+        }
+        if self._provider_probe_pending != expected:
+            self._failure = "budget_provider_probe_activation_mismatch"
+            return False
+        if self.clock() - self._started >= self.budget.wall_seconds:
+            self._failure = "budget_deadline_exhausted"
+            return False
+        self._dispatch_context = DispatchContext(
+            "provider_probe", phase, ordinal, lifetime_id, endpoint, method
+        )
+        return True
+
     def operation_complete(self, operation: str, *, lifetime_id: str) -> bool:
         """Return whether an admitted operation has consumed every planned slot."""
         plan = next(
@@ -502,6 +581,44 @@ class BudgetController:
             # later explicit activation and cannot inherit this context.
             self._dispatch_context = None
             return True
+        if requested_context.operation == "provider_probe":
+            pending = self._provider_probe_pending
+            expected = {
+                "operation": "provider_probe",
+                "endpoint": requested_context.endpoint,
+                "method": requested_context.method,
+                "phase": requested_context.phase,
+                "ordinal": requested_context.ordinal,
+                "lifetime_id": requested_context.lifetime_id,
+            }
+            if pending != expected or kind != "other":
+                self._failure = (
+                    "budget_provider_probe_permission_missing"
+                    if pending != expected
+                    else "budget_dispatch_permission_kind_mismatch"
+                )
+                self._dispatch_record(kind, admitted=False, phase=safe_phase, ordinal=safe_ordinal)
+                return False
+            self._provider_probe_pending = None
+            self._provider_probe_consumed += 1
+            self._dispatch_admitted += 1
+            self._active_dispatches += 1
+            counts["admitted"] += 1
+            if len(self._dispatch_records) < self.budget.max_dispatches:
+                self._dispatch_records.append(
+                    {
+                        "kind": kind,
+                        "operation": "provider_probe",
+                        "endpoint": requested_context.endpoint,
+                        "method": requested_context.method,
+                        "phase": requested_context.phase,
+                        "ordinal": requested_context.ordinal,
+                        "lifetime_id": requested_context.lifetime_id,
+                        "admitted": True,
+                    }
+                )
+            self._dispatch_context = None
+            return True
         permission = next(
             (
                 item
@@ -617,6 +734,7 @@ class BudgetController:
             "max_concurrency": self.budget.max_concurrency,
             "max_dispatches": self.budget.max_dispatches,
             "max_readiness_probes": self.budget.max_readiness_probes,
+            "max_provider_preflight_probes": self.budget.max_provider_preflight_probes,
             "operation_limits": {
                 item.operation: item.maximum for item in self.budget.operation_limits
             },
@@ -640,10 +758,21 @@ class BudgetController:
             "dispatch_admitted_count": self._dispatch_admitted,
             "active_context": (
                 {
-                    "operation": self._dispatch_context.operation,
-                    "phase": self._dispatch_context.phase,
-                    "ordinal": self._dispatch_context.ordinal,
-                    "lifetime_id": self._dispatch_context.lifetime_id,
+                    **{
+                        "operation": self._dispatch_context.operation,
+                        "phase": self._dispatch_context.phase,
+                        "ordinal": self._dispatch_context.ordinal,
+                        "lifetime_id": self._dispatch_context.lifetime_id,
+                    },
+                    **(
+                        {
+                            "endpoint": self._dispatch_context.endpoint,
+                            "method": self._dispatch_context.method,
+                        }
+                        if self._dispatch_context.endpoint is not None
+                        or self._dispatch_context.method is not None
+                        else {}
+                    ),
                 }
                 if self._dispatch_context is not None
                 else None
@@ -658,6 +787,9 @@ class BudgetController:
             "readiness_admitted_count": self._readiness_admitted,
             "readiness_consumed_count": self._readiness_consumed,
             "readiness_pending": self._readiness_pending is not None,
+            "provider_probe_admitted_count": self._provider_probe_admitted,
+            "provider_probe_consumed_count": self._provider_probe_consumed,
+            "provider_probe_pending": self._provider_probe_pending is not None,
             "failure_class": self._failure,
             "exhausted": self._failure is not None,
         }
@@ -706,6 +838,13 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
         "budget_readiness_limit_exhausted",
         "budget_readiness_activation_mismatch",
         "budget_readiness_permission_missing",
+        "budget_provider_probe_lifetime_missing",
+        "budget_provider_probe_context_mismatch",
+        "budget_provider_probe_permission_pending",
+        "budget_provider_probe_limit_exhausted",
+        "budget_provider_probe_activation_mismatch",
+        "budget_provider_probe_permission_missing",
+        "preflight_mapping_dependency_invalid",
         "http_status_non_2xx",
         "content_type_not_sse",
         "response_headers_timing_missing",
@@ -768,6 +907,11 @@ class RunAccumulator:
             "inference_completed": None,
             "compiler_terminal_valid": None,
             "inference_terminal_valid": None,
+            "other_attempted": None,
+            "other_dispatched": None,
+            "other_responded": None,
+            "other_completed": None,
+            "other_terminal_valid": None,
         }
     )
     _lifetime_counts: dict[str, dict[str, int]] = field(init=False, default_factory=dict)
@@ -813,6 +957,11 @@ class RunAccumulator:
             "inference_completed",
             "compiler_terminal_valid",
             "inference_terminal_valid",
+            "other_attempted",
+            "other_dispatched",
+            "other_responded",
+            "other_completed",
+            "other_terminal_valid",
         )
         if update_counts:
             lifetime_counts = self._lifetime_counts.setdefault(lifetime, {})
@@ -849,7 +998,7 @@ class RunAccumulator:
                     "terminal_class": terminal_class,
                     "terminal_valid": terminal_valid if type(terminal_valid) is bool else None,
                 }
-        elif update_counts and self.counts.get("inference_attempted") is not None:
+        elif update_counts and self.counts.get("inference_attempted", 0) not in {None, 0}:
             # An attempted request without a per-ordinal semantic observation is
             # evidence of absence, never evidence of a valid terminal.
             self._terminal_observations.setdefault(

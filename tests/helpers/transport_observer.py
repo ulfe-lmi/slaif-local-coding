@@ -22,7 +22,7 @@ from typing import Protocol, cast
 
 import httpx
 
-from tests.helpers.acceptance_harness import DispatchContext
+from tests.helpers.acceptance_harness import DispatchContext, ProviderBoundaryObservation
 
 MAX_OBSERVED_REQUESTS = 64
 MAX_EVENT_BYTES = 16 * 1024
@@ -63,6 +63,7 @@ class StreamEventValidator(Protocol):
 
 
 ValidatorFactory = Callable[[httpx.Request], StreamEventValidator]
+RequestClassifier = Callable[[httpx.Request], Mapping[str, object]]
 ResponseCompleteHook = Callable[[str, str, str, int | None, bool], None]
 
 
@@ -127,6 +128,7 @@ def _exception_class(kind: str) -> str:
         "budget": "observer_budget_not_admitted",
         "lifetime": "observer_lifetime_mismatch",
         "readiness": "readiness_non_health",
+        "provider_probe": "provider_probe_endpoint_mismatch",
         "dispatch_hook": "observer_dispatch_hook_error",
     }.get(kind, "other")
 
@@ -369,6 +371,15 @@ class _RequestObservation:
     dispatch_lifetime: str | None = None
     dispatch_admitted: bool = False
     dispatch_active: bool = field(default=False, repr=False)
+    request_class: str = "unknown"
+    tool_class: str = "unknown"
+    function_result_adjacent: bool = False
+    item_id_presence: str = "unknown"
+    call_id_relation: str = "unknown"
+    image_count: int = 0
+    image_hashes: tuple[str, ...] = ()
+    tool_type_classes: tuple[str, ...] = ()
+    request_facts_observed: bool = False
 
     def safe_dict(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -389,6 +400,19 @@ class _RequestObservation:
             "event_type_classes": self.event_type_classes,
             "exception_class": self.exception_class,
         }
+        if self.request_facts_observed:
+            result.update(
+                {
+                    "request_class": self.request_class,
+                    "tool_class": self.tool_class,
+                    "function_result_adjacent": self.function_result_adjacent,
+                    "item_id_presence": self.item_id_presence,
+                    "call_id_relation": self.call_id_relation,
+                    "image_count_class": _count_class(self.image_count),
+                    "image_hashes": self.image_hashes,
+                    "tool_type_classes": self.tool_type_classes,
+                }
+            )
         if (
             self.dispatch_admitted
             or self.dispatch_operation != "unknown"
@@ -406,6 +430,132 @@ class _RequestObservation:
                 }
             )
         return result
+
+
+def _representative_image_count(value: object) -> int:
+    """Recover only enough bounded cardinality to prove one-image routing."""
+    if not isinstance(value, str):
+        return -1
+    classes: dict[str, int] = {
+        "0": 0,
+        "1": 1,
+        "2": 2,
+        "3-4": 3,
+        "5+": 5,
+    }
+    return classes.get(value, -1)
+
+
+def _provider_boundary_from_records(
+    records: tuple[Mapping[str, object], ...],
+) -> dict[str, object]:
+    """Build one provider observation from direct observer records only."""
+    inference = tuple(
+        record
+        for record in records
+        if record.get("kind") == "inference" and "request_class" in record
+    )
+    image_counts = tuple(
+        _representative_image_count(record.get("image_count_class", "unknown"))
+        for record in inference
+    )
+    image_hash_values = tuple(
+        value
+        for record in inference
+        for value in (
+            record.get("image_hashes", ())
+            if isinstance(record.get("image_hashes", ()), (list, tuple))
+            else ()
+        )
+        if isinstance(value, str) and len(value) == 64
+    )
+    image_hashes = image_hash_values
+    request_classes = tuple(
+        sorted(
+            {
+                value
+                for record in inference
+                for value in (record.get("request_class"),)
+                if isinstance(value, str) and value != "unknown"
+            }
+        )
+    )
+    tool_classes = tuple(
+        sorted(
+            {
+                value
+                for record in inference
+                for value in (record.get("tool_class"),)
+                if isinstance(value, str) and value != "unknown"
+            }
+        )
+    )
+    item_id_presence = tuple(
+        sorted(
+            {
+                value
+                for record in inference
+                for value in (record.get("item_id_presence"),)
+                if isinstance(value, str) and value != "unknown"
+            }
+        )
+    )
+    call_id_relations = tuple(
+        sorted(
+            {
+                value
+                for record in inference
+                for value in (record.get("call_id_relation"),)
+                if isinstance(value, str) and value != "unknown"
+            }
+        )
+    )
+    tool_types = tuple(
+        sorted(
+            {
+                value
+                for record in inference
+                for value in record.get("tool_type_classes", ())
+                if isinstance(value, str)
+            }
+        )
+    )
+    lifecycle_valid = bool(inference) and all(
+        record.get("dispatched") is True
+        and record.get("responded") is True
+        and record.get("completed") is True
+        and record.get("terminal_valid") is True
+        and record.get("normal_close") is True
+        for record in inference
+    )
+    return ProviderBoundaryObservation(
+        call_count=len(inference),
+        lifecycle_valid=lifecycle_valid,
+        terminal_count=sum(record.get("terminal_valid") is True for record in inference),
+        image_counts=image_counts,
+        image_hashes=image_hashes,
+        tool_type_classes=tool_types,
+        direct_gateway_rows=0,
+        request_class_classes=request_classes,
+        tool_class_classes=tool_classes,
+        function_result_adjacent=any(
+            record.get("function_result_adjacent") is True for record in inference
+        ),
+        item_id_presence_classes=item_id_presence,
+        call_id_relation_classes=call_id_relations,
+        compiler_inference_classes=tuple(
+            sorted(
+                {
+                    value
+                    for record in records
+                    for value in (record.get("kind"),)
+                    if value in {"compiler", "inference"}
+                }
+            )
+        ),
+        normal_close_count=sum(record.get("normal_close") is True for record in inference),
+        terminality_valid=lifecycle_valid,
+    ).safe_dict()
 
 
 class _ObservedStream(httpx.AsyncByteStream):
@@ -512,6 +662,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         response_complete_hook: ResponseCompleteHook | None = None,
         allowed_lifetime_ids: tuple[str, ...] | None = None,
         expected_lifetime_id: str | None = None,
+        request_classifier: RequestClassifier | None = None,
     ) -> None:
         self._delegate = delegate
         self._validator_factory = validator_factory
@@ -528,6 +679,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             if allowed_lifetime_ids is not None
             else ((expected_lifetime_id,) if expected_lifetime_id is not None else None)
         )
+        self._request_classifier = request_classifier
         self._records: list[_RequestObservation] = []
         self._started = time.monotonic()
         self._ready = True
@@ -600,6 +752,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             "other_completed_count": sum(
                 record.completed for record in records if record.kind == "other"
             ),
+            "other_terminal_valid_count": sum(
+                record.terminal_valid for record in records if record.kind == "other"
+            ),
             "inference_attempted_count": len(inference),
             "inference_dispatched_count": sum(record.dispatched for record in inference),
             "inference_responded_count": sum(record.responded for record in inference),
@@ -620,6 +775,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             **counts,
             **{f"{name}_class": _count_class(value) for name, value in counts.items()},
             "records": tuple(record.safe_dict() for record in records),
+            "provider_boundary": self.provider_boundary(),
             "elapsed_class": "unknown" if time.monotonic() < self._started else "bounded",
             "dispatch_budget": (
                 self._budget_controller.safe_dict()
@@ -628,6 +784,12 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 else None
             ),
         }
+
+    def provider_boundary(self) -> dict[str, object]:
+        """Project request and response facts from this direct transport only."""
+        return _provider_boundary_from_records(
+            tuple(record.safe_dict() for record in self._records)
+        )
 
     def _observe_chunk(self, state: _StreamState, size: int) -> bool:
         if self._budget_controller is None:
@@ -676,6 +838,63 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             record.exception_class = "observer_response_complete_hook_error"
             self._latch_failure("dispatch_hook")
 
+    @staticmethod
+    def _apply_request_facts(record: _RequestObservation, facts: Mapping[str, object]) -> None:
+        """Copy only the closed, payload-free provider request fact vocabulary."""
+        allowed_request_classes = {
+            "function_initial",
+            "function_continuation",
+            "message",
+            "image",
+            "compiler",
+            "unknown",
+        }
+        allowed_tool_classes = {"function", "custom", "mixed", "none", "unknown"}
+        allowed_tool_types = {"function", "custom", "tool_search", "web_search", "unknown"}
+        allowed_presence = {"present", "omitted", "unknown"}
+        allowed_relations = {"initial_owned", "matching", "missing", "mismatched", "unknown"}
+        request_class = facts.get("request_class", "unknown")
+        tool_class = facts.get("tool_class", "unknown")
+        item_id_presence = facts.get("item_id_presence", "unknown")
+        call_id_relation = facts.get("call_id_relation", "unknown")
+        image_count = facts.get("image_count", 0)
+        image_hashes = facts.get("image_hashes", ())
+        tool_type_classes = facts.get("tool_type_classes", ())
+        if request_class not in allowed_request_classes or tool_class not in allowed_tool_classes:
+            raise ValueError("request_fact_class_invalid")
+        if item_id_presence not in allowed_presence or call_id_relation not in allowed_relations:
+            raise ValueError("request_fact_relation_invalid")
+        if type(image_count) is not int or image_count < 0 or image_count > 8:
+            raise ValueError("request_fact_image_count_invalid")
+        if not isinstance(image_hashes, (list, tuple)) or len(image_hashes) > 8:
+            raise ValueError("request_fact_image_hashes_invalid")
+        safe_hashes = tuple(
+            value
+            for value in image_hashes
+            if isinstance(value, str)
+            and len(value) == 64
+            and all(char in "0123456789abcdef" for char in value)
+        )
+        if len(safe_hashes) != len(image_hashes):
+            raise ValueError("request_fact_image_hashes_invalid")
+        if not isinstance(tool_type_classes, (list, tuple)) or len(tool_type_classes) > 8:
+            raise ValueError("request_fact_tool_types_invalid")
+        safe_tool_types = tuple(value for value in tool_type_classes if value in allowed_tool_types)
+        if len(safe_tool_types) != len(tool_type_classes):
+            raise ValueError("request_fact_tool_types_invalid")
+        function_result_adjacent = facts.get("function_result_adjacent", False)
+        if type(function_result_adjacent) is not bool:
+            raise ValueError("request_fact_boolean_invalid")
+        record.request_class = request_class
+        record.tool_class = tool_class
+        record.function_result_adjacent = function_result_adjacent
+        record.item_id_presence = item_id_presence
+        record.call_id_relation = call_id_relation
+        record.image_count = image_count
+        record.image_hashes = safe_hashes
+        record.tool_type_classes = safe_tool_types
+        record.request_facts_observed = True
+
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         if not self._ready:
             raise RuntimeError("transport_observer_not_ready")
@@ -692,6 +911,17 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         )
         record = _RequestObservation(len(self._records) + 1, kind, endpoint_class)
         self._records.append(record)
+        if kind == "inference" and self._request_classifier is not None:
+            try:
+                self._apply_request_facts(record, self._request_classifier(request))
+            except asyncio.CancelledError:
+                record.exception_class = _exception_class("cancelled")
+                self._latch_failure("cancelled")
+                raise
+            except BaseException:
+                record.exception_class = _exception_class("validator")
+                self._latch_failure("validator")
+                raise RuntimeError("transport_observer_request_facts_unavailable") from None
         validator: StreamEventValidator | None = None
         if kind == "inference":
             if self._validator_factory is None:
@@ -725,6 +955,12 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                     record.exception_class = _exception_class("budget")
                     self._latch_failure("budget")
                     raise RuntimeError("transport_observer_dispatch_context_missing")
+                if context.operation == "provider_probe" and (
+                    context.method != request.method or context.endpoint != request.url.path
+                ):
+                    record.exception_class = _exception_class("provider_probe")
+                    self._latch_failure("provider_probe")
+                    raise RuntimeError("transport_observer_provider_probe_endpoint_mismatch")
                 if self._allowed_lifetime_ids is not None and (
                     context is None or context.lifetime_id not in self._allowed_lifetime_ids
                 ):
@@ -918,6 +1154,11 @@ def merge_observer_snapshots(*snapshots: dict[str, object]) -> dict[str, object]
         "other_completed_count": sum(
             record.get("completed") is True for record in records if record.get("kind") == "other"
         ),
+        "other_terminal_valid_count": sum(
+            record.get("terminal_valid") is True
+            for record in records
+            if record.get("kind") == "other"
+        ),
         "inference_attempted_count": len(inference),
         "inference_dispatched_count": sum(record.get("dispatched") is True for record in inference),
         "inference_responded_count": sum(record.get("responded") is True for record in inference),
@@ -945,5 +1186,6 @@ def merge_observer_snapshots(*snapshots: dict[str, object]) -> dict[str, object]
         **counts,
         **{f"{name}_class": _count_class(value) for name, value in counts.items()},
         "records": tuple(records),
+        "provider_boundary": _provider_boundary_from_records(tuple(records)),
         "elapsed_class": "bounded",
     }

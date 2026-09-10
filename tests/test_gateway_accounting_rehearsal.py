@@ -614,6 +614,53 @@ def test_actual_shared_runner_protected_preflight_failure_serializes_all_rows_wi
     assert conformance["real_protected_access"] is False  # type: ignore[index]
 
 
+def test_actual_shared_runner_mapping_failure_precedes_credentials_and_provider() -> None:
+    accesses: list[str] = []
+    args = argparse.Namespace(
+        provider_target="fake",
+        gateway_root=Path("/synthetic/gateway"),
+        gateway_python=Path("/synthetic/python"),
+        codex=Path("/synthetic/codex"),
+        fake_result=None,
+    )
+
+    def credential_source(_pid: str) -> str:
+        accesses.append("credential")
+        return "synthetic-key"
+
+    result = run_actual_protected_mode_conformance(
+        args,
+        preflight={"ready": True},
+        dependencies=ProtectedRuntimeHooks(
+            host_preflight=lambda: accesses.append("host") or {},
+            main_pid=lambda: accesses.append("pid") or "synthetic-pid",
+            credential_source=credential_source,
+            mapping_dependency_check=lambda: False,
+        ),
+    )
+    assert result["status"] == "BLOCKED"
+    assert result["protected_acceptance"] is False
+    assert result["preflight_mapping_validation"] == "FAILED"
+    assert result["credential_hook_calls"] == 0
+    assert result["provider_dispatches"] == 0
+    assert accesses == []
+    accumulator = result["run_accumulator"]
+    assert isinstance(accumulator, dict)
+    assert accumulator["first_failure"] == "preflight_mapping_dependency_invalid"
+    assert all(value == 0 for value in accumulator["counts"].values())  # type: ignore[union-attr]
+    gate = result["acceptance_gate"]
+    assert isinstance(gate, dict)
+    assert len(gate["results"]) == len(PROTECTED_MANIFEST_IDS)  # type: ignore[arg-type]
+    assert result["protected_conformance"]["all_selected_rows_serialized"] is True  # type: ignore[index]
+
+
+def test_protected_fake_provider_oracle_can_be_disabled() -> None:
+    server = _FakeQwenServer("synthetic-no-oracle", oracle_enabled=False)
+    snapshot = server.snapshot()
+    assert snapshot["provider_oracle_available"] is False
+    assert snapshot["provider_boundary"] == {}
+
+
 def test_actual_protected_selector_uses_explicit_synthetic_boundaries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

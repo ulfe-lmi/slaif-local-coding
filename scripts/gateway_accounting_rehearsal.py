@@ -177,6 +177,7 @@ class ProtectedRuntimeHooks:
     projection_failure: bool = False
     cleanup_failure: bool = False
     require_fake_gate: bool = False
+    mapping_dependency_check: Callable[[], bool] | None = None
     synthetic_only: bool = True
 
 
@@ -245,9 +246,10 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
 
     daemon_threads = True
 
-    def __init__(self, token: str) -> None:
+    def __init__(self, token: str, *, oracle_enabled: bool = True) -> None:
         super().__init__(("127.0.0.1", 0), _FakeQwenHandler)
         self.token = token
+        self.oracle_enabled = oracle_enabled
         self.calls = 0
         self.inbound_inference_calls = 0
         self.inbound_compiler_calls = 0
@@ -294,7 +296,7 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
                 "unknown",
             }:
                 self.tool_name_classes.add(tool_name_class)
-            if not compiler and payload is not None:
+            if not compiler and payload is not None and self.oracle_enabled:
                 self.observation.record(
                     payload,
                     lifecycle_valid=lifecycle_valid,
@@ -319,7 +321,7 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
                 self.inbound_compiler_calls += 1
             else:
                 self.inbound_inference_calls += 1
-            if len(self.inbound_observations) < FAKE_MAX_FUNCTION_CALLS + 8:
+            if self.oracle_enabled and len(self.inbound_observations) < FAKE_MAX_FUNCTION_CALLS + 8:
                 self.inbound_observations.append(
                     {
                         "streaming": streaming,
@@ -352,7 +354,8 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
                 "tool_types": sorted(self.tool_types),
                 "tool_name_classes": sorted(self.tool_name_classes),
                 "bad_auth": self.bad_auth,
-                "provider_boundary": self.observation.safe_dict(),
+                "provider_oracle_available": self.oracle_enabled,
+                "provider_boundary": self.observation.safe_dict() if self.oracle_enabled else {},
             }
 
 
@@ -585,6 +588,18 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             for item in _FakeQwenObservationWalker.walk(payload)
             if item.get("type") in {"input_image", "image_url"}
         )
+        image_hashes = tuple(
+            hashlib.sha256(value.encode("utf-8")).hexdigest()
+            for item in images
+            for value in (
+                item.get("image_url")
+                if isinstance(item.get("image_url"), str)
+                else item.get("image_url", {}).get("url")
+                if isinstance(item.get("image_url"), dict)
+                else None,
+            )
+            if isinstance(value, str) and len(value) <= 8 * 1024 * 1024
+        )
         return {
             "request_class": request_class,
             "tool_class": tool_class,
@@ -593,11 +608,10 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             "call_id_relation": call_id_relation,
             "function_result_adjacent": request_class == "function_initial",
             "image_count_class": str(min(len(images), 8)),
-            "image_hash_class": (
-                "present"
-                if any(isinstance(item.get("image_url"), str) for item in images)
-                else "none"
-            ),
+            "image_hash_class": ("present" if image_hashes else "none"),
+            "image_count": len(images),
+            "image_hashes": image_hashes,
+            "tool_type_classes": tuple(sorted(tool_types)),
         }
 
     @staticmethod
@@ -1514,16 +1528,21 @@ def _observer_delta(before: dict[str, object], after: dict[str, object]) -> dict
     terminal_inference = tuple(
         item for item in dispatched_inference if item.get("terminal_valid") is True
     )
-    boundary = {
-        "call_count_class": count_class(len(dispatched_inference)),
-        "lifecycle_valid": bool(dispatched_inference)
-        and len(terminal_inference) == len(dispatched_inference),
-        "terminal": bool(dispatched_inference)
-        and len(terminal_inference) == len(dispatched_inference),
-        "terminality_valid": bool(dispatched_inference)
-        and len(terminal_inference) == len(dispatched_inference),
-        "independent_from_ledger": True,
-    }
+    observed_boundary = after.get("provider_boundary")
+    boundary = (
+        observed_boundary
+        if isinstance(observed_boundary, dict)
+        else {
+            "call_count_class": count_class(len(dispatched_inference)),
+            "lifecycle_valid": bool(dispatched_inference)
+            and len(terminal_inference) == len(dispatched_inference),
+            "terminal": bool(dispatched_inference)
+            and len(terminal_inference) == len(dispatched_inference),
+            "terminality_valid": bool(dispatched_inference)
+            and len(terminal_inference) == len(dispatched_inference),
+            "independent_from_ledger": True,
+        }
+    )
     return {
         "inference_attempted_count": len(inference),
         "inference_dispatched_count": len(dispatched_inference),
@@ -1535,6 +1554,66 @@ def _observer_delta(before: dict[str, object], after: dict[str, object]) -> dict
         and len(terminal_inference) == len(dispatched_inference),
         "provider_boundary": boundary,
     }
+
+
+def _provider_request_observation(request: httpx.Request) -> dict[str, object]:
+    """Classify one provider-bound request without retaining its body."""
+    if request.method != "POST" or request.url.path != "/v1/responses":
+        return {}
+    content = request.content
+    if not isinstance(content, bytes) or len(content) > 4 * 1024 * 1024:
+        raise ValueError("provider_request_body_unavailable")
+    try:
+        payload = json.loads(content)
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        raise ValueError("provider_request_body_invalid") from None
+    if not isinstance(payload, dict):
+        raise ValueError("provider_request_body_invalid")
+    return _FakeQwenHandler._request_observation(payload)
+
+
+def _direct_provider_boundary_complete(value: object, *, expected_calls: int) -> bool:
+    """Require semantic facts emitted by the direct observer, not a fake oracle."""
+    if not isinstance(value, dict):
+        return False
+    return (
+        value.get("call_count_class") == count_class(expected_calls)
+        and value.get("lifecycle_valid") is True
+        and value.get("terminality_valid") is True
+        and "function_initial" in value.get("request_class_classes", ())
+        and "function_continuation" in value.get("request_class_classes", ())
+        and "matching" in value.get("call_id_relation_classes", ())
+    )
+
+
+def _provider_preflight_complete(result: dict[str, object]) -> bool:
+    """Require observed health/model probes and an unavailable fake oracle."""
+    facts = result.get("provider_preflight")
+    if not isinstance(facts, dict):
+        return False
+    observer = facts.get("observer")
+    if not isinstance(observer, dict):
+        return False
+    records = observer.get("records")
+    if not isinstance(records, (list, tuple)):
+        return False
+    endpoints = tuple(
+        record.get("endpoint_class")
+        for record in records
+        if isinstance(record, dict) and record.get("kind") == "other"
+    )
+    budget = observer.get("dispatch_budget")
+    return (
+        facts.get("health_status") == 200
+        and facts.get("models_status") == 200
+        and facts.get("oracle_available") is False
+        and observer.get("ready") is True
+        and endpoints == ("health", "models")
+        and observer.get("other_dispatched_count") == 2
+        and isinstance(budget, dict)
+        and budget.get("provider_probe_consumed_count") == 2
+        and budget.get("provider_probe_pending") is False
+    )
 
 
 def _minimal_environment() -> dict[str, str]:
@@ -3013,7 +3092,7 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
 
     codex = result.get("codex")
     provider = result.get("provider_observation")
-    if not isinstance(provider, dict):
+    if mode == "fake" and not isinstance(provider, dict):
         provider = result.get("fake_provider")
     boundary = provider.get("provider_boundary") if isinstance(provider, dict) else None
     if isinstance(codex, dict):
@@ -3069,10 +3148,17 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
             or transport.get("matches_fake_provider") is True,
         )
     idless_regression = result.get("fake_idless_http_regression")
-    if isinstance(idless_regression, dict):
+    if mode == "fake" and isinstance(idless_regression, dict):
         put(
             "provider.idless_continuation_supported",
             idless_regression.get("passed") is True,
+        )
+    elif isinstance(boundary, dict):
+        put(
+            "provider.idless_continuation_supported",
+            "omitted" in boundary.get("item_id_presence_classes", ())
+            and "matching" in boundary.get("call_id_relation_classes", ())
+            and boundary.get("lifecycle_valid") is True,
         )
     accounting = result.get("accounting")
     codex_accounting = codex.get("accounting") if isinstance(codex, dict) else None
@@ -3654,6 +3740,37 @@ def _failed_rehearsal_result(
     }
 
 
+def _empty_observer_snapshot() -> dict[str, object]:
+    """Return known-zero direct-observer facts for a pre-dispatch stop."""
+    return {
+        "observer_version": OBSERVATION_VERSION,
+        "ready": True,
+        "failure_class": None,
+        "attempted_count": 0,
+        "dispatched_count": 0,
+        "responded_count": 0,
+        "completed_count": 0,
+        "terminal_valid_count": 0,
+        "compiler_attempted_count": 0,
+        "compiler_dispatched_count": 0,
+        "compiler_responded_count": 0,
+        "compiler_completed_count": 0,
+        "compiler_terminal_valid_count": 0,
+        "inference_attempted_count": 0,
+        "inference_dispatched_count": 0,
+        "inference_responded_count": 0,
+        "inference_completed_count": 0,
+        "inference_terminal_valid_count": 0,
+        "other_attempted_count": 0,
+        "other_dispatched_count": 0,
+        "other_responded_count": 0,
+        "other_completed_count": 0,
+        "other_terminal_valid_count": 0,
+        "records": (),
+        "provider_boundary": {},
+    }
+
+
 def run_actual_protected_mode_conformance(
     args: argparse.Namespace,
     *,
@@ -3756,6 +3873,7 @@ def run_actual_protected_mode_conformance(
                 and gate.get("passed") is True
                 and gate.get("missing") == []
                 and gate.get("first_failure") is None
+                and _provider_preflight_complete(result)
             ),
             "implementation_reached": any(
                 key in result for key in ("candidate_provenance", "codex", "transport_observation")
@@ -3776,6 +3894,10 @@ def run_actual_protected_mode_conformance(
                     "inference_dispatched",
                     "inference_responded",
                     "inference_completed",
+                    "other_attempted",
+                    "other_dispatched",
+                    "other_responded",
+                    "other_completed",
                 )
             },
             "primary_failure": run_accumulator_facts.get("first_failure"),
@@ -3785,8 +3907,9 @@ def run_actual_protected_mode_conformance(
                 "runner": "scripts.gateway_accounting_rehearsal.py",
                 "local": "src/slaif_local_coding",
                 "observer": OBSERVATION_VERSION,
-                "provider": "disposable_loopback_fake",
+                "provider": "disposable_loopback_fake_oracle_disabled",
             },
+            "provider_preflight": result.get("provider_preflight"),
         }
     )
     return result
@@ -3839,6 +3962,10 @@ def _run_direct_composed_rehearsal(
             }
             result["gap_inventory"] = ()
         result["status"] = "BLOCKED"
+    if "acceptance_gate" not in result:
+        result["runtime_observations"] = _runtime_observations(result)
+        result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
+        result["status"] = "COMPLETE" if result["acceptance_gate"]["passed"] else "BLOCKED"
     result["run_accumulator"] = accumulator.safe_dict()
     return result
 
@@ -3875,7 +4002,38 @@ def _run_direct_composed_rehearsal_impl(
 
     if protected_hooks is not None and protected_hooks.failure_phase == "preflight":
         accumulator.record_failure("preflight_incomplete")
+        accumulator.capture_observer(
+            _empty_observer_snapshot(), phase="preflight", ordinal=0, lifetime_id="preflight"
+        )
         raise RuntimeError("synthetic_preflight_failure")
+
+    if provider_target == "protected" and protected_hooks is not None:
+        mapping_check = protected_hooks.mapping_dependency_check
+        mapping_valid = False
+        if callable(mapping_check):
+            try:
+                mapping_valid = mapping_check() is True
+            except BaseException:
+                mapping_valid = False
+        if not mapping_valid:
+            accumulator.record_failure("preflight_mapping_dependency_invalid")
+            accumulator.capture_observer(
+                _empty_observer_snapshot(),
+                phase="preflight",
+                ordinal=0,
+                lifetime_id="preflight",
+            )
+            preflight_result = _failed_rehearsal_result(provider_target, accumulator)
+            preflight_result.update(
+                {
+                    "status": "BLOCKED",
+                    "preflight_mapping_validation": "FAILED",
+                    "credential_hook_calls": 0,
+                    "provider_dispatches": 0,
+                    "protected_later_inference": False,
+                }
+            )
+            return preflight_result
 
     def admit(operation: str, phase: str, ordinal: int, lifetime_id: str) -> None:
         accumulator.set_phase(phase, ordinal)
@@ -3890,6 +4048,17 @@ def _run_direct_composed_rehearsal_impl(
             operation, phase=phase, ordinal=ordinal, lifetime_id=lifetime_id
         ):
             failure = budget.failure or "budget_operation_activation_missing"
+            accumulator.record_failure(failure)
+            raise RuntimeError(failure)
+
+    def admit_provider_probe(endpoint: str) -> None:
+        accumulator.set_phase("preflight", 0)
+        if not budget.admit_provider_probe(endpoint, lifetime_id="provider_preflight"):
+            failure = budget.failure or "budget_provider_probe_limit_exhausted"
+            accumulator.record_failure(failure)
+            raise RuntimeError(failure)
+        if not budget.activate_provider_probe(endpoint, lifetime_id="provider_preflight"):
+            failure = budget.failure or "budget_provider_probe_activation_mismatch"
             accumulator.record_failure(failure)
             raise RuntimeError(failure)
 
@@ -3947,6 +4116,7 @@ def _run_direct_composed_rehearsal_impl(
     result: dict[str, object] = _failed_rehearsal_result(provider_target, accumulator)
     logs: tuple[Path, ...] = ()
     candidate_observer: DirectTransportObserver | None = None
+    provider_preflight_observer: DirectTransportObserver | None = None
     vision_observer: DirectTransportObserver | None = None
     post_vision_observer: DirectTransportObserver | None = None
     active_observer: DirectTransportObserver | None = None
@@ -4066,6 +4236,7 @@ def _run_direct_composed_rehearsal_impl(
                         },
                         main_pid=lambda: PROTECTED_VISION_PID,
                         credential_source=lambda _pid: "synthetic-protected-key",
+                        mapping_dependency_check=lambda: True,
                     ),
                 )
                 protected_conformance = protected_mode_synthetic.get("protected_conformance")
@@ -4080,7 +4251,12 @@ def _run_direct_composed_rehearsal_impl(
                 ):
                     raise RuntimeError("protected_mode_conformance_incomplete")
             if synthetic_provider:
-                fake_server = _FakeQwenServer("synthetic-005k-qwen-token")
+                fake_server = _FakeQwenServer(
+                    "synthetic-005k-qwen-token",
+                    oracle_enabled=not (
+                        provider_target == "protected" and protected_hooks is not None
+                    ),
+                )
                 fake_thread = _start_threaded_server(fake_server)
                 provider_url = f"http://127.0.0.1:{fake_server.server_address[1]}"
                 qwen_key = fake_server.token
@@ -4097,7 +4273,7 @@ def _run_direct_composed_rehearsal_impl(
             else:
                 previous_candidate_env[QWEN_KEY_ENV] = None
             os.environ[QWEN_KEY_ENV] = qwen_key
-            if provider_target == "fake" or protected_hooks is not None:
+            if provider_target == "fake":
                 with httpx.Client(timeout=10, follow_redirects=False) as http:
                     fake_health = http.get(
                         f"{provider_url}/health",
@@ -4105,6 +4281,47 @@ def _run_direct_composed_rehearsal_impl(
                     )
                 if fake_health.status_code != 200:
                     raise RuntimeError("fake_provider_not_ready")
+                idless_http_regression = _run_fake_idless_http_regression()
+            elif protected_hooks is not None:
+                provider_preflight_observer = DirectTransportObserver(
+                    httpx.AsyncHTTPTransport(retries=0),
+                    validator_factory=validator_factory,
+                    validator_source="gateway_responses_stream_validator",
+                    budget_controller=budget,
+                    dispatch_context=budget.dispatch_context,
+                    allowed_lifetime_ids=("provider_preflight",),
+                )
+
+                async def protected_provider_preflight() -> tuple[int, int]:
+                    async with httpx.AsyncClient(
+                        transport=provider_preflight_observer, timeout=15, follow_redirects=False
+                    ) as http:
+                        admit_provider_probe("/health")
+                        health_response = await http.get(
+                            f"{provider_url}/health",
+                            headers={"Authorization": f"Bearer {qwen_key}"},
+                        )
+                        admit_provider_probe("/v1/models")
+                        models_response = await http.get(
+                            f"{provider_url}/v1/models",
+                            headers={"Authorization": f"Bearer {qwen_key}"},
+                        )
+                    return health_response.status_code, models_response.status_code
+
+                protected_health_status, protected_models_status = asyncio.run(
+                    protected_provider_preflight()
+                )
+                accumulator.capture_observer(
+                    provider_preflight_observer.snapshot(),
+                    phase="preflight",
+                    ordinal=0,
+                    lifetime_id="provider_preflight",
+                )
+                transport_snapshots.append(provider_preflight_observer.snapshot())
+                if protected_health_status != 200:
+                    raise RuntimeError("protected_health_not_ready")
+                if protected_models_status != 200:
+                    raise RuntimeError("protected_models_not_ready")
                 idless_http_regression = _run_fake_idless_http_regression()
             else:
                 with httpx.Client(timeout=15, follow_redirects=False) as http:
@@ -4227,6 +4444,7 @@ def _run_direct_composed_rehearsal_impl(
                 ),
                 response_complete_hook=operation_response_complete,
                 allowed_lifetime_ids=("candidate", "codex"),
+                request_classifier=_provider_request_observation,
             )
             active_observer = candidate_observer
             candidate_runtime = _build_observed_candidate(
@@ -4317,7 +4535,9 @@ def _run_direct_composed_rehearsal_impl(
             codex_provider_delta = (
                 _int_fact(fake_codex_after.get("inference_calls"))
                 - _int_fact(fake_codex_before.get("inference_calls"))
-                if fake_codex_before is not None and fake_codex_after is not None
+                if provider_target == "fake"
+                and fake_codex_before is not None
+                and fake_codex_after is not None
                 else _int_fact(
                     _observer_delta(codex_observer_before, codex_observer_after).get(
                         "inference_dispatched_count"
@@ -4327,7 +4547,9 @@ def _run_direct_composed_rehearsal_impl(
             codex_compiler_delta = (
                 _int_fact(fake_codex_after.get("compiler_calls"))
                 - _int_fact(fake_codex_before.get("compiler_calls"))
-                if fake_codex_before is not None and fake_codex_after is not None
+                if provider_target == "fake"
+                and fake_codex_before is not None
+                and fake_codex_after is not None
                 else _int_fact(
                     _observer_delta(codex_observer_before, codex_observer_after).get(
                         "compiler_dispatched_count"
@@ -4337,26 +4559,26 @@ def _run_direct_composed_rehearsal_impl(
             codex_inference_delta = (
                 _int_fact(fake_codex_after.get("inbound_inference_calls"))
                 - _int_fact(fake_codex_before.get("inbound_inference_calls"))
-                if fake_codex_before is not None and fake_codex_after is not None
+                if provider_target == "fake"
+                and fake_codex_before is not None
+                and fake_codex_after is not None
                 else codex_provider_delta
             )
             codex_transport = codex_observer_after
-            codex_delta = _observer_delta(codex_observer_before, codex_observer_after)
+            direct_codex_boundary = codex_transport.get("provider_boundary")
             codex_transport_matches = (
                 observer_dispatch_matches_fake(
                     codex_transport,
                     compiler_calls=codex_compiler_delta,
                     inference_calls=codex_inference_delta,
                 )
-                if fake_server is not None
-                else codex_delta["provider_boundary_observed"] is True
-                and codex_delta["provider_lifecycle_valid"] is True
-                and codex_delta["provider_terminal"] is True
+                if provider_target == "fake"
+                else _direct_provider_boundary_complete(direct_codex_boundary, expected_calls=2)
             )
             codex_boundary = (
                 fake_codex_after.get("provider_boundary")
-                if isinstance(fake_codex_after, dict)
-                else codex_delta.get("provider_boundary")
+                if provider_target == "fake" and isinstance(fake_codex_after, dict)
+                else direct_codex_boundary
             )
             codex_facts.update(
                 {
@@ -4479,6 +4701,7 @@ def _run_direct_composed_rehearsal_impl(
                 ),
                 response_complete_hook=operation_response_complete,
                 allowed_lifetime_ids=("vision",),
+                request_classifier=_provider_request_observation,
             )
             active_observer = vision_observer
             candidate_runtime = _build_observed_candidate(
@@ -4534,6 +4757,7 @@ def _run_direct_composed_rehearsal_impl(
                 ),
                 response_complete_hook=operation_response_complete,
                 allowed_lifetime_ids=("post_vision", "identity"),
+                request_classifier=_provider_request_observation,
             )
             active_observer = post_vision_observer
             candidate_runtime = _build_observed_candidate(
@@ -4708,7 +4932,11 @@ def _run_direct_composed_rehearsal_impl(
             stream_rows_before = asyncio.run(
                 _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
             )
-            fake_before = None if fake_server is None else fake_server.snapshot()
+            fake_before = (
+                None
+                if fake_server is None or provider_target == "protected"
+                else fake_server.snapshot()
+            )
             active_stream_observer = (
                 post_vision_observer if post_vision_observer is not None else candidate_observer
             )
@@ -4771,7 +4999,7 @@ def _run_direct_composed_rehearsal_impl(
             provider_lifecycle_valid = False
             provider_terminal = False
             provider_observation: dict[str, object] = {}
-            if fake_server is not None and fake_before is not None:
+            if provider_target == "fake" and fake_server is not None and fake_before is not None:
                 fake_after = fake_server.snapshot()
                 provider_call_count = _int_fact(fake_after.get("inference_calls")) - _int_fact(
                     fake_before.get("inference_calls")
@@ -5217,7 +5445,8 @@ def _run_direct_composed_rehearsal_impl(
             final_fake_snapshot = fake_server.snapshot() if fake_server is not None else {}
             fake_baseline = fake_codex_before if fake_codex_before is not None else {}
             transport_observation["matches_fake_provider"] = (
-                fake_server is not None
+                provider_target == "fake"
+                and fake_server is not None
                 and observer_dispatch_matches_fake(
                     transport_observation,
                     compiler_calls=(
@@ -5251,13 +5480,17 @@ def _run_direct_composed_rehearsal_impl(
             compiler_delta = (
                 _int_fact(final_fake_snapshot.get("compiler_calls"))
                 - _int_fact(fake_codex_before.get("compiler_calls"))
-                if fake_server is not None and fake_codex_before is not None
+                if provider_target == "fake"
+                and fake_server is not None
+                and fake_codex_before is not None
                 else _int_fact(transport_observation.get("compiler_dispatched_count"))
             )
             inference_delta = (
                 _int_fact(final_fake_snapshot.get("inference_calls"))
                 - _int_fact(fake_codex_before.get("inference_calls"))
-                if fake_server is not None and fake_codex_before is not None
+                if provider_target == "fake"
+                and fake_server is not None
+                and fake_codex_before is not None
                 else _int_fact(transport_observation.get("inference_dispatched_count"))
             )
             transport_observation["fake_compiler_delta_class"] = count_class(compiler_delta)
@@ -5290,6 +5523,22 @@ def _run_direct_composed_rehearsal_impl(
                 "gateway_ready_status": gateway_ready,
                 "candidate_health_status": candidate_health,
                 "candidate_ready_status": candidate_ready,
+                "protected_health_status": protected_health_status,
+                "protected_models_status": protected_models_status,
+                "provider_preflight": {
+                    "health_status": protected_health_status,
+                    "models_status": protected_models_status,
+                    "observer": (
+                        provider_preflight_observer.snapshot()
+                        if provider_preflight_observer is not None
+                        else None
+                    ),
+                    "oracle_available": (
+                        fake_server.oracle_enabled
+                        if provider_target == "protected" and fake_server is not None
+                        else None
+                    ),
+                },
                 "models_visible_expected": gateway_models_probe.status_code == 200,
                 "text_status": text_status,
                 "text_usage_present": text_usage_present,
@@ -5344,11 +5593,16 @@ def _run_direct_composed_rehearsal_impl(
                 "provider_url_class": "fake_loopback"
                 if provider_target == "fake"
                 else "protected_loopback",
-                "fake_provider": None if fake_server is None else fake_server.snapshot(),
+                "fake_provider": (
+                    None
+                    if fake_server is None or provider_target == "protected"
+                    else fake_server.snapshot()
+                ),
                 "provider_observation": (
                     {
-                        "provider_boundary": final_fake_snapshot.get("provider_boundary"),
-                        "source": "disposable_loopback_fake",
+                        "provider_boundary": transport_observation.get("provider_boundary"),
+                        "source": "direct_transport_observer",
+                        "fake_oracle": "unavailable",
                     }
                     if provider_target == "protected" and protected_hooks is not None
                     else {"provider_boundary": transport_observation}
@@ -5385,6 +5639,7 @@ def _run_direct_composed_rehearsal_impl(
     finally:
         accumulator.set_phase("cleanup")
         for observer, phase, ordinal, lifetime_id in (
+            (provider_preflight_observer, "preflight", 0, "provider_preflight"),
             (candidate_observer, "codex", 2, "codex"),
             (vision_observer, "vision", 4, "vision"),
             (post_vision_observer, "vision", 4, "post_vision"),

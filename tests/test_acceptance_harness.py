@@ -216,6 +216,29 @@ def test_readiness_permission_is_one_shot_bounded_and_retired() -> None:
     assert controller.failure == "budget_readiness_limit_exhausted"
 
 
+def test_provider_preflight_permissions_are_endpoint_scoped_and_one_shot() -> None:
+    controller = BudgetController(
+        RehearsalBudget(operation_limits=(), dispatch_plan=(), max_provider_preflight_probes=2)
+    )
+    assert controller.admit_provider_probe("/health")
+    assert controller.activate_provider_probe("/health")
+    assert controller.dispatch_context() == DispatchContext(
+        "provider_probe", "preflight", 0, "provider_preflight", "/health", "GET"
+    )
+    assert controller.admit_dispatch("other")
+    controller.release_dispatch()
+    assert controller.dispatch_context() is None
+    assert controller.admit_provider_probe("/v1/models")
+    assert controller.activate_provider_probe("/v1/models")
+    assert controller.admit_dispatch("other")
+    controller.release_dispatch()
+    facts = controller.safe_dict()
+    assert facts["provider_probe_consumed_count"] == 2
+    assert facts["provider_probe_pending"] is False
+    assert not controller.admit_provider_probe("/v1/responses")
+    assert controller.failure == "budget_provider_probe_context_mismatch"
+
+
 def test_dispatch_transition_requires_explicit_activation_and_records_new_context() -> None:
     controller = BudgetController()
     assert controller.admit("codex_turn_1", lifetime_id="codex")
