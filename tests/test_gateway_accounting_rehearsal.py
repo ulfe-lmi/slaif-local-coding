@@ -18,6 +18,7 @@ import pytest
 from scripts.gateway_accounting_rehearsal import (
     CODEX_FIXTURE_SHA256,
     CODEX_VERSION,
+    FAKE_MAX_EVENT_BYTES,
     GATEWAY_APP_TREE_SHA256,
     LOCAL_ROUTE_POLICY,
     OBSERVATION_VERSION,
@@ -849,6 +850,22 @@ def test_returned_call_capture_rejects_summary_only_identity() -> None:
     capture.finish(stream_valid=True)
     assert capture.value is None
     assert capture.safe_facts()["canonical_candidate_availability"] == "none"
+
+
+def test_returned_call_capture_retains_frame_buffer_overflow_facts() -> None:
+    capture = _ReturnedCallIDCapture(validator=_ObserverValidator())
+    capture.consume(b"x" * (FAKE_MAX_EVENT_BYTES + 5))
+    capture.finish(stream_valid=False)
+    assert capture.value is None
+    assert capture.safe_facts() == {
+        "canonical_candidate_availability": "unknown",
+        "canonical_candidate_count_class": "0",
+        "canonical_summary_relation": "unknown",
+        "failure_class": "overflow",
+        "overflow_subtype": "frame_buffer_bytes",
+        "overflow_observed": FAKE_MAX_EVENT_BYTES + 5,
+        "overflow_bound": FAKE_MAX_EVENT_BYTES + 4,
+    }
 
 
 def _companion_records(

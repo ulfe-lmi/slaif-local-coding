@@ -473,8 +473,9 @@ as a secondary fixed class and cannot overwrite the primary failure or counts;
 unknown observations remain `UNKNOWN`/`NOT RUN`, never zero or `PASS`.
 
 Admission control enforces the unchanged 900-second wall bound, ordered
-single-attempt/zero-retry public-operation budgets, 16 KiB event cap, 128 KiB
-stream cap, and single-phase concurrency before dispatch. The fake-only
+single-attempt/zero-retry public-operation budgets, 128 KiB acceptance-event
+cap, 128 KiB response-stream cap, and single-phase concurrency before
+dispatch. The fake-only
 synthetic protected-mode conformance path uses injected hooks to verify
 protected phase selection, direct-observer requirements, first-failure stop,
 cleanup snapshot retention, and serialization of every selected row. It reads
@@ -561,8 +562,9 @@ is made. Observer, projection, and cleanup failure injections preserve the
 primary failure, serialize all 29 rows, and perform no later inference.
 
 SSE enforcement is split at the correct boundary. Network chunks contribute to
-the cumulative stream byte limit; completed frames are checked independently
-against the 16 KiB frame limit by the incremental parser. Coalesced legal
+the cumulative response-stream byte limit; completed frames are checked
+independently against the 128 KiB acceptance frame limit by the incremental
+parser. Coalesced legal
 frames are not rejected merely because their containing network chunk is larger
 than one frame, while an oversized frame or stream stops subsequent dispatch
 and closes the delegate.
@@ -702,3 +704,19 @@ Projection and cleanup failures are secondary evidence. Source-bound
 Objective-005-aj artifacts belong under `oap/evidence/005-aj/`; this contract
 does not authorize protected retries, service mutation, cutover, merge, or
 release acceptance.
+
+## Objective-005-ak acceptance frame correction
+
+The acceptance-only observer and returned-call capture parser now permit a
+completed SSE frame up to 128 KiB. This is equal to, but independent from, the
+unchanged 128 KiB per-HTTP-response limit. Network chunks continue to count
+only against the response-stream budget, so coalescing multiple legal frames
+does not create a frame overflow.
+
+Overflow evidence is payload-free and uses only the closed subtypes
+`frame_data_bytes`, `frame_buffer_bytes`, `response_bytes`,
+`event_type_cardinality`, `replay_candidate_cardinality`, and
+`returned_call_cardinality`, together with bounded observed and configured
+integer values. Framing, validator, and budget failures remain distinct;
+candidate type failures do not receive an invented size. These first-failure
+facts survive normal close, projection, and cleanup.

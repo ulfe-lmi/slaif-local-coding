@@ -147,7 +147,10 @@ class RehearsalBudget:
     wall_seconds: float = 900.0
     operation_limits: tuple[PublicRequestBudget, ...] = PUBLIC_REQUEST_BUDGET
     dispatch_plan: tuple[OperationDispatchPlan, ...] = PUBLIC_DISPATCH_PLAN
-    max_event_bytes: int = 16 * 1024
+    # Acceptance-only SSE frame bound.  The independent per-response stream
+    # bound remains 128 KiB; this avoids rejecting one legal large event merely
+    # because the old observer frame threshold was smaller.
+    max_event_bytes: int = 128 * 1024
     max_stream_bytes: int = 128 * 1024
     max_concurrency: int = 1
     max_dispatches: int = 64
@@ -974,6 +977,18 @@ _SAFE_ACCUMULATOR_FAILURES: frozenset[str] = frozenset(
     }
 )
 
+_SAFE_OVERFLOW_SUBTYPES: frozenset[str] = frozenset(
+    {
+        "event_type_cardinality",
+        "replay_candidate_cardinality",
+        "returned_call_cardinality",
+        "frame_bytes",
+        "frame_data_bytes",
+        "frame_buffer_bytes",
+        "response_bytes",
+    }
+)
+
 
 def _safe_accumulator_failure(value: object) -> str:
     return value if isinstance(value, str) and value in _SAFE_ACCUMULATOR_FAILURES else "unknown"
@@ -1077,7 +1092,7 @@ class RunAccumulator:
     @staticmethod
     def _safe_failure_context(context: Mapping[str, object], cause: str) -> dict[str, object]:
         ordinal = context.get("ordinal")
-        return {
+        result: dict[str, object] = {
             "kind": context.get("kind") if isinstance(context.get("kind"), str) else None,
             "operation": context.get("operation")
             if isinstance(context.get("operation"), str)
@@ -1089,6 +1104,25 @@ class RunAccumulator:
             else None,
             "cause": cause,
         }
+        subtype = context.get("overflow_subtype")
+        observed = context.get("overflow_observed")
+        bound = context.get("overflow_bound")
+        if (
+            cause == "stream_overflow"
+            and subtype in _SAFE_OVERFLOW_SUBTYPES
+            and type(observed) is int
+            and type(bound) is int
+            and 0 <= observed <= 1_000_000
+            and 0 <= bound <= 1_000_000
+        ):
+            result.update(
+                {
+                    "overflow_subtype": subtype,
+                    "overflow_observed": observed,
+                    "overflow_bound": bound,
+                }
+            )
+        return result
 
     def capture_observer(
         self,
@@ -1402,7 +1436,7 @@ def run_protected_mode_conformance(
     controller = BudgetController(
         RehearsalBudget(
             operation_limits=(PUBLIC_REQUEST_BUDGET[0],),
-            max_event_bytes=16 * 1024,
+            max_event_bytes=128 * 1024,
             max_stream_bytes=128 * 1024,
         )
     )

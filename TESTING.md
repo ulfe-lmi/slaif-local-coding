@@ -69,8 +69,8 @@ replace the machine gate.
 
 The fake provider exposes only bounded classifications. Its function path is
 one call with an eight-event lifecycle; its tool-result path is a nine-event
-assistant-message lifecycle. Each event is capped at 16 KiB, each stream at
-128 KiB, and the runner accepts at most one function call per request. The
+assistant-message lifecycle. Each acceptance event is capped at 128 KiB, each
+response stream at 128 KiB, and the runner accepts at most one function call per request. The
 final JSON includes ordered obligation results and a projection table with
 source observation keys, producer, proving test nodes, and execution status.
 `missing=[]` is therefore insufficient: `passed=true` additionally requires
@@ -321,8 +321,8 @@ the original failure or counts; unavailable observations remain unknown and are
 not converted to zero or pass.
 
 Admission-time enforcement covers the existing 900-second wall bound, nine
-ordered single-attempt public-operation budgets with zero retries, 16 KiB event
-and 128 KiB stream limits, and single-phase concurrency. The synthetic
+ordered single-attempt public-operation budgets with zero retries, 128 KiB
+acceptance-event and 128 KiB response-stream limits, and single-phase concurrency. The synthetic
 protected-mode conformance path uses injected fake-only hooks, proves
 first-failure stop and post-cleanup row serialization, and performs zero real
 credential, model, or protected-service access. This is orchestration evidence,
@@ -375,8 +375,9 @@ ordinal, and lifetime before each logical transition; each actual dispatch then
 consumes only that matching kind slot. Missing, exhausted, wrong-kind,
 wrong-phase, wrong-ordinal, stale-lifetime, and expired-run permissions fail
 closed with zero delegate calls; pre-provider rejection operations have
-explicit zero transport slots. The prior 900-second, 64-observation, 16 KiB
-frame, 128 KiB stream, and single-active-stream limits remain unchanged.
+explicit zero transport slots. The prior 900-second, 64-observation, 128 KiB
+acceptance-frame, 128 KiB response-stream, and single-active-stream limits
+remain unchanged after the 005-ak correction.
 
 The Codex two-turn transition is authorized only after the first inference
 response is terminal-valid. Candidate readiness records bounded `/healthz` and
@@ -385,7 +386,7 @@ upstream stream exactly once, preserves the response observation, and releases
 the active dispatch slot.
 
 The direct observer applies cumulative byte/deadline checks to network chunks
-and the 16 KiB check to each completed SSE frame. Coalesced legal frames remain
+and the 128 KiB check to each completed SSE frame. Coalesced legal frames remain
 valid even when their network chunk is larger than one frame; an oversized
 frame or cumulative stream latches failure, closes the stream, and prevents
 later dispatch.
@@ -509,7 +510,7 @@ item type, an unpaired output, a mismatched or reordered ID, and an ID-less
 item without the matching call ID do not satisfy the continuation predicate.
 The observer retains bounded distinct event categories plus scalar event
 counts, so repeated legal SSE deltas do not consume category storage. The
-16-KiB event and 128-KiB stream limits, exact Gateway validator, lifecycle
+128-KiB acceptance-event and response-stream limits, exact Gateway validator, lifecycle
 closure rules, and synthetic failure cases remain unchanged.
 
 ## Objective-005-ad actual omission companion
@@ -551,8 +552,8 @@ SSE representations with an explicit `event` header, data-only typed frames,
 or a bounded mixture of both. An explicit header must match the JSON payload's
 `type`; missing, empty, or unknown types, malformed frames, invalid ordering,
 terminal/usage errors, duplicate terminals, and abnormal closure remain
-fail-closed. Framing stays incremental and bounded at 16 KiB per frame and
-128 KiB per stream, with comment handling, LF/CRLF, split/coalesced chunks,
+fail-closed. Framing stays incremental and bounded at 128 KiB per frame and
+128 KiB per response stream, with comment handling, LF/CRLF, split/coalesced chunks,
 close-once behavior, and the exact injected Gateway validator preserved.
 
 Fresh fake qualification results are source-bound before any protected
@@ -642,3 +643,20 @@ RUN`, and retains the first runtime context plus all 29 bounded dispositions.
 Projection and cleanup failures are secondary and cannot replace the primary
 failure or erase the completed Codex checkpoint. Objective-005-aj artifacts are
 source-bound under `oap/evidence/005-aj/`.
+
+## Objective-005-ak acceptance frame correction
+
+The acceptance-only direct observer and returned-call capture parser use a
+128 KiB completed-frame bound, equal to but independent from the unchanged
+128 KiB per-HTTP-response bound. Network chunks remain governed by response
+bytes; a coalesced chunk is not itself an SSE frame. Framing, validator, and
+budget failures retain their separate closed classes.
+
+Overflow evidence retains only a closed subtype plus bounded integer facts:
+`frame_data_bytes`, `frame_buffer_bytes`, `response_bytes`,
+`event_type_cardinality`, `replay_candidate_cardinality`, or
+`returned_call_cardinality`. Counts are not represented as bytes, and framing
+or candidate-type failures do not receive fabricated overflow sizes. The
+subtype and observed/bound facts remain attached to the first failure through
+normal close, projection, and cleanup without retaining event fragments or
+payloads.

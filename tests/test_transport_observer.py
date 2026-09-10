@@ -5,6 +5,7 @@ import json
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 
 import httpx
@@ -21,6 +22,7 @@ from tests.helpers.transport_observer import (
     MAX_STREAM_BYTES,
     CallIDCorrelation,
     DirectTransportObserver,
+    _StreamState,
     merge_observer_snapshots,
     observer_dispatch_matches_fake,
 )
@@ -652,6 +654,157 @@ async def test_frame_cap_is_checked_at_sse_boundaries_not_network_chunks(
         await response.aread()
     assert observer.snapshot()["inference_terminal_valid_count"] == 1
     assert budget.failure is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", (b"\n\n", b"\r\n\r\n"))
+@pytest.mark.parametrize("chunk_size", (1, 65_536))
+async def test_large_complete_event_under_response_cap_is_not_legacy_frame_overflow(
+    ending: bytes, chunk_size: int
+) -> None:
+    large_delta = "x" * (16 * 1024 + 256)
+    large_frame = _frame(
+        "response.output_text.delta",
+        {"type": "response.output_text.delta", "sequence_number": 1, "delta": large_delta},
+        ending,
+    )
+    payload = b"".join(
+        (
+            _frame(
+                "response.created",
+                {
+                    "type": "response.created",
+                    "sequence_number": 0,
+                    "response": {"id": "response-1", "status": "in_progress"},
+                },
+                ending,
+            ),
+            large_frame,
+            _frame(
+                "response.completed",
+                {
+                    "type": "response.completed",
+                    "sequence_number": 2,
+                    "response": {
+                        "id": "response-1",
+                        "status": "completed",
+                        "output": [{"type": "message"}],
+                        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    },
+                },
+                ending,
+            ),
+        )
+    )
+    assert len(large_frame) > 16 * 1024
+    assert len(payload) < MAX_STREAM_BYTES
+    chunks = tuple(
+        payload[index : index + chunk_size] for index in range(0, len(payload), chunk_size)
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream(chunks),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is True
+    assert snapshot["inference_terminal_valid_count"] == 1
+    record = cast(dict[str, object], snapshot["records"][0])  # type: ignore[index]
+    assert record["overflow_subtype"] is None
+
+
+@pytest.mark.asyncio
+async def test_response_overflow_retains_closed_size_facts_and_first_context() -> None:
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_ChunkStream((b"x" * (MAX_STREAM_BYTES + 1),)),
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["failure_class"] == "stream_overflow"
+    assert snapshot["failure_context"] == {
+        "kind": "compiler",
+        "operation": None,
+        "phase": None,
+        "ordinal": None,
+        "lifetime_id": None,
+        "cause": "stream_overflow",
+        "overflow_subtype": "response_bytes",
+        "overflow_observed": MAX_STREAM_BYTES + 1,
+        "overflow_bound": MAX_STREAM_BYTES,
+    }
+    record = cast(dict[str, object], snapshot["records"][0])  # type: ignore[index]
+    assert record["overflow_subtype"] == "response_bytes"
+    assert record["overflow_observed"] == MAX_STREAM_BYTES + 1
+    assert record["overflow_bound"] == MAX_STREAM_BYTES
+
+
+def test_structural_cardinality_and_type_failures_are_distinct() -> None:
+    state = _StreamState("sse", 0.0)
+    state.event_types = {f"event-{index}" for index in range(32)}
+    state._append_event_class("response.created")
+    assert state.failure_kind == "overflow"
+    assert state.overflow_subtype == "event_type_cardinality"
+    assert state.overflow_observed == 33
+    assert state.overflow_bound == 32
+
+    class WrongCandidateType:
+        def take_replay_reference_candidates(self) -> object:
+            return []
+
+    typed_state = _StreamState("sse", 0.0, validator=WrongCandidateType())  # type: ignore[arg-type]
+    typed_state._take_canonical_candidates()
+    assert typed_state.failure_kind == "validation"
+    assert typed_state.overflow_subtype is None
+    assert typed_state.overflow_observed is None
+    assert typed_state.overflow_bound is None
+
+    candidate_state = _StreamState("sse", 0.0, validator=WrongCandidateType())  # type: ignore[arg-type]
+    candidate_state.validator = type(
+        "ManyCandidates",
+        (),
+        {
+            "take_replay_reference_candidates": lambda _self: tuple(
+                SimpleNamespace(
+                    item_kind="function_call", item_id=f"item-{index}", call_id=f"call-{index}"
+                )
+                for index in range(9)
+            )
+        },
+    )()
+    candidate_state._take_canonical_candidates()
+    assert candidate_state.failure_kind == "overflow"
+    assert candidate_state.overflow_subtype == "replay_candidate_cardinality"
+    assert candidate_state.overflow_observed == 9
+    assert candidate_state.overflow_bound == 8
+
+
+def test_incomplete_frame_buffer_overflow_retains_bound_without_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("tests.helpers.transport_observer.MAX_STREAM_BYTES", MAX_EVENT_BYTES * 2)
+    state = _StreamState("sse", 0.0)
+    state.consume(b"x" * (MAX_EVENT_BYTES + 5))
+    assert state.failure_kind == "overflow"
+    assert state.overflow_subtype == "frame_buffer_bytes"
+    assert state.overflow_observed == MAX_EVENT_BYTES + 5
+    assert state.overflow_bound == MAX_EVENT_BYTES + 4
 
 
 @pytest.mark.asyncio
@@ -1620,5 +1773,5 @@ def test_merge_rejects_missing_or_duplicate_lifetime_ordinals() -> None:
 
 
 def test_stream_caps_are_bounded_constants() -> None:
-    assert MAX_EVENT_BYTES == 16 * 1024
+    assert MAX_EVENT_BYTES == 128 * 1024
     assert MAX_STREAM_BYTES == 128 * 1024

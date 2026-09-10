@@ -25,10 +25,25 @@ import httpx
 from tests.helpers.acceptance_harness import DispatchContext, ProviderBoundaryObservation
 
 MAX_OBSERVED_REQUESTS = 64
-MAX_EVENT_BYTES = 16 * 1024
+# Acceptance-only frame cap.  It is intentionally equal to, but independent
+# from, the per-response cap: a complete legal Responses event may consume the
+# whole bounded response without being rejected by an arbitrary smaller frame
+# threshold.
+MAX_EVENT_BYTES = 128 * 1024
 MAX_STREAM_BYTES = 128 * 1024
 MAX_EVENT_TYPES = 32
 MAX_CORRELATION_IDS = 8
+
+_OVERFLOW_SUBTYPES = frozenset(
+    {
+        "event_type_cardinality",
+        "replay_candidate_cardinality",
+        "returned_call_cardinality",
+        "frame_data_bytes",
+        "frame_buffer_bytes",
+        "response_bytes",
+    }
+)
 
 _RESPONSE_ID_EVENTS = frozenset({"response.created", "response.in_progress", "response.completed"})
 _EVENT_CLASSES = {
@@ -192,6 +207,26 @@ def _safe_json_loads(value: bytes) -> object:
     return json.loads(value, parse_constant=reject_constant)
 
 
+def _safe_overflow_context(context: Mapping[str, object]) -> dict[str, object]:
+    """Copy only fixed overflow subtype and bounded integer facts."""
+    subtype = context.get("overflow_subtype")
+    observed = context.get("overflow_observed")
+    bound = context.get("overflow_bound")
+    if (
+        subtype in _OVERFLOW_SUBTYPES
+        and type(observed) is int
+        and type(bound) is int
+        and 0 <= observed <= 1_000_000
+        and 0 <= bound <= 1_000_000
+    ):
+        return {
+            "overflow_subtype": subtype,
+            "overflow_observed": observed,
+            "overflow_bound": bound,
+        }
+    return {}
+
+
 @dataclass
 class _StreamState:
     content_type: str
@@ -217,6 +252,9 @@ class _StreamState:
     malformed: bool = False
     validation_failed: bool = False
     overflow: bool = False
+    overflow_subtype: str | None = None
+    overflow_observed: int | None = None
+    overflow_bound: int | None = None
     terminal_status_valid: bool = False
     terminal_output_valid: bool = False
     terminal_usage_valid: bool = False
@@ -232,17 +270,40 @@ class _StreamState:
     summary_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
     canonical_summary_relation: str = "unknown"
 
-    def _fail(self, kind: str) -> None:
+    def _fail(
+        self,
+        kind: str,
+        *,
+        overflow_subtype: str | None = None,
+        overflow_observed: int | None = None,
+        overflow_bound: int | None = None,
+    ) -> None:
         self.validation_failed = True
         if self.failure_kind is None:
             self.failure_kind = kind
+            if (
+                kind == "overflow"
+                and overflow_subtype in _OVERFLOW_SUBTYPES
+                and type(overflow_observed) is int
+                and type(overflow_bound) is int
+                and 0 <= overflow_observed <= 1_000_000
+                and 0 <= overflow_bound <= 1_000_000
+            ):
+                self.overflow_subtype = overflow_subtype
+                self.overflow_observed = overflow_observed
+                self.overflow_bound = overflow_bound
 
     def _append_event_class(self, event_name: str) -> None:
         self.event_count += 1
         event_class = _EVENT_CLASSES.get(event_name, "other")
         if event_class not in self.event_types and len(self.event_types) >= MAX_EVENT_TYPES:
             self.overflow = True
-            self._fail("overflow")
+            self._fail(
+                "overflow",
+                overflow_subtype="event_type_cardinality",
+                overflow_observed=len(self.event_types) + 1,
+                overflow_bound=MAX_EVENT_TYPES,
+            )
             return
         self.event_types.add(event_class)
         self.last_event_type = event_class
@@ -272,8 +333,16 @@ class _StreamState:
         except BaseException:
             self._fail("validator")
             return
-        if not isinstance(candidates, tuple) or len(candidates) > MAX_CORRELATION_IDS:
-            self._fail("overflow")
+        if not isinstance(candidates, tuple):
+            self._fail("validation")
+            return
+        if len(candidates) > MAX_CORRELATION_IDS:
+            self._fail(
+                "overflow",
+                overflow_subtype="replay_candidate_cardinality",
+                overflow_observed=len(candidates),
+                overflow_bound=MAX_CORRELATION_IDS,
+            )
             return
         for candidate in candidates:
             item_kind = getattr(candidate, "item_kind", None)
@@ -295,7 +364,12 @@ class _StreamState:
                 continue
             self.canonical_candidate_count += 1
             if len(self.returned_call_id_digests) >= MAX_CORRELATION_IDS:
-                self._fail("overflow")
+                self._fail(
+                    "overflow",
+                    overflow_subtype="returned_call_cardinality",
+                    overflow_observed=len(self.returned_call_id_digests) + 1,
+                    overflow_bound=MAX_CORRELATION_IDS,
+                )
                 continue
             self.returned_call_id_digests += (call_id_digest,)
 
@@ -327,7 +401,11 @@ class _StreamState:
             self.overflow = True
             self._fail("budget")
             return
-        if not frame or len(frame) > MAX_EVENT_BYTES:
+        if not frame:
+            self.malformed = True
+            self._fail("framing")
+            return
+        if len(frame) > MAX_EVENT_BYTES:
             self.malformed = True
             self._fail("framing")
             return
@@ -366,7 +444,12 @@ class _StreamState:
         data = b"\n".join(data_parts)
         if len(data) > MAX_EVENT_BYTES:
             self.overflow = True
-            self._fail("overflow")
+            self._fail(
+                "overflow",
+                overflow_subtype="frame_data_bytes",
+                overflow_observed=len(data),
+                overflow_bound=MAX_EVENT_BYTES,
+            )
             return
         try:
             payload = _safe_json_loads(data)
@@ -449,13 +532,23 @@ class _StreamState:
             if self.byte_count > MAX_STREAM_BYTES:
                 self.byte_count = MAX_STREAM_BYTES + 1
                 self.overflow = True
-                self._fail("overflow")
+                self._fail(
+                    "overflow",
+                    overflow_subtype="response_bytes",
+                    overflow_observed=MAX_STREAM_BYTES + 1,
+                    overflow_bound=MAX_STREAM_BYTES,
+                )
             return
         for value in chunk:
             if self.byte_count >= MAX_STREAM_BYTES:
                 self.byte_count = MAX_STREAM_BYTES + 1
                 self.overflow = True
-                self._fail("overflow")
+                self._fail(
+                    "overflow",
+                    overflow_subtype="response_bytes",
+                    overflow_observed=MAX_STREAM_BYTES + 1,
+                    overflow_bound=MAX_STREAM_BYTES,
+                )
                 self.buffer.clear()
                 return
             self.byte_count += 1
@@ -474,7 +567,12 @@ class _StreamState:
                     return
             elif len(self.buffer) > MAX_EVENT_BYTES + 4:
                 self.overflow = True
-                self._fail("overflow")
+                self._fail(
+                    "overflow",
+                    overflow_subtype="frame_buffer_bytes",
+                    overflow_observed=MAX_EVENT_BYTES + 5,
+                    overflow_bound=MAX_EVENT_BYTES + 4,
+                )
                 self.buffer.clear()
                 return
 
@@ -530,6 +628,9 @@ class _RequestObservation:
     response_rejected_chunk_count: int = 0
     event_count_class: str = "0"
     event_type_classes: tuple[str, ...] = ()
+    overflow_subtype: str | None = None
+    overflow_observed: int | None = None
+    overflow_bound: int | None = None
     exception_class: str | None = None
     dispatch_operation: str = "unknown"
     dispatch_phase: str = "unknown"
@@ -576,6 +677,9 @@ class _RequestObservation:
             "response_rejected_chunk_count": self.response_rejected_chunk_count,
             "event_count_class": self.event_count_class,
             "event_type_classes": self.event_type_classes,
+            "overflow_subtype": self.overflow_subtype,
+            "overflow_observed": self.overflow_observed,
+            "overflow_bound": self.overflow_bound,
             "exception_class": self.exception_class,
         }
         if self.request_facts_observed:
@@ -951,7 +1055,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 else _exception_class(kind)
             )
         if self._failure_context is None and context is not None:
-            self._failure_context = {
+            failure_context: dict[str, object] = {
                 "kind": context.get("kind", "unknown"),
                 "operation": context.get("operation", "unknown"),
                 "phase": context.get("phase", "unknown"),
@@ -961,10 +1065,12 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 else None,
                 "cause": self._failure_class,
             }
+            failure_context.update(_safe_overflow_context(context))
+            self._failure_context = failure_context
 
     @staticmethod
     def _state_failure_context(state: _StreamState) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "kind": state.request_kind,
             "operation": (
                 state.dispatch_operation if state.dispatch_operation != "unknown" else None
@@ -975,10 +1081,12 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
                 state.dispatch_lifetime if state.dispatch_lifetime is not None else None
             ),
         }
+        result.update(_safe_overflow_context(state.__dict__))
+        return result
 
     @staticmethod
     def _record_failure_context(record: _RequestObservation) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "kind": record.kind,
             "operation": (
                 record.dispatch_operation if record.dispatch_operation != "unknown" else None
@@ -987,6 +1095,8 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             "ordinal": record.dispatch_ordinal,
             "lifetime_id": record.dispatch_lifetime,
         }
+        result.update(_safe_overflow_context(record.__dict__))
+        return result
 
     def _latch_budget_failure(
         self,
@@ -1474,6 +1584,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.response_rejected_chunk_count = state.rejected_chunk_count
         record.event_count_class = _count_class(state.event_count)
         record.event_type_classes = tuple(sorted(set(state.event_types)))
+        record.overflow_subtype = state.overflow_subtype
+        record.overflow_observed = state.overflow_observed
+        record.overflow_bound = state.overflow_bound
         record.canonical_candidate_count = state.canonical_candidate_count
         record.canonical_candidate_availability = (
             "available"
@@ -1507,6 +1620,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.response_rejected_chunk_count = state.rejected_chunk_count
         record.event_count_class = _count_class(state.event_count)
         record.event_type_classes = tuple(sorted(set(state.event_types)))
+        record.overflow_subtype = state.overflow_subtype
+        record.overflow_observed = state.overflow_observed
+        record.overflow_bound = state.overflow_bound
         self._latch_state_failure(state)
         self._latch_failure(state.failure_kind or "closure")
 
@@ -1525,6 +1641,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.response_rejected_chunk_count = state.rejected_chunk_count
         record.event_count_class = _count_class(state.event_count)
         record.event_type_classes = tuple(sorted(set(state.event_types)))
+        record.overflow_subtype = state.overflow_subtype
+        record.overflow_observed = state.overflow_observed
+        record.overflow_bound = state.overflow_bound
         self._latch_state_failure(state)
         self._latch_failure("closure")
 

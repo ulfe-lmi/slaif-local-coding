@@ -152,7 +152,9 @@ CODEX_0149_DEFAULT = Path(
     "0.149.0-x86_64-unknown-linux-musl/bin/codex"
 )
 FAKE_MAX_EVENTS = 32
-FAKE_MAX_EVENT_BYTES = 16_384
+# Acceptance-only frame cap; the independent per-response cap remains fixed at
+# 131072 bytes.  This is not a provider or Gateway policy.
+FAKE_MAX_EVENT_BYTES = 131_072
 FAKE_MAX_STREAM_BYTES = 131_072
 FAKE_MAX_FUNCTION_CALLS = 1
 FAKE_FUNCTION_CALL_ID = "call_synthetic"
@@ -3196,6 +3198,39 @@ class _ReturnedCallIDCapture:
     canonical_call_ids: list[str] = field(default_factory=list, repr=False)
     summary_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
     canonical_summary_relation: str = "unknown"
+    failure_class: str | None = field(default=None, repr=False)
+    overflow_subtype: str | None = field(default=None, repr=False)
+    overflow_observed: int | None = field(default=None, repr=False)
+    overflow_bound: int | None = field(default=None, repr=False)
+
+    def _fail(
+        self,
+        failure_class: str,
+        *,
+        overflow_subtype: str | None = None,
+        overflow_observed: int | None = None,
+        overflow_bound: int | None = None,
+    ) -> None:
+        self.invalid = True
+        if self.failure_class is not None:
+            return
+        self.failure_class = failure_class
+        if (
+            failure_class == "overflow"
+            and overflow_subtype
+            in {
+                "replay_candidate_cardinality",
+                "returned_call_cardinality",
+                "frame_buffer_bytes",
+            }
+            and type(overflow_observed) is int
+            and type(overflow_bound) is int
+            and 0 <= overflow_observed <= 1_000_000
+            and 0 <= overflow_bound <= 1_000_000
+        ):
+            self.overflow_subtype = overflow_subtype
+            self.overflow_observed = overflow_observed
+            self.overflow_bound = overflow_bound
 
     @staticmethod
     def _valid_identifier(value: object) -> bool:
@@ -3207,29 +3242,46 @@ class _ReturnedCallIDCapture:
         )
 
     def _capture_frame(self, frame: bytes) -> None:
+        if not frame:
+            self._fail("framing")
+            return
+        if len(frame) > FAKE_MAX_EVENT_BYTES:
+            self._fail("framing")
+            return
         parsed = _sse_frame_payload(frame)
         if parsed is None:
             if _comment_only_sse_frame(frame):
                 return
-            self.invalid = True
+            self._fail("framing")
             return
         event_name, payload = parsed
         if self.validator is None:
-            self.invalid = True
+            self._fail("validator")
             return
         validate = getattr(self.validator, "validate", None)
         take_candidates = getattr(self.validator, "take_replay_reference_candidates", None)
         if not callable(validate) or not callable(take_candidates):
-            self.invalid = True
+            self._fail("validator")
             return
         try:
             valid = validate(payload)
             candidates = take_candidates()
         except BaseException:
-            self.invalid = True
+            self._fail("validator")
             return
-        if not valid or not isinstance(candidates, tuple) or len(candidates) > FAKE_MAX_EVENTS:
-            self.invalid = True
+        if not valid:
+            self._fail("validator")
+            return
+        if not isinstance(candidates, tuple):
+            self._fail("validator")
+            return
+        if len(candidates) > FAKE_MAX_EVENTS:
+            self._fail(
+                "overflow",
+                overflow_subtype="replay_candidate_cardinality",
+                overflow_observed=len(candidates),
+                overflow_bound=FAKE_MAX_EVENTS,
+            )
             return
         for candidate in candidates:
             if getattr(candidate, "item_kind", None) not in {"function_call", "custom_tool_call"}:
@@ -3237,12 +3289,17 @@ class _ReturnedCallIDCapture:
             call_id = getattr(candidate, "call_id", None)
             item_id = getattr(candidate, "item_id", None)
             if not self._valid_identifier(item_id) or not self._valid_identifier(call_id):
-                self.invalid = True
+                self._fail("validator")
                 continue
             assert isinstance(call_id, str)
             self.canonical_candidate_count += 1
             if len(self.canonical_call_ids) >= FAKE_MAX_FUNCTION_CALLS:
-                self.invalid = True
+                self._fail(
+                    "overflow",
+                    overflow_subtype="returned_call_cardinality",
+                    overflow_observed=len(self.canonical_call_ids) + 1,
+                    overflow_bound=FAKE_MAX_FUNCTION_CALLS,
+                )
                 continue
             self.canonical_call_ids.append(call_id)
             self.canonical_call_id_digests += (hashlib.sha256(call_id.encode("utf-8")).digest(),)
@@ -3267,7 +3324,12 @@ class _ReturnedCallIDCapture:
             available = [(index, size) for index, size in delimiters if index >= 0]
             if not available:
                 if len(self.buffer) > FAKE_MAX_EVENT_BYTES + 4:
-                    self.invalid = True
+                    self._fail(
+                        "overflow",
+                        overflow_subtype="frame_buffer_bytes",
+                        overflow_observed=FAKE_MAX_EVENT_BYTES + 5,
+                        overflow_bound=FAKE_MAX_EVENT_BYTES + 4,
+                    )
                     self.buffer.clear()
                 return
             index, size = min(available)
@@ -3277,8 +3339,10 @@ class _ReturnedCallIDCapture:
 
     def finish(self, *, stream_valid: bool) -> None:
         if self.buffer:
-            self.invalid = True
+            self._fail("framing")
             self.buffer.clear()
+        if not stream_valid and self.failure_class is None:
+            self._fail("validator")
         if not stream_valid or self.invalid or len(self.canonical_call_ids) != 1:
             self.value = None
             return
@@ -3292,11 +3356,22 @@ class _ReturnedCallIDCapture:
             if self.validator is not None and not self.invalid
             else "unknown"
         )
-        return {
+        facts: dict[str, object] = {
             "canonical_candidate_availability": availability,
             "canonical_candidate_count_class": count_class(self.canonical_candidate_count),
             "canonical_summary_relation": self.canonical_summary_relation,
         }
+        if self.failure_class is not None:
+            facts["failure_class"] = self.failure_class
+        if self.overflow_subtype is not None:
+            facts.update(
+                {
+                    "overflow_subtype": self.overflow_subtype,
+                    "overflow_observed": self.overflow_observed,
+                    "overflow_bound": self.overflow_bound,
+                }
+            )
+        return facts
 
 
 def _timed_public_stream(

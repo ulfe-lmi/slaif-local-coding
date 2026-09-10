@@ -577,6 +577,68 @@ def test_run_accumulator_retains_completed_phase_and_first_failure_context() -> 
     )
 
 
+def test_run_accumulator_freezes_overflow_subtype_through_cleanup() -> None:
+    accumulator = RunAccumulator("protected")
+    accumulator.capture_observer(
+        {
+            "ready": False,
+            "failure_class": "stream_overflow",
+            "failure_context": {
+                "kind": "inference",
+                "operation": "vision_full",
+                "phase": "vision",
+                "ordinal": 3,
+                "lifetime_id": "vision",
+                "cause": "stream_overflow",
+                "overflow_subtype": "frame_buffer_bytes",
+                "overflow_observed": 131077,
+                "overflow_bound": 131076,
+            },
+            "inference_attempted_count": 1,
+            "inference_dispatched_count": 1,
+            "inference_responded_count": 1,
+            "inference_completed_count": 0,
+            "inference_terminal_valid_count": 0,
+            "records": (
+                {
+                    "ordinal": 1,
+                    "kind": "inference",
+                    "completed": False,
+                    "normal_close": False,
+                    "terminal_valid": False,
+                    "response_received_bytes": 131077,
+                    "response_accepted_bytes": 131077,
+                    "response_rejected_bytes": 0,
+                    "response_rejected_chunk_count": 0,
+                    "overflow_subtype": "frame_buffer_bytes",
+                    "overflow_observed": 131077,
+                    "overflow_bound": 131076,
+                },
+            ),
+        },
+        phase="vision",
+        ordinal=3,
+        lifetime_id="vision",
+    )
+    accumulator.record_cleanup(
+        {"processes": True, "listeners": True, "database": True, "cache": False}
+    )
+    facts = accumulator.safe_dict()
+    assert facts["first_failure"] == "stream_overflow"
+    assert facts["first_failure_context"] == {
+        "kind": "inference",
+        "operation": "vision_full",
+        "phase": "vision",
+        "ordinal": 3,
+        "lifetime_id": "vision",
+        "cause": "stream_overflow",
+        "overflow_subtype": "frame_buffer_bytes",
+        "overflow_observed": 131077,
+        "overflow_bound": 131076,
+    }
+    assert facts["secondary_failures"] == ("observer_readiness_lost", "cleanup_failed")
+
+
 def test_run_accumulator_retains_bounded_semantic_phase_facts() -> None:
     accumulator = RunAccumulator("protected")
     accumulator.record_phase_facts(
