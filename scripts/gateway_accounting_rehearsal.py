@@ -5343,13 +5343,13 @@ def _run_direct_composed_rehearsal_impl(
             # one non-streaming continuation.  The later phase still owns the
             # five signed /health observations used by the identity matrix.
             companion_tools = [
+                *adapter_tools,
                 {
                     "type": "namespace",
                     "name": "companion",
                     "description": "bounded local namespace",
                     "tools": [local_tools[0]],
                 },
-                *adapter_tools[2:],
             ]
             admit("identity_replay", "codex", 5, "identity")
             activate("identity_replay", "codex", 5, "identity")
