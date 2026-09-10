@@ -445,10 +445,12 @@ def test_run_accumulator_sums_distinct_lifetimes_and_does_not_double_count_updat
     assert facts["counts"]["inference_attempted"] == 2  # type: ignore[index]
     assert facts["counts"]["inference_terminal_valid"] == 2  # type: ignore[index]
     assert facts["all_lifetime_counts"] == facts["counts"]
-    assert set(facts["lifetime_counts"]) == {"first", "second"}  # type: ignore[arg-type]
+    lifetime_counts = cast(dict[str, object], facts["lifetime_counts"])
+    snapshots = cast(tuple[dict[str, object], ...], facts["snapshots"])
+    assert set(lifetime_counts) == {"first", "second"}
     assert all(
         snapshot["lifetime_id"] in {"first", "second"}
-        for snapshot in facts["snapshots"]  # type: ignore[index]
+        for snapshot in snapshots
     )
     assert facts["terminal_classes"] == ("terminal_valid", "terminal_valid")
 
