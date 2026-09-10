@@ -142,6 +142,18 @@ tested head or one verified single-parent immutable report-publication child
 whose report names that implementation SHA, while dirty relevant source or any
 production/harness/config descendant invalidates reuse.
 
+The 005-ag replay-correlation contract takes replay authority only from the
+exact injected Gateway validator's `take_replay_reference_candidates()` result
+for a successfully validated streamed function/custom-tool item. Terminal
+`response.completed` IDs are diagnostic-only: the observer hashes them only to
+record a bounded same/different/unknown relationship and never registers them
+for continuation. A canonical candidate is registered only after complete
+terminal validation and normal close; missing validator capability, ambiguous
+or incomplete candidates, unowned summary aliases, and stale or cross-scope
+IDs fail closed before the next request. Safe evidence records candidate
+availability/count, summary relationship, pending-scope availability, and
+continuation/matching classes without retaining IDs, arguments, or payloads.
+
 At implementation `45f9d64976b0f2a44f6c3223d767c28f5405e1a`, the fresh fake
 machine gate passed 37/37 selected obligations with no missing result, first
 failure, or retry. The direct observer independently recorded 23 attempted,

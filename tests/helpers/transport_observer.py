@@ -62,6 +62,8 @@ class StreamEventValidator(Protocol):
 
     def validate(self, payload: Mapping[str, object] | None) -> bool: ...
 
+    def take_replay_reference_candidates(self) -> tuple[object, ...]: ...
+
 
 ValidatorFactory = Callable[[httpx.Request], StreamEventValidator]
 RequestClassifier = Callable[[httpx.Request], Mapping[str, object]]
@@ -213,6 +215,9 @@ class _StreamState:
     frame_observer: Callable[[int], bool] | None = field(default=None, repr=False)
     correlation_key: CorrelationKey | None = field(default=None, repr=False)
     returned_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
+    canonical_candidate_count: int = 0
+    summary_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
+    canonical_summary_relation: str = "unknown"
 
     def _fail(self, kind: str) -> None:
         self.validation_failed = True
@@ -228,6 +233,81 @@ class _StreamState:
             return
         self.event_types.add(event_class)
         self.last_event_type = event_class
+
+    @staticmethod
+    def _call_id_digest(value: object) -> bytes | None:
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > 512
+            or any(char in value for char in "\r\n")
+        ):
+            return None
+        return hashlib.sha256(value.encode("utf-8")).digest()
+
+    def _take_canonical_candidates(self) -> None:
+        """Consume only the exact validator's validated replay candidates."""
+        if self.validator is None:
+            self._fail("validator")
+            return
+        take_candidates = getattr(self.validator, "take_replay_reference_candidates", None)
+        if not callable(take_candidates):
+            self._fail("validator")
+            return
+        try:
+            candidates = take_candidates()
+        except BaseException:
+            self._fail("validator")
+            return
+        if not isinstance(candidates, tuple) or len(candidates) > MAX_CORRELATION_IDS:
+            self._fail("overflow")
+            return
+        for candidate in candidates:
+            item_kind = getattr(candidate, "item_kind", None)
+            if item_kind not in {"function_call", "custom_tool_call", "reasoning"}:
+                self._fail("validation")
+                continue
+            if item_kind == "reasoning":
+                continue
+            item_id = getattr(candidate, "item_id", None)
+            call_id_digest = self._call_id_digest(getattr(candidate, "call_id", None))
+            if (
+                not isinstance(item_id, str)
+                or not item_id
+                or len(item_id) > 512
+                or any(char in item_id for char in "\r\n")
+                or call_id_digest is None
+            ):
+                self._fail("validation")
+                continue
+            self.canonical_candidate_count += 1
+            if len(self.returned_call_id_digests) >= MAX_CORRELATION_IDS:
+                self._fail("overflow")
+                continue
+            self.returned_call_id_digests += (call_id_digest,)
+
+    def _record_summary_call_ids(self, payload: Mapping[str, object]) -> None:
+        response = payload.get("response")
+        output = response.get("output") if isinstance(response, Mapping) else None
+        if not isinstance(output, list) or len(output) > MAX_CORRELATION_IDS:
+            return
+        self.summary_call_id_digests = tuple(
+            digest
+            for item in output
+            if isinstance(item, Mapping) and item.get("type") == "function_call"
+            for digest in (self._call_id_digest(item.get("call_id")),)
+            if digest is not None
+        )
+
+    def _update_canonical_summary_relation(self) -> None:
+        if self.returned_call_id_digests and self.summary_call_id_digests:
+            self.canonical_summary_relation = (
+                "same"
+                if self.returned_call_id_digests == self.summary_call_id_digests
+                else "different"
+            )
+        else:
+            self.canonical_summary_relation = "unknown"
 
     def _consume_frame(self, frame: bytes) -> None:
         if self.frame_observer is not None and not self.frame_observer(len(frame)):
@@ -324,19 +404,11 @@ class _StreamState:
             self._fail("validator")
         if not valid:
             self._fail("validation" if self.failure_kind != "validator" else "validator")
-        elif event_name == "response.completed":
-            response = payload.get("response")
-            output = response.get("output") if isinstance(response, Mapping) else None
-            if isinstance(output, list) and len(output) <= MAX_CORRELATION_IDS:
-                digests: list[bytes] = []
-                for item in output:
-                    if not isinstance(item, Mapping) or item.get("type") != "function_call":
-                        continue
-                    call_id = item.get("call_id")
-                    if not isinstance(call_id, str) or not call_id or len(call_id) > 512:
-                        continue
-                    digests.append(hashlib.sha256(call_id.encode("utf-8")).digest())
-                self.returned_call_id_digests = tuple(digests)
+        else:
+            self._take_canonical_candidates()
+            if event_name == "response.completed":
+                self._record_summary_call_ids(payload)
+                self._update_canonical_summary_relation()
 
         if event_name == "response.created":
             self.created_count += 1
@@ -461,6 +533,10 @@ class _RequestObservation:
     function_output_missing_call_id: bool = field(default=False, repr=False)
     correlation_key: CorrelationKey | None = field(default=None, repr=False)
     correlation_managed: bool = field(default=False, repr=False)
+    canonical_candidate_count: int = 0
+    canonical_candidate_availability: str = "unknown"
+    canonical_summary_relation: str = "unknown"
+    pending_scope_available: str = "unknown"
 
     def safe_dict(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -489,6 +565,10 @@ class _RequestObservation:
                     "function_result_adjacent": self.function_result_adjacent,
                     "item_id_presence": self.item_id_presence,
                     "call_id_relation": self.call_id_relation,
+                    "canonical_candidate_count_class": _count_class(self.canonical_candidate_count),
+                    "canonical_candidate_availability": self.canonical_candidate_availability,
+                    "canonical_summary_relation": self.canonical_summary_relation,
+                    "pending_scope_available": self.pending_scope_available,
                     "image_count_class": _count_class(self.image_count),
                     "image_hashes": self.image_hashes,
                     "tool_type_classes": self.tool_type_classes,
@@ -592,6 +672,41 @@ def _provider_boundary_from_records(
             }
         )
     )
+    canonical_candidate_availability = tuple(
+        sorted(
+            {
+                value
+                for record in inference
+                for value in (record.get("canonical_candidate_availability"),)
+                if isinstance(value, str) and value != "unknown"
+            }
+        )
+    )
+    canonical_candidate_counts = tuple(
+        _representative_image_count(record.get("canonical_candidate_count_class", "unknown"))
+        for record in inference
+        if record.get("canonical_candidate_count_class") is not None
+    )
+    canonical_summary_relations = tuple(
+        sorted(
+            {
+                value
+                for record in inference
+                for value in (record.get("canonical_summary_relation"),)
+                if isinstance(value, str) and value != "unknown"
+            }
+        )
+    )
+    pending_scope_availability = tuple(
+        sorted(
+            {
+                value
+                for record in inference
+                for value in (record.get("pending_scope_available"),)
+                if isinstance(value, str) and value != "unknown"
+            }
+        )
+    )
     tool_types = tuple(
         sorted(
             {
@@ -610,7 +725,7 @@ def _provider_boundary_from_records(
         and record.get("normal_close") is True
         for record in inference
     )
-    return ProviderBoundaryObservation(
+    result = ProviderBoundaryObservation(
         call_count=len(inference),
         lifecycle_valid=lifecycle_valid,
         terminal_count=sum(record.get("terminal_valid") is True for record in inference),
@@ -638,6 +753,20 @@ def _provider_boundary_from_records(
         normal_close_count=sum(record.get("normal_close") is True for record in inference),
         terminality_valid=lifecycle_valid,
     ).safe_dict()
+    result.update(
+        {
+            "canonical_candidate_availability_classes": canonical_candidate_availability,
+            "canonical_candidate_count_classes": tuple(
+                _count_class(value) for value in canonical_candidate_counts
+            ),
+            "canonical_summary_relation_classes": canonical_summary_relations,
+            "pending_scope_availability_classes": pending_scope_availability,
+            "continuation_count_class": _count_class(
+                sum(record.get("request_class") == "function_continuation" for record in inference)
+            ),
+        }
+    )
+    return result
 
 
 class _ObservedStream(httpx.AsyncByteStream):
@@ -1025,6 +1154,9 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         session_digest = record.correlation_key[2]
         key = (operation, lifetime or "unscoped", session_digest)
         record.correlation_key = key
+        record.pending_scope_available = (
+            "available" if self._call_correlation.has_pending(key) else "unavailable"
+        )
         if record.request_class == "function_initial":
             record.call_id_relation = "initial_owned"
             return
@@ -1086,7 +1218,8 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             try:
                 candidate = self._validator_factory(request)
                 validate = getattr(candidate, "validate", None)
-                if not callable(validate):
+                take_candidates = getattr(candidate, "take_replay_reference_candidates", None)
+                if not callable(validate) or not callable(take_candidates):
                     raise ValueError("validator_profile_invalid")
                 validator = candidate
             except asyncio.CancelledError:
@@ -1222,8 +1355,22 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.stream_bytes_class = _count_class(state.byte_count)
         record.event_count_class = _count_class(state.event_count)
         record.event_type_classes = tuple(sorted(set(state.event_types)))
+        record.canonical_candidate_count = state.canonical_candidate_count
+        record.canonical_candidate_availability = (
+            "available"
+            if state.canonical_candidate_count
+            else "none"
+            if state.validator is not None and state.failure_kind is None
+            else "unknown"
+        )
+        record.canonical_summary_relation = state.canonical_summary_relation
         if record.terminal_valid and state.correlation_key is not None:
             self._call_correlation.register(state.correlation_key, state.returned_call_id_digests)
+            record.pending_scope_available = (
+                "available"
+                if self._call_correlation.has_pending(state.correlation_key)
+                else "unavailable"
+            )
         if is_inference_sse and not record.terminal_valid:
             self._latch_failure(state.failure_kind or "contract")
 

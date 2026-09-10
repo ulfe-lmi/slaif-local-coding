@@ -67,11 +67,38 @@ def _event(payload: dict[str, object]) -> bytes:
 
 
 class _ObserverValidator:
+    def __init__(self) -> None:
+        self._candidates: list[object] = []
+
     def validate(self, payload: object) -> bool:
-        return isinstance(payload, dict) and payload.get("type") in {
+        if not isinstance(payload, dict) or payload.get("type") not in {
             "response.created",
+            "response.output_item.done",
             "response.completed",
-        }
+        }:
+            return False
+        if payload.get("type") == "response.output_item.done":
+            item = payload.get("item")
+            if not isinstance(item, dict):
+                return False
+            if item.get("type") == "function_call":
+                self._candidates.append(
+                    type(
+                        "_Candidate",
+                        (),
+                        {
+                            "item_kind": item.get("type"),
+                            "item_id": item.get("id"),
+                            "call_id": item.get("call_id"),
+                        },
+                    )()
+                )
+        return True
+
+    def take_replay_reference_candidates(self) -> tuple[object, ...]:
+        candidates = tuple(self._candidates)
+        self._candidates.clear()
+        return candidates
 
 
 def _observer_validator(_request: httpx.Request) -> _ObserverValidator:
@@ -553,11 +580,22 @@ def _observer_frame(event_type: str, payload: dict[str, object]) -> bytes:
     )
 
 
-def _observer_response(*, call_id: str | None = None) -> bytes:
+def _observer_response(*, call_id: str | None = None, summary_call_id: str | None = None) -> bytes:
+    if summary_call_id is None:
+        summary_call_id = call_id
     output = (
-        [{"type": "function_call", "id": "item-real", "call_id": call_id}]
+        [{"type": "function_call", "id": "item-summary", "call_id": summary_call_id}]
         if call_id is not None
         else [{"type": "message", "id": "item-message"}]
+    )
+    canonical_item = (
+        {
+            "type": "function_call",
+            "id": "item-canonical",
+            "call_id": call_id,
+        }
+        if call_id is not None
+        else {"type": "message", "id": "item-message"}
     )
     return b"".join(
         (
@@ -566,6 +604,13 @@ def _observer_response(*, call_id: str | None = None) -> bytes:
                 {
                     "type": "response.created",
                     "response": {"id": "response-real", "status": "in_progress"},
+                },
+            ),
+            _observer_frame(
+                "response.output_item.done",
+                {
+                    "type": "response.output_item.done",
+                    "item": canonical_item,
                 },
             ),
             _observer_frame(
@@ -602,7 +647,12 @@ async def test_direct_observer_correlates_actual_returned_call_to_idless_continu
     assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
     assert budget.admit("codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex")
     assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
-    responses = iter((_observer_response(call_id="call-real-a"), _observer_response()))
+    responses = iter(
+        (
+            _observer_response(call_id="call-real-a", summary_call_id="call-summary-alias"),
+            _observer_response(),
+        )
+    )
 
     def transition(
         kind: str, operation: str, _phase: str, _ordinal: int | None, terminal_valid: bool
@@ -659,6 +709,59 @@ async def test_direct_observer_correlates_actual_returned_call_to_idless_continu
     assert "matching" in boundary["call_id_relation_classes"]
     assert "omitted" in boundary["item_id_presence_classes"]
     assert "initial_owned" in boundary["call_id_relation_classes"]
+    assert boundary["canonical_summary_relation_classes"] == ("different",)
+
+
+@pytest.mark.asyncio
+async def test_direct_observer_does_not_promote_terminal_summary_alias() -> None:
+    responses = iter(
+        (
+            _observer_response(call_id="call-canonical", summary_call_id="call-summary-alias"),
+            _observer_response(),
+        )
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ObserverStream(next(responses)),
+            )
+        ),
+        validator_factory=_observer_validator,
+        validator_source="test",
+        request_classifier=_provider_request_observation,
+    )
+    metadata = {"session_id": "session-summary-alias"}
+    initial = {
+        "model": "synthetic",
+        "stream": True,
+        "client_metadata": metadata,
+        "input": [{"type": "message", "role": "user", "content": []}],
+        "tools": [{"type": "function", "name": "non_fixture_tool"}],
+    }
+    alias_continuation = {
+        "model": "synthetic",
+        "stream": True,
+        "client_metadata": metadata,
+        "input": [
+            {
+                "type": "function_call_output",
+                "call_id": "call-summary-alias",
+                "output": "synthetic-result",
+            }
+        ],
+    }
+    async with httpx.AsyncClient(transport=observer) as client:
+        first = await client.post("http://fake.test/v1/responses", json=initial)
+        await first.aread()
+        second = await client.post("http://fake.test/v1/responses", json=alias_continuation)
+        await second.aread()
+    records = observer.snapshot()["records"]
+    assert isinstance(records, (list, tuple))
+    continuation = cast(dict[str, object], records[1])
+    assert continuation["call_id_relation"] == "mismatched"
+    assert continuation["function_result_adjacent"] is False
 
 
 @pytest.mark.parametrize("chunk_size", (1, 4096))
@@ -666,21 +769,84 @@ async def test_direct_observer_correlates_actual_returned_call_to_idless_continu
 def test_returned_call_capture_handles_split_and_coalesced_sse(
     chunk_size: int, with_event_name: bool
 ) -> None:
-    payload = {
-        "type": "response.completed",
-        "response": {
-            "id": "response-real",
-            "status": "completed",
-            "output": [{"type": "function_call", "id": "item-real", "call_id": "call-real"}],
-        },
-    }
     event_line = b"event: response.completed\n" if with_event_name else b""
-    frame = event_line + b"data: " + json.dumps(payload, separators=(",", ":")).encode() + b"\n\n"
-    capture = _ReturnedCallIDCapture()
+    frames = (
+        b"data: "
+        + json.dumps(
+            {"type": "response.created", "response": {"id": "response-real"}},
+            separators=(",", ":"),
+        ).encode()
+        + b"\n\n",
+        b"data: "
+        + json.dumps(
+            {
+                "type": "response.output_item.done",
+                "item": {"type": "function_call", "id": "item-real", "call_id": "call-real"},
+            },
+            separators=(",", ":"),
+        ).encode()
+        + b"\n\n",
+        event_line
+        + b"data: "
+        + json.dumps(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "response-real",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "id": "item-summary",
+                            "call_id": "summary-alias",
+                        }
+                    ],
+                },
+            },
+            separators=(",", ":"),
+        ).encode()
+        + b"\n\n",
+    )
+    frame = b"".join(frames)
+    capture = _ReturnedCallIDCapture(validator=_ObserverValidator())
     for offset in range(0, len(frame), chunk_size):
         capture.consume(frame[offset : offset + chunk_size])
-    capture.finish()
+    capture.finish(stream_valid=True)
     assert capture.value == "call-real"
+    assert capture.safe_facts() == {
+        "canonical_candidate_availability": "available",
+        "canonical_candidate_count_class": "1",
+        "canonical_summary_relation": "different",
+    }
+
+
+def test_returned_call_capture_rejects_summary_only_identity() -> None:
+    frame = (
+        b"data: "
+        + json.dumps(
+            {
+                "type": "response.completed",
+                "response": {
+                    "id": "response-real",
+                    "status": "completed",
+                    "output": [
+                        {
+                            "type": "function_call",
+                            "id": "item-summary",
+                            "call_id": "summary-alias",
+                        }
+                    ],
+                },
+            },
+            separators=(",", ":"),
+        ).encode()
+        + b"\n\n"
+    )
+    capture = _ReturnedCallIDCapture(validator=_ObserverValidator())
+    capture.consume(frame)
+    capture.finish(stream_valid=True)
+    assert capture.value is None
+    assert capture.safe_facts()["canonical_candidate_availability"] == "none"
 
 
 def _companion_records(
@@ -739,6 +905,11 @@ def test_idless_companion_requires_omission_and_same_call_relationship(
             "two_terminal_reservations": True,
             "zero_pending": True,
             "zero_duplicate_request_ids": True,
+        },
+        canonical_replay_evidence={
+            "canonical_candidate_availability": "available",
+            "canonical_candidate_count_class": "1",
+            "canonical_summary_relation": "different",
         },
     )
     assert facts["passed"] is (item_id_presence == "omitted" and call_id_relation == "matching")

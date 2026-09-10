@@ -156,6 +156,7 @@ FAKE_MAX_EVENT_BYTES = 16_384
 FAKE_MAX_STREAM_BYTES = 131_072
 FAKE_MAX_FUNCTION_CALLS = 1
 FAKE_FUNCTION_CALL_ID = "call_synthetic"
+FAKE_FUNCTION_SUMMARY_ALIAS = "call_synthetic_summary_alias"
 
 
 @dataclass(frozen=True)
@@ -814,7 +815,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                         {
                             "type": "function_call",
                             "id": "parser_function_1",
-                            "call_id": FAKE_FUNCTION_CALL_ID,
+                            "call_id": FAKE_FUNCTION_SUMMARY_ALIAS,
                             "namespace": None,
                             "name": tool_name,
                             "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
@@ -1665,6 +1666,7 @@ def _idless_companion_observation(
     continuation_status: int | None,
     continuation_json_valid: bool,
     accounting: Mapping[str, object],
+    canonical_replay_evidence: Mapping[str, object],
 ) -> dict[str, object]:
     """Project one actual two-request omission companion without raw IDs.
 
@@ -1709,6 +1711,11 @@ def _idless_companion_observation(
     matching_call_id = (
         len(continuation) == 1 and continuation[0].get("call_id_relation") == "matching"
     )
+    canonical_replay_authority = (
+        canonical_replay_evidence.get("canonical_candidate_availability") == "available"
+        and canonical_replay_evidence.get("canonical_candidate_count_class") == "1"
+        and canonical_replay_evidence.get("canonical_summary_relation") == "different"
+    )
     passed = all(
         (
             len(initial) == 1,
@@ -1723,6 +1730,7 @@ def _idless_companion_observation(
             continuation_terminal,
             omitted_item_id,
             matching_call_id,
+            canonical_replay_authority,
             accounting.get("two_terminal_reservations") is True,
             accounting.get("zero_pending") is True,
             accounting.get("zero_duplicate_request_ids") is True,
@@ -1746,6 +1754,16 @@ def _idless_companion_observation(
         "returned_call_id_present": returned_call_id_present,
         "optional_item_id_omitted": omitted_item_id,
         "mandatory_call_id_matching": matching_call_id,
+        "canonical_replay_authority": canonical_replay_authority,
+        "canonical_candidate_availability": canonical_replay_evidence.get(
+            "canonical_candidate_availability", "unknown"
+        ),
+        "canonical_candidate_count_class": canonical_replay_evidence.get(
+            "canonical_candidate_count_class", "unknown"
+        ),
+        "canonical_summary_relation": canonical_replay_evidence.get(
+            "canonical_summary_relation", "unknown"
+        ),
         "same_admitted_relationship": same_admitted_relationship,
         "initial_terminal_valid": initial_terminal,
         "continuation_terminal_valid": continuation_terminal,
@@ -2956,8 +2974,8 @@ def _run_fake_idless_http_regression() -> dict[str, object]:
     }
 
 
-def _returned_call_id_from_sse_frame(frame: bytes) -> str | None:
-    """Extract one validated returned function-call ID from a terminal frame."""
+def _sse_frame_payload(frame: bytes) -> tuple[str, dict[str, object]] | None:
+    """Parse one bounded SSE frame without assigning replay authority."""
     event_name: str | None = None
     data_parts: list[bytes] = []
     for line in frame.replace(b"\r\n", b"\n").split(b"\n"):
@@ -2983,45 +3001,111 @@ def _returned_call_id_from_sse_frame(frame: bytes) -> str | None:
     if not isinstance(payload, dict):
         return None
     payload_event_name = payload.get("type")
-    if not isinstance(payload_event_name, str):
+    if not isinstance(payload_event_name, str) or not payload_event_name:
         return None
     if event_name is not None and event_name != payload_event_name:
         return None
-    if payload_event_name != "response.completed":
-        return None
+    return payload_event_name, payload
+
+
+def _comment_only_sse_frame(frame: bytes) -> bool:
+    """Recognize an ignorable SSE comment frame without accepting data."""
+    lines = frame.replace(b"\r\n", b"\n").split(b"\n")
+    return all(not line or line.startswith(b":") for line in lines)
+
+
+def _summary_call_id_digests(payload: Mapping[str, object]) -> tuple[bytes, ...]:
+    """Hash terminal-summary IDs only for bounded diagnostic comparison."""
     response = payload.get("response")
-    output = response.get("output") if isinstance(response, dict) else None
-    if not isinstance(output, list):
-        return None
-    function_calls = tuple(
-        item for item in output if isinstance(item, dict) and item.get("type") == "function_call"
-    )
-    if len(function_calls) != 1:
-        return None
-    item = function_calls[0]
-    item_id = item.get("id")
-    call_id = item.get("call_id")
-    if (
-        not isinstance(item_id, str)
-        or not item_id
-        or len(item_id) > 512
-        or any(char in item_id for char in "\r\n")
-        or not isinstance(call_id, str)
-        or not call_id
-        or len(call_id) > 512
-        or any(char in call_id for char in "\r\n")
-    ):
-        return None
-    return call_id
+    output = response.get("output") if isinstance(response, Mapping) else None
+    if not isinstance(output, list) or len(output) > FAKE_MAX_FUNCTION_CALLS + 7:
+        return ()
+    digests: list[bytes] = []
+    for item in output:
+        if not isinstance(item, dict) or item.get("type") != "function_call":
+            continue
+        call_id = item.get("call_id")
+        if (
+            not isinstance(call_id, str)
+            or not call_id
+            or len(call_id) > 512
+            or any(char in call_id for char in "\r\n")
+        ):
+            continue
+        digests.append(hashlib.sha256(call_id.encode("utf-8")).digest())
+    return tuple(digests)
 
 
 @dataclass
 class _ReturnedCallIDCapture:
-    """Bounded transient scanner for one streamed function-call result."""
+    """Bounded transient capture of exact validator replay candidates."""
 
-    buffer: bytearray = field(default_factory=bytearray)
-    value: str | None = None
+    validator: Any | None = field(default=None, repr=False)
+    buffer: bytearray = field(default_factory=bytearray, repr=False)
+    value: str | None = field(default=None, repr=False)
     invalid: bool = False
+    canonical_candidate_count: int = 0
+    canonical_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
+    canonical_call_ids: list[str] = field(default_factory=list, repr=False)
+    summary_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
+    canonical_summary_relation: str = "unknown"
+
+    @staticmethod
+    def _valid_identifier(value: object) -> bool:
+        return (
+            isinstance(value, str)
+            and bool(value)
+            and len(value) <= 512
+            and not any(char in value for char in "\r\n")
+        )
+
+    def _capture_frame(self, frame: bytes) -> None:
+        parsed = _sse_frame_payload(frame)
+        if parsed is None:
+            if _comment_only_sse_frame(frame):
+                return
+            self.invalid = True
+            return
+        event_name, payload = parsed
+        if self.validator is None:
+            self.invalid = True
+            return
+        validate = getattr(self.validator, "validate", None)
+        take_candidates = getattr(self.validator, "take_replay_reference_candidates", None)
+        if not callable(validate) or not callable(take_candidates):
+            self.invalid = True
+            return
+        try:
+            valid = validate(payload)
+            candidates = take_candidates()
+        except BaseException:
+            self.invalid = True
+            return
+        if not valid or not isinstance(candidates, tuple) or len(candidates) > FAKE_MAX_EVENTS:
+            self.invalid = True
+            return
+        for candidate in candidates:
+            if getattr(candidate, "item_kind", None) not in {"function_call", "custom_tool_call"}:
+                continue
+            call_id = getattr(candidate, "call_id", None)
+            item_id = getattr(candidate, "item_id", None)
+            if not self._valid_identifier(item_id) or not self._valid_identifier(call_id):
+                self.invalid = True
+                continue
+            self.canonical_candidate_count += 1
+            if len(self.canonical_call_ids) >= FAKE_MAX_FUNCTION_CALLS:
+                self.invalid = True
+                continue
+            self.canonical_call_ids.append(call_id)
+            self.canonical_call_id_digests += (hashlib.sha256(call_id.encode("utf-8")).digest(),)
+        if event_name == "response.completed":
+            self.summary_call_id_digests = _summary_call_id_digests(payload)
+            if self.canonical_call_id_digests and self.summary_call_id_digests:
+                self.canonical_summary_relation = (
+                    "same"
+                    if self.canonical_call_id_digests == self.summary_call_id_digests
+                    else "different"
+                )
 
     def consume(self, chunk: bytes) -> None:
         if self.invalid:
@@ -3041,20 +3125,30 @@ class _ReturnedCallIDCapture:
             index, size = min(available)
             frame = bytes(self.buffer[:index])
             del self.buffer[: index + size]
-            call_id = _returned_call_id_from_sse_frame(frame)
-            if call_id is not None:
-                if self.value is not None and self.value != call_id:
-                    self.invalid = True
-                    self.value = None
-                    return
-                self.value = call_id
+            self._capture_frame(frame)
 
-    def finish(self) -> None:
+    def finish(self, *, stream_valid: bool) -> None:
         if self.buffer:
             self.invalid = True
             self.buffer.clear()
-        if self.invalid:
+        if not stream_valid or self.invalid or len(self.canonical_call_ids) != 1:
             self.value = None
+            return
+        self.value = self.canonical_call_ids[0]
+
+    def safe_facts(self) -> dict[str, object]:
+        availability = (
+            "available"
+            if self.canonical_candidate_count
+            else "none"
+            if self.validator is not None and not self.invalid
+            else "unknown"
+        )
+        return {
+            "canonical_candidate_availability": availability,
+            "canonical_candidate_count_class": count_class(self.canonical_candidate_count),
+            "canonical_summary_relation": self.canonical_summary_relation,
+        }
 
 
 def _timed_public_stream(
@@ -3063,12 +3157,31 @@ def _timed_public_stream(
     body: dict[str, object],
     *,
     capture_returned_call_id: bool = False,
-) -> tuple[int | None, SSEFacts, dict[str, str], int, str | None]:
+    validator_factory: Callable[[httpx.Request], Any] | None = None,
+) -> tuple[int | None, SSEFacts, dict[str, str], int, str | None, dict[str, object]]:
     """Observe one stream with the shared bounded 005-j SSE parser."""
     started = time.monotonic()
     timing: dict[str, str] = {}
     sse = SSEFacts()
-    returned_call_capture = _ReturnedCallIDCapture() if capture_returned_call_id else None
+    request_body = json.dumps(body, separators=(",", ":")).encode("utf-8")
+    returned_call_capture = None
+    if capture_returned_call_id:
+        try:
+            validator = (
+                validator_factory(
+                    httpx.Request(
+                        "POST",
+                        f"{gateway_url}/v1/responses",
+                        headers={"content-type": "application/json"},
+                        content=request_body,
+                    )
+                )
+                if validator_factory is not None
+                else None
+            )
+        except BaseException:
+            validator = None
+        returned_call_capture = _ReturnedCallIDCapture(validator=validator)
     chunk_count = 0
     status: int | None = None
     try:
@@ -3081,7 +3194,7 @@ def _timed_public_stream(
                     "Accept": "text/event-stream",
                     "Content-Type": "application/json",
                 },
-                content=json.dumps(body, separators=(",", ":")).encode("utf-8"),
+                content=request_body,
             ) as response:
                 status = response.status_code
                 bucket = _timing_bucket(time.monotonic() - started)
@@ -3107,21 +3220,25 @@ def _timed_public_stream(
                 if bucket is not None:
                     timing["normal_close"] = bucket
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
+        if returned_call_capture is not None:
+            returned_call_capture.finish(stream_valid=False)
         return (
             status,
             sse,
             timing,
             chunk_count,
             returned_call_capture.value if returned_call_capture is not None else None,
+            returned_call_capture.safe_facts() if returned_call_capture is not None else {},
         )
     if returned_call_capture is not None:
-        returned_call_capture.finish()
+        returned_call_capture.finish(stream_valid=sse.completed_valid and status == 200)
     return (
         status,
         sse,
         timing,
         chunk_count,
         returned_call_capture.value if returned_call_capture is not None else None,
+        returned_call_capture.safe_facts() if returned_call_capture is not None else {},
     )
 
 
@@ -5615,11 +5732,13 @@ def _run_direct_composed_rehearsal_impl(
                 stream_timing,
                 stream_chunk_count,
                 returned_call_id,
+                returned_call_evidence,
             ) = _timed_public_stream(
                 gateway_url,
                 seeded["plaintext_key"],
                 companion_initial_body,
                 capture_returned_call_id=True,
+                validator_factory=validator_factory,
             )
             if returned_call_id is None:
                 raise RuntimeError("companion_returned_call_missing")
@@ -5731,6 +5850,7 @@ def _run_direct_composed_rehearsal_impl(
                 continuation_status=continuation_status,
                 continuation_json_valid=continuation_json_valid,
                 accounting=companion_accounting,
+                canonical_replay_evidence=returned_call_evidence,
             )
             stream_facts = build_composed_stream_facts(
                 status=stream_status,

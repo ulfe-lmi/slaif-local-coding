@@ -37,6 +37,14 @@ class _AcceptingValidator:
     def validate(self, payload: Mapping[str, object] | None) -> bool:
         return isinstance(payload, Mapping) and payload.get("type") in KNOWN_EVENTS
 
+    def take_replay_reference_candidates(self) -> tuple[object, ...]:
+        return ()
+
+
+class _MissingReplayCapabilityValidator:
+    def validate(self, payload: Mapping[str, object] | None) -> bool:
+        return isinstance(payload, Mapping)
+
 
 def _validator(_request: httpx.Request) -> _AcceptingValidator:
     return _AcceptingValidator()
@@ -913,7 +921,7 @@ async def test_close_error_does_not_replace_original_stream_error() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("factory_kind", ("missing", "raising", "invalid"))
+@pytest.mark.parametrize("factory_kind", ("missing", "raising", "invalid", "missing_method"))
 async def test_validator_profile_preflight_blocks_inference_before_delegate(
     factory_kind: str,
 ) -> None:
@@ -930,10 +938,14 @@ async def test_validator_profile_preflight_blocks_inference_before_delegate(
     def invalid_factory(_request: httpx.Request) -> object:
         return object()
 
+    def missing_method_factory(_request: httpx.Request) -> _MissingReplayCapabilityValidator:
+        return _MissingReplayCapabilityValidator()
+
     factory = {
         "missing": None,
         "raising": raising_factory,
         "invalid": invalid_factory,
+        "missing_method": missing_method_factory,
     }[factory_kind]
     observer = DirectTransportObserver(
         httpx.MockTransport(handler),
