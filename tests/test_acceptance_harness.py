@@ -448,10 +448,7 @@ def test_run_accumulator_sums_distinct_lifetimes_and_does_not_double_count_updat
     lifetime_counts = cast(dict[str, object], facts["lifetime_counts"])
     snapshots = cast(tuple[dict[str, object], ...], facts["snapshots"])
     assert set(lifetime_counts) == {"first", "second"}
-    assert all(
-        snapshot["lifetime_id"] in {"first", "second"}
-        for snapshot in snapshots
-    )
+    assert all(snapshot["lifetime_id"] in {"first", "second"} for snapshot in snapshots)
     assert facts["terminal_classes"] == ("terminal_valid", "terminal_valid")
 
 
