@@ -466,6 +466,18 @@ resource boundaries, clocks, or explicit failure injection; they do not select
 an alternate acceptance predicate. Real protected inference and the protected
 matrix remain `NOT RUN` unless separately ordered.
 
+At tested implementation `d49ff680df68c67354cede4c3f5a99dbdaa49d9f`, the
+fresh exact-pinned fake run passed all 37/37 outer obligations and projections
+with 26/26 direct dispatches (6 compiler, 12 inference, 8 other), 12/12
+terminal-valid inference operations, 6 SSE and 6 JSON inference observations,
+three consumed readiness permits, exact fake-provider agreement, terminal
+accounting, cleanup, and secret-free logs. Its healthy synthetic protected
+branch passed 29/29 rows with 28/28 dispatches, including two counted
+provider-preflight probes and three readiness probes. The synthetic failure
+cases retained their primary/secondary failures and cleanup facts. This is
+fake-only and synthetic orchestration evidence; protected acceptance, cutover,
+and release readiness remain `NOT RUN`.
+
 Provider call/result evidence is derived from validated returned function-call
 items and the admitted continuation in the same phase, session, and observer
 lifetime. IDs are transient opaque digests only; ordinary text mentioning an

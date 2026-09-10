@@ -1,0 +1,19 @@
+{
+  "evidence_version": "005-ac-sanitized-v1",
+  "tested_source_sha": "d49ff680df68c67354cede4c3f5a99dbdaa49d9f",
+  "case": "observer_projection_cleanup_failure",
+  "status": "BLOCKED",
+  "protected_acceptance": false,
+  "evidence_kind": "synthetic_orchestration_only",
+  "provider_target": "fake",
+  "gate": {"passed": false, "missing": 0, "first_failure": "observer_readiness_lost", "rows": 29, "all_rows_serialized": true, "projection_rows": "NOT RUN"},
+  "rows_with_status": "C1.1=NOT RUN C1.2=NOT RUN C1.3=NOT RUN C1.4=NOT RUN C1.5=NOT RUN C1.6=NOT RUN C2.1=NOT RUN C2.2=NOT RUN C2.3=NOT RUN C2.4=NOT RUN C2.5=NOT RUN C2.6=NOT RUN C3.1=NOT RUN C3.2=NOT RUN C3.3=NOT RUN C3.4=NOT RUN C4.1=NOT RUN C4.2=NOT RUN C4.3=NOT RUN C4.4=NOT RUN C4.5=NOT RUN C4.6=NOT RUN C4.7=NOT RUN C4.8=NOT RUN C4.9=NOT RUN C5.1=NOT RUN C5.2=NOT RUN C5.3=NOT RUN C5.4=NOT RUN",
+  "primary_failure": "observer_readiness_lost",
+  "secondary_failures": ["provider_boundary_unobserved", "cleanup_failed", "serialization_failure"],
+  "dispatch_counts": {"compiler": {"attempted": 1, "dispatched": 1, "responded": 1, "completed": 1}, "inference": {"attempted": 1, "dispatched": 1, "responded": 1, "completed": 1}, "other": {"attempted": 3, "dispatched": 3, "responded": 3, "completed": 3}},
+  "stop": {"known_compiler_dispatch": 1, "known_inference_dispatch": 1, "later_inference_dispatch": 0},
+  "injected_failures": {"projection": true, "cleanup": true},
+  "cleanup": {"processes": true, "listeners": true, "database": true, "cache": false, "codex_home": true},
+  "real_protected_access": false,
+  "raw_payloads_retained": false
+}
