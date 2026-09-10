@@ -1578,6 +1578,21 @@ def test_tested_source_reuse_accepts_markdown_backticked_sha_marker(
     assert _tested_source_still_valid(tested) is True
 
 
+def test_tested_source_reuse_accepts_evidence_only_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import scripts.gateway_accounting_rehearsal as rehearsal
+
+    repo, tested = _source_reuse_fixture(tmp_path)
+    evidence = repo / "oap" / "evidence" / "005-aj" / "index.json"
+    evidence.parent.mkdir(parents=True, exist_ok=True)
+    evidence.write_text('{"tested_implementation_sha":"' + tested + '"}\n', encoding="utf-8")
+    _fixture_git(repo, "add", "oap/evidence/005-aj/index.json")
+    _fixture_git(repo, "commit", "--quiet", "-m", "oap: publish evidence")
+    monkeypatch.setattr(rehearsal, "REPO_ROOT", repo)
+    assert _tested_source_still_valid(tested) is True
+
+
 def test_tested_source_reuse_rejects_dirty_relevant_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

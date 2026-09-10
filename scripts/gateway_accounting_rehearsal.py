@@ -4327,6 +4327,21 @@ def _tested_source_still_valid(tested_sha: str) -> bool:
     parent_values = parents.stdout.strip().split()
     if parents.returncode != 0 or parent_values != [tested_sha]:
         return False
+    evidence_changed = _run_command(
+        ["git", "-C", str(root), "diff-tree", "--no-commit-id", "--name-status", "-r", current]
+    )
+    evidence_rows = tuple(
+        tuple(value.split("\t", 1)) for value in evidence_changed.stdout.splitlines() if value
+    )
+    if (
+        evidence_changed.returncode == 0
+        and evidence_rows
+        and all(
+            len(row) == 2 and row[0] in {"A", "M"} and row[1].startswith("oap/evidence/")
+            for row in evidence_rows
+        )
+    ):
+        return True
     subject = _run_command(["git", "-C", str(root), "show", "-s", "--format=%s", current])
     if subject.returncode != 0 or "report" not in subject.stdout.lower():
         return False
