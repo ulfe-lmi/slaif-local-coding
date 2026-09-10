@@ -3092,6 +3092,7 @@ class _ReturnedCallIDCapture:
             if not self._valid_identifier(item_id) or not self._valid_identifier(call_id):
                 self.invalid = True
                 continue
+            assert isinstance(call_id, str)
             self.canonical_candidate_count += 1
             if len(self.canonical_call_ids) >= FAKE_MAX_FUNCTION_CALLS:
                 self.invalid = True
