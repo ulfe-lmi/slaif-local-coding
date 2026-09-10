@@ -24,10 +24,12 @@ from scripts.gateway_accounting_rehearsal import (
     ProtectedRuntimeHooks,
     _acceptance_gate,
     _FakeQwenServer,
+    _idless_companion_observation,
     _local_implementation_sha,
     _protected_provider_observation,
     _protected_provider_preflight,
     _provider_request_observation,
+    _ReturnedCallIDCapture,
     _runtime_observations,
     _select_protected_runtime,
     _tested_source_still_valid,
@@ -655,6 +657,122 @@ async def test_direct_observer_correlates_actual_returned_call_to_idless_continu
     assert "matching" in boundary["call_id_relation_classes"]
     assert "omitted" in boundary["item_id_presence_classes"]
     assert "initial_owned" in boundary["call_id_relation_classes"]
+
+
+@pytest.mark.parametrize("chunk_size", (1, 4096))
+def test_returned_call_capture_handles_split_and_coalesced_sse(chunk_size: int) -> None:
+    payload = {
+        "type": "response.completed",
+        "response": {
+            "id": "response-real",
+            "status": "completed",
+            "output": [{"type": "function_call", "id": "item-real", "call_id": "call-real"}],
+        },
+    }
+    frame = (
+        b"event: response.completed\n"
+        + b"data: "
+        + json.dumps(payload, separators=(",", ":")).encode()
+        + b"\n\n"
+    )
+    capture = _ReturnedCallIDCapture()
+    for offset in range(0, len(frame), chunk_size):
+        capture.consume(frame[offset : offset + chunk_size])
+    capture.finish()
+    assert capture.value == "call-real"
+
+
+def _companion_records(
+    *, item_id_presence: str = "omitted", call_id_relation: str = "matching"
+) -> tuple[dict[str, object], ...]:
+    context = {
+        "dispatch_operation": "identity_replay",
+        "dispatch_phase": "codex",
+        "dispatch_ordinal": 5,
+        "dispatch_lifetime": "identity",
+        "dispatched": True,
+        "responded": True,
+        "completed": True,
+        "terminal_valid": True,
+        "normal_close": True,
+    }
+    return (
+        {"kind": "inference", "request_class": "function_initial", **context},
+        {
+            "kind": "inference",
+            "request_class": "function_continuation",
+            "item_id_presence": item_id_presence,
+            "call_id_relation": call_id_relation,
+            **context,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("item_id_presence", "call_id_relation"),
+    (
+        ("omitted", "matching"),
+        ("present", "matching"),
+        ("omitted", "mismatched"),
+        ("omitted", "missing"),
+    ),
+)
+def test_idless_companion_requires_omission_and_same_call_relationship(
+    item_id_presence: str, call_id_relation: str
+) -> None:
+    before = {"records": ()}
+    after = {
+        "records": _companion_records(
+            item_id_presence=item_id_presence, call_id_relation=call_id_relation
+        )
+    }
+    facts = _idless_companion_observation(
+        before,
+        after,
+        initial_status=200,
+        initial_sse_valid=True,
+        returned_call_id_present=True,
+        continuation_status=200,
+        continuation_json_valid=True,
+        accounting={
+            "two_terminal_reservations": True,
+            "zero_pending": True,
+            "zero_duplicate_request_ids": True,
+        },
+    )
+    assert facts["passed"] is (item_id_presence == "omitted" and call_id_relation == "matching")
+
+
+def test_present_only_runtime_facts_do_not_pass_c14() -> None:
+    boundary = {
+        "call_count_class": "2",
+        "lifecycle_valid": True,
+        "terminality_valid": True,
+        "request_class_classes": ("function_initial", "function_continuation"),
+        "call_id_relation_classes": ("matching",),
+        "function_result_adjacent": True,
+        "independent_from_ledger": True,
+    }
+    result: dict[str, object] = {
+        "provider_target": "protected",
+        "provider_observation": {"provider_boundary": boundary},
+        "transport_observation": {"provider_boundary_observed": True},
+        "codex": {
+            "status": "PASSED",
+            "provider_inference_call_count": 2,
+            "provider_turns_expected": 2,
+            "exit_status": 0,
+            "command_lifecycle": "success",
+            "call_id_same_hmac": True,
+            "scope_no_downgrade": True,
+        },
+    }
+    observations = _runtime_observations(result)
+    assert observations["provider.idless_continuation_supported"] is False
+    gate, _gaps = _acceptance_gate(result)
+    rows = cast(list[dict[str, object]], gate["results"])
+    c14 = next(row for row in rows if row["obligation_id"] == "C1.4")
+    assert c14["status"] == "FAILED"
 
 
 def test_request_classifier_ignores_type_names_in_ordinary_text() -> None:

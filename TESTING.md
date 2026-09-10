@@ -487,3 +487,21 @@ The observer retains bounded distinct event categories plus scalar event
 counts, so repeated legal SSE deltas do not consume category storage. The
 16-KiB event and 128-KiB stream limits, exact Gateway validator, lifecycle
 closure rules, and synthetic failure cases remain unchanged.
+
+## Objective-005-ad actual omission companion
+
+The C1.4 id-less predicate is satisfied only by the composed companion inside
+the existing `identity_replay` allowance: one streamed initial function call
+returned by the Gateway → Local → provider chain followed by one non-streaming
+continuation. The continuation supplies the mandatory `call_id` from that
+returned call while omitting only its optional item `id`. Direct observer facts
+for both requests must share operation, phase, ordinal, lifetime, and session;
+both responses must be terminal-valid and the two corresponding accounting
+reservations must be finalized with no pending or duplicate request IDs.
+
+The natural unmodified Codex tool shape is recorded separately and cannot
+substitute for the companion. The focused fake HTTP regression and present-ID,
+missing-ID, mismatched-ID, or wrong-session facts cannot promote C1.4. Negative
+correlation cases must stop before provider advancement and leave accounting
+non-pending. The companion replaces the two existing `identity_replay`
+inference slots; it adds no operation, retry, provider call, or budget ceiling.

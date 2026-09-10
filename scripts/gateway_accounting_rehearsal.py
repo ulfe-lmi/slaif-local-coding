@@ -30,7 +30,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -1650,6 +1650,110 @@ def _observer_delta(before: dict[str, object], after: dict[str, object]) -> dict
     }
 
 
+def _idless_companion_observation(
+    before: Mapping[str, object],
+    after: Mapping[str, object],
+    *,
+    initial_status: int | None,
+    initial_sse_valid: bool,
+    returned_call_id_present: bool,
+    continuation_status: int | None,
+    continuation_json_valid: bool,
+    accounting: Mapping[str, object],
+) -> dict[str, object]:
+    """Project one actual two-request omission companion without raw IDs.
+
+    The companion is deliberately scoped to the two direct-observer records
+    admitted by ``identity_replay``.  A separate present-ID request, a
+    focused fake-provider regression, or a matching record from another
+    operation cannot satisfy this projection.
+    """
+    before_records = before.get("records", ())
+    after_records = after.get("records", ())
+    if not isinstance(before_records, (list, tuple)) or not isinstance(
+        after_records, (list, tuple)
+    ):
+        new_records: tuple[dict[str, object], ...] = ()
+    else:
+        new_records = tuple(
+            record for record in after_records[len(before_records) :] if isinstance(record, dict)
+        )
+    inference = tuple(record for record in new_records if record.get("kind") == "inference")
+    initial = tuple(
+        record for record in inference if record.get("request_class") == "function_initial"
+    )
+    continuation = tuple(
+        record for record in inference if record.get("request_class") == "function_continuation"
+    )
+    expected_context = ("identity_replay", "codex", 5, "identity")
+    same_admitted_relationship = len(inference) == 2 and all(
+        (
+            record.get("dispatch_operation"),
+            record.get("dispatch_phase"),
+            record.get("dispatch_ordinal"),
+            record.get("dispatch_lifetime"),
+        )
+        == expected_context
+        for record in inference
+    )
+    initial_terminal = len(initial) == 1 and initial[0].get("terminal_valid") is True
+    continuation_terminal = len(continuation) == 1 and continuation[0].get("terminal_valid") is True
+    omitted_item_id = (
+        len(continuation) == 1 and continuation[0].get("item_id_presence") == "omitted"
+    )
+    matching_call_id = (
+        len(continuation) == 1 and continuation[0].get("call_id_relation") == "matching"
+    )
+    passed = all(
+        (
+            len(initial) == 1,
+            len(continuation) == 1,
+            same_admitted_relationship,
+            initial_status == 200,
+            initial_sse_valid,
+            returned_call_id_present,
+            initial_terminal,
+            continuation_status == 200,
+            continuation_json_valid,
+            continuation_terminal,
+            omitted_item_id,
+            matching_call_id,
+            accounting.get("two_terminal_reservations") is True,
+            accounting.get("zero_pending") is True,
+            accounting.get("zero_duplicate_request_ids") is True,
+        )
+    )
+    return {
+        "passed": passed,
+        "operation": "identity_replay",
+        "phase": "codex",
+        "ordinal": 5,
+        "lifetime": "identity",
+        "request_count_class": count_class(len(inference)),
+        "initial_response_shape": "stream_sse",
+        "continuation_response_shape": "json_nonstream",
+        "initial_status_class": (
+            f"{initial_status // 100}xx" if isinstance(initial_status, int) else "unknown"
+        ),
+        "continuation_status_class": (
+            f"{continuation_status // 100}xx" if isinstance(continuation_status, int) else "unknown"
+        ),
+        "returned_call_id_present": returned_call_id_present,
+        "optional_item_id_omitted": omitted_item_id,
+        "mandatory_call_id_matching": matching_call_id,
+        "same_admitted_relationship": same_admitted_relationship,
+        "initial_terminal_valid": initial_terminal,
+        "continuation_terminal_valid": continuation_terminal,
+        "accounting_terminal": all(
+            accounting.get(key) is True
+            for key in ("two_terminal_reservations", "zero_pending", "zero_duplicate_request_ids")
+        ),
+        "natural_codex_shape_separate": True,
+        "gateway_call_id_same_hmac": passed,
+        "scope_no_downgrade": passed,
+    }
+
+
 def _provider_request_observation(request: httpx.Request) -> dict[str, object]:
     """Classify one provider-bound request without retaining its body."""
     if request.method != "POST" or request.url.path != "/v1/responses":
@@ -2786,13 +2890,112 @@ def _run_fake_idless_http_regression() -> dict[str, object]:
     }
 
 
+def _returned_call_id_from_sse_frame(frame: bytes) -> str | None:
+    """Extract one validated returned function-call ID from a terminal frame."""
+    event_name: str | None = None
+    data_parts: list[bytes] = []
+    for line in frame.replace(b"\r\n", b"\n").split(b"\n"):
+        if line.startswith(b"event:"):
+            if event_name is not None:
+                return None
+            try:
+                event_name = line[6:].strip().decode("ascii")
+            except UnicodeDecodeError:
+                return None
+        elif line.startswith(b"data:"):
+            data_parts.append(line[5:].lstrip())
+        elif line.startswith(b":") or not line:
+            continue
+        else:
+            return None
+    if event_name != "response.completed" or not data_parts:
+        return None
+    try:
+        payload = json.loads(b"\n".join(data_parts))
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    response = payload.get("response")
+    output = response.get("output") if isinstance(response, dict) else None
+    if not isinstance(output, list):
+        return None
+    function_calls = tuple(
+        item for item in output if isinstance(item, dict) and item.get("type") == "function_call"
+    )
+    if len(function_calls) != 1:
+        return None
+    item = function_calls[0]
+    item_id = item.get("id")
+    call_id = item.get("call_id")
+    if (
+        not isinstance(item_id, str)
+        or not item_id
+        or len(item_id) > 512
+        or any(char in item_id for char in "\r\n")
+        or not isinstance(call_id, str)
+        or not call_id
+        or len(call_id) > 512
+        or any(char in call_id for char in "\r\n")
+    ):
+        return None
+    return call_id
+
+
+@dataclass
+class _ReturnedCallIDCapture:
+    """Bounded transient scanner for one streamed function-call result."""
+
+    buffer: bytearray = field(default_factory=bytearray)
+    value: str | None = None
+    invalid: bool = False
+
+    def consume(self, chunk: bytes) -> None:
+        if self.invalid:
+            return
+        self.buffer.extend(chunk)
+        while True:
+            delimiters = [
+                (self.buffer.find(b"\n\n"), 2),
+                (self.buffer.find(b"\r\n\r\n"), 4),
+            ]
+            available = [(index, size) for index, size in delimiters if index >= 0]
+            if not available:
+                if len(self.buffer) > FAKE_MAX_EVENT_BYTES + 4:
+                    self.invalid = True
+                    self.buffer.clear()
+                return
+            index, size = min(available)
+            frame = bytes(self.buffer[:index])
+            del self.buffer[: index + size]
+            call_id = _returned_call_id_from_sse_frame(frame)
+            if call_id is not None:
+                if self.value is not None and self.value != call_id:
+                    self.invalid = True
+                    self.value = None
+                    return
+                self.value = call_id
+
+    def finish(self) -> None:
+        if self.buffer:
+            self.invalid = True
+            self.buffer.clear()
+        if self.invalid:
+            self.value = None
+
+
 def _timed_public_stream(
-    gateway_url: str, gateway_key: str, body: dict[str, object]
-) -> tuple[int | None, SSEFacts, dict[str, str], int]:
+    gateway_url: str,
+    gateway_key: str,
+    body: dict[str, object],
+    *,
+    capture_returned_call_id: bool = False,
+) -> tuple[int | None, SSEFacts, dict[str, str], int, str | None]:
     """Observe one stream with the shared bounded 005-j SSE parser."""
     started = time.monotonic()
     timing: dict[str, str] = {}
     sse = SSEFacts()
+    returned_call_capture = _ReturnedCallIDCapture() if capture_returned_call_id else None
     chunk_count = 0
     status: int | None = None
     try:
@@ -2820,6 +3023,8 @@ def _timed_public_stream(
                         if bucket is not None:
                             timing["first_sse_bytes"] = bucket
                     sse.consume(chunk)
+                    if returned_call_capture is not None:
+                        returned_call_capture.consume(chunk)
                     if sse.completed and "terminal_completion" not in timing:
                         bucket = _timing_bucket(time.monotonic() - started)
                         if bucket is not None:
@@ -2829,8 +3034,65 @@ def _timed_public_stream(
                 if bucket is not None:
                     timing["normal_close"] = bucket
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
-        return status, sse, timing, chunk_count
-    return status, sse, timing, chunk_count
+        return (
+            status,
+            sse,
+            timing,
+            chunk_count,
+            returned_call_capture.value if returned_call_capture is not None else None,
+        )
+    if returned_call_capture is not None:
+        returned_call_capture.finish()
+    return (
+        status,
+        sse,
+        timing,
+        chunk_count,
+        returned_call_capture.value if returned_call_capture is not None else None,
+    )
+
+
+def _timed_public_json_response(
+    gateway_url: str, gateway_key: str, body: dict[str, object]
+) -> tuple[int | None, bool, bool]:
+    """Make one bounded non-streaming request and retain only validity facts."""
+    status: int | None = None
+    try:
+        with httpx.Client(timeout=300, follow_redirects=False) as http:
+            response = http.post(
+                f"{gateway_url}/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {gateway_key}",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                content=json.dumps(body, separators=(",", ":")).encode("utf-8"),
+            )
+            status = response.status_code
+            if status != 200 or len(response.content) > FAKE_MAX_STREAM_BYTES:
+                return status, False, False
+            payload = response.json()
+    except (httpx.HTTPError, json.JSONDecodeError, TypeError, ValueError):
+        return status, False, False
+    if not isinstance(payload, dict):
+        return status, False, False
+    usage = payload.get("usage")
+    usage_valid = (
+        isinstance(usage, dict)
+        and all(
+            type(usage.get(key)) is int and usage[key] >= 0
+            for key in ("input_tokens", "output_tokens", "total_tokens")
+        )
+        and usage.get("total_tokens")
+        == usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+    )
+    response_valid = (
+        payload.get("status") == "completed"
+        and isinstance(payload.get("output"), list)
+        and bool(payload["output"])
+        and usage_valid
+    )
+    return status, response_valid, usage_valid
 
 
 def _response_status(call: Any) -> int:
@@ -3244,11 +3506,10 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
         )
         put(
             "codex.call_id_present",
-            isinstance(boundary, dict)
-            and "matching" in boundary.get("call_id_relation_classes", ()),
+            False,
         )
-        put("gateway.call_id_same_hmac", codex.get("call_id_same_hmac") is True)
-        put("gateway.scope_no_downgrade", codex.get("scope_no_downgrade") is True)
+        put("gateway.call_id_same_hmac", False)
+        put("gateway.scope_no_downgrade", False)
     if isinstance(boundary, dict):
         put(
             "provider.two_inference_calls",
@@ -3275,19 +3536,27 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
             transport.get("provider_boundary_observed") is True
             or transport.get("matches_fake_provider") is True,
         )
-    idless_regression = result.get("fake_idless_http_regression")
-    if mode == "fake" and isinstance(idless_regression, dict):
+    companion = result.get("idless_composed_companion")
+    if isinstance(companion, dict):
         put(
             "provider.idless_continuation_supported",
-            idless_regression.get("passed") is True,
+            companion.get("passed") is True,
         )
-    elif isinstance(boundary, dict):
         put(
-            "provider.idless_continuation_supported",
-            bool(set(boundary.get("item_id_presence_classes", ())) & {"omitted", "present"})
-            and "matching" in boundary.get("call_id_relation_classes", ())
-            and boundary.get("lifecycle_valid") is True,
+            "codex.call_id_present",
+            companion.get("returned_call_id_present") is True
+            and companion.get("mandatory_call_id_matching") is True,
         )
+        put(
+            "gateway.call_id_same_hmac",
+            companion.get("gateway_call_id_same_hmac") is True,
+        )
+        put("gateway.scope_no_downgrade", companion.get("scope_no_downgrade") is True)
+    else:
+        put("provider.idless_continuation_supported", False)
+        put("codex.call_id_present", False)
+        put("gateway.call_id_same_hmac", False)
+        put("gateway.scope_no_downgrade", False)
     accounting = result.get("accounting")
     codex_accounting = codex.get("accounting") if isinstance(codex, dict) else None
     accounting_facts = codex_accounting if isinstance(codex_accounting, dict) else accounting
@@ -4346,6 +4615,10 @@ def _run_direct_composed_rehearsal_impl(
         result["status"] = "COMPLETE" if acceptance_gate["passed"] else "BLOCKED"
 
     idless_http_regression: dict[str, object] = {"passed": False}
+    idless_composed_companion: dict[str, object] = {
+        "passed": False,
+        "natural_codex_shape_separate": False,
+    }
     protected_mode_synthetic: dict[str, object] = {"status": "NOT RUN"}
     protected_health_status: int | None = None
     protected_models_status: int | None = None
@@ -4831,6 +5104,7 @@ def _run_direct_composed_rehearsal_impl(
                     ),
                     "transport_observation": candidate_observer.snapshot(),
                     "fake_idless_http_regression": idless_http_regression,
+                    "idless_composed_companion": idless_composed_companion,
                     "topology_observation": {
                         "codex_gateway_local_provider": True,
                         "no_direct_route": True,
@@ -5059,32 +5333,35 @@ def _run_direct_composed_rehearsal_impl(
                     "search_content_types": ["text"],
                 },
             ]
-            # Operation 5 owns the two ordinary codex Requests calls below;
-            # its explicit plan then transitions to the five signed /health
-            # observations used by the identity matrix.
+            # Operation 5 owns the two inference slots below.  They are the
+            # composed omission companion: one streamed initial tool call and
+            # one non-streaming continuation.  The later phase still owns the
+            # five signed /health observations used by the identity matrix.
+            companion_tools: list[dict[str, object]] = [
+                {
+                    "type": "function",
+                    "name": "exec_command",
+                    "description": "bounded local command",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": False,
+                    },
+                    "strict": True,
+                }
+            ]
             admit("identity_replay", "codex", 5, "identity")
             activate("identity_replay", "codex", 5, "identity")
-            text_status: int | None = None
-            text_usage_present = False
-            try:
-                text_response = client.responses.create(
-                    **_openai_kwargs(
-                        _composed_request_body(session_a, "ordinary non-stream", tools=local_tools)
-                    ),
-                    max_output_tokens=32,
-                    store=False,
-                )
-                text_status = 200
-                text_usage = getattr(getattr(text_response, "usage", None), "total_tokens", None)
-                text_usage_present = isinstance(text_usage, int) and text_usage > 0
-            except APIStatusError as exc:
-                text_status = int(exc.status_code)
-            except (KeyError, TypeError, ValueError):
-                text_status = None
-            stream_body = _composed_request_body(
-                session_a, "codex-rehearsal stream", tools=adapter_tools
+            companion_initial_body = _composed_request_body(
+                session_a, "idless companion initial", tools=companion_tools
             )
-            stream_body.update({"stream": True, "max_output_tokens": 32, "store": False})
+            companion_initial_body.update({"stream": True, "max_output_tokens": 32, "store": False})
+            companion_observer = (
+                post_vision_observer if post_vision_observer is not None else candidate_observer
+            )
+            if companion_observer is None:
+                raise RuntimeError("companion_observer_missing")
+            stream_observer_before = companion_observer.snapshot()
             with httpx.Client(timeout=45, follow_redirects=False) as http:
                 stream_metrics_before = _adapter_metrics(http, adapter_port)
             stream_rows_before = asyncio.run(
@@ -5095,14 +5372,45 @@ def _run_direct_composed_rehearsal_impl(
                 if fake_server is None or provider_target == "protected"
                 else fake_server.snapshot()
             )
-            active_stream_observer = (
-                post_vision_observer if post_vision_observer is not None else candidate_observer
+            (
+                stream_status,
+                stream_sse,
+                stream_timing,
+                stream_chunk_count,
+                returned_call_id,
+            ) = _timed_public_stream(
+                gateway_url,
+                seeded["plaintext_key"],
+                companion_initial_body,
+                capture_returned_call_id=True,
             )
-            stream_observer_before = active_stream_observer.snapshot()
-            stream_status, stream_sse, stream_timing, stream_chunk_count = _timed_public_stream(
-                gateway_url, seeded["plaintext_key"], stream_body
+            if returned_call_id is None:
+                raise RuntimeError("companion_returned_call_missing")
+            companion_continuation_body = _composed_request_body(
+                session_a, "idless companion continuation", tools=companion_tools
             )
-            stream_observer_after = active_stream_observer.snapshot()
+            companion_continuation_body.update(
+                {
+                    "stream": False,
+                    "max_output_tokens": 32,
+                    "store": False,
+                    "input": [
+                        {
+                            "type": "function_call_output",
+                            "call_id": returned_call_id,
+                            "output": "synthetic companion result",
+                        }
+                    ],
+                }
+            )
+            continuation_status, continuation_json_valid, continuation_usage_present = (
+                _timed_public_json_response(
+                    gateway_url, seeded["plaintext_key"], companion_continuation_body
+                )
+            )
+            text_status = continuation_status
+            text_usage_present = continuation_usage_present
+            stream_observer_after = companion_observer.snapshot()
             accumulator.capture_observer(
                 stream_observer_after,
                 phase="codex",
@@ -5172,6 +5480,21 @@ def _run_direct_composed_rehearsal_impl(
                 provider_boundary_observed = observed_stream["provider_boundary_observed"] is True
                 provider_lifecycle_valid = observed_stream["provider_lifecycle_valid"] is True
                 provider_terminal = observed_stream["provider_terminal"] is True
+            companion_accounting = {
+                "two_terminal_reservations": reservation_delta == 2 and reservation_terminal,
+                "zero_pending": stream_rows_after["pending_reservation_count"] == 0,
+                "zero_duplicate_request_ids": stream_rows_after["duplicate_request_id_count"] == 0,
+            }
+            idless_composed_companion = _idless_companion_observation(
+                stream_observer_before,
+                stream_observer_after,
+                initial_status=stream_status,
+                initial_sse_valid=stream_sse.completed_valid,
+                returned_call_id_present=returned_call_id is not None,
+                continuation_status=continuation_status,
+                continuation_json_valid=continuation_json_valid,
+                accounting=companion_accounting,
+            )
             stream_facts = build_composed_stream_facts(
                 status=stream_status,
                 content_type="text/event-stream" if stream_status == 200 else None,
@@ -5237,6 +5560,7 @@ def _run_direct_composed_rehearsal_impl(
                     "protected_mode_synthetic_cases": protected_mode_synthetic_cases,
                     "fake_provider": None,
                     "fake_idless_http_regression": idless_http_regression,
+                    "idless_composed_companion": idless_composed_companion,
                     "topology_observation": {
                         "codex_gateway_local_provider": True,
                         "no_direct_route": True,
@@ -5756,6 +6080,7 @@ def _run_direct_composed_rehearsal_impl(
                     else None
                 ),
                 "fake_idless_http_regression": idless_http_regression,
+                "idless_composed_companion": idless_composed_companion,
                 "accounting": {
                     "main": before_rows,
                     "second": second_rows,
