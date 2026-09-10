@@ -423,3 +423,35 @@ synthetic protected gate passed 29/29 rows; observer, combined
 projection/cleanup, and pre-dispatch cases failed closed with all 29 rows
 serialized and bounded primary/secondary failure classes. No real protected
 access was made.
+
+## Objective-005-ab shared protected observation path
+
+The shared protected runner now derives provider predicates from the same
+direct HTTPX Gateway-to-Local-to-provider observer for both physical and
+synthetic execution. The disposable fake provider is an oracle only for the
+outer fake qualification; its semantic oracle is disabled for synthetic
+protected execution. The direct observer records bounded request classes,
+tool classes, optional item-ID presence, matching call-ID relation, approved
+fixture hashes, stream-validator lifecycle facts, and endpoint/method-scoped
+preflight health/model observations without retaining payloads.
+
+The fresh run at implementation `caaace3b322051b7cbcbbfe4595ac93964377c1d`
+passed the complete outer fake machine gate: 37/37 obligations and
+projections, 26/26 direct dispatches, 6 compiler, 12 inference, 8 other, and
+12/12 terminal-valid inference observations. The healthy synthetic protected
+case passed 29/29 rows and projections with 28/28 direct dispatches, including
+2 observed `/health` and `/v1/models` preflight requests plus 3 candidate
+readiness requests; the fake semantic oracle was unavailable. The standalone
+fake id-less regression remains regression evidence only; the protected C1.4
+predicate is derived from the admitted direct natural continuation and its
+matching call-ID relationship.
+
+The same serial run records three truthful failure cases, each with all 29
+rows serialized: observer failure after one compiler and one inference
+dispatch (`observer_readiness_lost`, later inference stopped); combined
+observer/projection/cleanup failure (cleanup injection retained as a secondary
+failure); and genuine pre-dispatch mapping/dependency failure with zero
+compiler, inference, and other dispatches, zero credential-hook calls, and no
+provider access. All synthetic resources cleaned up, except the deliberately
+injected cleanup-failure fact in that case. The protected fixture was not
+authenticated or mutated.

@@ -1,0 +1,56 @@
+{
+  "evidence_version": "005-ab-sanitized-v1",
+  "tested_source_sha": "caaace3b322051b7cbcbbfe4595ac93964377c1d",
+  "case": "healthy",
+  "status": "COMPLETE",
+  "protected_acceptance": false,
+  "evidence_kind": "synthetic_orchestration_only",
+  "provider_target": "fake",
+  "fake_semantic_oracle_available": false,
+  "gate": {
+    "passed": true,
+    "missing": 0,
+    "first_failure": null,
+    "rows": 29,
+    "all_rows_serialized": true,
+    "all_projections_passed": true,
+    "rows_with_status": [
+      {"id":"C1.1","status":"PASSED"},{"id":"C1.2","status":"PASSED"},{"id":"C1.3","status":"PASSED"},{"id":"C1.4","status":"PASSED"},{"id":"C1.5","status":"PASSED"},{"id":"C1.6","status":"PASSED"},
+      {"id":"C2.1","status":"PASSED"},{"id":"C2.2","status":"PASSED"},{"id":"C2.3","status":"PASSED"},{"id":"C2.4","status":"PASSED"},{"id":"C2.5","status":"PASSED"},{"id":"C2.6","status":"PASSED"},
+      {"id":"C3.1","status":"PASSED"},{"id":"C3.2","status":"PASSED"},{"id":"C3.3","status":"PASSED"},{"id":"C3.4","status":"PASSED"},
+      {"id":"C4.1","status":"PASSED"},{"id":"C4.2","status":"PASSED"},{"id":"C4.3","status":"PASSED"},{"id":"C4.4","status":"PASSED"},{"id":"C4.5","status":"PASSED"},{"id":"C4.6","status":"PASSED"},{"id":"C4.7","status":"PASSED"},{"id":"C4.8","status":"PASSED"},{"id":"C4.9","status":"PASSED"},
+      {"id":"C5.1","status":"PASSED"},{"id":"C5.2","status":"PASSED"},{"id":"C5.3","status":"PASSED"},{"id":"C5.4","status":"PASSED"}
+    ]
+  },
+  "phase_trace": ["preflight","codex","vision","vision","codex","finalize","finalize","preflight","codex","vision","vision"],
+  "dispatch_counts": {
+    "compiler": {"attempted": 6, "dispatched": 6, "responded": 6, "completed": 6},
+    "inference": {"attempted": 12, "dispatched": 12, "responded": 12, "completed": 12},
+    "other": {"attempted": 10, "dispatched": 10, "responded": 10, "completed": 10}
+  },
+  "budget": {
+    "dispatch_attempted": 28,
+    "dispatch_admitted": 28,
+    "provider_probe_admitted": 2,
+    "provider_probe_consumed": 2,
+    "provider_probe_pending": false,
+    "readiness_admitted": 3,
+    "readiness_consumed": 3,
+    "readiness_pending": false,
+    "max_dispatches": 64,
+    "max_event_bytes": 16384,
+    "max_stream_bytes": 131072,
+    "max_concurrency": 1,
+    "wall_seconds": 900
+  },
+  "provider_preflight": {
+    "health_status": 200,
+    "models_status": 200,
+    "observed_endpoints": ["/health", "/v1/models"],
+    "oracle_available": false
+  },
+  "protected_fixture_unchanged": {"pid": true,"start": true,"listener": true,"worktree_count": true},
+  "cleanup": {"processes": true,"listeners": true,"database": true,"cache": true,"codex_home": true},
+  "raw_payloads_retained": false,
+  "real_protected_access": false
+}

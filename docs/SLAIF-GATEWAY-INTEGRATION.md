@@ -603,3 +603,31 @@ synthetic protected gate passed 29/29 rows; observer, combined
 projection/cleanup, and pre-dispatch cases failed closed with all 29 rows
 serialized and bounded primary/secondary failure classes. No real protected
 access was made.
+
+## Objective-005-ab shared protected observation path
+
+The protected synthetic branch now uses the same direct HTTPX observer as the
+outer fake qualification to derive provider semantics from actual
+Gateway-to-Local-to-provider traffic. Synthetic hooks replace only protected
+host, process, credential-source, clock, and physical-provider boundaries. The
+fake provider's semantic oracle is disabled in this branch and cannot satisfy
+protected predicates. Request classes, tool classes, item-ID presence,
+matching call-ID relation, approved fixture hashes, bounded response lifecycle,
+and stream terminality are projected from the observer and the accepted
+Gateway Responses validator.
+
+Protected preflight performs exactly one explicitly permitted GET `/health`
+and one GET `/v1/models` against the disposable physical provider. Both are
+endpoint/method-scoped, admission-counted, deadline-bounded, and included with
+the three candidate readiness health requests. No retries or unbudgeted
+provider probes are available.
+
+The permanent runner records four serial synthetic cases: healthy
+oracle-disabled qualification, observer failure after known compiler and
+inference dispatch, combined observer/projection/cleanup failure, and genuine
+pre-dispatch mapping/dependency failure. Every case emits all 29 protected
+rows and fixed counts/classes; the pre-dispatch case proves zero credential
+hook and provider dispatches before cleanup. This is repository-only
+orchestration evidence and remains `protected_acceptance=false`; it is not
+protected inference acceptance, cutover, merge, or release readiness. The
+sanitized machine evidence is under `oap/evidence/005-ab/`.
