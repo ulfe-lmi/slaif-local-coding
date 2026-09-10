@@ -4976,6 +4976,17 @@ def _run_direct_composed_rehearsal_impl(
         ):
             protected_failure_injected = True
             active_observer.mark_unready()
+        if (
+            protected_hooks is not None
+            and protected_hooks.failure_phase == "vision_response"
+            and phase == "vision"
+            and kind == "inference"
+            and not protected_failure_injected
+        ):
+            protected_failure_injected = True
+            if active_observer is not None:
+                active_observer.mark_unready()
+            raise RuntimeError("synthetic_vision_response_failure")
         if protected_hooks is not None and protected_hooks.dispatch_complete_hook is not None:
             protected_hooks.dispatch_complete_hook(kind, phase, ordinal)
 
@@ -5122,6 +5133,10 @@ def _run_direct_composed_rehearsal_impl(
                     (
                         "predispatch_mapping_dependency_failure",
                         {"mapping_valid": False},
+                    ),
+                    (
+                        "vision_failure_after_codex",
+                        {"failure_phase": "vision_response"},
                     ),
                 ):
                     case = run_actual_protected_mode_conformance(
