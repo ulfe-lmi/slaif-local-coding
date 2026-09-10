@@ -23,6 +23,8 @@ from scripts.gateway_accounting_rehearsal import (
     OBSERVATION_VERSION,
     ProtectedRuntimeHooks,
     _acceptance_gate,
+    _candidate_only_observation,
+    _candidate_provenance,
     _FakeQwenServer,
     _idless_companion_observation,
     _local_implementation_sha,
@@ -915,6 +917,131 @@ def test_idless_companion_requires_omission_and_same_call_relationship(
     assert facts["passed"] is (item_id_presence == "omitted" and call_id_relation == "matching")
 
 
+def test_idless_companion_accepts_same_canonical_and_summary_identity() -> None:
+    facts = _idless_companion_observation(
+        {"records": ()},
+        {"records": _companion_records()},
+        initial_status=200,
+        initial_sse_valid=True,
+        returned_call_id_present=True,
+        continuation_status=200,
+        continuation_json_valid=True,
+        accounting={
+            "two_terminal_reservations": True,
+            "zero_pending": True,
+            "zero_duplicate_request_ids": True,
+        },
+        canonical_replay_evidence={
+            "canonical_candidate_availability": "available",
+            "canonical_candidate_count_class": "1",
+            "canonical_summary_relation": "same",
+        },
+    )
+    assert facts["canonical_replay_authority"] is True
+    assert facts["passed"] is True
+
+
+@pytest.mark.parametrize(
+    "canonical_replay_evidence",
+    (
+        {
+            "canonical_candidate_availability": "none",
+            "canonical_candidate_count_class": "0",
+            "canonical_summary_relation": "different",
+        },
+        {
+            "canonical_candidate_availability": "available",
+            "canonical_candidate_count_class": "0",
+            "canonical_summary_relation": "same",
+        },
+        {
+            "canonical_candidate_availability": "unknown",
+            "canonical_candidate_count_class": "unknown",
+            "canonical_summary_relation": "unknown",
+        },
+    ),
+)
+def test_idless_companion_rejects_missing_canonical_authority(
+    canonical_replay_evidence: dict[str, object],
+) -> None:
+    facts = _idless_companion_observation(
+        {"records": ()},
+        {"records": _companion_records()},
+        initial_status=200,
+        initial_sse_valid=True,
+        returned_call_id_present=True,
+        continuation_status=200,
+        continuation_json_valid=True,
+        accounting={
+            "two_terminal_reservations": True,
+            "zero_pending": True,
+            "zero_duplicate_request_ids": True,
+        },
+        canonical_replay_evidence=canonical_replay_evidence,
+    )
+    assert facts["canonical_replay_authority"] is False
+    assert facts["passed"] is False
+
+
+@pytest.mark.parametrize(
+    ("provider_target", "synthetic_protected", "execution_mode", "run_provenance"),
+    (
+        ("fake", False, "fake", "fresh_fake_direct_httpx_loopback"),
+        (
+            "protected",
+            True,
+            "synthetic-protected",
+            "fresh_synthetic_protected_direct_httpx_loopback",
+        ),
+        ("protected", False, "real-protected", "fresh_real_protected_direct_httpx_qwen"),
+    ),
+)
+def test_candidate_provenance_records_actual_execution_mode(
+    provider_target: str,
+    synthetic_protected: bool,
+    execution_mode: str,
+    run_provenance: str,
+) -> None:
+    provenance = _candidate_provenance(
+        "a" * 40,
+        "b" * 32,
+        provider_target=provider_target,
+        synthetic_protected=synthetic_protected,
+    )
+    assert provenance["execution_mode"] == execution_mode
+    assert provenance["run_provenance"] == run_provenance
+
+
+def test_candidate_only_observation_keeps_readiness_separate_from_totals() -> None:
+    candidate = _candidate_only_observation(
+        {
+            "ready": True,
+            "other_attempted_count": 2,
+            "other_dispatched_count": 2,
+            "other_responded_count": 2,
+            "other_completed_count": 2,
+            "other_terminal_valid_count": 2,
+            "compiler_attempted_count": 0,
+            "compiler_dispatched_count": 0,
+            "inference_attempted_count": 0,
+            "inference_dispatched_count": 0,
+        }
+    )
+    assert candidate["lifetime_id"] == "candidate"
+    assert candidate["ready"] is True
+    assert candidate["counts"] == {
+        "other_attempted": 2,
+        "other_dispatched": 2,
+        "other_responded": 2,
+        "other_completed": 2,
+        "other_terminal_valid": 2,
+        "compiler_attempted": 0,
+        "compiler_dispatched": 0,
+        "inference_attempted": 0,
+        "inference_dispatched": 0,
+    }
+
+
 def test_replay_ownership_negatives_require_gateway_denial_and_no_side_effects() -> None:
     before = {
         "reservation_count": 2,
@@ -1506,6 +1633,7 @@ def _complete_fake_payload() -> dict[str, object]:
             "gateway_app_tree_sha256": GATEWAY_APP_TREE_SHA256,
             "codex_version": CODEX_VERSION,
             "codex_binary_sha256": CODEX_FIXTURE_SHA256,
+            "execution_mode": "fake",
             "run_provenance": "fresh_fake_direct_httpx_loopback",
             "run_id": "0" * 32,
             "observer_version": OBSERVATION_VERSION,

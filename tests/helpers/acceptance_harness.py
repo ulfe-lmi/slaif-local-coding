@@ -1021,6 +1021,7 @@ class RunAccumulator:
         if len(self.snapshots) < 16:
             self.snapshots.append(
                 {
+                    "lifetime_id": lifetime,
                     "phase": self.phase,
                     "ordinal": self.ordinal,
                     "ready": snapshot.get("ready") is True,
@@ -1054,6 +1055,9 @@ class RunAccumulator:
         self.budget = dict(budget)
 
     def safe_dict(self) -> dict[str, object]:
+        lifetime_counts = {
+            lifetime: dict(values) for lifetime, values in self._lifetime_counts.items()
+        }
         return {
             "mode": self.mode,
             "candidate_sha": self.candidate_sha if isinstance(self.candidate_sha, str) else None,
@@ -1063,6 +1067,8 @@ class RunAccumulator:
             "first_failure": self.first_failure,
             "secondary_failures": tuple(self.secondary_failures),
             "counts": dict(self.counts),
+            "all_lifetime_counts": dict(self.counts),
+            "lifetime_counts": lifetime_counts,
             "budget": dict(self.budget),
             "observer_failure_classes": tuple(
                 item["failure_class"] for item in self.snapshots if item["failure_class"]

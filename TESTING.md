@@ -154,6 +154,18 @@ IDs fail closed before the next request. Safe evidence records candidate
 availability/count, summary relationship, pending-scope availability, and
 continuation/matching classes without retaining IDs, arguments, or payloads.
 
+The 005-ah continuation treats the validated canonical candidate as replay
+authority whether the terminal summary has the same identity or an allowed
+diagnostic alias. Summary identity remains diagnostic and cannot create
+authority when the canonical candidate is missing, empty, out of scope, or
+paired with an incomplete or invalid initial stream. Generated results bind
+`execution_mode` and `run_provenance` separately for fake,
+synthetic-protected, and real-protected execution; a Local observation failure
+does not overwrite the actual Codex client-verification status or failure
+origin. Run-level evidence publishes accumulator all-lifetime totals and a
+separate candidate-readiness snapshot so startup probes are not confused with
+the full composed run.
+
 At implementation `45f9d64976b0f2a44f6c3223d767c28f5405e1a`, the fresh fake
 machine gate passed 37/37 selected obligations with no missing result, first
 failure, or retry. The direct observer independently recorded 23 attempted,

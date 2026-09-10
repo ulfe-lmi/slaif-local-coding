@@ -1656,6 +1656,33 @@ def _observer_delta(before: dict[str, object], after: dict[str, object]) -> dict
     }
 
 
+def _candidate_only_observation(snapshot: Mapping[str, object]) -> dict[str, object]:
+    """Retain candidate-readiness counts separately from all-lifetime totals."""
+    count_names = (
+        "other_attempted",
+        "other_dispatched",
+        "other_responded",
+        "other_completed",
+        "other_terminal_valid",
+        "compiler_attempted",
+        "compiler_dispatched",
+        "inference_attempted",
+        "inference_dispatched",
+    )
+    counts: dict[str, int | None] = {}
+    for name in count_names:
+        value = snapshot.get(f"{name}_count")
+        counts[name] = value if type(value) is int and value >= 0 else None
+    return {
+        "lifetime_id": "candidate",
+        "ready": snapshot.get("ready") is True,
+        "failure_class": snapshot.get("failure_class")
+        if isinstance(snapshot.get("failure_class"), str)
+        else None,
+        "counts": counts,
+    }
+
+
 def _idless_companion_observation(
     before: Mapping[str, object],
     after: Mapping[str, object],
@@ -1714,7 +1741,6 @@ def _idless_companion_observation(
     canonical_replay_authority = (
         canonical_replay_evidence.get("canonical_candidate_availability") == "available"
         and canonical_replay_evidence.get("canonical_candidate_count_class") == "1"
-        and canonical_replay_evidence.get("canonical_summary_relation") == "different"
     )
     passed = all(
         (
@@ -2761,8 +2787,23 @@ def _source_identity() -> dict[str, object]:
     }
 
 
-def _candidate_provenance(implementation_sha: str, run_id: str) -> dict[str, object]:
-    """Build source-bound provenance for a result produced by this runner."""
+def _candidate_provenance(
+    implementation_sha: str,
+    run_id: str,
+    *,
+    provider_target: str = "fake",
+    synthetic_protected: bool = False,
+) -> dict[str, object]:
+    """Build source-bound provenance for the actual runner mode."""
+    if provider_target == "fake":
+        execution_mode = "fake"
+        run_provenance = "fresh_fake_direct_httpx_loopback"
+    elif synthetic_protected:
+        execution_mode = "synthetic-protected"
+        run_provenance = "fresh_synthetic_protected_direct_httpx_loopback"
+    else:
+        execution_mode = "real-protected"
+        run_provenance = "fresh_real_protected_direct_httpx_qwen"
     return {
         "implementation_sha": implementation_sha,
         "tested_worktree_clean": True,
@@ -2773,7 +2814,8 @@ def _candidate_provenance(implementation_sha: str, run_id: str) -> dict[str, obj
         "gateway_app_tree_sha256": GATEWAY_APP_TREE_SHA256,
         "codex_version": CODEX_VERSION,
         "codex_binary_sha256": CODEX_FIXTURE_SHA256,
-        "run_provenance": "fresh_fake_direct_httpx_loopback",
+        "execution_mode": execution_mode,
+        "run_provenance": run_provenance,
         "run_id": run_id,
         "observer_version": OBSERVATION_VERSION,
         "source_identity": _source_identity(),
@@ -3382,6 +3424,14 @@ def _run_fake_codex_turn(
     )
     return {
         "status": "PASSED" if successful else "FAILED",
+        "client_verification": {
+            "status": "PASSED" if successful else "FAILED",
+            "exit_status": run.exit_status,
+            "failure_origin": run.failure_origin,
+            "failure_reason": run.failure_reason,
+            "sentinel_passed": run.sentinel_passed,
+            "command_lifecycle": run.dependency_observation.lifecycle,
+        },
         "version": CODEX_VERSION,
         "binary_sha256": CODEX_FIXTURE_SHA256,
         "exit_status": run.exit_status,
@@ -4278,6 +4328,7 @@ def _validate_fake_gate(path: Path | None) -> None:
         "gateway_app_tree_sha256",
         "codex_version",
         "codex_binary_sha256",
+        "execution_mode",
         "run_provenance",
         "run_id",
         "observer_version",
@@ -4320,6 +4371,7 @@ def _validate_fake_gate(path: Path | None) -> None:
         and candidate.get("gateway_app_tree_sha256") == GATEWAY_APP_TREE_SHA256
         and candidate.get("codex_version") == CODEX_VERSION
         and candidate.get("codex_binary_sha256") == CODEX_FIXTURE_SHA256
+        and candidate.get("execution_mode") == "fake"
         and candidate.get("run_provenance") == "fresh_fake_direct_httpx_loopback"
         and isinstance(candidate.get("run_id"), str)
         and re.fullmatch(r"[0-9a-f]{32}", candidate["run_id"]) is not None
@@ -4566,7 +4618,7 @@ def run_actual_protected_mode_conformance(
         result["synthetic_dependency_missing"] = True
         result["runtime_observations"] = _runtime_observations(result)
         result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
-        result["run_accumulator"] = accumulator.safe_dict()
+        _attach_accumulator_evidence(result, accumulator)
         protected_ids = tuple(
             item.obligation_id for item in ACCEPTANCE_MANIFEST if item.mode in {"both", "protected"}
         )
@@ -4599,7 +4651,7 @@ def run_actual_protected_mode_conformance(
         result = _failed_rehearsal_result("protected", accumulator)
         result["runtime_observations"] = _runtime_observations(result)
         result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
-        result["run_accumulator"] = accumulator.safe_dict()
+        _attach_accumulator_evidence(result, accumulator)
     result["protected_acceptance"] = False
     result["evidence_kind"] = "synthetic_orchestration_only"
     gate = result.get("acceptance_gate")
@@ -4694,7 +4746,7 @@ def _run_direct_composed_rehearsal(
         result = _failed_rehearsal_result(provider_target, accumulator)
         result["runtime_observations"] = _runtime_observations(result)
         result["acceptance_gate"], result["gap_inventory"] = _acceptance_gate(result)
-        result["run_accumulator"] = accumulator.safe_dict()
+        _attach_accumulator_evidence(result, accumulator)
         return result
     try:
         result = _run_direct_composed_rehearsal_impl(
@@ -4734,8 +4786,16 @@ def _run_direct_composed_rehearsal(
         result["status"] = (
             "COMPLETE" if isinstance(gate, dict) and gate.get("passed") is True else "BLOCKED"
         )
-    result["run_accumulator"] = accumulator.safe_dict()
+    _attach_accumulator_evidence(result, accumulator)
     return result
+
+
+def _attach_accumulator_evidence(result: dict[str, object], accumulator: RunAccumulator) -> None:
+    """Publish all-lifetime totals without conflating candidate readiness."""
+    facts = accumulator.safe_dict()
+    result["run_accumulator"] = facts
+    result["all_lifetime_counts"] = facts.get("all_lifetime_counts", facts.get("counts"))
+    result.setdefault("candidate_only_observation", {"status": "NOT RUN"})
 
 
 def _run_direct_composed_rehearsal_impl(
@@ -4893,6 +4953,7 @@ def _run_direct_composed_rehearsal_impl(
     postgres_removed = False
     previous_candidate_env: dict[str, str | None] = {}
     result: dict[str, object] = _failed_rehearsal_result(provider_target, accumulator)
+    candidate_only_observation: dict[str, object] = {"status": "NOT RUN"}
     logs: tuple[Path, ...] = ()
     candidate_observer: DirectTransportObserver | None = None
     provider_preflight_observer: DirectTransportObserver | None = None
@@ -5252,6 +5313,9 @@ def _run_direct_composed_rehearsal_impl(
                 readiness_lifetime_id="candidate",
             )
             candidate_runtimes.append(candidate_runtime)
+            candidate_only_observation = _candidate_only_observation(
+                candidate_runtime.observer.snapshot()
+            )
             candidate_health = candidate_runtime.health_status
             candidate_ready = candidate_runtime.ready_status
             if candidate_health != 200 or candidate_ready != 200:
@@ -5411,6 +5475,7 @@ def _run_direct_composed_rehearsal_impl(
                         "cost": codex_rows_after["ledger_total_cost_eur"]
                         != codex_rows_before["ledger_total_cost_eur"],
                     },
+                    "local_observation_status": ("PASSED" if codex_transport_matches else "FAILED"),
                 }
             )
             if not codex_transport_matches:
@@ -5444,7 +5509,10 @@ def _run_direct_composed_rehearsal_impl(
                     "provider_target": provider_target,
                     "gateway_sha": GATEWAY_MAIN_SHA,
                     "candidate_provenance": _candidate_provenance(
-                        tested_implementation_sha, run_id
+                        tested_implementation_sha,
+                        run_id,
+                        provider_target=provider_target,
+                        synthetic_protected=protected_hooks is not None,
                     ),
                     "codex": codex_facts,
                     "protected_stop_reason": (
@@ -5464,6 +5532,7 @@ def _run_direct_composed_rehearsal_impl(
                     "transport_observation": candidate_observer.snapshot(),
                     "fake_idless_http_regression": idless_http_regression,
                     "idless_composed_companion": idless_composed_companion,
+                    "candidate_only_observation": candidate_only_observation,
                     "topology_observation": {
                         "codex_gateway_local_provider": True,
                         "no_direct_route": True,
@@ -5919,6 +5988,7 @@ def _run_direct_composed_rehearsal_impl(
                     "fake_provider": None,
                     "fake_idless_http_regression": idless_http_regression,
                     "idless_composed_companion": idless_composed_companion,
+                    "candidate_only_observation": candidate_only_observation,
                     "topology_observation": {
                         "codex_gateway_local_provider": True,
                         "no_direct_route": True,
@@ -5975,7 +6045,10 @@ def _run_direct_composed_rehearsal_impl(
                         "provider_target": provider_target,
                         "gateway_sha": GATEWAY_MAIN_SHA,
                         "candidate_provenance": _candidate_provenance(
-                            tested_implementation_sha, run_id
+                            tested_implementation_sha,
+                            run_id,
+                            provider_target=provider_target,
+                            synthetic_protected=protected_hooks is not None,
                         ),
                         "idless_composed_companion": idless_composed_companion,
                         "replay_ownership_negative": ownership_negative,
@@ -6392,7 +6465,12 @@ def _run_direct_composed_rehearsal_impl(
                 "status": "PASSED",
                 "provider_target": provider_target,
                 "gateway_sha": GATEWAY_MAIN_SHA,
-                "candidate_provenance": _candidate_provenance(tested_implementation_sha, run_id),
+                "candidate_provenance": _candidate_provenance(
+                    tested_implementation_sha,
+                    run_id,
+                    provider_target=provider_target,
+                    synthetic_protected=protected_hooks is not None,
+                ),
                 "gateway_health_status": gateway_health,
                 "gateway_ready_status": gateway_ready,
                 "candidate_health_status": candidate_health,
@@ -6479,6 +6557,7 @@ def _run_direct_composed_rehearsal_impl(
                 ),
                 "fake_idless_http_regression": idless_http_regression,
                 "idless_composed_companion": idless_composed_companion,
+                "candidate_only_observation": candidate_only_observation,
                 "accounting": {
                     "main": before_rows,
                     "second": second_rows,
