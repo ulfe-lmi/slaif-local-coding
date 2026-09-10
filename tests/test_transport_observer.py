@@ -1482,6 +1482,14 @@ async def test_dispatch_complete_hook_can_stop_after_one_actual_dispatch() -> No
     assert record["dispatched"] is True
     assert record["responded"] is True
     assert observer.snapshot()["ready"] is False
+    assert observer.snapshot()["failure_context"] == {
+        "kind": "compiler",
+        "operation": "codex_turn_1",
+        "phase": "codex",
+        "ordinal": 1,
+        "lifetime_id": "test",
+        "cause": "manual_unready",
+    }
 
 
 @pytest.mark.asyncio

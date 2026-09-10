@@ -1009,7 +1009,8 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
 
     def mark_unready(self) -> None:
         """Stop later dispatches after an observer-side readiness failure."""
-        self._latch_failure("manual")
+        context = self._record_failure_context(self._records[-1]) if self._records else None
+        self._latch_failure("manual", context=context)
 
     @property
     def records(self) -> tuple[dict[str, object], ...]:
