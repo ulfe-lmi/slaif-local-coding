@@ -1,0 +1,537 @@
+{
+  "evidence_version": "005-af-v1",
+  "identifier": "005-af",
+  "status": "BLOCKED",
+  "tested_implementation_sha": "ba42a15cd99a13cf487dac687628fc42df31301e",
+  "artifacts": {
+    "fake_machine_gate": {
+      "path": "oap/evidence/005-af/fake-machine-gate.json",
+      "sha256": "ef3699e51fe3767d06ca3edfd83f151a308d048fd3d1d84fba5f7d5b88cc0afd"
+    },
+    "protected_matrix": {
+      "path": "oap/evidence/005-af/protected-matrix.json",
+      "sha256": "8cf209a727e48a65d17f3150da01915b9b75b00978f45897c0277c7d6109aefd"
+    }
+  },
+  "github": {
+    "repository": "ulfe-lmi/slaif-local-coding",
+    "pr": 7,
+    "state": "OPEN",
+    "base": "main",
+    "head": "oap/005-gateway-ingress-integration",
+    "implementation_head": "ba42a15cd99a13cf487dac687628fc42df31301e",
+    "required_check": {
+      "name": "test",
+      "status": "SUCCESS",
+      "run_id": "34443006166",
+      "job_id": "102761760156"
+    },
+    "merge_performed": false
+  },
+  "pins": {
+    "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+    "codex_version": "0.149.0",
+    "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+    "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+    "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+    "observer_version": "direct-httpx-v2"
+  },
+  "source_identity": {
+    "loaded_module_paths": {
+      "scripts.local_qwen_provider_differential": "scripts/local_qwen_provider_differential.py",
+      "tests.helpers.acceptance_harness": "tests/helpers/acceptance_harness.py",
+      "tests.helpers.transport_observer": "tests/helpers/transport_observer.py"
+    },
+    "loaded_module_sha256": {
+      "scripts.local_qwen_provider_differential": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "tests.helpers.acceptance_harness": "185499529ce27a1930cdf912640c132e025b7c8f3a6f784c9a279e1cb0188175",
+      "tests.helpers.transport_observer": "79a35106de9ed087fa91a551aa1180ceddd6736b41b6f71c3904008971e7d812"
+    },
+    "paths": {
+      "observer": "tests/helpers/transport_observer.py",
+      "projection": "tests/helpers/acceptance_harness.py",
+      "provider_sse": "scripts/local_qwen_provider_differential.py",
+      "runner": "scripts/gateway_accounting_rehearsal.py"
+    },
+    "sha256": {
+      "observer": "79a35106de9ed087fa91a551aa1180ceddd6736b41b6f71c3904008971e7d812",
+      "projection": "185499529ce27a1930cdf912640c132e025b7c8f3a6f784c9a279e1cb0188175",
+      "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "runner": "c38cac86842eaa30873c16c3e7c46b87d5ba581a74f2818248faddfdf19598b5"
+    }
+  },
+  "commands": {
+    "fake": "PYTHONPATH=/synology/homes/janezp/codex-work/slaif-local-coding:/synology/homes/janezp/codex-work/slaif-local-coding/src:/synology/homes/janezp/codex-work/slaif-local-coding/scripts:/tmp/slaif-005ae-gateway.57Mos1/app /tmp/slaif-005ad-gateway-venv/bin/python scripts/gateway_accounting_rehearsal.py --gateway-root /tmp/slaif-005ae-gateway.57Mos1 --gateway-python /tmp/slaif-005ad-gateway-venv/bin/python --provider-target fake --codex /synology/homes/janezp/.codex/packages/standalone/releases/0.149.0-x86_64-unknown-linux-musl/bin/codex",
+    "protected": "PYTHONPATH=/synology/homes/janezp/codex-work/slaif-local-coding:/synology/homes/janezp/codex-work/slaif-local-coding/src:/synology/homes/janezp/codex-work/slaif-local-coding/scripts:/tmp/slaif-005ae-gateway.57Mos1/app /tmp/slaif-005ad-gateway-venv/bin/python scripts/gateway_accounting_rehearsal.py --gateway-root /tmp/slaif-005ae-gateway.57Mos1 --gateway-python /tmp/slaif-005ad-gateway-venv/bin/python --provider-target protected --fake-result /tmp/tmp.mLoqDROLYl/fake-result.jsonl --codex /synology/homes/janezp/.codex/packages/standalone/releases/0.149.0-x86_64-unknown-linux-musl/bin/codex"
+  },
+  "execution_identity": {
+    "uid": 1029,
+    "euid": 1029,
+    "fake_result_type": "regular",
+    "fake_result_mode": "0600",
+    "fake_result_owner_uid": 1029,
+    "fake_result_link_count": 1,
+    "protected_result_type": "regular",
+    "protected_result_mode": "0600",
+    "protected_result_owner_uid": 1029,
+    "protected_result_link_count": 1,
+    "whole_runner_elevated": false
+  },
+  "fake_qualification": {
+    "status": "COMPLETE",
+    "gate": {
+      "passed": true,
+      "missing": [],
+      "first_failure": null,
+      "retry_count": 0,
+      "row_count": 37,
+      "projection_count": 37,
+      "row_status_counts": [
+        {
+          "status": "PASSED",
+          "count": 37
+        }
+      ]
+    },
+    "transport": {
+      "observer_version": "direct-httpx-v2",
+      "ready": true,
+      "failure_class": null,
+      "attempted_count": 26,
+      "dispatched_count": 26,
+      "responded_count": 26,
+      "completed_count": 26,
+      "terminal_valid_count": 12,
+      "provider_boundary": {
+        "call_count_class": "5+",
+        "request_class_classes": [
+          "function_continuation",
+          "function_initial",
+          "image",
+          "message"
+        ],
+        "call_id_relation_classes": [
+          "initial_owned",
+          "matching",
+          "mismatched"
+        ],
+        "item_id_presence_classes": [
+          "omitted",
+          "present"
+        ],
+        "lifecycle_valid": true,
+        "terminal": true,
+        "terminality_valid": true,
+        "independent_from_ledger": true,
+        "all_image_requests_single": true,
+        "image_hashes_observed": true
+      }
+    },
+    "companion": {
+      "accounting_terminal": true,
+      "continuation_response_shape": "json_nonstream",
+      "continuation_status_class": "2xx",
+      "continuation_terminal_valid": true,
+      "gateway_call_id_same_hmac": true,
+      "initial_response_shape": "stream_sse",
+      "initial_status_class": "2xx",
+      "initial_terminal_valid": true,
+      "lifetime": "identity",
+      "mandatory_call_id_matching": true,
+      "natural_codex_shape_separate": true,
+      "operation": "identity_replay",
+      "optional_item_id_omitted": true,
+      "ordinal": 5,
+      "passed": true,
+      "phase": "codex",
+      "request_count_class": "2",
+      "returned_call_id_present": true,
+      "same_admitted_relationship": true,
+      "scope_no_downgrade": true
+    },
+    "ownership_negative": {
+      "all_denied": true,
+      "mismatched_call_id_status_class": "4xx",
+      "missing_call_id_status_class": "4xx",
+      "passed": true,
+      "primary_accounting_unchanged": true,
+      "provider_calls_unchanged": true,
+      "request_count_class": "3-4",
+      "scope": "gateway_responses_companion",
+      "second_key_accounting_unchanged": true,
+      "wrong_key_status_class": "4xx",
+      "zero_duplicate_request_ids": true,
+      "zero_pending": true
+    },
+    "accounting": {
+      "all_terminal": true,
+      "failure": {
+        "duplicate_request_id_count": 0,
+        "failed_ledger_count": 1,
+        "finalized_ledger_count": 0,
+        "finalized_reservation_count": 0,
+        "key_cost_reserved_eur": "0",
+        "key_cost_used_eur": "0",
+        "key_requests_reserved": 0,
+        "key_requests_used": 0,
+        "key_tokens_reserved": 0,
+        "key_tokens_used": 0,
+        "ledger_count": 1,
+        "ledger_total_cost_eur": "0",
+        "ledger_total_tokens": 0,
+        "pending_reservation_count": 0,
+        "provider_usage_rows": 0,
+        "reservation_count": 1,
+        "route_metadata_ok": true
+      },
+      "main": {
+        "duplicate_request_id_count": 0,
+        "failed_ledger_count": 0,
+        "finalized_ledger_count": 11,
+        "finalized_reservation_count": 11,
+        "key_cost_reserved_eur": "0",
+        "key_cost_used_eur": "0.000048",
+        "key_requests_reserved": 0,
+        "key_requests_used": 11,
+        "key_tokens_reserved": 0,
+        "key_tokens_used": 32,
+        "ledger_count": 11,
+        "ledger_total_cost_eur": "0.000048",
+        "ledger_total_tokens": 32,
+        "pending_reservation_count": 0,
+        "provider_usage_rows": 11,
+        "reservation_count": 11,
+        "route_metadata_ok": true
+      },
+      "second": {
+        "duplicate_request_id_count": 0,
+        "failed_ledger_count": 0,
+        "finalized_ledger_count": 1,
+        "finalized_reservation_count": 1,
+        "key_cost_reserved_eur": "0",
+        "key_cost_used_eur": "0.000006",
+        "key_requests_reserved": 0,
+        "key_requests_used": 1,
+        "key_tokens_reserved": 0,
+        "key_tokens_used": 4,
+        "ledger_count": 1,
+        "ledger_total_cost_eur": "0.000006",
+        "ledger_total_tokens": 4,
+        "pending_reservation_count": 0,
+        "provider_usage_rows": 1,
+        "reservation_count": 1,
+        "route_metadata_ok": true
+      }
+    },
+    "cleanup": {
+      "cache": true,
+      "codex_home": true,
+      "database": true,
+      "failure_cache": true,
+      "failure_identity": true,
+      "failure_provider": true,
+      "failure_replay": true,
+      "listeners": true,
+      "processes": true
+    },
+    "logs_secret_free": true,
+    "synthetic_cases": [
+      {
+        "name": "healthy",
+        "status": "COMPLETE",
+        "gate": {
+          "passed": true,
+          "missing": [],
+          "first_failure": null,
+          "retry_count": 0,
+          "row_count": 29,
+          "projection_count": 29,
+          "row_status_counts": [
+            {
+              "status": "PASSED",
+              "count": 29
+            }
+          ]
+        },
+        "cleanup": {
+          "cache": true,
+          "codex_home": true,
+          "database": true,
+          "failure_cache": true,
+          "failure_identity": true,
+          "failure_provider": true,
+          "failure_replay": true,
+          "listeners": true,
+          "processes": true
+        },
+        "real_protected_access": false
+      },
+      {
+        "name": "observer_failure_after_dispatch",
+        "status": "BLOCKED",
+        "gate": {
+          "passed": false,
+          "missing": [],
+          "first_failure": "C1.1",
+          "retry_count": 0,
+          "row_count": 29,
+          "projection_count": 29,
+          "row_status_counts": [
+            {
+              "status": "FAILED",
+              "count": 1
+            },
+            {
+              "status": "NOT RUN",
+              "count": 24
+            },
+            {
+              "status": "PASSED",
+              "count": 4
+            }
+          ]
+        },
+        "cleanup": {
+          "cache": true,
+          "codex_home": true,
+          "database": true,
+          "failure_cache": true,
+          "failure_identity": true,
+          "failure_provider": true,
+          "failure_replay": true,
+          "listeners": true,
+          "processes": true
+        },
+        "real_protected_access": false
+      },
+      {
+        "name": "observer_projection_cleanup_failure",
+        "status": "BLOCKED",
+        "gate": {
+          "passed": false,
+          "missing": [],
+          "first_failure": "observer_readiness_lost",
+          "retry_count": 0,
+          "row_count": 29,
+          "projection_count": 29,
+          "row_status_counts": [
+            {
+              "status": "NOT RUN",
+              "count": 29
+            }
+          ]
+        },
+        "cleanup": {
+          "cache": false,
+          "codex_home": true,
+          "database": true,
+          "failure_cache": true,
+          "failure_identity": true,
+          "failure_provider": true,
+          "failure_replay": true,
+          "listeners": true,
+          "processes": true
+        },
+        "real_protected_access": false
+      },
+      {
+        "name": "predispatch_mapping_dependency_failure",
+        "status": "BLOCKED",
+        "gate": {
+          "passed": false,
+          "missing": [],
+          "first_failure": "C1.1",
+          "retry_count": 0,
+          "row_count": 29,
+          "projection_count": 29,
+          "row_status_counts": [
+            {
+              "status": "FAILED",
+              "count": 2
+            },
+            {
+              "status": "MISSING",
+              "count": 2
+            },
+            {
+              "status": "NOT RUN",
+              "count": 24
+            },
+            {
+              "status": "PASSED",
+              "count": 1
+            }
+          ]
+        },
+        "cleanup": {
+          "cache": true,
+          "codex_home": true,
+          "database": true,
+          "listeners": true,
+          "processes": true
+        },
+        "real_protected_access": false
+      }
+    ]
+  },
+  "protected_attempt": {
+    "status": "BLOCKED",
+    "stop_reason": "protected_provider_boundary_unobserved",
+    "later_inference": false,
+    "gate": {
+      "passed": false,
+      "missing": [],
+      "first_failure": "C1.1",
+      "retry_count": 0,
+      "row_count": 29,
+      "projection_count": 29,
+      "row_status_counts": [
+        {
+          "status": "FAILED",
+          "count": 1
+        },
+        {
+          "status": "NOT RUN",
+          "count": 24
+        },
+        {
+          "status": "PASSED",
+          "count": 4
+        }
+      ]
+    },
+    "codex": {
+      "status": "FAILED",
+      "provider_inference_call_count": 2,
+      "transport_dispatch_matches": false
+    },
+    "transport": {
+      "observer_version": "direct-httpx-v2",
+      "ready": true,
+      "failure_class": null,
+      "attempted_count": 5,
+      "dispatched_count": 5,
+      "responded_count": 5,
+      "completed_count": 5,
+      "terminal_valid_count": 2,
+      "provider_boundary": {
+        "call_count_class": "2",
+        "request_class_classes": [
+          "function_continuation",
+          "function_initial"
+        ],
+        "call_id_relation_classes": [
+          "initial_owned",
+          "mismatched"
+        ],
+        "item_id_presence_classes": [
+          "present"
+        ],
+        "lifecycle_valid": true,
+        "terminal": true,
+        "terminality_valid": true,
+        "independent_from_ledger": true,
+        "all_image_requests_single": true,
+        "image_hashes_observed": false
+      }
+    },
+    "provider_observation": {
+      "source": "direct_transport_observer",
+      "fake_oracle": "unavailable"
+    },
+    "protected_unchanged": {
+      "listener": true,
+      "no_18021": true,
+      "no_18031": true,
+      "pid": true,
+      "start": true,
+      "text_inactive": true,
+      "worktree_count": true
+    },
+    "cleanup": {
+      "cache": true,
+      "codex_home": true,
+      "database": true,
+      "failure_cache": true,
+      "failure_identity": true,
+      "failure_provider": true,
+      "failure_replay": true,
+      "listeners": true,
+      "processes": true
+    },
+    "temporary_state_removed": true,
+    "logs_secret_free": true,
+    "retry": "NOT AUTHORIZED",
+    "credential_resolution": "REACHED_BY_ORDER; VALUE NOT RETAINED",
+    "provider_dispatch": "REACHED_CHAIN; SEMANTIC ACCEPTANCE NOT ESTABLISHED"
+  },
+  "host": {
+    "host": "hinton1",
+    "before": {
+      "vision_unit": "qwen-serving-vision.service",
+      "vision_active": true,
+      "vision_main_pid": "23961",
+      "vision_start": "Sun 2026-09-06 18:57:26 CEST",
+      "vision_restarts": "0",
+      "port_18020_listener": true,
+      "port_18021_free": true,
+      "port_18030_free": true,
+      "port_18031_free": true,
+      "text_inactive": true,
+      "qwen_worktree_change_count": 7
+    },
+    "after": {
+      "vision_unit": "qwen-serving-vision.service",
+      "vision_active": true,
+      "vision_main_pid": "23961",
+      "vision_start": "Sun 2026-09-06 18:57:26 CEST",
+      "vision_restarts": "0",
+      "port_18020_listener": true,
+      "port_18021_free": true,
+      "port_18030_free": true,
+      "port_18031_free": true,
+      "text_inactive": true,
+      "qwen_worktree_change_count": 7
+    },
+    "protected_unchanged": {
+      "listener": true,
+      "no_18021": true,
+      "no_18031": true,
+      "pid": true,
+      "start": true,
+      "text_inactive": true,
+      "worktree_count": true
+    },
+    "mutation": false
+  },
+  "privacy": {
+    "credentials": false,
+    "raw_prompts": false,
+    "raw_source": false,
+    "raw_images": false,
+    "raw_tool_output": false,
+    "raw_payloads": false,
+    "raw_logs": false,
+    "private_urls": false,
+    "bearer_headers": false
+  },
+  "local_verification": {
+    "pytest": "PASSED: 788 passed, 8 skipped",
+    "ruff_check": "PASSED",
+    "ruff_format": "PASSED",
+    "mypy": "PASSED: 57 source files",
+    "compileall": "PASSED",
+    "shell_syntax": "PASSED",
+    "uv_lock_check": "PASSED",
+    "uv_pip_check": "PASSED",
+    "git_diff_check": "PASSED",
+    "wheel_boundary": "PASSED",
+    "stale_pin_check": "PASSED",
+    "raw_logging_policy_check": "PASSED"
+  },
+  "limitations": [
+    "protected C1.1 independent provider-boundary semantic proof was unavailable",
+    "protected rows after first boundary were not run",
+    "cutover, merge, release readiness remain unauthorized/unclaimed"
+  ]
+}

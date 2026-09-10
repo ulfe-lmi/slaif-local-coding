@@ -650,5 +650,11 @@ change is introduced.
 The resulting source-bound evidence is retained under `oap/evidence/005-af/`.
 One protected matrix is attempted only after the clean fake gate, all required
 checks, unchanged vision-service preflight, and same-UID evidence validation.
+The final fake gate passed `37/37` rows and projections with `26` direct
+dispatches (`6` compiler, `12` inference, `8` other), and the three
+companion ownership negatives were all denied as `4xx` with unchanged provider
+and per-key accounting. The single protected attempt stopped at `C1.1` when
+the independent provider-boundary predicate was unavailable; no later
+protected inference was dispatched, and the vision fixture remained unchanged.
 Protected acceptance, installed cutover, merge, and release readiness remain
 separate decisions.

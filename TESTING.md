@@ -562,3 +562,12 @@ The fresh source-bound fake result and four serial synthetic protected cases
 remain prerequisites for one newly authorized protected matrix. A protected
 failure remains first-boundary evidence only; no protected retry, Qwen/service
 mutation, cutover, merge, or release claim is permitted.
+
+The final 005-af run on tested code `ba42a15cd99a13cf487dac687628fc42df31301e`
+passed the complete fake gate (`37/37` rows and projections; `26` direct
+dispatches: `6` compiler, `12` inference, `8` other; `12/12` inference
+terminal-valid), the ownership-negative proof, all four synthetic protected
+cases, cleanup, and secret-free logging. The single protected attempt stopped
+at `C1.1` because independent provider-boundary acceptance was unavailable;
+later protected inference was not run and the protected fixture remained
+unchanged.
