@@ -1,0 +1,64 @@
+{
+  "schema": "oap-005-ak-fake-machine-gate-v1",
+  "status": "COMPLETE",
+  "mode": "fake",
+  "execution_mode": "fake",
+  "run_provenance": "fresh_fake_direct_httpx_loopback",
+  "implementation_sha": "989e2c09ce95f1d93c9bfb24eaa7a79824da264c",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "observer_version": "direct-httpx-v2",
+  "source_identity": {
+    "paths": {
+      "observer": "tests/helpers/transport_observer.py",
+      "projection": "tests/helpers/acceptance_harness.py",
+      "provider_sse": "scripts/local_qwen_provider_differential.py",
+      "runner": "scripts/gateway_accounting_rehearsal.py"
+    },
+    "sha256": {
+      "observer": "67734bdd324b582e00d22cb1d4ff8c0647587d6f0cb8745d13ec1094a08136b4",
+      "projection": "40dab01d9564135c93ae4488030e497c90bd40178c7dad9988e5247a9267b075",
+      "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "runner": "e188bb6b5d58e7254ad056e64e444bf67a6cf2529fcabd4fa6c0951072ec5d20"
+    }
+  },
+  "tested_worktree_clean": true,
+  "machine_gate": {
+    "passed": true,
+    "selected_rows": 37,
+    "passed_rows": 37,
+    "missing": [],
+    "first_failure": null,
+    "retry_count": 0,
+    "projection_count": 37
+  },
+  "direct_transport": {
+    "attempted": 26,
+    "dispatched": 26,
+    "compiler": 6,
+    "inference": 12,
+    "other": 8,
+    "inference_terminal_valid": 12,
+    "ready": true,
+    "failure": null
+  },
+  "cleanup": {
+    "cache": true,
+    "codex_home": true,
+    "database": true,
+    "failure_cache": true,
+    "failure_identity": true,
+    "failure_provider": true,
+    "failure_replay": true,
+    "listeners": true,
+    "processes": true
+  },
+  "privacy": {
+    "raw_payloads_retained": false,
+    "credential_retained": false,
+    "result_and_stderr_scan": "PASSED"
+  }
+}
