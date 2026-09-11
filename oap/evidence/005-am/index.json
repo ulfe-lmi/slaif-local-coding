@@ -1,0 +1,70 @@
+{
+  "schema": "oap-005-am-index-v1",
+  "status": "COMPLETE",
+  "objective": "Zero-argument provider ownership and runtime privacy projection correction",
+  "tested_code_sha": "a4ba1bf2565d947ac07735c5fd4023f9c46f9382",
+  "gateway": {
+    "sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+    "streaming_source_sha256": "f98ef3bb1693ae38bd17fca33cfde03d646995198833d9e941fb7c20686e44fb"
+  },
+  "provider_source": {
+    "version": "vllm-0.27.1",
+    "streaming_events_sha256": "cf1d8f5e0619148374ce10be15b1a9f7640016d810f1fe766c2dd451a918aa1f",
+    "serving_sha256": "628429902ff26b87f86eae1a45297f647f3712d7b421ca9a4866a3fd0f046a5b"
+  },
+  "ownership": {
+    "status": "RESOLVED_GATEWAY_HANDOFF",
+    "provider_dialect": "named_function_call_with_empty_arguments_and_no_delta",
+    "gateway_result": "exact_validator_rejects_zero_delta_completion",
+    "harness_only_defect": false,
+    "local_compensation": "NOT IMPLEMENTED",
+    "gateway_change": "NOT IMPLEMENTED",
+    "protected_diagnostic_requests": 0,
+    "protected_matrix_requests": 0
+  },
+  "privacy_projection": {
+    "producer": "_secret_free_logs",
+    "retained_fact": "logs_secret_free",
+    "true": "PASSED",
+    "false": "FAILED",
+    "missing": "NOT RUN",
+    "invalid": "NOT RUN",
+    "unexecuted": "NOT RUN",
+    "early_stop": "NOT RUN",
+    "raw_payloads_retained": false,
+    "credentials_retained": false
+  },
+  "source_identity": {
+    "runner_sha256": "a07a132432048f8b6da2db7d3d9aae69395316698cc01d41ce230e0da0d472d1",
+    "focused_test_sha256": "e323038b9cd3226c7c4f8b7fc0dca8f0ff2bfbc2a1075ae4bbbe91a0ebb95c7b",
+    "integration_doc_sha256": "9a6531700fcb1de613d6e6aee2835d06f19e94f153103c48ba86143d953ff053",
+    "testing_doc_sha256": "ea1315f21922d24473c68993ae21ec5c0b5f8c1f8879a48d859d57f83a985da7"
+  },
+  "verification": {
+    "focused_privacy_and_early_stop": "PASSED: 2 tests",
+    "focused_runner_and_acceptance": "PASSED: 207 tests",
+    "full_pytest": "PASSED: 822 passed, 8 skipped opt-in live tests",
+    "ruff_check": "PASSED",
+    "ruff_format_check": "PASSED",
+    "mypy_src_tests": "PASSED: 57 source files",
+    "uv_build": "PASSED",
+    "compileall": "PASSED",
+    "uv_lock_check": "PASSED",
+    "uv_pip_check": "PASSED",
+    "shell_syntax": "PASSED",
+    "json_validation": "PASSED"
+  },
+  "live_fixture": {
+    "vision_unit": "qwen-serving-vision.service",
+    "active": true,
+    "substate": "running",
+    "main_pid": 23961,
+    "restarts": 0,
+    "start": "Sun 2026-09-06 18:57:26 CEST",
+    "listener_18020": true,
+    "listener_18021": false,
+    "listener_18031": false,
+    "mutated": false,
+    "credential_read": false
+  }
+}
