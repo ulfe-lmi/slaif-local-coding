@@ -739,3 +739,39 @@ the harness fixture's prior reliance on automatic tool selection while
 preserving the actual streamed function call, canonical call-ID capture,
 ID-less continuation, owner/scope binding, and accounting checks. Protected
 acceptance remains a separate result of the order-authorized bounded matrix.
+
+## Objective-005-am zero-argument ownership and privacy projection
+
+Source inspection resolves the 005-al ownership question without protected
+traffic. At pinned Gateway SHA
+`50dcc3b85d614eb1d0c6196595bf22ef5779f846`, the exact
+`app/slaif_gateway/providers/streaming.py` validator requires a prior
+non-empty `response.function_call_arguments.delta` before accepting
+`response.function_call_arguments.done`; the completed output item also
+requires the corresponding arguments-done state. The inspected file's
+SHA-256 is `f98ef3bb1693ae38bd17fca33cfde03d646995198833d9e941fb7c20686e44fb`.
+
+The unchanged installed vLLM 0.27.1 source emits a named `function_call`
+item with empty arguments and `in_progress` status. Its simple streaming
+processor emits an arguments delta only when combined argument text is
+non-empty, and its normal close still emits `response.output_item.done` with
+completed empty arguments. The inspected `streaming_events.py` and
+`serving.py` hashes are respectively
+`cf1d8f5e0619148374ce10be15b1a9f7640016d810f1fe766c2dd451a918aa1f` and
+`628429902ff26b87f86eae1a45297f647f3712d7b421ca9a4866a3fd0f046a5b`.
+This is a legitimate zero-argument provider dialect rejected by the exact
+Gateway lifecycle, not evidence of a malformed function declaration or a
+harness-only defect. The compatibility question is handed to Gateway
+ownership: define the accepted zero-delta lifecycle, or make the provider
+emit the corresponding explicit empty-argument event. Local compensation,
+Gateway edits, and protected retries are outside this round.
+
+The existing runner projection now accepts privacy evidence only from the
+retained boolean `logs_secret_free` result produced by the runtime log scan.
+`True` projects all three C5.2 privacy facts as passed; retained `False`
+remains a failure; missing, non-boolean, descriptive, or unexecuted evidence
+projects C5.2 as `NOT RUN`. No default, empty-stderr inference, source scan,
+or artifact scan can promote the runtime privacy obligation. Focused tests
+cover true, false, missing, invalid, and the existing early-stop shape.
+The 005-am evidence is under `oap/evidence/005-am/`; it contains no raw
+payloads, source content, credentials, or protected result.

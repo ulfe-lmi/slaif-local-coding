@@ -36,6 +36,7 @@ from scripts.gateway_accounting_rehearsal import (
     _replay_ownership_negative_observation,
     _ReturnedCallIDCapture,
     _runtime_observations,
+    _runtime_privacy_fact,
     _select_protected_runtime,
     _source_identity,
     _tested_source_still_valid,
@@ -1198,6 +1199,28 @@ def test_present_only_runtime_facts_do_not_pass_c14() -> None:
     assert c14["status"] == "FAILED"
 
 
+def test_runtime_privacy_projection_requires_retained_boolean_evidence() -> None:
+    cases: tuple[tuple[bool, object, bool | None, str], ...] = (
+        (True, True, True, "PASSED"),
+        (True, False, False, "FAILED"),
+        (False, None, None, "NOT RUN"),
+        (True, "true", None, "NOT RUN"),
+    )
+    for present, value, expected_fact, expected_status in cases:
+        result: dict[str, object] = {"provider_target": "fake"}
+        if present:
+            result["logs_secret_free"] = value
+        assert _runtime_privacy_fact(result) is expected_fact
+        observations = _runtime_observations(result)
+        assert observations["privacy.no_raw_canaries"] is expected_fact
+        assert observations["privacy.no_raw_bodies"] is expected_fact
+        assert observations["privacy.no_credentials"] is expected_fact
+        gate, _gaps = _acceptance_gate(result)
+        rows = {row["obligation_id"]: row for row in cast(list[dict[str, object]], gate["results"])}
+        assert rows["C5.2"]["status"] == expected_status
+        assert rows["C5.2"]["observed"] is (expected_fact is not None)
+
+
 def test_request_classifier_ignores_type_names_in_ordinary_text() -> None:
     request = httpx.Request(
         "POST",
@@ -1399,6 +1422,11 @@ def test_acceptance_gate_projects_completed_codex_before_later_runtime_stop() ->
     assert rows["C1.6"]["status"] == "PASSED"
     assert rows["C1.4"]["status"] == "NOT RUN"
     assert rows["C2.1"]["status"] == "NOT RUN"
+    assert rows["C5.2"]["status"] == "NOT RUN"
+    projection_rows = {
+        row["obligation_id"]: row for row in cast(list[dict[str, object]], gate["projection_table"])
+    }
+    assert projection_rows["C5.2"]["execution_status"] == "NOT RUN"
     assert gate["first_failure"] == "C1.4"
     assert gate["runtime_failure"]["class"] == "observer_readiness_lost"  # type: ignore[index]
 

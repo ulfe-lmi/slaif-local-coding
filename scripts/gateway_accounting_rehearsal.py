@@ -4259,10 +4259,11 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
         for key in ("codex_gateway_local_provider", "no_direct_route"):
             if key in topology:
                 put(f"topology.{key}", topology.get(key) is True)
-    if "logs_secret_free" in result:
-        put("privacy.no_raw_canaries", result.get("logs_secret_free") is True)
-        put("privacy.no_raw_bodies", result.get("logs_secret_free") is True)
-        put("privacy.no_credentials", result.get("logs_secret_free") is True)
+    privacy_fact = _runtime_privacy_fact(result)
+    if privacy_fact is not None:
+        put("privacy.no_raw_canaries", privacy_fact)
+        put("privacy.no_raw_bodies", privacy_fact)
+        put("privacy.no_credentials", privacy_fact)
     cutover = result.get("cutover_observations")
     if isinstance(cutover, dict):
         for key, value in cutover.items():
@@ -4287,6 +4288,17 @@ def _runtime_observations(result: dict[str, object]) -> dict[str, object]:
             protected_fixture.get("worktree_count"),
         )
     return observations
+
+
+def _runtime_privacy_fact(result: Mapping[str, object]) -> bool | None:
+    """Return only an explicitly retained boolean privacy-scan result.
+
+    The scan is performed during runner cleanup and its boolean is the sole
+    runtime evidence for C5.2. Missing, non-boolean, or descriptive marker
+    values are unknown rather than a passing or failing scan.
+    """
+    value = result.get("logs_secret_free")
+    return value if type(value) is bool else None
 
 
 def _acceptance_gate(
@@ -4314,6 +4326,7 @@ def _acceptance_gate(
         and isinstance(item.get("phase_facts"), Mapping)
         for item in phase_checkpoints
     )
+    privacy_fact = _runtime_privacy_fact(result)
     statuses: dict[str, ObligationResult] = {}
     for item in selected_items:
         dependency_passed = item.stop_dependency == "preflight" or (
@@ -4321,6 +4334,11 @@ def _acceptance_gate(
             and statuses[item.stop_dependency].status == "PASSED"
         )
         if not dependency_passed and item.obligation_id not in always_execute:
+            statuses[item.obligation_id] = make_result(
+                item.obligation_id, status="NOT RUN", observed=False, relationship="other", count=0
+            )
+            continue
+        if item.obligation_id == "C5.2" and privacy_fact is None:
             statuses[item.obligation_id] = make_result(
                 item.obligation_id, status="NOT RUN", observed=False, relationship="other", count=0
             )

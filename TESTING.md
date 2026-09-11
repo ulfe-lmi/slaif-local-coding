@@ -677,3 +677,21 @@ two-request ID-less continuation contract. Exact fake qualification and any
 authorized protected matrix are reported separately under `oap/evidence/`;
 this contract does not treat focused tests or fake evidence as protected
 acceptance.
+
+## Objective-005-am zero-argument ownership and privacy projection
+
+The source-first ownership check compares the exact pinned Gateway validator
+with the installed vLLM 0.27.1 simple Responses emitter. A zero-argument
+function item is opened with empty arguments; vLLM emits no argument delta or
+arguments-done event when no delta exists, while it still closes the item.
+The Gateway validator requires the prior delta/done state before accepting the
+completed item. This establishes a provider-dialect compatibility handoff to
+Gateway and does not authorize a Local workaround, a Gateway patch, or
+protected traffic.
+
+The runner's C5.2 projection is deliberately tri-state at the evidence
+boundary: an exact retained boolean `logs_secret_free` yields the observed
+pass/fail facts, while missing, non-boolean, descriptive, or unexecuted data
+stays `NOT RUN`. Focused tests cover true, false, missing, invalid, and the
+existing early-stop path; no raw payload, source content, credential, stderr
+inference, or artifact-scan result is used as runtime privacy evidence.
