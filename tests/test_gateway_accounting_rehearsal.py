@@ -27,6 +27,8 @@ from scripts.gateway_accounting_rehearsal import (
     _candidate_only_observation,
     _candidate_provenance,
     _FakeQwenServer,
+    _identity_replay_target_gate,
+    _idless_companion_continuation_body,
     _idless_companion_initial_body,
     _idless_companion_observation,
     _local_implementation_sha,
@@ -34,11 +36,14 @@ from scripts.gateway_accounting_rehearsal import (
     _protected_provider_preflight,
     _provider_request_observation,
     _replay_ownership_negative_observation,
+    _request_observation,
     _ReturnedCallIDCapture,
+    _run_fake_idless_http_regression,
     _runtime_observations,
     _runtime_privacy_fact,
     _select_protected_runtime,
     _source_identity,
+    _target_execution_plan,
     _tested_source_still_valid,
     _validate_fake_gate,
     run_actual_protected_mode_conformance,
@@ -462,8 +467,26 @@ def test_strict_fake_function_stream_works_through_loopback_http() -> None:
             first = client.post(
                 url, json=initial, headers={"Authorization": "Bearer synthetic-http-token"}
             )
-            second = client.post(
+            returned_call = server.take_returned_call()
+            assert returned_call is not None
+            legal_call = dict(returned_call)
+            legal_call.pop("id", None)
+            legal = dict(continuation)
+            legal["input"] = [
+                legal_call,
+                {
+                    "type": "function_call_output",
+                    "call_id": returned_call["call_id"],
+                    "output": "synthetic-result",
+                },
+            ]
+            orphan = client.post(
                 url, json=continuation, headers={"Authorization": "Bearer synthetic-http-token"}
+            )
+            second = client.post(
+                url,
+                json=legal,
+                headers={"Authorization": "Bearer synthetic-http-token"},
             )
             identified_continuation = dict(continuation)
             identified_continuation["input"] = [
@@ -492,9 +515,10 @@ def test_strict_fake_function_stream_works_through_loopback_http() -> None:
             )
         assert first.status_code == 200
         assert second.status_code == 200
-        assert identified.status_code == 200
+        assert orphan.status_code == 502
+        assert identified.status_code == 502
         assert rejected.status_code == 502
-        for response in (first, second, identified):
+        for response in (first, second):
             frames = response.content.split(b"\n\n")
             assert frames[-1] == b""
             frames = frames[:-1]
@@ -515,7 +539,7 @@ def test_strict_fake_function_stream_works_through_loopback_http() -> None:
         snapshot = server.snapshot()
         boundary = snapshot["provider_boundary"]
         assert isinstance(boundary, dict)
-        assert snapshot["inference_calls"] == 3
+        assert snapshot["inference_calls"] == 2
         assert boundary["lifecycle_valid"] is True
         assert boundary["function_result_adjacent"] is True
         assert "function_initial" in boundary["request_class_classes"]
@@ -536,32 +560,34 @@ def test_strict_fake_resume_image_history_starts_a_new_function_turn() -> None:
     try:
         url = f"http://127.0.0.1:{server.server_address[1]}/v1/responses"
         headers = {"Authorization": "Bearer synthetic-vision-token"}
-        history_input: list[dict[str, object]] = [
-            {"type": "input_image", "image_url": "synthetic-full"},
-            {"type": "input_image", "image_url": "synthetic-crop"},
-            {
-                "type": "function_call_output",
-                "call_id": "call_synthetic",
-                "output": "synthetic-result",
-            },
-        ]
-        history = {
+        initial = {
             "model": "qwen3.8-27b",
             "stream": True,
-            "input": history_input,
+            "input": [
+                {"type": "input_image", "image_url": "synthetic-full"},
+                {"type": "input_image", "image_url": "synthetic-crop"},
+            ],
             "tools": [{"type": "function", "name": "shell_command"}],
         }
-        continuation = dict(history)
-        continuation["input"] = [
-            *history_input,
-            {
-                "type": "function_call_output",
-                "call_id": "call_synthetic",
-                "output": "synthetic-result-2",
-            },
+        continuation_prefix: list[dict[str, object]] = [
+            {"type": "input_image", "image_url": "synthetic-crop"},
         ]
         with httpx.Client(timeout=5) as client:
-            first = client.post(url, json=history, headers=headers)
+            first = client.post(url, json=initial, headers=headers)
+            returned_call = server.take_returned_call()
+            assert returned_call is not None
+            replay_call = dict(returned_call)
+            replay_call.pop("id", None)
+            continuation = dict(initial)
+            continuation["input"] = [
+                *continuation_prefix,
+                replay_call,
+                {
+                    "type": "function_call_output",
+                    "call_id": returned_call["call_id"],
+                    "output": "synthetic-result-2",
+                },
+            ]
             second = client.post(url, json=continuation, headers=headers)
         assert first.status_code == 200
         assert second.status_code == 200
@@ -598,6 +624,9 @@ def _observer_response(*, call_id: str | None = None, summary_call_id: str | Non
             "type": "function_call",
             "id": "item-canonical",
             "call_id": call_id,
+            "name": "local_lookup",
+            "arguments": '{"path":"GOVERNANCE-DEPENDENCY.md"}',
+            "status": "completed",
         }
         if call_id is not None
         else {"type": "message", "id": "item-message"}
@@ -696,10 +725,17 @@ async def test_direct_observer_correlates_actual_returned_call_to_idless_continu
         "client_metadata": metadata,
         "input": [
             {
+                "type": "function_call",
+                "call_id": "call-real-a",
+                "name": "local_lookup",
+                "arguments": '{"path":"GOVERNANCE-DEPENDENCY.md"}',
+                "status": "completed",
+            },
+            {
                 "type": "function_call_output",
                 "call_id": "call-real-a",
                 "output": "synthetic-result",
-            }
+            },
         ],
     }
     async with httpx.AsyncClient(transport=observer) as client:
@@ -751,10 +787,17 @@ async def test_direct_observer_does_not_promote_terminal_summary_alias() -> None
         "client_metadata": metadata,
         "input": [
             {
+                "type": "function_call",
+                "call_id": "call-canonical",
+                "name": "local_lookup",
+                "arguments": '{"path":"GOVERNANCE-DEPENDENCY.md"}',
+                "status": "completed",
+            },
+            {
                 "type": "function_call_output",
                 "call_id": "call-summary-alias",
                 "output": "synthetic-result",
-            }
+            },
         ],
     }
     async with httpx.AsyncClient(transport=observer) as client:
@@ -786,7 +829,15 @@ def test_returned_call_capture_handles_split_and_coalesced_sse(
         + json.dumps(
             {
                 "type": "response.output_item.done",
-                "item": {"type": "function_call", "id": "item-real", "call_id": "call-real"},
+                "item": {
+                    "type": "function_call",
+                    "id": "item-real",
+                    "call_id": "call-real",
+                    "name": "lookup_target",
+                    "arguments": '{"path":"varied.md"}',
+                    "status": "completed",
+                    "namespace": "companion",
+                },
             },
             separators=(",", ":"),
         ).encode()
@@ -818,6 +869,17 @@ def test_returned_call_capture_handles_split_and_coalesced_sse(
         capture.consume(frame[offset : offset + chunk_size])
     capture.finish(stream_valid=True)
     assert capture.value == "call-real"
+    returned_call = capture.take_function_call()
+    assert returned_call == {
+        "type": "function_call",
+        "id": "item-real",
+        "call_id": "call-real",
+        "name": "lookup_target",
+        "arguments": '{"path":"varied.md"}',
+        "status": "completed",
+        "namespace": "companion",
+    }
+    assert capture.take_function_call() is None
     assert capture.safe_facts() == {
         "canonical_candidate_availability": "available",
         "canonical_candidate_count_class": "1",
@@ -881,6 +943,135 @@ def test_idless_companion_initial_request_forces_the_declared_function() -> None
     assert body["tool_choice"] == {"type": "function", "name": "local_lookup"}
     assert body["max_output_tokens"] == 32
     assert body["input"][0]["content"][0]["text"] == "Call local_lookup with no arguments."  # type: ignore[index]
+
+
+def test_idless_companion_replays_actual_call_and_omits_only_optional_id() -> None:
+    returned_call = {
+        "type": "function_call",
+        "id": "actual-item",
+        "call_id": "actual-call",
+        "namespace": "companion",
+        "name": "lookup_target",
+        "arguments": '{"path":"varied.md"}',
+        "status": "completed",
+    }
+    body = _idless_companion_continuation_body(
+        "session-a", returned_call, tools=[{"type": "function", "name": "lookup_target"}]
+    )
+    history = body["input"]
+    assert isinstance(history, list)
+    call = history[0]
+    output = history[1]
+    assert isinstance(call, dict) and isinstance(output, dict)
+    assert "id" not in call
+    assert call["name"] == returned_call["name"]
+    assert call["arguments"] == returned_call["arguments"]
+    assert call["namespace"] == returned_call["namespace"]
+    assert call["status"] == "completed"
+    assert call["call_id"] == "actual-call"
+    assert output["call_id"] == "actual-call"
+
+
+def test_request_observation_uses_function_call_id_not_output_id() -> None:
+    legal = {
+        "input": [
+            {
+                "type": "function_call",
+                "call_id": "call-a",
+                "name": "lookup_target",
+                "arguments": '{"path":"varied.md"}',
+                "status": "completed",
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call-a",
+                "id": "output-id",
+                "output": "ok",
+            },
+        ]
+    }
+    orphan = {"input": [{"type": "function_call_output", "call_id": "call-a", "output": "ok"}]}
+    assert _request_observation(legal)["item_id_presence"] == "omitted"
+    assert _request_observation(orphan)["item_id_presence"] == "unknown"
+
+
+def test_fake_idless_regression_rejects_orphans_before_and_after_seed() -> None:
+    facts = _run_fake_idless_http_regression()
+    assert facts["passed"] is True
+    assert facts["orphan_after_initial_rejected"] is True
+    assert facts["orphan_fresh_rejected"] is True
+
+
+def test_identity_target_selector_excludes_unrelated_phases() -> None:
+    plan = _target_execution_plan("identity_replay")
+    assert plan == {
+        "target": "identity_replay",
+        "allowed_operations": ("identity_replay",),
+        "max_inference_dispatches": 2,
+        "max_compiler_dispatches": 0,
+        "runs_codex": False,
+        "runs_vision": False,
+        "runs_other_identity": False,
+        "runs_full_protected_matrix": False,
+    }
+
+
+def _target_gate_facts() -> dict[str, object]:
+    return {
+        "provider_target": "protected",
+        "target": "identity_replay",
+        "target_plan": _target_execution_plan("identity_replay"),
+        "idless_composed_companion": {"passed": True},
+        "target_dispatch_counts": {
+            "inference_dispatched": 2,
+            "compiler_dispatched": 0,
+            "other_dispatched": 0,
+        },
+        "target_accounting": {
+            "reservation_count_consistent": True,
+            "reservation_terminal": True,
+            "ledger_count_consistent": True,
+            "ledger_terminal": True,
+            "zero_pending": True,
+            "zero_duplicate_request_ids": True,
+        },
+        "protected_later_inference": False,
+        "full_protected_matrix": False,
+        "logs_secret_free": True,
+        "cleanup_observation": {
+            "processes": True,
+            "listeners": True,
+            "database": True,
+            "cache": True,
+            "codex_home": True,
+        },
+        "protected_unchanged": {
+            "pid": True,
+            "start": True,
+            "listener": True,
+            "worktree_count": True,
+            "text_inactive": True,
+            "no_18021": True,
+            "no_18031": True,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        lambda facts: facts["target_accounting"].update({"ledger_terminal": False}),
+        lambda facts: facts["target_accounting"].update({"ledger_count_consistent": False}),
+        lambda facts: facts["protected_unchanged"].update({"pid": False}),
+        lambda facts: facts["protected_unchanged"].update({"start": None}),
+    ),
+)
+def test_identity_target_gate_rejects_nonterminal_ledger_or_unknown_fixture(
+    mutation: Any,
+) -> None:
+    facts = _target_gate_facts()
+    mutation(facts)
+    assert _identity_replay_target_gate(facts)["passed"] is False
 
 
 def test_returned_call_capture_retains_frame_buffer_overflow_facts() -> None:

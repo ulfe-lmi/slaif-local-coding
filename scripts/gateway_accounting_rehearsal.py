@@ -160,6 +160,64 @@ FAKE_MAX_STREAM_BYTES = 131_072
 FAKE_MAX_FUNCTION_CALLS = 1
 FAKE_FUNCTION_CALL_ID = "call_synthetic"
 FAKE_FUNCTION_SUMMARY_ALIAS = "call_synthetic_summary_alias"
+TARGET_FULL = "full"
+TARGET_IDENTITY_REPLAY = "identity_replay"
+
+
+def _target_execution_plan(target: str) -> dict[str, object]:
+    """Return the finite, source-visible selector contract."""
+    if target == TARGET_FULL:
+        return {
+            "target": TARGET_FULL,
+            "allowed_operations": "all",
+            "max_inference_dispatches": 64,
+            "max_compiler_dispatches": 64,
+            "runs_codex": True,
+            "runs_vision": True,
+            "runs_other_identity": True,
+            "runs_full_protected_matrix": True,
+        }
+    if target == TARGET_IDENTITY_REPLAY:
+        return {
+            "target": TARGET_IDENTITY_REPLAY,
+            "allowed_operations": ("identity_replay",),
+            "max_inference_dispatches": 2,
+            "max_compiler_dispatches": 0,
+            "runs_codex": False,
+            "runs_vision": False,
+            "runs_other_identity": False,
+            "runs_full_protected_matrix": False,
+        }
+    raise ValueError("target_invalid")
+
+
+def _target_model_free_preflight(gateway_root: Path, codex: Path) -> dict[str, object]:
+    """Verify target dependencies without launching the ordinary Codex client."""
+    gateway_root = gateway_root.resolve()
+    if (
+        _run_command(["git", "-C", str(gateway_root), "rev-parse", "HEAD"]).stdout.strip()
+        != GATEWAY_MAIN_SHA
+    ):
+        raise RuntimeError("gateway_sha_mismatch")
+    if _run_command(["git", "-C", str(gateway_root), "status", "--short"]).stdout.strip():
+        raise RuntimeError("gateway_checkout_dirty")
+    codex = codex.resolve()
+    codex_version = _codex_version(codex)
+    codex_sha256 = _codex_sha256(codex)
+    if codex_version != CODEX_VERSION or codex_sha256 != CODEX_FIXTURE_SHA256:
+        raise RuntimeError("codex_fixture_mismatch")
+    return {
+        "gateway_policy": "ACCEPTED",
+        "ordinary_local_tools": "NOT RUN_TARGET_SDK",
+        "hosted_search_tools": "NOT RUN_TARGET_SDK",
+        "variant": "identity_replay_target",
+        "feature_flags": (),
+        "ignore_user_config": True,
+        "catalog_search_disabled": True,
+        "capture_count": 0,
+        "ordinary_codex_execution": False,
+        "target": TARGET_IDENTITY_REPLAY,
+    }
 
 
 @dataclass(frozen=True)
@@ -280,9 +338,10 @@ def _request_observation(payload: dict[str, object]) -> dict[str, object]:
     output_items = tuple(
         item for item in function_items if item.get("type") == "function_call_output"
     )
-    call_items = output_items or tuple(
-        item for item in function_items if item.get("type") == "function_call"
-    )
+    # Item-ID omission is a property of the preceding function_call history
+    # item.  An output item may omit its own optional id regardless of whether
+    # the call history is present, so it cannot establish this fact.
+    call_items = tuple(item for item in function_items if item.get("type") == "function_call")
     if function_tools and not output_items:
         request_class = "function_initial"
     elif output_items:
@@ -352,6 +411,7 @@ def _request_observation(payload: dict[str, object]) -> dict[str, object]:
         "tool_name_class": function_tool_name,
         "item_id_presence": item_id_presence,
         "call_id_relation": "initial_owned" if request_class == "function_initial" else "unknown",
+        "function_history_valid": False,
         "function_result_adjacent": False,
         "image_count_class": str(min(len(images), 8)),
         "image_hash_class": "present" if image_hashes else "none",
@@ -385,6 +445,7 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
         self.bad_auth = False
         self.observation = StrictFakeQwenObservation()
         self._call_correlation = CallIDCorrelation()
+        self._last_returned_call: dict[str, object] | None = None
         self._lock = threading.Lock()
 
     def observe_request(self, payload: dict[str, object]) -> dict[str, object]:
@@ -392,45 +453,53 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
         session_digest = str(observation.get("_session_digest", "none"))
         key = ("fake", "fake", session_digest)
         if observation.get("request_class") == "function_continuation":
-            history_call_ids = tuple(
-                digest
-                for item in _FakeQwenObservationWalker.walk(payload)
-                if item.get("type") == "function_call"
-                for digest in (_opaque_call_id_digest(item.get("call_id")),)
-                if digest is not None
+            observation["function_history_valid"] = _FakeQwenHandler._matching_function_output(
+                payload
             )
-            if history_call_ids:
-                self._call_correlation.register(key, history_call_ids)
             output_digests = cast(
                 tuple[bytes, ...], observation["_function_output_call_id_digests"]
             )
-            if (
-                not history_call_ids
-                and output_digests
-                and not self._call_correlation.has_pending(key)
-            ):
-                self._call_correlation.register(key, output_digests[-1:])
             relation = self._call_correlation.relation(
                 key,
                 output_digests[-1:],
                 missing_call_id=observation["_function_output_missing_call_id"] is True,
                 consume=False,
             )
+            if not observation["function_history_valid"]:
+                relation = "mismatched"
             observation["call_id_relation"] = relation
             observation["function_result_adjacent"] = relation == "matching"
         elif observation.get("request_class") == "function_initial":
             observation["call_id_relation"] = "initial_owned"
         return observation
 
-    def register_returned_call(self, payload: dict[str, object]) -> None:
-        observation = _request_observation(payload)
-        if observation.get("request_class") != "function_initial":
+    def register_returned_call(
+        self, returned_call: Mapping[str, object], payload: Mapping[str, object]
+    ) -> None:
+        call_id = returned_call.get("call_id")
+        digest = _opaque_call_id_digest(call_id)
+        if digest is None:
             return
-        session_digest = str(observation.get("_session_digest", "none"))
+        metadata = payload.get("client_metadata")
+        session_id = metadata.get("session_id") if isinstance(metadata, Mapping) else None
+        session_digest = (
+            hashlib.sha256(session_id.encode("utf-8")).hexdigest()
+            if isinstance(session_id, str)
+            else "none"
+        )
+        with self._lock:
+            self._last_returned_call = dict(returned_call)
         self._call_correlation.register(
             ("fake", "fake", session_digest),
-            (hashlib.sha256(FAKE_FUNCTION_CALL_ID.encode("utf-8")).digest(),),
+            (digest,),
         )
+
+    def take_returned_call(self) -> dict[str, object] | None:
+        """Move one transient actual call item to the bounded test caller."""
+        with self._lock:
+            returned_call = self._last_returned_call
+            self._last_returned_call = None
+            return dict(returned_call) if returned_call is not None else None
 
     def record(
         self,
@@ -686,28 +755,58 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         )
 
     @staticmethod
-    def _matching_function_output(payload: dict[str, object]) -> bool:
-        outputs = tuple(
+    def _input_function_calls(payload: dict[str, object]) -> tuple[dict[str, object], ...]:
+        input_items = payload.get("input")
+        if not isinstance(input_items, list):
+            return ()
+        return tuple(
             item
-            for item in _FakeQwenObservationWalker.walk(payload)
-            if item.get("type") == "function_call_output"
+            for item in input_items
+            if isinstance(item, dict) and item.get("type") == "function_call"
         )
-        if not outputs:
+
+    @staticmethod
+    def _matching_function_output(payload: dict[str, object]) -> bool:
+        input_items = payload.get("input")
+        if not isinstance(input_items, list):
             return False
-        return all(
-            (
+        used_calls: set[int] = set()
+        saw_output = False
+        for index, item in enumerate(input_items):
+            if not isinstance(item, dict) or item.get("type") != "function_call_output":
+                continue
+            saw_output = True
+            call_id = item.get("call_id")
+            if _opaque_call_id_digest(call_id) is None or not any(
+                key in item for key in ("output", "result", "content")
+            ):
+                return False
+            match_index = next(
                 (
-                    item.get("id") is None
-                    or (
-                        isinstance(item.get("id"), str)
-                        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", item["id"]) is not None
+                    call_index
+                    for call_index, call_item in enumerate(input_items[:index])
+                    if call_index not in used_calls
+                    and isinstance(call_item, dict)
+                    and call_item.get("type") == "function_call"
+                    and call_item.get("call_id") == call_id
+                    and call_item.get("status") == "completed"
+                    and isinstance(call_item.get("name"), str)
+                    and isinstance(call_item.get("arguments"), str)
+                    and (
+                        call_item.get("id") is None
+                        or (
+                            isinstance(call_item.get("id"), str)
+                            and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_-]{0,63}", call_item["id"])
+                            is not None
+                        )
                     )
-                )
-                and _opaque_call_id_digest(item.get("call_id")) is not None
-                and any(key in item for key in ("output", "result", "content"))
+                ),
+                None,
             )
-            for item in outputs
-        )
+            if match_index is None:
+                return False
+            used_calls.add(match_index)
+        return saw_output
 
     @staticmethod
     def _request_observation(payload: dict[str, object]) -> dict[str, object]:
@@ -739,9 +838,23 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             "usage": {"input_tokens": 2, "output_tokens": 2, "total_tokens": 4},
         }
 
-    def _function_stream(self, tool_name: str) -> None:
+    def _function_stream(self, tool_name: str) -> dict[str, object]:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", tool_name):
             raise _FakeStreamError("function_name_invalid")
+        arguments = (
+            '{"path":"GOVERNANCE-DEPENDENCY.md"}'
+            if tool_name == "local_lookup"
+            else '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}'
+        )
+        returned_call = {
+            "type": "function_call",
+            "id": "function_1",
+            "call_id": FAKE_FUNCTION_CALL_ID,
+            "namespace": None,
+            "name": tool_name,
+            "arguments": arguments,
+            "status": "completed",
+        }
         events = (
             {
                 "type": "response.created",
@@ -780,14 +893,14 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "item_id": "function_1",
                 "output_index": 0,
                 "sequence_number": 3,
-                "delta": '{"cmd":"cat ',
+                "delta": arguments[: len(arguments) // 2],
             },
             {
                 "type": "response.function_call_arguments.delta",
                 "item_id": "function_1",
                 "output_index": 0,
                 "sequence_number": 4,
-                "delta": 'GOVERNANCE-DEPENDENCY.md"}',
+                "delta": arguments[len(arguments) // 2 :],
             },
             {
                 "type": "response.function_call_arguments.done",
@@ -795,7 +908,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 "output_index": 0,
                 "sequence_number": 5,
                 "name": tool_name,
-                "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
+                "arguments": arguments,
             },
             {
                 "type": "response.output_item.done",
@@ -808,7 +921,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                     "namespace": None,
                     "caller": None,
                     "name": tool_name,
-                    "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
+                    "arguments": arguments,
                     "status": "completed",
                 },
             },
@@ -825,7 +938,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                             "call_id": FAKE_FUNCTION_SUMMARY_ALIAS,
                             "namespace": None,
                             "name": tool_name,
-                            "arguments": '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}',
+                            "arguments": arguments,
                             "status": "completed",
                         }
                     ],
@@ -849,6 +962,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             },
         )
         self._write_events(events)
+        return returned_call
 
     def _write_events(self, events: tuple[dict[str, object], ...]) -> None:
         if not events or len(events) > FAKE_MAX_EVENTS:
@@ -1093,20 +1207,19 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         )
         self._write_events(events)
 
-    def _stream(self, payload: dict[str, object]) -> None:
+    def _stream(self, payload: dict[str, object]) -> dict[str, object] | None:
         tool_name = self._function_tool(payload)
         output_count = self._function_output_count(payload)
         if tool_name is not None and (
             not self._has_function_output(payload)
             or (self._input_image_count(payload) >= 2 and output_count == 1)
         ):
-            self._function_stream(tool_name)
-            return
+            return self._function_stream(tool_name)
         if self._has_function_output(payload) and not self._matching_function_output(payload):
             raise _FakeStreamError("function_continuation_invalid")
         if self._has_function_output(payload):
             self._message_stream(payload)
-            return
+            return None
         text = self._assistant_text(payload)
         response_id = "fake-response"
         events = (
@@ -1320,6 +1433,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             },
         )
         self._write_events(events)
+        return None
 
     def do_GET(self) -> None:
         if not self._authorized():
@@ -1368,15 +1482,16 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             return
         if streaming:
             try:
-                self._stream(payload)
+                returned_call = self._stream(payload)
             except (BrokenPipeError, ConnectionResetError, _FakeStreamError):
                 if not self.wfile.closed:
                     self._json(502, {"error": {"code": "fake_stream_invalid"}})
                 return
         else:
+            returned_call = None
             self._json(200, self._response(payload))
-        if streaming and observation.get("request_class") == "function_initial":
-            self.server.register_returned_call(payload)
+        if returned_call is not None and observation.get("request_class") == "function_initial":
+            self.server.register_returned_call(returned_call, payload)
         self.server.record(
             compiler=False,
             streaming=streaming,
@@ -1807,6 +1922,86 @@ def _idless_companion_observation(
         "natural_codex_shape_separate": True,
         "gateway_call_id_same_hmac": passed,
         "scope_no_downgrade": passed,
+    }
+
+
+def _identity_replay_target_gate(result: Mapping[str, object]) -> dict[str, object]:
+    """Evaluate only the bounded identity-replay target, never the full manifest."""
+    companion = result.get("idless_composed_companion")
+    companion_passed = isinstance(companion, Mapping) and companion.get("passed") is True
+    dispatch_counts = result.get("target_dispatch_counts")
+    counts = dispatch_counts if isinstance(dispatch_counts, Mapping) else {}
+    no_unrelated_path = all(
+        key not in result for key in ("codex", "vision", "identity_matrix", "gateway_rejects")
+    )
+    cleanup = result.get("cleanup_observation")
+    cleanup_ok = isinstance(cleanup, Mapping) and all(
+        cleanup.get(key) is True
+        for key in ("processes", "listeners", "database", "cache", "codex_home")
+    )
+    accounting = result.get("target_accounting")
+    accounting_ok = isinstance(accounting, Mapping) and all(
+        accounting.get(key) is True
+        for key in (
+            "reservation_count_consistent",
+            "reservation_terminal",
+            "ledger_count_consistent",
+            "ledger_terminal",
+            "zero_pending",
+            "zero_duplicate_request_ids",
+        )
+    )
+    protected_facts = result.get("protected_unchanged")
+    protected_fixture_ok = (
+        result.get("provider_target") != "protected"
+        or isinstance(protected_facts, Mapping)
+        and all(
+            protected_facts.get(key) is True
+            for key in (
+                "pid",
+                "start",
+                "listener",
+                "worktree_count",
+                "text_inactive",
+                "no_18021",
+                "no_18031",
+            )
+        )
+    )
+    passed = all(
+        (
+            result.get("target") == TARGET_IDENTITY_REPLAY,
+            result.get("target_plan") == _target_execution_plan(TARGET_IDENTITY_REPLAY),
+            result.get("provider_target") in {"fake", "protected"},
+            companion_passed,
+            accounting_ok,
+            counts.get("inference_dispatched") == 2,
+            counts.get("compiler_dispatched") == 0,
+            counts.get("other_dispatched") in {0, 1, 2, 3, 4},
+            result.get("protected_later_inference") is False,
+            result.get("full_protected_matrix") is False,
+            no_unrelated_path,
+            result.get("logs_secret_free") is True,
+            cleanup_ok,
+            protected_fixture_ok,
+        )
+    )
+    return {
+        "target": TARGET_IDENTITY_REPLAY,
+        "passed": passed,
+        "full_manifest_executed": False,
+        "full_protected_matrix": False,
+        "ordinary_codex_executed": False,
+        "vision_executed": False,
+        "other_identity_operations_executed": False,
+        "compiler_dispatches": counts.get("compiler_dispatched"),
+        "inference_dispatches": counts.get("inference_dispatched"),
+        "provider_preflight_dispatches": counts.get("other_dispatched"),
+        "companion_passed": companion_passed,
+        "accounting_passed": accounting_ok,
+        "cleanup_passed": cleanup_ok,
+        "privacy_passed": result.get("logs_secret_free") is True,
+        "protected_fixture_unchanged": protected_fixture_ok,
     }
 
 
@@ -3055,12 +3250,13 @@ def _stop_threaded_server(
 
 
 def _run_fake_idless_http_regression() -> dict[str, object]:
-    """Exercise the fake provider's id-less call-output path over loopback HTTP."""
+    """Exercise legal history and reject orphan output over loopback HTTP."""
     server = _FakeQwenServer("synthetic-005q-idless-token")
     thread = _start_threaded_server(server)
     initial = {
         "model": PUBLIC_MODEL,
         "stream": True,
+        "client_metadata": {"session_id": "synthetic"},
         "input": [
             {
                 "type": "message",
@@ -3078,7 +3274,7 @@ def _run_fake_idless_http_regression() -> dict[str, object]:
             }
         ],
     }
-    continuation = {
+    orphan_continuation = {
         "model": PUBLIC_MODEL,
         "stream": True,
         "input": [
@@ -3091,22 +3287,49 @@ def _run_fake_idless_http_regression() -> dict[str, object]:
         "tools": initial["tools"],
     }
     statuses: list[int] = []
+    fresh_status: int | None = None
     try:
         with httpx.Client(timeout=10, follow_redirects=False) as client:
-            for body in (initial, continuation):
-                response = client.post(
-                    f"http://127.0.0.1:{server.server_address[1]}/v1/responses",
-                    json=body,
-                    headers={"Authorization": f"Bearer {server.token}"},
+            response = client.post(
+                f"http://127.0.0.1:{server.server_address[1]}/v1/responses",
+                json=initial,
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            statuses.append(response.status_code)
+            returned_call = server.take_returned_call()
+            legal_continuation = _idless_companion_continuation_body(
+                "synthetic", returned_call, tools=cast(list[dict[str, object]], initial["tools"])
+            )
+            orphan_response = client.post(
+                f"http://127.0.0.1:{server.server_address[1]}/v1/responses",
+                json=orphan_continuation,
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            statuses.append(orphan_response.status_code)
+            legal_response = client.post(
+                f"http://127.0.0.1:{server.server_address[1]}/v1/responses",
+                json=legal_continuation,
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+            statuses.append(legal_response.status_code)
+        fresh_server = _FakeQwenServer("synthetic-005q-idless-fresh-token")
+        fresh_thread = _start_threaded_server(fresh_server)
+        try:
+            with httpx.Client(timeout=10, follow_redirects=False) as client:
+                fresh_response = client.post(
+                    f"http://127.0.0.1:{fresh_server.server_address[1]}/v1/responses",
+                    json=orphan_continuation,
+                    headers={"Authorization": f"Bearer {fresh_server.token}"},
                 )
-                statuses.append(response.status_code)
-                if response.status_code != 200 or not response.content.endswith(b"\n\n"):
-                    break
+                fresh_status = fresh_response.status_code
+        finally:
+            _stop_threaded_server(fresh_server, fresh_thread)
     finally:
         _stop_threaded_server(server, thread)
     boundary = server.snapshot()["provider_boundary"]
     return {
-        "passed": statuses == [200, 200]
+        "passed": statuses == [200, 502, 200]
+        and fresh_status == 502
         and isinstance(boundary, dict)
         and "omitted" in boundary.get("item_id_presence_classes", ())
         and "matching" in boundary.get("call_id_relation_classes", ())
@@ -3114,6 +3337,8 @@ def _run_fake_idless_http_regression() -> dict[str, object]:
         and boundary.get("terminality_valid") is True,
         "request_count_class": count_class(len(statuses)),
         "status_classes": tuple(f"{status // 100}xx" for status in statuses),
+        "orphan_after_initial_rejected": len(statuses) >= 2 and statuses[1] == 502,
+        "orphan_fresh_rejected": fresh_status == 502,
         "idless_item_observed": (
             isinstance(boundary, dict) and "omitted" in boundary.get("item_id_presence_classes", ())
         ),
@@ -3192,7 +3417,7 @@ def _summary_call_id_digests(payload: Mapping[str, object]) -> tuple[bytes, ...]
 
 @dataclass
 class _ReturnedCallIDCapture:
-    """Bounded transient capture of exact validator replay candidates."""
+    """Bounded transient capture of one exact validated function-call item."""
 
     validator: Any | None = field(default=None, repr=False)
     buffer: bytearray = field(default_factory=bytearray, repr=False)
@@ -3201,6 +3426,7 @@ class _ReturnedCallIDCapture:
     canonical_candidate_count: int = 0
     canonical_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
     canonical_call_ids: list[str] = field(default_factory=list, repr=False)
+    returned_function_call: dict[str, object] | None = field(default=None, repr=False)
     summary_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
     canonical_summary_relation: str = "unknown"
     failure_class: str | None = field(default=None, repr=False)
@@ -3316,6 +3542,28 @@ class _ReturnedCallIDCapture:
                 continue
             self.canonical_call_ids.append(call_id)
             self.canonical_call_id_digests += (hashlib.sha256(call_id.encode("utf-8")).digest(),)
+            if item_kind == "function_call" and self.returned_function_call is None:
+                item = payload.get("item")
+                if (
+                    event_name != "response.output_item.done"
+                    or not isinstance(item, dict)
+                    or item.get("type") != "function_call"
+                    or item.get("id") != item_id
+                    or item.get("call_id") != call_id
+                    or item.get("status") != "completed"
+                    or not isinstance(item.get("name"), str)
+                    or not isinstance(item.get("arguments"), str)
+                    or (
+                        item.get("namespace") is not None
+                        and not isinstance(item.get("namespace"), str)
+                    )
+                ):
+                    self._fail("validation", validation_stage="replay_candidate")
+                    continue
+                # The validator has already accepted the complete item.  Keep
+                # only this transient copy until the paired request is built;
+                # safe facts never expose any of these fields.
+                self.returned_function_call = dict(item)
         if event_name == "response.completed":
             self.summary_call_id_digests = _summary_call_id_digests(payload)
             if self.canonical_call_id_digests and self.summary_call_id_digests:
@@ -3356,10 +3604,22 @@ class _ReturnedCallIDCapture:
             self.buffer.clear()
         if not stream_valid and self.failure_class is None:
             self._fail("validator", validation_stage="gateway_validator")
-        if not stream_valid or self.invalid or len(self.canonical_call_ids) != 1:
+        if (
+            not stream_valid
+            or self.invalid
+            or len(self.canonical_call_ids) != 1
+            or self.returned_function_call is None
+        ):
+            self.returned_function_call = None
             self.value = None
             return
         self.value = self.canonical_call_ids[0]
+
+    def take_function_call(self) -> dict[str, object] | None:
+        """Move the transient validated item to the paired-request builder."""
+        item = self.returned_function_call
+        self.returned_function_call = None
+        return dict(item) if item is not None else None
 
     def safe_facts(self) -> dict[str, object]:
         availability = (
@@ -3396,7 +3656,15 @@ def _timed_public_stream(
     *,
     capture_returned_call_id: bool = False,
     validator_factory: Callable[[httpx.Request], Any] | None = None,
-) -> tuple[int | None, SSEFacts, dict[str, str], int, str | None, dict[str, object]]:
+) -> tuple[
+    int | None,
+    SSEFacts,
+    dict[str, str],
+    int,
+    str | None,
+    dict[str, object],
+    dict[str, object] | None,
+]:
     """Observe one stream with the shared bounded 005-j SSE parser."""
     started = time.monotonic()
     timing: dict[str, str] = {}
@@ -3467,6 +3735,9 @@ def _timed_public_stream(
             chunk_count,
             returned_call_capture.value if returned_call_capture is not None else None,
             returned_call_capture.safe_facts() if returned_call_capture is not None else {},
+            returned_call_capture.take_function_call()
+            if returned_call_capture is not None
+            else None,
         )
     if returned_call_capture is not None:
         returned_call_capture.finish(stream_valid=sse.completed_valid and status == 200)
@@ -3477,6 +3748,7 @@ def _timed_public_stream(
         chunk_count,
         returned_call_capture.value if returned_call_capture is not None else None,
         returned_call_capture.safe_facts() if returned_call_capture is not None else {},
+        returned_call_capture.take_function_call() if returned_call_capture is not None else None,
     )
 
 
@@ -3572,6 +3844,90 @@ def _idless_companion_initial_body(
             "max_output_tokens": 32,
             "store": False,
             "tool_choice": {"type": "function", "name": "local_lookup"},
+        }
+    )
+    return body
+
+
+def _identity_companion_tools() -> list[dict[str, object]]:
+    """Return the bounded tool envelope used by the existing companion."""
+    local_lookup: dict[str, object] = {
+        "type": "function",
+        "name": "local_lookup",
+        "description": "bounded local function",
+        "parameters": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+    }
+    local_tools: list[dict[str, object]] = [
+        local_lookup,
+        {
+            "type": "custom",
+            "name": "local_custom",
+            "description": "bounded custom",
+            "format": {"type": "text"},
+        },
+    ]
+    return [
+        *local_tools,
+        {
+            "type": "tool_search",
+            "description": "synthetic adapter candidate",
+            "execution": "client",
+            "parameters": {},
+        },
+        {
+            "type": "web_search",
+            "external_web_access": False,
+            "search_content_types": ["text"],
+        },
+        {
+            "type": "namespace",
+            "name": "companion",
+            "description": "bounded local namespace",
+            "tools": [local_lookup],
+        },
+    ]
+
+
+def _idless_companion_continuation_body(
+    session: str,
+    returned_call: Mapping[str, object] | None,
+    *,
+    tools: list[dict[str, object]],
+) -> dict[str, object]:
+    """Build legal replay history from the actual validated returned call.
+
+    Only the optional function-call item ``id`` is omitted.  All other fields
+    are copied from the transient validator-approved item, including its
+    canonical name, arguments, namespace, status, and mandatory call ID.
+    """
+    if not isinstance(returned_call, Mapping):
+        raise RuntimeError("companion_returned_call_missing")
+    replay_call = dict(returned_call)
+    call_id = replay_call.get("call_id")
+    if not isinstance(call_id, str) or not call_id:
+        raise RuntimeError("companion_returned_call_id_missing")
+    if replay_call.get("type") != "function_call" or replay_call.get("status") != "completed":
+        raise RuntimeError("companion_returned_call_invalid")
+    replay_call.pop("id", None)
+    body = _composed_request_body(session, "idless companion continuation", tools=tools)
+    body.update(
+        {
+            "stream": False,
+            "max_output_tokens": 32,
+            "store": False,
+            "input": [
+                replay_call,
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": "synthetic companion result",
+                },
+            ],
         }
     )
     return body
@@ -3990,10 +4346,16 @@ def _run_replay_ownership_negative_matrix(
     primary_key: str,
     second_key: str,
     continuation_body: Mapping[str, object],
+    returned_call: Mapping[str, object],
 ) -> dict[str, int | None]:
     """Send only pre-provider companion ownership negatives through Gateway."""
 
-    def continuation(*, call_id: str | None, include_call: bool = False) -> dict[str, object]:
+    baseline_call = dict(returned_call)
+    baseline_call_id = baseline_call.get("call_id")
+    if not isinstance(baseline_call_id, str) or not baseline_call_id:
+        raise RuntimeError("replay_negative_baseline_call_missing")
+
+    def continuation(*, call_id: str | None, include_call: bool = True) -> dict[str, object]:
         output_item: dict[str, object] = {
             "type": "function_call_output",
             "output": "synthetic companion result",
@@ -4002,13 +4364,7 @@ def _run_replay_ownership_negative_matrix(
             output_item["call_id"] = call_id
         body = dict(continuation_body)
         if include_call:
-            call_item = {
-                "type": "function_call",
-                "call_id": call_id,
-                "name": "local_lookup",
-                "arguments": "{}",
-                "status": "completed",
-            }
+            call_item = dict(baseline_call)
             body["input"] = [call_item, output_item]
         else:
             body["input"] = [output_item]
@@ -4030,26 +4386,14 @@ def _run_replay_ownership_negative_matrix(
         except httpx.HTTPError:
             return None
 
-    returned_call_id = continuation_body.get("input")
-    call_id: str | None = None
-    if isinstance(returned_call_id, list) and returned_call_id:
-        first_item = returned_call_id[0]
-        if isinstance(first_item, dict) and isinstance(first_item.get("call_id"), str):
-            call_id = first_item["call_id"]
     return {
         "missing_call_id": post_status(primary_key, continuation(call_id=None)),
         "mismatched_call_id": post_status(
             primary_key,
             {
-                **continuation(call_id=call_id, include_call=True),
+                **continuation(call_id=baseline_call_id),
                 "input": [
-                    {
-                        "type": "function_call",
-                        "call_id": call_id,
-                        "name": "local_lookup",
-                        "arguments": "{}",
-                        "status": "completed",
-                    },
+                    dict(baseline_call),
                     {
                         "type": "function_call_output",
                         "call_id": "synthetic-unowned-call",
@@ -4058,7 +4402,7 @@ def _run_replay_ownership_negative_matrix(
                 ],
             },
         ),
-        "wrong_key": post_status(second_key, continuation(call_id=call_id, include_call=True)),
+        "wrong_key": post_status(second_key, continuation(call_id=baseline_call_id)),
     }
 
 
@@ -5119,6 +5463,8 @@ def _run_direct_composed_rehearsal_impl(
     provider_target = str(args.provider_target)
     if provider_target not in {"fake", "protected"}:
         raise RuntimeError("provider_target_invalid")
+    target = str(getattr(args, "target", TARGET_FULL))
+    target_plan = _target_execution_plan(target)
     protected_hooks = getattr(args, "_protected_runtime_hooks", None)
     if protected_hooks is not None and not isinstance(protected_hooks, ProtectedRuntimeHooks):
         raise RuntimeError("protected_runtime_hooks_invalid")
@@ -5324,6 +5670,19 @@ def _run_direct_composed_rehearsal_impl(
         if not result:
             raise RuntimeError("composed_rehearsal_did_not_produce_facts")
         result["runtime_observations"] = _runtime_observations(result)
+        if target == TARGET_IDENTITY_REPLAY:
+            target_gate = _identity_replay_target_gate(result)
+            result["target_gate"] = target_gate
+            result["acceptance_gate"] = {
+                "mode": "target_identity_replay",
+                "scope": TARGET_IDENTITY_REPLAY,
+                "passed": target_gate["passed"],
+                "full_manifest_executed": False,
+                "results": (),
+            }
+            result["gap_inventory"] = ()
+            result["status"] = "COMPLETE" if target_gate["passed"] else "BLOCKED"
+            return
         try:
             if protected_hooks is not None and (
                 protected_hooks.projection_failure or protected_hooks.failure_phase == "projection"
@@ -5633,7 +5992,11 @@ def _run_direct_composed_rehearsal_impl(
                     protected_dispatch_complete if protected_hooks is not None else None
                 ),
                 response_complete_hook=operation_response_complete,
-                allowed_lifetime_ids=("candidate", "codex"),
+                allowed_lifetime_ids=(
+                    ("candidate", "identity")
+                    if target == TARGET_IDENTITY_REPLAY
+                    else ("candidate", "codex")
+                ),
                 request_classifier=_provider_request_observation,
             )
             active_observer = candidate_observer
@@ -5678,6 +6041,230 @@ def _run_direct_composed_rehearsal_impl(
                 gateway_ready = _wait_status(http, f"{gateway_url}/readyz")
             if gateway_health != 200 or gateway_ready != 200:
                 raise RuntimeError("gateway_not_ready")
+
+            if target == TARGET_IDENTITY_REPLAY:
+                # This selector intentionally enters the existing observer and
+                # accounting path at the companion only.  It is not allowed to
+                # fall through into Codex, vision, other identity operations,
+                # or the full acceptance manifest.
+                target_tools = _identity_companion_tools()
+                target_session = str(uuid.uuid4())
+                target_before = candidate_observer.snapshot()
+                target_rows_before = asyncio.run(
+                    _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+                )
+                target_fake_before = fake_server.snapshot() if fake_server is not None else None
+                admit("identity_replay", "codex", 5, "identity")
+                activate("identity_replay", "codex", 5, "identity")
+                target_initial = _idless_companion_initial_body(target_session, target_tools)
+                (
+                    target_initial_status,
+                    target_initial_sse,
+                    target_initial_timing,
+                    target_initial_chunks,
+                    target_returned_call_id,
+                    target_returned_call_evidence,
+                    target_returned_call,
+                ) = _timed_public_stream(
+                    gateway_url,
+                    seeded["plaintext_key"],
+                    target_initial,
+                    capture_returned_call_id=True,
+                    validator_factory=validator_factory,
+                )
+                target_continuation_status: int | None = None
+                target_continuation_valid = False
+                target_continuation_usage = False
+                if (
+                    target_initial_status == 200
+                    and target_initial_sse.completed_valid
+                    and target_returned_call_id is not None
+                    and target_returned_call is not None
+                ):
+                    target_continuation = _idless_companion_continuation_body(
+                        target_session, target_returned_call, tools=target_tools
+                    )
+                    (
+                        target_continuation_status,
+                        target_continuation_valid,
+                        target_continuation_usage,
+                    ) = _timed_public_json_response(
+                        gateway_url,
+                        seeded["plaintext_key"],
+                        target_continuation,
+                    )
+                target_after = candidate_observer.snapshot()
+                target_rows_after = asyncio.run(
+                    _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
+                )
+                target_fake_after = fake_server.snapshot() if fake_server is not None else None
+                target_records_before = target_before.get("records", ())
+                target_records_after = target_after.get("records", ())
+                target_new_records = (
+                    tuple(target_records_after[len(target_records_before) :])
+                    if isinstance(target_records_before, (list, tuple))
+                    and isinstance(target_records_after, (list, tuple))
+                    else ()
+                )
+                target_inference_records = tuple(
+                    record
+                    for record in target_new_records
+                    if isinstance(record, dict) and record.get("kind") == "inference"
+                )
+                target_other_records = tuple(
+                    record
+                    for record in target_new_records
+                    if isinstance(record, dict) and record.get("kind") == "other"
+                )
+                reservation_delta = max(
+                    0,
+                    int(target_rows_after["reservation_count"])
+                    - int(target_rows_before["reservation_count"]),
+                )
+                finalized_reservation_delta = max(
+                    0,
+                    int(target_rows_after["finalized_reservation_count"])
+                    - int(target_rows_before["finalized_reservation_count"]),
+                )
+                ledger_delta = max(
+                    0,
+                    int(target_rows_after["ledger_count"])
+                    - int(target_rows_before["ledger_count"]),
+                )
+                finalized_ledger_delta = max(
+                    0,
+                    int(target_rows_after["finalized_ledger_count"])
+                    - int(target_rows_before["finalized_ledger_count"]),
+                )
+                failed_ledger_delta = max(
+                    0,
+                    int(target_rows_after["failed_ledger_count"])
+                    - int(target_rows_before["failed_ledger_count"]),
+                )
+                target_accounting = {
+                    "reservation_count_delta": reservation_delta,
+                    "finalized_reservation_count_delta": finalized_reservation_delta,
+                    "ledger_count_delta": ledger_delta,
+                    "finalized_ledger_count_delta": finalized_ledger_delta,
+                    "failed_ledger_count_delta": failed_ledger_delta,
+                    "reservation_count_consistent": reservation_delta == 2,
+                    "reservation_terminal": finalized_reservation_delta == reservation_delta == 2,
+                    "ledger_count_consistent": ledger_delta == reservation_delta == 2,
+                    "ledger_terminal": (
+                        finalized_ledger_delta == ledger_delta == 2 and failed_ledger_delta == 0
+                    ),
+                    "two_terminal_reservations": finalized_reservation_delta == 2,
+                    "zero_pending": target_rows_after["pending_reservation_count"] == 0,
+                    "zero_duplicate_request_ids": target_rows_after["duplicate_request_id_count"]
+                    == 0,
+                }
+                idless_composed_companion = _idless_companion_observation(
+                    target_before,
+                    target_after,
+                    initial_status=target_initial_status,
+                    initial_sse_valid=target_initial_sse.completed_valid,
+                    returned_call_id_present=target_returned_call_id is not None,
+                    continuation_status=target_continuation_status,
+                    continuation_json_valid=target_continuation_valid,
+                    accounting=target_accounting,
+                    canonical_replay_evidence=target_returned_call_evidence,
+                )
+                target_initial_boundary = _observer_delta(target_before, target_after)
+                target_first_failure = (
+                    "initial_http_non_2xx"
+                    if target_initial_status != 200
+                    else "initial_stream_contract_failed"
+                    if not target_initial_sse.completed_valid
+                    else "continuation_http_non_2xx"
+                    if target_continuation_status != 200
+                    else "continuation_response_invalid"
+                    if not target_continuation_valid
+                    else "identity_replay_predicate_failed"
+                    if not idless_composed_companion["passed"]
+                    else None
+                )
+                result = {
+                    "status": "PENDING",
+                    "provider_target": provider_target,
+                    "target": TARGET_IDENTITY_REPLAY,
+                    "target_plan": target_plan,
+                    "full_protected_matrix": False,
+                    "gateway_sha": GATEWAY_MAIN_SHA,
+                    "candidate_provenance": _candidate_provenance(
+                        tested_implementation_sha,
+                        run_id,
+                        provider_target=provider_target,
+                        synthetic_protected=protected_hooks is not None,
+                    ),
+                    "gateway_health_status": gateway_health,
+                    "gateway_ready_status": gateway_ready,
+                    "candidate_health_status": candidate_health,
+                    "candidate_ready_status": candidate_ready,
+                    "protected_health_status": protected_health_status,
+                    "protected_models_status": protected_models_status,
+                    "target_initial": {
+                        "status_class": _status_class(target_initial_status),
+                        "sse_valid": target_initial_sse.completed_valid,
+                        "chunk_count_class": count_class(target_initial_chunks),
+                        "timing_buckets": tuple(sorted(target_initial_timing)),
+                    },
+                    "target_continuation": {
+                        "status_class": _status_class(target_continuation_status),
+                        "json_valid": target_continuation_valid,
+                        "usage_valid": target_continuation_usage,
+                    },
+                    "target_first_failure": target_first_failure,
+                    "target_dispatch_counts": {
+                        "inference_attempted": len(target_inference_records),
+                        "inference_dispatched": sum(
+                            record.get("dispatched") is True for record in target_inference_records
+                        ),
+                        "inference_completed": sum(
+                            record.get("completed") is True for record in target_inference_records
+                        ),
+                        "compiler_dispatched": sum(
+                            record.get("kind") == "compiler" and record.get("dispatched") is True
+                            for record in target_new_records
+                            if isinstance(record, dict)
+                        ),
+                        "other_dispatched": sum(
+                            record.get("dispatched") is True for record in target_other_records
+                        ),
+                    },
+                    "target_provider_boundary": target_initial_boundary["provider_boundary"],
+                    "idless_composed_companion": idless_composed_companion,
+                    "target_accounting": target_accounting,
+                    "transport_observation": target_after,
+                    "provider_observation": (
+                        _protected_provider_observation(target_after)
+                        if provider_target == "protected"
+                        else None
+                    ),
+                    "fake_provider": target_fake_after,
+                    "target_fake_delta": (
+                        {
+                            "inference_calls": _int_fact(target_fake_after.get("inference_calls"))
+                            - _int_fact(target_fake_before.get("inference_calls"))
+                        }
+                        if isinstance(target_fake_after, dict)
+                        and isinstance(target_fake_before, dict)
+                        else None
+                    ),
+                    "protected_later_inference": False,
+                    "topology_observation": {
+                        "codex_gateway_local_provider": True,
+                        "no_direct_route": True,
+                    },
+                    "candidate_only_observation": candidate_only_observation,
+                }
+                accumulator.capture_observer(
+                    target_after,
+                    phase="codex",
+                    ordinal=5,
+                    lifetime_id="identity",
+                )
+                early_return = True
+                return result
 
             client = OpenAI(
                 api_key=seeded["plaintext_key"],
@@ -6066,51 +6653,12 @@ def _run_direct_composed_rehearsal_impl(
             }
             session_a = str(uuid.uuid4())
             session_b = str(uuid.uuid4())
-            local_tools: list[dict[str, object]] = [
-                {
-                    "type": "function",
-                    "name": "local_lookup",
-                    "description": "bounded local function",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": False,
-                    },
-                },
-                {
-                    "type": "custom",
-                    "name": "local_custom",
-                    "description": "bounded custom",
-                    "format": {"type": "text"},
-                },
-            ]
-            adapter_tools: list[dict[str, object]] = [
-                *local_tools,
-                {
-                    "type": "tool_search",
-                    "description": "synthetic adapter candidate",
-                    "execution": "client",
-                    "parameters": {},
-                },
-                {
-                    "type": "web_search",
-                    "external_web_access": False,
-                    "search_content_types": ["text"],
-                },
-            ]
+            companion_tools = _identity_companion_tools()
+            adapter_tools = companion_tools[:4]
             # Operation 5 owns the two inference slots below.  They are the
             # composed omission companion: one streamed initial tool call and
             # one non-streaming continuation.  The later phase still owns the
             # five signed /health observations used by the identity matrix.
-            companion_tools: list[dict[str, object]] = [
-                *adapter_tools,
-                {
-                    "type": "namespace",
-                    "name": "companion",
-                    "description": "bounded local namespace",
-                    "tools": [local_tools[0]],
-                },
-            ]
             admit("identity_replay", "codex", 5, "identity")
             activate("identity_replay", "codex", 5, "identity")
             companion_initial_body = _idless_companion_initial_body(session_a, companion_tools)
@@ -6137,6 +6685,7 @@ def _run_direct_composed_rehearsal_impl(
                 stream_chunk_count,
                 returned_call_id,
                 returned_call_evidence,
+                returned_call_item,
             ) = _timed_public_stream(
                 gateway_url,
                 seeded["plaintext_key"],
@@ -6146,22 +6695,10 @@ def _run_direct_composed_rehearsal_impl(
             )
             if returned_call_id is None:
                 raise RuntimeError("companion_returned_call_missing")
-            companion_continuation_body = _composed_request_body(
-                session_a, "idless companion continuation", tools=companion_tools
-            )
-            companion_continuation_body.update(
-                {
-                    "stream": False,
-                    "max_output_tokens": 32,
-                    "store": False,
-                    "input": [
-                        {
-                            "type": "function_call_output",
-                            "call_id": returned_call_id,
-                            "output": "synthetic companion result",
-                        }
-                    ],
-                }
+            if returned_call_item is None:
+                raise RuntimeError("companion_returned_call_item_missing")
+            companion_continuation_body = _idless_companion_continuation_body(
+                session_a, returned_call_item, tools=companion_tools
             )
             continuation_status, continuation_json_valid, continuation_usage_present = (
                 _timed_public_json_response(
@@ -6355,6 +6892,7 @@ def _run_direct_composed_rehearsal_impl(
                     seeded["plaintext_key"],
                     seeded["second_plaintext_key"],
                     companion_continuation_body,
+                    returned_call_item,
                 )
                 ownership_rows_after = asyncio.run(
                     _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
@@ -7057,6 +7595,9 @@ def main() -> int:
         ),
     )
     parser.add_argument("--provider-target", choices=("fake", "protected"), default="fake")
+    parser.add_argument(
+        "--target", choices=(TARGET_FULL, TARGET_IDENTITY_REPLAY), default=TARGET_FULL
+    )
     parser.add_argument("--fake-result", type=Path)
     args = parser.parse_args()
     mode: Literal["fake", "protected"] = (
@@ -7064,7 +7605,11 @@ def main() -> int:
     )
     boundary_accumulator = RunAccumulator(mode, gateway_sha=GATEWAY_MAIN_SHA)
     try:
-        preflight, _ = _tool_envelope_preflight(args.gateway_root.resolve(), args.codex)
+        preflight = (
+            _target_model_free_preflight(args.gateway_root.resolve(), args.codex)
+            if args.target == TARGET_IDENTITY_REPLAY
+            else _tool_envelope_preflight(args.gateway_root.resolve(), args.codex)[0]
+        )
         print(json.dumps({"status": "PREFLIGHT", **preflight}, sort_keys=True), flush=True)
         if preflight["gateway_policy"] != "ACCEPTED":
             boundary_accumulator.record_failure("preflight_incomplete")

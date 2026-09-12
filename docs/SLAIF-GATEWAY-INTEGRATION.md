@@ -65,13 +65,15 @@ and loopback-only `/metrics` remain operator endpoints.
 
 ## Trusted identity status
 
-The gateway generic provider currently substitutes one backend credential but
-does not emit trusted per-request identity to Local Coding. Local Coding now
-implements the adapter-side `service_bearer_signed_identity_v1` verifier as a
-prepared, disabled-by-default contract. Its configuration requires a separate
-visible-ASCII HMAC secret, bounded clock skew/replay TTL/nonce state, and
+The exact pinned Gateway main used by the current Objective-005 acceptance
+harness emits trusted signed per-request identity for the reviewed Codex route.
+Local Coding implements the adapter-side
+`service_bearer_signed_identity_v1` verifier behind an explicit configuration
+mode. Its configuration requires a separate visible-ASCII HMAC secret, bounded
+clock skew/replay TTL/nonce state, and
 `constitution.identity_source = "signed_request"`; static identity is forbidden
-as a fallback.
+as a fallback. This source-bound capability does not claim an installed gateway
+service or production cutover.
 
 The exact v1 headers are:
 
@@ -99,13 +101,12 @@ signature, body, or secret data and occur before transformation work.
 
 The exact synthetic conformance vector is
 `tests/fixtures/gateway/signed_identity_v1_vectors.json`.
-Gateway-side support for this adapter contract is **NOT IMPLEMENTED** and **NOT
-AUTHORIZED**: the current gateway's existing provider filter emits no signed identity. A
-separate gateway OAP PR, human authorization, key-derivation/rotation design,
-route capability, negative/security tests, accounting checks, and
-cross-repository conformance review are required before enabling this mode.
-Until then, safe deployment remains explicit static single-user identity or
-rehydration disabled; unsigned `X-SLAIF-*` headers never establish identity.
+Gateway-side support for this adapter contract is source-bound to the exact
+pinned main and reviewed route used by Objective-005. The earlier activation
+snapshot below remains historical evidence and is not the current capability
+statement. Gateway key derivation/rotation, route capability, negative/security
+tests, accounting checks, and cross-repository conformance remain acceptance
+responsibilities; unsigned `X-SLAIF-*` headers never establish identity.
 
 ## Dated cross-repository evidence
 

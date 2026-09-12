@@ -42,8 +42,9 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
     process-local replay state. It never accepts public gateway keys or
     unsigned caller identity headers. Service and signed-auth failures occur
     before image, constitution, compiler, cache, rehydration, or upstream work.
-    The current gateway does not emit the signed contract; adapter preparation
-    is not gateway acceptance or production cutover.
+    The exact pinned Gateway main used by the Objective-005 acceptance harness
+    emits the signed contract for its reviewed Codex route; adapter and
+    cross-repository qualification evidence is not production cutover.
 
 ## Protected live-host resources
 

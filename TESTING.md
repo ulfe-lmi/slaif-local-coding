@@ -37,8 +37,10 @@ atomic replay TTL/LRU bounds, route mismatch before transformations, concurrent
 duplicate admission, explicit per-request identity propagation, cache/
 rehydration isolation dimensions, header stripping, and secret/raw-content
 privacy. The adapter-side vector is
-`tests/fixtures/gateway/signed_identity_v1_vectors.json`; gateway emission and
-cross-repository acceptance remain `NOT IMPLEMENTED` and `NOT AUTHORIZED`.
+`tests/fixtures/gateway/signed_identity_v1_vectors.json`. The exact pinned
+Gateway main used by the current Objective-005 acceptance harness emits signed
+identity for its reviewed Codex route; installed-service binding and production
+cutover remain separate acceptance decisions.
 
 ## Objective-005 repository-only acceptance harness
 
