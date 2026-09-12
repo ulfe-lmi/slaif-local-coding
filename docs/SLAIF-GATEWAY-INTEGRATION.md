@@ -775,3 +775,29 @@ or artifact scan can promote the runtime privacy obligation. Focused tests
 cover true, false, missing, invalid, and the existing early-stop shape.
 The 005-am evidence is under `oap/evidence/005-am/`; it contains no raw
 payloads, source content, credentials, or protected result.
+
+## Objective-005-an Gateway162 final protected acceptance
+
+The current continuation is bound to the exact Gateway162 merged-main
+authority `5ea38325ef3a3ebc69524b4679b795fab0c52935`, accepted production
+implementation `732e3bad17d93909f210321b97bedd8e5718fb7b`, complete merged tree
+`1ede9cea41c566b141441ad9a3122133d5fc1ff6`, and accepted app tree
+`a7b64d35650b61fbba3558ddb519c6e52a627ec9`. The exact paired client contract
+is `codex-0.149-responses-v1` version `4`.
+
+The Local acceptance harness passes each actual parsed request through
+Gateway's `codex_0149_zero_argument_function_names` helper when the existing
+streaming-tools gate is active and places the result in the exact
+`ResponsesStreamValidationProfile`. It does not recreate Gateway's schema
+eligibility rules. The accepted zero-argument lifecycle is therefore observed
+as `output_item.added(arguments="")` followed by `output_item.done(arguments="")`
+without argument delta/done events, while canonical `{}` argument events keep
+their existing strict path. Focused positive and negative tests are maintained
+under `tests/test_gateway162_validator_factory.py`.
+
+This preparation does not itself claim protected acceptance. The fresh fake
+37/37 machine gate, bounded preflight, and exactly one protected matrix remain
+separate, source-bound evidence for this continuation. The protected Qwen
+vision fixture, 18020 service, Codex profiles, credentials, network, cutover,
+merge, and release state remain unchanged unless the immutable acceptance
+report records an explicitly observed result under the order's stop law.

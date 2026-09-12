@@ -46,7 +46,7 @@ The permanent bounded orchestrator is
 `scripts/gateway_accounting_rehearsal.py`. It uses one ordered C/D obligation
 manifest and the same fail-closed predicates for fake and protected modes.
 Fake and conditionally protected modes use a clean detached Gateway at exact
-implementation SHA `50dcc3b85d614eb1d0c6196595bf22ef5779f846`,
+merged-main implementation SHA `5ea38325ef3a3ebc69524b4679b795fab0c52935`,
 the Local candidate, synthetic PostgreSQL, a strict loopback fake Qwen, and the
 task-controlled Codex 0.149.0 binary with its exact verified checksum. Use a
 temporary checkout and run:
@@ -695,3 +695,28 @@ pass/fail facts, while missing, non-boolean, descriptive, or unexecuted data
 stays `NOT RUN`. Focused tests cover true, false, missing, invalid, and the
 existing early-stop path; no raw payload, source content, credential, stderr
 inference, or artifact-scan result is used as runtime privacy evidence.
+
+## Current Objective-005-an Gateway162 acceptance
+
+The current final acceptance continuation uses the exact merged Gateway main
+`5ea38325ef3a3ebc69524b4679b795fab0c52935`, accepted production implementation
+`732e3bad17d93909f210321b97bedd8e5718fb7b`, complete merged tree
+`1ede9cea41c566b141441ad9a3122133d5fc1ff6`, and app tree
+`a7b64d35650b61fbba3558ddb519c6e52a627ec9`. The paired Codex client module is
+`codex-0.149-responses-v1` version `4`, with the reviewed fixture digest and
+Codex 0.149.0 binary checksum retained in the bounded runner.
+
+The repository-only observer constructs the exact Gateway162
+`ResponsesStreamValidationProfile` from each parsed request. It delegates
+zero-argument function eligibility to Gateway's
+`codex_0149_zero_argument_function_names` helper only when the existing
+streaming-tools gate is active; canonical argument delta/done lifecycles remain
+unchanged. Focused tests cover eligible omission, canonical arguments,
+ineligible/non-stream/malformed requests, and invalid lifecycle, identity,
+ordering, and terminal cases.
+
+The complete fake machine gate and the one authorized protected matrix are
+reported separately for this continuation. Protected execution remains
+conditional on the fresh source-bound 37/37 fake gate and bounded preflight;
+there are no protected retries, service/model/profile/network mutations,
+cutover, merge, or release claims in the coding round.

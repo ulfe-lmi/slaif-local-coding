@@ -136,14 +136,14 @@ FAILURE_PROVIDER = "synthetic-failure"
 FAILURE_MODEL = "synthetic-failure-model"
 LOCAL_ROUTE = "qwen38-vision-codex"
 CODEX_MODULE_ID = "codex-0.149-responses-v1"
-CODEX_MODULE_VERSION = "3"
+CODEX_MODULE_VERSION = "4"
 # This is the reviewed Gateway client-module fixture digest.  The binary
 # digest below remains a separate executable-integrity fact.
 CODEX_CLIENT_MODULE_FIXTURE_SHA256 = (
     "ca1e03a35de1eaeceb894cec9895af0c154e0d2fa0aa8da87f98716e1567f9ec"
 )
 CODEX_FIXTURE_SHA256 = "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
-GATEWAY_APP_TREE_SHA256 = "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57"
+GATEWAY_APP_TREE_SHA256 = "a7b64d35650b61fbba3558ddb519c6e52a627ec9"
 LOCAL_ROUTE_POLICY = "qwen38-vision-codex/retain_newest/signed_identity_v1"
 OBSERVATION_VERSION = "direct-httpx-v2"
 PROTECTED_VISION_PID = "23961"
@@ -192,6 +192,7 @@ def _gateway_stream_validator_factory(gateway_root: Path) -> Any:
     from slaif_gateway.modules.clients.codex_0149 import (  # type: ignore[import-not-found]
         codex_0149_declared_tool_taxonomy,
         codex_0149_streaming_tool_events_requested,
+        codex_0149_zero_argument_function_names,
     )
     from slaif_gateway.providers.streaming import (  # type: ignore[import-not-found]
         ResponsesStreamEventValidator,
@@ -217,6 +218,9 @@ def _gateway_stream_validator_factory(gateway_root: Path) -> Any:
         profile = ResponsesStreamValidationProfile(
             codex_streaming_tool_events=streaming_tools,
             codex_0149_function_tool_events=streaming_tools,
+            zero_argument_function_names=(
+                codex_0149_zero_argument_function_names(payload) if streaming_tools else frozenset()
+            ),
             codex_encrypted_reasoning_replay=False,
             declared_client_tools=declarations,
             codex_reasoning_events=True,
