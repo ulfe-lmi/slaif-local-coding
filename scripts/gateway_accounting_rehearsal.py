@@ -320,7 +320,7 @@ def _opaque_call_id_digest(value: object) -> bytes | None:
     return hashlib.sha256(value.encode("utf-8")).digest()
 
 
-def _request_observation(payload: dict[str, object]) -> dict[str, object]:
+def _request_observation(payload: Mapping[str, object]) -> dict[str, object]:
     """Classify exact Responses items without fixture IDs or text searching."""
     tools = payload.get("tools")
     tool_items = (
@@ -846,7 +846,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             if tool_name == "local_lookup"
             else '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}'
         )
-        returned_call = {
+        returned_call: dict[str, object] = {
             "type": "function_call",
             "id": "function_1",
             "call_id": FAKE_FUNCTION_CALL_ID,
