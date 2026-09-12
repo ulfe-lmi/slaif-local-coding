@@ -1892,7 +1892,7 @@ def _idless_companion_observation(
         "lifetime": "identity",
         "request_count_class": count_class(len(inference)),
         "initial_response_shape": "stream_sse",
-        "continuation_response_shape": "json_nonstream",
+        "continuation_response_shape": "stream_sse",
         "initial_status_class": (
             f"{initial_status // 100}xx" if isinstance(initial_status, int) else "unknown"
         ),
@@ -3803,6 +3803,18 @@ def _timed_public_json_response(
     return status, response_valid, usage_valid
 
 
+def _timed_public_companion_response(
+    gateway_url: str, gateway_key: str, body: dict[str, object]
+) -> tuple[int | None, bool, bool]:
+    """Observe the paired streamed continuation under Gateway's tool gate."""
+    status, sse, _timing, _chunks, _call_id, _facts, _item = _timed_public_stream(
+        gateway_url,
+        gateway_key,
+        body,
+    )
+    return status, sse.completed_valid, sse.completed_usage_valid
+
+
 def _response_status(call: Any) -> int:
     try:
         call()
@@ -3925,7 +3937,7 @@ def _idless_companion_continuation_body(
     body = _composed_request_body(session, "idless companion continuation", tools=tools)
     body.update(
         {
-            "stream": False,
+            "stream": True,
             "max_output_tokens": 32,
             "store": False,
             "input": [
@@ -6096,7 +6108,7 @@ def _run_direct_composed_rehearsal_impl(
                         target_continuation_status,
                         target_continuation_valid,
                         target_continuation_usage,
-                    ) = _timed_public_json_response(
+                    ) = _timed_public_companion_response(
                         gateway_url,
                         seeded["plaintext_key"],
                         target_continuation,
@@ -6709,7 +6721,7 @@ def _run_direct_composed_rehearsal_impl(
                 session_a, returned_call_item, tools=companion_tools
             )
             continuation_status, continuation_json_valid, continuation_usage_present = (
-                _timed_public_json_response(
+                _timed_public_companion_response(
                     gateway_url, seeded["plaintext_key"], companion_continuation_body
                 )
             )
