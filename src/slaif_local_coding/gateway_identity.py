@@ -13,7 +13,7 @@ import math
 import re
 import threading
 import time
-from collections import OrderedDict
+from enum import StrEnum
 
 from fastapi import Request
 
@@ -49,13 +49,28 @@ class SignedIdentityError(Exception):
         self.code = code
 
 
+class ReplayReservation(StrEnum):
+    """Closed outcomes for one atomic nonce-digest reservation attempt."""
+
+    RESERVED = "reserved"
+    REPLAY = "replay"
+    CAPACITY_UNAVAILABLE = "capacity_unavailable"
+    CLOCK_ROLLBACK = "clock_rollback"
+    CLOCK_UNAVAILABLE = "clock_unavailable"
+
+
 class ReplayProtector:
-    """Bounded process-local nonce digest TTL/LRU state."""
+    """Bounded process-local nonce digest state with fail-closed admission."""
 
     def __init__(self, *, ttl_seconds: int, max_entries: int) -> None:
+        if isinstance(ttl_seconds, bool) or not isinstance(ttl_seconds, int) or ttl_seconds < 1:
+            raise ValueError("replay TTL is invalid")
+        if isinstance(max_entries, bool) or not isinstance(max_entries, int) or max_entries < 1:
+            raise ValueError("replay entry bound is invalid")
         self.ttl_seconds = ttl_seconds
         self.max_entries = max_entries
-        self._entries: OrderedDict[str, float] = OrderedDict()
+        self._entries: dict[str, float] = {}
+        self._clock_high_water: float | None = None
         self._lock = threading.Lock()
 
     @property
@@ -63,24 +78,47 @@ class ReplayProtector:
         with self._lock:
             return len(self._entries)
 
-    def reserve(self, nonce_digest: str, *, now: float) -> bool:
-        """Atomically reserve one digest, returning false for an active replay."""
+    def reserve(
+        self,
+        nonce_digest: str,
+        *,
+        now: float,
+        request_horizon: float,
+    ) -> ReplayReservation:
+        """Atomically reserve a digest without evicting any live digest.
+
+        ``request_horizon`` is the inclusive signed-request validity horizon,
+        ``signed_timestamp + clock_skew``.  The configured TTL remains a
+        minimum post-admission retention interval.
+        """
         if not re.fullmatch(r"[0-9a-f]{64}", nonce_digest):
             raise ValueError("nonce digest is invalid")
-        if not math.isfinite(now):
-            raise ValueError("replay clock is invalid")
-        expires_at = now + self.ttl_seconds
+        try:
+            finite_inputs = math.isfinite(now) and math.isfinite(request_horizon)
+        except (OverflowError, TypeError):
+            finite_inputs = False
+        if not finite_inputs:
+            return ReplayReservation.CLOCK_UNAVAILABLE
+        try:
+            expires_at = max(now + self.ttl_seconds, request_horizon)
+            finite_expiry = math.isfinite(expires_at)
+        except (OverflowError, TypeError):
+            finite_expiry = False
+        if not finite_expiry:
+            return ReplayReservation.CLOCK_UNAVAILABLE
         with self._lock:
-            expired = [key for key, expiry in self._entries.items() if expiry <= now]
+            if self._clock_high_water is not None and now < self._clock_high_water:
+                return ReplayReservation.CLOCK_ROLLBACK
+            self._clock_high_water = now
+            expired = [key for key, expiry in self._entries.items() if expiry < now]
             for key in expired:
                 self._entries.pop(key, None)
             if nonce_digest in self._entries:
-                self._entries.move_to_end(nonce_digest)
-                return False
-            while len(self._entries) >= self.max_entries:
-                self._entries.popitem(last=False)
+                return ReplayReservation.REPLAY
+            if len(self._entries) >= self.max_entries:
+                return ReplayReservation.CAPACITY_UNAVAILABLE
             self._entries[nonce_digest] = expires_at
-            return True
+            return ReplayReservation.RESERVED
 
 
 def _one_header(request: Request, name: str) -> str:
@@ -188,9 +226,13 @@ def verify_signed_identity(
         raise SignedIdentityError(422, "signed_identity_nonce_invalid")
     if not _SIGNATURE_RE.fullmatch(signature):
         raise SignedIdentityError(422, "signed_identity_signature_invalid")
-    if not math.isfinite(now if now is not None else time.time()):
+    current_time = time.time() if now is None else now
+    try:
+        finite_clock = math.isfinite(current_time)
+    except (OverflowError, TypeError):
+        finite_clock = False
+    if not finite_clock:
         raise SignedIdentityError(503, "signed_identity_clock_unavailable")
-    current_time = now if now is not None else time.time()
     if abs(current_time - timestamp_value) > config.clock_skew_seconds:
         raise SignedIdentityError(403, "signed_identity_timestamp_out_of_window")
     try:
@@ -214,8 +256,21 @@ def verify_signed_identity(
     if not hmac.compare_digest(signature, expected):
         raise SignedIdentityError(403, "signed_identity_signature_mismatch")
     nonce_digest = hashlib.sha256(nonce.encode("ascii")).hexdigest()
-    if not replay.reserve(nonce_digest, now=current_time):
+    reservation = replay.reserve(
+        nonce_digest,
+        now=current_time,
+        request_horizon=timestamp_value + config.clock_skew_seconds,
+    )
+    if reservation is ReplayReservation.REPLAY:
         raise SignedIdentityError(409, "signed_identity_replayed")
+    if reservation is ReplayReservation.CAPACITY_UNAVAILABLE:
+        raise SignedIdentityError(503, "signed_identity_replay_capacity_unavailable")
+    if reservation in {
+        ReplayReservation.CLOCK_ROLLBACK,
+        ReplayReservation.CLOCK_UNAVAILABLE,
+    }:
+        raise SignedIdentityError(503, "signed_identity_clock_unavailable")
+    assert reservation is ReplayReservation.RESERVED
     return RequestIdentity(
         principal=principal,
         session=session,

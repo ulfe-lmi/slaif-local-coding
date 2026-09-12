@@ -70,7 +70,7 @@ harness emits trusted signed per-request identity for the reviewed Codex route.
 Local Coding implements the adapter-side
 `service_bearer_signed_identity_v1` verifier behind an explicit configuration
 mode. Its configuration requires a separate visible-ASCII HMAC secret, bounded
-clock skew/replay TTL/nonce state, and
+clock skew/replay nonce state, and
 `constitution.identity_source = "signed_request"`; static identity is forbidden
 as a fallback. This source-bound capability does not claim an installed gateway
 service or production cutover.
@@ -94,10 +94,18 @@ The HMAC input is UTF-8 newline-separated, with no trailing newline:
 exact bounded body bytes, principal, session, repository, route, timestamp, and
 nonce. Query bytes are not parsed or reordered. The adapter compares the HMAC
 constant-time, reserves only a SHA-256 nonce digest in bounded process-local
-TTL/LRU state, and passes one immutable verified identity explicitly to
-compiler/cache/rehydration/injection. Signed/internal headers are stripped
-before Qwen. Fixed 401/403/409/422/503 failures do not expose identity, nonce,
-signature, body, or secret data and occur before transformation work.
+state, and passes one immutable verified identity explicitly to
+compiler/cache/rehydration/injection. The effective retention is
+`max(admission_time + replay_ttl_seconds, timestamp + clock_skew_seconds)`;
+the timestamp horizon is inclusive, and equality is still protected. Expired
+digests are reclaimed only after that effective horizon. A full live store
+returns fixed 503 `signed_identity_replay_capacity_unavailable` rather than
+evicting a protected digest. A detected wall-clock rollback or non-finite clock
+returns fixed 503 `signed_identity_clock_unavailable`. Signed/internal headers
+are stripped before Qwen. Fixed 401/403/409/422/503 failures do not expose
+identity, nonce, signature, body, or secret data and occur before transformation
+work. State is digest-only, bounded, process-local, single-worker, and cleared
+on restart; no durable or cross-process replay protection is claimed.
 
 The exact synthetic conformance vector is
 `tests/fixtures/gateway/signed_identity_v1_vectors.json`.
@@ -107,6 +115,39 @@ snapshot below remains historical evidence and is not the current capability
 statement. Gateway key derivation/rotation, route capability, negative/security
 tests, accounting checks, and cross-repository conformance remain acceptance
 responsibilities; unsigned `X-SLAIF-*` headers never establish identity.
+
+### Objective-006 replay-mode compatibility handoff
+
+The exact Gateway main audited for this hardening is
+`5ea38325ef3a3ebc69524b4679b795fab0c52935`. Its source
+`app/slaif_gateway/modules/servers/local_coding/contract.py` currently admits
+only `replay_mode = "process_local_ttl_lru"`; the same contract defines
+`clock_skew_seconds` (default 60), `replay_ttl_seconds` (default 120), bounded
+nonce lengths, `deployment_mode = "single_worker"`, and the validation
+`replay_ttl_seconds >= clock_skew_seconds`. The Gateway adapter's
+`app/slaif_gateway/modules/servers/local_coding/adapter.py` emits the same v1
+headers with a fresh nonce and integer wall-clock timestamp, so Local's
+wire-format and runtime request contract remain compatible.
+
+The old mode name is no longer truthful because Local no longer evicts live
+digests. The proposed truthful Gateway mode is
+`process_local_inclusive_horizon_fail_closed`: retain each digest through
+`max(admission_time + replay_ttl_seconds, timestamp + clock_skew_seconds)` with
+strict post-horizon reclamation, reject live-store saturation with
+`signed_identity_replay_capacity_unavailable` (503), and reject unsafe clock
+movement with `signed_identity_clock_unavailable` (503). Gateway follow-up
+should positively parse/emit the new mode, preserve v1 signing and
+single-worker bounds, and exercise immediate replay, maximum-future replay at
+the exact inclusive boundary, past-dated minimum retention, expired-first
+admission, and successful fresh admission after capacity frees. Negative cases
+must cover live-capacity no-eviction, known replay while full, rollback after a
+forward observation, invalid signatures without reservation, and stale
+`process_local_ttl_lru` metadata. The numeric bounds and
+`replay_ttl_seconds >= clock_skew_seconds` validation need not change: TTL is a
+minimum retention setting, while the request-derived horizon supplies the
+security-critical extension. The Local implementation SHA and final evidence
+are recorded in the immutable Objective-006-a OAP report; Gateway source is
+not modified here.
 
 ## Dated cross-repository evidence
 

@@ -31,6 +31,7 @@ from slaif_local_coding.constitution.cache import RequestIdentity
 from slaif_local_coding.constitution.pipeline import PipelineResult
 from slaif_local_coding.gateway_identity import (
     ReplayProtector,
+    ReplayReservation,
     SignedIdentityError,
     canonical_identity_bytes,
     expected_signature,
@@ -52,7 +53,14 @@ def _vector() -> dict[str, Any]:
     )
 
 
-def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
+def _config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    clock_skew_seconds: int = 60,
+    replay_ttl_seconds: int = 120,
+    max_replay_entries: int = 32,
+) -> Settings:
     monkeypatch.setenv("TEST_SIGNED_SERVICE_TOKEN", SERVICE_TOKEN)
     monkeypatch.setenv("TEST_SIGNED_SECRET", _vector()["secret"]["value"])
     monkeypatch.setenv("TEST_SIGNED_UPSTREAM", "synthetic-upstream-secret")
@@ -63,9 +71,9 @@ def _config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
             mode="service_bearer_signed_identity_v1",
             service_token_env="TEST_SIGNED_SERVICE_TOKEN",
             signing_secret_env="TEST_SIGNED_SECRET",
-            clock_skew_seconds=60,
-            replay_ttl_seconds=120,
-            max_replay_entries=32,
+            clock_skew_seconds=clock_skew_seconds,
+            replay_ttl_seconds=replay_ttl_seconds,
+            max_replay_entries=max_replay_entries,
             nonce_min_length=16,
             nonce_max_length=64,
         ),
@@ -333,28 +341,289 @@ def test_invalid_signature_does_not_reserve_nonce_and_clock_edges_are_inclusive(
     assert error.value.code == "signed_identity_timestamp_out_of_window"
 
 
-def test_replay_is_atomic_and_bounded_with_ttl_and_lru() -> None:
+def test_replay_is_atomic_inclusive_and_rejects_live_capacity() -> None:
     replay = ReplayProtector(ttl_seconds=10, max_entries=2)
     first = hashlib.sha256(b"one").hexdigest()
     second = hashlib.sha256(b"two").hexdigest()
     third = hashlib.sha256(b"three").hexdigest()
-    assert replay.reserve(first, now=100.0)
-    assert replay.reserve(second, now=100.0)
-    assert not replay.reserve(first, now=100.0)
-    assert replay.reserve(third, now=100.0)
+    assert replay.reserve(first, now=100.0, request_horizon=110.0) is ReplayReservation.RESERVED
+    assert replay.reserve(second, now=100.0, request_horizon=110.0) is ReplayReservation.RESERVED
+    assert replay.reserve(first, now=100.0, request_horizon=110.0) is ReplayReservation.REPLAY
+    assert (
+        replay.reserve(third, now=100.0, request_horizon=110.0)
+        is ReplayReservation.CAPACITY_UNAVAILABLE
+    )
     assert replay.size == 2
-    assert replay.reserve(first, now=111.0)
+    assert replay.reserve(first, now=110.0, request_horizon=110.0) is ReplayReservation.REPLAY
+    assert replay.reserve(third, now=110.0001, request_horizon=110.0) is ReplayReservation.RESERVED
     assert replay.size == 1
 
     concurrent = ReplayProtector(ttl_seconds=10, max_entries=32)
     digest = hashlib.sha256(b"concurrent").hexdigest()
 
-    def reserve() -> bool:
-        return concurrent.reserve(digest, now=200.0)
+    def reserve() -> ReplayReservation:
+        return concurrent.reserve(digest, now=200.0, request_horizon=210.0)
 
     with ThreadPoolExecutor(max_workers=16) as pool:
         results = list(pool.map(lambda _item: reserve(), range(64)))
-    assert sum(results) == 1
+    assert results.count(ReplayReservation.RESERVED) == 1
+    assert results.count(ReplayReservation.REPLAY) == 63
+
+
+def test_request_horizon_protects_maximum_future_timestamp_until_inclusive_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, replay_ttl_seconds=60)
+    body = b'{"model":"qwen"}'
+    timestamp = int(NOW + config.gateway_ingress.clock_skew_seconds)
+    headers = _identity_headers(
+        config,
+        body=body,
+        nonce="nonce-future-horizon",
+        timestamp=timestamp,
+    )
+    replay = ReplayProtector(
+        ttl_seconds=config.gateway_ingress.replay_ttl_seconds,
+        max_entries=config.gateway_ingress.max_replay_entries,
+    )
+
+    for current_time in (NOW, NOW + 60, NOW + 120):
+        if current_time == NOW:
+            identity = verify_signed_identity(
+                _request(body=body, headers=headers),
+                body,
+                config.gateway_ingress,
+                replay,
+                now=current_time,
+            )
+            assert identity.route == "vision"
+            continue
+        with pytest.raises(SignedIdentityError) as error:
+            verify_signed_identity(
+                _request(body=body, headers=headers),
+                body,
+                config.gateway_ingress,
+                replay,
+                now=current_time,
+            )
+        assert error.value.code == "signed_identity_replayed"
+        assert replay.size == 1
+
+    digest = hashlib.sha256(b"nonce-future-horizon").hexdigest()
+    assert (
+        replay.reserve(digest, now=NOW + 120, request_horizon=NOW + 120) is ReplayReservation.REPLAY
+    )
+    assert (
+        replay.reserve(digest, now=NOW + 120.0001, request_horizon=NOW + 120)
+        is ReplayReservation.RESERVED
+    )
+
+
+def test_past_dated_request_keeps_configured_minimum_retention_after_validity_horizon(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, replay_ttl_seconds=120)
+    body = b'{"model":"qwen"}'
+    timestamp = int(NOW - config.gateway_ingress.clock_skew_seconds)
+    replay = ReplayProtector(ttl_seconds=120, max_entries=4)
+    headers = _identity_headers(
+        config,
+        body=body,
+        nonce="nonce-past-horizon",
+        timestamp=timestamp,
+    )
+    verify_signed_identity(
+        _request(body=body, headers=headers), body, config.gateway_ingress, replay, now=NOW
+    )
+    digest = hashlib.sha256(b"nonce-past-horizon").hexdigest()
+    assert replay.reserve(digest, now=NOW, request_horizon=NOW) is ReplayReservation.REPLAY
+    assert replay.reserve(digest, now=NOW + 120, request_horizon=NOW) is ReplayReservation.REPLAY
+    assert (
+        replay.reserve(digest, now=NOW + 120.0001, request_horizon=NOW)
+        is ReplayReservation.RESERVED
+    )
+
+
+def test_replay_clock_inputs_fail_closed_and_digest_grammar_is_strict() -> None:
+    digest = hashlib.sha256(b"clock-inputs").hexdigest()
+    replay = ReplayProtector(ttl_seconds=60, max_entries=1)
+    assert (
+        replay.reserve(digest, now=float("nan"), request_horizon=100.0)
+        is ReplayReservation.CLOCK_UNAVAILABLE
+    )
+    assert (
+        replay.reserve(digest, now=100.0, request_horizon=float("inf"))
+        is ReplayReservation.CLOCK_UNAVAILABLE
+    )
+    assert replay.size == 0
+    with pytest.raises(ValueError, match="nonce digest is invalid"):
+        replay.reserve("not-a-digest", now=100.0, request_horizon=160.0)
+
+
+def test_nonfinite_verification_clock_is_fixed_503_without_reservation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path, monkeypatch)
+    body = b'{"model":"qwen"}'
+    headers = _identity_headers(config, body=body, nonce="nonce-nonfinite-clock")
+    replay = ReplayProtector(ttl_seconds=120, max_entries=1)
+    with pytest.raises(SignedIdentityError) as error:
+        verify_signed_identity(
+            _request(body=body, headers=headers),
+            body,
+            config.gateway_ingress,
+            replay,
+            now=float("nan"),
+        )
+    assert error.value.status_code == 503
+    assert error.value.code == "signed_identity_clock_unavailable"
+    assert replay.size == 0
+
+
+def test_invalid_signature_cannot_consume_only_replay_capacity_slot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path, monkeypatch, max_replay_entries=1)
+    body = b'{"model":"qwen"}'
+    valid = _identity_headers(config, body=body, nonce="nonce-capacity-signature")
+    invalid = [
+        (name, "v1=" + "0" * 64 if name.lower() == "x-slaif-signature" else value)
+        for name, value in valid
+    ]
+    replay = ReplayProtector(ttl_seconds=120, max_entries=1)
+    with pytest.raises(SignedIdentityError) as error:
+        verify_signed_identity(
+            _request(body=body, headers=invalid),
+            body,
+            config.gateway_ingress,
+            replay,
+            now=NOW,
+        )
+    assert error.value.code == "signed_identity_signature_mismatch"
+    assert replay.size == 0
+    verify_signed_identity(
+        _request(body=body, headers=valid),
+        body,
+        config.gateway_ingress,
+        replay,
+        now=NOW,
+    )
+    assert replay.size == 1
+
+
+def test_verify_samples_injected_wall_clock_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _config(tmp_path, monkeypatch)
+    body = b'{"model":"qwen"}'
+    headers = _identity_headers(config, body=body, nonce="nonce-one-clock-sample")
+    samples = 0
+
+    def clock() -> float:
+        nonlocal samples
+        samples += 1
+        return NOW
+
+    monkeypatch.setattr("slaif_local_coding.gateway_identity.time.time", clock)
+    identity = verify_signed_identity(
+        _request(body=body, headers=headers),
+        body,
+        config.gateway_ingress,
+        ReplayProtector(ttl_seconds=120, max_entries=4),
+    )
+    assert identity.route == "vision"
+    assert samples == 1
+
+
+@pytest.mark.asyncio
+async def test_clock_rollback_is_safe_503_and_does_not_reenable_purged_digest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _config(tmp_path, monkeypatch, replay_ttl_seconds=60, max_replay_entries=4)
+    body = b'{"model":"qwen","input":"synthetic"}'
+    calls = 0
+    clock_values = iter((NOW, NOW + 61, NOW + 60))
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"ok": True})
+
+    app = create_app(
+        settings,
+        httpx.MockTransport(handler),
+        signed_identity_clock=lambda: next(clock_values),
+    )
+    first = _identity_headers(settings, body=body, nonce="nonce-clock-old-01", timestamp=int(NOW))
+    forward = _identity_headers(
+        settings,
+        body=body,
+        nonce="nonce-clock-forward",
+        timestamp=int(NOW + 61),
+    )
+    rollback = _identity_headers(
+        settings, body=body, nonce="nonce-clock-old-01", timestamp=int(NOW)
+    )
+
+    # Requests must be sequential so the injected clock describes the process
+    # wall-clock history rather than concurrent scheduling order.
+    async def sequential_exercise() -> tuple[httpx.Response, httpx.Response, httpx.Response]:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            first_response = await client.post("/v1/responses?b=2&a=1", content=body, headers=first)
+            forward_response = await client.post(
+                "/v1/responses?b=2&a=1", content=body, headers=forward
+            )
+            rollback_response = await client.post(
+                "/v1/responses?b=2&a=1", content=body, headers=rollback
+            )
+        return first_response, forward_response, rollback_response
+
+    first_response, forward_response, rollback_response = await sequential_exercise()
+    assert first_response.status_code == forward_response.status_code == 200
+    assert rollback_response.status_code == 503
+    assert rollback_response.json()["error"]["code"] == "signed_identity_clock_unavailable"
+    assert calls == 2
+    assert "nonce-clock-old-01" not in rollback_response.text
+
+
+@pytest.mark.asyncio
+async def test_full_replay_store_fails_closed_without_upstream_or_live_eviction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _config(tmp_path, monkeypatch, max_replay_entries=1)
+    body = b'{"model":"qwen","input":"synthetic"}'
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={"ok": True})
+
+    app = create_app(settings, httpx.MockTransport(handler), signed_identity_clock=lambda: NOW)
+    first = _identity_headers(settings, body=body, nonce="nonce-capacity-first")
+    second = _identity_headers(settings, body=body, nonce="nonce-capacity-second")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        accepted = await client.post("/v1/responses?b=2&a=1", content=body, headers=first)
+        pipeline = app.state.constitution_pipeline
+        assert pipeline is not None
+
+        async def unexpected_constitution_work(**_kwargs: Any) -> PipelineResult:
+            raise AssertionError("capacity rejection reached constitution work")
+
+        monkeypatch.setattr(pipeline, "process", unexpected_constitution_work)
+        capacity = await client.post("/v1/responses?b=2&a=1", content=body, headers=second)
+        replay = await client.post("/v1/responses?b=2&a=1", content=body, headers=first)
+    assert accepted.status_code == 200
+    assert capacity.status_code == 503
+    assert capacity.json()["error"]["code"] == "signed_identity_replay_capacity_unavailable"
+    assert replay.status_code == 409
+    assert replay.json()["error"]["code"] == "signed_identity_replayed"
+    assert calls == 1
+    assert "nonce-capacity" not in capacity.text
 
 
 @pytest.mark.asyncio

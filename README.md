@@ -156,7 +156,13 @@ The adapter-side signed identity v1 verifier remains behind an explicit
 configuration mode. The exact pinned Gateway main used by the Objective-005
 acceptance harness emits the signed contract for its reviewed Codex route;
 production binding, gateway-service deployment, and cutover remain separate
-decisions.
+decisions. Signed nonce protection keeps only bounded SHA-256 digests in
+process-local memory. Each admitted request is retained through the inclusive
+request horizon (`timestamp + clock_skew_seconds`) and at least the configured
+`replay_ttl_seconds`; expired entries are reclaimed first, but a full live store
+returns a fixed 503 instead of evicting a protected digest. A detected wall-clock
+rollback also fails closed with a fixed 503. Restart clears this replay history,
+and it is not durable or shared across workers.
 
 ## Explicit one-root working-set pipeline (objective 003-b through 003-e)
 

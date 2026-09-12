@@ -39,9 +39,14 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
     constant-time comparison. Signed v1 mode additionally verifies a separate
     bounded HMAC secret over method/path/raw-query-hash/exact-body-hash and
     opaque identity fields, then reserves only a nonce digest in bounded
-    process-local replay state. It never accepts public gateway keys or
-    unsigned caller identity headers. Service and signed-auth failures occur
-    before image, constitution, compiler, cache, rehydration, or upstream work.
+    process-local replay state. Retention is the maximum of admission time plus
+    the configured TTL and the signed request's inclusive timestamp-plus-skew
+    horizon. Expired entries are reclaimed only when strictly past that horizon;
+    live capacity is never evicted, so exhaustion returns a fixed 503 and unsafe
+    wall-clock rollback returns a fixed 503. It never accepts public gateway
+    keys or unsigned caller identity headers. Service and signed-auth failures
+    occur before image, constitution, compiler, cache, rehydration, or upstream
+    work.
     The exact pinned Gateway main used by the Objective-005 acceptance harness
     emits the signed contract for its reviewed Codex route; adapter and
     cross-repository qualification evidence is not production cutover.
