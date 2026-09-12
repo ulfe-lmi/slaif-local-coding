@@ -3221,7 +3221,11 @@ def _docker_cleanup(name: str | None, image_was_absent: bool) -> tuple[bool, boo
         stopped = _docker("stop", name, timeout=30)
         if stopped.returncode != 0:
             _docker("rm", "-f", name, timeout=30)
-        container_removed = _docker("inspect", name).returncode != 0
+        for _ in range(20):
+            if _docker("inspect", name).returncode != 0:
+                container_removed = True
+                break
+            time.sleep(0.1)
     image_removed = True
     if image_was_absent:
         concurrent = _docker("ps", "--filter", "ancestor=" + IMAGE_NAME, "--format", "{{.ID}}")
