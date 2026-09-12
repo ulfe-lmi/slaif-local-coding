@@ -519,9 +519,11 @@ closure rules, and synthetic failure cases remain unchanged.
 
 The C1.4 id-less predicate is satisfied only by the composed companion inside
 the existing `identity_replay` allowance: one streamed initial function call
-returned by the Gateway → Local → provider chain followed by one non-streaming
-continuation. The continuation supplies the mandatory `call_id` from that
-returned call while omitting only its optional item `id`. Direct observer facts
+returned by the Gateway → Local → provider chain followed by one streamed
+continuation under the pinned Gateway's existing tool-event gate. The
+continuation supplies the mandatory `call_id` from that returned call while
+omitting only its optional item `id`; its bounded response shape is
+`stream_sse`. Direct observer facts
 for both requests must share operation, phase, ordinal, lifetime, and session;
 both responses must be terminal-valid and the two corresponding accounting
 reservations must be finalized with no pending or duplicate request IDs.
@@ -538,9 +540,9 @@ passed the complete fake machine gate: 37/37 obligations and projections,
 26/26 direct observer dispatches (6 compiler, 12 inference, 8 other), 12/12
 terminal-valid inference observations, and exact fake-provider counter
 agreement. The actual `identity_replay` companion passed with a streamed
-returned function call, a non-streaming continuation omitting only the
-optional item ID, matching the mandatory call ID, same admitted relationship,
-terminal accounting, and zero pending/duplicate request IDs. Natural Codex
+returned function call and streamed continuation omitting only the optional
+item ID, matching the mandatory call ID, same admitted relationship, terminal
+accounting, and zero pending/duplicate request IDs. Natural Codex
 shape was recorded separately with the item ID present. The healthy synthetic
 protected branch, with the fake semantic oracle unavailable, serialized and
 passed all 29 selected rows; observer-failure, combined projection/cleanup,
