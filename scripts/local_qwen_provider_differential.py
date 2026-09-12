@@ -330,6 +330,7 @@ class SSEFacts:
     error_field_names: set[str] = field(default_factory=set)
     error_code_class: str = "unknown"
     error_type_class: str = "unknown"
+    first_failure_event_class: str | None = None
     _line_buffer: bytearray = field(default_factory=bytearray)
     _data_lines: list[bytes] = field(default_factory=list)
     _event_name: str | None = None
@@ -424,6 +425,8 @@ class SSEFacts:
             self.unknown_events = True
         if event_type in PROVIDER_FAILURE_EVENT_TYPES:
             self.error_event = True
+            if self.first_failure_event_class is None:
+                self.first_failure_event_class = event_type
             self._record_error(payload, provider_event=event_type != "error")
         if event_type == "response.created":
             if self.created:
@@ -530,6 +533,7 @@ class SSEFacts:
             "error_field_names": tuple(sorted(self.error_field_names)),
             "error_code_class": self.error_code_class,
             "error_type_class": self.error_type_class,
+            "first_failure_event_class": self.first_failure_event_class,
             "normal_close": self.normal_close,
         }
 

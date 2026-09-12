@@ -210,10 +210,15 @@ def test_sse_parser_rejects_duplicate_terminal_and_error_events() -> None:
     assert _through_h(_facts(_valid_stream() + _completed())) is False
 
     error = SSEFacts()
-    error.consume(_created() + _event({"type": "error"}))
+    error.consume(
+        _created()
+        + _event({"type": "response.failed", "error": {"code": "model_error"}})
+        + _event({"type": "error"})
+    )
     error.finish()
     assert error.error_event is True
     assert error.summary(status=200, content_type="text/event-stream")["recognized_events"] is True
+    assert error.first_failure_event_class == "response.failed"
     assert _through_h(_facts(_created() + _event({"type": "error"}))) is False
 
 
