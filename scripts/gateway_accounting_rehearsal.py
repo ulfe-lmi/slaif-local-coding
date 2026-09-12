@@ -789,7 +789,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                     and isinstance(call_item, dict)
                     and call_item.get("type") == "function_call"
                     and call_item.get("call_id") == call_id
-                    and call_item.get("status") == "completed"
+                    and call_item.get("status") in {None, "completed"}
                     and isinstance(call_item.get("name"), str)
                     and isinstance(call_item.get("arguments"), str)
                     and (
