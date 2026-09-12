@@ -720,3 +720,12 @@ reported separately for this continuation. Protected execution remains
 conditional on the fresh source-bound 37/37 fake gate and bounded preflight;
 there are no protected retries, service/model/profile/network mutations,
 cutover, merge, or release claims in the coding round.
+
+The 005-an focused Gateway162 suite passed 8/8. The clean candidate fake gate
+passed 37/37 selected rows and projections with 26 direct dispatches (6
+compiler, 12 inference, 8 other), 12/12 terminal-valid inference operations,
+fake-provider agreement, cleanup, and secret-free logging. The one protected
+matrix stopped at the first direct `stream_closure_invalid` failure in the
+identity replay phase (ordinal 5); its 29-row gate is retained with later rows
+`NOT RUN`, no retry, and unchanged protected-fixture predicates. This is a
+truthful blocked acceptance result, not a cutover or release claim.

@@ -801,3 +801,12 @@ separate, source-bound evidence for this continuation. The protected Qwen
 vision fixture, 18020 service, Codex profiles, credentials, network, cutover,
 merge, and release state remain unchanged unless the immutable acceptance
 report records an explicitly observed result under the order's stop law.
+
+The actual 005-an run passed the focused 8-test Gateway162 suite and the clean
+fake machine gate (37/37 rows, 26 direct dispatches, 12/12 terminal-valid
+inference operations, cleanup, and secret-free logging). The single authorized
+protected matrix stopped at `stream_closure_invalid` during identity replay at
+ordinal 5; no protected retry occurred, later obligations remain `NOT RUN`,
+and the protected fixture predicates remained unchanged. The immutable OAP
+report is the authoritative round result; protected acceptance, cutover, merge,
+and release readiness are not claimed.
