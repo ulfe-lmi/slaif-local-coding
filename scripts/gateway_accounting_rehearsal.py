@@ -3567,7 +3567,11 @@ class _ReturnedCallIDCapture:
                 # The validator has already accepted the complete item.  Keep
                 # only this transient copy until the paired request is built;
                 # safe facts never expose any of these fields.
-                self.returned_function_call = dict(item)
+                self.returned_function_call = {
+                    key: item[key]
+                    for key in ("type", "id", "status", "namespace", "name", "arguments", "call_id")
+                    if key in item
+                }
         if event_name == "response.completed":
             self.summary_call_id_digests = _summary_call_id_digests(payload)
             if self.canonical_call_id_digests and self.summary_call_id_digests:
