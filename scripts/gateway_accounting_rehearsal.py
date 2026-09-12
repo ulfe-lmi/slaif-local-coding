@@ -199,13 +199,16 @@ AP_FAKE_SOURCE_IDENTITY = {
 AP_FAKE_REUSE_ALLOWED_PATHS = frozenset(
     {
         "oap/active",
+        "oap/orders/005-ar-terminal-stream-repair-and-closure.md",
         "oap/orders/005-aq-offline-provider-replay-repair.md",
+        "oap/reports/005-aq-offline-provider-replay-repair.md",
         "oap/reports/005-ap-zero-argument-preflight-and-final-target.md",
         "scripts/gateway_accounting_rehearsal.py",
         "scripts/qwen_offline_replay_differential.py",
         "tests/helpers/transport_observer.py",
         "tests/test_app.py",
         "tests/test_gateway_accounting_rehearsal.py",
+        "tests/test_gateway162_validator_factory.py",
         "tests/test_transport_observer.py",
     }
 )
@@ -364,6 +367,55 @@ def _terminal_status_class(value: object) -> str:
     return "other"
 
 
+def _terminal_argument_shape(value: object) -> dict[str, str]:
+    """Classify only empty/object/other argument shape and bounded length."""
+    if not isinstance(value, str):
+        return {
+            "class": "missing" if value is None else "other",
+            "length_class": "unknown",
+        }
+    length_class = count_class(len(value.encode("utf-8")))
+    if value == "":
+        return {"class": "empty", "length_class": length_class}
+    try:
+        parsed = json.loads(
+            value,
+            parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()),
+        )
+    except (
+        RecursionError,
+        TypeError,
+        ValueError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ):
+        return {"class": "other", "length_class": length_class}
+    return {
+        "class": "object" if isinstance(parsed, Mapping) else "other",
+        "length_class": length_class,
+    }
+
+
+def _terminal_incomplete_reason_class(value: object) -> str:
+    if value is None:
+        return "null"
+    if not isinstance(value, Mapping):
+        return "other"
+    reason = value.get("reason")
+    known = {"max_output_tokens", "content_filter", "tool_error", "stop"}
+    if isinstance(reason, str) and reason in known:
+        return str(reason)
+    if reason is None:
+        return "missing"
+    return "other"
+
+
+def _terminal_integer_class(value: object) -> str:
+    if type(value) is not int or value < 0:
+        return "invalid"
+    return count_class(value)
+
+
 def _terminal_output_kind_classes(output: object) -> tuple[str, ...]:
     if not isinstance(output, list):
         return ()
@@ -419,8 +471,23 @@ def _terminal_validation_shape(validator: Any, payload: Mapping[str, object]) ->
     output_call_id = summary.get("call_id") if isinstance(summary, Mapping) else None
     output_name = summary.get("name") if isinstance(summary, Mapping) else None
     output_arguments = summary.get("arguments") if isinstance(summary, Mapping) else None
+    stream_arguments = getattr(state, "delta_text", None)
+    output_details = usage.get("output_tokens_details") if isinstance(usage, Mapping) else None
+    output_per_turn = (
+        output_details.get("output_tokens_per_turn")
+        if isinstance(output_details, Mapping)
+        else None
+    )
+    tool_output_per_turn = (
+        output_details.get("tool_output_tokens_per_turn")
+        if isinstance(output_details, Mapping)
+        else None
+    )
     return {
         "status_class": _terminal_status_class(response_map.get("status")),
+        "incomplete_reason_class": _terminal_incomplete_reason_class(
+            response_map.get("incomplete_details")
+        ),
         "output_shape": "array" if isinstance(output, list) else "not_array",
         "output_item_count_class": count_class(len(output_items)),
         "output_item_kind_classes": _terminal_output_kind_classes(output),
@@ -429,6 +496,8 @@ def _terminal_validation_shape(validator: Any, payload: Mapping[str, object]) ->
         "function_call_id_matches": state is not None
         and output_call_id == getattr(state, "call_id", None),
         "function_name_matches": state is not None and output_name == getattr(state, "name", None),
+        "function_arguments": _terminal_argument_shape(output_arguments),
+        "stream_arguments": _terminal_argument_shape(stream_arguments),
         "function_arguments_empty": output_arguments == "",
         "function_arguments_matches": state is not None
         and output_arguments == getattr(state, "delta_text", None),
@@ -446,7 +515,29 @@ def _terminal_validation_shape(validator: Any, payload: Mapping[str, object]) ->
             if isinstance(usage, Mapping) and name in usage
         ),
         "usage_required_integers": usage_counts_are_ints,
+        "usage_output_token_count_class": _terminal_integer_class(
+            usage.get("output_tokens") if isinstance(usage, Mapping) else None
+        ),
         "usage_total_consistent": usage_total_consistent,
+        "usage_output_details_fields": tuple(
+            name
+            for name in (
+                "reasoning_tokens",
+                "tool_output_tokens",
+                "output_tokens_per_turn",
+                "tool_output_tokens_per_turn",
+            )
+            if isinstance(output_details, Mapping) and name in output_details
+        ),
+        "usage_output_per_turn_count_class": count_class(
+            len(output_per_turn) if isinstance(output_per_turn, list) else -1
+        ),
+        "usage_tool_output_per_turn_count_class": count_class(
+            len(tool_output_per_turn) if isinstance(tool_output_per_turn, list) else -1
+        ),
+        "usage_output_per_turn_lengths_equal": isinstance(output_per_turn, list)
+        and isinstance(tool_output_per_turn, list)
+        and len(output_per_turn) == len(tool_output_per_turn),
         "active_item_count_class": count_class(
             len(getattr(validator, "_active_items", ()))
             if isinstance(getattr(validator, "_active_items", None), Mapping)
@@ -470,6 +561,7 @@ class _TerminalValidationDiscriminator:
     def invoke(self, validator: Any, payload: Mapping[str, object]) -> bool:
         trace_rows: list[dict[str, object]] = []
         trace_overflow = False
+        shape_before = _terminal_validation_shape(validator, payload)
         prior_trace = sys.gettrace()
 
         def trace(frame: Any, event: str, argument: object) -> Any:
@@ -510,7 +602,8 @@ class _TerminalValidationDiscriminator:
             )
             self.invocations.append(
                 {
-                    "shape": _terminal_validation_shape(validator, payload),
+                    "shape_before": shape_before,
+                    "shape_after": _terminal_validation_shape(validator, payload),
                     "validator_result_class": result_class,
                     "exception_class": exception_class,
                     "trace_overflow": trace_overflow,

@@ -262,6 +262,9 @@ def test_terminal_discriminator_traces_exact_positive_and_negative_terminal_case
         "_accept_strict_sequence",
     } <= positive_functions
     assert all(row["return_class"] == "true" for row in positive_trace)  # type: ignore[union-attr]
+    assert positive_entry["shape_before"]["sequence_valid_before_call"] is True  # type: ignore[index]
+    assert positive_entry["shape_after"]["sequence_valid_before_call"] is False  # type: ignore[index]
+    assert positive_entry["shape_before"]["function_arguments"]["class"] == "empty"  # type: ignore[index]
 
     negative_discriminator = _TerminalValidationDiscriminator()
     negative = _gateway_stream_validator_factory(
@@ -283,7 +286,7 @@ def test_terminal_discriminator_traces_exact_positive_and_negative_terminal_case
     assert negative.validate(negative_events[-1]) is False
     negative_entry = negative_discriminator.safe_dict()["invocations"][-1]  # type: ignore[index]
     assert negative_entry["validator_result_class"] == "false"  # type: ignore[index]
-    assert negative_entry["shape"]["usage_total_consistent"] is False  # type: ignore[index]
+    assert negative_entry["shape_before"]["usage_total_consistent"] is False  # type: ignore[index]
     negative_trace = negative_entry["return_sites"]  # type: ignore[index]
     assert any(
         row["function"] == "_validate_completed_usage" and row["return_class"] == "false"
