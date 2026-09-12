@@ -949,7 +949,7 @@ def test_idless_companion_initial_request_forces_the_declared_function() -> None
     body = _idless_companion_initial_body("session-a", tools)
     assert body["tool_choice"] == {"type": "function", "name": "local_lookup"}
     assert body["max_output_tokens"] == 32
-    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert body["reasoning"] == {"effort": "none"}
     assert body["input"][0]["content"][0]["text"] == "Call local_lookup with no arguments."  # type: ignore[index]
 
 

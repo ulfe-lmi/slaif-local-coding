@@ -4481,7 +4481,7 @@ def _idless_companion_initial_body(
         {
             "stream": True,
             "max_output_tokens": 32,
-            "chat_template_kwargs": {"enable_thinking": False},
+            "reasoning": {"effort": "none"},
             "store": False,
             "tool_choice": {"type": "function", "name": "local_lookup"},
         }
@@ -4564,7 +4564,7 @@ def _idless_companion_continuation_body(
         {
             "stream": True,
             "max_output_tokens": 32,
-            "chat_template_kwargs": {"enable_thinking": False},
+            "reasoning": {"effort": "none"},
             "store": False,
             "input": [
                 *initial_input,
