@@ -4481,6 +4481,7 @@ def _idless_companion_initial_body(
         {
             "stream": True,
             "max_output_tokens": 32,
+            "chat_template_kwargs": {"enable_thinking": False},
             "store": False,
             "tool_choice": {"type": "function", "name": "local_lookup"},
         }
@@ -4563,6 +4564,7 @@ def _idless_companion_continuation_body(
         {
             "stream": True,
             "max_output_tokens": 32,
+            "chat_template_kwargs": {"enable_thinking": False},
             "store": False,
             "input": [
                 *initial_input,
@@ -6379,9 +6381,13 @@ def _run_direct_composed_rehearsal_impl(
         if provider_target == "protected" and target == TARGET_IDENTITY_REPLAY
         else None
     )
-    validator_factory = _gateway_stream_validator_factory(
-        gateway_root,
-        terminal_discriminator=terminal_discriminator,
+    validator_factory = (
+        base_validator_factory
+        if terminal_discriminator is None
+        else _gateway_stream_validator_factory(
+            gateway_root,
+            terminal_discriminator=terminal_discriminator,
+        )
     )
     target_tools: list[dict[str, object]] | None = None
     target_initial: dict[str, object] | None = None

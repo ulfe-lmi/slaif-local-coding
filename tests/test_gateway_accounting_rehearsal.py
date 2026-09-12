@@ -949,6 +949,7 @@ def test_idless_companion_initial_request_forces_the_declared_function() -> None
     body = _idless_companion_initial_body("session-a", tools)
     assert body["tool_choice"] == {"type": "function", "name": "local_lookup"}
     assert body["max_output_tokens"] == 32
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
     assert body["input"][0]["content"][0]["text"] == "Call local_lookup with no arguments."  # type: ignore[index]
 
 
@@ -1070,11 +1071,11 @@ def test_target_semantic_preflight_failure_precedes_protected_selection(
     selection_calls: list[str] = []
 
     monkeypatch.setattr(rehearsal, "_validate_fake_gate", lambda _path: None)
-    monkeypatch.setattr(
-        rehearsal,
-        "_gateway_stream_validator_factory",
-        lambda _root: lambda _request: object(),
-    )
+
+    def validator_factory(_root: Path, **_kwargs: object) -> Any:
+        return lambda _request: object()
+
+    monkeypatch.setattr(rehearsal, "_gateway_stream_validator_factory", validator_factory)
 
     def fail_gate(*_args: object, **_kwargs: object) -> tuple[bytes, dict[str, object]]:
         raise RuntimeError("target_zero_argument_semantic_preflight_failed")
