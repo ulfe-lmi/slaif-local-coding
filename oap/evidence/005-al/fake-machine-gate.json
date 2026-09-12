@@ -1,0 +1,70 @@
+{
+  "schema": "oap-005-al-fake-machine-gate-v1",
+  "status": "COMPLETE",
+  "mode": "fake",
+  "execution_mode": "fake",
+  "run_provenance": "fresh_fake_direct_httpx_loopback",
+  "implementation_sha": "88b94e6669698a551e1ac9affac8716bd814e18d",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "observer_version": "direct-httpx-v2",
+  "source_identity": {
+    "paths": {
+      "observer": "tests/helpers/transport_observer.py",
+      "projection": "tests/helpers/acceptance_harness.py",
+      "provider_sse": "scripts/local_qwen_provider_differential.py",
+      "runner": "scripts/gateway_accounting_rehearsal.py"
+    },
+    "sha256": {
+      "observer": "595fcb78ba6aad430e9efbd26a955b968afe547aabc7628f4977da229ac9f6ad",
+      "projection": "62aa151ec2b7da973954aa8ff0f0d14f24f42ac99389e051888b71e0e7e12317",
+      "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "runner": "1219ca9c910555bb8aedf82f6daecefd113ddb3d5fab788a4c686403a13258cb"
+    }
+  },
+  "tested_worktree_clean": true,
+  "machine_gate": {
+    "passed": true,
+    "selected_rows": 37,
+    "passed_rows": 37,
+    "missing": [],
+    "first_failure": null,
+    "retry_count": 0,
+    "projection_count": 37
+  },
+  "direct_transport": {
+    "attempted": 26,
+    "dispatched": 26,
+    "compiler": 6,
+    "inference": 12,
+    "other": 8,
+    "inference_terminal_valid": 12,
+    "ready": true,
+    "failure": null
+  },
+  "companion_fixture": {
+    "initial_request": "explicit_function_tool_choice",
+    "function": "local_lookup",
+    "max_output_tokens": 32,
+    "automatic_tool_selection": false
+  },
+  "cleanup": {
+    "cache": true,
+    "codex_home": true,
+    "database": true,
+    "failure_cache": true,
+    "failure_identity": true,
+    "failure_provider": true,
+    "failure_replay": true,
+    "listeners": true,
+    "processes": true
+  },
+  "privacy": {
+    "raw_payloads_retained": false,
+    "credential_retained": false,
+    "logs_secret_free": true
+  }
+}

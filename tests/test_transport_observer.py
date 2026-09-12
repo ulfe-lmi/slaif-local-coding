@@ -1,0 +1,2124 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import suppress
+from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
+
+import httpx
+import pytest
+
+from tests.helpers.acceptance_harness import (
+    BudgetController,
+    OperationDispatchPlan,
+    PublicRequestBudget,
+    RehearsalBudget,
+)
+from tests.helpers.transport_observer import (
+    MAX_EVENT_BYTES,
+    MAX_PROVIDER_ERROR_BYTES,
+    MAX_STREAM_BYTES,
+    CallIDCorrelation,
+    DirectTransportObserver,
+    _StreamState,
+    classify_provider_error,
+    merge_observer_snapshots,
+    observer_dispatch_matches_fake,
+    run_provider_error_classifier_qualification,
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_body_class", "expected_type", "expected_code", "expected_param"),
+    [
+        (
+            b'{"error":{"message":"private","type":"BadRequestError","code":400,"param":null}}',
+            "error_object",
+            "BadRequestError",
+            "bad_request",
+            "null",
+        ),
+        (
+            b'{"error":{"message":"private","type":"Bad Request","code":400}}',
+            "error_object",
+            "Bad Request",
+            "bad_request",
+            "missing",
+        ),
+        (
+            b'{"error":{"message":"private","type":"invalid_request_error",'
+            b'"code":400,"param":"input"}}',
+            "error_object",
+            "invalid_request_error",
+            "bad_request",
+            "input",
+        ),
+        (
+            b'{"error":{"message":"private","type":"private-type",'
+            b'"code":499,"param":"private-param"}}',
+            "error_object",
+            "unrecognized",
+            "integer_unrecognized",
+            "string_unrecognized",
+        ),
+    ],
+)
+def test_provider_error_classifier_keeps_only_finite_safe_classes(
+    body: bytes,
+    expected_body_class: str,
+    expected_type: str,
+    expected_code: str,
+    expected_param: str,
+) -> None:
+    facts = classify_provider_error(400, body)
+    assert facts["http_status"] == 400
+    assert facts["body_class"] == expected_body_class
+    assert facts["type_class"] == expected_type
+    assert facts["code_class"] == expected_code
+    assert facts["param_class"] == expected_param
+    assert "private" not in json.dumps(facts)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (b"", "empty"),
+        (b"not-json", "malformed_json"),
+        (b"[]", "top_level_not_object"),
+        (b"{}", "error_missing"),
+        (b'{"error":null}', "error_null"),
+        (b'{"error":[]}', "error_wrong_type"),
+    ],
+)
+def test_provider_error_classifier_distinguishes_bounded_envelope_shapes(
+    body: bytes, expected: str
+) -> None:
+    facts = classify_provider_error(422, body)
+    assert facts["body_class"] == expected
+    assert facts["http_status"] == 422
+    assert facts["field_states"] == ()
+
+
+def test_provider_error_classifier_marks_oversized_without_body_retention() -> None:
+    facts = classify_provider_error(
+        500,
+        body_class="oversized",
+        received_bytes=MAX_PROVIDER_ERROR_BYTES + 1,
+        accepted_bytes=MAX_PROVIDER_ERROR_BYTES,
+        rejected_bytes=1,
+        rejected_chunk_count=1,
+    )
+    assert facts["body_class"] == "oversized"
+    assert facts["received_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert facts["accepted_bytes"] == MAX_PROVIDER_ERROR_BYTES
+    assert facts["rejected_bytes"] == 1
+
+
+def test_provider_error_classifier_contains_deep_json_failure() -> None:
+    facts = classify_provider_error(400, b"{" * 1024)
+    assert facts["body_class"] == "malformed_json"
+    assert facts["field_states"] == ()
+
+
+def test_provider_error_classifier_qualification_exercises_early_close_paths() -> None:
+    result = run_provider_error_classifier_qualification()
+    assert result == {
+        "normal_error": True,
+        "streamed_oversized": True,
+        "cancelled_early_close": True,
+        "status": "PASSED",
+    }
+
+
+KNOWN_EVENTS = {
+    "response.created",
+    "response.in_progress",
+    "response.output_text.delta",
+    "response.completed",
+}
+
+
+class _AcceptingValidator:
+    def validate(self, payload: Mapping[str, object] | None) -> bool:
+        return isinstance(payload, Mapping) and payload.get("type") in KNOWN_EVENTS
+
+    def take_replay_reference_candidates(self) -> tuple[object, ...]:
+        return ()
+
+
+class _MissingReplayCapabilityValidator:
+    def validate(self, payload: Mapping[str, object] | None) -> bool:
+        return isinstance(payload, Mapping)
+
+
+def _validator(_request: httpx.Request) -> _AcceptingValidator:
+    return _AcceptingValidator()
+
+
+def _frame(event_type: str, payload: Mapping[str, object], ending: bytes = b"\n\n") -> bytes:
+    return (
+        f"event: {event_type}\n".encode()
+        + b"data: "
+        + json.dumps(payload, separators=(",", ":")).encode()
+        + ending
+    )
+
+
+def _data_frame(payload: Mapping[str, object], ending: bytes = b"\n\n") -> bytes:
+    return b"data: " + json.dumps(payload, separators=(",", ":")).encode() + ending
+
+
+def _stream_bytes(
+    *,
+    ending: bytes = b"\n\n",
+    response_id: str = "response-1",
+    completed_id: str | None = None,
+    completed_status: str = "completed",
+    output: object = None,
+    usage: object = None,
+    event_type: str = "response.output_text.delta",
+) -> bytes:
+    if completed_id is None:
+        completed_id = response_id
+    if output is None:
+        output = [{"type": "message"}]
+    if usage is None:
+        usage = {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}
+    return b"".join(
+        (
+            _frame(
+                "response.created",
+                {
+                    "type": "response.created",
+                    "sequence_number": 0,
+                    "response": {"id": response_id, "status": "in_progress", "model": "synthetic"},
+                },
+                ending,
+            ),
+            _frame(
+                event_type,
+                {"type": event_type, "sequence_number": 1, "delta": "x"},
+                ending,
+            ),
+            _frame(
+                "response.completed",
+                {
+                    "type": "response.completed",
+                    "sequence_number": 2,
+                    "response": {
+                        "id": completed_id,
+                        "status": completed_status,
+                        "output": output,
+                        "usage": usage,
+                    },
+                },
+                ending,
+            ),
+        )
+    )
+
+
+class _ChunkStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: tuple[bytes, ...]) -> None:
+        self._chunks = chunks
+        self.closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            await asyncio.sleep(0)
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _CountingChunkStream(_ChunkStream):
+    def __init__(self, chunks: tuple[bytes, ...]) -> None:
+        super().__init__(chunks)
+        self.close_calls = 0
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
+        await super().aclose()
+
+
+class _ErrorStream(_CountingChunkStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"partial"
+        raise RuntimeError("synthetic-stream-error")
+
+
+class _CloseErrorStream(_CountingChunkStream):
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"partial"
+        raise RuntimeError("synthetic-stream-error")
+
+    async def aclose(self) -> None:
+        self.close_calls += 1
+        raise RuntimeError("synthetic-close-error")
+
+
+class _BlockingStream(_CountingChunkStream):
+    def __init__(self) -> None:
+        super().__init__((b"partial",))
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"partial"
+        self.started.set()
+        await self.release.wait()
+
+
+class _BlockingErrorStream(_CountingChunkStream):
+    def __init__(self, first: bytes) -> None:
+        super().__init__((first,))
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._chunks[0]
+        self.started.set()
+        await self.release.wait()
+
+
+class _AdvancingChunkStream(_CountingChunkStream):
+    def __init__(self, chunks: tuple[bytes, ...], advance: Callable[[], None]) -> None:
+        super().__init__(chunks)
+        self._advance = advance
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self._chunks:
+            yield chunk
+            self._advance()
+
+
+class _BlockingTransport(httpx.AsyncBaseTransport):
+    def __init__(self) -> None:
+        self.calls = 0
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def handle_async_request(self, _request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        self.started.set()
+        await self.release.wait()
+        return httpx.Response(200, content=b'{"choices":[]}')
+
+    async def aclose(self) -> None:
+        return
+
+
+class _WrappingAsyncTransport(httpx.AsyncBaseTransport):
+    """Wrap real AsyncHTTPTransport responses to count delegate stream closure."""
+
+    def __init__(self) -> None:
+        self.inner = httpx.AsyncHTTPTransport(retries=0)
+        self.dispatches = 0
+        self.close_calls = 0
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.dispatches += 1
+        response = await self.inner.handle_async_request(request)
+        response.stream = _CountingNetworkStream(cast(httpx.AsyncByteStream, response.stream), self)
+        return response
+
+    async def aclose(self) -> None:
+        await self.inner.aclose()
+
+
+class _CountingNetworkStream(httpx.AsyncByteStream):
+    def __init__(self, stream: httpx.AsyncByteStream, owner: _WrappingAsyncTransport) -> None:
+        self.stream = stream
+        self.owner = owner
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        async for chunk in self.stream:
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.owner.close_calls += 1
+        await self.stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_direct_observer_preserves_stream_and_validates_crlf_chunking() -> None:
+    expected = _stream_bytes(ending=b"\r\n\r\n")
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_ChunkStream(
+                tuple(expected[index : index + 1] for index in range(len(expected)))
+            ),
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler), validator_factory=_validator, validator_source="test"
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        received = b"".join([chunk async for chunk in response.aiter_bytes()])
+    assert received == expected
+    snapshot = observer.snapshot()
+    assert snapshot["inference_attempted_count"] == 1
+    assert snapshot["inference_terminal_valid_count"] == 1
+    assert snapshot["inference_first_byte_count"] == 1
+    assert snapshot["inference_normal_close_count"] == 1
+    assert snapshot["records"][0]["completed"] is True  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ("/v1/chat/completions", "/v1/responses"))
+async def test_normal_exhaustion_closes_json_and_sse_delegate_once(path: str) -> None:
+    is_sse = path == "/v1/responses"
+    stream = _CountingChunkStream((_stream_bytes() if is_sse else b'{"choices":[]}',))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream" if is_sse else "application/json"},
+            stream=stream,
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler), validator_factory=_validator, validator_source="test"
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", f"http://fake.test{path}", content=b"synthetic")
+        response = await client.send(request, stream=True)
+        await response.aread()
+        await response.aclose()
+        await response.aclose()
+    assert stream.close_calls == 1
+    assert observer.snapshot()["records"][0]["completed"] is True  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_provider_error_is_captured_before_direct_close_and_stays_sanitized() -> None:
+    body = (
+        b'{"error":{"message":"private-provider-sentinel","type":"BadRequestError",'
+        b'"code":400,"param":null}}'
+    )
+    stream = _CountingChunkStream((body,))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.send(
+            client.build_request("POST", "http://fake.test/v1/chat/completions"), stream=True
+        )
+        await response.aclose()
+
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["completed"] is True
+    assert record["response_received_bytes"] == len(body)
+    assert record["response_accepted_bytes"] == len(body)
+    assert record["response_rejected_bytes"] == 0
+    assert record["provider_error"] == {
+        "http_status": 400,
+        "body_class": "error_object",
+        "received_bytes": len(body),
+        "accepted_bytes": len(body),
+        "rejected_bytes": 0,
+        "rejected_chunk_count": 0,
+        "field_states": (
+            ("code", "integer"),
+            ("message", "string"),
+            ("param", "null"),
+            ("type", "string"),
+        ),
+        "type_class": "BadRequestError",
+        "code_class": "bad_request",
+        "param_class": "null",
+        "code_status_relation": "matching",
+    }
+    assert "private-provider-sentinel" not in json.dumps(observer.snapshot())
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_error_read_failure_is_retained_as_a_fixed_class() -> None:
+    stream = _ErrorStream((b"partial",))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.send(
+            client.build_request("POST", "http://fake.test/v1/chat/completions"), stream=True
+        )
+        await response.aclose()
+
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    record = records[0]
+    provider_error = cast(dict[str, object], record["provider_error"])
+    assert provider_error["body_class"] == "read_error"
+    assert provider_error["received_bytes"] == len(b"partial")
+    assert "synthetic-stream-error" not in json.dumps(observer.snapshot())
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_error_early_close_cancellation_retains_cleanup_and_fixed_class() -> None:
+    stream = _BlockingErrorStream(b'{"error":{"type":"invalid_request_error","code":400}}')
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.send(
+            client.build_request("POST", "http://fake.test/v1/chat/completions"), stream=True
+        )
+        close_task = asyncio.create_task(response.aclose())
+        await asyncio.wait_for(stream.started.wait(), timeout=1)
+        close_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await close_task
+        stream.release.set()
+        await response.aclose()
+
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    record = records[0]
+    provider_error = cast(dict[str, object], record["provider_error"])
+    assert provider_error["body_class"] == "cancelled"
+    assert provider_error["type_class"] == "missing"
+    assert record["response_received_bytes"] == len(
+        b'{"error":{"type":"invalid_request_error","code":400}}'
+    )
+    assert record["response_accepted_bytes"] == record["response_received_bytes"]
+    assert stream.close_calls == 1
+    assert observer.snapshot()["ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_provider_error_streamed_oversize_counts_and_closes_once() -> None:
+    first = b"{" + b'"error":{' + b'"type":"invalid_request_error"}' + b"}"
+    second = b"x"
+    stream = _CountingChunkStream((first + b"y" * (MAX_PROVIDER_ERROR_BYTES - len(first)), second))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.send(
+            client.build_request("POST", "http://fake.test/v1/chat/completions"), stream=True
+        )
+        await response.aclose()
+
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    record = records[0]
+    provider_error = cast(dict[str, object], record["provider_error"])
+    assert provider_error["body_class"] == "oversized"
+    assert provider_error["received_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert provider_error["accepted_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert record["response_received_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert record["response_accepted_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert record["response_rejected_bytes"] == 0
+    assert stream.close_calls == 1
+    assert observer.snapshot()["ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_real_async_http_transport_preserves_first_chunk_and_closes_connection() -> None:
+    expected = _stream_bytes()
+    separator = expected.index(b"\n\n") + 2
+    first = expected[:separator]
+    remainder = expected[separator:]
+    release_terminal = asyncio.Event()
+    first_written = asyncio.Event()
+    server_done = asyncio.Event()
+    terminal_written = False
+
+    async def handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        nonlocal terminal_written
+        try:
+            headers = await reader.readuntil(b"\r\n\r\n")
+            content_length = next(
+                (
+                    int(line.split(b":", 1)[1].strip())
+                    for line in headers.split(b"\r\n")
+                    if line.lower().startswith(b"content-length:")
+                ),
+                0,
+            )
+            if content_length:
+                await reader.readexactly(content_length)
+            writer.write(
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: text/event-stream\r\n"
+                b"X-Observer-Test: loopback\r\n"
+                b"Connection: close\r\n\r\n" + first
+            )
+            await writer.drain()
+            first_written.set()
+            await release_terminal.wait()
+            terminal_written = True
+            writer.write(remainder)
+            await writer.drain()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            server_done.set()
+
+    server = await asyncio.start_server(handler, "127.0.0.1", 0)
+    serve_task = asyncio.create_task(server.serve_forever())
+    delegate = _WrappingAsyncTransport()
+    observer = DirectTransportObserver(
+        delegate, validator_factory=_validator, validator_source="test"
+    )
+    received: list[bytes] = []
+    try:
+        async with httpx.AsyncClient(transport=observer, timeout=5) as client:
+            async with client.stream(
+                "POST",
+                f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}/v1/responses",
+                content=b"synthetic",
+            ) as response:
+                assert response.status_code == 200
+                assert response.headers["x-observer-test"] == "loopback"
+                async for chunk in response.aiter_raw():
+                    received.append(chunk)
+                    if len(received) == 1:
+                        await asyncio.wait_for(first_written.wait(), timeout=1)
+                        assert terminal_written is False
+                        release_terminal.set()
+    finally:
+        release_terminal.set()
+        await asyncio.wait_for(server_done.wait(), timeout=1)
+        server.close()
+        await server.wait_closed()
+        serve_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await serve_task
+
+    assert b"".join(received) == expected
+    assert delegate.dispatches == 1
+    assert delegate.close_calls == 1
+    snapshot = observer.snapshot()
+    assert snapshot["inference_attempted_count"] == 1
+    assert snapshot["inference_terminal_valid_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_coalesced_frames_do_not_trigger_event_cap() -> None:
+    expected = _stream_bytes()
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_ChunkStream((expected,)),
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler), validator_factory=_validator, validator_source="test"
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    assert observer.snapshot()["inference_terminal_valid_count"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", (b"\n\n", b"\r\n\r\n"))
+async def test_data_only_and_explicit_event_frames_use_same_validator_path(ending: bytes) -> None:
+    created = {
+        "type": "response.created",
+        "response": {"id": "response-1", "status": "in_progress"},
+    }
+    delta = {"type": "response.output_text.delta", "delta": "x"}
+    completed = {
+        "type": "response.completed",
+        "response": {
+            "id": "response-1",
+            "status": "completed",
+            "output": [{"type": "message"}],
+            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        },
+    }
+    payload = b"".join(
+        (
+            _frame("response.created", created, ending),
+            _data_frame(delta, ending),
+            _frame("response.completed", completed, ending),
+        )
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream(
+                    tuple(payload[index : index + 5] for index in range(0, len(payload), 5))
+                ),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is True
+    assert snapshot["inference_terminal_valid_count"] == 1
+    assert snapshot["records"][0]["event_type_classes"] == (  # type: ignore[index]
+        "response.completed",
+        "response.created",
+        "response.output_text.delta",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {"response": {"id": "response-1"}},
+        {"type": "response.unknown", "response": {"id": "response-1"}},
+    ),
+)
+async def test_data_only_missing_or_unknown_type_fails_closed(
+    payload: dict[str, object],
+) -> None:
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_data_frame(payload),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is False
+    assert snapshot["inference_terminal_valid_count"] == 0
+    context = cast(dict[str, object], snapshot["failure_context"])
+    assert context["validation_stage"] == (
+        "event_name_payload_type" if "type" not in payload else "event_class"
+    )
+
+
+@pytest.mark.asyncio
+async def test_explicit_event_type_conflict_fails_closed() -> None:
+    completed = {
+        "type": "response.completed",
+        "response": {
+            "id": "response-1",
+            "status": "completed",
+            "output": [{"type": "message"}],
+            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        },
+    }
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_frame("response.created", completed),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is False
+    context = cast(dict[str, object], snapshot["failure_context"])
+    assert context["validation_stage"] == "event_name_payload_type"
+
+
+@pytest.mark.asyncio
+async def test_response_identity_failure_is_separate_from_validator_rejection() -> None:
+    payload = b"".join(
+        (
+            _frame(
+                "response.created",
+                {
+                    "type": "response.created",
+                    "response": {"id": "response-1", "status": "in_progress"},
+                },
+            ),
+            _frame(
+                "response.output_text.delta",
+                {"type": "response.output_text.delta", "delta": "x"},
+            ),
+            _frame(
+                "response.completed",
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "id": "response-2",
+                        "status": "completed",
+                        "output": [{"type": "message"}],
+                        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    },
+                },
+            ),
+        )
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((payload,)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["failure_class"] == "stream_validation_invalid"
+    context = cast(dict[str, object], snapshot["failure_context"])
+    assert context["validation_stage"] == "response_identity"
+
+
+@pytest.mark.asyncio
+async def test_exact_gateway_validator_rejection_has_closed_stage() -> None:
+    rejected = {
+        "type": "response.failed",
+        "response": {"id": "response-1", "status": "failed"},
+    }
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_data_frame(rejected),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["failure_class"] == "stream_validation_invalid"
+    context = cast(dict[str, object], snapshot["failure_context"])
+    assert context["validation_stage"] == "gateway_validator"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chunks", ("coalesced", "split"))
+async def test_repeated_legal_event_categories_do_not_exhaust_category_storage(
+    chunks: str,
+) -> None:
+    events = [
+        _frame(
+            "response.created",
+            {
+                "type": "response.created",
+                "sequence_number": 0,
+                "response": {"id": "response-1", "status": "in_progress"},
+            },
+        )
+    ]
+    events.extend(
+        _frame(
+            "response.output_text.delta",
+            {"type": "response.output_text.delta", "sequence_number": index, "delta": "x"},
+        )
+        for index in range(1, 47)
+    )
+    events.append(
+        _frame(
+            "response.completed",
+            {
+                "type": "response.completed",
+                "sequence_number": 47,
+                "response": {
+                    "id": "response-1",
+                    "status": "completed",
+                    "output": [{"type": "message"}],
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                },
+            },
+        )
+    )
+    payload = b"".join(events)
+    selected_chunks = (
+        (payload,)
+        if chunks == "coalesced"
+        else tuple(payload[index : index + 31] for index in range(0, len(payload), 31))
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream(selected_chunks),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    records = observer.snapshot()["records"]
+    assert isinstance(records, (list, tuple))
+    record = cast(dict[str, object], records[0])
+    assert observer.snapshot()["inference_terminal_valid_count"] == 1
+    assert isinstance(record, dict)
+    assert record["event_count_class"] == "5+"
+    assert record["event_type_classes"] == (
+        "response.completed",
+        "response.created",
+        "response.output_text.delta",
+    )
+
+
+def test_call_id_correlation_is_opaque_and_scope_bound() -> None:
+    import hashlib
+
+    def digest(value: str) -> bytes:
+        return hashlib.sha256(value.encode("utf-8")).digest()
+
+    correlation = CallIDCorrelation()
+    key = ("codex", "codex", "session-a")
+    correlation.register(key, (digest("call-a"), digest("call-b")))
+    assert (
+        correlation.relation(key, (digest("call-a"), digest("call-b")), missing_call_id=False)
+        == "matching"
+    )
+    assert correlation.relation(key, (digest("call-a"),), missing_call_id=False) == "mismatched"
+    correlation.register(key, (digest("call-a"), digest("call-b")))
+    assert (
+        correlation.relation(key, (digest("call-b"), digest("call-a")), missing_call_id=False)
+        == "mismatched"
+    )
+    assert (
+        correlation.relation(
+            ("vision", "codex", "session-a"), (digest("call-a"),), missing_call_id=False
+        )
+        == "mismatched"
+    )
+    assert correlation.relation(key, (), missing_call_id=True) == "missing"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chunks", ("coalesced", "split"))
+async def test_frame_cap_is_checked_at_sse_boundaries_not_network_chunks(
+    chunks: str,
+) -> None:
+    # Each large delta frame is individually legal under the injected 10 KiB
+    # frame bound, while the coalesced network chunk is larger than that bound.
+    large_delta = "x" * 8_900
+    payload = _stream_bytes()
+    payload = b"".join(
+        (
+            _frame(
+                "response.created",
+                {
+                    "type": "response.created",
+                    "sequence_number": 0,
+                    "response": {"id": "response-1", "status": "in_progress", "model": "synthetic"},
+                },
+            ),
+            _frame(
+                "response.output_text.delta",
+                {"type": "response.output_text.delta", "sequence_number": 1, "delta": large_delta},
+            ),
+            _frame(
+                "response.output_text.delta",
+                {"type": "response.output_text.delta", "sequence_number": 2, "delta": large_delta},
+            ),
+            _frame(
+                "response.completed",
+                {
+                    "type": "response.completed",
+                    "sequence_number": 3,
+                    "response": {
+                        "id": "response-1",
+                        "status": "completed",
+                        "output": [{"type": "message"}],
+                        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    },
+                },
+            ),
+        )
+    )
+    selected_chunks = (
+        (payload,)
+        if chunks == "coalesced"
+        else tuple(payload[index : index + 97] for index in range(0, len(payload), 97))
+    )
+    budget = BudgetController(RehearsalBudget(max_event_bytes=10_000, max_stream_bytes=128 * 1024))
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream(selected_chunks),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    assert observer.snapshot()["inference_terminal_valid_count"] == 1
+    assert budget.failure is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ending", (b"\n\n", b"\r\n\r\n"))
+@pytest.mark.parametrize("chunk_size", (1, 65_536))
+async def test_large_complete_event_under_response_cap_is_not_legacy_frame_overflow(
+    ending: bytes, chunk_size: int
+) -> None:
+    large_delta = "x" * (16 * 1024 + 256)
+    large_frame = _frame(
+        "response.output_text.delta",
+        {"type": "response.output_text.delta", "sequence_number": 1, "delta": large_delta},
+        ending,
+    )
+    payload = b"".join(
+        (
+            _frame(
+                "response.created",
+                {
+                    "type": "response.created",
+                    "sequence_number": 0,
+                    "response": {"id": "response-1", "status": "in_progress"},
+                },
+                ending,
+            ),
+            large_frame,
+            _frame(
+                "response.completed",
+                {
+                    "type": "response.completed",
+                    "sequence_number": 2,
+                    "response": {
+                        "id": "response-1",
+                        "status": "completed",
+                        "output": [{"type": "message"}],
+                        "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                    },
+                },
+                ending,
+            ),
+        )
+    )
+    assert len(large_frame) > 16 * 1024
+    assert len(payload) < MAX_STREAM_BYTES
+    chunks = tuple(
+        payload[index : index + chunk_size] for index in range(0, len(payload), chunk_size)
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream(chunks),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is True
+    assert snapshot["inference_terminal_valid_count"] == 1
+    record = cast(dict[str, object], snapshot["records"][0])  # type: ignore[index]
+    assert record["overflow_subtype"] is None
+
+
+@pytest.mark.asyncio
+async def test_response_overflow_retains_closed_size_facts_and_first_context() -> None:
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_ChunkStream((b"x" * (MAX_STREAM_BYTES + 1),)),
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["failure_class"] == "stream_overflow"
+    assert snapshot["failure_context"] == {
+        "kind": "compiler",
+        "operation": None,
+        "phase": None,
+        "ordinal": None,
+        "lifetime_id": None,
+        "cause": "stream_overflow",
+        "overflow_subtype": "response_bytes",
+        "overflow_observed": MAX_STREAM_BYTES + 1,
+        "overflow_bound": MAX_STREAM_BYTES,
+    }
+    record = cast(dict[str, object], snapshot["records"][0])  # type: ignore[index]
+    assert record["overflow_subtype"] == "response_bytes"
+    assert record["overflow_observed"] == MAX_STREAM_BYTES + 1
+    assert record["overflow_bound"] == MAX_STREAM_BYTES
+
+
+def test_structural_cardinality_and_type_failures_are_distinct() -> None:
+    state = _StreamState("sse", 0.0)
+    state.event_types = {f"event-{index}" for index in range(32)}
+    state._append_event_class("response.created")
+    assert state.failure_kind == "overflow"
+    assert state.overflow_subtype == "event_type_cardinality"
+    assert state.overflow_observed == 33
+    assert state.overflow_bound == 32
+
+    class WrongCandidateType:
+        def take_replay_reference_candidates(self) -> object:
+            return []
+
+    typed_state = _StreamState("sse", 0.0, validator=WrongCandidateType())  # type: ignore[arg-type]
+    typed_state._take_canonical_candidates()
+    assert typed_state.failure_kind == "validation"
+    assert typed_state.validation_stage == "replay_candidate"
+    assert typed_state.overflow_subtype is None
+    assert typed_state.overflow_observed is None
+    assert typed_state.overflow_bound is None
+
+    candidate_state = _StreamState("sse", 0.0, validator=WrongCandidateType())  # type: ignore[arg-type]
+    candidate_state.validator = type(
+        "ManyCandidates",
+        (),
+        {
+            "take_replay_reference_candidates": lambda _self: tuple(
+                SimpleNamespace(
+                    item_kind="function_call", item_id=f"item-{index}", call_id=f"call-{index}"
+                )
+                for index in range(9)
+            )
+        },
+    )()
+    candidate_state._take_canonical_candidates()
+    assert candidate_state.failure_kind == "overflow"
+    assert candidate_state.overflow_subtype == "replay_candidate_cardinality"
+    assert candidate_state.overflow_observed == 9
+    assert candidate_state.overflow_bound == 8
+
+
+def test_stream_state_freezes_first_failed_event_class() -> None:
+    state = _StreamState("sse", 0.0, validator=_AcceptingValidator())
+    state._consume_frame(
+        _frame(
+            "response.created",
+            {"type": "response.created", "sequence_number": 0, "response": {}},
+        )
+    )
+    state._consume_frame(_data_frame({"type": "response.unknown", "sequence_number": 1}))
+
+    assert state.failure_kind == "validation"
+    assert state.validation_stage == "response_identity"
+    assert state.failure_event_class == "response.created"
+
+
+def test_incomplete_frame_buffer_overflow_retains_bound_without_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("tests.helpers.transport_observer.MAX_STREAM_BYTES", MAX_EVENT_BYTES * 2)
+    state = _StreamState("sse", 0.0)
+    state.consume(b"x" * (MAX_EVENT_BYTES + 5))
+    assert state.failure_kind == "overflow"
+    assert state.overflow_subtype == "frame_buffer_bytes"
+    assert state.overflow_observed == MAX_EVENT_BYTES + 5
+    assert state.overflow_bound == MAX_EVENT_BYTES + 4
+
+
+@pytest.mark.asyncio
+async def test_stream_budget_is_per_response_while_totals_remain_run_wide() -> None:
+    response_bytes = b"x" * 70_014
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(PublicRequestBudget(1, "codex_turn_1"),),
+            dispatch_plan=(OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 2),)),),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_ChunkStream((response_bytes,)),
+            )
+        ),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        first = await client.post("http://fake.test/v1/chat/completions", content=b"first")
+        second = await client.post("http://fake.test/v1/chat/completions", content=b"second")
+    assert first.content == response_bytes
+    assert second.content == response_bytes
+    assert budget.failure is None
+    facts = budget.safe_dict()
+    assert facts["stream_bytes_total"] == 140_028
+    lifetimes = facts["response_byte_lifetimes"]
+    assert lifetimes == (
+        {
+            "response_ordinal": 1,
+            "received_bytes": 70_014,
+            "accepted_bytes": 70_014,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "configured_limit": MAX_STREAM_BYTES,
+        },
+        {
+            "response_ordinal": 2,
+            "received_bytes": 70_014,
+            "accepted_bytes": 70_014,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "configured_limit": MAX_STREAM_BYTES,
+        },
+    )
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    assert [record["response_accepted_bytes"] for record in records] == [
+        70_014,
+        70_014,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_mixed_response_lifetimes_keep_byte_counters_separate() -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(
+                PublicRequestBudget(1, "codex_turn_1"),
+                PublicRequestBudget(2, "codex_turn_2"),
+            ),
+            dispatch_plan=(
+                OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 1),)),
+                OperationDispatchPlan("codex_turn_2", "codex", 2, (("inference", 1),)),
+            ),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.admit("codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    payload = _stream_bytes()
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                headers={
+                    "content-type": (
+                        "application/json"
+                        if request.url.path == "/v1/chat/completions"
+                        else "text/event-stream"
+                    )
+                },
+                stream=_ChunkStream(
+                    (b"compiler",) if request.url.path == "/v1/chat/completions" else (payload,)
+                ),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        compiler = await client.post("http://fake.test/v1/chat/completions", content=b"compiler")
+        assert compiler.content == b"compiler"
+        assert budget.activate_operation(
+            "codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex"
+        )
+        response = await client.post("http://fake.test/v1/responses", content=b"inference")
+        assert response.status_code == 200
+        await response.aread()
+    assert budget.failure is None
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    assert [record["response_received_bytes"] for record in records] == [
+        len(b"compiler"),
+        len(payload),
+    ]
+    assert budget.safe_dict()["stream_bytes_total"] == len(b"compiler") + len(payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("overflow", (False, True))
+async def test_exact_response_bound_and_single_response_overflow_are_distinct(
+    overflow: bool,
+) -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(PublicRequestBudget(1, "codex_turn_1"),),
+            dispatch_plan=(OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 1),)),),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    chunks = (b"x" * MAX_STREAM_BYTES, b"y") if overflow else (b"x" * MAX_STREAM_BYTES,)
+    stream = _CountingChunkStream(chunks)
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=stream,
+            )
+        ),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        if overflow:
+            with pytest.raises(RuntimeError, match="budget_exhausted"):
+                await client.post("http://fake.test/v1/chat/completions", content=b"overflow")
+        else:
+            response = await client.post("http://fake.test/v1/chat/completions", content=b"exact")
+            assert len(response.content) == MAX_STREAM_BYTES
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["response_received_bytes"] == MAX_STREAM_BYTES + (1 if overflow else 0)
+    assert record["response_accepted_bytes"] == MAX_STREAM_BYTES
+    assert record["response_rejected_bytes"] == (1 if overflow else 0)
+    assert record["response_rejected_chunk_count"] == (1 if overflow else 0)
+    assert budget.safe_dict()["stream_bytes_total"] == MAX_STREAM_BYTES
+    assert budget.failure == ("budget_stream_limit_exhausted" if overflow else None)
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_oversized_completed_frame_stops_the_stream() -> None:
+    budget = BudgetController(RehearsalBudget(max_event_bytes=100, max_stream_bytes=128 * 1024))
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_ChunkStream((_stream_bytes(),)),
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_exhausted"):
+            response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+            await response.aread()
+    assert calls == 1
+    assert budget.failure == "budget_event_limit_exhausted"
+    assert observer.snapshot()["ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_observer_separates_compiler_and_inference_without_buffering_payloads() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/chat/completions":
+            return httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=_ChunkStream((b'{"choices":[]}',)),
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_ChunkStream((_stream_bytes(),)),
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler), validator_factory=_validator, validator_source="test"
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        await client.post("http://fake.test/v1/chat/completions", content=b"compiler")
+        response = await client.post("http://fake.test/v1/responses", content=b"inference")
+        await response.aread()
+    snapshot = observer.snapshot()
+    assert snapshot["compiler_attempted_count"] == 1
+    assert snapshot["inference_attempted_count"] == 1
+    assert snapshot["compiler_completed_count"] == 1
+    assert snapshot["inference_terminal_valid_count"] == 1
+    assert snapshot["validator_source"] == "test"
+    serialized = json.dumps(snapshot, sort_keys=True)
+    assert "/v1/" not in serialized
+
+
+@pytest.mark.asyncio
+async def test_semantic_negatives_latch_and_retain_only_closed_classes() -> None:
+    cases = (
+        _stream_bytes(completed_id="response-2"),
+        _stream_bytes(completed_status="failed"),
+        _stream_bytes(usage={"input_tokens": 1}),
+        _stream_bytes(output=[]),
+        _stream_bytes(event_type="response.unknown"),
+    )
+    for payload in cases:
+        observer = DirectTransportObserver(
+            httpx.MockTransport(
+                lambda _request, payload=payload: httpx.Response(
+                    200,
+                    headers={"content-type": "text/event-stream"},
+                    stream=_ChunkStream((payload,)),
+                )
+            ),
+            validator_factory=_validator,
+            validator_source="test",
+        )
+        async with httpx.AsyncClient(transport=observer) as client:
+            response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+            await response.aread()
+        snapshot = observer.snapshot()
+        assert snapshot["ready"] is False
+        assert snapshot["inference_terminal_valid_count"] == 0
+        serialized = json.dumps(snapshot, sort_keys=True)
+        assert "response-2" not in serialized
+        assert "unknown" not in serialized
+        assert all(
+            event
+            in {
+                "response.created",
+                "response.in_progress",
+                "response.output_text.delta",
+                "response.completed",
+                "error",
+                "other",
+            }
+            for event in snapshot["records"][0]["event_type_classes"]  # type: ignore[index]
+        )
+
+
+@pytest.mark.asyncio
+async def test_malformed_or_overflow_stream_latches_before_later_dispatch() -> None:
+    calls = 0
+    malformed = b"event: response.created\ndata: not-json\n\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        payload = malformed if calls == 1 else _stream_bytes()
+        if request.url.path == "/v1/chat/completions":
+            return httpx.Response(200, content=b"ok")
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_ChunkStream((payload, b"x" * (MAX_STREAM_BYTES + 1))),
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler), validator_factory=_validator, validator_source="test"
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"first")
+        await response.aread()
+        with pytest.raises(RuntimeError, match="transport_observer_not_ready"):
+            await client.post("http://fake.test/v1/responses", content=b"second")
+    assert calls == 1
+    assert observer.snapshot()["failure_class"] in {
+        "stream_framing_invalid",
+        "stream_overflow",
+    }
+
+
+@pytest.mark.asyncio
+async def test_early_close_is_idempotent_and_closes_delegate_once() -> None:
+    stream = _CountingChunkStream((b"partial",))
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        await response.aclose()
+        await response.aclose()
+    assert stream.close_calls == 1
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["terminal_valid"] is False
+    assert observer.ready is False
+
+
+@pytest.mark.asyncio
+async def test_cancelled_stream_closes_delegate_once_and_preserves_cancellation() -> None:
+    stream = _BlockingStream()
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        read_task = asyncio.create_task(response.aread())
+        await asyncio.wait_for(stream.started.wait(), timeout=1)
+        read_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await read_task
+        await response.aclose()
+    assert stream.close_calls == 1
+    assert observer.snapshot()["records"][0]["exception_class"] == "cancelled"  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_timeout_stream_closes_delegate_once() -> None:
+    stream = _BlockingStream()
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(response.aread(), timeout=0.05)
+        await response.aclose()
+    assert stream.close_calls == 1
+    assert observer.snapshot()["records"][0]["terminal_valid"] is False  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_truncated_stream_closes_delegate_once_and_is_not_terminal_valid() -> None:
+    stream = _CountingChunkStream((_stream_bytes()[:-2],))
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=stream
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+        await response.aclose()
+    assert stream.close_calls == 1
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["normal_close"] is True
+    assert record["terminal_valid"] is False
+    assert observer.ready is False
+
+
+@pytest.mark.asyncio
+async def test_stream_exception_preserves_original_error_and_closes_once() -> None:
+    stream = _ErrorStream((b"partial",))
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        with pytest.raises(RuntimeError, match="synthetic-stream-error"):
+            await response.aread()
+        await response.aclose()
+    assert stream.close_calls == 1
+    assert observer.snapshot()["records"][0]["exception_class"] == "stream_error"  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_close_error_does_not_replace_original_stream_error() -> None:
+    stream = _CloseErrorStream((b"partial",))
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, stream=stream
+            )
+        )
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        with pytest.raises(RuntimeError, match="synthetic-stream-error"):
+            await response.aread()
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("factory_kind", ("missing", "raising", "invalid", "missing_method"))
+async def test_validator_profile_preflight_blocks_inference_before_delegate(
+    factory_kind: str,
+) -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"should-not-dispatch")
+
+    def raising_factory(_request: httpx.Request) -> _AcceptingValidator:
+        raise ValueError("synthetic-profile-error")
+
+    def invalid_factory(_request: httpx.Request) -> object:
+        return object()
+
+    def missing_method_factory(_request: httpx.Request) -> _MissingReplayCapabilityValidator:
+        return _MissingReplayCapabilityValidator()
+
+    factory = {
+        "missing": None,
+        "raising": raising_factory,
+        "invalid": invalid_factory,
+        "missing_method": missing_method_factory,
+    }[factory_kind]
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        validator_factory=factory,  # type: ignore[arg-type]
+        validator_source="test",
+    )
+    assert observer.ready is True
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="transport_observer_validator_unavailable"):
+            await client.post("http://fake.test/v1/responses", content=b"invalid-profile")
+        with pytest.raises(RuntimeError, match="transport_observer_not_ready"):
+            await client.post("http://fake.test/v1/responses", content=b"second")
+    assert calls == 0
+    snapshot = observer.snapshot()
+    assert snapshot["ready"] is False
+    assert snapshot["inference_dispatched_count"] == 0
+    record = snapshot["records"][0]  # type: ignore[index]
+    assert record["attempted"] is True
+    assert record["dispatched"] is False
+    assert record["exception_class"] == "validator_error"
+
+
+def test_candidate_preflight_reports_missing_inference_capability(tmp_path: Path) -> None:
+    from scripts.gateway_accounting_rehearsal import _build_observed_candidate
+
+    observer = DirectTransportObserver(httpx.MockTransport(lambda _request: httpx.Response(200)))
+    with pytest.raises(RuntimeError, match="candidate_observer_capability_unavailable"):
+        _build_observed_candidate(tmp_path, observer=observer)
+
+
+@pytest.mark.asyncio
+async def test_delegate_error_is_fixed_class_and_stops_dispatch() -> None:
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise ValueError("private-error-value")
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(ValueError, match="private-error-value"):
+            await client.post("http://private.invalid/v1/chat/completions", content=b"synthetic")
+        with pytest.raises(RuntimeError, match="transport_observer_not_ready"):
+            await client.post("http://private.invalid/v1/chat/completions", content=b"synthetic")
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["exception_class"] == "delegate_error"
+    assert "private-error-value" not in json.dumps(observer.snapshot())
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_budget_admits_each_actual_dispatch_and_attributes_context() -> None:
+    now = [0.0]
+    budget = BudgetController(
+        RehearsalBudget(wall_seconds=5, max_dispatches=1), clock=lambda: now[0]
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            stream=_ChunkStream((_stream_bytes(),)),
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/responses", content=b"synthetic")
+    assert calls == 1
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["dispatch_phase"] == "codex"
+    assert record["dispatch_ordinal"] == 1
+    assert record["dispatch_admitted"] is True
+    assert budget.safe_dict()["dispatch_admitted_count"] == 1
+    assert observer.snapshot()["records"][1]["dispatched"] is False  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_observer_rejects_missing_context_before_delegate() -> None:
+    budget = BudgetController()
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"should-not-dispatch")
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler), budget_controller=budget)
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+    assert calls == 0
+    assert observer.snapshot()["records"][0]["dispatched"] is False  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_observer_binds_dynamic_context_to_its_lifetime() -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(
+                PublicRequestBudget(1, "codex_turn_1"),
+                PublicRequestBudget(2, "codex_turn_2"),
+            ),
+            dispatch_plan=(
+                OperationDispatchPlan("codex_turn_1", "codex", 1, (("other", 1),)),
+                OperationDispatchPlan("codex_turn_2", "codex", 2, (("other", 1),)),
+            ),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="old")
+    assert budget.admit("codex_turn_2", phase="codex", ordinal=2, lifetime_id="new")
+    assert budget.activate_operation("codex_turn_2", phase="codex", ordinal=2, lifetime_id="new")
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"should-not-dispatch")
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        expected_lifetime_id="old",
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+    assert calls == 0
+    assert observer.snapshot()["failure_class"] == "observer_lifetime_mismatch"
+
+
+@pytest.mark.asyncio
+async def test_readiness_dispatch_is_health_only_and_counted() -> None:
+    budget = BudgetController(
+        RehearsalBudget(operation_limits=(), dispatch_plan=(), max_readiness_probes=1)
+    )
+    assert budget.admit_readiness(lifetime_id="candidate")
+    assert budget.activate_readiness(lifetime_id="candidate")
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, headers={"content-type": "application/json"}, content=b"{}")
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        allowed_lifetime_ids=("candidate",),
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.get("http://fake.test/health")
+        assert response.status_code == 200
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.get("http://fake.test/v1/models")
+    assert calls == 1
+    snapshot = observer.snapshot()
+    assert snapshot["other_dispatched_count"] == 1
+    assert budget.safe_dict()["readiness_consumed_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_direct_observer_projects_provider_request_facts_without_payloads() -> None:
+    def classify(_request: httpx.Request) -> Mapping[str, object]:
+        return {
+            "request_class": "function_continuation",
+            "tool_class": "function",
+            "function_result_adjacent": True,
+            "item_id_presence": "omitted",
+            "call_id_relation": "matching",
+            "image_count": 1,
+            "image_hashes": ("a" * 64,),
+            "tool_type_classes": ("function",),
+        }
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_stream_bytes(),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        request_classifier=classify,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", json={"bounded": True})
+        await response.aread()
+    boundary = observer.snapshot()["provider_boundary"]
+    assert isinstance(boundary, dict)
+    assert boundary["call_count_class"] == "1"
+    assert boundary["lifecycle_valid"] is True
+    assert boundary["function_result_adjacent"] is True
+    assert boundary["item_id_presence_classes"] == ("omitted",)
+    assert boundary["call_id_relation_classes"] == ("matching",)
+    assert boundary["image_hashes_observed"] is True
+    assert boundary["all_image_requests_single"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_budget_deadline_is_checked_between_stream_chunks() -> None:
+    now = [0.0]
+    budget = BudgetController(RehearsalBudget(wall_seconds=5), clock=lambda: now[0])
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    expected = _stream_bytes()
+    separator = expected.index(b"\n\n") + 2
+    stream = _AdvancingChunkStream(
+        (expected[:separator], expected[separator:]), lambda: now.__setitem__(0, 5.0)
+    )
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, headers={"content-type": "text/event-stream"}, stream=stream
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_exhausted"):
+            await client.post("http://fake.test/v1/responses", content=b"synthetic")
+    assert observer.snapshot()["failure_class"] == "budget_deadline_exhausted"
+    assert observer.snapshot()["records"][0]["terminal_valid"] is False  # type: ignore[index]
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_budget_rejects_event_overflow_without_second_delegate_call() -> None:
+    budget = BudgetController(
+        RehearsalBudget(max_event_bytes=4, max_stream_bytes=4, max_dispatches=2)
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    calls = 0
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200, headers={"content-type": "application/json"}, stream=_ChunkStream((b"12345",))
+        )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="budget_exhausted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+        with pytest.raises(RuntimeError, match="observer_not_ready"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+    assert calls == 1
+    assert budget.failure == "budget_stream_limit_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_run_budget_holds_concurrency_until_stream_lifetime_ends() -> None:
+    budget = BudgetController(RehearsalBudget(max_dispatches=4))
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    delegate = _BlockingTransport()
+    observer = DirectTransportObserver(
+        delegate,
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        first_task = asyncio.create_task(
+            client.post("http://fake.test/v1/chat/completions", content=b"first")
+        )
+        await asyncio.wait_for(delegate.started.wait(), timeout=1)
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"second")
+        delegate.release.set()
+        with suppress(RuntimeError):
+            await first_task
+    assert delegate.calls == 1
+    assert budget.failure == "budget_concurrency_limit_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_rejected_concurrent_admission_cannot_reset_inflight_response_bytes() -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(PublicRequestBudget(1, "codex_turn_1"),),
+            dispatch_plan=(OperationDispatchPlan("codex_turn_1", "codex", 1, (("compiler", 1),)),),
+        )
+    )
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    stream = _BlockingStream()
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "application/json"},
+                stream=stream,
+            )
+        ),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        request = client.build_request("POST", "http://fake.test/v1/chat/completions")
+        response = await client.send(request, stream=True)
+        read_task = asyncio.create_task(response.aread())
+        await asyncio.wait_for(stream.started.wait(), timeout=1)
+        current = budget.safe_dict()["current_response_bytes"]
+        assert isinstance(current, dict)
+        assert current["accepted_bytes"] == len(b"partial")
+        with pytest.raises(RuntimeError, match="budget_not_admitted"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"second")
+        current = budget.safe_dict()["current_response_bytes"]
+        assert isinstance(current, dict)
+        assert current["accepted_bytes"] == len(b"partial")
+        stream.release.set()
+        await read_task
+    assert budget.safe_dict()["response_byte_lifetimes"][0]["accepted_bytes"] == len(  # type: ignore[index]
+        b"partial"
+    )
+    assert budget.failure == "budget_concurrency_limit_exhausted"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_complete_hook_can_stop_after_one_actual_dispatch() -> None:
+    budget = BudgetController()
+    assert budget.admit("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    calls = 0
+    holder: dict[str, DirectTransportObserver] = {}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b'{"choices":[]}')
+
+    def after_dispatch(_kind: str, _phase: str, _ordinal: int | None) -> None:
+        holder["observer"].mark_unready()
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        dispatch_complete_hook=after_dispatch,
+    )
+    holder["observer"] = observer
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/chat/completions", content=b"first")
+        await response.aread()
+        with pytest.raises(RuntimeError, match="transport_observer_not_ready"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"second")
+    assert calls == 1
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["dispatched"] is True
+    assert record["responded"] is True
+    assert observer.snapshot()["ready"] is False
+    assert observer.snapshot()["failure_context"] == {
+        "kind": "compiler",
+        "operation": "codex_turn_1",
+        "phase": "codex",
+        "ordinal": 1,
+        "lifetime_id": "test",
+        "cause": "manual_unready",
+    }
+
+
+@pytest.mark.asyncio
+async def test_dispatch_complete_hook_failure_closes_returned_stream_once() -> None:
+    budget = BudgetController()
+    assert budget.admit("codex_turn_1", lifetime_id="test")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="test")
+    stream = _CountingChunkStream((b'{"choices":[]}',))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "application/json"}, stream=stream)
+
+    def fail_after_response(_kind: str, _phase: str, _ordinal: int | None) -> None:
+        raise RuntimeError("synthetic-dispatch-complete-failure")
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(handler),
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        dispatch_complete_hook=fail_after_response,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        with pytest.raises(RuntimeError, match="transport_observer_dispatch_complete_hook_failed"):
+            await client.post("http://fake.test/v1/chat/completions", content=b"synthetic")
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["dispatched"] is True
+    assert record["responded"] is True
+    assert record["completed"] is False
+    assert stream.close_calls == 1
+    assert budget.safe_dict()["active_dispatch_class"] == "0"
+
+
+@pytest.mark.asyncio
+async def test_terminal_response_explicitly_authorizes_next_operation() -> None:
+    budget = BudgetController(
+        RehearsalBudget(
+            operation_limits=(
+                PublicRequestBudget(1, "codex_turn_1"),
+                PublicRequestBudget(2, "codex_turn_2"),
+            ),
+            dispatch_plan=(
+                OperationDispatchPlan("codex_turn_1", "codex", 1, (("inference", 1),)),
+                OperationDispatchPlan("codex_turn_2", "codex", 2, (("inference", 1),)),
+            ),
+        )
+    )
+    assert budget.admit("codex_turn_1", lifetime_id="codex")
+    assert budget.admit("codex_turn_2", lifetime_id="codex")
+    assert budget.activate_operation("codex_turn_1", phase="codex", ordinal=1, lifetime_id="codex")
+    transitions: list[tuple[str, str, int | None, bool]] = []
+
+    def transition(
+        kind: str,
+        operation: str,
+        _phase: str,
+        ordinal: int | None,
+        terminal_valid: bool,
+    ) -> None:
+        transitions.append((kind, operation, ordinal, terminal_valid))
+        if kind == "inference" and operation == "codex_turn_1" and terminal_valid:
+            assert budget.activate_operation(
+                "codex_turn_2", phase="codex", ordinal=2, lifetime_id="codex"
+            )
+
+    observer = DirectTransportObserver(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                stream=_ChunkStream((_stream_bytes(),)),
+            )
+        ),
+        validator_factory=_validator,
+        validator_source="test",
+        budget_controller=budget,
+        dispatch_context=budget.dispatch_context,
+        response_complete_hook=transition,
+    )
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.post("http://fake.test/v1/responses", content=b"synthetic")
+        await response.aread()
+    assert transitions == [("inference", "codex_turn_1", 1, True)]
+    active = budget.safe_dict()["active_context"]
+    assert active == {
+        "operation": "codex_turn_2",
+        "phase": "codex",
+        "ordinal": 2,
+        "lifetime_id": "codex",
+    }
+
+
+def test_exact_counts_reject_bucket_collisions() -> None:
+    snapshot = {
+        "compiler_attempted_count": 5,
+        "compiler_dispatched_count": 5,
+        "inference_attempted_count": 5,
+        "inference_dispatched_count": 5,
+        "inference_terminal_valid_count": 5,
+        "compiler_attempted_count_class": "5+",
+        "inference_attempted_count_class": "5+",
+        "inference_terminal_valid_count_class": "5+",
+    }
+    assert observer_dispatch_matches_fake(snapshot, compiler_calls=5, inference_calls=5)
+    assert not observer_dispatch_matches_fake(snapshot, compiler_calls=50, inference_calls=50)
+
+
+def test_merge_assigns_global_ordinals_and_preserves_failed_lifetime() -> None:
+    first: dict[str, object] = {
+        "ready": False,
+        "failure_class": "stream_validation_invalid",
+        "records": ({"ordinal": 1, "kind": "inference", "terminal_valid": False},),
+    }
+    second: dict[str, object] = {
+        "ready": True,
+        "failure_class": None,
+        "records": ({"ordinal": 1, "kind": "inference", "terminal_valid": True},),
+    }
+    merged = merge_observer_snapshots(first, second)
+    records = cast(tuple[dict[str, object], ...], merged["records"])
+    assert merged["ready"] is False
+    assert [record["ordinal"] for record in records] == [1, 2]
+    assert [record["lifetime_ordinal"] for record in records] == [1, 1]
+
+
+def test_merge_rejects_missing_or_duplicate_lifetime_ordinals() -> None:
+    with pytest.raises(ValueError, match="observer_ordinal_collision"):
+        merge_observer_snapshots({"ready": True, "records": ({"ordinal": 2, "kind": "inference"},)})
+
+
+def test_stream_caps_are_bounded_constants() -> None:
+    assert MAX_EVENT_BYTES == 128 * 1024
+    assert MAX_STREAM_BYTES == 128 * 1024

@@ -1,0 +1,453 @@
+{
+  "schema": "oap-005-aj-index-v2",
+  "status": "BLOCKED",
+  "objective": "Preserve verified semantic checkpoints, requalify fake/synthetic acceptance, and execute one bounded protected matrix",
+  "tested_implementation_sha": "a56472704d82c8778c74abe7276017fb6466298b",
+  "tested_worktree_clean": true,
+  "uid": 1029,
+  "euid": 1029,
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "source_identity": {
+    "loaded_module_paths": {
+      "scripts.local_qwen_provider_differential": "scripts/local_qwen_provider_differential.py",
+      "tests.helpers.acceptance_harness": "tests/helpers/acceptance_harness.py",
+      "tests.helpers.transport_observer": "tests/helpers/transport_observer.py"
+    },
+    "loaded_module_sha256": {
+      "scripts.local_qwen_provider_differential": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "tests.helpers.acceptance_harness": "d9c762cd0a7913235a9de6f0765c75f4a29500fb4de6d082b71c5f1bc523b006",
+      "tests.helpers.transport_observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13"
+    },
+    "paths": {
+      "observer": "tests/helpers/transport_observer.py",
+      "projection": "tests/helpers/acceptance_harness.py",
+      "provider_sse": "scripts/local_qwen_provider_differential.py",
+      "runner": "scripts/gateway_accounting_rehearsal.py"
+    },
+    "sha256": {
+      "observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13",
+      "projection": "d9c762cd0a7913235a9de6f0765c75f4a29500fb4de6d082b71c5f1bc523b006",
+      "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "runner": "582cb158228756f486280313ca0ace37840d3f69f12002b0f298d2377a6bbd25"
+    }
+  },
+  "fake_run": {
+    "status": "COMPLETE",
+    "implementation_sha": "a56472704d82c8778c74abe7276017fb6466298b",
+    "machine_gate": {
+      "passed": true,
+      "selected_rows": 37,
+      "passed_rows": 37,
+      "missing": [],
+      "first_failure": null,
+      "projection_count": 37
+    }
+  },
+  "synthetic_protected_run": {
+    "status": "COMPLETE",
+    "selected_rows": 29,
+    "healthy_case": {
+      "status": "COMPLETE",
+      "all_rows": null,
+      "gate": true
+    },
+    "later_phase_case": {
+      "status": "BLOCKED",
+      "first_failure": "observer_readiness_lost",
+      "first_failure_context": {
+        "cause": "observer_readiness_lost",
+        "kind": "inference",
+        "lifetime_id": "vision",
+        "operation": "vision_full",
+        "ordinal": 3,
+        "phase": "vision"
+      },
+      "manifest_first_failure": "C1.4",
+      "row_statuses": [
+        {
+          "status": "NOT RUN",
+          "count": 21
+        },
+        {
+          "status": "PASSED",
+          "count": 8
+        }
+      ],
+      "all_rows": null
+    },
+    "case_count": 6
+  },
+  "real_protected_run": {
+    "status": "BLOCKED",
+    "implementation_sha": "a56472704d82c8778c74abe7276017fb6466298b",
+    "first_failure": "stream_overflow",
+    "first_failure_context": {
+      "cause": "stream_overflow",
+      "kind": "inference",
+      "lifetime_id": "vision",
+      "operation": "vision_full",
+      "ordinal": 3,
+      "phase": "vision"
+    },
+    "secondary_failures": [
+      "observer_readiness_lost",
+      "validation_failure"
+    ],
+    "protected_later_inference": false,
+    "retry_count": 0,
+    "dispatch_counts": {
+      "attempted": 12,
+      "admitted": 12,
+      "compiler": 4,
+      "inference": 4,
+      "other": 4
+    },
+    "acceptance_gate": {
+      "passed": false,
+      "first_failure": "C1.4",
+      "runtime_failure": {
+        "class": "stream_overflow",
+        "context": {
+          "cause": "stream_overflow",
+          "kind": "inference",
+          "lifetime_id": "vision",
+          "operation": "vision_full",
+          "ordinal": 3,
+          "phase": "vision"
+        }
+      },
+      "results": [
+        {
+          "count_class": "2",
+          "fixture_hash": null,
+          "obligation_id": "C1.1",
+          "observed": true,
+          "relationship": "independent",
+          "status": "PASSED",
+          "timing": "unknown",
+          "version": "0.149.0"
+        },
+        {
+          "count_class": "3-4",
+          "fixture_hash": null,
+          "obligation_id": "C1.2",
+          "observed": true,
+          "relationship": "independent",
+          "status": "PASSED",
+          "timing": "unknown",
+          "version": "0.149.0"
+        },
+        {
+          "count_class": "3-4",
+          "fixture_hash": null,
+          "obligation_id": "C1.3",
+          "observed": true,
+          "relationship": "independent",
+          "status": "PASSED",
+          "timing": "unknown",
+          "version": "0.149.0"
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C1.4",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "3-4",
+          "fixture_hash": null,
+          "obligation_id": "C1.5",
+          "observed": true,
+          "relationship": "independent",
+          "status": "PASSED",
+          "timing": "unknown",
+          "version": "0.149.0"
+        },
+        {
+          "count_class": "3-4",
+          "fixture_hash": null,
+          "obligation_id": "C1.6",
+          "observed": true,
+          "relationship": "independent",
+          "status": "PASSED",
+          "timing": "unknown",
+          "version": "0.149.0"
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C2.1",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C2.2",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C2.3",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C2.4",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C2.5",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C2.6",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C3.1",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C3.2",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C3.3",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C3.4",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C4.1",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C4.2",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C4.3",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C4.4",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C4.5",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C4.6",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "5+",
+          "fixture_hash": null,
+          "obligation_id": "C4.7",
+          "observed": true,
+          "relationship": "independent",
+          "status": "PASSED",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C4.8",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "3-4",
+          "fixture_hash": null,
+          "obligation_id": "C4.9",
+          "observed": true,
+          "relationship": "independent",
+          "status": "PASSED",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C5.1",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C5.2",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "5+",
+          "fixture_hash": null,
+          "obligation_id": "C5.3",
+          "observed": true,
+          "relationship": "independent",
+          "status": "PASSED",
+          "timing": "unknown",
+          "version": null
+        },
+        {
+          "count_class": "0",
+          "fixture_hash": null,
+          "obligation_id": "C5.4",
+          "observed": false,
+          "relationship": "other",
+          "status": "NOT RUN",
+          "timing": "unknown",
+          "version": null
+        }
+      ],
+      "all_selected_rows_serialized": true
+    },
+    "fixture_before": {
+      "service": "qwen-serving-vision.service",
+      "pid": "23961",
+      "start": "Sun 2026-09-06 18:57:26 CEST",
+      "restarts": 0,
+      "listener_18020": true,
+      "qwen_changed_paths": 7
+    },
+    "fixture_after": {
+      "service": "qwen-serving-vision.service",
+      "pid": "23961",
+      "start": "Sun 2026-09-06 18:57:26 CEST",
+      "restarts": 0,
+      "listener_18020": true,
+      "qwen_changed_paths": 7
+    },
+    "fixture_mutated": false,
+    "cleanup": {
+      "cache": true,
+      "codex_home": true,
+      "database": true,
+      "failure_cache": true,
+      "failure_identity": true,
+      "failure_provider": true,
+      "failure_replay": true,
+      "listeners": true,
+      "processes": true
+    }
+  },
+  "cutover": false,
+  "merge": false,
+  "release_ready": false,
+  "privacy": {
+    "raw_payloads_retained": false,
+    "credential_retained": false
+  }
+}

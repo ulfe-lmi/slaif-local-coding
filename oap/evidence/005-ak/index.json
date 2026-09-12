@@ -1,0 +1,57 @@
+{
+  "schema": "oap-005-ak-index-v1",
+  "status": "BLOCKED",
+  "objective": "Correct acceptance-only SSE frame bound, retain closed overflow facts, and execute one protected matrix",
+  "implementation_sha": "989e2c09ce95f1d93c9bfb24eaa7a79824da264c",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "acceptance_frame_bound": 131072,
+  "per_response_bound": 131072,
+  "fake": {
+    "evidence": "oap/evidence/005-ak/fake-machine-gate.json",
+    "status": "COMPLETE",
+    "machine_gate": "37/37",
+    "direct_dispatches": {
+      "total": 26,
+      "compiler": 6,
+      "inference": 12,
+      "other": 8
+    },
+    "inference_terminal_valid": "12/12",
+    "retry_count": 0,
+    "cleanup": "PASSED"
+  },
+  "protected": {
+    "evidence": "oap/evidence/005-ak/protected-matrix.json",
+    "status": "BLOCKED",
+    "first_failure": "stream_validation_invalid",
+    "first_failure_operation": "identity_replay",
+    "first_failure_ordinal": 5,
+    "protected_gate_first_unsatisfied": "C1.4",
+    "selected_rows": 29,
+    "retry_count": 0,
+    "later_inference_dispatched": false,
+    "maximum_response_bytes": 105708,
+    "response_cap": 131072,
+    "rejected_bytes": 0,
+    "overflow_size_bound": "NOT APPLICABLE: first failure was validator-class, not overflow-class"
+  },
+  "protected_fixture": {
+    "before_after_equal": true,
+    "vision_pid": "23961",
+    "vision_start": "Sun 2026-09-06 18:57:26 CEST",
+    "restarts": 0,
+    "listener_18020": true,
+    "qwen_changed_paths": 7,
+    "listener_18021": false,
+    "listener_18031": false
+  },
+  "privacy": {
+    "raw_payloads_retained": false,
+    "credential_retained": false,
+    "result_and_stderr_scan": "PASSED"
+  }
+}

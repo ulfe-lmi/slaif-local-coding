@@ -1,0 +1,136 @@
+{
+  "schema": "oap-005-ag-fake-machine-gate-v1",
+  "status": "COMPLETE",
+  "mode": "fake",
+  "provider_target": "fake",
+  "real_protected_access": false,
+  "source_provenance": {
+    "tested_implementation_sha": "f83022da790ef747ae743f961401a2e04b555b8f",
+    "tested_worktree_clean": true,
+    "run_provenance": "fresh_fake_direct_httpx_loopback",
+    "run_id": "5f110cb720cc4d89ab9d5059929bf146",
+    "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+    "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+    "codex_version": "0.149.0",
+    "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+    "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+    "observer_version": "direct-httpx-v2",
+    "source_sha256": {
+      "runner": "7bffa16068051094f61431c02f6a690908bbea665ba106222e2a005bec8e8482",
+      "observer": "f64f37582e6133b93b89f7553c503c6dc45e237ad3a71b68ed57d4e5b3c66ad5",
+      "projection": "185499529ce27a1930cdf912640c132e025b7c8f3a6f784c9a279e1cb0188175",
+      "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0"
+    }
+  },
+  "command": "PYTHONPATH=<local-repo>:<local-repo>/src:<local-repo>/scripts:<gateway>/app <gateway-venv>/bin/python scripts/gateway_accounting_rehearsal.py --gateway-root <gateway> --gateway-python <gateway-venv>/bin/python --provider-target fake --codex <codex-0.149.0>",
+  "limits": {
+    "wall_seconds": 900,
+    "max_dispatches": 64,
+    "max_event_bytes": 16384,
+    "max_stream_bytes": 131072,
+    "max_concurrency": 1,
+    "retries": 0
+  },
+  "machine_gate": {
+    "acceptance_results": 37,
+    "acceptance_passed": 37,
+    "acceptance_missing": [],
+    "acceptance_first_failure": null,
+    "projection_results": 37,
+    "projection_passed": 37,
+    "rows": [
+      {"id":"C1.1","status":"PASSED"},{"id":"C1.2","status":"PASSED"},{"id":"C1.3","status":"PASSED"},{"id":"C1.4","status":"PASSED"},{"id":"C1.5","status":"PASSED"},{"id":"C1.6","status":"PASSED"},
+      {"id":"C2.1","status":"PASSED"},{"id":"C2.2","status":"PASSED"},{"id":"C2.3","status":"PASSED"},{"id":"C2.4","status":"PASSED"},{"id":"C2.5","status":"PASSED"},{"id":"C2.6","status":"PASSED"},
+      {"id":"C3.1","status":"PASSED"},{"id":"C3.2","status":"PASSED"},{"id":"C3.3","status":"PASSED"},{"id":"C3.4","status":"PASSED"},
+      {"id":"C4.1","status":"PASSED"},{"id":"C4.2","status":"PASSED"},{"id":"C4.3","status":"PASSED"},{"id":"C4.4","status":"PASSED"},{"id":"C4.5","status":"PASSED"},{"id":"C4.6","status":"PASSED"},{"id":"C4.7","status":"PASSED"},{"id":"C4.8","status":"PASSED"},{"id":"C4.9","status":"PASSED"},
+      {"id":"C5.1","status":"PASSED"},{"id":"C5.2","status":"PASSED"},{"id":"C5.3","status":"PASSED"},
+      {"id":"D1","status":"PASSED"},{"id":"D2","status":"PASSED"},{"id":"D3","status":"PASSED"},{"id":"D4","status":"PASSED"},{"id":"D5","status":"PASSED"},{"id":"D6","status":"PASSED"},{"id":"D7","status":"PASSED"},{"id":"D8","status":"PASSED"},{"id":"D9","status":"PASSED"}
+    ],
+    "projections": [
+      {"id":"C1.1","status":"PASSED","fields":"2"},{"id":"C1.2","status":"PASSED","fields":"3-4"},{"id":"C1.3","status":"PASSED","fields":"3-4"},{"id":"C1.4","status":"PASSED","fields":"3-4"},{"id":"C1.5","status":"PASSED","fields":"3-4"},{"id":"C1.6","status":"PASSED","fields":"3-4"},
+      {"id":"C2.1","status":"PASSED","fields":"3-4"},{"id":"C2.2","status":"PASSED","fields":"3-4"},{"id":"C2.3","status":"PASSED","fields":"3-4"},{"id":"C2.4","status":"PASSED","fields":"2"},{"id":"C2.5","status":"PASSED","fields":"2"},{"id":"C2.6","status":"PASSED","fields":"2"},
+      {"id":"C3.1","status":"PASSED","fields":"2"},{"id":"C3.2","status":"PASSED","fields":"2"},{"id":"C3.3","status":"PASSED","fields":"2"},{"id":"C3.4","status":"PASSED","fields":"2"},
+      {"id":"C4.1","status":"PASSED","fields":"1"},{"id":"C4.2","status":"PASSED","fields":"3-4"},{"id":"C4.3","status":"PASSED","fields":"3-4"},{"id":"C4.4","status":"PASSED","fields":"5+"},{"id":"C4.5","status":"PASSED","fields":"5+"},{"id":"C4.6","status":"PASSED","fields":"3-4"},{"id":"C4.7","status":"PASSED","fields":"5+"},{"id":"C4.8","status":"PASSED","fields":"3-4"},{"id":"C4.9","status":"PASSED","fields":"3-4"},
+      {"id":"C5.1","status":"PASSED","fields":"2"},{"id":"C5.2","status":"PASSED","fields":"3-4"},{"id":"C5.3","status":"PASSED","fields":"5+"},
+      {"id":"D1","status":"PASSED","fields":"5+"},{"id":"D2","status":"PASSED","fields":"2"},{"id":"D3","status":"PASSED","fields":"5+"},{"id":"D4","status":"PASSED","fields":"5+"},{"id":"D5","status":"PASSED","fields":"3-4"},{"id":"D6","status":"PASSED","fields":"5+"},{"id":"D7","status":"PASSED","fields":"5+"},{"id":"D8","status":"PASSED","fields":"5+"},{"id":"D9","status":"PASSED","fields":"3-4"}
+    ]
+  },
+  "dispatch_counts": {
+    "direct_attempted": 26,
+    "direct_dispatched": 26,
+    "direct_responded": 26,
+    "direct_completed": 26,
+    "direct_terminal_valid": 26,
+    "compiler": 6,
+    "inference": 12,
+    "other": 8,
+    "fake_provider_compiler": 6,
+    "fake_provider_inference": 12,
+    "fake_provider_streams": 6
+  },
+  "canonical_replay": {
+    "initial_status_class": "2xx",
+    "initial_stream_terminal_valid": true,
+    "canonical_candidate_availability": "available",
+    "canonical_candidate_count_class": "1",
+    "canonical_summary_relation": "different",
+    "canonical_replay_authority": true,
+    "continuation_status_class": "2xx",
+    "continuation_json_terminal_valid": true,
+    "optional_item_id_omitted": true,
+    "mandatory_call_id_matching": true,
+    "same_admitted_relationship": true,
+    "accounting_terminal": true,
+    "request_count_class": "2"
+  },
+  "ownership_negatives": {
+    "request_count_class": "3-4",
+    "missing_call_id_status_class": "4xx",
+    "mismatched_call_id_status_class": "4xx",
+    "wrong_key_status_class": "4xx",
+    "all_denied": true,
+    "provider_calls_unchanged": true,
+    "primary_accounting_unchanged": true,
+    "second_key_accounting_unchanged": true,
+    "zero_pending": true,
+    "zero_duplicate_request_ids": true
+  },
+  "transport_boundary": {
+    "observer_version": "direct-httpx-v2",
+    "ready": true,
+    "matches_fake_provider": true,
+    "inference_attempted": 12,
+    "inference_dispatched": 12,
+    "inference_responded": 12,
+    "inference_completed": 12,
+    "inference_terminal_valid": 12,
+    "canonical_candidate_availability_classes": ["available", "none"],
+    "canonical_candidate_count_classes": ["1", "0", "1", "0", "0", "1", "0", "0", "0", "0", "0", "0"],
+    "canonical_summary_relation_classes": ["different"],
+    "pending_scope_availability_classes": ["available", "unavailable"],
+    "continuation_count_class": "3-4",
+    "call_id_relation_classes": ["initial_owned", "matching", "mismatched"],
+    "item_id_presence_classes": ["omitted", "present"],
+    "lifecycle_valid": true,
+    "terminality_valid": true
+  },
+  "accounting": {
+    "main": {"ledger_count":11,"finalized_ledger_count":11,"pending_reservation_count":0,"duplicate_request_id_count":0},
+    "second": {"ledger_count":1,"finalized_ledger_count":1,"pending_reservation_count":0,"duplicate_request_id_count":0},
+    "failure": {"ledger_count":1,"failed_ledger_count":1,"pending_reservation_count":0,"duplicate_request_id_count":0}
+  },
+  "cleanup": {
+    "processes": true,
+    "listeners": true,
+    "database": true,
+    "cache": true,
+    "codex_home": true,
+    "failure_replay": true,
+    "failure_cache": true,
+    "failure_identity": true,
+    "failure_provider": true,
+    "temporary_state_removed": true,
+    "postgres_tmpfs_only": true,
+    "logs_secret_free": true
+  }
+}

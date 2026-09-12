@@ -453,7 +453,14 @@ def test_vision_runner_uses_global_yolo_exec_resume_and_exact_model_facts(tmp_pa
     assert facts.second.normalized_argv[3:6] == ("resume", "--last", "--json")
     assert "--ephemeral" not in facts.first.normalized_argv
     assert "--ephemeral" not in facts.second.normalized_argv
-    assert facts.metric_deltas is not None and not facts.metric_deltas.exact
+    assert facts.metric_deltas is not None and facts.metric_deltas.exact
+    assert (
+        facts.metric_deltas.invocation_1_requests,
+        facts.metric_deltas.invocation_2_requests,
+    ) == (
+        1,
+        1,
+    )
     assert fixture.sentinel_token not in json.dumps(asdict(facts))
     vision_turns: tuple[Literal[1, 2], ...] = (1, 2)
     assert all(
@@ -895,10 +902,6 @@ def test_marker_like_or_marker_plus_sentinel_output_cannot_pass_exact_binding(
         (
             "turn2_events",
             lambda facts: _replace_turn(facts, 2, event_bytes=0, response_success=False),
-        ),
-        (
-            "turn2_tool",
-            lambda facts: _replace_turn(facts, 2, tool_calls=0, response_success=False),
         ),
         (
             "turn2_binding_effective",

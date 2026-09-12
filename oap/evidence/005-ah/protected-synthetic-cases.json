@@ -1,0 +1,47 @@
+{
+  "schema": "oap-005-ah-protected-synthetic-cases-v1",
+  "status": "COMPLETE",
+  "mode": "synthetic-protected",
+  "execution_mode": "synthetic-protected",
+  "run_provenance": "fresh_synthetic_protected_direct_httpx_loopback",
+  "implementation_sha": "6c66ab49ff718c42b9dde095f28f835274db83f0",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "uid": 1029,
+  "oracle_available": false,
+  "real_protected_access": false,
+  "protected_acceptance": false,
+  "selected_rows": 29,
+  "all_selected_rows_serialized": true,
+  "row_statuses": {
+    "healthy": {"PASSED": ["C1.1", "C1.2", "C1.3", "C1.4", "C1.5", "C1.6", "C2.1", "C2.2", "C2.3", "C2.4", "C2.5", "C2.6", "C3.1", "C3.2", "C3.3", "C3.4", "C4.1", "C4.2", "C4.3", "C4.4", "C4.5", "C4.6", "C4.7", "C4.8", "C4.9", "C5.1", "C5.2", "C5.3", "C5.4"]},
+    "observer_failure_after_dispatch": {"FAILED": ["C1.1"], "PASSED": ["C4.9", "C5.2", "C5.3", "C5.4"], "NOT RUN": ["C1.2", "C1.3", "C1.4", "C1.5", "C1.6", "C2.1", "C2.2", "C2.3", "C2.4", "C2.5", "C2.6", "C3.1", "C3.2", "C3.3", "C3.4", "C4.1", "C4.2", "C4.3", "C4.4", "C4.5", "C4.6", "C4.7", "C4.8", "C5.1"]},
+    "observer_projection_cleanup_failure": {"NOT RUN": ["C1.1", "C1.2", "C1.3", "C1.4", "C1.5", "C1.6", "C2.1", "C2.2", "C2.3", "C2.4", "C2.5", "C2.6", "C3.1", "C3.2", "C3.3", "C3.4", "C4.1", "C4.2", "C4.3", "C4.4", "C4.5", "C4.6", "C4.7", "C4.8", "C4.9", "C5.1", "C5.2", "C5.3", "C5.4"]},
+    "predispatch_mapping_dependency_failure": {"MISSING": ["C1.1", "C5.4"], "FAILED": ["C4.9", "C5.2"], "PASSED": ["C5.3"], "NOT RUN": ["C1.2", "C1.3", "C1.4", "C1.5", "C1.6", "C2.1", "C2.2", "C2.3", "C2.4", "C2.5", "C2.6", "C3.1", "C3.2", "C3.3", "C3.4", "C4.1", "C4.2", "C4.3", "C4.4", "C4.5", "C4.6", "C4.7", "C4.8", "C5.1"]}
+  },
+  "dispatch_counts": {
+    "healthy": {"compiler": 6, "inference": 12, "other": 10},
+    "observer_failure_after_dispatch": {"compiler": 1, "inference": 1, "other": 3},
+    "observer_projection_cleanup_failure": {"compiler": 1, "inference": 1, "other": 3},
+    "predispatch_mapping_dependency_failure": {"compiler": 0, "inference": 0, "other": 0}
+  },
+  "primary_failures": {
+    "healthy": null,
+    "observer_failure_after_dispatch": "observer_readiness_lost",
+    "observer_projection_cleanup_failure": "observer_readiness_lost",
+    "predispatch_mapping_dependency_failure": "preflight_mapping_dependency_invalid"
+  },
+  "secondary_failures": {
+    "healthy": [],
+    "observer_failure_after_dispatch": ["provider_boundary_unobserved"],
+    "observer_projection_cleanup_failure": ["provider_boundary_unobserved", "cleanup_failed", "serialization_failure"],
+    "predispatch_mapping_dependency_failure": []
+  },
+  "cleanup": {
+    "healthy": {"processes": true, "listeners": true, "database": true, "cache": true, "codex_home": true},
+    "observer_failure_after_dispatch": {"processes": true, "listeners": true, "database": true, "cache": true, "codex_home": true},
+    "observer_projection_cleanup_failure": {"processes": true, "listeners": true, "database": true, "cache": false, "codex_home": true},
+    "predispatch_mapping_dependency_failure": {"processes": true, "listeners": true, "database": true, "cache": true, "codex_home": true}
+  },
+  "fixture_unchanged": true,
+  "port_18020_mutated": false
+}

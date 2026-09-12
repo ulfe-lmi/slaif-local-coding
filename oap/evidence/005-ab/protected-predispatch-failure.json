@@ -1,0 +1,28 @@
+{
+  "evidence_version": "005-ab-sanitized-v1",
+  "tested_source_sha": "a127290b172969d0267e11774f5c25c3563a5eac",
+  "case": "predispatch_mapping_dependency_failure",
+  "status": "BLOCKED",
+  "protected_acceptance": false,
+  "evidence_kind": "synthetic_orchestration_only",
+  "provider_target": "fake",
+  "gate": {"passed": false,"missing": 0,"first_failure":"C1.1","rows":29,"all_rows_serialized":true},
+  "rows_with_status": [
+    {"id":"C1.1","status":"MISSING"},{"id":"C1.2","status":"NOT RUN"},{"id":"C1.3","status":"NOT RUN"},{"id":"C1.4","status":"NOT RUN"},{"id":"C1.5","status":"NOT RUN"},{"id":"C1.6","status":"NOT RUN"},
+    {"id":"C2.1","status":"NOT RUN"},{"id":"C2.2","status":"NOT RUN"},{"id":"C2.3","status":"NOT RUN"},{"id":"C2.4","status":"NOT RUN"},{"id":"C2.5","status":"NOT RUN"},{"id":"C2.6","status":"NOT RUN"},
+    {"id":"C3.1","status":"NOT RUN"},{"id":"C3.2","status":"NOT RUN"},{"id":"C3.3","status":"NOT RUN"},{"id":"C3.4","status":"NOT RUN"},
+    {"id":"C4.1","status":"NOT RUN"},{"id":"C4.2","status":"NOT RUN"},{"id":"C4.3","status":"NOT RUN"},{"id":"C4.4","status":"NOT RUN"},{"id":"C4.5","status":"NOT RUN"},{"id":"C4.6","status":"NOT RUN"},{"id":"C4.7","status":"NOT RUN"},{"id":"C4.8","status":"NOT RUN"},{"id":"C4.9","status":"FAILED"},
+    {"id":"C5.1","status":"NOT RUN"},{"id":"C5.2","status":"FAILED"},{"id":"C5.3","status":"PASSED"},{"id":"C5.4","status":"MISSING"}
+  ],
+  "primary_failure": "preflight_mapping_dependency_invalid",
+  "secondary_failures": [],
+  "dispatch_counts": {
+    "compiler": {"attempted": 0,"dispatched": 0,"responded": 0,"completed": 0,"terminal_valid": 0},
+    "inference": {"attempted": 0,"dispatched": 0,"responded": 0,"completed": 0,"terminal_valid": 0},
+    "other": {"attempted": 0,"dispatched": 0,"responded": 0,"completed": 0,"terminal_valid": 0}
+  },
+  "pre_dispatch": {"mapping_validation": false,"credential_hook_calls": 0,"provider_dispatches": 0,"pending": false},
+  "cleanup": {"processes": true,"listeners": true,"database": true,"cache": true,"codex_home": true},
+  "raw_payloads_retained": false,
+  "real_protected_access": false
+}

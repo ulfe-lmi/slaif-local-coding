@@ -1,0 +1,2399 @@
+{
+  "schema": "oap-005-ai-fake-machine-gate-v1",
+  "status": "COMPLETE",
+  "mode": "fake",
+  "provider_target": "fake",
+  "execution_mode": "fake",
+  "run_provenance": "fresh_fake_direct_httpx_loopback",
+  "run_id": "dabaf76ee4ac4f7e8bed36cc61640a5f",
+  "implementation_sha": "5d3b0c3dca0a79905a3ac60e611b2b5dbd856d32",
+  "uid": 1029,
+  "euid": 1029,
+  "command": "PYTHONPATH=<local-repo>:<local-repo>/src:<local-repo>/scripts:<gateway>/app <gateway-venv>/bin/python scripts/gateway_accounting_rehearsal.py --gateway-root <gateway> --gateway-python <gateway-venv>/bin/python --provider-target fake --codex <codex-0.149.0>",
+  "candidate_provenance": {
+    "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+    "codex_version": "0.149.0",
+    "execution_mode": "fake",
+    "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+    "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+    "harness_source": "scripts/gateway_accounting_rehearsal.py",
+    "implementation_sha": "5d3b0c3dca0a79905a3ac60e611b2b5dbd856d32",
+    "local_source": "src/slaif_local_coding",
+    "observer_version": "direct-httpx-v2",
+    "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+    "run_id": "dabaf76ee4ac4f7e8bed36cc61640a5f",
+    "run_provenance": "fresh_fake_direct_httpx_loopback",
+    "source_identity": {
+      "loaded_module_paths": {
+        "scripts.local_qwen_provider_differential": "scripts/local_qwen_provider_differential.py",
+        "tests.helpers.acceptance_harness": "tests/helpers/acceptance_harness.py",
+        "tests.helpers.transport_observer": "tests/helpers/transport_observer.py"
+      },
+      "loaded_module_sha256": {
+        "scripts.local_qwen_provider_differential": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+        "tests.helpers.acceptance_harness": "7be451f83e1c4ffa65cce34786dc880795013b2ded22ec5b50a056bf643eb6ea",
+        "tests.helpers.transport_observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13"
+      },
+      "paths": {
+        "observer": "tests/helpers/transport_observer.py",
+        "projection": "tests/helpers/acceptance_harness.py",
+        "provider_sse": "scripts/local_qwen_provider_differential.py",
+        "runner": "scripts/gateway_accounting_rehearsal.py"
+      },
+      "sha256": {
+        "observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13",
+        "projection": "7be451f83e1c4ffa65cce34786dc880795013b2ded22ec5b50a056bf643eb6ea",
+        "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+        "runner": "1c2df58eeb671e4ffeffa6b6cef28231bb998582413e9f2f58b02f45aa201c8f"
+      }
+    },
+    "tested_worktree_clean": true
+  },
+  "limits": {
+    "wall_seconds": 900.0,
+    "max_dispatches": 64,
+    "max_event_bytes": 16384,
+    "max_stream_bytes": 131072,
+    "max_concurrency": 1,
+    "retries": 0
+  },
+  "machine_gate": {
+    "passed": true,
+    "missing": [],
+    "first_failure": null,
+    "retry_count": 0,
+    "result_count": 37,
+    "projection_count": 37,
+    "rows": [
+      {
+        "obligation_id": "C1.1",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C1.2",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C1.3",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C1.4",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C1.5",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C1.6",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C2.1",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "equal",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C2.2",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C2.3",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C2.4",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C2.5",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C2.6",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C3.1",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C3.2",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "subset",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C3.3",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C3.4",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C4.1",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "1"
+      },
+      {
+        "obligation_id": "C4.2",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C4.3",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C4.4",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "C4.5",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "C4.6",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C4.7",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "C4.8",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C4.9",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C5.1",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "C5.2",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "C5.3",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "D1",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "D2",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "2"
+      },
+      {
+        "obligation_id": "D3",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "D4",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "D5",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      },
+      {
+        "obligation_id": "D6",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "D7",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "D8",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "5+"
+      },
+      {
+        "obligation_id": "D9",
+        "status": "PASSED",
+        "observed": true,
+        "relationship": "independent",
+        "count_class": "3-4"
+      }
+    ],
+    "projections": [
+      {
+        "obligation_id": "C1.1",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "_run_fake_codex_turn",
+        "source_observation_keys": [
+          "codex.two_turns",
+          "codex.actual_chain"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C1.2",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "provider-boundary observer + independent provider facts",
+        "source_observation_keys": [
+          "provider.two_inference_calls",
+          "provider.independent_from_accounting",
+          "provider.transport_boundary_observed"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C1.3",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "_run_fake_codex_turn",
+        "source_observation_keys": [
+          "codex.first_function_call",
+          "codex.local_tool_success",
+          "codex.function_result_adjacent"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C1.4",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "_idless_composed_companion",
+        "source_observation_keys": [
+          "provider.idless_continuation_supported",
+          "codex.call_id_present",
+          "gateway.call_id_same_hmac",
+          "gateway.scope_no_downgrade"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C1.5",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "StrictFakeQwenObservation.snapshot",
+        "source_observation_keys": [
+          "provider.reasoning_lifecycle_valid",
+          "provider.function_lifecycle_valid",
+          "provider.message_lifecycle_valid",
+          "provider.terminal_usage"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C1.6",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "_db_snapshot",
+        "source_observation_keys": [
+          "gateway.two_terminal_reservations",
+          "gateway.zero_pending",
+          "gateway.zero_duplicate_request_ids"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C2.1",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "constitution_metric_snapshot",
+        "source_observation_keys": [
+          "constitution.root_observed",
+          "constitution.dependency_one_equal",
+          "constitution.acquisition_before_completion"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C2.2",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "constitution_metric_snapshot",
+        "source_observation_keys": [
+          "constitution.candidates_observed",
+          "compiler.cache_miss",
+          "cache.validated_entry",
+          "constitution.injection_observed"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C2.3",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "constitution_metric_snapshot",
+        "source_observation_keys": [
+          "rehydration.zero_root",
+          "rehydration.cache_reuse",
+          "rehydration.no_compiler"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C2.4",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "StrictFakeQwenObservation.isolation_negative_observed",
+        "source_observation_keys": [
+          "isolation.session_negative",
+          "isolation.session_distinct"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C2.5",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "StrictFakeQwenObservation.isolation_negative_observed",
+        "source_observation_keys": [
+          "isolation.owner_negative",
+          "isolation.owner_distinct"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C2.6",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "StrictFakeQwenObservation.isolation_negative_observed",
+        "source_observation_keys": [
+          "isolation.repository_negative",
+          "isolation.repository_distinct"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C3.1",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "run_vision_e2e",
+        "source_observation_keys": [
+          "vision.two_turns",
+          "vision.history_turn"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C3.2",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "StrictFakeQwenObservation.snapshot",
+        "source_observation_keys": [
+          "provider.newest_single_image",
+          "provider.fixture_hashes"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C3.3",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "run_vision_e2e",
+        "source_observation_keys": [
+          "vision.local_history_multiplicity",
+          "vision.local_history_removal"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C3.4",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "run_vision_e2e",
+        "source_observation_keys": [
+          "vision.governance_both_turns",
+          "vision.two_terminal_turns"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.1",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "1",
+        "producer": "gateway_identity_v1",
+        "source_observation_keys": [
+          "identity.every_admission_verified"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.2",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "gateway_identity_v1",
+        "source_observation_keys": [
+          "identity.same_session",
+          "identity.different_session",
+          "identity.different_owner",
+          "identity.different_repository"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.3",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "gateway_identity_v1",
+        "source_observation_keys": [
+          "identity.replay_one_accept",
+          "identity.replay_no_provider_duplicate",
+          "identity.replay_no_accounting_duplicate"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.4",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "evaluate_tamper_matrix",
+        "source_observation_keys": [
+          "identity.tamper_body",
+          "identity.tamper_query",
+          "identity.tamper_path",
+          "identity.tamper_route",
+          "identity.tamper_signature",
+          "identity.tamper_timestamp",
+          "identity.tamper_nonce",
+          "identity.tamper_ambiguous",
+          "identity.tamper_missing"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.5",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "_response_status",
+        "source_observation_keys": [
+          "gateway.reject_invalid_key",
+          "gateway.reject_hosted_choice",
+          "gateway.reject_dropped_tool",
+          "gateway.reject_over_quota",
+          "gateway.rejects_pre_provider"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.6",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "_FailureServer",
+        "source_observation_keys": [
+          "failure.one_provider_call",
+          "failure.terminal_accounting",
+          "failure.no_unrelated_call"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.7",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "_db_snapshot",
+        "source_observation_keys": [
+          "gateway.accounting_request",
+          "gateway.accounting_usage",
+          "gateway.accounting_tokens",
+          "gateway.accounting_cost",
+          "gateway.accounting_zero_pending",
+          "gateway.accounting_zero_duplicate"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.8",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "constitution_metric_snapshot",
+        "source_observation_keys": [
+          "compiler.zero_public_rows",
+          "compiler.zero_public_fees",
+          "compiler.zero_public_fence"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C4.9",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "_run_direct_composed_rehearsal",
+        "source_observation_keys": [
+          "cleanup.failure_replay",
+          "cleanup.failure_cache",
+          "cleanup.failure_identity",
+          "cleanup.failure_provider"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C5.1",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "_run_direct_composed_rehearsal",
+        "source_observation_keys": [
+          "topology.codex_gateway_local_provider",
+          "topology.no_direct_route"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C5.2",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "_secret_free_logs",
+        "source_observation_keys": [
+          "privacy.no_raw_canaries",
+          "privacy.no_raw_bodies",
+          "privacy.no_credentials"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "C5.3",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "_run_direct_composed_rehearsal",
+        "source_observation_keys": [
+          "cleanup.processes",
+          "cleanup.listeners",
+          "cleanup.database",
+          "cleanup.cache",
+          "cleanup.codex_home"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D1",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "FakeCutoverRunner.capture",
+        "source_observation_keys": [
+          "cutover.capture_existence",
+          "cutover.capture_hash",
+          "cutover.capture_mode",
+          "cutover.capture_owner",
+          "cutover.capture_structure"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D2",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "2",
+        "producer": "FakeCutoverRunner.install",
+        "source_observation_keys": [
+          "cutover.backup_0700",
+          "cutover.backup_files_0600"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D3",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "FakeCutoverRunner.install",
+        "source_observation_keys": [
+          "cutover.refuse_occupied_port",
+          "cutover.refuse_collision",
+          "cutover.refuse_unsafe_owner",
+          "cutover.refuse_unsafe_mode",
+          "cutover.refuse_overlap",
+          "cutover.refuse_incomplete_backup",
+          "cutover.refuse_unprovable_rollback"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D4",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "FakeCutoverRunner.safe_facts",
+        "source_observation_keys": [
+          "cutover.local_18031",
+          "cutover.gateway_18030",
+          "cutover.protected_env",
+          "cutover.signed_identity",
+          "cutover.private_postgres",
+          "cutover.hardened_unit"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D5",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "FakeCutoverRunner.safe_facts",
+        "source_observation_keys": [
+          "cutover.profile_add_only",
+          "cutover.active_profile_unchanged",
+          "cutover.global_default_unchanged"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D6",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "FakeCutoverRunner.safe_facts",
+        "source_observation_keys": [
+          "cutover.checklist_tool_loop",
+          "cutover.checklist_governance",
+          "cutover.checklist_vision",
+          "cutover.checklist_isolation",
+          "cutover.checklist_quota",
+          "cutover.checklist_no_bypass"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D7",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "FakeCutoverRunner.rollback",
+        "source_observation_keys": [
+          "cutover.rollback_bytes",
+          "cutover.rollback_mode",
+          "cutover.rollback_owner",
+          "cutover.rollback_hash",
+          "cutover.rollback_absence"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D8",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "5+",
+        "producer": "FakeCutoverRunner.safe_facts",
+        "source_observation_keys": [
+          "cutover.absence_ports",
+          "cutover.absence_processes",
+          "cutover.absence_units",
+          "cutover.absence_profile",
+          "cutover.absence_cache",
+          "cutover.absence_database",
+          "cutover.absence_qwen",
+          "cutover.absence_network"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      },
+      {
+        "obligation_id": "D9",
+        "execution_status": "PASSED",
+        "observed_field_count_class": "3-4",
+        "producer": "FakeCutoverRunner.install",
+        "source_observation_keys": [
+          "cutover.failure_each_phase",
+          "cutover.failure_exact_cleanup",
+          "cutover.failure_rollback_incomplete"
+        ],
+        "proving_test_node_ids": [
+          "test_projection_positive",
+          "test_projection_negative"
+        ]
+      }
+    ]
+  },
+  "lifecycle": {
+    "all_lifetime_counts": {
+      "compiler_attempted": 6,
+      "compiler_completed": 6,
+      "compiler_dispatched": 6,
+      "compiler_responded": 6,
+      "compiler_terminal_valid": null,
+      "inference_attempted": 12,
+      "inference_completed": 12,
+      "inference_dispatched": 12,
+      "inference_responded": 12,
+      "inference_terminal_valid": 12,
+      "other_attempted": 8,
+      "other_completed": 8,
+      "other_dispatched": 8,
+      "other_responded": 8,
+      "other_terminal_valid": 8
+    },
+    "dispatch": {
+      "attempted": 26,
+      "admitted": 26,
+      "counts": {
+        "compiler": {
+          "admitted": 6,
+          "attempted": 6
+        },
+        "inference": {
+          "admitted": 12,
+          "attempted": 12
+        },
+        "other": {
+          "admitted": 8,
+          "attempted": 8
+        }
+      }
+    },
+    "completed_phases": [
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 2,
+          "compiler_completed": 2,
+          "compiler_dispatched": 2,
+          "compiler_responded": 2,
+          "inference_attempted": 2,
+          "inference_completed": 2,
+          "inference_dispatched": 2,
+          "inference_responded": 2,
+          "inference_terminal_valid": 2,
+          "other_attempted": 1,
+          "other_completed": 1,
+          "other_dispatched": 1,
+          "other_responded": 1,
+          "other_terminal_valid": 1
+        },
+        "failure_class": null,
+        "lifetime_id": "codex",
+        "ordinal": 2,
+        "phase": "codex",
+        "ready": true,
+        "response_count": 5
+      },
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 2,
+          "compiler_completed": 2,
+          "compiler_dispatched": 2,
+          "compiler_responded": 2,
+          "inference_attempted": 3,
+          "inference_completed": 3,
+          "inference_dispatched": 3,
+          "inference_responded": 3,
+          "inference_terminal_valid": 3,
+          "other_attempted": 1,
+          "other_completed": 1,
+          "other_dispatched": 1,
+          "other_responded": 1,
+          "other_terminal_valid": 1
+        },
+        "failure_class": null,
+        "lifetime_id": "vision",
+        "ordinal": 4,
+        "phase": "vision",
+        "ready": true,
+        "response_count": 6
+      },
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 2,
+          "compiler_completed": 2,
+          "compiler_dispatched": 2,
+          "compiler_responded": 2,
+          "inference_attempted": 7,
+          "inference_completed": 7,
+          "inference_dispatched": 7,
+          "inference_responded": 7,
+          "inference_terminal_valid": 7,
+          "other_attempted": 6,
+          "other_completed": 6,
+          "other_dispatched": 6,
+          "other_responded": 6,
+          "other_terminal_valid": 6
+        },
+        "failure_class": null,
+        "lifetime_id": "post_vision",
+        "ordinal": 4,
+        "phase": "vision",
+        "ready": true,
+        "response_count": 15
+      },
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 0,
+          "compiler_completed": 0,
+          "compiler_dispatched": 0,
+          "compiler_responded": 0,
+          "inference_attempted": 2,
+          "inference_completed": 2,
+          "inference_dispatched": 2,
+          "inference_responded": 2,
+          "inference_terminal_valid": 2,
+          "other_attempted": 1,
+          "other_completed": 1,
+          "other_dispatched": 1,
+          "other_responded": 1,
+          "other_terminal_valid": 1
+        },
+        "failure_class": null,
+        "lifetime_id": "post_vision",
+        "ordinal": 2,
+        "phase": "codex",
+        "ready": true,
+        "response_count": 3
+      },
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 2,
+          "compiler_completed": 2,
+          "compiler_dispatched": 2,
+          "compiler_responded": 2,
+          "inference_attempted": 7,
+          "inference_completed": 7,
+          "inference_dispatched": 7,
+          "inference_responded": 7,
+          "inference_terminal_valid": 7,
+          "other_attempted": 6,
+          "other_completed": 6,
+          "other_dispatched": 6,
+          "other_responded": 6,
+          "other_terminal_valid": 6
+        },
+        "failure_class": null,
+        "lifetime_id": "post_vision",
+        "ordinal": 9,
+        "phase": "finalize",
+        "ready": true,
+        "response_count": 15
+      },
+      {
+        "completed": true,
+        "counts": {},
+        "failure_class": null,
+        "lifetime_id": "merged",
+        "ordinal": 9,
+        "phase": "finalize",
+        "ready": true,
+        "response_count": 26
+      }
+    ],
+    "phase_checkpoints": [
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 2,
+          "compiler_completed": 2,
+          "compiler_dispatched": 2,
+          "compiler_responded": 2,
+          "inference_attempted": 2,
+          "inference_completed": 2,
+          "inference_dispatched": 2,
+          "inference_responded": 2,
+          "inference_terminal_valid": 2,
+          "other_attempted": 1,
+          "other_completed": 1,
+          "other_dispatched": 1,
+          "other_responded": 1,
+          "other_terminal_valid": 1
+        },
+        "failure_class": null,
+        "lifetime_id": "codex",
+        "ordinal": 2,
+        "phase": "codex",
+        "ready": true,
+        "response_count": 5
+      },
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 2,
+          "compiler_completed": 2,
+          "compiler_dispatched": 2,
+          "compiler_responded": 2,
+          "inference_attempted": 3,
+          "inference_completed": 3,
+          "inference_dispatched": 3,
+          "inference_responded": 3,
+          "inference_terminal_valid": 3,
+          "other_attempted": 1,
+          "other_completed": 1,
+          "other_dispatched": 1,
+          "other_responded": 1,
+          "other_terminal_valid": 1
+        },
+        "failure_class": null,
+        "lifetime_id": "vision",
+        "ordinal": 4,
+        "phase": "vision",
+        "ready": true,
+        "response_count": 6
+      },
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 2,
+          "compiler_completed": 2,
+          "compiler_dispatched": 2,
+          "compiler_responded": 2,
+          "inference_attempted": 7,
+          "inference_completed": 7,
+          "inference_dispatched": 7,
+          "inference_responded": 7,
+          "inference_terminal_valid": 7,
+          "other_attempted": 6,
+          "other_completed": 6,
+          "other_dispatched": 6,
+          "other_responded": 6,
+          "other_terminal_valid": 6
+        },
+        "failure_class": null,
+        "lifetime_id": "post_vision",
+        "ordinal": 4,
+        "phase": "vision",
+        "ready": true,
+        "response_count": 15
+      },
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 0,
+          "compiler_completed": 0,
+          "compiler_dispatched": 0,
+          "compiler_responded": 0,
+          "inference_attempted": 2,
+          "inference_completed": 2,
+          "inference_dispatched": 2,
+          "inference_responded": 2,
+          "inference_terminal_valid": 2,
+          "other_attempted": 1,
+          "other_completed": 1,
+          "other_dispatched": 1,
+          "other_responded": 1,
+          "other_terminal_valid": 1
+        },
+        "failure_class": null,
+        "lifetime_id": "post_vision",
+        "ordinal": 2,
+        "phase": "codex",
+        "ready": true,
+        "response_count": 3
+      },
+      {
+        "completed": true,
+        "counts": {
+          "compiler_attempted": 2,
+          "compiler_completed": 2,
+          "compiler_dispatched": 2,
+          "compiler_responded": 2,
+          "inference_attempted": 7,
+          "inference_completed": 7,
+          "inference_dispatched": 7,
+          "inference_responded": 7,
+          "inference_terminal_valid": 7,
+          "other_attempted": 6,
+          "other_completed": 6,
+          "other_dispatched": 6,
+          "other_responded": 6,
+          "other_terminal_valid": 6
+        },
+        "failure_class": null,
+        "lifetime_id": "post_vision",
+        "ordinal": 9,
+        "phase": "finalize",
+        "ready": true,
+        "response_count": 15
+      },
+      {
+        "completed": true,
+        "counts": {},
+        "failure_class": null,
+        "lifetime_id": "merged",
+        "ordinal": 9,
+        "phase": "finalize",
+        "ready": true,
+        "response_count": 26
+      }
+    ],
+    "byte_evidence": {
+      "controller": {
+        "max_stream_bytes": 131072,
+        "response_received_bytes_total": 21664,
+        "response_accepted_bytes_total": 21664,
+        "response_rejected_bytes_total": 0,
+        "response_rejected_chunks_total": 0,
+        "stream_bytes_total": 21664,
+        "response_byte_lifetimes": [
+          {
+            "accepted_bytes": 15,
+            "configured_limit": 131072,
+            "received_bytes": 15,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 1
+          },
+          {
+            "accepted_bytes": 1020,
+            "configured_limit": 131072,
+            "received_bytes": 1020,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 2
+          },
+          {
+            "accepted_bytes": 2181,
+            "configured_limit": 131072,
+            "received_bytes": 2181,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 3
+          },
+          {
+            "accepted_bytes": 801,
+            "configured_limit": 131072,
+            "received_bytes": 801,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 4
+          },
+          {
+            "accepted_bytes": 2467,
+            "configured_limit": 131072,
+            "received_bytes": 2467,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 5
+          },
+          {
+            "accepted_bytes": 15,
+            "configured_limit": 131072,
+            "received_bytes": 15,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 6
+          },
+          {
+            "accepted_bytes": 1020,
+            "configured_limit": 131072,
+            "received_bytes": 1020,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 7
+          },
+          {
+            "accepted_bytes": 2181,
+            "configured_limit": 131072,
+            "received_bytes": 2181,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 8
+          },
+          {
+            "accepted_bytes": 801,
+            "configured_limit": 131072,
+            "received_bytes": 801,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 9
+          },
+          {
+            "accepted_bytes": 2467,
+            "configured_limit": 131072,
+            "received_bytes": 2467,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 10
+          },
+          {
+            "accepted_bytes": 2467,
+            "configured_limit": 131072,
+            "received_bytes": 2467,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 11
+          },
+          {
+            "accepted_bytes": 15,
+            "configured_limit": 131072,
+            "received_bytes": 15,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 12
+          },
+          {
+            "accepted_bytes": 2181,
+            "configured_limit": 131072,
+            "received_bytes": 2181,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 13
+          },
+          {
+            "accepted_bytes": 320,
+            "configured_limit": 131072,
+            "received_bytes": 320,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 14
+          },
+          {
+            "accepted_bytes": 15,
+            "configured_limit": 131072,
+            "received_bytes": 15,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 15
+          },
+          {
+            "accepted_bytes": 15,
+            "configured_limit": 131072,
+            "received_bytes": 15,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 16
+          },
+          {
+            "accepted_bytes": 15,
+            "configured_limit": 131072,
+            "received_bytes": 15,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 17
+          },
+          {
+            "accepted_bytes": 15,
+            "configured_limit": 131072,
+            "received_bytes": 15,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 18
+          },
+          {
+            "accepted_bytes": 15,
+            "configured_limit": 131072,
+            "received_bytes": 15,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 19
+          },
+          {
+            "accepted_bytes": 320,
+            "configured_limit": 131072,
+            "received_bytes": 320,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 20
+          },
+          {
+            "accepted_bytes": 1019,
+            "configured_limit": 131072,
+            "received_bytes": 1019,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 21
+          },
+          {
+            "accepted_bytes": 320,
+            "configured_limit": 131072,
+            "received_bytes": 320,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 22
+          },
+          {
+            "accepted_bytes": 320,
+            "configured_limit": 131072,
+            "received_bytes": 320,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 23
+          },
+          {
+            "accepted_bytes": 320,
+            "configured_limit": 131072,
+            "received_bytes": 320,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 24
+          },
+          {
+            "accepted_bytes": 1019,
+            "configured_limit": 131072,
+            "received_bytes": 1019,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 25
+          },
+          {
+            "accepted_bytes": 320,
+            "configured_limit": 131072,
+            "received_bytes": 320,
+            "rejected_bytes": 0,
+            "rejected_chunk_count": 0,
+            "response_ordinal": 26
+          }
+        ]
+      },
+      "per_lifetime": [
+        {
+          "all_lifetime": {
+            "max_stream_bytes": 131072,
+            "response_accepted_bytes_total": 21664,
+            "response_received_bytes_total": 21664,
+            "response_rejected_bytes_total": 0,
+            "response_rejected_chunks_total": 0,
+            "stream_bytes_total": 21664
+          },
+          "lifetime_id": "codex",
+          "ordinal": 2,
+          "phase": "codex",
+          "responses": [
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 1,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 1020,
+              "kind": "compiler",
+              "ordinal": 2,
+              "received_bytes": 1020,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2181,
+              "kind": "inference",
+              "ordinal": 3,
+              "received_bytes": 2181,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 801,
+              "kind": "compiler",
+              "ordinal": 4,
+              "received_bytes": 801,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2467,
+              "kind": "inference",
+              "ordinal": 5,
+              "received_bytes": 2467,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            }
+          ]
+        },
+        {
+          "all_lifetime": {
+            "max_stream_bytes": 131072,
+            "response_accepted_bytes_total": 21664,
+            "response_received_bytes_total": 21664,
+            "response_rejected_bytes_total": 0,
+            "response_rejected_chunks_total": 0,
+            "stream_bytes_total": 21664
+          },
+          "lifetime_id": "vision",
+          "ordinal": 4,
+          "phase": "vision",
+          "responses": [
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 1,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 1020,
+              "kind": "compiler",
+              "ordinal": 2,
+              "received_bytes": 1020,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2181,
+              "kind": "inference",
+              "ordinal": 3,
+              "received_bytes": 2181,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 801,
+              "kind": "compiler",
+              "ordinal": 4,
+              "received_bytes": 801,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2467,
+              "kind": "inference",
+              "ordinal": 5,
+              "received_bytes": 2467,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2467,
+              "kind": "inference",
+              "ordinal": 6,
+              "received_bytes": 2467,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            }
+          ]
+        },
+        {
+          "all_lifetime": {
+            "max_stream_bytes": 131072,
+            "response_accepted_bytes_total": 21664,
+            "response_received_bytes_total": 21664,
+            "response_rejected_bytes_total": 0,
+            "response_rejected_chunks_total": 0,
+            "stream_bytes_total": 21664
+          },
+          "lifetime_id": "post_vision",
+          "ordinal": 4,
+          "phase": "vision",
+          "responses": [
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 1,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2181,
+              "kind": "inference",
+              "ordinal": 2,
+              "received_bytes": 2181,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 3,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 4,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 5,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 6,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 7,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 8,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 9,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 1019,
+              "kind": "compiler",
+              "ordinal": 10,
+              "received_bytes": 1019,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 11,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 12,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 13,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 1019,
+              "kind": "compiler",
+              "ordinal": 14,
+              "received_bytes": 1019,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 15,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            }
+          ]
+        },
+        {
+          "all_lifetime": {},
+          "lifetime_id": "merged",
+          "ordinal": 9,
+          "phase": "finalize",
+          "responses": [
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 1,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 1020,
+              "kind": "compiler",
+              "ordinal": 2,
+              "received_bytes": 1020,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2181,
+              "kind": "inference",
+              "ordinal": 3,
+              "received_bytes": 2181,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 801,
+              "kind": "compiler",
+              "ordinal": 4,
+              "received_bytes": 801,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2467,
+              "kind": "inference",
+              "ordinal": 5,
+              "received_bytes": 2467,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 6,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 1020,
+              "kind": "compiler",
+              "ordinal": 7,
+              "received_bytes": 1020,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2181,
+              "kind": "inference",
+              "ordinal": 8,
+              "received_bytes": 2181,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 801,
+              "kind": "compiler",
+              "ordinal": 9,
+              "received_bytes": 801,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2467,
+              "kind": "inference",
+              "ordinal": 10,
+              "received_bytes": 2467,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2467,
+              "kind": "inference",
+              "ordinal": 11,
+              "received_bytes": 2467,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 12,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 2181,
+              "kind": "inference",
+              "ordinal": 13,
+              "received_bytes": 2181,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 14,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 15,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 16,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 17,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 18,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 15,
+              "kind": "other",
+              "ordinal": 19,
+              "received_bytes": 15,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 20,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 1019,
+              "kind": "compiler",
+              "ordinal": 21,
+              "received_bytes": 1019,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 22,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 23,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 24,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 1019,
+              "kind": "compiler",
+              "ordinal": 25,
+              "received_bytes": 1019,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            },
+            {
+              "accepted_bytes": 320,
+              "kind": "inference",
+              "ordinal": 26,
+              "received_bytes": 320,
+              "rejected_bytes": 0,
+              "rejected_chunk_count": 0
+            }
+          ]
+        }
+      ]
+    },
+    "records": [
+      {
+        "ordinal": 1,
+        "kind": "other",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 15,
+        "response_accepted_bytes": 15,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "readiness_probe",
+        "dispatch_phase": "candidate",
+        "dispatch_ordinal": 0,
+        "dispatch_lifetime": "candidate",
+        "exception_class": null
+      },
+      {
+        "ordinal": 2,
+        "kind": "compiler",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 1020,
+        "response_accepted_bytes": 1020,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "codex_turn_1",
+        "dispatch_phase": "codex",
+        "dispatch_ordinal": 1,
+        "dispatch_lifetime": "codex",
+        "exception_class": null
+      },
+      {
+        "ordinal": 3,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 2181,
+        "response_accepted_bytes": 2181,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "codex_turn_1",
+        "dispatch_phase": "codex",
+        "dispatch_ordinal": 1,
+        "dispatch_lifetime": "codex",
+        "exception_class": null
+      },
+      {
+        "ordinal": 4,
+        "kind": "compiler",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 801,
+        "response_accepted_bytes": 801,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "codex_turn_1",
+        "dispatch_phase": "codex",
+        "dispatch_ordinal": 1,
+        "dispatch_lifetime": "codex",
+        "exception_class": null
+      },
+      {
+        "ordinal": 5,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 2467,
+        "response_accepted_bytes": 2467,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "codex_turn_2",
+        "dispatch_phase": "codex",
+        "dispatch_ordinal": 2,
+        "dispatch_lifetime": "codex",
+        "exception_class": null
+      },
+      {
+        "ordinal": 6,
+        "kind": "other",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 15,
+        "response_accepted_bytes": 15,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "readiness_probe",
+        "dispatch_phase": "candidate",
+        "dispatch_ordinal": 0,
+        "dispatch_lifetime": "vision",
+        "exception_class": null
+      },
+      {
+        "ordinal": 7,
+        "kind": "compiler",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 1020,
+        "response_accepted_bytes": 1020,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "vision_full",
+        "dispatch_phase": "vision",
+        "dispatch_ordinal": 3,
+        "dispatch_lifetime": "vision",
+        "exception_class": null
+      },
+      {
+        "ordinal": 8,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 2181,
+        "response_accepted_bytes": 2181,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "vision_full",
+        "dispatch_phase": "vision",
+        "dispatch_ordinal": 3,
+        "dispatch_lifetime": "vision",
+        "exception_class": null
+      },
+      {
+        "ordinal": 9,
+        "kind": "compiler",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 801,
+        "response_accepted_bytes": 801,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "vision_full",
+        "dispatch_phase": "vision",
+        "dispatch_ordinal": 3,
+        "dispatch_lifetime": "vision",
+        "exception_class": null
+      },
+      {
+        "ordinal": 10,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 2467,
+        "response_accepted_bytes": 2467,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "vision_full",
+        "dispatch_phase": "vision",
+        "dispatch_ordinal": 3,
+        "dispatch_lifetime": "vision",
+        "exception_class": null
+      },
+      {
+        "ordinal": 11,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 2467,
+        "response_accepted_bytes": 2467,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "vision_crop_history",
+        "dispatch_phase": "vision",
+        "dispatch_ordinal": 4,
+        "dispatch_lifetime": "vision",
+        "exception_class": null
+      },
+      {
+        "ordinal": 12,
+        "kind": "other",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 15,
+        "response_accepted_bytes": 15,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "readiness_probe",
+        "dispatch_phase": "candidate",
+        "dispatch_ordinal": 0,
+        "dispatch_lifetime": "post_vision",
+        "exception_class": null
+      },
+      {
+        "ordinal": 13,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 2181,
+        "response_accepted_bytes": 2181,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_replay",
+        "dispatch_phase": "codex",
+        "dispatch_ordinal": 5,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 14,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 320,
+        "response_accepted_bytes": 320,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_replay",
+        "dispatch_phase": "codex",
+        "dispatch_ordinal": 5,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 15,
+        "kind": "other",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 15,
+        "response_accepted_bytes": 15,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 5,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 16,
+        "kind": "other",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 15,
+        "response_accepted_bytes": 15,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 5,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 17,
+        "kind": "other",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 15,
+        "response_accepted_bytes": 15,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 5,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 18,
+        "kind": "other",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 15,
+        "response_accepted_bytes": 15,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 5,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 19,
+        "kind": "other",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 15,
+        "response_accepted_bytes": 15,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 5,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 20,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 320,
+        "response_accepted_bytes": 320,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_concurrent_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 6,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 21,
+        "kind": "compiler",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 1019,
+        "response_accepted_bytes": 1019,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_concurrent_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 6,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 22,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 320,
+        "response_accepted_bytes": 320,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_concurrent_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 6,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 23,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 320,
+        "response_accepted_bytes": 320,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_concurrent_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 6,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 24,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 320,
+        "response_accepted_bytes": 320,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_concurrent_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 6,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 25,
+        "kind": "compiler",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 1019,
+        "response_accepted_bytes": 1019,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_concurrent_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 6,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      },
+      {
+        "ordinal": 26,
+        "kind": "inference",
+        "dispatched": true,
+        "responded": true,
+        "completed": true,
+        "terminal_valid": true,
+        "normal_close": true,
+        "response_received_bytes": 320,
+        "response_accepted_bytes": 320,
+        "response_rejected_bytes": 0,
+        "response_rejected_chunk_count": 0,
+        "dispatch_operation": "identity_concurrent_replay",
+        "dispatch_phase": "identity",
+        "dispatch_ordinal": 6,
+        "dispatch_lifetime": "identity",
+        "exception_class": null
+      }
+    ]
+  },
+  "cleanup": {
+    "cache": true,
+    "codex_home": true,
+    "database": true,
+    "listeners": true,
+    "processes": true
+  },
+  "privacy": {
+    "secret_free_logs": true,
+    "raw_ids_or_payloads_retained": false,
+    "raw_payloads_retained": false,
+    "credentials_retained": false
+  },
+  "protected_acceptance": false,
+  "real_protected_access": false,
+  "protected_fixture_mutated": false
+}

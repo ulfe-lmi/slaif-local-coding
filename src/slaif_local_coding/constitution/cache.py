@@ -40,6 +40,14 @@ class CacheIdentity(BaseModel):
     repository: str | None = Field(default=None, min_length=1, max_length=256)
 
 
+class RequestIdentity(CacheIdentity):
+    """Immutable verified identity carried through one request pipeline."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    session: str = Field(min_length=1, max_length=256)
+    repository: str = Field(min_length=1, max_length=256)
+
+
 @dataclass(frozen=True)
 class CachePolicy:
     root: Path

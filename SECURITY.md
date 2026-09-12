@@ -35,6 +35,16 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
 10. Never mutate the live Qwen installation, model files, systemd service,
     firewall, VPN, API key, or active Codex provider/profile path unless an
     active OAP order explicitly authorizes that exact operation and rollback.
+11. Optional gateway ingress uses a configured service Bearer secret with
+    constant-time comparison. Signed v1 mode additionally verifies a separate
+    bounded HMAC secret over method/path/raw-query-hash/exact-body-hash and
+    opaque identity fields, then reserves only a nonce digest in bounded
+    process-local replay state. It never accepts public gateway keys or
+    unsigned caller identity headers. Service and signed-auth failures occur
+    before image, constitution, compiler, cache, rehydration, or upstream work.
+    The exact pinned Gateway main used by the Objective-005 acceptance harness
+    emits the signed contract for its reviewed Codex route; adapter and
+    cross-repository qualification evidence is not production cutover.
 
 ## Protected live-host resources
 

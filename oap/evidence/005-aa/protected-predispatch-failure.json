@@ -1,0 +1,14 @@
+{
+  "tested_source_sha": "ee72a19d45a5eaba0329daaddd571742ca81a586",
+  "case": "predispatch_mapping_failure",
+  "status": "BLOCKED",
+  "safe_result_sha256": "c900b6a1d351b58e422068692952a66c6d1e050a37f4e692e103fbc6fd12228b",
+  "protected_acceptance": false,
+  "gate": {"passed": false, "first_failure": "C1.1", "missing": 0, "rows": 29, "all_rows_serialized": true},
+  "primary_failure": "observer_dispatch_hook_error",
+  "secondary_failures": ["observer_readiness_lost", "unknown"],
+  "dispatch_counts": {"attempted": 1, "admitted": 1, "readiness_admitted": 1, "readiness_consumed": 1, "readiness_pending": false, "compiler_attempted": 0, "inference_attempted": 0},
+  "row_statuses": ["MISSING", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "NOT RUN", "MISSING", "NOT RUN", "FAILED", "MISSING", "MISSING"],
+  "cleanup": {"processes": true, "listeners": true, "database": true, "cache": true, "codex_home": true},
+  "raw_payloads_retained": false
+}

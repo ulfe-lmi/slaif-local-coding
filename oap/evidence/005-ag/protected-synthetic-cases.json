@@ -1,0 +1,62 @@
+{
+  "schema": "oap-005-ag-protected-synthetic-cases-v1",
+  "status": "COMPLETE",
+  "mode": "protected-synthetic",
+  "real_protected_access": false,
+  "protected_acceptance": false,
+  "source_tested_implementation_sha": "f83022da790ef747ae743f961401a2e04b555b8f",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "observer_version": "direct-httpx-v2",
+  "selected_rows": 29,
+  "all_selected_rows_serialized": true,
+  "cases": {
+    "healthy": {
+      "status": "COMPLETE",
+      "rows": 29,
+      "gate_passed": true,
+      "primary_failure": null,
+      "dispatch_counts": {"compiler":6,"inference":12,"other":10},
+      "cleanup": {"processes":true,"listeners":true,"database":true,"cache":true,"codex_home":true}
+    },
+    "observer_failure_after_dispatch": {
+      "status": "BLOCKED",
+      "rows": 29,
+      "gate_passed": false,
+      "primary_failure": "observer_readiness_lost",
+      "secondary_failures": ["provider_boundary_unobserved"],
+      "dispatch_counts": {"compiler":1,"inference":1,"other":3},
+      "cleanup": {"processes":true,"listeners":true,"database":true,"cache":true,"codex_home":true}
+    },
+    "observer_projection_cleanup_failure": {
+      "status": "BLOCKED",
+      "rows": 29,
+      "gate_passed": false,
+      "primary_failure": "observer_readiness_lost",
+      "secondary_failures": ["provider_boundary_unobserved","cleanup_failed","serialization_failure"],
+      "dispatch_counts": {"compiler":1,"inference":1,"other":3},
+      "cleanup": {"processes":true,"listeners":true,"database":true,"cache":false,"codex_home":true}
+    },
+    "predispatch_mapping_dependency_failure": {
+      "status": "BLOCKED",
+      "rows": 29,
+      "gate_passed": false,
+      "primary_failure": "preflight_mapping_dependency_invalid",
+      "secondary_failures": [],
+      "dispatch_counts": {"compiler":0,"inference":0,"other":0},
+      "credential_hook_calls": 0,
+      "provider_access": false,
+      "cleanup": {"processes":true,"listeners":true,"database":true,"cache":true,"codex_home":true}
+    }
+  },
+  "limits": {
+    "wall_seconds":900,
+    "max_dispatches":64,
+    "max_event_bytes":16384,
+    "max_stream_bytes":131072,
+    "max_concurrency":1,
+    "retries":0
+  },
+  "fixture_unchanged": true,
+  "port_18020_mutated": false,
+  "credential_access": false
+}

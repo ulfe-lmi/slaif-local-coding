@@ -1,0 +1,42 @@
+{
+  "evidence_version": "005-aa-sanitized-v1",
+  "tested_source_sha": "ee72a19d45a5eaba0329daaddd571742ca81a586",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "observer_version": "direct-httpx-v2",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "source_reuse_attestation": {
+    "tested_source_sha": "ee72a19d45a5eaba0329daaddd571742ca81a586",
+    "evidence_only": true,
+    "relevant_source_unchanged": true,
+    "no_code_or_configuration_descendant_changed_after_test": true
+  },
+  "command": "PYTHONPATH=/synology/homes/janezp/codex-work/slaif-local-coding:/synology/homes/janezp/codex-work/slaif-local-coding/src:/tmp/slaif-005r-gateway.kIy7YT/gateway /tmp/slaif-005r-gateway.kIy7YT/venv/bin/python scripts/gateway_accounting_rehearsal.py --gateway-root /tmp/slaif-005r-gateway.kIy7YT/gateway --gateway-python /tmp/slaif-005r-gateway.kIy7YT/venv/bin/python --provider-target fake --codex /synology/homes/janezp/.codex/packages/standalone/releases/0.149.0-x86_64-unknown-linux-musl/bin/codex",
+  "stdout_policy": "bounded sanitized summary retained; raw capture not retained",
+  "outer_fake_machine_gate": {
+    "artifact_path": "oap/evidence/005-aa/fake-machine-gate.json",
+    "status": "COMPLETE",
+    "result_sha256": "1e21877080ef3bbccdd4f31ea9801d7f2fb1f291857ae968d8187e69a410dfe7",
+    "obligations_passed": 37,
+    "obligations_selected": 37,
+    "projections_passed": 37,
+    "projections_selected": 37,
+    "first_failure": null,
+    "dispatches": {"attempted": 26, "admitted": 26, "compiler": 6, "inference": 12, "other": 8},
+    "inference_terminal_valid": 12,
+    "readiness": {"admitted": 3, "consumed": 3, "pending": false},
+    "matches_fake_provider": true,
+    "cleanup": {"processes": true, "listeners": true, "database": true, "cache": true, "codex_home": true}
+  },
+  "protected_cases": [
+    {"name": "healthy", "artifact_path": "oap/evidence/005-aa/protected-healthy.json", "safe_result_sha256": "af6a5f4da818abff34261890502bd5f1740de5da5edaa0808b82fbdf816687f6", "status": "COMPLETE", "gate_passed": true, "rows": 29},
+    {"name": "observer_failure_after_dispatch", "artifact_path": "oap/evidence/005-aa/protected-observer-failure.json", "safe_result_sha256": "d89112059e0c815b13960d83575282a4c9e074b628e84add1ca0ca37c7ae6423", "status": "BLOCKED", "gate_passed": false, "rows": 29},
+    {"name": "observer_plus_projection_cleanup_failure", "artifact_path": "oap/evidence/005-aa/protected-combined-failure.json", "safe_result_sha256": "b799b622a2f1c7fcba0670b1002528e36738e2019cf00f802909a6a92461b937", "status": "BLOCKED", "gate_passed": false, "rows": 29},
+    {"name": "predispatch_mapping_failure", "artifact_path": "oap/evidence/005-aa/protected-predispatch-failure.json", "safe_result_sha256": "c900b6a1d351b58e422068692952a66c6d1e050a37f4e692e103fbc6fd12228b", "status": "BLOCKED", "gate_passed": false, "rows": 29}
+  ],
+  "protected_acceptance": false,
+  "real_protected_access": false,
+  "raw_payloads_retained": false,
+  "protected_qwen_or_port_18020_mutated": false
+}

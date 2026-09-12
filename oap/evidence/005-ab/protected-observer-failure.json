@@ -1,0 +1,28 @@
+{
+  "evidence_version": "005-ab-sanitized-v1",
+  "tested_source_sha": "a127290b172969d0267e11774f5c25c3563a5eac",
+  "case": "observer_failure_after_dispatch",
+  "status": "BLOCKED",
+  "protected_acceptance": false,
+  "evidence_kind": "synthetic_orchestration_only",
+  "provider_target": "fake",
+  "gate": {"passed": false,"missing": 0,"first_failure":"C1.1","rows":29,"all_rows_serialized":true},
+  "rows_with_status": [
+    {"id":"C1.1","status":"FAILED"},{"id":"C1.2","status":"NOT RUN"},{"id":"C1.3","status":"NOT RUN"},{"id":"C1.4","status":"NOT RUN"},{"id":"C1.5","status":"NOT RUN"},{"id":"C1.6","status":"NOT RUN"},
+    {"id":"C2.1","status":"NOT RUN"},{"id":"C2.2","status":"NOT RUN"},{"id":"C2.3","status":"NOT RUN"},{"id":"C2.4","status":"NOT RUN"},{"id":"C2.5","status":"NOT RUN"},{"id":"C2.6","status":"NOT RUN"},
+    {"id":"C3.1","status":"NOT RUN"},{"id":"C3.2","status":"NOT RUN"},{"id":"C3.3","status":"NOT RUN"},{"id":"C3.4","status":"NOT RUN"},
+    {"id":"C4.1","status":"NOT RUN"},{"id":"C4.2","status":"NOT RUN"},{"id":"C4.3","status":"NOT RUN"},{"id":"C4.4","status":"NOT RUN"},{"id":"C4.5","status":"NOT RUN"},{"id":"C4.6","status":"NOT RUN"},{"id":"C4.7","status":"NOT RUN"},{"id":"C4.8","status":"NOT RUN"},{"id":"C4.9","status":"PASSED"},
+    {"id":"C5.1","status":"NOT RUN"},{"id":"C5.2","status":"PASSED"},{"id":"C5.3","status":"PASSED"},{"id":"C5.4","status":"PASSED"}
+  ],
+  "primary_failure": "observer_readiness_lost",
+  "secondary_failures": ["provider_boundary_unobserved"],
+  "dispatch_counts": {
+    "compiler": {"attempted": 1,"dispatched": 1,"responded": 1,"completed": 1},
+    "inference": {"attempted": 1,"dispatched": 1,"responded": 1,"completed": 1,"terminal_valid": 1},
+    "other": {"attempted": 3,"dispatched": 3,"responded": 3,"completed": 3}
+  },
+  "stop": {"known_compiler_dispatch": 1,"known_inference_dispatch": 1,"later_inference_dispatch": 0},
+  "cleanup": {"processes": true,"listeners": true,"database": true,"cache": true,"codex_home": true},
+  "raw_payloads_retained": false,
+  "real_protected_access": false
+}

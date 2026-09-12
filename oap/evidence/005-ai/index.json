@@ -1,0 +1,337 @@
+{
+  "schema": "oap-005-ai-evidence-index-v1",
+  "status": "COMPLETE",
+  "objective": "per-response byte budget and stop evidence",
+  "scope": "fake and synthetic-protected only",
+  "tested_implementation_sha": "5d3b0c3dca0a79905a3ac60e611b2b5dbd856d32",
+  "tested_worktree_clean": true,
+  "uid": 1029,
+  "euid": 1029,
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "observer_version": "direct-httpx-v2",
+  "source_identity": {
+    "loaded_module_paths": {
+      "scripts.local_qwen_provider_differential": "scripts/local_qwen_provider_differential.py",
+      "tests.helpers.acceptance_harness": "tests/helpers/acceptance_harness.py",
+      "tests.helpers.transport_observer": "tests/helpers/transport_observer.py"
+    },
+    "loaded_module_sha256": {
+      "scripts.local_qwen_provider_differential": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "tests.helpers.acceptance_harness": "7be451f83e1c4ffa65cce34786dc880795013b2ded22ec5b50a056bf643eb6ea",
+      "tests.helpers.transport_observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13"
+    },
+    "paths": {
+      "observer": "tests/helpers/transport_observer.py",
+      "projection": "tests/helpers/acceptance_harness.py",
+      "provider_sse": "scripts/local_qwen_provider_differential.py",
+      "runner": "scripts/gateway_accounting_rehearsal.py"
+    },
+    "sha256": {
+      "observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13",
+      "projection": "7be451f83e1c4ffa65cce34786dc880795013b2ded22ec5b50a056bf643eb6ea",
+      "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "runner": "1c2df58eeb671e4ffeffa6b6cef28231bb998582413e9f2f58b02f45aa201c8f"
+    }
+  },
+  "source_paths": {
+    "runner": "scripts/gateway_accounting_rehearsal.py",
+    "observer": "tests/helpers/transport_observer.py",
+    "projection": "tests/helpers/acceptance_harness.py",
+    "provider_sse": "scripts/local_qwen_provider_differential.py"
+  },
+  "source_sha256": {
+    "runner": "1c2df58eeb671e4ffeffa6b6cef28231bb998582413e9f2f58b02f45aa201c8f",
+    "observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13",
+    "projection": "7be451f83e1c4ffa65cce34786dc880795013b2ded22ec5b50a056bf643eb6ea",
+    "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0"
+  },
+  "fake_run": {
+    "path": "oap/evidence/005-ai/fake-machine-gate.json",
+    "raw_result_sha256": "810bc7911f72332e45294cb7ca99cf94e06f1aa081400b55e3f0c6b88a83ab1d",
+    "status": "COMPLETE",
+    "run_id": "dabaf76ee4ac4f7e8bed36cc61640a5f",
+    "machine_gate_passed": true,
+    "result_count": 37,
+    "projection_count": 37,
+    "dispatch_counts": {
+      "compiler": 6,
+      "inference": 12,
+      "other": 8,
+      "total": 26
+    },
+    "all_lifetime_counts": {
+      "compiler_attempted": 6,
+      "compiler_completed": 6,
+      "compiler_dispatched": 6,
+      "compiler_responded": 6,
+      "compiler_terminal_valid": null,
+      "inference_attempted": 12,
+      "inference_completed": 12,
+      "inference_dispatched": 12,
+      "inference_responded": 12,
+      "inference_terminal_valid": 12,
+      "other_attempted": 8,
+      "other_completed": 8,
+      "other_dispatched": 8,
+      "other_responded": 8,
+      "other_terminal_valid": 8
+    },
+    "byte_totals": {
+      "max_stream_bytes": 131072,
+      "response_received_bytes_total": 21664,
+      "response_accepted_bytes_total": 21664,
+      "response_rejected_bytes_total": 0,
+      "response_rejected_chunks_total": 0,
+      "stream_bytes_total": 21664
+    },
+    "phase_checkpoint_count": 6,
+    "completed_phase_count": 6,
+    "cleanup": {
+      "cache": true,
+      "codex_home": true,
+      "database": true,
+      "listeners": true,
+      "processes": true
+    },
+    "privacy": {
+      "secret_free_logs": true,
+      "raw_payloads_retained": false,
+      "credentials_retained": false
+    }
+  },
+  "synthetic_protected_run": {
+    "path": "oap/evidence/005-ai/protected-synthetic-cases.json",
+    "status": "COMPLETE",
+    "oracle_available": false,
+    "real_protected_access": false,
+    "protected_acceptance": false,
+    "selected_rows": 29,
+    "case_count": 5,
+    "cases": {
+      "healthy": {
+        "status": "COMPLETE",
+        "all_selected_rows_serialized": true,
+        "healthy_gate_passed": true,
+        "primary_failure": null,
+        "secondary_failure_classes": [],
+        "dispatch_counts": {
+          "compiler_attempted": 6,
+          "compiler_completed": 6,
+          "compiler_dispatched": 6,
+          "compiler_responded": 6,
+          "inference_attempted": 12,
+          "inference_completed": 12,
+          "inference_dispatched": 12,
+          "inference_responded": 12,
+          "other_attempted": 10,
+          "other_completed": 10,
+          "other_dispatched": 10,
+          "other_responded": 10
+        },
+        "codex_completed_before_failure": 2,
+        "vision_failure_context": null,
+        "cleanup": {
+          "cache": true,
+          "codex_home": true,
+          "database": true,
+          "failure_cache": true,
+          "failure_identity": true,
+          "failure_provider": true,
+          "failure_replay": true,
+          "listeners": true,
+          "processes": true
+        }
+      },
+      "observer_failure_after_dispatch": {
+        "status": "BLOCKED",
+        "all_selected_rows_serialized": true,
+        "healthy_gate_passed": false,
+        "primary_failure": "observer_readiness_lost",
+        "secondary_failure_classes": [
+          "provider_boundary_unobserved"
+        ],
+        "dispatch_counts": {
+          "compiler_attempted": 1,
+          "compiler_completed": 1,
+          "compiler_dispatched": 1,
+          "compiler_responded": 1,
+          "inference_attempted": 1,
+          "inference_completed": 1,
+          "inference_dispatched": 1,
+          "inference_responded": 1,
+          "other_attempted": 3,
+          "other_completed": 3,
+          "other_dispatched": 3,
+          "other_responded": 3
+        },
+        "codex_completed_before_failure": 0,
+        "vision_failure_context": null,
+        "cleanup": {
+          "cache": true,
+          "codex_home": true,
+          "database": true,
+          "failure_cache": true,
+          "failure_identity": true,
+          "failure_provider": true,
+          "failure_replay": true,
+          "listeners": true,
+          "processes": true
+        }
+      },
+      "observer_projection_cleanup_failure": {
+        "status": "BLOCKED",
+        "all_selected_rows_serialized": true,
+        "healthy_gate_passed": false,
+        "primary_failure": "observer_readiness_lost",
+        "secondary_failure_classes": [
+          "provider_boundary_unobserved",
+          "cleanup_failed",
+          "serialization_failure"
+        ],
+        "dispatch_counts": {
+          "compiler_attempted": 1,
+          "compiler_completed": 1,
+          "compiler_dispatched": 1,
+          "compiler_responded": 1,
+          "inference_attempted": 1,
+          "inference_completed": 1,
+          "inference_dispatched": 1,
+          "inference_responded": 1,
+          "other_attempted": 3,
+          "other_completed": 3,
+          "other_dispatched": 3,
+          "other_responded": 3
+        },
+        "codex_completed_before_failure": 0,
+        "vision_failure_context": null,
+        "cleanup": {
+          "cache": false,
+          "codex_home": true,
+          "database": true,
+          "failure_cache": true,
+          "failure_identity": true,
+          "failure_provider": true,
+          "failure_replay": true,
+          "listeners": true,
+          "processes": true
+        }
+      },
+      "predispatch_mapping_dependency_failure": {
+        "status": "BLOCKED",
+        "all_selected_rows_serialized": true,
+        "healthy_gate_passed": false,
+        "primary_failure": "preflight_mapping_dependency_invalid",
+        "secondary_failure_classes": [],
+        "dispatch_counts": {
+          "compiler_attempted": 0,
+          "compiler_completed": 0,
+          "compiler_dispatched": 0,
+          "compiler_responded": 0,
+          "inference_attempted": 0,
+          "inference_completed": 0,
+          "inference_dispatched": 0,
+          "inference_responded": 0,
+          "other_attempted": 0,
+          "other_completed": 0,
+          "other_dispatched": 0,
+          "other_responded": 0
+        },
+        "codex_completed_before_failure": 0,
+        "vision_failure_context": null,
+        "cleanup": {
+          "cache": true,
+          "codex_home": true,
+          "database": true,
+          "listeners": true,
+          "processes": true
+        }
+      },
+      "vision_failure_after_codex": {
+        "status": "BLOCKED",
+        "all_selected_rows_serialized": true,
+        "healthy_gate_passed": false,
+        "primary_failure": "observer_readiness_lost",
+        "secondary_failure_classes": [
+          "validation_failure"
+        ],
+        "dispatch_counts": {
+          "compiler_attempted": 3,
+          "compiler_completed": 3,
+          "compiler_dispatched": 3,
+          "compiler_responded": 3,
+          "inference_attempted": 3,
+          "inference_completed": 2,
+          "inference_dispatched": 3,
+          "inference_responded": 3,
+          "other_attempted": 4,
+          "other_completed": 4,
+          "other_dispatched": 4,
+          "other_responded": 4
+        },
+        "codex_completed_before_failure": 1,
+        "vision_failure_context": {
+          "cause": "observer_readiness_lost",
+          "kind": "inference",
+          "lifetime_id": "vision",
+          "operation": "vision_full",
+          "ordinal": 3,
+          "phase": "vision"
+        },
+        "cleanup": {
+          "cache": true,
+          "codex_home": true,
+          "database": true,
+          "failure_cache": true,
+          "failure_identity": true,
+          "failure_provider": true,
+          "failure_replay": true,
+          "listeners": true,
+          "processes": true
+        }
+      }
+    }
+  },
+  "real_protected_run": {
+    "path": "oap/evidence/005-ai/protected-matrix.json",
+    "status": "NOT RUN",
+    "reason": "005-ai explicitly prohibits protected credentials, Qwen inference, retry, and diagnostic traffic",
+    "retry_count": 0,
+    "protected_fixture_mutated": false
+  },
+  "byte_contract": {
+    "max_event_bytes": 16384,
+    "max_stream_bytes": 131072,
+    "stream_limit_scope": "per-response",
+    "run_wide_byte_limit": "none specified",
+    "response_lifetime_reset": "valid admitted response start only",
+    "frame_bytes_distinct_from_network_chunks": true
+  },
+  "protected_fixture": {
+    "vision_service": "active/running",
+    "vision_pid_before": "23961",
+    "vision_pid_after": "23961",
+    "vision_start_before": "Sun 2026-09-06 18:57:26 CEST",
+    "vision_start_after": "Sun 2026-09-06 18:57:26 CEST",
+    "vision_restarts_before": 0,
+    "vision_restarts_after": 0,
+    "port_18020_before": true,
+    "port_18020_after": true,
+    "qwen_worktree_changed_paths_before": 7,
+    "qwen_worktree_changed_paths_after": 7,
+    "text_service": "inactive/dead",
+    "port_18031_after": false,
+    "mutation": false
+  },
+  "historical_artifacts": {
+    "prior_005_ah_preserved": true,
+    "prior_005_q_preserved": true,
+    "prior_005_af_preserved": true,
+    "prior_005_ag_scope_deviation_preserved": true
+  },
+  "cutover": false,
+  "merge": false
+}

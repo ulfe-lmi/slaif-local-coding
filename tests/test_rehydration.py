@@ -148,6 +148,35 @@ async def test_root_populates_then_zero_root_rehydrates_without_compiler(
 
 
 @pytest.mark.asyncio
+async def test_disabled_rehydration_preserves_zero_root_and_never_populates(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TEST_PIPELINE_KEY", "test-only-secret")
+    settings = enabled_settings(tmp_path, rehydration_enabled=False)
+    state: dict[str, Any] = {"compiler_calls": 0, "proxy_bodies": []}
+    responses = await exchange_one(
+        settings,
+        state,
+        [agents_payload(), zero_root_payload()],
+        compiler_responses=[compiler_response()],
+    )
+
+    assert [item.status_code for item in responses] == [200, 200]
+    assert state["compiler_calls"] == 1
+    first_value = json.loads(state["proxy_bodies"][0])
+    second_value = json.loads(state["proxy_bodies"][1])
+    assert "<SLAIF_RECONSTRUCTED_CONSTITUTION" in first_value["instructions"]
+    assert "instructions" not in second_value
+    assert state["pipeline"]._rehydration == {}
+    metrics = state["metrics"]
+    assert 'state="disabled"' in metrics
+    assert 'reason="rehydration_disabled"' in metrics
+    assert 'state="populated"' not in metrics
+    assert 'state="hit"' not in metrics
+    assert PRIVATE_TOKEN not in metrics and SOURCE_TEXT not in metrics
+
+
+@pytest.mark.asyncio
 async def test_changed_static_identity_does_not_cross_hit(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

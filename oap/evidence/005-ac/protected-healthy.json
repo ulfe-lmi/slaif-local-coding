@@ -1,0 +1,45 @@
+{
+  "evidence_version": "005-ac-sanitized-v1",
+  "tested_source_sha": "d49ff680df68c67354cede4c3f5a99dbdaa49d9f",
+  "case": "healthy",
+  "status": "COMPLETE",
+  "protected_acceptance": false,
+  "evidence_kind": "synthetic_orchestration_only",
+  "provider_target": "fake",
+  "fake_semantic_oracle_available": false,
+  "gate": {
+    "passed": true,
+    "missing": 0,
+    "first_failure": null,
+    "rows": 29,
+    "all_rows_serialized": true,
+    "all_projections_passed": true,
+    "rows_with_status": "C1.1=PASSED C1.2=PASSED C1.3=PASSED C1.4=PASSED C1.5=PASSED C1.6=PASSED C2.1=PASSED C2.2=PASSED C2.3=PASSED C2.4=PASSED C2.5=PASSED C2.6=PASSED C3.1=PASSED C3.2=PASSED C3.3=PASSED C3.4=PASSED C4.1=PASSED C4.2=PASSED C4.3=PASSED C4.4=PASSED C4.5=PASSED C4.6=PASSED C4.7=PASSED C4.8=PASSED C4.9=PASSED C5.1=PASSED C5.2=PASSED C5.3=PASSED C5.4=PASSED"
+  },
+  "phase_trace": ["preflight", "codex", "vision", "vision", "codex", "finalize", "finalize", "preflight", "codex", "vision", "vision"],
+  "dispatch_counts": {
+    "compiler": {"attempted": 6, "dispatched": 6, "responded": 6, "completed": 6},
+    "inference": {"attempted": 12, "dispatched": 12, "responded": 12, "completed": 12},
+    "other": {"attempted": 10, "dispatched": 10, "responded": 10, "completed": 10}
+  },
+  "budget": {
+    "dispatch_attempted": 28,
+    "dispatch_admitted": 28,
+    "provider_probe_admitted": 2,
+    "provider_probe_consumed": 2,
+    "provider_probe_pending": false,
+    "readiness_admitted": 3,
+    "readiness_consumed": 3,
+    "readiness_pending": false,
+    "max_dispatches": 64,
+    "max_event_bytes": 16384,
+    "max_stream_bytes": 131072,
+    "max_concurrency": 1,
+    "wall_seconds": 900
+  },
+  "provider_preflight": {"health_status": 200, "models_status": 200, "observed_endpoints": ["/health", "/v1/models"], "oracle_available": false},
+  "protected_fixture_unchanged": "NOT_APPLICABLE_SYNTHETIC",
+  "cleanup": {"processes": true, "listeners": true, "database": true, "cache": true, "codex_home": true},
+  "real_protected_access": false,
+  "raw_payloads_retained": false
+}

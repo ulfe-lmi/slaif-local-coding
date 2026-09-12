@@ -1,0 +1,13 @@
+{
+  "tested_source_sha": "ee72a19d45a5eaba0329daaddd571742ca81a586",
+  "case": "healthy",
+  "status": "COMPLETE",
+  "safe_result_sha256": "af6a5f4da818abff34261890502bd5f1740de5da5edaa0808b82fbdf816687f6",
+  "protected_acceptance": false,
+  "gate": {"passed": true, "first_failure": null, "missing": 0, "rows": 29, "all_rows_serialized": true},
+  "dispatch_counts": {"attempted": 26, "admitted": 26, "readiness_admitted": 3, "readiness_consumed": 3, "readiness_pending": false, "compiler": 6, "inference": 12, "other": 8},
+  "lifecycle_counts": {"compiler_attempted": 6, "compiler_dispatched": 6, "compiler_responded": 6, "compiler_completed": 6, "inference_attempted": 12, "inference_dispatched": 12, "inference_responded": 12, "inference_completed": 12},
+  "phase_trace": ["codex", "vision", "vision", "codex", "finalize", "finalize", "codex", "vision", "vision"],
+  "cleanup": {"processes": true, "listeners": true, "database": true, "cache": true, "codex_home": true},
+  "raw_payloads_retained": false
+}

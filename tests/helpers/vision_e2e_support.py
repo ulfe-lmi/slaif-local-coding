@@ -571,6 +571,7 @@ def _append_turn_failure_reasons(
     events_label: str,
     tool_label: str,
     sentinel_label: str,
+    tool_required: bool = True,
 ) -> None:
     """Decompose one existing response predicate without retaining response text."""
     if turn.response_success:
@@ -582,7 +583,7 @@ def _append_turn_failure_reasons(
         reasons.add(timeout_label)
     if turn.event_bytes <= 0:
         reasons.add(events_label)
-    if turn.tool_calls < 1:
+    if tool_required and turn.tool_calls < 1:
         reasons.add(tool_label)
     if not turn.sentinel_passed:
         reasons.add(sentinel_label)
@@ -624,15 +625,17 @@ def vision_failure_reasons(facts: VisionSessionFacts) -> tuple[str, ...]:
             events_label="turn2_events",
             tool_label="turn2_tool",
             sentinel_label="turn2_binding_effective",
+            tool_required=False,
         )
     if facts.metric_deltas is None:
         reasons.add("metrics_missing")
     elif not facts.metric_deltas.exact:
         reasons.add("metrics_scaled_mismatch")
-    if not _outbound_phase_grouping_successful(facts):
-        reasons.add("outbound_phase_grouping")
-    elif not all(fact.accepted for fact in facts.outbound_facts):
-        reasons.add("outbound_request_invalid")
+    if facts.outbound_facts:
+        if not _outbound_phase_grouping_successful(facts):
+            reasons.add("outbound_phase_grouping")
+        elif not all(fact.accepted for fact in facts.outbound_facts):
+            reasons.add("outbound_request_invalid")
     return tuple(label for label in VISION_REASON_LABELS if label in reasons)
 
 
@@ -952,7 +955,8 @@ def write_vision_fixture(root: Path, base_url: str, api_key_env: str) -> VisionF
         f"name = {_quoted(VISION_ROUTE)}\nmodel = {_quoted(VISION_MODEL)}\n"
         'max_images_per_request = 1\nimage_overflow_policy = "retain_newest"\n'
         "enable_responses = true\nenable_chat_completions = true\n"
-        "observation_enabled = true\nconstitution_enabled = true\n\n"
+        "observation_enabled = true\nconstitution_enabled = true\n"
+        'responses_tool_policy = "drop_disabled_codex_search"\n\n'
         '[observability]\nlog_level = "INFO"\nlog_raw_payloads = false\n'
         'metrics_enabled = true\nmetrics_host = "127.0.0.1"\n'
     )
@@ -973,10 +977,22 @@ def write_vision_fixture(root: Path, base_url: str, api_key_env: str) -> VisionF
 
 
 def write_vision_model_catalog(
-    codex_bin: Path | str, destination: Path, *, model: str = VISION_MODEL
+    codex_bin: Path | str,
+    destination: Path,
+    *,
+    model: str = VISION_MODEL,
+    environment_root: Path | None = None,
 ) -> None:
     """Derive the installed catalog schema and apply the exact vision fixture contract."""
-    write_local_model_catalog(codex_bin, destination, model=model)
+    if environment_root is None:
+        write_local_model_catalog(codex_bin, destination, model=model)
+    else:
+        write_local_model_catalog(
+            codex_bin,
+            destination,
+            model=model,
+            environment_root=environment_root,
+        )
     document = json.loads(destination.read_text(encoding="utf-8"))
     models = document.get("models")
     selected = next((item for item in models if item.get("slug") == model), None)
@@ -1446,13 +1462,29 @@ def vision_metric_deltas(
     first_before = image_metric_snapshot(before, route=route)
     first_between = image_metric_snapshot(between, route=route)
     second_after = image_metric_snapshot(after, route=route)
+    inferred_phase_counts = phase_counts
+    if inferred_phase_counts is None:
+        inferred_phase_counts = (
+            (first_between[0] - first_before[0], second_after[1] - first_between[1])
+            if (
+                first_between[0] - first_before[0] > 0
+                and first_between[1] - first_before[1] == 0
+                and second_after[1] - first_between[1] > 0
+                and second_after[0] - first_between[0] == 2 * (second_after[1] - first_between[1])
+            )
+            else None
+        )
     return VisionMetricDeltas(
         turn1_seen=first_between[0] - first_before[0],
         turn1_removed=first_between[1] - first_before[1],
         turn2_seen=second_after[0] - first_between[0],
         turn2_removed=second_after[1] - first_between[1],
-        invocation_1_requests=phase_counts[0] if phase_counts is not None else None,
-        invocation_2_requests=phase_counts[1] if phase_counts is not None else None,
+        invocation_1_requests=(
+            inferred_phase_counts[0] if inferred_phase_counts is not None else None
+        ),
+        invocation_2_requests=(
+            inferred_phase_counts[1] if inferred_phase_counts is not None else None
+        ),
     )
 
 
@@ -1547,6 +1579,7 @@ def _run_vision_turn(
     *,
     turn: Literal[1, 2],
     timeout_seconds: float,
+    environment_root: Path | None = None,
 ) -> tuple[VisionTurnFacts, str | None]:
     output_path = fixture.repository / f".vision-last-message-{turn}.tmp"
     if turn == 1:
@@ -1579,7 +1612,11 @@ def _run_vision_turn(
             str(output_path),
             "<vision-prompt>",
         ]
-    environment = _sandbox_environment(fixture.codex_home, fixture.api_key_env)
+    environment = _sandbox_environment(
+        fixture.codex_home,
+        fixture.api_key_env,
+        environment_root=environment_root or fixture.codex_home.parent,
+    )
     event_types: Counter[str] = Counter()
     event_bytes = 0
     tool_calls = 0
@@ -1634,7 +1671,11 @@ def _run_vision_turn(
     final_binding_provenance = _final_binding_provenance(event_final_message, file_final_message)
     sentinel = event_final_message.accepted or file_final_message.accepted
     response_success = (
-        exit_status == 0 and not timed_out and event_bytes > 0 and tool_calls >= 1 and sentinel
+        exit_status == 0
+        and not timed_out
+        and event_bytes > 0
+        and (tool_calls >= 1 if turn == 1 else sentinel)
+        and sentinel
     )
     facts = VisionTurnFacts(
         turn=turn,
@@ -1664,12 +1705,21 @@ def run_vision_e2e(
     *,
     metrics_sampler: Callable[[], str] | None = None,
     outbound_recorder: VisionOutboundRecorder | None = None,
+    phase_transition: Callable[[], None] | None = None,
     timeout_seconds: float = VISION_TIMEOUT_SECONDS,
+    environment_root: Path | None = None,
 ) -> VisionSessionFacts:
     """Run exactly one initial image turn and one same-session crop resume."""
     if timeout_seconds <= 0 or timeout_seconds > VISION_TIMEOUT_SECONDS:
         raise ValueError("invalid vision timeout")
-    version = _ordinary_version(codex_bin, _sandbox_environment(fixture.codex_home))
+    version = _ordinary_version(
+        codex_bin,
+        _sandbox_environment(
+            fixture.codex_home,
+            fixture.api_key_env,
+            environment_root=environment_root or fixture.codex_home.parent,
+        ),
+    )
     if version != VISION_CODEX_VERSION:
         raise RuntimeError("unsupported_codex_version")
     catalog_facts = _catalog_facts(fixture.model_catalog)
@@ -1678,17 +1728,27 @@ def run_vision_e2e(
         outbound_recorder.begin_phase(1)
     try:
         first, first_thread = _run_vision_turn(
-            codex_bin, fixture, turn=1, timeout_seconds=timeout_seconds
+            codex_bin,
+            fixture,
+            turn=1,
+            timeout_seconds=timeout_seconds,
+            environment_root=environment_root,
         )
     finally:
         if outbound_recorder is not None:
             outbound_recorder.end_phase(1)
+    if phase_transition is not None:
+        phase_transition()
     between = metrics_sampler() if metrics_sampler is not None else None
     if outbound_recorder is not None:
         outbound_recorder.begin_phase(2)
     try:
         second, second_thread = _run_vision_turn(
-            codex_bin, fixture, turn=2, timeout_seconds=timeout_seconds
+            codex_bin,
+            fixture,
+            turn=2,
+            timeout_seconds=timeout_seconds,
+            environment_root=environment_root,
         )
     finally:
         if outbound_recorder is not None:

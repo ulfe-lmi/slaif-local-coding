@@ -1,0 +1,701 @@
+{
+  "schema": "oap-005-aj-fake-machine-gate-v1",
+  "status": "COMPLETE",
+  "mode": "fake",
+  "execution_mode": "fake",
+  "run_provenance": "fresh_fake_direct_httpx_loopback",
+  "implementation_sha": "b17f46025160cb7b6f6746177644035d6dce3c95",
+  "uid": 1029,
+  "euid": 1029,
+  "command": "PYTHONPATH=<local-repo>:<local-repo>/src:<gateway> <gateway-venv>/bin/python scripts/gateway_accounting_rehearsal.py --provider-target fake --codex <codex-0.149.0>",
+  "gateway": {
+    "execute_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+    "app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57"
+  },
+  "codex": {
+    "version": "0.149.0",
+    "binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
+  },
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "observer_version": "direct-httpx-v2",
+  "source_identity": {
+    "loaded_module_paths": {
+      "scripts.local_qwen_provider_differential": "scripts/local_qwen_provider_differential.py",
+      "tests.helpers.acceptance_harness": "tests/helpers/acceptance_harness.py",
+      "tests.helpers.transport_observer": "tests/helpers/transport_observer.py"
+    },
+    "loaded_module_sha256": {
+      "scripts.local_qwen_provider_differential": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "tests.helpers.acceptance_harness": "d9c762cd0a7913235a9de6f0765c75f4a29500fb4de6d082b71c5f1bc523b006",
+      "tests.helpers.transport_observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13"
+    },
+    "paths": {
+      "observer": "tests/helpers/transport_observer.py",
+      "projection": "tests/helpers/acceptance_harness.py",
+      "provider_sse": "scripts/local_qwen_provider_differential.py",
+      "runner": "scripts/gateway_accounting_rehearsal.py"
+    },
+    "sha256": {
+      "observer": "e1ee6e09649a56739ae8f85f9687fc7b770fcdeef80d6c018025d84ae563aa13",
+      "projection": "d9c762cd0a7913235a9de6f0765c75f4a29500fb4de6d082b71c5f1bc523b006",
+      "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+      "runner": "ddb2f508be53c023f4bfab9ceef666f8b5a33f056f5aa54ca8d321396d215720"
+    }
+  },
+  "machine_gate": {
+    "passed": true,
+    "selected_rows": 37,
+    "passed_rows": 37,
+    "missing": [],
+    "first_failure": null,
+    "projection_count": 37
+  },
+  "client_verification": {
+    "command_lifecycle": "success",
+    "exit_status": 0,
+    "failure_origin": "success",
+    "failure_reason": "success",
+    "sentinel_passed": true,
+    "status": "PASSED"
+  },
+  "semantic_checkpoint": [
+    {
+      "completed": true,
+      "counts": {
+        "compiler_attempted": 2,
+        "compiler_completed": 2,
+        "compiler_dispatched": 2,
+        "compiler_responded": 2,
+        "inference_attempted": 2,
+        "inference_completed": 2,
+        "inference_dispatched": 2,
+        "inference_responded": 2,
+        "inference_terminal_valid": 2,
+        "other_attempted": 1,
+        "other_completed": 1,
+        "other_dispatched": 1,
+        "other_responded": 1,
+        "other_terminal_valid": 1
+      },
+      "evidence_kind": "semantic",
+      "failure_class": null,
+      "lifetime_id": "codex",
+      "ordinal": 2,
+      "phase": "codex",
+      "phase_facts": {
+        "accounting": {
+          "cost": true,
+          "request": true,
+          "tokens": true,
+          "two_terminal_reservations": true,
+          "usage": true,
+          "zero_duplicate_request_ids": true,
+          "zero_pending": true
+        },
+        "codex": {
+          "call_id_same_hmac": true,
+          "client_verification": {
+            "command_lifecycle": "success",
+            "exit_status": 0,
+            "failure_origin": "success",
+            "sentinel_passed": true,
+            "status": "PASSED"
+          },
+          "command_lifecycle": "success",
+          "dependency_hash_equal": true,
+          "dependency_length_equal": true,
+          "exit_status": 0,
+          "provider_inference_call_count": 2,
+          "provider_turns_expected": 2,
+          "scope_no_downgrade": true,
+          "sentinel_passed": true,
+          "status": "PASSED",
+          "tool_call_count_class": "2"
+        },
+        "evidence_kind": "semantic",
+        "governance": {
+          "acquisition_before_completion": true,
+          "dependency_one_equal": true
+        },
+        "provider_observation": {
+          "fake_oracle": "unavailable",
+          "provider_boundary": {
+            "all_image_requests_single": true,
+            "call_count_class": "2",
+            "call_id_relation_classes": [
+              "initial_owned",
+              "matching"
+            ],
+            "canonical_candidate_availability_classes": [
+              "available",
+              "none"
+            ],
+            "canonical_candidate_count_classes": [
+              "1",
+              "0"
+            ],
+            "canonical_summary_relation_classes": [
+              "different"
+            ],
+            "compiler_inference_classes": [
+              "compiler",
+              "inference"
+            ],
+            "continuation_count_class": "1",
+            "function_result_adjacent": true,
+            "image_count_classes": [
+              "0",
+              "0"
+            ],
+            "image_hash_count_class": "0",
+            "image_hashes_observed": false,
+            "independent_from_ledger": true,
+            "item_id_presence_classes": [
+              "present"
+            ],
+            "lifecycle_valid": true,
+            "normal_close_count_class": "2",
+            "pending_scope_availability_classes": [
+              "available",
+              "unavailable"
+            ],
+            "request_class_classes": [
+              "function_continuation",
+              "function_initial"
+            ],
+            "terminal": true,
+            "terminal_count_class": "2",
+            "terminality_valid": true,
+            "tool_class_classes": [
+              "mixed"
+            ],
+            "tool_type_classes": [
+              "custom",
+              "function"
+            ]
+          },
+          "source": "direct_transport_observer"
+        },
+        "transport_observation": {
+          "matches_fake_provider": true,
+          "provider_boundary_observed": true
+        }
+      },
+      "ready": true,
+      "response_count": 5
+    }
+  ],
+  "all_lifetime_counts": {
+    "compiler_attempted": 6,
+    "compiler_completed": 6,
+    "compiler_dispatched": 6,
+    "compiler_responded": 6,
+    "compiler_terminal_valid": null,
+    "inference_attempted": 12,
+    "inference_completed": 12,
+    "inference_dispatched": 12,
+    "inference_responded": 12,
+    "inference_terminal_valid": 12,
+    "other_attempted": 8,
+    "other_completed": 8,
+    "other_dispatched": 8,
+    "other_responded": 8,
+    "other_terminal_valid": 8
+  },
+  "response_byte_evidence": [
+    {
+      "all_lifetime": {
+        "max_stream_bytes": 131072,
+        "response_accepted_bytes_total": 21664,
+        "response_received_bytes_total": 21664,
+        "response_rejected_bytes_total": 0,
+        "response_rejected_chunks_total": 0,
+        "stream_bytes_total": 21664
+      },
+      "lifetime_id": "codex",
+      "ordinal": 2,
+      "phase": "codex",
+      "responses": [
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 1,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 1020,
+          "kind": "compiler",
+          "ordinal": 2,
+          "received_bytes": 1020,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2181,
+          "kind": "inference",
+          "ordinal": 3,
+          "received_bytes": 2181,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 801,
+          "kind": "compiler",
+          "ordinal": 4,
+          "received_bytes": 801,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2467,
+          "kind": "inference",
+          "ordinal": 5,
+          "received_bytes": 2467,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        }
+      ]
+    },
+    {
+      "all_lifetime": {
+        "max_stream_bytes": 131072,
+        "response_accepted_bytes_total": 21664,
+        "response_received_bytes_total": 21664,
+        "response_rejected_bytes_total": 0,
+        "response_rejected_chunks_total": 0,
+        "stream_bytes_total": 21664
+      },
+      "lifetime_id": "vision",
+      "ordinal": 4,
+      "phase": "vision",
+      "responses": [
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 1,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 1020,
+          "kind": "compiler",
+          "ordinal": 2,
+          "received_bytes": 1020,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2181,
+          "kind": "inference",
+          "ordinal": 3,
+          "received_bytes": 2181,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 801,
+          "kind": "compiler",
+          "ordinal": 4,
+          "received_bytes": 801,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2467,
+          "kind": "inference",
+          "ordinal": 5,
+          "received_bytes": 2467,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2467,
+          "kind": "inference",
+          "ordinal": 6,
+          "received_bytes": 2467,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        }
+      ]
+    },
+    {
+      "all_lifetime": {
+        "max_stream_bytes": 131072,
+        "response_accepted_bytes_total": 21664,
+        "response_received_bytes_total": 21664,
+        "response_rejected_bytes_total": 0,
+        "response_rejected_chunks_total": 0,
+        "stream_bytes_total": 21664
+      },
+      "lifetime_id": "post_vision",
+      "ordinal": 4,
+      "phase": "vision",
+      "responses": [
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 1,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2181,
+          "kind": "inference",
+          "ordinal": 2,
+          "received_bytes": 2181,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 3,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 4,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 5,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 6,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 7,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 8,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 9,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 1019,
+          "kind": "compiler",
+          "ordinal": 10,
+          "received_bytes": 1019,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 11,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 12,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 13,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 1019,
+          "kind": "compiler",
+          "ordinal": 14,
+          "received_bytes": 1019,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 15,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        }
+      ]
+    },
+    {
+      "all_lifetime": {},
+      "lifetime_id": "merged",
+      "ordinal": 9,
+      "phase": "finalize",
+      "responses": [
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 1,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 1020,
+          "kind": "compiler",
+          "ordinal": 2,
+          "received_bytes": 1020,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2181,
+          "kind": "inference",
+          "ordinal": 3,
+          "received_bytes": 2181,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 801,
+          "kind": "compiler",
+          "ordinal": 4,
+          "received_bytes": 801,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2467,
+          "kind": "inference",
+          "ordinal": 5,
+          "received_bytes": 2467,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 6,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 1020,
+          "kind": "compiler",
+          "ordinal": 7,
+          "received_bytes": 1020,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2181,
+          "kind": "inference",
+          "ordinal": 8,
+          "received_bytes": 2181,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 801,
+          "kind": "compiler",
+          "ordinal": 9,
+          "received_bytes": 801,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2467,
+          "kind": "inference",
+          "ordinal": 10,
+          "received_bytes": 2467,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2467,
+          "kind": "inference",
+          "ordinal": 11,
+          "received_bytes": 2467,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 12,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 2181,
+          "kind": "inference",
+          "ordinal": 13,
+          "received_bytes": 2181,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 14,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 15,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 16,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 17,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 18,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 15,
+          "kind": "other",
+          "ordinal": 19,
+          "received_bytes": 15,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 20,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 1019,
+          "kind": "compiler",
+          "ordinal": 21,
+          "received_bytes": 1019,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 22,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 23,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 24,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 1019,
+          "kind": "compiler",
+          "ordinal": 25,
+          "received_bytes": 1019,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        },
+        {
+          "accepted_bytes": 320,
+          "kind": "inference",
+          "ordinal": 26,
+          "received_bytes": 320,
+          "rejected_bytes": 0,
+          "rejected_chunk_count": 0
+        }
+      ]
+    }
+  ],
+  "dispatch_counts": {
+    "attempted": 12,
+    "dispatched": 12,
+    "responded": 12,
+    "completed": 12,
+    "terminal_valid": 12
+  },
+  "cleanup": {
+    "cache": true,
+    "codex_home": true,
+    "database": true,
+    "failure_cache": true,
+    "failure_identity": true,
+    "failure_provider": true,
+    "failure_replay": true,
+    "listeners": true,
+    "processes": true
+  },
+  "privacy": {
+    "logs_secret_free": true,
+    "raw_payloads_retained": false
+  },
+  "protected_acceptance": false,
+  "protected_traffic": false,
+  "fixture_mutated": false
+}

@@ -28,6 +28,7 @@ from typing import Any, Literal
 from prometheus_client.parser import text_string_to_metric_families
 
 from slaif_local_coding.constitution.compiler_models import CompiledIndex
+from tests.helpers.path_safety import assert_allowlisted_diagnostic_argv
 
 DEFAULT_ADAPTER_BASE_URL = "http://127.0.0.1:18031/v1"
 DEFAULT_MODEL = "qwen3.8-27b"
@@ -165,6 +166,9 @@ class SanitizedCodexRun:
     invocation_fingerprint: tuple[tuple[str, str], ...] = ()
     parser_recognized_events: int = 0
     parser_rejected_events: int = 0
+    error_field_names: tuple[str, ...] = ()
+    error_code_class: str = "none"
+    error_message_classes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -459,12 +463,16 @@ def write_governed_fixture(root: Path, base_url: str, api_key_env: str) -> Gover
     )
 
 
-def _sandbox_environment(codex_home: Path, api_key_env: str | None = None) -> dict[str, str]:
+def _sandbox_environment(
+    codex_home: Path,
+    api_key_env: str | None = None,
+    *,
+    environment_root: Path | None = None,
+) -> dict[str, str]:
     """Build a bounded helper environment without inherited credentials.
 
-    ``CODEX_HOME`` isolates Codex configuration and state.  ``HOME`` and
-    ``TMPDIR`` retain the normal host launch semantics when the host provides
-    them; omitting either keeps the platform default behavior.
+    ``CODEX_HOME`` isolates Codex configuration and state. Capture callers may
+    provide an ``environment_root`` to isolate ``HOME`` and ``TMPDIR`` too.
     """
 
     environment = {
@@ -473,6 +481,9 @@ def _sandbox_environment(codex_home: Path, api_key_env: str | None = None) -> di
         if name in os.environ
     }
     environment["CODEX_HOME"] = str(codex_home)
+    if environment_root is not None:
+        environment["HOME"] = str(environment_root)
+        environment["TMPDIR"] = str(environment_root)
     if api_key_env is not None:
         if ENVIRONMENT_NAME.fullmatch(api_key_env) is None:
             raise ValueError("api_key_env must be a valid environment variable name")
@@ -482,14 +493,26 @@ def _sandbox_environment(codex_home: Path, api_key_env: str | None = None) -> di
 
 
 def write_local_model_catalog(
-    codex_bin: Path | str, destination: Path, *, model: str = DEFAULT_MODEL
+    codex_bin: Path | str,
+    destination: Path,
+    *,
+    model: str = DEFAULT_MODEL,
+    environment_root: Path | None = None,
 ) -> None:
     """Derive a disposable local-model catalog from the installed CLI's bundled schema."""
+    command = [str(codex_bin), "debug", "models", "--bundled"]
+    assert_allowlisted_diagnostic_argv(
+        command,
+        allowed_commands={Path(command[0]).name},
+        allowed_executables=(command[0],),
+        disposable_root=destination.parent.parent,
+        path_arguments=(destination.parent, destination),
+    )
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
         process = subprocess.Popen(
-            [str(codex_bin), "debug", "models", "--bundled"],
+            command,
             cwd=destination.parent,
-            env=_sandbox_environment(destination.parent),
+            env=_sandbox_environment(destination.parent, environment_root=environment_root),
             stdin=subprocess.DEVNULL,
             stdout=stdout,
             stderr=stderr,
@@ -586,6 +609,92 @@ def parse_codex_events(
             counts[event["type"]] += 1
         visit(event)
     return counts, call_items, tuple(sorted(tools.elements()))
+
+
+def parse_codex_error_facts(
+    event_stream: Iterable[str],
+) -> tuple[tuple[str, ...], str, tuple[str, ...]]:
+    """Project error events to field names and a closed code family only."""
+    fields: set[str] = set()
+    code_class = "none"
+    message_classes: set[str] = set()
+
+    def classify(value: object) -> str:
+        if not isinstance(value, str):
+            return "none"
+        lowered = value.lower()
+        if "deserialize" in lowered or "parse" in lowered or "schema" in lowered:
+            return "schema"
+        if "sequence" in lowered or "event" in lowered:
+            return "stream"
+        if "item" in lowered or "content" in lowered:
+            return "item"
+        if "response" in lowered:
+            return "response"
+        if "hosted" in lowered or "web_search" in lowered or "tool_search" in lowered:
+            return "hosted_tool"
+        if "tool" in lowered or "function" in lowered or "command" in lowered:
+            return "tool"
+        if "model" in lowered or "provider" in lowered:
+            return "model"
+        if "config" in lowered or "profile" in lowered:
+            return "configuration"
+        if "request" in lowered or "invalid" in lowered:
+            return "invalid_request"
+        return "unknown"
+
+    for line in event_stream:
+        if not line.strip():
+            continue
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("type") != "error":
+            continue
+        fields.update(key for key in event if isinstance(key, str) and len(key) <= 64)
+        error = event.get("error")
+        if isinstance(error, dict):
+            fields.update(key for key in error if isinstance(key, str) and len(key) <= 64)
+            for key in ("code", "type"):
+                candidate = classify(error.get(key))
+                if code_class == "none" or candidate != "unknown":
+                    code_class = candidate
+        else:
+            for key in ("code", "type"):
+                candidate = classify(event.get(key))
+                if code_class == "none" or candidate != "unknown":
+                    code_class = candidate
+            message_class = classify(event.get("message"))
+            if code_class == "none" or message_class != "unknown":
+                code_class = message_class
+            message = event.get("message")
+            if isinstance(message, str):
+                if re.search(r"\b4\d\d\b", message):
+                    message_classes.add("http_4xx")
+                if re.search(r"\b5\d\d\b", message):
+                    message_classes.add("http_5xx")
+                for marker in (
+                    "empty",
+                    "event",
+                    "field",
+                    "function",
+                    "id",
+                    "invalid",
+                    "item",
+                    "missing",
+                    "output",
+                    "parse",
+                    "response",
+                    "status",
+                    "tool",
+                    "type",
+                    "unexpected",
+                    "unsupported",
+                ):
+                    if marker in message.lower():
+                        message_classes.add(marker)
+    return tuple(sorted(fields)), code_class, tuple(sorted(message_classes))
 
 
 def parse_event_parser_counts(event_stream: Iterable[str]) -> tuple[int, int]:
@@ -1254,8 +1363,12 @@ def _ordinary_fingerprint(
     timeout_seconds: float,
     *,
     codex_under_test_yolo: bool,
+    disable_unified_exec: bool = True,
+    environment_root: Path | None = None,
 ) -> OrdinaryInvocationFacts:
-    environment = _sandbox_environment(fixture.codex_home, fixture.api_key_env)
+    environment = _sandbox_environment(
+        fixture.codex_home, fixture.api_key_env, environment_root=environment_root
+    )
     output = str(fixture.repository / ".codex-last-message.tmp")
     raw_argv = (
         (
@@ -1265,8 +1378,7 @@ def _ordinary_fingerprint(
             "--json",
             "--ephemeral",
             "--strict-config",
-            "--disable",
-            "unified_exec",
+            *(("--disable", "unified_exec") if disable_unified_exec else ()),
             "--cd",
             str(fixture.repository),
             "--output-last-message",
@@ -1284,8 +1396,7 @@ def _ordinary_fingerprint(
             "--json",
             "--ephemeral",
             "--strict-config",
-            "--disable",
-            "unified_exec",
+            *(("--disable", "unified_exec") if disable_unified_exec else ()),
             "--cd",
             str(fixture.repository),
             "--output-last-message",
@@ -1339,7 +1450,10 @@ def _ordinary_fingerprint(
         ("requested_executable", "/usr/bin/true"),
         ("codex_under_test_yolo", str(codex_under_test_yolo).lower()),
         ("approval_policy", "not_configured" if codex_under_test_yolo else "never"),
-        ("tool_feature_flags", "disable:unified_exec"),
+        (
+            "tool_feature_flags",
+            "disable:unified_exec" if disable_unified_exec else "default:unified_exec",
+        ),
         ("tool_catalog_sha256", _bounded_hash(fixture.model_catalog, CODEX_MAX_DIAGNOSTIC_BYTES)),
         ("noninteractive_flags", "exec,json,ephemeral"),
         ("timeout_seconds", str(timeout_seconds)),
@@ -1377,6 +1491,13 @@ def run_codex_once(
     sandbox_mode: Literal["workspace-write", "danger-full-access"] = "workspace-write",
     expected_command: str | None = None,
     codex_under_test_yolo: bool = True,
+    feature_flags: tuple[str, ...] = (),
+    ignore_user_config: bool = False,
+    provider_base_url: str | None = None,
+    provider_name: str = "slaif-local-coding-e2e",
+    model: str = DEFAULT_MODEL,
+    disable_unified_exec: bool = True,
+    environment_root: Path | None = None,
 ) -> SanitizedCodexRun:
     """Serialize one isolated run; raw stdout/stderr remain in unlinked temp files."""
     started = time.monotonic()
@@ -1391,6 +1512,9 @@ def run_codex_once(
     command_event_counts: Counter[str] = Counter()
     parser_recognized_events = 0
     parser_rejected_events = 0
+    error_field_names: tuple[str, ...] = ()
+    error_code_class = "none"
+    error_message_classes: tuple[str, ...] = ()
     dependency_observation = DependencyObservationFacts()
     final_event_ack = False
     stdout_facts = BinaryStreamFacts(0, hashlib.sha256(b"").hexdigest(), "unavailable")
@@ -1405,6 +1529,8 @@ def run_codex_once(
             sandbox_mode,
             timeout_seconds,
             codex_under_test_yolo=codex_under_test_yolo,
+            disable_unified_exec=disable_unified_exec,
+            environment_root=environment_root,
         )
         if expected_command is not None or codex_under_test_yolo
         else None
@@ -1417,21 +1543,7 @@ def run_codex_once(
     try:
         with tempfile.TemporaryFile() as events, tempfile.TemporaryFile() as diagnostics:
             argv = (
-                [
-                    str(codex_bin),
-                    "--dangerously-bypass-approvals-and-sandbox",
-                    "exec",
-                    "--json",
-                    "--ephemeral",
-                    "--strict-config",
-                    "--disable",
-                    "unified_exec",
-                    "--cd",
-                    str(fixture.repository),
-                    "--output-last-message",
-                    str(output_path),
-                    prompt,
-                ]
+                [str(codex_bin), "--dangerously-bypass-approvals-and-sandbox", "exec"]
                 if codex_under_test_yolo
                 else [
                     str(codex_bin),
@@ -1440,25 +1552,56 @@ def run_codex_once(
                     "exec",
                     "--sandbox",
                     sandbox_mode,
-                    "--json",
-                    "--ephemeral",
-                    "--strict-config",
-                    # Codex 0.149's unified-exec representation is not reliable
-                    # for this constrained local Responses provider. Its stable
-                    # command-tool path is explicit and disposable here.
-                    "--disable",
-                    "unified_exec",
-                    "--cd",
-                    str(fixture.repository),
-                    "--output-last-message",
-                    str(output_path),
-                    prompt,
                 ]
+            )
+            argv.extend(["--json", "--ephemeral", "--strict-config"])
+            disabled_features = (("unified_exec",) if disable_unified_exec else ()) + feature_flags
+            argv.extend(flag for feature in disabled_features for flag in ("--disable", feature))
+            if ignore_user_config:
+                if provider_base_url is None:
+                    raise ValueError("provider_base_url is required when ignoring user config")
+                argv.extend(
+                    [
+                        "--ignore-user-config",
+                        "-C",
+                        str(fixture.repository),
+                        "-m",
+                        model,
+                        "-c",
+                        f"model_provider={json.dumps(provider_name)}",
+                        "-c",
+                        (
+                            f"model_providers.{provider_name}="
+                            f'{{name="SLAIF Local Coding",base_url={json.dumps(provider_base_url)},'
+                            f'env_key={json.dumps(fixture.api_key_env)},wire_api="responses"}}'
+                        ),
+                        "-c",
+                        f"model_catalog_json={json.dumps(str(fixture.model_catalog))}",
+                    ]
+                )
+            else:
+                argv.extend(["--cd", str(fixture.repository)])
+            argv.extend(["--output-last-message", str(output_path), prompt])
+            assert_allowlisted_diagnostic_argv(
+                argv,
+                allowed_commands={Path(argv[0]).name},
+                allowed_executables=(argv[0],),
+                disposable_root=fixture.codex_home.parent,
+                path_arguments=(
+                    fixture.repository,
+                    fixture.codex_home,
+                    fixture.model_catalog,
+                    output_path,
+                ),
             )
             process = subprocess.Popen(
                 argv,
                 cwd=fixture.repository,
-                env=_sandbox_environment(fixture.codex_home, fixture.api_key_env),
+                env=_sandbox_environment(
+                    fixture.codex_home,
+                    fixture.api_key_env,
+                    environment_root=environment_root or fixture.codex_home.parent,
+                ),
                 stdout=events,
                 stderr=diagnostics,
                 stdin=subprocess.DEVNULL,
@@ -1487,6 +1630,12 @@ def run_codex_once(
             readable = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             counts, call_items, tools = parse_codex_events(readable)
             readable.detach()
+            events.seek(0)
+            error_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
+            error_field_names, error_code_class, error_message_classes = parse_codex_error_facts(
+                error_reader
+            )
+            error_reader.detach()
             events.seek(0)
             command_reader = io.TextIOWrapper(events, encoding="utf-8", errors="replace")
             command_event_counts = parse_codex_command_events(command_reader)
@@ -1605,6 +1754,9 @@ def run_codex_once(
         invocation_fingerprint=(fingerprint.values if fingerprint is not None else ()),
         parser_recognized_events=parser_recognized_events,
         parser_rejected_events=parser_rejected_events,
+        error_field_names=error_field_names,
+        error_code_class=error_code_class,
+        error_message_classes=error_message_classes,
     )
 
 

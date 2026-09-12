@@ -1,0 +1,54 @@
+{
+  "evidence_version": "005-ac-sanitized-v1",
+  "tested_source_sha": "d49ff680df68c67354cede4c3f5a99dbdaa49d9f",
+  "case": "outer_fake_machine_gate",
+  "status": "COMPLETE",
+  "gateway_sha": "50dcc3b85d614eb1d0c6196595bf22ef5779f846",
+  "gateway_app_tree_sha256": "c0204deaff3cfd055a25f29a7f5d8d3c5e161d57",
+  "codex_version": "0.149.0",
+  "codex_binary_sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+  "observer_version": "direct-httpx-v2",
+  "route_policy": "qwen38-vision-codex/retain_newest/signed_identity_v1",
+  "gate": {
+    "passed": true,
+    "missing": 0,
+    "first_failure": null,
+    "retry_count": 0,
+    "obligations": 37,
+    "projections": 37,
+    "rows": {
+      "C1.1":"PASSED","C1.2":"PASSED","C1.3":"PASSED","C1.4":"PASSED","C1.5":"PASSED","C1.6":"PASSED",
+      "C2.1":"PASSED","C2.2":"PASSED","C2.3":"PASSED","C2.4":"PASSED","C2.5":"PASSED","C2.6":"PASSED",
+      "C3.1":"PASSED","C3.2":"PASSED","C3.3":"PASSED","C3.4":"PASSED",
+      "C4.1":"PASSED","C4.2":"PASSED","C4.3":"PASSED","C4.4":"PASSED","C4.5":"PASSED","C4.6":"PASSED","C4.7":"PASSED","C4.8":"PASSED","C4.9":"PASSED",
+      "C5.1":"PASSED","C5.2":"PASSED","C5.3":"PASSED",
+      "D1":"PASSED","D2":"PASSED","D3":"PASSED","D4":"PASSED","D5":"PASSED","D6":"PASSED","D7":"PASSED","D8":"PASSED","D9":"PASSED"
+    }
+  },
+  "direct_dispatches": {
+    "attempted": 26,
+    "admitted": 26,
+    "compiler": 6,
+    "inference": 12,
+    "other": 8,
+    "inference_terminal_valid": 12,
+    "sse_inference": 6,
+    "json_inference": 6
+  },
+  "readiness": {"admitted": 3, "consumed": 3, "pending": false},
+  "provider_preflight": {"health_status": 200, "models_status": 200, "observed_endpoints": ["/health", "/v1/models"]},
+  "fake_provider_agreement": true,
+  "cleanup": {
+    "processes": true,
+    "listeners": true,
+    "database": true,
+    "cache": true,
+    "codex_home": true,
+    "temporary_state_removed": true,
+    "logs_secret_free": true
+  },
+  "accounting_all_terminal": true,
+  "protected_access": false,
+  "protected_qwen_or_port_18020_mutated": false,
+  "raw_payloads_retained": false
+}
