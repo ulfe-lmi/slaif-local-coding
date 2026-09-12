@@ -19,13 +19,119 @@ from tests.helpers.acceptance_harness import (
 )
 from tests.helpers.transport_observer import (
     MAX_EVENT_BYTES,
+    MAX_PROVIDER_ERROR_BYTES,
     MAX_STREAM_BYTES,
     CallIDCorrelation,
     DirectTransportObserver,
     _StreamState,
+    classify_provider_error,
     merge_observer_snapshots,
     observer_dispatch_matches_fake,
+    run_provider_error_classifier_qualification,
 )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_body_class", "expected_type", "expected_code", "expected_param"),
+    [
+        (
+            b'{"error":{"message":"private","type":"BadRequestError","code":400,"param":null}}',
+            "error_object",
+            "BadRequestError",
+            "bad_request",
+            "null",
+        ),
+        (
+            b'{"error":{"message":"private","type":"Bad Request","code":400}}',
+            "error_object",
+            "Bad Request",
+            "bad_request",
+            "missing",
+        ),
+        (
+            b'{"error":{"message":"private","type":"invalid_request_error",'
+            b'"code":400,"param":"input"}}',
+            "error_object",
+            "invalid_request_error",
+            "bad_request",
+            "input",
+        ),
+        (
+            b'{"error":{"message":"private","type":"private-type",'
+            b'"code":499,"param":"private-param"}}',
+            "error_object",
+            "unrecognized",
+            "integer_unrecognized",
+            "string_unrecognized",
+        ),
+    ],
+)
+def test_provider_error_classifier_keeps_only_finite_safe_classes(
+    body: bytes,
+    expected_body_class: str,
+    expected_type: str,
+    expected_code: str,
+    expected_param: str,
+) -> None:
+    facts = classify_provider_error(400, body)
+    assert facts["http_status"] == 400
+    assert facts["body_class"] == expected_body_class
+    assert facts["type_class"] == expected_type
+    assert facts["code_class"] == expected_code
+    assert facts["param_class"] == expected_param
+    assert "private" not in json.dumps(facts)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (b"", "empty"),
+        (b"not-json", "malformed_json"),
+        (b"[]", "top_level_not_object"),
+        (b"{}", "error_missing"),
+        (b'{"error":null}', "error_null"),
+        (b'{"error":[]}', "error_wrong_type"),
+    ],
+)
+def test_provider_error_classifier_distinguishes_bounded_envelope_shapes(
+    body: bytes, expected: str
+) -> None:
+    facts = classify_provider_error(422, body)
+    assert facts["body_class"] == expected
+    assert facts["http_status"] == 422
+    assert facts["field_states"] == ()
+
+
+def test_provider_error_classifier_marks_oversized_without_body_retention() -> None:
+    facts = classify_provider_error(
+        500,
+        body_class="oversized",
+        received_bytes=MAX_PROVIDER_ERROR_BYTES + 1,
+        accepted_bytes=MAX_PROVIDER_ERROR_BYTES,
+        rejected_bytes=1,
+        rejected_chunk_count=1,
+    )
+    assert facts["body_class"] == "oversized"
+    assert facts["received_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert facts["accepted_bytes"] == MAX_PROVIDER_ERROR_BYTES
+    assert facts["rejected_bytes"] == 1
+
+
+def test_provider_error_classifier_contains_deep_json_failure() -> None:
+    facts = classify_provider_error(400, b"{" * 1024)
+    assert facts["body_class"] == "malformed_json"
+    assert facts["field_states"] == ()
+
+
+def test_provider_error_classifier_qualification_exercises_early_close_paths() -> None:
+    result = run_provider_error_classifier_qualification()
+    assert result == {
+        "normal_error": True,
+        "streamed_oversized": True,
+        "cancelled_early_close": True,
+        "status": "PASSED",
+    }
+
 
 KNOWN_EVENTS = {
     "response.created",
@@ -167,6 +273,18 @@ class _BlockingStream(_CountingChunkStream):
         await self.release.wait()
 
 
+class _BlockingErrorStream(_CountingChunkStream):
+    def __init__(self, first: bytes) -> None:
+        super().__init__((first,))
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield self._chunks[0]
+        self.started.set()
+        await self.release.wait()
+
+
 class _AdvancingChunkStream(_CountingChunkStream):
     def __init__(self, chunks: tuple[bytes, ...], advance: Callable[[], None]) -> None:
         super().__init__(chunks)
@@ -278,6 +396,136 @@ async def test_normal_exhaustion_closes_json_and_sse_delegate_once(path: str) ->
         await response.aclose()
     assert stream.close_calls == 1
     assert observer.snapshot()["records"][0]["completed"] is True  # type: ignore[index]
+
+
+@pytest.mark.asyncio
+async def test_provider_error_is_captured_before_direct_close_and_stays_sanitized() -> None:
+    body = (
+        b'{"error":{"message":"private-provider-sentinel","type":"BadRequestError",'
+        b'"code":400,"param":null}}'
+    )
+    stream = _CountingChunkStream((body,))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.send(
+            client.build_request("POST", "http://fake.test/v1/chat/completions"), stream=True
+        )
+        await response.aclose()
+
+    record = observer.snapshot()["records"][0]  # type: ignore[index]
+    assert record["completed"] is True
+    assert record["response_received_bytes"] == len(body)
+    assert record["response_accepted_bytes"] == len(body)
+    assert record["response_rejected_bytes"] == 0
+    assert record["provider_error"] == {
+        "http_status": 400,
+        "body_class": "error_object",
+        "received_bytes": len(body),
+        "accepted_bytes": len(body),
+        "rejected_bytes": 0,
+        "rejected_chunk_count": 0,
+        "field_states": (
+            ("code", "integer"),
+            ("message", "string"),
+            ("param", "null"),
+            ("type", "string"),
+        ),
+        "type_class": "BadRequestError",
+        "code_class": "bad_request",
+        "param_class": "null",
+        "code_status_relation": "matching",
+    }
+    assert "private-provider-sentinel" not in json.dumps(observer.snapshot())
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_error_read_failure_is_retained_as_a_fixed_class() -> None:
+    stream = _ErrorStream((b"partial",))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.send(
+            client.build_request("POST", "http://fake.test/v1/chat/completions"), stream=True
+        )
+        await response.aclose()
+
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    record = records[0]
+    provider_error = cast(dict[str, object], record["provider_error"])
+    assert provider_error["body_class"] == "read_error"
+    assert provider_error["received_bytes"] == len(b"partial")
+    assert "synthetic-stream-error" not in json.dumps(observer.snapshot())
+    assert stream.close_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_provider_error_early_close_cancellation_retains_cleanup_and_fixed_class() -> None:
+    stream = _BlockingErrorStream(b'{"error":{"type":"invalid_request_error","code":400}}')
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.send(
+            client.build_request("POST", "http://fake.test/v1/chat/completions"), stream=True
+        )
+        close_task = asyncio.create_task(response.aclose())
+        await asyncio.wait_for(stream.started.wait(), timeout=1)
+        close_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await close_task
+        stream.release.set()
+        await response.aclose()
+
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    record = records[0]
+    provider_error = cast(dict[str, object], record["provider_error"])
+    assert provider_error["body_class"] == "cancelled"
+    assert provider_error["type_class"] == "missing"
+    assert record["response_received_bytes"] == len(
+        b'{"error":{"type":"invalid_request_error","code":400}}'
+    )
+    assert record["response_accepted_bytes"] == record["response_received_bytes"]
+    assert stream.close_calls == 1
+    assert observer.snapshot()["ready"] is False
+
+
+@pytest.mark.asyncio
+async def test_provider_error_streamed_oversize_counts_and_closes_once() -> None:
+    first = b"{" + b'"error":{' + b'"type":"invalid_request_error"}' + b"}"
+    second = b"x"
+    stream = _CountingChunkStream((first + b"y" * (MAX_PROVIDER_ERROR_BYTES - len(first)), second))
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    async with httpx.AsyncClient(transport=observer) as client:
+        response = await client.send(
+            client.build_request("POST", "http://fake.test/v1/chat/completions"), stream=True
+        )
+        await response.aclose()
+
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    record = records[0]
+    provider_error = cast(dict[str, object], record["provider_error"])
+    assert provider_error["body_class"] == "oversized"
+    assert provider_error["received_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert provider_error["accepted_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert record["response_received_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert record["response_accepted_bytes"] == MAX_PROVIDER_ERROR_BYTES + 1
+    assert record["response_rejected_bytes"] == 0
+    assert stream.close_calls == 1
+    assert observer.snapshot()["ready"] is False
 
 
 @pytest.mark.asyncio

@@ -1140,6 +1140,38 @@ def test_target_response_failure_facts_keep_only_safe_error_and_event_classes() 
     }
 
 
+def test_target_response_failure_facts_retain_original_provider_error_classes() -> None:
+    facts = _target_response_failure_facts(
+        {"records": ()},
+        {
+            "records": (
+                {
+                    "kind": "inference",
+                    "request_class": "function_continuation",
+                    "provider_error": {
+                        "http_status": 400,
+                        "body_class": "error_object",
+                        "type_class": "BadRequestError",
+                        "code_class": "bad_request",
+                        "param_class": "null",
+                        "field_states": (("code", "integer"), ("param", "null")),
+                    },
+                },
+            )
+        },
+        request_class="function_continuation",
+        status=400,
+        sse=SSEFacts(),
+        capture_facts={},
+    )
+    error = cast(dict[str, object], facts["error"])
+    provider = cast(dict[str, object], error["provider"])
+    assert provider["http_status"] == 400
+    assert provider["type_class"] == "BadRequestError"
+    assert provider["code_class"] == "bad_request"
+    assert provider["param_class"] == "null"
+
+
 def test_idless_companion_replays_actual_call_and_omits_only_optional_id() -> None:
     returned_call = {
         "type": "function_call",
@@ -1150,14 +1182,23 @@ def test_idless_companion_replays_actual_call_and_omits_only_optional_id() -> No
         "arguments": '{"path":"varied.md"}',
         "status": "completed",
     }
+    initial = _idless_companion_initial_body(
+        "session-a", [{"type": "function", "name": "lookup_target"}]
+    )
     body = _idless_companion_continuation_body(
-        "session-a", returned_call, tools=[{"type": "function", "name": "lookup_target"}]
+        "session-a",
+        returned_call,
+        tools=[{"type": "function", "name": "lookup_target"}],
+        initial_body=initial,
     )
     history = body["input"]
     assert isinstance(history, list)
-    call = history[0]
-    output = history[1]
-    assert isinstance(call, dict) and isinstance(output, dict)
+    user = history[0]
+    call = history[1]
+    output = history[2]
+    assert isinstance(user, dict) and isinstance(call, dict) and isinstance(output, dict)
+    initial_input = cast(list[object], initial["input"])
+    assert user == initial_input[0]
     assert "id" not in call
     assert call["name"] == returned_call["name"]
     assert call["arguments"] == returned_call["arguments"]

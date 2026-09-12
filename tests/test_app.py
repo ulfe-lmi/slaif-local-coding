@@ -4,7 +4,7 @@ import json
 import logging
 from collections.abc import AsyncIterator, Callable, Coroutine, MutableMapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -22,6 +22,7 @@ from slaif_local_coding.config import (
     Settings,
     UpstreamConfig,
 )
+from tests.helpers.transport_observer import DirectTransportObserver
 
 
 @pytest.fixture
@@ -410,6 +411,55 @@ async def test_nonstream_upstream_error_is_sanitized_and_retryable(settings: Set
     assert response.headers["retry-after"] == "3"
     assert "upstream-private-body" not in response.text
     assert "/private/path" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_app_error_close_exposes_only_bounded_original_provider_facts(
+    settings: Settings,
+) -> None:
+    body = (
+        b'{"error":{"message":"private-provider-sentinel","type":"BadRequestError",'
+        b'"code":400,"param":null}}'
+    )
+
+    class ErrorStream(httpx.AsyncByteStream):
+        close_calls = 0
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            yield body
+
+        async def aclose(self) -> None:
+            self.close_calls += 1
+
+    stream = ErrorStream()
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, headers={"content-type": "application/json"}, stream=stream)
+
+    observer = DirectTransportObserver(httpx.MockTransport(handler))
+    app = create_app(settings, observer)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+    ) as client:
+        response = await client.post("/v1/chat/completions", json={"model": "qwen", "messages": []})
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "error": {
+            "message": "upstream returned an error",
+            "type": "upstream_error",
+            "code": "upstream_error",
+        }
+    }
+    records = cast(tuple[dict[str, object], ...], observer.snapshot()["records"])
+    record = records[0]
+    provider_error = cast(dict[str, object], record["provider_error"])
+    assert provider_error["http_status"] == 400
+    assert provider_error["body_class"] == "error_object"
+    assert provider_error["type_class"] == "BadRequestError"
+    assert provider_error["code_status_relation"] == "matching"
+    assert "private-provider-sentinel" not in json.dumps(observer.snapshot())
+    assert stream.close_calls == 1
 
 
 @pytest.mark.asyncio

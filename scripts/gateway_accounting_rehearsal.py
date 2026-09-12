@@ -112,6 +112,7 @@ from tests.helpers.transport_observer import (  # noqa: E402
     DirectTransportObserver,
     merge_observer_snapshots,
     observer_dispatch_matches_fake,
+    run_provider_error_classifier_qualification,
 )
 from tests.helpers.vision_e2e_support import (  # noqa: E402
     VisionOutboundRecorder,
@@ -152,6 +153,8 @@ CODEX_0149_DEFAULT = Path(
     "/synology/homes/janezp/.codex/packages/standalone/releases/"
     "0.149.0-x86_64-unknown-linux-musl/bin/codex"
 )
+OFFLINE_QWEN_PYTHON = Path("/synology/homes/janezp/qwen-serving/venv/bin/python")
+OFFLINE_DIFFERENTIAL = REPO_ROOT / "scripts/qwen_offline_replay_differential.py"
 FAKE_MAX_EVENTS = 32
 # Acceptance-only frame cap; the independent per-response cap remains fixed at
 # 131072 bytes.  This is not a provider or Gateway policy.
@@ -162,6 +165,51 @@ FAKE_FUNCTION_CALL_ID = "call_synthetic"
 FAKE_FUNCTION_SUMMARY_ALIAS = "call_synthetic_summary_alias"
 TARGET_FULL = "full"
 TARGET_IDENTITY_REPLAY = "identity_replay"
+AP_FAKE_IMPLEMENTATION_SHA = "934388057af267b3bf39b2a2d1b56d34dfbd042f"
+AP_FAKE_SOURCE_IDENTITY = {
+    "paths": {
+        "runner": "scripts/gateway_accounting_rehearsal.py",
+        "observer": "tests/helpers/transport_observer.py",
+        "projection": "tests/helpers/acceptance_harness.py",
+        "provider_sse": "scripts/local_qwen_provider_differential.py",
+    },
+    "sha256": {
+        "runner": "26855a5bf6e63e9aab1d32271949c20f1860bf78e07d391df1d338b69ffd7893",
+        "observer": "75632bd850750d8a02a6a862cce8dd0e59d53c8e5c7d9a79b8acbdbf788dbec9",
+        "projection": "62aa151ec2b7da973954aa8ff0f0d14f24f42ac99389e051888b71e0e7e12317",
+        "provider_sse": "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0",
+    },
+    "loaded_module_paths": {
+        "tests.helpers.acceptance_harness": "tests/helpers/acceptance_harness.py",
+        "tests.helpers.transport_observer": "tests/helpers/transport_observer.py",
+        "scripts.local_qwen_provider_differential": "scripts/local_qwen_provider_differential.py",
+    },
+    "loaded_module_sha256": {
+        "tests.helpers.acceptance_harness": (
+            "62aa151ec2b7da973954aa8ff0f0d14f24f42ac99389e051888b71e0e7e12317"
+        ),
+        "tests.helpers.transport_observer": (
+            "75632bd850750d8a02a6a862cce8dd0e59d53c8e5c7d9a79b8acbdbf788dbec9"
+        ),
+        "scripts.local_qwen_provider_differential": (
+            "5b232d55b62723d1c706300fb240dbd23af687955930db2239cb7d82b2b681b0"
+        ),
+    },
+}
+AP_FAKE_REUSE_ALLOWED_PATHS = frozenset(
+    {
+        "oap/active",
+        "oap/orders/005-aq-offline-provider-replay-repair.md",
+        "oap/reports/005-ap-zero-argument-preflight-and-final-target.md",
+        "scripts/gateway_accounting_rehearsal.py",
+        "scripts/qwen_offline_replay_differential.py",
+        "tests/helpers/transport_observer.py",
+        "tests/test_app.py",
+        "tests/test_gateway_accounting_rehearsal.py",
+        "tests/test_transport_observer.py",
+    }
+)
+PRESERVED_EMPTY_UNTRACKED = frozenset({"Local", "clean", "unchanged"})
 
 
 def _target_execution_plan(target: str) -> dict[str, object]:
@@ -3189,6 +3237,33 @@ def _source_identity() -> dict[str, object]:
     }
 
 
+def _candidate_worktree_clean() -> bool:
+    """Ignore only the three pre-existing empty transcript placeholders."""
+    status = _run_command(
+        ["git", "-C", str(REPO_ROOT), "status", "--porcelain=v1", "--untracked-files=all"]
+    )
+    if status.returncode != 0:
+        return False
+    for line in status.stdout.splitlines():
+        if line.startswith("?? ") and line[3:] in PRESERVED_EMPTY_UNTRACKED:
+            path = REPO_ROOT / line[3:]
+            try:
+                file_stat = path.stat()
+            except OSError:
+                return False
+            if (
+                path.is_symlink()
+                or not stat.S_ISREG(file_stat.st_mode)
+                or file_stat.st_uid != os.getuid()
+                or file_stat.st_nlink != 1
+                or file_stat.st_size != 0
+            ):
+                return False
+            continue
+        return False
+    return True
+
+
 def _candidate_provenance(
     implementation_sha: str,
     run_id: str,
@@ -3397,7 +3472,10 @@ def _run_fake_idless_http_regression() -> dict[str, object]:
             statuses.append(response.status_code)
             returned_call = server.take_returned_call()
             legal_continuation = _idless_companion_continuation_body(
-                "synthetic", returned_call, tools=cast(list[dict[str, object]], initial["tools"])
+                "synthetic",
+                returned_call,
+                tools=cast(list[dict[str, object]], initial["tools"]),
+                initial_body=initial,
             )
             orphan_response = client.post(
                 f"http://127.0.0.1:{server.server_address[1]}/v1/responses",
@@ -3969,21 +4047,26 @@ def _target_response_failure_facts(
     error_type_class = (
         sse.error_type_class if sse.error_type_class in _TARGET_ERROR_CLASSES else "unknown"
     )
-    return {
+    error_result: dict[str, object] = {
+        "event": sse.error_event,
+        "field_names": error_field_names,
+        "code_class": error_code_class,
+        "type_class": error_type_class,
+        "param_present": "param" in error_field_names,
+    }
+    result: dict[str, object] = {
         "status": status if type(status) is int and 100 <= status <= 599 else None,
-        "error": {
-            "event": sse.error_event,
-            "field_names": error_field_names,
-            "code_class": error_code_class,
-            "type_class": error_type_class,
-            "param_present": "param" in error_field_names,
-        },
+        "error": error_result,
         "validator": {
             "failure_class": failure_class,
             "validation_stage": validation_stage,
             "failed_event_class": failed_event_class,
         },
     }
+    provider_error = record.get("provider_error")
+    if isinstance(provider_error, Mapping):
+        error_result["provider"] = dict(provider_error)
+    return result
 
 
 def _timed_public_json_response(
@@ -4143,12 +4226,15 @@ def _idless_companion_continuation_body(
     returned_call: Mapping[str, object] | None,
     *,
     tools: list[dict[str, object]],
+    initial_body: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Build legal replay history from the actual validated returned call.
 
     Only the optional function-call item ``id`` is omitted.  All other fields
     are copied from the transient validator-approved item, including its
-    canonical name, arguments, namespace, status, and mandatory call ID.
+    canonical name, arguments, namespace, status, and mandatory call ID.  The
+    exact input history from the initial request is retained because the
+    Qwen chat template requires the original user query for replay.
     """
     if not isinstance(returned_call, Mapping):
         raise RuntimeError("companion_returned_call_missing")
@@ -4158,6 +4244,9 @@ def _idless_companion_continuation_body(
         raise RuntimeError("companion_returned_call_id_missing")
     if replay_call.get("type") != "function_call" or replay_call.get("status") != "completed":
         raise RuntimeError("companion_returned_call_invalid")
+    initial_input = None if initial_body is None else initial_body.get("input")
+    if not isinstance(initial_input, list) or not initial_input:
+        raise RuntimeError("companion_initial_history_missing")
     replay_call.pop("id", None)
     body = _composed_request_body(session, "idless companion continuation", tools=tools)
     body.update(
@@ -4166,6 +4255,7 @@ def _idless_companion_continuation_body(
             "max_output_tokens": 32,
             "store": False,
             "input": [
+                *initial_input,
                 replay_call,
                 {
                     "type": "function_call_output",
@@ -5092,6 +5182,47 @@ def _tested_source_still_valid(tested_sha: str) -> bool:
     return len(implementation_markers) == 1 and len(self_markers) == 1
 
 
+def _authorized_ap_source_reuse(candidate: Mapping[str, object]) -> bool:
+    """Accept only AP37 evidence while this round changes harness code only."""
+    if candidate.get("implementation_sha") != AP_FAKE_IMPLEMENTATION_SHA:
+        return False
+    if candidate.get("source_identity") != AP_FAKE_SOURCE_IDENTITY:
+        return False
+    current = _local_implementation_sha(REPO_ROOT)
+    ancestor = _run_command(
+        [
+            "git",
+            "-C",
+            str(REPO_ROOT),
+            "merge-base",
+            "--is-ancestor",
+            AP_FAKE_IMPLEMENTATION_SHA,
+            current,
+        ]
+    )
+    if ancestor.returncode != 0:
+        return False
+    changed = _run_command(
+        [
+            "git",
+            "-C",
+            str(REPO_ROOT),
+            "diff",
+            "--name-status",
+            f"{AP_FAKE_IMPLEMENTATION_SHA}..{current}",
+        ]
+    )
+    if changed.returncode != 0:
+        return False
+    changed_paths: list[str] = []
+    for line in changed.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 2 or parts[0] not in {"A", "M"}:
+            return False
+        changed_paths.append(parts[1])
+    return bool(changed_paths) and set(changed_paths).issubset(AP_FAKE_REUSE_ALLOWED_PATHS)
+
+
 def _read_fake_gate_file(path: Path) -> bytes:
     """Read at most the evidence cap from one owned regular file."""
     max_bytes = 2 * 1024 * 1024
@@ -5155,6 +5286,115 @@ def _decode_fake_gate(raw: bytes) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise RuntimeError("protected_fake_gate_invalid")
     return payload
+
+
+def _decode_last_json_object(raw: str, *, failure: str) -> dict[str, object]:
+    """Decode only the final bounded JSON object from a diagnostic child."""
+
+    def reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate_json_key")
+            result[key] = value
+        return result
+
+    def reject_constant(_value: str) -> None:
+        raise ValueError("non_finite_json")
+
+    lines = [line for line in raw.splitlines() if line.strip()]
+    try:
+        value = json.loads(
+            lines[-1] if lines else "",
+            object_pairs_hook=reject_duplicate_pairs,
+            parse_constant=reject_constant,
+        )
+    except (RecursionError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        raise RuntimeError(failure) from None
+    if not isinstance(value, dict):
+        raise RuntimeError(failure)
+    return value
+
+
+def _run_offline_replay_qualification() -> dict[str, object]:
+    """Run the exact installed-provider differential before credentials exist."""
+    if not OFFLINE_QWEN_PYTHON.is_file() or not OFFLINE_DIFFERENTIAL.is_file():
+        raise RuntimeError("offline_replay_qualification_unavailable")
+    environment = os.environ.copy()
+    environment.pop(QWEN_KEY_ENV, None)
+    environment["CUDA_VISIBLE_DEVICES"] = ""
+    environment["VLLM_TARGET_DEVICE"] = "cpu"
+    child = _run_command(
+        [str(OFFLINE_QWEN_PYTHON), str(OFFLINE_DIFFERENTIAL)],
+        env=environment,
+    )
+    if child.returncode != 0:
+        raise RuntimeError("offline_replay_qualification_failed")
+    result = _decode_last_json_object(child.stdout, failure="offline_replay_result_invalid")
+    if not (
+        result.get("status") == "PASSED"
+        and result.get("protected_requests") == 0
+        and result.get("credential_resolution") is False
+        and result.get("source_pins_match") is True
+        and result.get("fixed_no_user_query_predicate_present") is True
+        and result.get("zero_argument_schema_exact") is True
+        and result.get("no_user_query_failure_isolated") is True
+        and result.get("corrected_preparation_passed") is True
+    ):
+        raise RuntimeError("offline_replay_qualification_failed")
+    return result
+
+
+def _run_current_fake_target_qualification(args: argparse.Namespace) -> dict[str, object]:
+    """Run the exact two-request fake identity target at this current source."""
+    child = _run_command(
+        [
+            sys.executable,
+            str(Path(__file__).resolve()),
+            "--gateway-root",
+            str(args.gateway_root.resolve()),
+            "--gateway-python",
+            str(Path(args.gateway_python).absolute()),
+            "--codex",
+            str(Path(args.codex).resolve()),
+            "--provider-target",
+            "fake",
+            "--target",
+            TARGET_IDENTITY_REPLAY,
+        ]
+    )
+    if child.returncode != 0:
+        raise RuntimeError("current_fake_target_qualification_failed")
+    result = _decode_last_json_object(child.stdout, failure="current_fake_target_result_invalid")
+    candidate = result.get("candidate_provenance")
+    counts = result.get("target_dispatch_counts")
+    companion = result.get("idless_composed_companion")
+    cleanup = result.get("cleanup_observation")
+    if not (
+        result.get("status") == "COMPLETE"
+        and result.get("provider_target") == "fake"
+        and result.get("target") == TARGET_IDENTITY_REPLAY
+        and result.get("protected_later_inference") is False
+        and result.get("full_protected_matrix") is False
+        and isinstance(counts, Mapping)
+        and counts.get("inference_dispatched") == 2
+        and counts.get("compiler_dispatched") == 0
+        and isinstance(companion, Mapping)
+        and companion.get("passed") is True
+        and isinstance(cleanup, Mapping)
+        and all(cleanup.get(key) is True for key in ("processes", "listeners", "database"))
+        and isinstance(candidate, Mapping)
+        and candidate.get("implementation_sha") == _local_implementation_sha(REPO_ROOT)
+        and candidate.get("tested_worktree_clean") is True
+        and candidate.get("gateway_sha") == GATEWAY_MAIN_SHA
+        and candidate.get("gateway_app_tree_sha256") == GATEWAY_APP_TREE_SHA256
+        and candidate.get("codex_version") == CODEX_VERSION
+        and candidate.get("codex_binary_sha256") == CODEX_FIXTURE_SHA256
+        and candidate.get("route_policy") == LOCAL_ROUTE_POLICY
+        and candidate.get("source_identity") == _source_identity()
+    ):
+        raise RuntimeError("current_fake_target_qualification_failed")
+    return result
 
 
 def _validate_fake_gate(path: Path | None) -> None:
@@ -5233,7 +5473,10 @@ def _validate_fake_gate(path: Path | None) -> None:
         and isinstance(candidate.get("implementation_sha"), str)
         and re.fullmatch(r"[0-9a-f]{40}", candidate["implementation_sha"]) is not None
         and candidate.get("tested_worktree_clean") is True
-        and _tested_source_still_valid(candidate["implementation_sha"])
+        and (
+            _tested_source_still_valid(candidate["implementation_sha"])
+            or _authorized_ap_source_reuse(candidate)
+        )
         and candidate.get("local_source") == "src/slaif_local_coding"
         and candidate.get("harness_source") == "scripts/gateway_accounting_rehearsal.py"
         and candidate.get("route_policy") == LOCAL_ROUTE_POLICY
@@ -5246,7 +5489,10 @@ def _validate_fake_gate(path: Path | None) -> None:
         and isinstance(candidate.get("run_id"), str)
         and re.fullmatch(r"[0-9a-f]{32}", candidate["run_id"]) is not None
         and candidate.get("observer_version") == OBSERVATION_VERSION
-        and candidate.get("source_identity") == _source_identity()
+        and (
+            candidate.get("source_identity") == _source_identity()
+            or _authorized_ap_source_reuse(candidate)
+        )
     )
     if not valid_header:
         raise RuntimeError("protected_fake_gate_not_complete")
@@ -5823,6 +6069,9 @@ def _run_direct_composed_rehearsal_impl(
     target_initial_content: bytes | None = None
     target_session: str | None = None
     target_semantic_preflight: dict[str, object] = {"status": "NOT RUN"}
+    offline_replay_preflight: dict[str, object] = {"status": "NOT RUN"}
+    classifier_preflight: dict[str, object] = {"status": "NOT RUN"}
+    fake_target_preflight: dict[str, object] = {"status": "NOT RUN"}
     if target == TARGET_IDENTITY_REPLAY:
         # Construct and semantically gate the exact first target request before
         # selecting any protected credential or provider boundary.
@@ -5834,6 +6083,14 @@ def _run_direct_composed_rehearsal_impl(
             target_initial,
             validator_factory=validator_factory,
         )
+    if provider_target == "protected" and protected_hooks is None:
+        if target != TARGET_IDENTITY_REPLAY:
+            raise RuntimeError("protected_target_must_be_identity_replay")
+        offline_replay_preflight = _run_offline_replay_qualification()
+        classifier_preflight = run_provider_error_classifier_qualification()
+        if classifier_preflight.get("status") != "PASSED":
+            raise RuntimeError("classifier_qualification_failed")
+        fake_target_preflight = _run_current_fake_target_qualification(args)
     protected_before: dict[str, object] | None = None
     qwen_key = ""
     if provider_target == "protected":
@@ -5858,7 +6115,7 @@ def _run_direct_composed_rehearsal_impl(
     tested_implementation_sha = _local_implementation_sha()
     accumulator.candidate_sha = tested_implementation_sha
     accumulator.gateway_sha = GATEWAY_MAIN_SHA
-    if _run_command(["git", "-C", str(REPO_ROOT), "status", "--short"]).stdout.strip():
+    if not _candidate_worktree_clean():
         raise RuntimeError("implementation_worktree_dirty_before_fake")
     postgres_name: str | None = None
     postgres_image_was_absent = False
@@ -5930,6 +6187,11 @@ def _run_direct_composed_rehearsal_impl(
         """Project the selected evidence after cleanup, including early stops."""
         if not result:
             raise RuntimeError("composed_rehearsal_did_not_produce_facts")
+        result["aq_preflight"] = {
+            "offline_replay": offline_replay_preflight,
+            "classifier": classifier_preflight,
+            "fake_target": fake_target_preflight,
+        }
         result["runtime_observations"] = _runtime_observations(result)
         if target == TARGET_IDENTITY_REPLAY:
             target_gate = _identity_replay_target_gate(result)
@@ -6352,7 +6614,10 @@ def _run_direct_composed_rehearsal_impl(
                     and target_returned_call is not None
                 ):
                     target_continuation = _idless_companion_continuation_body(
-                        target_session, target_returned_call, tools=target_tools
+                        target_session,
+                        target_returned_call,
+                        tools=target_tools,
+                        initial_body=target_initial,
                     )
                     (
                         target_continuation_status,
@@ -7008,7 +7273,10 @@ def _run_direct_composed_rehearsal_impl(
             if returned_call_item is None:
                 raise RuntimeError("companion_returned_call_item_missing")
             companion_continuation_body = _idless_companion_continuation_body(
-                session_a, returned_call_item, tools=companion_tools
+                session_a,
+                returned_call_item,
+                tools=companion_tools,
+                initial_body=companion_initial_body,
             )
             continuation_status, continuation_json_valid, continuation_usage_present = (
                 _timed_public_companion_response(

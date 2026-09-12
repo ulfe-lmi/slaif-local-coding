@@ -35,8 +35,69 @@ MAX_OBSERVED_REQUESTS = 64
 # threshold.
 MAX_EVENT_BYTES = 128 * 1024
 MAX_STREAM_BYTES = 128 * 1024
+MAX_PROVIDER_ERROR_BYTES = MAX_STREAM_BYTES
 MAX_EVENT_TYPES = 32
 MAX_CORRELATION_IDS = 8
+
+_PROVIDER_ERROR_FIELDS = ("code", "message", "param", "type")
+_PROVIDER_ERROR_TYPES = frozenset(
+    {
+        "invalid_request_error",
+        "BadRequestError",
+        "UnprocessableEntityError",
+        "NotFoundError",
+        "NotImplementedError",
+        "InternalServerError",
+        "Bad Request",
+        "Unprocessable Entity",
+        "Not Found",
+        "Not Implemented",
+        "Internal Server Error",
+    }
+)
+_PROVIDER_ERROR_CODES = {
+    400: "bad_request",
+    404: "not_found",
+    422: "unprocessable_entity",
+    429: "too_many_requests",
+    500: "internal_server_error",
+    501: "not_implemented",
+    502: "bad_gateway",
+    503: "service_unavailable",
+    504: "gateway_timeout",
+}
+_PROVIDER_ERROR_PARAMS = frozenset(
+    {
+        "background",
+        "chat_template",
+        "input",
+        "logprobs",
+        "max_output_tokens",
+        "messages",
+        "model",
+        "previous_response_id",
+        "prompt",
+        "stream",
+        "tool_choice",
+        "tool_calls",
+        "tools",
+    }
+)
+_PROVIDER_ERROR_BODY_CLASSES = frozenset(
+    {
+        "complete",
+        "empty",
+        "malformed_json",
+        "oversized",
+        "top_level_not_object",
+        "error_missing",
+        "error_null",
+        "error_wrong_type",
+        "error_object",
+        "read_error",
+        "cancelled",
+    }
+)
 
 _OVERFLOW_SUBTYPES = frozenset(
     {
@@ -52,6 +113,146 @@ _OVERFLOW_SUBTYPES = frozenset(
 
 def _safe_validation_stage(value: object) -> str | None:
     return value if isinstance(value, str) and value in VALIDATION_STAGES else None
+
+
+def _json_value_class(value: object) -> str:
+    if value is _MISSING:
+        return "missing"
+    if value is None:
+        return "null"
+    if type(value) is bool:
+        return "boolean"
+    if type(value) is int:
+        return "integer"
+    if type(value) is float:
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, Mapping):
+        return "object"
+    return "other"
+
+
+_MISSING = object()
+
+
+def _provider_error_type_class(value: object) -> str:
+    if isinstance(value, str) and value in _PROVIDER_ERROR_TYPES:
+        return value
+    if value is _MISSING:
+        return "missing"
+    if value is None:
+        return "null"
+    return "unrecognized"
+
+
+def _provider_error_code_class(value: object) -> str:
+    if type(value) is int:
+        return _PROVIDER_ERROR_CODES.get(value, "integer_unrecognized")
+    if value is _MISSING:
+        return "missing"
+    if value is None:
+        return "null"
+    return f"{_json_value_class(value)}_unrecognized"
+
+
+def _provider_error_param_class(value: object) -> str:
+    if isinstance(value, str):
+        return value if value in _PROVIDER_ERROR_PARAMS else "string_unrecognized"
+    if value is _MISSING:
+        return "missing"
+    if value is None:
+        return "null"
+    return f"{_json_value_class(value)}_unrecognized"
+
+
+def _provider_error_field_states(error: Mapping[str, object] | None) -> tuple[tuple[str, str], ...]:
+    if error is None:
+        return ()
+    return tuple(
+        (name, _json_value_class(error.get(name, _MISSING))) for name in _PROVIDER_ERROR_FIELDS
+    )
+
+
+def classify_provider_error(
+    status: int,
+    body: bytes = b"",
+    *,
+    body_class: str = "complete",
+    received_bytes: int | None = None,
+    accepted_bytes: int | None = None,
+    rejected_bytes: int = 0,
+    rejected_chunk_count: int = 0,
+) -> dict[str, object]:
+    """Classify one bounded provider error without retaining body values."""
+    safe_status = status if type(status) is int and 100 <= status <= 599 else None
+    if body_class not in _PROVIDER_ERROR_BODY_CLASSES:
+        body_class = "read_error"
+    if received_bytes is None:
+        received_bytes = len(body)
+    if accepted_bytes is None:
+        accepted_bytes = len(body)
+    bounded_counts = {
+        "received_bytes": max(0, received_bytes),
+        "accepted_bytes": max(0, accepted_bytes),
+        "rejected_bytes": max(0, rejected_bytes),
+        "rejected_chunk_count": max(0, rejected_chunk_count),
+    }
+    error: Mapping[str, object] | None = None
+    if body_class == "complete":
+        if not body:
+            body_class = "empty"
+        else:
+            try:
+                value = json.loads(
+                    body, parse_constant=lambda _value: (_ for _ in ()).throw(ValueError())
+                )
+            except (
+                MemoryError,
+                OverflowError,
+                RecursionError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                TypeError,
+                ValueError,
+            ):
+                body_class = "malformed_json"
+            else:
+                if not isinstance(value, Mapping):
+                    body_class = "top_level_not_object"
+                else:
+                    candidate = value.get("error", _MISSING)
+                    if candidate is _MISSING:
+                        body_class = "error_missing"
+                    elif candidate is None:
+                        body_class = "error_null"
+                    elif not isinstance(candidate, Mapping):
+                        body_class = "error_wrong_type"
+                    else:
+                        body_class = "error_object"
+                        error = candidate
+    code = _MISSING if error is None else error.get("code", _MISSING)
+    error_type = _MISSING if error is None else error.get("type", _MISSING)
+    param = _MISSING if error is None else error.get("param", _MISSING)
+    code_relation = (
+        "matching"
+        if safe_status is not None and type(code) is int and code == safe_status
+        else "mismatched"
+        if safe_status is not None and type(code) is int
+        else "not_comparable"
+    )
+    return {
+        "http_status": safe_status,
+        "body_class": body_class,
+        **bounded_counts,
+        "field_states": _provider_error_field_states(error),
+        "type_class": _provider_error_type_class(error_type),
+        "code_class": _provider_error_code_class(code),
+        "param_class": _provider_error_param_class(param),
+        "code_status_relation": code_relation,
+    }
 
 
 _RESPONSE_ID_EVENTS = frozenset({"response.created", "response.in_progress", "response.completed"})
@@ -280,6 +481,7 @@ class _StreamState:
     canonical_candidate_count: int = 0
     summary_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
     canonical_summary_relation: str = "unknown"
+    provider_error: dict[str, object] | None = field(default=None, repr=False)
 
     def _fail(
         self,
@@ -659,6 +861,7 @@ class _RequestObservation:
     responded: bool = False
     completed: bool = False
     status_class: str = "unknown"
+    response_status_code: int | None = field(default=None, repr=False)
     content_type_class: str = "unknown"
     first_byte: bool = False
     terminal_valid: bool = False
@@ -699,6 +902,7 @@ class _RequestObservation:
     canonical_candidate_availability: str = "unknown"
     canonical_summary_relation: str = "unknown"
     pending_scope_available: str = "unknown"
+    provider_error: dict[str, object] | None = field(default=None, repr=False)
 
     def safe_dict(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -726,6 +930,8 @@ class _RequestObservation:
             "overflow_bound": self.overflow_bound,
             "exception_class": self.exception_class,
         }
+        if self.provider_error is not None:
+            result["provider_error"] = dict(self.provider_error)
         if self.validation_stage is not None:
             result["validation_stage"] = self.validation_stage
         if self.failure_event_class is not None:
@@ -949,13 +1155,119 @@ class _ObservedStream(httpx.AsyncByteStream):
         owner: DirectTransportObserver,
         record: _RequestObservation,
         state: _StreamState,
+        headers: httpx.Headers,
     ) -> None:
         self._stream = stream
         self._owner = owner
         self._record = record
         self._state = state
+        self._headers = headers
         self._observation_finished = False
         self._delegate_close_task: asyncio.Task[None] | None = None
+
+    async def _capture_provider_error(self) -> str:
+        """Read only a bounded original error before Local sanitizes it."""
+        status = self._record.response_status_code
+        if status is None or status < 400:
+            return "not_applicable"
+
+        content_length = self._record_content_length()
+        if content_length is not None and content_length > MAX_PROVIDER_ERROR_BYTES:
+            self._state.overflow = True
+            self._state._fail(
+                "overflow",
+                overflow_subtype="response_bytes",
+                overflow_observed=MAX_PROVIDER_ERROR_BYTES + 1,
+                overflow_bound=MAX_PROVIDER_ERROR_BYTES,
+            )
+            self._state.provider_error = classify_provider_error(
+                status,
+                body_class="oversized",
+                received_bytes=0,
+                accepted_bytes=0,
+            )
+            self._owner._latch_state_failure(self._state)
+            return "oversized"
+
+        body = bytearray()
+        body_size = 0
+        try:
+            async for chunk in self._stream:
+                size = len(chunk)
+                if not size:
+                    continue
+                self._state.received_byte_count += size
+                permitted = self._owner._observe_chunk(self._state, size)
+                if not permitted:
+                    self._state.rejected_byte_count += size
+                    self._state.rejected_chunk_count += 1
+                    self._state._fail("budget")
+                    self._state.provider_error = classify_provider_error(
+                        status,
+                        body_class="oversized",
+                        received_bytes=self._state.received_byte_count,
+                        accepted_bytes=self._state.accepted_byte_count,
+                        rejected_bytes=self._state.rejected_byte_count,
+                        rejected_chunk_count=self._state.rejected_chunk_count,
+                    )
+                    self._owner._latch_state_failure(self._state)
+                    return "oversized"
+                self._state.accepted_byte_count += size
+                body_size += size
+                if body_size <= MAX_PROVIDER_ERROR_BYTES:
+                    body.extend(chunk)
+                self._state.consume(chunk)
+                if body_size > MAX_PROVIDER_ERROR_BYTES or self._state.overflow:
+                    self._state.provider_error = classify_provider_error(
+                        status,
+                        body_class="oversized",
+                        received_bytes=self._state.received_byte_count,
+                        accepted_bytes=self._state.accepted_byte_count,
+                        rejected_bytes=self._state.rejected_byte_count,
+                        rejected_chunk_count=self._state.rejected_chunk_count,
+                    )
+                    self._owner._latch_state_failure(self._state)
+                    return "oversized"
+        except asyncio.CancelledError:
+            self._state.provider_error = classify_provider_error(
+                status,
+                body_class="cancelled",
+                received_bytes=self._state.received_byte_count,
+                accepted_bytes=self._state.accepted_byte_count,
+                rejected_bytes=self._state.rejected_byte_count,
+                rejected_chunk_count=self._state.rejected_chunk_count,
+            )
+            raise
+        except BaseException:
+            self._state.provider_error = classify_provider_error(
+                status,
+                body_class="read_error",
+                received_bytes=self._state.received_byte_count,
+                accepted_bytes=self._state.accepted_byte_count,
+                rejected_bytes=self._state.rejected_byte_count,
+                rejected_chunk_count=self._state.rejected_chunk_count,
+            )
+            return "read_error"
+
+        self._state.provider_error = classify_provider_error(
+            status,
+            bytes(body),
+            received_bytes=self._state.received_byte_count,
+            accepted_bytes=self._state.accepted_byte_count,
+            rejected_bytes=self._state.rejected_byte_count,
+            rejected_chunk_count=self._state.rejected_chunk_count,
+        )
+        return "complete"
+
+    def _record_content_length(self) -> int | None:
+        value = self._headers.get("content-length")
+        if value is None:
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed >= 0 else None
 
     async def __aiter__(self) -> AsyncIterator[bytes]:
         try:
@@ -1030,8 +1342,32 @@ class _ObservedStream(httpx.AsyncByteStream):
 
     async def aclose(self) -> None:
         if not self._observation_finished:
-            self._state.abnormal_close("closure")
-            self._owner._finish_abnormal(self._record, self._state)
+            if (
+                self._record.response_status_code is not None
+                and self._record.response_status_code >= 400
+            ):
+                try:
+                    capture_status = await self._capture_provider_error()
+                except asyncio.CancelledError:
+                    self._record.exception_class = _exception_class("cancelled")
+                    self._state.abnormal_close("cancelled")
+                    self._owner._finish_abnormal(self._record, self._state)
+                    self._owner._finish_response()
+                    self._observation_finished = True
+                    try:
+                        await self._close_delegate(suppress_error=True)
+                    finally:
+                        self._owner._release_dispatch(self._record)
+                    raise
+                if capture_status == "read_error":
+                    self._state.abnormal_close("stream")
+                    self._owner._finish_abnormal(self._record, self._state)
+                else:
+                    self._state.finish()
+                    self._owner._finish_stream(self._record, self._state)
+            else:
+                self._state.abnormal_close("closure")
+                self._owner._finish_abnormal(self._record, self._state)
             self._owner._finish_response()
             self._observation_finished = True
         try:
@@ -1554,6 +1890,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             self._release_dispatch(record)
             raise
         record.responded = True
+        record.response_status_code = response.status_code
         record.status_class = _status_class(response.status_code)
         content_type = response.headers.get("content-type", "")
         content_type_lower = content_type.lower()
@@ -1618,7 +1955,11 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             correlation_key=record.correlation_key,
         )
         response.stream = _ObservedStream(
-            cast(httpx.AsyncByteStream, response.stream), self, record, state
+            cast(httpx.AsyncByteStream, response.stream),
+            self,
+            record,
+            state,
+            response.headers,
         )
         return response
 
@@ -1655,6 +1996,8 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
             else "unknown"
         )
         record.canonical_summary_relation = state.canonical_summary_relation
+        if state.provider_error is not None:
+            record.provider_error = dict(state.provider_error)
         if record.terminal_valid and state.correlation_key is not None:
             self._call_correlation.register(state.correlation_key, state.returned_call_id_digests)
             record.pending_scope_available = (
@@ -1684,6 +2027,8 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.overflow_bound = state.overflow_bound
         record.validation_stage = state.validation_stage
         record.failure_event_class = state.failure_event_class
+        if state.provider_error is not None:
+            record.provider_error = dict(state.provider_error)
         self._latch_state_failure(state)
         self._latch_failure(state.failure_kind or "closure")
 
@@ -1707,11 +2052,140 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.overflow_bound = state.overflow_bound
         record.validation_stage = state.validation_stage
         record.failure_event_class = state.failure_event_class
+        if state.provider_error is not None:
+            record.provider_error = dict(state.provider_error)
         self._latch_state_failure(state)
         self._latch_failure("closure")
 
     async def aclose(self) -> None:
         await self._delegate.aclose()
+
+
+def run_provider_error_classifier_qualification() -> dict[str, object]:
+    """Run the bounded early-close regression without a service or credentials."""
+
+    class QualificationStream(httpx.AsyncByteStream):
+        def __init__(self, chunks: tuple[bytes, ...], *, block_after_first: bool = False) -> None:
+            self.chunks = chunks
+            self.block_after_first = block_after_first
+            self.started = asyncio.Event()
+            self.release = asyncio.Event()
+            self.close_calls = 0
+
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            for index, chunk in enumerate(self.chunks):
+                yield chunk
+                if index == 0 and self.block_after_first:
+                    self.started.set()
+                    await self.release.wait()
+
+        async def aclose(self) -> None:
+            self.close_calls += 1
+
+    async def exercise() -> dict[str, object]:
+        normal_body = b'{"error":{"type":"invalid_request_error","code":400}}'
+        normal_stream = QualificationStream((normal_body,))
+        oversized_stream = QualificationStream((b"x" * MAX_PROVIDER_ERROR_BYTES, b"y"))
+        cancelled_stream = QualificationStream((normal_body,), block_after_first=True)
+
+        async def run_close(stream: QualificationStream) -> dict[str, object]:
+            status = 413 if stream is oversized_stream else 400
+            observer = DirectTransportObserver(
+                httpx.MockTransport(
+                    lambda _request: httpx.Response(
+                        status,
+                        headers={"content-type": "application/json"},
+                        stream=stream,
+                    )
+                )
+            )
+            async with httpx.AsyncClient(transport=observer) as client:
+                response = await client.send(
+                    client.build_request("POST", "http://qualification.test/v1/chat/completions"),
+                    stream=True,
+                )
+                await response.aclose()
+            record = observer.snapshot()["records"]
+            record_value = record[0] if isinstance(record, (list, tuple)) and record else {}
+            return {
+                "provider_error": record_value.get("provider_error")
+                if isinstance(record_value, Mapping)
+                else None,
+                "received": record_value.get("response_received_bytes")
+                if isinstance(record_value, Mapping)
+                else None,
+                "accepted": record_value.get("response_accepted_bytes")
+                if isinstance(record_value, Mapping)
+                else None,
+                "close_calls": stream.close_calls,
+            }
+
+        normal = await run_close(normal_stream)
+        oversized = await run_close(oversized_stream)
+        cancelled_observer = DirectTransportObserver(
+            httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    400,
+                    headers={"content-type": "application/json"},
+                    stream=cancelled_stream,
+                )
+            )
+        )
+        async with httpx.AsyncClient(transport=cancelled_observer) as client:
+            response = await client.send(
+                client.build_request("POST", "http://qualification.test/v1/chat/completions"),
+                stream=True,
+            )
+            close_task = asyncio.create_task(response.aclose())
+            await asyncio.wait_for(cancelled_stream.started.wait(), timeout=1)
+            close_task.cancel()
+            try:
+                await close_task
+            except asyncio.CancelledError:
+                pass
+            cancelled_stream.release.set()
+            await response.aclose()
+        cancelled_records = cancelled_observer.snapshot()["records"]
+        cancelled_record = (
+            cancelled_records[0]
+            if isinstance(cancelled_records, (list, tuple)) and cancelled_records
+            else {}
+        )
+        cancelled_error = (
+            cancelled_record.get("provider_error")
+            if isinstance(cancelled_record, Mapping)
+            else None
+        )
+        normal_error = normal.get("provider_error")
+        oversized_error = oversized.get("provider_error")
+        return {
+            "normal_error": isinstance(normal_error, Mapping)
+            and normal_error.get("body_class") == "error_object"
+            and normal_error.get("type_class") == "invalid_request_error"
+            and normal.get("close_calls") == 1,
+            "streamed_oversized": isinstance(oversized_error, Mapping)
+            and oversized_error.get("body_class") == "oversized"
+            and oversized_error.get("received_bytes") == MAX_PROVIDER_ERROR_BYTES + 1
+            and oversized.get("received") == MAX_PROVIDER_ERROR_BYTES + 1
+            and oversized.get("accepted") == MAX_PROVIDER_ERROR_BYTES + 1
+            and oversized.get("close_calls") == 1,
+            "cancelled_early_close": isinstance(cancelled_error, Mapping)
+            and cancelled_error.get("body_class") == "cancelled"
+            and cancelled_record.get("exception_class") == "cancelled"
+            and cancelled_stream.close_calls == 1,
+        }
+
+    try:
+        checks = asyncio.run(exercise())
+    except BaseException:
+        return {
+            "status": "BLOCKED",
+            "normal_error": False,
+            "streamed_oversized": False,
+            "cancelled_early_close": False,
+        }
+    checks["status"] = "PASSED" if all(value is True for value in checks.values()) else "BLOCKED"
+    return checks
 
 
 def observer_dispatch_matches_fake(
