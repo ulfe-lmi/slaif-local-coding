@@ -3877,8 +3877,6 @@ _TARGET_EVENT_TYPE_CLASSES = frozenset(
         "response.reasoning_text.done",
         "response.function_call_arguments.delta",
         "response.function_call_arguments.done",
-        "response.failed",
-        "response.incomplete",
         "error",
         "other",
     }
@@ -3955,7 +3953,7 @@ def _target_response_failure_facts(
         )
         else None
     )
-    failed_event_class_value = record.get("failure_event_class") or sse.first_failure_event_class
+    failed_event_class_value = record.get("failure_event_class")
     failed_event_class = (
         failed_event_class_value
         if isinstance(failed_event_class_value, str)
