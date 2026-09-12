@@ -336,7 +336,219 @@ class ProtectedRuntimeHooks:
     synthetic_only: bool = True
 
 
-def _gateway_stream_validator_factory(gateway_root: Path) -> Any:
+_TERMINAL_VALIDATOR_TRACE_FUNCTIONS = frozenset(
+    {
+        "validate",
+        "_validate_codex_response_event",
+        "_validate_response_completed_event",
+        "_validate_completed_usage",
+        "_validate_codex_completed_output",
+        "_validate_codex_completed_output_item",
+        "_accept_strict_sequence",
+    }
+)
+_TERMINAL_VALIDATOR_TRACE_LIMIT = 256
+
+
+def _terminal_status_class(value: object) -> str:
+    if value is None:
+        return "null"
+    if value == "completed":
+        return "completed"
+    if value == "incomplete":
+        return "incomplete"
+    if value == "in_progress":
+        return "in_progress"
+    if value == "queued":
+        return "queued"
+    return "other"
+
+
+def _terminal_output_kind_classes(output: object) -> tuple[str, ...]:
+    if not isinstance(output, list):
+        return ()
+    known = {"function_call", "message", "reasoning"}
+    kinds: set[str] = set()
+    for item in output:
+        if not isinstance(item, Mapping):
+            kinds.add("other")
+            continue
+        item_type = item.get("type")
+        kinds.add(item_type if isinstance(item_type, str) and item_type in known else "other")
+    return tuple(sorted(kinds))
+
+
+def _terminal_validation_shape(validator: Any, payload: Mapping[str, object]) -> dict[str, object]:
+    """Retain only bounded terminal predicate inputs for the acceptance trace."""
+    response = payload.get("response")
+    response_map = response if isinstance(response, Mapping) else {}
+    output = response_map.get("output")
+    usage = response_map.get("usage")
+    output_items = output if isinstance(output, list) else ()
+    function_items = tuple(
+        item
+        for item in output_items
+        if isinstance(item, Mapping) and item.get("type") == "function_call"
+    )
+    function_states = getattr(validator, "_function_done_states", {})
+    state_item_id: object | None = None
+    state: Any | None = None
+    if isinstance(function_states, Mapping) and len(function_states) == 1:
+        state_item_id, state = next(iter(function_states.items()))
+    summary = function_items[0] if len(function_items) == 1 else {}
+    required_usage_fields = ("input_tokens", "output_tokens", "total_tokens")
+    usage_values = (
+        tuple(usage.get(name) for name in required_usage_fields)
+        if isinstance(usage, Mapping)
+        else ()
+    )
+    usage_counts_are_ints = len(usage_values) == 3 and all(
+        type(value) is int for value in usage_values
+    )
+    usage_total_consistent = (
+        usage_counts_are_ints and usage_values[0] + usage_values[1] == usage_values[2]
+    )
+    sequence = payload.get("sequence_number")
+    previous_sequence = getattr(validator, "_strict_last_sequence", None)
+    sequence_valid = (
+        type(sequence) is int
+        and 0 <= sequence <= 1_000_000
+        and (previous_sequence is None or sequence > previous_sequence)
+    )
+    output_item_id = summary.get("id") if isinstance(summary, Mapping) else None
+    output_call_id = summary.get("call_id") if isinstance(summary, Mapping) else None
+    output_name = summary.get("name") if isinstance(summary, Mapping) else None
+    output_arguments = summary.get("arguments") if isinstance(summary, Mapping) else None
+    return {
+        "status_class": _terminal_status_class(response_map.get("status")),
+        "output_shape": "array" if isinstance(output, list) else "not_array",
+        "output_item_count_class": count_class(len(output_items)),
+        "output_item_kind_classes": _terminal_output_kind_classes(output),
+        "function_item_count_class": count_class(len(function_items)),
+        "function_item_id_present": isinstance(output_item_id, str) and bool(output_item_id),
+        "function_call_id_matches": state is not None
+        and output_call_id == getattr(state, "call_id", None),
+        "function_name_matches": state is not None and output_name == getattr(state, "name", None),
+        "function_arguments_empty": output_arguments == "",
+        "function_arguments_matches": state is not None
+        and output_arguments == getattr(state, "delta_text", None),
+        "function_item_id_matches": state_item_id is not None and output_item_id == state_item_id,
+        "usage_shape": "object" if isinstance(usage, Mapping) else "not_object",
+        "usage_field_presence": tuple(
+            name
+            for name in (
+                "input_tokens",
+                "input_tokens_details",
+                "output_tokens",
+                "output_tokens_details",
+                "total_tokens",
+            )
+            if isinstance(usage, Mapping) and name in usage
+        ),
+        "usage_required_integers": usage_counts_are_ints,
+        "usage_total_consistent": usage_total_consistent,
+        "active_item_count_class": count_class(
+            len(getattr(validator, "_active_items", ()))
+            if isinstance(getattr(validator, "_active_items", None), Mapping)
+            else -1
+        ),
+        "function_output_done_count_class": count_class(
+            len(getattr(validator, "_function_output_done", ()))
+            if isinstance(getattr(validator, "_function_output_done", None), (set, tuple, list))
+            else -1
+        ),
+        "sequence_valid_before_call": sequence_valid,
+    }
+
+
+@dataclass
+class _TerminalValidationDiscriminator:
+    """Acceptance-only trace of the exact pinned terminal validator path."""
+
+    invocations: list[dict[str, object]] = field(default_factory=list)
+
+    def invoke(self, validator: Any, payload: Mapping[str, object]) -> bool:
+        trace_rows: list[dict[str, object]] = []
+        trace_overflow = False
+        prior_trace = sys.gettrace()
+
+        def trace(frame: Any, event: str, argument: object) -> Any:
+            nonlocal trace_overflow
+            if (
+                frame.f_code.co_filename.endswith("/slaif_gateway/providers/streaming.py")
+                and frame.f_code.co_name in _TERMINAL_VALIDATOR_TRACE_FUNCTIONS
+                and event == "return"
+            ):
+                if len(trace_rows) < _TERMINAL_VALIDATOR_TRACE_LIMIT:
+                    trace_rows.append(
+                        {
+                            "function": frame.f_code.co_name,
+                            "return_line": frame.f_lineno,
+                            "return_class": "true"
+                            if argument is True
+                            else "false"
+                            if argument is False
+                            else "non_boolean",
+                        }
+                    )
+                else:
+                    trace_overflow = True
+            return trace
+
+        result: bool = False
+        exception_class: str | None = None
+        try:
+            sys.settrace(trace)
+            result = validator.validate(payload)
+        except BaseException:
+            exception_class = "validator_exception"
+            raise
+        finally:
+            sys.settrace(prior_trace)
+            result_class = (
+                "true" if result is True else "false" if result is False else "non_boolean"
+            )
+            self.invocations.append(
+                {
+                    "shape": _terminal_validation_shape(validator, payload),
+                    "validator_result_class": result_class,
+                    "exception_class": exception_class,
+                    "trace_overflow": trace_overflow,
+                    "return_sites": tuple(trace_rows),
+                }
+            )
+        return result
+
+    def safe_dict(self) -> dict[str, object]:
+        return {
+            "enabled": True,
+            "invocation_count_class": count_class(len(self.invocations)),
+            "invocations": tuple(self.invocations),
+        }
+
+
+class _TerminalDiagnosticValidator:
+    """Proxy that traces only response.completed on the exact Gateway object."""
+
+    def __init__(self, validator: Any, discriminator: _TerminalValidationDiscriminator) -> None:
+        self._validator = validator
+        self._discriminator = discriminator
+        self.profile = getattr(validator, "profile", None)
+
+    def validate(self, payload: Mapping[str, object] | None) -> bool:
+        if isinstance(payload, Mapping) and payload.get("type") == "response.completed":
+            return self._discriminator.invoke(self._validator, payload)
+        return self._validator.validate(payload)
+
+    def take_replay_reference_candidates(self) -> tuple[object, ...]:
+        return self._validator.take_replay_reference_candidates()
+
+
+def _gateway_stream_validator_factory(
+    gateway_root: Path,
+    *,
+    terminal_discriminator: _TerminalValidationDiscriminator | None = None,
+) -> Any:
     """Inject the exact pinned Gateway Responses validator into observation."""
     sys.path.insert(0, str(gateway_root / "app"))
     from slaif_gateway.modules.clients.codex_0149 import (
@@ -375,7 +587,12 @@ def _gateway_stream_validator_factory(gateway_root: Path) -> Any:
             declared_client_tools=declarations,
             codex_reasoning_events=True,
         )
-        return ResponsesStreamEventValidator(profile)
+        validator = ResponsesStreamEventValidator(profile)
+        return (
+            _TerminalDiagnosticValidator(validator, terminal_discriminator)
+            if terminal_discriminator is not None
+            else validator
+        )
 
     return factory
 
@@ -6063,7 +6280,16 @@ def _run_direct_composed_rehearsal_impl(
     codex_sha256 = _codex_sha256(codex)
     if codex_version != CODEX_VERSION or codex_sha256 != CODEX_FIXTURE_SHA256:
         raise RuntimeError("codex_fixture_mismatch")
-    validator_factory = _gateway_stream_validator_factory(gateway_root)
+    base_validator_factory = _gateway_stream_validator_factory(gateway_root)
+    terminal_discriminator = (
+        _TerminalValidationDiscriminator()
+        if provider_target == "protected" and target == TARGET_IDENTITY_REPLAY
+        else None
+    )
+    validator_factory = _gateway_stream_validator_factory(
+        gateway_root,
+        terminal_discriminator=terminal_discriminator,
+    )
     target_tools: list[dict[str, object]] | None = None
     target_initial: dict[str, object] | None = None
     target_initial_content: bytes | None = None
@@ -6383,7 +6609,7 @@ def _run_direct_composed_rehearsal_impl(
             elif provider_target == "protected":
                 provider_preflight_observer = DirectTransportObserver(
                     httpx.AsyncHTTPTransport(retries=0),
-                    validator_factory=validator_factory,
+                    validator_factory=base_validator_factory,
                     validator_source="gateway_responses_stream_validator",
                     budget_controller=budget,
                     dispatch_context=budget.dispatch_context,
@@ -6774,6 +7000,11 @@ def _run_direct_composed_rehearsal_impl(
                         "usage_valid": target_continuation_usage,
                         "response_facts": target_continuation_evidence,
                     },
+                    "terminal_validation_diagnostic": (
+                        terminal_discriminator.safe_dict()
+                        if terminal_discriminator is not None
+                        else {"status": "NOT RUN"}
+                    ),
                     "target_first_failure": target_first_failure,
                     "target_dispatch_counts": {
                         "inference_attempted": len(target_inference_records),

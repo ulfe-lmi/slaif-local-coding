@@ -10,7 +10,10 @@ from typing import Any, cast
 import httpx
 import pytest
 
-from scripts.gateway_accounting_rehearsal import _gateway_stream_validator_factory
+from scripts.gateway_accounting_rehearsal import (
+    _gateway_stream_validator_factory,
+    _TerminalValidationDiscriminator,
+)
 
 _GATEWAY_ROOT = os.environ.get("SLAIF_GATEWAY_ROOT")
 pytestmark = pytest.mark.skipif(
@@ -226,6 +229,66 @@ def test_gateway162_factory_rejects_malformed_request() -> None:
     )
     with pytest.raises(ValueError, match="validator_profile_request_invalid"):
         factory(request)
+
+
+def test_terminal_discriminator_traces_exact_positive_and_negative_terminal_cases() -> None:
+    assert _GATEWAY_ROOT is not None
+    body = _body(parameters=_empty_parameters())
+    request = httpx.Request(
+        "POST",
+        "http://gateway.test/v1/responses",
+        headers={"content-type": "application/json"},
+        content=json.dumps(body, separators=(",", ":")).encode("utf-8"),
+    )
+
+    positive_discriminator = _TerminalValidationDiscriminator()
+    positive = _gateway_stream_validator_factory(
+        Path(_GATEWAY_ROOT), terminal_discriminator=positive_discriminator
+    )(request)
+    assert all(
+        positive.validate(event) for event in _events(arguments="", include_argument_events=False)
+    )
+    positive_entry = positive_discriminator.safe_dict()["invocations"][-1]  # type: ignore[index]
+    assert positive_entry["validator_result_class"] == "true"  # type: ignore[index]
+    positive_trace = positive_entry["return_sites"]  # type: ignore[index]
+    positive_functions = {row["function"] for row in positive_trace}  # type: ignore[union-attr]
+    assert {
+        "validate",
+        "_validate_codex_response_event",
+        "_validate_response_completed_event",
+        "_validate_completed_usage",
+        "_validate_codex_completed_output",
+        "_validate_codex_completed_output_item",
+        "_accept_strict_sequence",
+    } <= positive_functions
+    assert all(row["return_class"] == "true" for row in positive_trace)  # type: ignore[union-attr]
+
+    negative_discriminator = _TerminalValidationDiscriminator()
+    negative = _gateway_stream_validator_factory(
+        Path(_GATEWAY_ROOT), terminal_discriminator=negative_discriminator
+    )(request)
+    negative_events = _events(arguments="", include_argument_events=False)
+    terminal = cast(dict[str, object], negative_events[-1]["response"])
+    negative_events[-1] = {
+        **negative_events[-1],
+        "response": {
+            **terminal,
+            "usage": {
+                **cast(dict[str, object], terminal["usage"]),
+                "total_tokens": 99,
+            },
+        },
+    }
+    assert all(negative.validate(event) for event in negative_events[:-1])
+    assert negative.validate(negative_events[-1]) is False
+    negative_entry = negative_discriminator.safe_dict()["invocations"][-1]  # type: ignore[index]
+    assert negative_entry["validator_result_class"] == "false"  # type: ignore[index]
+    assert negative_entry["shape"]["usage_total_consistent"] is False  # type: ignore[index]
+    negative_trace = negative_entry["return_sites"]  # type: ignore[index]
+    assert any(
+        row["function"] == "_validate_completed_usage" and row["return_class"] == "false"
+        for row in negative_trace  # type: ignore[union-attr]
+    )
 
 
 @pytest.mark.parametrize("failure", ("identity", "order", "terminal"))
