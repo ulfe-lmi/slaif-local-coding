@@ -7570,6 +7570,20 @@ def _run_direct_composed_rehearsal_impl(
         result["temporary_state_removed"] = (
             temporary_name is not None and not Path(temporary_name).exists()
         )
+        if target == TARGET_IDENTITY_REPLAY:
+            logs_clean = _secret_free_logs(
+                logs,
+                (
+                    service_token,
+                    signing_secret,
+                    derivation_secret,
+                    qwen_key,
+                    seeded["plaintext_key"],
+                    seeded["second_plaintext_key"],
+                    seeded["failure_plaintext_key"],
+                    "synthetic-005k-failure-key",
+                ),
+            )
         result["logs_secret_free"] = logs_clean
         cleanup_observation: dict[str, object] = {
             "processes": all(
