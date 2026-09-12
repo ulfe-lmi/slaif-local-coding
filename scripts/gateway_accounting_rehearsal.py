@@ -6283,6 +6283,20 @@ def _run_direct_composed_rehearsal_impl(
                     ordinal=5,
                     lifetime_id="identity",
                 )
+                _stop_process(gateway_process)
+                logs_clean = _secret_free_logs(
+                    logs,
+                    (
+                        service_token,
+                        signing_secret,
+                        derivation_secret,
+                        qwen_key,
+                        seeded["plaintext_key"],
+                        seeded["second_plaintext_key"],
+                        seeded["failure_plaintext_key"],
+                        "synthetic-005k-failure-key",
+                    ),
+                )
                 early_return = True
                 return result
 
@@ -7570,7 +7584,7 @@ def _run_direct_composed_rehearsal_impl(
         result["temporary_state_removed"] = (
             temporary_name is not None and not Path(temporary_name).exists()
         )
-        if target == TARGET_IDENTITY_REPLAY:
+        if target == TARGET_IDENTITY_REPLAY and not logs_clean:
             logs_clean = _secret_free_logs(
                 logs,
                 (
