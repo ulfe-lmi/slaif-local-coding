@@ -5757,7 +5757,7 @@ def _run_direct_composed_rehearsal_impl(
             logs = (gateway_log,)
             synthetic_provider = provider_target == "fake" or protected_hooks is not None
             protected_mode_synthetic_cases: dict[str, dict[str, object]] = {}
-            if provider_target == "fake":
+            if provider_target == "fake" and target == TARGET_FULL:
                 # Run the healthy synthetic protected branch before this outer
                 # candidate binds 18031.  The two candidate lifetimes must be
                 # serial; a nested bind would be an invalid qualification.
