@@ -69,8 +69,12 @@ versioned, replay-protected adapter-side contract described below.
 `service_bearer_signed_identity_v1` requires both `service_token_env` and a
 separate `signing_secret_env`. The signing secret uses visible ASCII bytes,
 with a 32-byte minimum and a 4096-byte maximum. `clock_skew_seconds` is bounded
-to 1–300 seconds; `replay_ttl_seconds` must cover that window; nonce entry count
-and nonce length are bounded. Signed mode requires
+to 1–300 seconds; `replay_ttl_seconds` must cover that window and is a minimum
+post-admission retention interval. The request-derived inclusive retention
+horizon is `timestamp + clock_skew_seconds`, so the effective expiry is
+`max(admission_time + replay_ttl_seconds, timestamp + clock_skew_seconds)`.
+Nonce entry count and nonce length are bounded; replay-related integer settings
+reject booleans and coercible non-integer values. Signed mode requires
 `constitution.identity_source = "signed_request"`, enabled compiler and
 constitution integration, and an enabled observed/constitutional route. It
 forbids configured static principal/session/repository fallback. Disabled and
@@ -106,14 +110,24 @@ nonce
 The path must be one supported proxy path and the raw query bytes are hashed
 without parsing or reordering. HMAC-SHA256 is compared in constant time. The
 adapter then reserves only a SHA-256 nonce digest in bounded process-local
-TTL/LRU state; raw nonce and identity values are not retained. Invalid
+state; raw nonce and identity values are not retained. Expiry is strict: an
+entry remains live when current time equals its effective horizon. Invalid
 signatures do not reserve replay state, concurrent duplicates admit one
-request, and stale/future, malformed, duplicate, replayed, and route-mismatched
-requests fail with fixed 403/409/422/503 errors before image, tool, constitution,
-compiler, cache, rehydration, or upstream work. The resulting immutable
+request, and a full live store returns fixed 503
+`signed_identity_replay_capacity_unavailable` without evicting a digest. A
+detected wall-clock rollback or non-finite clock returns fixed 503
+`signed_identity_clock_unavailable`. Stale/future, malformed, duplicate,
+replayed, and route-mismatched requests fail with fixed 403/409/422/503 errors
+before image, tool, constitution, compiler, cache, rehydration, or upstream
+work. The resulting immutable
 principal/session/repository/route identity is passed explicitly through cache,
 compiler, selection, injection, and zero-root rehydration keys. Signed/internal
-headers are stripped before Qwen.
+headers are stripped before Qwen. With the default `TTL=skew=60`, a maximally
+future-dated request is retained through two skew intervals: its request horizon
+is later than admission by `2 * skew`, so TTL equal to skew cannot shorten it.
+The digest store is process-local, bounded, digest-only, and single-worker;
+restart clears replay history and no cross-process or durable protection is
+claimed.
 
 The canonical conformance fixture is
 `tests/fixtures/gateway/signed_identity_v1_vectors.json`. It uses only a

@@ -81,11 +81,11 @@ class GatewayIngressConfig(BaseModel):
     )
     identity_version: Literal["v1"] = "v1"
     policy_version: Literal["signed-identity-v1"] = "signed-identity-v1"
-    clock_skew_seconds: int = Field(default=60, ge=1, le=300)
-    replay_ttl_seconds: int = Field(default=60, ge=1, le=86_400)
-    max_replay_entries: int = Field(default=4096, ge=1, le=1_000_000)
-    nonce_min_length: int = Field(default=16, ge=1, le=128)
-    nonce_max_length: int = Field(default=128, ge=1, le=256)
+    clock_skew_seconds: int = Field(default=60, strict=True, ge=1, le=300)
+    replay_ttl_seconds: int = Field(default=60, strict=True, ge=1, le=86_400)
+    max_replay_entries: int = Field(default=4096, strict=True, ge=1, le=1_000_000)
+    nonce_min_length: int = Field(default=16, strict=True, ge=1, le=128)
+    nonce_max_length: int = Field(default=128, strict=True, ge=1, le=256)
 
     @model_validator(mode="after")
     def require_token_env_for_mode(self) -> GatewayIngressConfig:

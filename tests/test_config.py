@@ -1,6 +1,7 @@
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -80,6 +81,43 @@ def test_gateway_ingress_contract_is_strict_and_disabled_by_default(
     monkeypatch.setenv("TEST_ADAPTER_TOKEN", "invalid\nvalue")
     with pytest.raises(ValueError, match="credential is invalid"):
         enabled.service_token()
+
+
+def test_signed_replay_bounds_are_strict_and_request_horizon_preserves_ttl_relation() -> None:
+    defaults = GatewayIngressConfig()
+    assert defaults.clock_skew_seconds == 60
+    assert defaults.replay_ttl_seconds == 60
+    assert defaults.max_replay_entries == 4096
+
+    signed: dict[str, Any] = {
+        "mode": "service_bearer_signed_identity_v1",
+        "service_token_env": "TEST_ADAPTER_TOKEN",
+        "signing_secret_env": "TEST_SIGNING_SECRET",
+    }
+    invalid_bounds = (
+        {"clock_skew_seconds": 0},
+        {"clock_skew_seconds": 301},
+        {"replay_ttl_seconds": 0},
+        {"replay_ttl_seconds": 86_401},
+        {"max_replay_entries": 0},
+        {"max_replay_entries": 1_000_001},
+        {"clock_skew_seconds": True},
+        {"replay_ttl_seconds": 60.0},
+        {"max_replay_entries": "4096"},
+    )
+    for update in invalid_bounds:
+        with pytest.raises(ValidationError):
+            GatewayIngressConfig(**signed, **update)
+    with pytest.raises(ValidationError, match="replay TTL must cover clock skew"):
+        GatewayIngressConfig(**signed, clock_skew_seconds=60, replay_ttl_seconds=59)
+
+    valid = GatewayIngressConfig(
+        **signed,
+        clock_skew_seconds=300,
+        replay_ttl_seconds=300,
+        max_replay_entries=1_000_000,
+    )
+    assert valid.signed
 
 
 def test_gateway_ingress_requires_complete_static_identity() -> None:

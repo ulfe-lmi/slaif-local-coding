@@ -18,7 +18,10 @@ mode = "disabled"
 # identity_version = "v1"
 # policy_version = "signed-identity-v1"
 # clock_skew_seconds = 60
+# A signed digest remains protected through max(admission time + TTL,
+# timestamp + clock skew); equality with that horizon is still live.
 # replay_ttl_seconds = 60
+# Live capacity fails closed with 503; it never evicts a protected digest.
 # max_replay_entries = 4096
 # nonce_min_length = 16
 # nonce_max_length = 128
