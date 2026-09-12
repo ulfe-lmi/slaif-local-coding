@@ -733,3 +733,23 @@ matrix stopped at the first direct `stream_closure_invalid` failure in the
 identity replay phase (ordinal 5); its 29-row gate is retained with later rows
 `NOT RUN`, no retry, and unchanged protected-fixture predicates. This is a
 truthful blocked acceptance result, not a cutover or release claim.
+
+## Current Objective-005-ao targeted closure
+
+This continuation keeps the exact Gateway162 and Codex 0.149.0 pins above and
+qualifies only the model-free `identity_replay` target. The current
+implementation `ea2f95889cc785a7d8a695191bf470d4457bda93` passed the exact fake
+37/37 machine gate and the target selector: two inference dispatches, zero
+compiler dispatches, no ordinary Codex or vision execution, and terminal
+reservation and ledger count consistency with zero pending or duplicate
+request IDs. The target accounting predicate uses actual reservation and ledger
+terminal/count facts; zero pending alone is insufficient.
+
+The one authorized protected attempt was stopped at the first target request:
+`initial_stream_contract_failed` / `stream_validation_invalid`, with one
+inference dispatch and no continuation. No protected retry or second pair was
+performed. Protected health and model preflight were 200, all recorded
+protected-invariance facts remained true (`pid`, `start`, `listener`,
+`worktree_count`, `text_inactive`, `no_18021`, and `no_18031`), and cleanup and
+secret-free logging passed. This is a truthful blocked protected result; the
+target pair, cutover, merge, and release readiness are not claimed.

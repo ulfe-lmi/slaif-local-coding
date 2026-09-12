@@ -811,3 +811,24 @@ ordinal 5; no protected retry occurred, later obligations remain `NOT RUN`,
 and the protected fixture predicates remained unchanged. The immutable OAP
 report is the authoritative round result; protected acceptance, cutover, merge,
 and release readiness are not claimed.
+
+## Objective-005-ao targeted closure
+
+The continuation retains the exact Gateway162 merged-main authority and
+Codex-0.149.0 fixture recorded above. At implementation
+`ea2f95889cc785a7d8a695191bf470d4457bda93`, the exact fake machine gate passed
+37/37, and the model-free `identity_replay` target passed with two inference
+dispatches, zero compiler dispatches, no ordinary Codex or vision execution,
+and independently observed reservation and ledger terminal/count consistency.
+The target gate requires those actual reservation and ledger facts in addition
+to zero pending and zero duplicate request IDs.
+
+Exactly one protected target attempt was authorized. Protected preflight health
+and models returned 200, then the initial target stream failed validation at
+`initial_stream_contract_failed` / `stream_validation_invalid` after one
+inference dispatch. The continuation was not sent, no retry occurred, and no
+second protected pair was attempted. Protected invariance remained true for
+the process identity/start, listener, worktree count, inactive text port, and
+absence of ports 18021 and 18031; cleanup and secret-free logging also passed.
+The immutable OAP report is authoritative for this blocked result. Protected
+acceptance, cutover, merge, and release readiness are not claimed.
