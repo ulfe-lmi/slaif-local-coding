@@ -457,9 +457,10 @@ def _terminal_validation_shape(validator: Any, payload: Mapping[str, object]) ->
     usage_counts_are_ints = len(usage_values) == 3 and all(
         type(value) is int for value in usage_values
     )
-    usage_total_consistent = (
-        usage_counts_are_ints and usage_values[0] + usage_values[1] == usage_values[2]
-    )
+    usage_total_consistent = False
+    if usage_counts_are_ints:
+        input_tokens, output_tokens, total_tokens = cast(tuple[int, int, int], usage_values)
+        usage_total_consistent = input_tokens + output_tokens == total_tokens
     sequence = payload.get("sequence_number")
     previous_sequence = getattr(validator, "_strict_last_sequence", None)
     sequence_valid = (
@@ -631,10 +632,10 @@ class _TerminalDiagnosticValidator:
     def validate(self, payload: Mapping[str, object] | None) -> bool:
         if isinstance(payload, Mapping) and payload.get("type") == "response.completed":
             return self._discriminator.invoke(self._validator, payload)
-        return self._validator.validate(payload)
+        return cast(bool, self._validator.validate(payload))
 
     def take_replay_reference_candidates(self) -> tuple[object, ...]:
-        return self._validator.take_replay_reference_candidates()
+        return cast(tuple[object, ...], self._validator.take_replay_reference_candidates())
 
 
 def _gateway_stream_validator_factory(

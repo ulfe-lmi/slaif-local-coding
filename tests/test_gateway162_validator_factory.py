@@ -248,10 +248,13 @@ def test_terminal_discriminator_traces_exact_positive_and_negative_terminal_case
     assert all(
         positive.validate(event) for event in _events(arguments="", include_argument_events=False)
     )
-    positive_entry = positive_discriminator.safe_dict()["invocations"][-1]  # type: ignore[index]
-    assert positive_entry["validator_result_class"] == "true"  # type: ignore[index]
-    positive_trace = positive_entry["return_sites"]  # type: ignore[index]
-    positive_functions = {row["function"] for row in positive_trace}  # type: ignore[union-attr]
+    positive_invocations = cast(
+        tuple[dict[str, object], ...], positive_discriminator.safe_dict()["invocations"]
+    )
+    positive_entry = positive_invocations[-1]
+    assert positive_entry["validator_result_class"] == "true"
+    positive_trace = cast(tuple[dict[str, object], ...], positive_entry["return_sites"])
+    positive_functions = {row["function"] for row in positive_trace}
     assert {
         "validate",
         "_validate_codex_response_event",
@@ -261,10 +264,13 @@ def test_terminal_discriminator_traces_exact_positive_and_negative_terminal_case
         "_validate_codex_completed_output_item",
         "_accept_strict_sequence",
     } <= positive_functions
-    assert all(row["return_class"] == "true" for row in positive_trace)  # type: ignore[union-attr]
-    assert positive_entry["shape_before"]["sequence_valid_before_call"] is True  # type: ignore[index]
-    assert positive_entry["shape_after"]["sequence_valid_before_call"] is False  # type: ignore[index]
-    assert positive_entry["shape_before"]["function_arguments"]["class"] == "empty"  # type: ignore[index]
+    assert all(row["return_class"] == "true" for row in positive_trace)
+    positive_shape_before = cast(dict[str, object], positive_entry["shape_before"])
+    positive_shape_after = cast(dict[str, object], positive_entry["shape_after"])
+    positive_arguments = cast(dict[str, str], positive_shape_before["function_arguments"])
+    assert positive_shape_before["sequence_valid_before_call"] is True
+    assert positive_shape_after["sequence_valid_before_call"] is False
+    assert positive_arguments["class"] == "empty"
 
     negative_discriminator = _TerminalValidationDiscriminator()
     negative = _gateway_stream_validator_factory(
@@ -284,13 +290,17 @@ def test_terminal_discriminator_traces_exact_positive_and_negative_terminal_case
     }
     assert all(negative.validate(event) for event in negative_events[:-1])
     assert negative.validate(negative_events[-1]) is False
-    negative_entry = negative_discriminator.safe_dict()["invocations"][-1]  # type: ignore[index]
-    assert negative_entry["validator_result_class"] == "false"  # type: ignore[index]
-    assert negative_entry["shape_before"]["usage_total_consistent"] is False  # type: ignore[index]
-    negative_trace = negative_entry["return_sites"]  # type: ignore[index]
+    negative_invocations = cast(
+        tuple[dict[str, object], ...], negative_discriminator.safe_dict()["invocations"]
+    )
+    negative_entry = negative_invocations[-1]
+    assert negative_entry["validator_result_class"] == "false"
+    negative_shape_before = cast(dict[str, object], negative_entry["shape_before"])
+    assert negative_shape_before["usage_total_consistent"] is False
+    negative_trace = cast(tuple[dict[str, object], ...], negative_entry["return_sites"])
     assert any(
         row["function"] == "_validate_completed_usage" and row["return_class"] == "false"
-        for row in negative_trace  # type: ignore[union-attr]
+        for row in negative_trace
     )
 
 
