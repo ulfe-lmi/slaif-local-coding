@@ -879,6 +879,21 @@ def test_structural_cardinality_and_type_failures_are_distinct() -> None:
     assert candidate_state.overflow_bound == 8
 
 
+def test_stream_state_freezes_first_failed_event_class() -> None:
+    state = _StreamState("sse", 0.0, validator=_AcceptingValidator())
+    state._consume_frame(
+        _frame(
+            "response.created",
+            {"type": "response.created", "sequence_number": 0, "response": {}},
+        )
+    )
+    state._consume_frame(_data_frame({"type": "response.unknown", "sequence_number": 1}))
+
+    assert state.failure_kind == "validation"
+    assert state.validation_stage == "response_identity"
+    assert state.failure_event_class == "response.created"
+
+
 def test_incomplete_frame_buffer_overflow_retains_bound_without_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

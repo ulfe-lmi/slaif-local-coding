@@ -273,6 +273,7 @@ class _StreamState:
     _response_id_digest: bytes | None = field(default=None, repr=False)
     failure_kind: str | None = field(default=None, repr=False)
     validation_stage: str | None = field(default=None, repr=False)
+    failure_event_class: str | None = field(default=None, repr=False)
     frame_observer: Callable[[int], bool] | None = field(default=None, repr=False)
     correlation_key: CorrelationKey | None = field(default=None, repr=False)
     returned_call_id_digests: tuple[bytes, ...] = field(default=(), repr=False)
@@ -285,6 +286,7 @@ class _StreamState:
         kind: str,
         *,
         validation_stage: str | None = None,
+        event_class: str | None = None,
         overflow_subtype: str | None = None,
         overflow_observed: int | None = None,
         overflow_bound: int | None = None,
@@ -293,6 +295,9 @@ class _StreamState:
         if self.failure_kind is None:
             self.failure_kind = kind
             self.validation_stage = _safe_validation_stage(validation_stage)
+            self.failure_event_class = (
+                event_class if event_class in _EVENT_CLASSES.values() else None
+            )
             if (
                 kind == "overflow"
                 and overflow_subtype in _OVERFLOW_SUBTYPES
@@ -312,6 +317,7 @@ class _StreamState:
             self.overflow = True
             self._fail(
                 "overflow",
+                event_class=event_class,
                 overflow_subtype="event_type_cardinality",
                 overflow_observed=len(self.event_types) + 1,
                 overflow_bound=MAX_EVENT_TYPES,
@@ -481,10 +487,19 @@ class _StreamState:
         if event_name is None:
             event_name = payload_event_name
         elif payload_event_name != event_name:
-            self._fail("validation", validation_stage="event_name_payload_type")
+            self._fail(
+                "validation",
+                validation_stage="event_name_payload_type",
+                event_class=_EVENT_CLASSES.get(event_name, "other"),
+            )
+        event_class = _EVENT_CLASSES.get(event_name, "other")
         if event_name not in _EVENT_CLASSES:
             self._append_event_class(event_name)
-            self._fail("validation", validation_stage="event_class")
+            self._fail(
+                "validation",
+                validation_stage="event_class",
+                event_class=event_class,
+            )
             return
         self._append_event_class(event_name)
         if event_name == "error":
@@ -494,13 +509,21 @@ class _StreamState:
             response = payload.get("response")
             response_id = response.get("id") if isinstance(response, Mapping) else None
             if not isinstance(response_id, str) or not response_id:
-                self._fail("validation", validation_stage="response_identity")
+                self._fail(
+                    "validation",
+                    validation_stage="response_identity",
+                    event_class=event_class,
+                )
             else:
                 response_id_digest = hashlib.sha256(response_id.encode("utf-8")).digest()
                 if self._response_id_digest is None:
                     self._response_id_digest = response_id_digest
                 elif response_id_digest != self._response_id_digest:
-                    self._fail("validation", validation_stage="response_identity")
+                    self._fail(
+                        "validation",
+                        validation_stage="response_identity",
+                        event_class=event_class,
+                    )
 
         try:
             valid = self.validator is not None and self.validator.validate(
@@ -508,11 +531,16 @@ class _StreamState:
             )
         except BaseException:
             valid = False
-            self._fail("validator", validation_stage="gateway_validator")
+            self._fail(
+                "validator",
+                validation_stage="gateway_validator",
+                event_class=event_class,
+            )
         if not valid:
             self._fail(
                 "validation" if self.failure_kind != "validator" else "validator",
                 validation_stage="gateway_validator",
+                event_class=event_class,
             )
         else:
             self._take_canonical_candidates()
@@ -647,6 +675,7 @@ class _RequestObservation:
     overflow_bound: int | None = None
     exception_class: str | None = None
     validation_stage: str | None = None
+    failure_event_class: str | None = None
     dispatch_operation: str = "unknown"
     dispatch_phase: str = "unknown"
     dispatch_ordinal: int | None = None
@@ -699,6 +728,8 @@ class _RequestObservation:
         }
         if self.validation_stage is not None:
             result["validation_stage"] = self.validation_stage
+        if self.failure_event_class is not None:
+            result["failure_event_class"] = self.failure_event_class
         if self.request_facts_observed:
             result.update(
                 {
@@ -1614,6 +1645,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.overflow_observed = state.overflow_observed
         record.overflow_bound = state.overflow_bound
         record.validation_stage = state.validation_stage
+        record.failure_event_class = state.failure_event_class
         record.canonical_candidate_count = state.canonical_candidate_count
         record.canonical_candidate_availability = (
             "available"
@@ -1651,6 +1683,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.overflow_observed = state.overflow_observed
         record.overflow_bound = state.overflow_bound
         record.validation_stage = state.validation_stage
+        record.failure_event_class = state.failure_event_class
         self._latch_state_failure(state)
         self._latch_failure(state.failure_kind or "closure")
 
@@ -1673,6 +1706,7 @@ class DirectTransportObserver(httpx.AsyncBaseTransport):
         record.overflow_observed = state.overflow_observed
         record.overflow_bound = state.overflow_bound
         record.validation_stage = state.validation_stage
+        record.failure_event_class = state.failure_event_class
         self._latch_state_failure(state)
         self._latch_failure("closure")
 

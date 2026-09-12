@@ -117,10 +117,11 @@ headers are stripped before Qwen.
 
 The canonical conformance fixture is
 `tests/fixtures/gateway/signed_identity_v1_vectors.json`. It uses only a
-fixture-only synthetic secret and content-free request facts. This repository
-implements and tests the adapter verifier; the current gateway does not emit
-these headers, so gateway support remains **NOT IMPLEMENTED** and **NOT
-AUTHORIZED** until a separate gateway OAP order/PR and cross-repository review.
+fixture-only synthetic secret and content-free request facts. The reviewed
+Gateway162 implementation emits these headers for its reviewed Codex route;
+installed-service binding, production cutover, and any broader gateway support
+remain separate acceptance decisions and are not authorized by this adapter
+configuration document.
 
 The bounded compiler prompt requires exact case-sensitive literals in normative
 binding statements and evidence to survive derived indexing. This matters for

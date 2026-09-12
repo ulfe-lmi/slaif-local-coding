@@ -15,6 +15,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
+import scripts.gateway_accounting_rehearsal as rehearsal
 from scripts.gateway_accounting_rehearsal import (
     CODEX_FIXTURE_SHA256,
     CODEX_VERSION,
@@ -27,6 +28,7 @@ from scripts.gateway_accounting_rehearsal import (
     _candidate_only_observation,
     _candidate_provenance,
     _FakeQwenServer,
+    _identity_companion_tools,
     _identity_replay_target_gate,
     _idless_companion_continuation_body,
     _idless_companion_initial_body,
@@ -43,7 +45,11 @@ from scripts.gateway_accounting_rehearsal import (
     _runtime_privacy_fact,
     _select_protected_runtime,
     _source_identity,
+    _start_threaded_server,
+    _stop_threaded_server,
     _target_execution_plan,
+    _target_response_failure_facts,
+    _target_semantic_preflight,
     _tested_source_still_valid,
     _validate_fake_gate,
     run_actual_protected_mode_conformance,
@@ -58,6 +64,7 @@ from tests.helpers.acceptance_harness import (
     OperationDispatchPlan,
     PublicRequestBudget,
     RehearsalBudget,
+    RunAccumulator,
     build_obligation_gate,
     make_result,
     projection_for,
@@ -943,6 +950,194 @@ def test_idless_companion_initial_request_forces_the_declared_function() -> None
     assert body["tool_choice"] == {"type": "function", "name": "local_lookup"}
     assert body["max_output_tokens"] == 32
     assert body["input"][0]["content"][0]["text"] == "Call local_lookup with no arguments."  # type: ignore[index]
+
+
+def test_identity_companion_declares_exact_zero_argument_schema() -> None:
+    tools = _identity_companion_tools()
+    local_lookup = next(
+        tool
+        for tool in tools
+        if tool.get("type") == "function" and tool.get("name") == "local_lookup"
+    )
+    assert local_lookup["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
+
+
+def test_fake_identity_companion_emits_legal_zero_argument_reply() -> None:
+    server = _FakeQwenServer("synthetic-zero-argument-token")
+    thread = _start_threaded_server(server)
+    tools = _identity_companion_tools()
+    initial = _idless_companion_initial_body("session-a", tools)
+    try:
+        with httpx.Client(timeout=10, follow_redirects=False) as client:
+            response = client.post(
+                f"http://127.0.0.1:{server.server_address[1]}/v1/responses",
+                json=initial,
+                headers={"Authorization": f"Bearer {server.token}"},
+            )
+        returned_call = server.take_returned_call()
+        assert response.status_code == 200
+        assert b"response.function_call_arguments" not in response.content
+        assert isinstance(returned_call, dict)
+        assert returned_call.get("name") == "local_lookup"
+        assert returned_call.get("arguments") == ""
+    finally:
+        _stop_threaded_server(server, thread)
+
+
+def test_target_semantic_preflight_binds_the_checked_request_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tools = _identity_companion_tools()
+    body = _idless_companion_initial_body("session-a", tools)
+    observed_content: list[bytes] = []
+
+    class Profile:
+        zero_argument_function_names = frozenset({"local_lookup"})
+
+    class Validator:
+        profile = Profile()
+
+    def helper(_gateway_root: Path, _body: dict[str, object]) -> frozenset[str]:
+        return frozenset({"local_lookup"})
+
+    def factory(request: httpx.Request) -> Validator:
+        content = request.content
+        assert isinstance(content, bytes)
+        observed_content.append(content)
+        return Validator()
+
+    monkeypatch.setattr(rehearsal, "_gateway_zero_argument_function_names", helper)
+    request_content, facts = _target_semantic_preflight(
+        Path("/tmp/slaif-gateway-005-ao"), body, validator_factory=factory
+    )
+
+    assert observed_content == [request_content]
+    assert facts == {
+        "helper_expected": True,
+        "validator_profile_expected": True,
+        "helper_profile_equal": True,
+        "request_body_bound": True,
+    }
+
+
+@pytest.mark.parametrize(
+    ("helper_names", "profile_names"),
+    (
+        (frozenset(), frozenset()),
+        (frozenset({"local_lookup"}), frozenset()),
+    ),
+)
+def test_target_semantic_preflight_rejects_ineligible_helper_or_profile(
+    monkeypatch: pytest.MonkeyPatch,
+    helper_names: frozenset[str],
+    profile_names: frozenset[str],
+) -> None:
+    body = _idless_companion_initial_body("session-a", _identity_companion_tools())
+
+    class Profile:
+        zero_argument_function_names = profile_names
+
+    class Validator:
+        profile = Profile()
+
+    monkeypatch.setattr(
+        rehearsal,
+        "_gateway_zero_argument_function_names",
+        lambda _gateway_root, _body: helper_names,
+    )
+    with pytest.raises(RuntimeError, match="target_zero_argument_semantic_preflight_failed"):
+        _target_semantic_preflight(
+            Path("/tmp/slaif-gateway-005-ao"),
+            body,
+            validator_factory=lambda _request: Validator(),
+        )
+
+
+def test_target_semantic_preflight_failure_precedes_protected_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_root = Path("/tmp/slaif-gateway-005-ao")
+    codex = Path(
+        "/synology/homes/janezp/.codex/packages/standalone/releases/"
+        "0.149.0-x86_64-unknown-linux-musl/bin/codex"
+    )
+    if not gateway_root.is_dir() or not codex.is_file():
+        pytest.skip("pinned target qualification dependencies are unavailable")
+    selection_calls: list[str] = []
+
+    monkeypatch.setattr(rehearsal, "_validate_fake_gate", lambda _path: None)
+    monkeypatch.setattr(
+        rehearsal,
+        "_gateway_stream_validator_factory",
+        lambda _root: lambda _request: object(),
+    )
+
+    def fail_gate(*_args: object, **_kwargs: object) -> tuple[bytes, dict[str, object]]:
+        raise RuntimeError("target_zero_argument_semantic_preflight_failed")
+
+    monkeypatch.setattr(rehearsal, "_target_semantic_preflight", fail_gate)
+
+    def select_runtime(*_args: object, **_kwargs: object) -> tuple[dict[str, object], str, str]:
+        selection_calls.append("selected")
+        raise AssertionError("protected runtime selected before semantic gate")
+
+    monkeypatch.setattr(rehearsal, "_select_protected_runtime", select_runtime)
+    args = argparse.Namespace(
+        provider_target="protected",
+        target="identity_replay",
+        gateway_root=gateway_root,
+        gateway_python=Path("/tmp/slaif-gateway-venv-005-an.THUKHt/bin/python"),
+        codex=codex,
+        fake_result=None,
+    )
+    with pytest.raises(RuntimeError, match="target_zero_argument_semantic_preflight_failed"):
+        rehearsal._run_direct_composed_rehearsal_impl(
+            args, preflight={"gateway_policy": "ACCEPTED"}, accumulator=RunAccumulator("protected")
+        )
+    assert selection_calls == []
+
+
+def test_target_response_failure_facts_keep_only_safe_error_and_event_classes() -> None:
+    sse = SSEFacts(error_event=True, error_field_names={"code", "message", "param"})
+    sse.error_code_class = "provider"
+    sse.error_type_class = "provider"
+    facts = _target_response_failure_facts(
+        {"records": ()},
+        {
+            "records": (
+                {
+                    "kind": "inference",
+                    "request_class": "function_initial",
+                    "validation_stage": "event_class",
+                    "failure_event_class": "error",
+                    "exception_class": "stream_validation_invalid",
+                },
+            )
+        },
+        request_class="function_initial",
+        status=502,
+        sse=sse,
+        capture_facts={"failure_class": "validator", "validation_stage": "gateway_validator"},
+    )
+    assert facts == {
+        "status": 502,
+        "error": {
+            "event": True,
+            "field_names": ("code", "message", "param"),
+            "code_class": "provider",
+            "type_class": "provider",
+            "param_present": True,
+        },
+        "validator": {
+            "failure_class": "validator",
+            "validation_stage": "event_class",
+            "failed_event_class": "error",
+        },
+    }
 
 
 def test_idless_companion_replays_actual_call_and_omits_only_optional_id() -> None:

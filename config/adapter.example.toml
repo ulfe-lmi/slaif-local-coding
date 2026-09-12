@@ -10,7 +10,8 @@ json_max_nesting_depth = 128
 [gateway_ingress]
 # Disabled preserves private loopback development behavior. Static mode requires
 # the complete explicit single-user [constitution] identity. Signed mode is an
-# adapter-side contract only; the current gateway does not emit it.
+# adapter-side contract; the reviewed Gateway162 Codex route emits it, while
+# installed-service binding and production cutover remain separate decisions.
 mode = "disabled"
 # service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"
 # signing_secret_env = "SLAIF_ADAPTER_SIGNING_SECRET"

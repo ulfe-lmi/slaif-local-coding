@@ -220,6 +220,50 @@ def _target_model_free_preflight(gateway_root: Path, codex: Path) -> dict[str, o
     }
 
 
+def _gateway_zero_argument_function_names(
+    gateway_root: Path, body: Mapping[str, object]
+) -> frozenset[str]:
+    """Call the exact pinned Gateway helper for one constructed request body."""
+    sys.path.insert(0, str(gateway_root / "app"))
+    from slaif_gateway.modules.clients.codex_0149 import (  # type: ignore[import-not-found]
+        codex_0149_zero_argument_function_names,
+    )
+
+    return cast(frozenset[str], codex_0149_zero_argument_function_names(body))
+
+
+def _target_semantic_preflight(
+    gateway_root: Path,
+    initial_body: dict[str, object],
+    *,
+    validator_factory: Callable[[httpx.Request], Any],
+) -> tuple[bytes, dict[str, object]]:
+    """Gate the target body against Gateway eligibility before protected work."""
+    expected = frozenset({"local_lookup"})
+    request_body = json.dumps(initial_body, separators=(",", ":")).encode("utf-8")
+    initial_request = httpx.Request(
+        "POST",
+        "http://gateway.target/v1/responses",
+        headers={"content-type": "application/json"},
+        content=request_body,
+    )
+    try:
+        helper_names = _gateway_zero_argument_function_names(gateway_root, initial_body)
+        validator = validator_factory(initial_request)
+        profile = getattr(validator, "profile", None)
+        profile_names = getattr(profile, "zero_argument_function_names", None)
+    except BaseException:
+        raise RuntimeError("target_zero_argument_semantic_preflight_failed") from None
+    if helper_names != expected or profile_names != helper_names or profile_names != expected:
+        raise RuntimeError("target_zero_argument_semantic_preflight_failed")
+    return request_body, {
+        "helper_expected": True,
+        "validator_profile_expected": True,
+        "helper_profile_equal": True,
+        "request_body_bound": True,
+    }
+
+
 @dataclass(frozen=True)
 class ProtectedRuntimeHooks:
     """Explicit synthetic seams for the actual protected runner branch.
@@ -247,7 +291,7 @@ class ProtectedRuntimeHooks:
 def _gateway_stream_validator_factory(gateway_root: Path) -> Any:
     """Inject the exact pinned Gateway Responses validator into observation."""
     sys.path.insert(0, str(gateway_root / "app"))
-    from slaif_gateway.modules.clients.codex_0149 import (  # type: ignore[import-not-found]
+    from slaif_gateway.modules.clients.codex_0149 import (
         codex_0149_declared_tool_taxonomy,
         codex_0149_streaming_tool_events_requested,
         codex_0149_zero_argument_function_names,
@@ -838,11 +882,40 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             "usage": {"input_tokens": 2, "output_tokens": 2, "total_tokens": 4},
         }
 
-    def _function_stream(self, tool_name: str) -> dict[str, object]:
+    @staticmethod
+    def _zero_argument_tool(payload: dict[str, object], tool_name: str) -> bool:
+        tools = payload.get("tools")
+        if not isinstance(tools, list):
+            return False
+        for tool in tools:
+            if not isinstance(tool, dict) or tool.get("type") != "function":
+                continue
+            if tool.get("name") != tool_name:
+                continue
+            parameters = tool.get("parameters")
+            if not isinstance(parameters, dict):
+                return False
+            if set(parameters) not in (
+                {"type", "properties", "additionalProperties"},
+                {"type", "properties", "additionalProperties", "required"},
+            ):
+                return False
+            return (
+                parameters.get("type") == "object"
+                and parameters.get("properties") == {}
+                and parameters.get("additionalProperties") is False
+                and parameters.get("required", []) == []
+                and ("strict" not in tool or tool.get("strict") is True)
+            )
+        return False
+
+    def _function_stream(self, tool_name: str, *, zero_argument: bool = False) -> dict[str, object]:
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", tool_name):
             raise _FakeStreamError("function_name_invalid")
         arguments = (
-            '{"path":"GOVERNANCE-DEPENDENCY.md"}'
+            ""
+            if zero_argument
+            else '{"path":"GOVERNANCE-DEPENDENCY.md"}'
             if tool_name == "local_lookup"
             else '{"cmd":"cat GOVERNANCE-DEPENDENCY.md"}'
         )
@@ -855,111 +928,121 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             "arguments": arguments,
             "status": "completed",
         }
-        events = (
-            {
-                "type": "response.created",
-                "sequence_number": 0,
-                "response": {
-                    "id": "response_1",
-                    "status": "in_progress",
-                    "model": PUBLIC_MODEL,
+        argument_events: tuple[dict[str, object], ...] = (
+            (
+                {
+                    "type": "response.function_call_arguments.delta",
+                    "item_id": "function_1",
+                    "output_index": 0,
+                    "sequence_number": 3,
+                    "delta": arguments[: len(arguments) // 2],
                 },
-            },
-            {
-                "type": "response.in_progress",
-                "sequence_number": 1,
-                "response": {
-                    "id": "response_1",
-                    "status": "in_progress",
+                {
+                    "type": "response.function_call_arguments.delta",
+                    "item_id": "function_1",
+                    "output_index": 0,
+                    "sequence_number": 4,
+                    "delta": arguments[len(arguments) // 2 :],
                 },
-            },
-            {
-                "type": "response.output_item.added",
-                "output_index": 0,
-                "sequence_number": 2,
-                "item": {
-                    "type": "function_call",
-                    "id": "function_1",
-                    "call_id": FAKE_FUNCTION_CALL_ID,
-                    "namespace": None,
-                    "caller": None,
-                    "name": tool_name,
-                    "arguments": "",
-                    "status": "in_progress",
-                },
-            },
-            {
-                "type": "response.function_call_arguments.delta",
-                "item_id": "function_1",
-                "output_index": 0,
-                "sequence_number": 3,
-                "delta": arguments[: len(arguments) // 2],
-            },
-            {
-                "type": "response.function_call_arguments.delta",
-                "item_id": "function_1",
-                "output_index": 0,
-                "sequence_number": 4,
-                "delta": arguments[len(arguments) // 2 :],
-            },
-            {
-                "type": "response.function_call_arguments.done",
-                "item_id": "function_1",
-                "output_index": 0,
-                "sequence_number": 5,
-                "name": tool_name,
-                "arguments": arguments,
-            },
-            {
-                "type": "response.output_item.done",
-                "output_index": 0,
-                "sequence_number": 6,
-                "item": {
-                    "type": "function_call",
-                    "id": "function_1",
-                    "call_id": FAKE_FUNCTION_CALL_ID,
-                    "namespace": None,
-                    "caller": None,
+                {
+                    "type": "response.function_call_arguments.done",
+                    "item_id": "function_1",
+                    "output_index": 0,
+                    "sequence_number": 5,
                     "name": tool_name,
                     "arguments": arguments,
-                    "status": "completed",
                 },
-            },
-            {
-                "type": "response.completed",
-                "sequence_number": 7,
-                "response": {
-                    "id": "response_1",
-                    "status": "completed",
-                    "output": [
-                        {
-                            "type": "function_call",
-                            "id": "parser_function_1",
-                            "call_id": FAKE_FUNCTION_SUMMARY_ALIAS,
-                            "namespace": None,
-                            "name": tool_name,
-                            "arguments": arguments,
-                            "status": "completed",
-                        }
-                    ],
-                    "usage": {
-                        "input_tokens": 1,
-                        "input_tokens_details": {
-                            "cached_tokens": 0,
-                            "input_tokens_per_turn": [1],
-                            "cached_tokens_per_turn": [0],
-                        },
-                        "output_tokens": 1,
-                        "output_tokens_details": {
-                            "reasoning_tokens": 0,
-                            "tool_output_tokens": 0,
-                            "output_tokens_per_turn": [1],
-                            "tool_output_tokens_per_turn": [0],
-                        },
-                        "total_tokens": 2,
+            )
+            if not zero_argument
+            else ()
+        )
+        events = cast(
+            tuple[dict[str, object], ...],
+            (
+                {
+                    "type": "response.created",
+                    "sequence_number": 0,
+                    "response": {
+                        "id": "response_1",
+                        "status": "in_progress",
+                        "model": PUBLIC_MODEL,
                     },
                 },
-            },
+                {
+                    "type": "response.in_progress",
+                    "sequence_number": 1,
+                    "response": {
+                        "id": "response_1",
+                        "status": "in_progress",
+                    },
+                },
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "sequence_number": 2,
+                    "item": {
+                        "type": "function_call",
+                        "id": "function_1",
+                        "call_id": FAKE_FUNCTION_CALL_ID,
+                        "namespace": None,
+                        "caller": None,
+                        "name": tool_name,
+                        "arguments": "",
+                        "status": "in_progress",
+                    },
+                },
+                *argument_events,
+                {
+                    "type": "response.output_item.done",
+                    "output_index": 0,
+                    "sequence_number": 6 if not zero_argument else 3,
+                    "item": {
+                        "type": "function_call",
+                        "id": "function_1",
+                        "call_id": FAKE_FUNCTION_CALL_ID,
+                        "namespace": None,
+                        "caller": None,
+                        "name": tool_name,
+                        "arguments": arguments,
+                        "status": "completed",
+                    },
+                },
+                {
+                    "type": "response.completed",
+                    "sequence_number": 7 if not zero_argument else 4,
+                    "response": {
+                        "id": "response_1",
+                        "status": "completed",
+                        "output": [
+                            {
+                                "type": "function_call",
+                                "id": "parser_function_1",
+                                "call_id": FAKE_FUNCTION_SUMMARY_ALIAS,
+                                "namespace": None,
+                                "name": tool_name,
+                                "arguments": arguments,
+                                "status": "completed",
+                            }
+                        ],
+                        "usage": {
+                            "input_tokens": 1,
+                            "input_tokens_details": {
+                                "cached_tokens": 0,
+                                "input_tokens_per_turn": [1],
+                                "cached_tokens_per_turn": [0],
+                            },
+                            "output_tokens": 1,
+                            "output_tokens_details": {
+                                "reasoning_tokens": 0,
+                                "tool_output_tokens": 0,
+                                "output_tokens_per_turn": [1],
+                                "tool_output_tokens_per_turn": [0],
+                            },
+                            "total_tokens": 2,
+                        },
+                    },
+                },
+            ),
         )
         self._write_events(events)
         return returned_call
@@ -1032,16 +1115,25 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 raise _FakeStreamError("terminal_item")
         serialized = json.dumps(events, separators=(",", ":"))
         if "function_call" in serialized:
-            if seen_types != [
-                "response.created",
-                "response.in_progress",
-                "response.output_item.added",
-                "response.function_call_arguments.delta",
-                "response.function_call_arguments.delta",
-                "response.function_call_arguments.done",
-                "response.output_item.done",
-                "response.completed",
-            ]:
+            if seen_types not in (
+                [
+                    "response.created",
+                    "response.in_progress",
+                    "response.output_item.added",
+                    "response.output_item.done",
+                    "response.completed",
+                ],
+                [
+                    "response.created",
+                    "response.in_progress",
+                    "response.output_item.added",
+                    "response.function_call_arguments.delta",
+                    "response.function_call_arguments.delta",
+                    "response.function_call_arguments.done",
+                    "response.output_item.done",
+                    "response.completed",
+                ],
+            ):
                 raise _FakeStreamError("function_event_order")
             added = [event for event in events if event.get("type") == "response.output_item.added"]
             done = [event for event in events if event.get("type") == "response.output_item.done"]
@@ -1214,7 +1306,10 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             not self._has_function_output(payload)
             or (self._input_image_count(payload) >= 2 and output_count == 1)
         ):
-            return self._function_stream(tool_name)
+            return self._function_stream(
+                tool_name,
+                zero_argument=self._zero_argument_tool(payload, tool_name),
+            )
         if self._has_function_output(payload) and not self._matching_function_output(payload):
             raise _FakeStreamError("function_continuation_invalid")
         if self._has_function_output(payload):
@@ -3664,6 +3759,7 @@ def _timed_public_stream(
     *,
     capture_returned_call_id: bool = False,
     validator_factory: Callable[[httpx.Request], Any] | None = None,
+    request_content: bytes | None = None,
 ) -> tuple[
     int | None,
     SSEFacts,
@@ -3677,7 +3773,11 @@ def _timed_public_stream(
     started = time.monotonic()
     timing: dict[str, str] = {}
     sse = SSEFacts()
-    request_body = json.dumps(body, separators=(",", ":")).encode("utf-8")
+    request_body = (
+        request_content
+        if request_content is not None
+        else json.dumps(body, separators=(",", ":")).encode("utf-8")
+    )
     returned_call_capture = None
     if capture_returned_call_id:
         try:
@@ -3758,6 +3858,132 @@ def _timed_public_stream(
         returned_call_capture.safe_facts() if returned_call_capture is not None else {},
         returned_call_capture.take_function_call() if returned_call_capture is not None else None,
     )
+
+
+_TARGET_EVENT_TYPE_CLASSES = frozenset(
+    {
+        "response.created",
+        "response.in_progress",
+        "response.completed",
+        "response.output_item.added",
+        "response.output_item.done",
+        "response.content_part.added",
+        "response.content_part.done",
+        "response.output_text.delta",
+        "response.output_text.done",
+        "response.reasoning_part.added",
+        "response.reasoning_part.done",
+        "response.reasoning_text.delta",
+        "response.reasoning_text.done",
+        "response.function_call_arguments.delta",
+        "response.function_call_arguments.done",
+        "error",
+        "other",
+    }
+)
+_TARGET_ERROR_FIELD_NAMES = frozenset({"code", "message", "param", "request_id", "status", "type"})
+_TARGET_ERROR_CLASSES = frozenset(
+    {
+        "unknown",
+        "provider",
+        "local",
+        "gateway",
+    }
+)
+_TARGET_CAPTURE_FAILURE_CLASSES = frozenset({"framing", "validator", "validation", "overflow"})
+_TARGET_OBSERVER_EXCEPTION_CLASSES = frozenset(
+    {
+        "observer_budget_not_admitted",
+        "observer_dispatch_hook_error",
+        "observer_lifetime_mismatch",
+        "observer_not_ready",
+        "observer_bound_exceeded",
+        "other_transport_error",
+        "stream_closure_invalid",
+        "stream_contract_invalid",
+        "stream_error",
+        "stream_framing_invalid",
+        "stream_overflow",
+        "stream_validation_invalid",
+    }
+)
+
+
+def _target_response_failure_facts(
+    before: Mapping[str, object],
+    after: Mapping[str, object],
+    *,
+    request_class: str,
+    status: int | None,
+    sse: SSEFacts,
+    capture_facts: Mapping[str, object],
+) -> dict[str, object]:
+    """Project one target response's bounded status/error/validator facts."""
+    before_records = before.get("records", ())
+    after_records = after.get("records", ())
+    if isinstance(before_records, (list, tuple)) and isinstance(after_records, (list, tuple)):
+        records = tuple(
+            record
+            for record in after_records[len(before_records) :]
+            if isinstance(record, Mapping)
+            and record.get("kind") == "inference"
+            and record.get("request_class") == request_class
+        )
+    else:
+        records = ()
+    record = records[-1] if records else {}
+    record_stage = record.get("validation_stage")
+    capture_stage = capture_facts.get("validation_stage")
+    validation_stage = (
+        record_stage
+        if isinstance(record_stage, str) and record_stage in VALIDATION_STAGES
+        else capture_stage
+        if isinstance(capture_stage, str) and capture_stage in VALIDATION_STAGES
+        else None
+    )
+    capture_failure = capture_facts.get("failure_class")
+    observer_failure = record.get("exception_class")
+    failure_class = (
+        capture_failure
+        if isinstance(capture_failure, str) and capture_failure in _TARGET_CAPTURE_FAILURE_CLASSES
+        else observer_failure
+        if (
+            isinstance(observer_failure, str)
+            and observer_failure in _TARGET_OBSERVER_EXCEPTION_CLASSES
+        )
+        else None
+    )
+    failed_event_class_value = record.get("failure_event_class")
+    failed_event_class = (
+        failed_event_class_value
+        if isinstance(failed_event_class_value, str)
+        and failed_event_class_value in _TARGET_EVENT_TYPE_CLASSES
+        else None
+    )
+    error_field_names = tuple(
+        sorted(value for value in sse.error_field_names if value in _TARGET_ERROR_FIELD_NAMES)
+    )
+    error_code_class = (
+        sse.error_code_class if sse.error_code_class in _TARGET_ERROR_CLASSES else "unknown"
+    )
+    error_type_class = (
+        sse.error_type_class if sse.error_type_class in _TARGET_ERROR_CLASSES else "unknown"
+    )
+    return {
+        "status": status if type(status) is int and 100 <= status <= 599 else None,
+        "error": {
+            "event": sse.error_event,
+            "field_names": error_field_names,
+            "code_class": error_code_class,
+            "type_class": error_type_class,
+            "param_present": "param" in error_field_names,
+        },
+        "validator": {
+            "failure_class": failure_class,
+            "validation_stage": validation_stage,
+            "failed_event_class": failed_event_class,
+        },
+    }
 
 
 def _timed_public_json_response(
@@ -3877,8 +4103,7 @@ def _identity_companion_tools() -> list[dict[str, object]]:
         "description": "bounded local function",
         "parameters": {
             "type": "object",
-            "properties": {"path": {"type": "string"}},
-            "required": ["path"],
+            "properties": {},
             "additionalProperties": False,
         },
     }
@@ -5593,6 +5818,22 @@ def _run_direct_composed_rehearsal_impl(
     if codex_version != CODEX_VERSION or codex_sha256 != CODEX_FIXTURE_SHA256:
         raise RuntimeError("codex_fixture_mismatch")
     validator_factory = _gateway_stream_validator_factory(gateway_root)
+    target_tools: list[dict[str, object]] | None = None
+    target_initial: dict[str, object] | None = None
+    target_initial_content: bytes | None = None
+    target_session: str | None = None
+    target_semantic_preflight: dict[str, object] = {"status": "NOT RUN"}
+    if target == TARGET_IDENTITY_REPLAY:
+        # Construct and semantically gate the exact first target request before
+        # selecting any protected credential or provider boundary.
+        target_tools = _identity_companion_tools()
+        target_session = str(uuid.uuid4())
+        target_initial = _idless_companion_initial_body(target_session, target_tools)
+        target_initial_content, target_semantic_preflight = _target_semantic_preflight(
+            gateway_root,
+            target_initial,
+            validator_factory=validator_factory,
+        )
     protected_before: dict[str, object] | None = None
     qwen_key = ""
     if provider_target == "protected":
@@ -6067,8 +6308,13 @@ def _run_direct_composed_rehearsal_impl(
                 # accounting path at the companion only.  It is not allowed to
                 # fall through into Codex, vision, other identity operations,
                 # or the full acceptance manifest.
-                target_tools = _identity_companion_tools()
-                target_session = str(uuid.uuid4())
+                if (
+                    target_tools is None
+                    or target_initial is None
+                    or target_initial_content is None
+                    or target_session is None
+                ):
+                    raise RuntimeError("target_initial_request_missing")
                 target_before = candidate_observer.snapshot()
                 target_rows_before = asyncio.run(
                     _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
@@ -6091,10 +6337,14 @@ def _run_direct_composed_rehearsal_impl(
                     target_initial,
                     capture_returned_call_id=True,
                     validator_factory=validator_factory,
+                    request_content=target_initial_content,
                 )
                 target_continuation_status: int | None = None
                 target_continuation_valid = False
                 target_continuation_usage = False
+                target_continuation_sse = SSEFacts()
+                target_continuation_evidence: dict[str, object] = {}
+                target_continuation_capture_facts: dict[str, object] = {}
                 if (
                     target_initial_status == 200
                     and target_initial_sse.completed_valid
@@ -6106,14 +6356,35 @@ def _run_direct_composed_rehearsal_impl(
                     )
                     (
                         target_continuation_status,
-                        target_continuation_valid,
-                        target_continuation_usage,
-                    ) = _timed_public_companion_response(
-                        gateway_url,
-                        seeded["plaintext_key"],
-                        target_continuation,
+                        target_continuation_sse,
+                        _target_continuation_timing,
+                        _target_continuation_chunks,
+                        _target_continuation_call_id,
+                        target_continuation_capture_facts,
+                        _target_continuation_call,
+                    ) = _timed_public_stream(
+                        gateway_url, seeded["plaintext_key"], target_continuation
                     )
+                    target_continuation_valid = target_continuation_sse.completed_valid
+                    target_continuation_usage = target_continuation_sse.completed_usage_valid
                 target_after = candidate_observer.snapshot()
+                target_initial_evidence = _target_response_failure_facts(
+                    target_before,
+                    target_after,
+                    request_class="function_initial",
+                    status=target_initial_status,
+                    sse=target_initial_sse,
+                    capture_facts=target_returned_call_evidence,
+                )
+                if target_continuation_status is not None:
+                    target_continuation_evidence = _target_response_failure_facts(
+                        target_before,
+                        target_after,
+                        request_class="function_continuation",
+                        status=target_continuation_status,
+                        sse=target_continuation_sse,
+                        capture_facts=target_continuation_capture_facts,
+                    )
                 target_rows_after = asyncio.run(
                     _db_snapshot(gateway_root, database_url, seeded["gateway_key_id"])
                 )
@@ -6222,16 +6493,21 @@ def _run_direct_composed_rehearsal_impl(
                     "candidate_ready_status": candidate_ready,
                     "protected_health_status": protected_health_status,
                     "protected_models_status": protected_models_status,
+                    "target_semantic_preflight": target_semantic_preflight,
                     "target_initial": {
+                        "status": target_initial_status,
                         "status_class": _status_class(target_initial_status),
                         "sse_valid": target_initial_sse.completed_valid,
                         "chunk_count_class": count_class(target_initial_chunks),
                         "timing_buckets": tuple(sorted(target_initial_timing)),
+                        "response_facts": target_initial_evidence,
                     },
                     "target_continuation": {
+                        "status": target_continuation_status,
                         "status_class": _status_class(target_continuation_status),
                         "json_valid": target_continuation_valid,
                         "usage_valid": target_continuation_usage,
+                        "response_facts": target_continuation_evidence,
                     },
                     "target_first_failure": target_first_failure,
                     "target_dispatch_counts": {
@@ -6691,7 +6967,7 @@ def _run_direct_composed_rehearsal_impl(
             adapter_tools = companion_tools[:4]
             # Operation 5 owns the two inference slots below.  They are the
             # composed omission companion: one streamed initial tool call and
-            # one non-streaming continuation.  The later phase still owns the
+            # one streamed continuation.  The later phase still owns the
             # five signed /health observations used by the identity matrix.
             admit("identity_replay", "codex", 5, "identity")
             activate("identity_replay", "codex", 5, "identity")
