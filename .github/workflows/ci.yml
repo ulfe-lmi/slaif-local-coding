@@ -24,3 +24,38 @@ jobs:
       - run: uv build
       - run: python -m compileall -q src tests oap/bin
       - run: bash -n oap/bin/*.sh
+
+  gateway-contract:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: local
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Read current peer authority
+        id: peer
+        working-directory: local
+        run: python scripts/gateway_contract.py --emit-github-output "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.peer.outputs.gateway_repository }}
+          ref: ${{ steps.peer.outputs.gateway_commit }}
+          path: gateway
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install minimal contract-test dependencies
+        working-directory: local
+        run: uv sync --frozen --extra dev --group gateway-contract
+      - name: Run strict current Gateway contract gate
+        working-directory: local
+        env:
+          SLAIF_GATEWAY_ROOT: ${{ github.workspace }}/gateway
+        run: uv run --frozen python scripts/gateway_contract.py --gateway-root "$SLAIF_GATEWAY_ROOT" --run-tests

@@ -1,0 +1,16 @@
+{
+  "schema": "slaif-local-gateway-peer-authority-v1",
+  "version": 1,
+  "repository": "ulfe-lmi/slaif-api-gateway",
+  "commit": "65666f5886832034c52211fdd7604046557e6ada",
+  "server": {
+    "module_id": "local-coding-v1",
+    "module_version": "2",
+    "replay_mode": "process_local_inclusive_horizon_fail_closed"
+  },
+  "client": {
+    "module_id": "codex-0.149-responses-v1",
+    "module_version": "4"
+  },
+  "purpose": "current_ci_compatibility_authority"
+}

@@ -26,6 +26,12 @@ dev = [
   "ruff>=0.12,<1",
 ]
 
+[dependency-groups]
+gateway-contract = [
+  "pydantic-settings>=2.11,<3",
+  "sqlalchemy>=2,<3",
+]
+
 [project.scripts]
 slaif-local-coding = "slaif_local_coding.cli:main"
 
