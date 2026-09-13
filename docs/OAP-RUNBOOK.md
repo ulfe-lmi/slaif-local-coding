@@ -129,3 +129,26 @@ disables, and a disposable catalog-only variant did not produce configuration-
 only compatibility. The corrected rehearsal driver now emits this preflight
 and refuses Docker, PostgreSQL, gateway/adapter listeners, and Qwen work when
 the gateway rejects it. Completeness and cutover status remain unchanged.
+
+## Durable acceptance evidence (Objective-008)
+
+Acceptance results must not remain authoritative only in disposable temporary
+storage. `scripts/safe_evidence_export.py` exports sanitized
+`protected_target`/`fake_target`/`full_fake_gate` results into
+`oap/evidence/` on explicit opt-in
+(`export --source ... --role ... --destination ... --mode ...`), and
+`historical-audit` performs the bounded preservation of the four exact
+historical paths plus the strict manifest under `oap/evidence/005-ar/`.
+All four authorities are retained: the AP37 fake machine-gate authority is
+admitted through the full audit under the closed `full_fake_gate` role and
+exported under the stable name `reused_ap37_fake_gate.json`. Failure is
+closed to fixed classes; a pre-existing destination is only re-verified
+(byte-identical SHA-256 read-back) and never overwritten; unsafe
+sources/destinations are refused; the export performs no
+network/provider/model/credential/Git/GitHub work. The audit's one-shot
+manifest replacement requires the pre-existing manifest to match the exact
+pinned Objective-008-a byte identity (SHA-256 and byte count) before it is
+removed and the current four-authority manifest is published; any other
+pre-existing manifest is refused. Absent or rejected artifacts are
+truthfully manifested. See TESTING.md, "Objective-008 safe evidence export
+and durable preservation".

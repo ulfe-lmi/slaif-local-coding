@@ -772,3 +772,75 @@ protected-invariance facts remained true (`pid`, `start`, `listener`,
 `worktree_count`, `text_inactive`, `no_18021`, and `no_18031`), and cleanup and
 secret-free logging passed. This is a truthful blocked protected result; the
 target pair, cutover, merge, and release readiness are not claimed.
+
+## Objective-008 safe evidence export and durable preservation
+
+`scripts/safe_evidence_export.py` is acceptance/OAP tooling only (stdlib plus
+the repository-owned `tests/helpers/safe_evidence*` machinery) and gives
+sanitized acceptance results a durable, fail-closed export path so they cannot
+remain authoritative only in disposable temporary storage.
+
+- `export --source <exact file> --role {protected_target,fake_target,full_fake_gate}
+  --destination <relative> --mode {exact,deterministic}` validates one exact
+  source through the symlink-proof bounded directory-fd read, the closed role
+  result/preflight schemas, and the fixed-class privacy byte scan, then
+  atomically writes it under the repository `oap/evidence` root (exact
+  accepted bytes, or deterministic sorted-key re-serialization). Destinations
+  are relative identifier-only components; existing destinations, symlink
+  components, traversal/absolute escapes, and foreign ownership are refused.
+  Writes use an exclusive reservation, a `0600` temporary file, fsync/rename
+  resolved inside the directory descriptor (no process-wide `fchdir`), a
+  directory fsync, and a full read-back with SHA-256 comparison. Success
+  prints exactly one bounded provenance JSON line (role, schema, relative
+  path, byte count, original+committed SHA-256, mode); any violation prints
+  only `{"rejected": "<fixed class>"}` and leaves no apparently complete
+  result.
+- `historical-audit` inspects exactly the four 008-a/008-b literal historical
+  paths. All four authorities are retained: the final protected 1024 success,
+  the decisive 32-token max-output diagnostic, the final isolated fake target,
+  and the AP37 fake machine-gate authority (closed `full_fake_gate` role,
+  exported under the stable name `reused_ap37_fake_gate.json`). Each retained
+  authority passes the full audit (bounded read, closed schema, privacy scan)
+  and is preserved with exact bytes under its stable name in
+  `oap/evidence/005-ar/`; a destination that already exists is only
+  re-verified by byte-identical SHA-256 read-back (no write), and a byte
+  deviation is refused fail-closed (`destination_bytes_mismatch`), never
+  overwritten.  Destination read-backs (re-verification and the one-shot
+  manifest replacement gate) use the anchored repository-root reader, so
+  verification also works on hosts where the repository sits below
+  execute-only mount points (for example NFS home directories) that the
+  root-anchored source reader cannot traverse.
+- The `full_fake_gate` role closes the complete AP37 fake machine-gate
+  document (63 top-level keys, producer
+  `934388057af267b3bf39b2a2d1b56d34dfbd042f`), including the nested
+  synthetic protected-conformance tree: the healthy full document and the
+  six fixed case names, each closed to the one conformance shape its hook
+  configuration produces (healthy, observer early-stop, observer
+  projection/cleanup fallback, predispatch mapping refusal, and the two
+  post-codex vision-failure shapes). Every nested position is
+  source-derived from the committed producer; no nested shape is open and no
+  key is accepted beyond the closed sets.
+- The strict post-hoc manifest (`oap/evidence/005-ar/manifest.json`, schema
+  `oap-008-b-durable-evidence-manifest-v1`) carries exactly four unique
+  positional authority roles, `preserved_during_objective_005: false`,
+  pinned accepted-entry hash/path/count facts, null coherence for
+  unavailable/rejected entries, and the pinned immutable Objective-005
+  authority block. The 008-b one-shot replacement: if the manifest already
+  exists it must match the exact pinned Objective-008-a byte identity
+  (SHA-256 and byte count) to be removed through the anchored walk; any
+  other pre-existing manifest is refused (`destination_bytes_mismatch`), so
+  the replacement happens exactly once per host.
+- Missing historical artifacts are truthfully manifested (finite
+  availability/rejection class plus report citation), never a failure and
+  never reconstructed or rerun. Rejected artifacts are never committed. The
+  exporter performs zero network, provider, model, service, credential, Git
+  staging/commit, or GitHub operations. Committed evidence is a post-hoc
+  durable preservation of previously generated sanitized evidence, not
+  evidence produced during Objective 005, and it does not change
+  Objective-005 acceptance. Focused synthetic tests
+  (`tests/test_safe_evidence.py`, `tests/test_safe_evidence_export.py`)
+  cover the export contract, the closed `full_fake_gate` role (including
+  nested mutation rejection), the manifest contract, one-shot replacement,
+  idempotent destination re-verification, atomicity, symlink refusal,
+  descriptor discipline, and no-activity guarantees, and never require the
+  historical `/tmp` artifacts in ordinary CI.
