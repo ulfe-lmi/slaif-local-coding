@@ -98,11 +98,14 @@ __all__ = [
     "dict_spec",
     "export_safe_result",
     "privacy_scan",
+    "read_existing_evidence_destination_bounded",
+    "remove_verified_evidence_destination",
     "resolve_evidence_destination",
     "safe_read_bounded",
     "safe_stat_bounded",
     "strict_decode_result_lines",
     "validate_value",
+    "verify_existing_evidence_destination",
 ]
 
 #: Explicit bounded size covering the known Objective-005 sanitized results
@@ -1139,6 +1142,145 @@ def atomic_write_bounded(repo_root: Path, relative: str, data: bytes) -> None:
             _close_once(reservation_fd)
         if directory_fd is not None:
             _close_each(opened_fds)  # includes directory_fd exactly once
+        _close_once(anchor_fd)
+
+
+def read_existing_evidence_destination_bounded(
+    repo_root: Path, relative: str, max_bytes: int = MAX_SAFE_EVIDENCE_BYTES
+) -> bytes:
+    """Read back one existing evidence destination through the anchored walk.
+
+    Unlike the bounded source reader (which walks from the filesystem
+    root), this reader anchors at the repository root, so it works on
+    hosts where the repository sits below execute-only mount points
+    (for example NFS home directories).  The anchor is the exact
+    repository root opened with ``O_DIRECTORY | O_NOFOLLOW``; every
+    component below it is re-walked with ``O_NOFOLLOW`` through the
+    parent directory descriptor and re-validated.  The final node must
+    be a regular file owned by the current user, single-linked, mode
+    ``0600``, and at most ``max_bytes``; it is opened with ``O_NOFOLLOW``
+    through the directory descriptor and fully read back within the
+    bound.  A missing destination or any deviation is refused under a
+    fixed class; nothing is created, followed, or overwritten.
+    """
+    parts = _validate_destination_relative(relative)
+    tail = (EVIDENCE_ROOT.split("/", 1)[0], EVIDENCE_ROOT.split("/", 1)[1], *parts[:-1])
+    anchor_fd = _open_repo_anchor(repo_root)
+    opened_fds: list[int] = []
+    check_fd: int | None = None
+    try:
+        directory_fd, opened_fds = _walk_evidence_tail(anchor_fd, tail, creatable_from=len(tail))
+        try:
+            final_st = os.lstat(parts[-1], dir_fd=directory_fd)
+        except FileNotFoundError:
+            _reject("destination_missing", relative)
+        except OSError:
+            _reject("destination_unreadable", relative)
+        if (
+            not stat.S_ISREG(final_st.st_mode)
+            or final_st.st_uid != os.getuid()
+            or final_st.st_nlink != 1
+            or (final_st.st_mode & 0o777) != 0o600
+            or final_st.st_size > max_bytes
+        ):
+            _reject("destination_unsafe", relative)
+        try:
+            check_fd = os.open(
+                parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=directory_fd
+            )
+        except FileNotFoundError:
+            _reject("destination_missing", relative)
+        except OSError:
+            _reject("destination_unreadable", relative)
+        st = os.fstat(check_fd)
+        if (
+            not stat.S_ISREG(st.st_mode)
+            or st.st_uid != os.getuid()
+            or (st.st_mode & 0o777) != 0o600
+            or st.st_size > max_bytes
+        ):
+            _reject("destination_unsafe", relative)
+        chunks: list[bytes] = []
+        total = 0
+        try:
+            while True:
+                chunk = os.read(check_fd, 65536)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    _reject("evidence_size_exceeded", relative)
+                chunks.append(chunk)
+        except OSError:
+            _reject("destination_unreadable", relative)
+        return b"".join(chunks)
+    finally:
+        if check_fd is not None:
+            _close_once(check_fd)
+        _close_each(opened_fds)
+        _close_once(anchor_fd)
+
+
+def verify_existing_evidence_destination(
+    repo_root: Path, relative: str, expected_sha256: str
+) -> int:
+    """Read back and hash-verify one existing evidence destination.
+
+    The destination is resolved inside the repository ``oap/evidence``
+    root and read back through the anchored, symlink-proof, bounded
+    reader (final node: regular, current-user-owned, single-linked,
+    mode ``0600``, at most one MiB) so verification works even on hosts
+    where the repository sits below execute-only mount points.  The
+    read-back SHA-256 must equal ``expected_sha256``; any deviation is
+    refused under the fixed class ``destination_bytes_mismatch``.
+    Returns the verified byte count; raises :class:`UnsafeEvidenceError`
+    with the fixed bounded classes on path or property violations.
+    """
+    raw = read_existing_evidence_destination_bounded(repo_root, relative)
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        _reject("destination_bytes_mismatch", relative)
+    return len(raw)
+
+
+def remove_verified_evidence_destination(repo_root: Path, relative: str) -> None:
+    """Remove one evidence destination through the anchored walk.
+
+    Used only by the Objective-008-b one-shot manifest replacement, after
+    the caller has verified the exact pinned byte identity.  The walk is
+    the same anchored, ``O_NOFOLLOW`` directory-descriptor discipline as
+    the writer: every component re-validated, nothing is created, and the
+    final node is re-checked through the directory descriptor immediately
+    before ``unlinkat`` (regular, current-user-owned, single-linked, mode
+    ``0600``); any deviation is refused under the fixed class
+    ``destination_unsafe``, never followed or overwritten.
+    """
+    parts = _validate_destination_relative(relative)
+    tail = (EVIDENCE_ROOT.split("/", 1)[0], EVIDENCE_ROOT.split("/", 1)[1], *parts[:-1])
+    anchor_fd = _open_repo_anchor(repo_root)
+    opened_fds: list[int] = []
+    try:
+        directory_fd, opened_fds = _walk_evidence_tail(anchor_fd, tail, creatable_from=len(tail))
+        try:
+            final_st = os.lstat(parts[-1], dir_fd=directory_fd)
+        except FileNotFoundError:
+            _reject("destination_missing", relative)
+        except OSError:
+            _reject("destination_unreadable", relative)
+        if (
+            not stat.S_ISREG(final_st.st_mode)
+            or final_st.st_uid != os.getuid()
+            or final_st.st_nlink != 1
+            or (final_st.st_mode & 0o777) != 0o600
+        ):
+            _reject("destination_unsafe", relative)
+        try:
+            os.unlink(parts[-1], dir_fd=directory_fd)
+        except FileNotFoundError:
+            _reject("destination_missing", relative)
+        except OSError:
+            _reject("destination_unsafe", relative)
+    finally:
+        _close_each(opened_fds)
         _close_once(anchor_fd)
 
 

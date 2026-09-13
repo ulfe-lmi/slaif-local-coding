@@ -43,17 +43,20 @@ the 008-a post-hoc manifest, each with its own producer history:
   results; the fake document carries the ``NOT RUN`` placeholders.
 * ``manifest`` — the 008-a post-hoc durable-preservation manifest.
 
-The AP37 fake machine-gate result (63 top-level keys, implementation
-``934388057af267b3bf39b2a2d1b56d34dfbd042f``) is *not* a supported export
-role: its nested synthetic protected-case tree is not modeled by the closed
-target schemas, and the material fake chain is durably preserved by the
-005-ai 37/37 fake-machine-gate evidence, the immutable 005-ar report, and
-the final isolated fake target.  The 008-a manifest therefore records the
-AP37 authority as an existing optional source not retained under one fixed
-content-free classification, and the historical audit classifies its exact
-path by bounded stat-only preflight without reading or hashing its content.
-``FULL_FAKE_GATE_SPEC`` remains defined only as a closed reference shape for
-that artifact family; no export or audit path validates against it.
+The ``full_fake_gate`` role (``FULL_FAKE_GATE_SPEC``) closes the AP37 fake
+machine-gate document (63 top-level keys, implementation
+``934388057af267b3bf39b2a2d1b56d34dfbd042f``): the full-gate family in fake
+mode, including the nested synthetic protected-conformance documents the
+producer attaches under ``protected_mode_synthetic`` (always the healthy
+full document in this family) and ``protected_mode_synthetic_cases`` (the
+six fixed case names, each closed to the one conformance shape its hook
+configuration produces).  Every nested shape is source-derived from the
+committed producer: the healthy case is the complete protected-mode
+rehearsal document plus the three synthetic-conformance additions; the two
+observer cases are the codex-chain early-stop document; the predispatch
+case is the preflight-mapping refusal document; the two vision cases are
+the post-codex exception document.  No nested shape is an open structure
+and no key is accepted beyond the closed sets.
 
 No schema, vocabulary, or bound in this module is derived from the historical
 artifact values.  Candidate bytes may only be processed by the fail-closed
@@ -114,8 +117,6 @@ __all__ = [
     "MANIFEST_AUTHORITY_POSITIONS",
     "MANIFEST_AUTHORITY_ROLE_ORDER",
     "MANIFEST_HISTORICAL_AUTHORITY_SPEC",
-    "MANIFEST_NOT_RETAINED_REASON",
-    "MANIFEST_OPTIONAL_NOT_RETAINED",
     "MANIFEST_REJECTED_REJECTION_CLASSES",
     "MANIFEST_UNAVAILABLE_REJECTION",
     "CLEANUP_OBSERVATION_SPEC",
@@ -140,6 +141,11 @@ LOCAL_ROUTE_POLICY: str = "qwen38-vision-codex/retain_newest/signed_identity_v1"
 OBSERVATION_VERSION: str = "direct-httpx-v2"
 LOCAL_SOURCE: str = "src/slaif_local_coding"
 HARNESS_SOURCE: str = "scripts/gateway_accounting_rehearsal.py"
+#: The dotted runner module path the synthetic conformance builder records
+#: in ``source_identities.runner`` (the slash form ``HARNESS_SOURCE`` is the
+#: ``candidate_provenance.harness_source`` literal, a distinct producer
+#: field).
+CONFORMANCE_RUNNER_SOURCE: str = "scripts.gateway_accounting_rehearsal.py"
 TARGET_IDENTITY_REPLAY: str = "identity_replay"
 TARGET_FULL: str = "full"
 AP_FAKE_IMPLEMENTATION_SHA: str = "934388057af267b3bf39b2a2d1b56d34dfbd042f"
@@ -179,7 +185,11 @@ AP_FAKE_SOURCE_IDENTITY: Mapping[str, Mapping[str, str]] = {
 
 TARGET_RESULT_SCHEMA_NAME = "oap-safe-target-identity-replay-v1"
 FULL_GATE_RESULT_SCHEMA_NAME = "oap-safe-full-fake-gate-v1"
-MANIFEST_SCHEMA = "oap-008-a-durable-evidence-manifest-v1"
+#: The 008-b revision of the in-PR durable-preservation manifest: the 008-a
+#: manifest (schema ``oap-008-a-durable-evidence-manifest-v1``) is the only
+#: preimage the 008-b historical audit may replace, and only after
+#: verifying its exact committed identity below.
+MANIFEST_SCHEMA = "oap-008-b-durable-evidence-manifest-v1"
 
 # --------------------------------------------------------------------------
 # Fixed identifier patterns (source-derived shapes, not values)
@@ -197,7 +207,10 @@ SYMBOL = r"[a-z0-9_]{1,64}"
 #: (``tuple(sorted(run.event_type_counts))``), so the closed class here is
 #: this grammar plus a bounded element count; free text, whitespace, and
 #: path-like values never match.
-CODEX_EVENT_TYPE = r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){1,3}"
+#: The pinned Codex CLI emits both multi-segment dotted event types and
+#: single-segment top-level types (the class-level closure of the CLI
+#: identifier grammar: lowercase identifier segments, dotted, 1..4 deep).
+CODEX_EVENT_TYPE = r"[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*){0,3}"
 PHASE = r"[a-z0-9_]{1,32}"
 PROVIDER_ERROR_PARAMS_PATTERN = None  # vocabulary below instead
 DECIMAL_TEXT = r"[+-]?[0-9]+(\.[0-9]+)?"
@@ -735,6 +748,20 @@ CODEX_FAILURE_REASONS = frozenset(
         "command_incomplete",
     }
 )
+#: Full-gate runner-level addition to the ``run_codex_once`` reason set:
+#: when the observed provider transport does not match the codex-chain
+#: expectation the runner rewrites ``failure_reason`` to this fixed class
+#: (present verbatim in both committed producers, ``a71d61f`` and
+#: ``9343880``).  Only the full codex-facts documents carry it; the phase
+#: checkpoint projection drops ``failure_reason`` entirely.
+CODEX_FAILURE_REASONS_FULL: frozenset[str] = CODEX_FAILURE_REASONS | {
+    "transport_observation_mismatch"
+}
+#: ``run_codex_once`` additionally closes the non-zero-exit branch to
+#: ``exit_<abs(exit_status)>``; POSIX normal exit statuses are 0-255 and
+#: signal terminations report negative return codes with signal numbers,
+#: so the closed numeric range is 1..255.
+CODEX_FAILURE_EXIT_PATTERN: str = "exit_[1-9][0-9]{0,2}"
 CODEX_FAILURE_ORIGINS = frozenset(
     {
         "unresolved_with_fixed_evidence",
@@ -1032,21 +1059,44 @@ PROVIDER_BOUNDARY_FULL_SPEC: DictSpec = dict_spec(
 # Failure context and dispatch budget
 # --------------------------------------------------------------------------
 
-FAILURE_CONTEXT_SPEC: DictSpec = dict_spec(
-    required=(
-        ("kind", _pattern(SYMBOL)),
-        ("operation", UnionSpec((_pattern(SYMBOL), _NULL))),
-        ("phase", UnionSpec((_pattern(SYMBOL), _NULL))),
-        ("ordinal", UnionSpec((_int(), _NULL))),
-        ("lifetime_id", UnionSpec((_pattern(SYMBOL), _NULL))),
-        ("cause", _vocab(SNAPSHOT_FAILURE_CLASSES)),
-    ),
-    optional=(
-        ("overflow_subtype", _vocab(OVERFLOW_SUBTYPES)),
-        ("overflow_observed", _int()),
-        ("overflow_bound", _int()),
-        ("validation_stage", _vocab(VALIDATION_STAGE)),
-    ),
+
+def _failure_context_spec(cause_classes: frozenset[str], kind_nullable: bool) -> DictSpec:
+    """One closed failure-context shape; only the ``cause`` vocabulary and
+    the nullability of the observer-defaulted ``kind`` position vary."""
+    return dict_spec(
+        required=(
+            (
+                "kind",
+                UnionSpec((_pattern(SYMBOL), _NULL)) if kind_nullable else _pattern(SYMBOL),
+            ),
+            ("operation", UnionSpec((_pattern(SYMBOL), _NULL))),
+            ("phase", UnionSpec((_pattern(SYMBOL), _NULL))),
+            ("ordinal", UnionSpec((_int(), _NULL))),
+            ("lifetime_id", UnionSpec((_pattern(SYMBOL), _NULL))),
+            ("cause", _vocab(cause_classes)),
+        ),
+        optional=(
+            ("overflow_subtype", _vocab(OVERFLOW_SUBTYPES)),
+            ("overflow_observed", _int()),
+            ("overflow_bound", _int()),
+            ("validation_stage", _vocab(VALIDATION_STAGE)),
+        ),
+    )
+
+
+#: Observer-snapshot failure context: the observer latches its own failure
+#: class (``_latch_failure`` defaults a missing ``kind`` to ``"unknown"``),
+#: so ``cause`` closes to the observer class set and ``kind`` is a plain
+#: symbol.
+FAILURE_CONTEXT_SPEC: DictSpec = _failure_context_spec(SNAPSHOT_FAILURE_CLASSES, False)
+
+#: Run-accumulator failure context: ``record_failure`` sanitizes the failure
+#: value through ``_safe_accumulator_failure`` (closed to the harness safe
+#: set, ``unknown`` fallback) and ``_safe_failure_context`` leaves a missing
+#: string ``kind`` as ``null``, so the closed shape differs in exactly those
+#: two positions.
+ACCUMULATOR_FAILURE_CONTEXT_SPEC: DictSpec = _failure_context_spec(
+    ACCUMULATOR_FAILURE_CLASSES, True
 )
 
 #: ``PUBLIC_REQUEST_BUDGET``: every public operation has maximum exactly
@@ -1198,6 +1248,16 @@ _DISPATCH_COUNTS_SPEC: DictSpec = dict_spec(
     optional=tuple((kind, _DISPATCH_COUNTS_INNER) for kind in ("compiler", "inference", "other")),
 )
 
+#: ``response_byte_lifetimes`` and ``dispatch_records`` are closed at the
+#: producer dispatch guard: ``BudgetController`` appends a byte lifetime
+#: only while ``len(...) < self.budget.max_dispatches`` (``finish_response``)
+#: and a dispatch record only while ``len(...) < self.budget.max_dispatches``
+#: (``_dispatch_record`` and the readiness/provider-probe paths).  The
+#: committed runner constructs its single ``RehearsalBudget`` without
+#: overriding ``max_dispatches``, whose harness default is 64, so 64 is the
+#: exact producer-derived bound for both lists in every family this spec
+#: closes (008-a retained target documents carry at most a few entries and
+#: remain valid under the corrected bound).
 BUDGET_SPEC: DictSpec = dict_spec(
     required=(
         ("wall_seconds", FloatSpec(minimum=0.0, maximum=1_000_000.0)),
@@ -1220,7 +1280,7 @@ BUDGET_SPEC: DictSpec = dict_spec(
         ("response_rejected_bytes_total", _int()),
         ("response_rejected_chunks_total", _int()),
         ("response_active", _BOOL),
-        ("response_byte_lifetimes", ListSpec(_RESPONSE_BYTE_LIFETIME_ENTRY, 16)),
+        ("response_byte_lifetimes", ListSpec(_RESPONSE_BYTE_LIFETIME_ENTRY, 64)),
         ("current_response_bytes", UnionSpec((_NULL, _RESPONSE_BYTE_LIFETIME_ENTRY))),
         ("active_concurrency_class", _vocab(COUNT_CLASS)),
         ("active_dispatch_class", _vocab(COUNT_CLASS)),
@@ -1249,7 +1309,7 @@ BUDGET_SPEC: DictSpec = dict_spec(
         ("dispatch_attempted_count_class", _vocab(COUNT_CLASS)),
         ("dispatch_admitted_count_class", _vocab(COUNT_CLASS)),
         ("dispatch_counts", _DISPATCH_COUNTS_SPEC),
-        ("dispatch_records", ListSpec(_DISPATCH_RECORD_SPEC, 128)),
+        ("dispatch_records", ListSpec(_DISPATCH_RECORD_SPEC, 64)),
         ("pending_permission_count", _int()),
         ("readiness_admitted_count", _int()),
         ("readiness_consumed_count", _int()),
@@ -1510,56 +1570,60 @@ _CODEX_PHASE_ACCOUNTING_KEYS: tuple[str, ...] = (
     "cost",
 )
 
+#: Codex facts as checkpointed by ``_codex_phase_checkpoint``: the exact
+#: 12-key projection the producer retains (status, the 5-key client
+#: verification subset, and the eight nullable facts).  Reused verbatim by
+#: the nested synthetic protected-conformance failure shapes, whose
+#: ``codex`` field is backfilled from this same checkpoint.
+_CODEX_PHASE_CHECKPOINT_CODEX_SPEC: DictSpec = dict_spec(
+    required=(
+        ("status", _vocab(frozenset({"PASSED", "FAILED", "unknown"}))),
+        ("client_verification", _CODEX_PHASE_CLIENT_VERIFICATION_SPEC),
+        ("provider_inference_call_count", UnionSpec((_NULL, _int()))),
+        ("provider_turns_expected", UnionSpec((_NULL, _int()))),
+        ("exit_status", UnionSpec((_NULL, _int()))),
+        ("command_lifecycle", UnionSpec((_NULL, _vocab(CODEX_COMMAND_LIFECYCLE)))),
+        ("sentinel_passed", UnionSpec((_NULL, _BOOL))),
+        ("tool_call_count_class", UnionSpec((_NULL, _vocab(COUNT_CLASS)))),
+        ("dependency_hash_equal", UnionSpec((_NULL, _BOOL))),
+        ("dependency_length_equal", UnionSpec((_NULL, _BOOL))),
+        ("call_id_same_hmac", UnionSpec((_NULL, _BOOL))),
+        ("scope_no_downgrade", UnionSpec((_NULL, _BOOL))),
+    ),
+)
+
+#: Provider observation as checkpointed: the 24-key optional boundary plus
+#: the two pinned source literals.
+_CODEX_PHASE_CHECKPOINT_PROVIDER_OBSERVATION_SPEC: DictSpec = dict_spec(
+    required=(
+        ("provider_boundary", CHECKPOINT_PROVIDER_BOUNDARY_SPEC),
+        ("source", StrSpec(vocabulary=frozenset({"direct_transport_observer"}))),
+        ("fake_oracle", StrSpec(vocabulary=frozenset({"unavailable"}))),
+    ),
+)
+
+#: Transport observation as checkpointed: exactly the two closed facts.
+_CODEX_PHASE_CHECKPOINT_TRANSPORT_OBSERVATION_SPEC: DictSpec = dict_spec(
+    required=(
+        ("provider_boundary_observed", _BOOL),
+        ("matches_fake_provider", UnionSpec((_NULL, _BOOL))),
+    ),
+)
+
+#: Accounting facts as checkpointed: each of the seven closed boolean
+#: facts, present only when the codex facts carry it.
+_CODEX_PHASE_CHECKPOINT_ACCOUNTING_SPEC: DictSpec = dict_spec(
+    required=(),
+    optional=tuple((name, UnionSpec((_NULL, _BOOL))) for name in _CODEX_PHASE_ACCOUNTING_KEYS),
+)
+
 PHASE_FACTS_SPEC: DictSpec = dict_spec(
     required=(
         ("evidence_kind", _vocab(EVIDENCE_KIND)),
-        (
-            "codex",
-            dict_spec(
-                required=(
-                    ("status", _vocab(frozenset({"PASSED", "FAILED", "unknown"}))),
-                    ("client_verification", _CODEX_PHASE_CLIENT_VERIFICATION_SPEC),
-                    ("provider_inference_call_count", UnionSpec((_NULL, _int()))),
-                    ("provider_turns_expected", UnionSpec((_NULL, _int()))),
-                    ("exit_status", UnionSpec((_NULL, _int()))),
-                    ("command_lifecycle", UnionSpec((_NULL, _vocab(CODEX_COMMAND_LIFECYCLE)))),
-                    ("sentinel_passed", UnionSpec((_NULL, _BOOL))),
-                    ("tool_call_count_class", UnionSpec((_NULL, _vocab(COUNT_CLASS)))),
-                    ("dependency_hash_equal", UnionSpec((_NULL, _BOOL))),
-                    ("dependency_length_equal", UnionSpec((_NULL, _BOOL))),
-                    ("call_id_same_hmac", UnionSpec((_NULL, _BOOL))),
-                    ("scope_no_downgrade", UnionSpec((_NULL, _BOOL))),
-                ),
-            ),
-        ),
-        (
-            "provider_observation",
-            dict_spec(
-                required=(
-                    ("provider_boundary", CHECKPOINT_PROVIDER_BOUNDARY_SPEC),
-                    ("source", StrSpec(vocabulary=frozenset({"direct_transport_observer"}))),
-                    ("fake_oracle", StrSpec(vocabulary=frozenset({"unavailable"}))),
-                ),
-            ),
-        ),
-        (
-            "transport_observation",
-            dict_spec(
-                required=(
-                    ("provider_boundary_observed", _BOOL),
-                    ("matches_fake_provider", UnionSpec((_NULL, _BOOL))),
-                ),
-            ),
-        ),
-        (
-            "accounting",
-            dict_spec(
-                required=(),
-                optional=tuple(
-                    (name, UnionSpec((_NULL, _BOOL))) for name in _CODEX_PHASE_ACCOUNTING_KEYS
-                ),
-            ),
-        ),
+        ("codex", _CODEX_PHASE_CHECKPOINT_CODEX_SPEC),
+        ("provider_observation", _CODEX_PHASE_CHECKPOINT_PROVIDER_OBSERVATION_SPEC),
+        ("transport_observation", _CODEX_PHASE_CHECKPOINT_TRANSPORT_OBSERVATION_SPEC),
+        ("accounting", _CODEX_PHASE_CHECKPOINT_ACCOUNTING_SPEC),
         (
             "governance",
             dict_spec(
@@ -1589,6 +1653,17 @@ CHECKPOINT_SPEC: DictSpec = dict_spec(
     ),
 )
 
+#: Bounded open cleanup-facts dictionary the accumulator records: the nine
+#: closed cleanup keys, boolean values, source-defined key set.
+_CLEANUP_FACTS_OPEN_DICT_SPEC: OpenDictSpec = OpenDictSpec(
+    key_pattern=(
+        "processes|listeners|database|cache|codex_home"
+        "|failure_replay|failure_cache|failure_identity|failure_provider"
+    ),
+    value=_BOOL,
+    maximum_keys=9,
+)
+
 RUN_ACCUMULATOR_SPEC: DictSpec = dict_spec(
     required=(
         ("mode", StrSpec(vocabulary=frozenset({"fake", "protected"}))),
@@ -1599,7 +1674,7 @@ RUN_ACCUMULATOR_SPEC: DictSpec = dict_spec(
         ("first_failure", UnionSpec((_NULL, _vocab(ACCUMULATOR_FAILURE_CLASSES)))),
         (
             "first_failure_context",
-            UnionSpec((_NULL, FAILURE_CONTEXT_SPEC)),
+            UnionSpec((_NULL, ACCUMULATOR_FAILURE_CONTEXT_SPEC)),
         ),
         ("secondary_failures", ListSpec(_vocab(ACCUMULATOR_FAILURE_CLASSES), 4)),
         ("counts", _ACCUMULATOR_COUNTS_SPEC),
@@ -1620,17 +1695,7 @@ RUN_ACCUMULATOR_SPEC: DictSpec = dict_spec(
         ("completed_phases", ListSpec(CHECKPOINT_SPEC, 64)),
         ("response_byte_evidence", ListSpec(_RESPONSE_BYTE_EVIDENCE_SPEC, 32)),
         ("snapshots", ListSpec(_SNAPSHOT_ENTRY_SPEC, 16)),
-        (
-            "cleanup",
-            OpenDictSpec(
-                key_pattern=(
-                    "processes|listeners|database|cache|codex_home"
-                    "|failure_replay|failure_cache|failure_identity|failure_provider"
-                ),
-                value=_BOOL,
-                maximum_keys=9,
-            ),
-        ),
+        ("cleanup", _CLEANUP_FACTS_OPEN_DICT_SPEC),
     ),
 )
 
@@ -1879,6 +1944,12 @@ CANDIDATE_PROVENANCE_SPEC: DictSpec = dict_spec(
     ),
 )
 
+#: Closed empty object: no key at all is admissible.  The fake provider
+#: snapshot projects ``provider_boundary`` to exactly ``{}`` whenever the
+#: provider oracle is disabled (``self.observation.safe_dict() if
+#: self.oracle_enabled else {}``).
+_EMPTY_DICT_SPEC: DictSpec = dict_spec(required=(), optional=())
+
 _FAKE_PROVIDER_OBSERVATION: DictSpec = dict_spec(
     required=(
         ("calls", _int()),
@@ -1911,7 +1982,10 @@ _FAKE_PROVIDER_OBSERVATION: DictSpec = dict_spec(
         ("tool_name_classes", ListSpec(_vocab(FAKE_TOOL_NAME_CLASSES), 6)),
         ("bad_auth", _BOOL),
         ("provider_oracle_available", _BOOL),
-        ("provider_boundary", UnionSpec((_NULL, PROVIDER_BOUNDARY_SPEC))),
+        (
+            "provider_boundary",
+            UnionSpec((_NULL, PROVIDER_BOUNDARY_SPEC, _EMPTY_DICT_SPEC)),
+        ),
     ),
 )
 
@@ -2000,11 +2074,12 @@ TOPOLOGY_OBSERVATION_SPEC: DictSpec = dict_spec(
 # is a rejection.
 # --------------------------------------------------------------------------
 
-ROLES: frozenset[str] = frozenset({"protected_target", "fake_target", "manifest"})
+ROLES: frozenset[str] = frozenset({"protected_target", "fake_target", "full_fake_gate", "manifest"})
 
 ROLE_SCHEMAS: Mapping[str, str] = {
     "protected_target": TARGET_RESULT_SCHEMA_NAME,
     "fake_target": TARGET_RESULT_SCHEMA_NAME,
+    "full_fake_gate": FULL_GATE_RESULT_SCHEMA_NAME,
     "manifest": MANIFEST_SCHEMA,
 }
 
@@ -2057,7 +2132,13 @@ PREFLIGHT_SPEC: DictSpec = dict_spec(
 
 
 def preflight_spec_for_role(role: str) -> Spec | None:
-    """Exact closed preflight-line spec for one role (manifest has none)."""
+    """Exact closed preflight-line spec for one role (manifest has none).
+
+    ``full_fake_gate`` shares the closed ``PREFLIGHT`` line of the same
+    producer: the AP37 runner's ``_tool_envelope_preflight`` emits exactly
+    this shape (the committed AP37 artifact file itself carries only the
+    final result line, and a two-line capture must carry this line).
+    """
     if role not in ROLES:
         _reject("role_unknown")
     if role == "manifest":
@@ -2066,7 +2147,8 @@ def preflight_spec_for_role(role: str) -> Spec | None:
 
 
 # --------------------------------------------------------------------------
-# Durable evidence manifest (Objective 008-a section B)
+# Durable evidence manifest (Objective 008 final form; 008-a section B,
+# revised by 008-b to the four-accepted form)
 # --------------------------------------------------------------------------
 
 MANIFEST_AUTHORITY_ROLES: frozenset[str] = frozenset(
@@ -2077,18 +2159,15 @@ MANIFEST_AUTHORITY_ROLES: frozenset[str] = frozenset(
         "fake_ap37_gate_authority",
     }
 )
-MANIFEST_AVAILABILITY: frozenset[str] = frozenset(
-    {"accepted", "unavailable", "rejected", "optional_not_retained"}
-)
+MANIFEST_AVAILABILITY: frozenset[str] = frozenset({"accepted", "unavailable", "rejected"})
 MANIFEST_UNAVAILABLE_REJECTION: str = "historical_temp_artifact_unavailable_on_this_host"
-#: Fixed content-free classification for the AP37 authority: the artifact
-#: exists and passed the bounded stat-only preflight, but it is not retained
-#: because the durable 005-ai 37/37 fake-machine-gate evidence, the immutable
-#: 005-ar report, and the final isolated fake target already preserve the
-#: material fake chain.  No hash, size, or content fact is recorded.
-MANIFEST_OPTIONAL_NOT_RETAINED: str = "optional_not_retained"
-#: Closed single-literal reason for the non-retention above.
-MANIFEST_NOT_RETAINED_REASON: str = "redundant_with_durable_fake_chain_authorities"
+#: Exact committed identity of the immutable 008-a manifest (cited by the
+#: immutable 008-a report): the only preimage the 008-b historical audit may
+#: replace, and only after verifying these exact bytes.
+OBJECTIVE_008_A_MANIFEST_SHA256: str = (
+    "cc1f81f3cc5adbac125c98f51df7976531c3e742d3e1082778b2dab15dd4145e"
+)
+OBJECTIVE_008_A_MANIFEST_BYTE_COUNT: int = 2125
 #: The four closed authority roles in the exact manifest entry order.  A
 #: manifest must carry exactly these four entries, one per role, each
 #: under exactly one availability state (unique closed roles).
@@ -2107,7 +2186,7 @@ MANIFEST_ACCEPTED_RELATIVE_PATHS: Mapping[str, str] = {
     "protected_final_1024_success": "005-ar/protected_final_1024_success.json",
     "protected_32_token_diagnostic": "005-ar/protected_32_token_diagnostic.json",
     "fake_isolated_target": "005-ar/fake_isolated_target_1024.json",
-    "fake_ap37_gate_authority": "005-ar/fake_ap37_gate_authority.json",
+    "fake_ap37_gate_authority": "005-ar/reused_ap37_fake_gate.json",
 }
 assert set(MANIFEST_ACCEPTED_RELATIVE_PATHS) == MANIFEST_AUTHORITY_ROLES
 #: Closed superset of every fixed rejection class the safe-evidence
@@ -2189,6 +2268,9 @@ MANIFEST_REJECTION_CLASSES: frozenset[str] = frozenset(
         "destination_component_writable",
         "destination_exists",
         "destination_symlink",
+        # existing-destination verification / one-shot replacement
+        "destination_bytes_mismatch",
+        "destination_unsafe",
         # atomic write
         "destination_reservation_failed",
         "destination_temp_failed",
@@ -2265,37 +2347,10 @@ def _manifest_entry_rejected(role: str) -> DictSpec:
     )
 
 
-def _manifest_entry_optional_not_retained(role: str) -> DictSpec:
-    """Optional-not-retained entry: exact fixed classification, null
-    path/hashes/count (no artifact hash or content fact is recorded)."""
-    return dict_spec(
-        required=(
-            ("role", StrSpec(vocabulary=frozenset({role}))),
-            (
-                "availability",
-                StrSpec(vocabulary=frozenset({MANIFEST_OPTIONAL_NOT_RETAINED})),
-            ),
-            ("rejection_class", _NULL),
-            ("relative_path", _NULL),
-            ("original_sha256", _NULL),
-            ("committed_sha256", _NULL),
-            ("byte_count", _NULL),
-        )
-    )
-
-
 def _manifest_authority_position(role: str) -> UnionSpec:
-    if role == "fake_ap37_gate_authority":
-        # The AP37 authority is never accepted: no closed export schema
-        # models its full synthetic protected-case tree, so the accepted
-        # state is not part of its closed availability union.
-        return UnionSpec(
-            (
-                _manifest_entry_unavailable(role),
-                _manifest_entry_rejected(role),
-                _manifest_entry_optional_not_retained(role),
-            )
-        )
+    """One closed availability union per authority role: accepted (pinned
+    path + original/committed SHA-256 + byte count), unavailable, or
+    rejected under one fixed closed class."""
     return UnionSpec(
         (
             _manifest_entry_accepted(role),
@@ -2355,25 +2410,6 @@ MANIFEST_SPEC: DictSpec = dict_spec(
         ("preserved_during_objective_005", BoolSpec(False)),
         ("authorities", MANIFEST_AUTHORITY_POSITIONS),
         ("historical_authority", MANIFEST_HISTORICAL_AUTHORITY_SPEC),
-        (
-            "optional_not_retained",
-            dict_spec(
-                required=(
-                    (
-                        "role",
-                        StrSpec(vocabulary=frozenset({"fake_ap37_gate_authority"})),
-                    ),
-                    (
-                        "classification",
-                        StrSpec(vocabulary=frozenset({MANIFEST_OPTIONAL_NOT_RETAINED})),
-                    ),
-                    (
-                        "reason",
-                        StrSpec(vocabulary=frozenset({MANIFEST_NOT_RETAINED_REASON})),
-                    ),
-                ),
-            ),
-        ),
         (
             "acceptance_relationship",
             dict_spec(
@@ -2445,12 +2481,20 @@ COMPOSED_STREAM_FACTS_SPEC: DictSpec = dict_spec(
     ),
 )
 
+#: ``run_codex_once`` returns ``exit_status=None`` on the
+#: ``process_boundary_error`` path, so every committed codex-facts
+#: ``exit_status`` position closes to int-or-null.
+CODEX_EXIT_STATUS_SPEC: Spec = UnionSpec((_int(), _NULL))
+
 _CLIENT_VERIFICATION_SPEC: DictSpec = dict_spec(
     required=(
         ("status", StrSpec(vocabulary=frozenset({"PASSED", "FAILED"}))),
-        ("exit_status", _int()),
+        ("exit_status", CODEX_EXIT_STATUS_SPEC),
         ("failure_origin", _vocab(CODEX_FAILURE_ORIGINS)),
-        ("failure_reason", _vocab(CODEX_FAILURE_REASONS)),
+        (
+            "failure_reason",
+            UnionSpec((_vocab(CODEX_FAILURE_REASONS_FULL), _pattern(CODEX_FAILURE_EXIT_PATTERN))),
+        ),
         ("sentinel_passed", _BOOL),
         ("command_lifecycle", _vocab(CODEX_COMMAND_LIFECYCLE)),
     ),
@@ -2523,12 +2567,15 @@ CODEX_FACTS_SPEC: DictSpec = dict_spec(
         ("client_verification", _CLIENT_VERIFICATION_SPEC),
         ("version", StrSpec(vocabulary=frozenset({CODEX_VERSION}))),
         ("binary_sha256", StrSpec(vocabulary=frozenset({CODEX_FIXTURE_SHA256}))),
-        ("exit_status", _int()),
+        ("exit_status", CODEX_EXIT_STATUS_SPEC),
         ("tool_call_count_class", _vocab(COUNT_CLASS)),
         ("dependency_read_count_class", _vocab(COUNT_CLASS)),
         ("sentinel_passed", _BOOL),
         ("command_lifecycle", _vocab(CODEX_COMMAND_LIFECYCLE)),
-        ("failure_reason", _vocab(CODEX_FAILURE_REASONS)),
+        (
+            "failure_reason",
+            UnionSpec((_vocab(CODEX_FAILURE_REASONS_FULL), _pattern(CODEX_FAILURE_EXIT_PATTERN))),
+        ),
         ("failure_origin", _vocab(CODEX_FAILURE_ORIGINS)),
         ("diagnostic_class", _vocab(CODEX_DIAGNOSTIC_CLASSES)),
         ("stderr_class", _vocab(CODEX_STDERR_CLASS)),
@@ -2705,6 +2752,19 @@ REPLAY_OWNERSHIP_NEGATIVE_SPEC: DictSpec = dict_spec(
         ("second_key_accounting_unchanged", _BOOL),
         ("zero_pending", _BOOL),
         ("zero_duplicate_request_ids", _BOOL),
+    ),
+)
+
+#: The runner initializes ``replay_ownership_negative`` to this exact
+#: placeholder for every provider target; the companion matrix runs only in
+#: the fake branch, so protected and synthetic conformance documents retain
+#: the pinned three-key form (producer: the unconditional pre-branch default
+#: in the full-gate driver).
+REPLAY_OWNERSHIP_NEGATIVE_NOT_RUN_SPEC: DictSpec = dict_spec(
+    required=(
+        ("passed", BoolSpec(False)),
+        ("status", StrSpec(vocabulary=frozenset({"NOT RUN"}))),
+        ("scope", StrSpec(vocabulary=frozenset({"gateway_responses_companion"}))),
     ),
 )
 
@@ -2892,15 +2952,34 @@ ACCEPTANCE_GATE_PROJECTION_ROW_SPEC: DictSpec = dict_spec(
 RUNTIME_FAILURE_SPEC: DictSpec = dict_spec(
     required=(
         ("class", _vocab(ACCUMULATOR_FAILURE_CLASSES)),
-        ("context", UnionSpec((_NULL, FAILURE_CONTEXT_SPEC))),
+        ("context", UnionSpec((_NULL, ACCUMULATOR_FAILURE_CONTEXT_SPEC))),
     ),
 )
 
-ACCEPTANCE_GATE_SPEC: DictSpec = dict_spec(
-    required=(
+
+def _acceptance_gate_spec(
+    schema_keys: tuple[str, ...],
+    *,
+    include_runtime_failure: bool = True,
+    first_failure_spec: Spec | None = None,
+) -> DictSpec:
+    """One closed gate shape; the observation schema keys are the mode's
+    closed projection keys (fake family vs nested protected documents).
+
+    ``first_failure`` is emitted verbatim by ``ObligationGate.safe_dict``:
+    the normal ``_acceptance_gate`` path closes it to the first non-passed
+    obligation ID, while the runner's serialization-failure fallback
+    (``finalize_result``) passes ``accumulator.first_failure``, the
+    sanitized accumulator failure class.  The fallback also never attaches
+    the ``runtime_failure`` fact, so that shape omits the key entirely
+    rather than carrying it as null.
+    """
+    if first_failure_spec is None:
+        first_failure_spec = UnionSpec((_NULL, _pattern(OBLIGATION_ID)))
+    required: list[tuple[str, Spec]] = [
         ("mode", StrSpec(vocabulary=frozenset({"fake", "protected"}))),
         ("missing", ListSpec(_pattern(OBLIGATION_ID), 64)),
-        ("first_failure", UnionSpec((_NULL, _pattern(OBLIGATION_ID)))),
+        ("first_failure", first_failure_spec),
         ("retry_count", _int()),
         ("passed", _BOOL),
         ("result_count_class", _vocab(COUNT_CLASS)),
@@ -2908,10 +2987,27 @@ ACCEPTANCE_GATE_SPEC: DictSpec = dict_spec(
         ("projection_table", ListSpec(ACCEPTANCE_GATE_PROJECTION_ROW_SPEC, 64)),
         (
             "observation_schema_keys",
-            ListSpec(StrSpec(vocabulary=frozenset(FAKE_RESULT_SCHEMA_KEYS)), 256),
+            ListSpec(StrSpec(vocabulary=frozenset(schema_keys)), 256),
         ),
-        ("runtime_failure", UnionSpec((_NULL, RUNTIME_FAILURE_SPEC))),
-    ),
+    ]
+    if include_runtime_failure:
+        required.append(("runtime_failure", UnionSpec((_NULL, RUNTIME_FAILURE_SPEC))))
+    return dict_spec(required=tuple(required))
+
+
+#: Fake-mode gate (the 37/37 fake machine-gate document family).
+ACCEPTANCE_GATE_SPEC: DictSpec = _acceptance_gate_spec(FAKE_RESULT_SCHEMA_KEYS)
+#: Protected-mode gate (the nested synthetic protected-conformance
+#: documents of the full fake-gate family).
+_ACCEPTANCE_GATE_PROTECTED_SPEC: DictSpec = _acceptance_gate_spec(PROTECTED_RESULT_SCHEMA_KEYS)
+#: Protected-mode fallback gate: the ``finalize_result`` serialization
+#: fallback reached when the synthetic projection-failure hook is active.
+#: Its ``first_failure`` carries the sanitized accumulator failure class
+#: (``accumulator.first_failure``), not an obligation ID.
+_ACCEPTANCE_GATE_FALLBACK_PROTECTED_SPEC: DictSpec = _acceptance_gate_spec(
+    PROTECTED_RESULT_SCHEMA_KEYS,
+    include_runtime_failure=False,
+    first_failure_spec=UnionSpec((_NULL, _vocab(ACCUMULATOR_FAILURE_CLASSES))),
 )
 
 TARGET_ACCEPTANCE_GATE_SPEC: DictSpec = dict_spec(
@@ -3326,80 +3422,446 @@ _PROTECTED_TARGET_RESULT_SPEC: DictSpec = dict_spec(
     ),
 )
 
-_FULL_GATE_REQUIRED: tuple[tuple[str, Spec], ...] = (
-    (
-        "status",
-        StrSpec(vocabulary=frozenset({"PASSED", "FAILED", "COMPLETE", "BLOCKED"})),
-    ),
-    ("provider_target", StrSpec(vocabulary=frozenset({"fake"}))),
-    ("gateway_sha", StrSpec(vocabulary=frozenset({GATEWAY_MAIN_SHA}))),
-    ("candidate_provenance", CANDIDATE_PROVENANCE_SPEC),
-    ("gateway_health_status", _status_int()),
-    ("gateway_ready_status", _status_int()),
-    ("candidate_health_status", _status_int()),
-    ("candidate_ready_status", _status_int()),
-    ("protected_health_status", _status_int()),
-    ("protected_models_status", _status_int()),
-    ("provider_preflight", PROVIDER_PREFLIGHT_SPEC),
-    ("models_visible_expected", _BOOL),
-    ("text_status", _status_int()),
-    ("text_usage_present", _BOOL),
-    ("stream", COMPOSED_STREAM_FACTS_SPEC),
-    ("image_status", _status_int()),
-    ("image_seen", _int()),
-    ("image_removed", _int()),
-    ("codex", CODEX_FACTS_SPEC),
-    ("vision", VISION_RESULT_SPEC),
-    ("cutover", CUTOVER_FACTS_SPEC),
-    ("cutover_observations", CUTOVER_OBSERVATIONS_SPEC),
-    ("constitution", CONSTITUTION_OBSERVATION_SPEC),
-    ("identity_matrix", IDENTITY_MATRIX_SPEC),
-    ("isolation", ISOLATION_OBSERVATION_SPEC),
-    ("gateway_rejects", GATEWAY_REJECTS_SPEC),
-    ("failure_observation", FAILURE_OBSERVATION_SPEC),
-    ("compiler_observation", COMPILER_OBSERVATION_SPEC),
-    ("transport_observation", MERGED_TRANSPORT_SPEC),
-    ("topology_observation", TOPOLOGY_OBSERVATION_SPEC),
-    ("compiler_attempt_delta", _int()),
-    ("cache_hits", _int()),
-    ("rehydration_hits", _int()),
-    ("second_owner_isolated", _BOOL),
-    ("invalid_public_key_status", _status_int()),
-    ("over_quota_status", _status_int()),
-    ("hosted_tool_choice_status", _status_int()),
-    ("controlled_failure_status", _status_int()),
-    ("failure_provider_calls", _int()),
-    ("tamper_matrix", TAMPER_MATRIX_SPEC),
-    ("provider_url_class", StrSpec(vocabulary=frozenset({"fake_loopback"}))),
-    ("fake_provider", UnionSpec((_FAKE_PROVIDER_OBSERVATION, _NULL))),
-    ("provider_observation", UnionSpec((PROVIDER_OBSERVATION_SPEC, _NULL))),
-    ("fake_idless_http_regression", FAKE_IDLESS_HTTP_REGRESSION_SPEC),
-    ("idless_composed_companion", COMPANION_SPEC),
-    (
-        "candidate_only_observation",
-        UnionSpec((CANDIDATE_ONLY_OBSERVATION_SPEC, NOT_RUN_SPEC)),
-    ),
-    ("accounting", ACCOUNTING_LEDGER_SPEC),
-    ("replay_ownership_negative", REPLAY_OWNERSHIP_NEGATIVE_SPEC),
-    ("postgres_tmpfs_only", _BOOL),
-    ("protected_mode_synthetic", NOT_RUN_SPEC),
-    ("protected_mode_synthetic_cases", dict_spec(required=())),
-    ("gateway_listener_removed", _BOOL),
-    ("candidate_listener_removed", _BOOL),
-    ("temporary_state_removed", _BOOL),
-    ("protected_unchanged", PROTECTED_UNCHANGED_FAKE_LITERAL),
-    ("run_accumulator", RUN_ACCUMULATOR_SPEC),
-    ("phase_checkpoints", ListSpec(CHECKPOINT_SPEC, 64)),
-    ("cleanup_observation", CLEANUP_OBSERVATION_SPEC),
-    ("all_lifetime_counts", _ACCUMULATOR_COUNTS_SPEC),
-    ("logs_secret_free", _BOOL),
-    (
-        "runtime_observations",
-        build_runtime_observations_spec(FAKE_RESULT_SCHEMA_KEYS),
-    ),
-    ("acceptance_gate", ACCEPTANCE_GATE_SPEC),
-    ("gap_inventory", GAP_INVENTORY_SPEC),
+#: ``protected_conformance`` of every nested synthetic protected-conformance
+#: document: the five initial facts plus the nine update facts the producer
+#: computes from the acceptance gate, the run accumulator, and the result.
+#: ``provider_target`` is closed to ``fake``: the synthetic conformance path
+#: is admitted only for ``ProtectedRuntimeHooks`` with ``provider_target ==
+#: "fake"``.  ``source_identities`` carries the four pinned producer
+#: literals.  Missing-dependency reduced documents (which carry
+#: ``synthetic_dependency_missing``) are a different producer branch the
+#: synthetic case configuration never takes; they are not modeled here and
+#: fail closed.
+PROTECTED_CONFORMANCE_DISPATCH_COUNT_KEYS: tuple[str, ...] = (
+    "compiler_attempted",
+    "compiler_dispatched",
+    "compiler_responded",
+    "compiler_completed",
+    "inference_attempted",
+    "inference_dispatched",
+    "inference_responded",
+    "inference_completed",
+    "other_attempted",
+    "other_dispatched",
+    "other_responded",
+    "other_completed",
 )
+
+PROTECTED_CONFORMANCE_SOURCE_IDENTITIES_SPEC: DictSpec = dict_spec(
+    required=(
+        ("local", StrSpec(vocabulary=frozenset({LOCAL_SOURCE}))),
+        ("observer", StrSpec(vocabulary=frozenset({OBSERVATION_VERSION}))),
+        (
+            "provider",
+            StrSpec(vocabulary=frozenset({"disposable_loopback_fake_oracle_disabled"})),
+        ),
+        ("runner", StrSpec(vocabulary=frozenset({CONFORMANCE_RUNNER_SOURCE}))),
+    ),
+)
+
+PROTECTED_CONFORMANCE_SPEC: DictSpec = dict_spec(
+    required=(
+        ("all_selected_rows_serialized", _BOOL),
+        ("cleanup_snapshot", _CLEANUP_FACTS_OPEN_DICT_SPEC),
+        (
+            "dispatch_counts",
+            dict_spec(
+                required=tuple(
+                    (name, UnionSpec((_NULL, _int())))
+                    for name in PROTECTED_CONFORMANCE_DISPATCH_COUNT_KEYS
+                )
+            ),
+        ),
+        ("healthy_gate_passed", _BOOL),
+        ("implementation_reached", _BOOL),
+        ("phase_trace", ListSpec(_vocab(PHASE_VOCAB), 16)),
+        (
+            "primary_failure",
+            UnionSpec((_NULL, _vocab(ACCUMULATOR_FAILURE_CLASSES))),
+        ),
+        ("provider_preflight", UnionSpec((PROVIDER_PREFLIGHT_SPEC, _NULL))),
+        ("provider_target", StrSpec(vocabulary=frozenset({"fake"}))),
+        ("real_protected_access", BoolSpec(False)),
+        (
+            "secondary_failure_classes",
+            ListSpec(_vocab(ACCUMULATOR_FAILURE_CLASSES), 16),
+        ),
+        ("selected_result_count", _int()),
+        ("selected_result_disposition_count", _int()),
+        ("source_identities", PROTECTED_CONFORMANCE_SOURCE_IDENTITIES_SPEC),
+    ),
+)
+
+# ---------------------------------------------------------------------------
+# Full-gate family (fake and nested protected variants)
+# ---------------------------------------------------------------------------
+
+
+def _full_gate_required(
+    provider_mode: frozenset[str],
+    *,
+    status_vocabulary: frozenset[str],
+    provider_url_class: frozenset[str],
+    fake_provider: Spec,
+    provider_observation: Spec,
+    protected_unchanged: Spec,
+    runtime_observations: DictSpec,
+    acceptance_gate: DictSpec,
+    protected_mode_synthetic: Spec,
+    protected_mode_synthetic_cases: Spec,
+) -> tuple[tuple[str, Spec], ...]:
+    """The 63 closed full-gate keys in producer order.
+
+    Every position is closed from the committed producer source; only the
+    mode-dependent positions vary between the fake machine-gate family and
+    the nested synthetic protected-conformance document (the same code
+    path executed in protected mode): ``status``, ``provider_target``,
+    ``provider_url_class``, ``fake_provider``, ``provider_observation``,
+    ``protected_unchanged``, ``runtime_observations``,
+    ``acceptance_gate``, and the two synthetic-conformance positions.
+    """
+    return (
+        ("status", StrSpec(vocabulary=status_vocabulary)),
+        ("provider_target", StrSpec(vocabulary=provider_mode)),
+        ("gateway_sha", StrSpec(vocabulary=frozenset({GATEWAY_MAIN_SHA}))),
+        ("candidate_provenance", CANDIDATE_PROVENANCE_SPEC),
+        ("gateway_health_status", _status_int()),
+        ("gateway_ready_status", _status_int()),
+        ("candidate_health_status", _status_int()),
+        ("candidate_ready_status", _status_int()),
+        ("protected_health_status", _status_int()),
+        ("protected_models_status", _status_int()),
+        ("provider_preflight", PROVIDER_PREFLIGHT_SPEC),
+        ("models_visible_expected", _BOOL),
+        ("text_status", _status_int()),
+        ("text_usage_present", _BOOL),
+        ("stream", COMPOSED_STREAM_FACTS_SPEC),
+        ("image_status", _status_int()),
+        ("image_seen", _int()),
+        ("image_removed", _int()),
+        ("codex", CODEX_FACTS_SPEC),
+        ("vision", VISION_RESULT_SPEC),
+        ("cutover", CUTOVER_FACTS_SPEC),
+        ("cutover_observations", CUTOVER_OBSERVATIONS_SPEC),
+        ("constitution", CONSTITUTION_OBSERVATION_SPEC),
+        ("identity_matrix", IDENTITY_MATRIX_SPEC),
+        ("isolation", ISOLATION_OBSERVATION_SPEC),
+        ("gateway_rejects", GATEWAY_REJECTS_SPEC),
+        ("failure_observation", FAILURE_OBSERVATION_SPEC),
+        ("compiler_observation", COMPILER_OBSERVATION_SPEC),
+        ("transport_observation", MERGED_TRANSPORT_SPEC),
+        ("topology_observation", TOPOLOGY_OBSERVATION_SPEC),
+        ("compiler_attempt_delta", _int()),
+        ("cache_hits", _int()),
+        ("rehydration_hits", _int()),
+        ("second_owner_isolated", _BOOL),
+        ("invalid_public_key_status", _status_int()),
+        ("over_quota_status", _status_int()),
+        ("hosted_tool_choice_status", _status_int()),
+        ("controlled_failure_status", _status_int()),
+        ("failure_provider_calls", _int()),
+        ("tamper_matrix", TAMPER_MATRIX_SPEC),
+        ("provider_url_class", StrSpec(vocabulary=provider_url_class)),
+        ("fake_provider", fake_provider),
+        ("provider_observation", provider_observation),
+        ("fake_idless_http_regression", FAKE_IDLESS_HTTP_REGRESSION_SPEC),
+        ("idless_composed_companion", COMPANION_SPEC),
+        (
+            "candidate_only_observation",
+            UnionSpec((CANDIDATE_ONLY_OBSERVATION_SPEC, NOT_RUN_SPEC)),
+        ),
+        ("accounting", ACCOUNTING_LEDGER_SPEC),
+        (
+            "replay_ownership_negative",
+            UnionSpec(
+                (
+                    REPLAY_OWNERSHIP_NEGATIVE_SPEC,
+                    REPLAY_OWNERSHIP_NEGATIVE_NOT_RUN_SPEC,
+                )
+            ),
+        ),
+        ("postgres_tmpfs_only", _BOOL),
+        ("protected_mode_synthetic", protected_mode_synthetic),
+        ("protected_mode_synthetic_cases", protected_mode_synthetic_cases),
+        ("gateway_listener_removed", _BOOL),
+        ("candidate_listener_removed", _BOOL),
+        ("temporary_state_removed", _BOOL),
+        ("protected_unchanged", protected_unchanged),
+        ("run_accumulator", RUN_ACCUMULATOR_SPEC),
+        ("phase_checkpoints", ListSpec(CHECKPOINT_SPEC, 64)),
+        ("cleanup_observation", CLEANUP_OBSERVATION_SPEC),
+        ("all_lifetime_counts", _ACCUMULATOR_COUNTS_SPEC),
+        ("logs_secret_free", _BOOL),
+        ("runtime_observations", runtime_observations),
+        ("acceptance_gate", acceptance_gate),
+        ("gap_inventory", GAP_INVENTORY_SPEC),
+    )
+
+
+#: The three synthetic-conformance additions every nested protected
+#: conformance document carries beyond its rehearsal document.
+_SYNTHETIC_CONFORMANCE_ADDITIONS: tuple[tuple[str, Spec], ...] = (
+    ("protected_acceptance", BoolSpec(False)),
+    (
+        "evidence_kind",
+        StrSpec(vocabulary=frozenset({"synthetic_orchestration_only"})),
+    ),
+    ("protected_conformance", PROTECTED_CONFORMANCE_SPEC),
+)
+
+#: Nested healthy case: the complete protected-mode rehearsal document
+#: (63 keys, protected variant) plus the three synthetic additions.  The
+#: producer's healthy-branch check requires the gate to pass, so the
+#: terminal status is closed to ``COMPLETE`` for every generated artifact.
+_SYNTHETIC_PROTECTED_HEALTHY_SPEC: DictSpec = dict_spec(
+    required=_full_gate_required(
+        frozenset({"protected"}),
+        status_vocabulary=frozenset({"COMPLETE"}),
+        provider_url_class=frozenset({"protected_loopback"}),
+        fake_provider=_NULL,
+        provider_observation=PROVIDER_OBSERVATION_SPEC,
+        protected_unchanged=PROTECTED_UNCHANGED_FACTS_SPEC,
+        runtime_observations=build_runtime_observations_spec(PROTECTED_RESULT_SCHEMA_KEYS),
+        acceptance_gate=_ACCEPTANCE_GATE_PROTECTED_SPEC,
+        protected_mode_synthetic=NOT_RUN_SPEC,
+        protected_mode_synthetic_cases=dict_spec(required=()),
+    )
+    + _SYNTHETIC_CONFORMANCE_ADDITIONS,
+)
+
+#: Nested observer cases (failure injected at the first inference dispatch):
+#: the codex-chain early-stop partial document plus the cleanup, gate,
+#: accumulator, and synthetic additions.  The gate cannot pass on a partial
+#: codex-chain document, so the terminal status is closed to ``BLOCKED``.
+#: The driver initializes ``idless_composed_companion`` to this exact two-key
+#: placeholder for every run; the companion matrix fills the full observation
+#: only on the happy path, so the early-stop partial documents retain the
+#: pinned placeholder.
+COMPANION_NOT_RUN_SPEC: DictSpec = dict_spec(
+    required=(
+        ("passed", BoolSpec(False)),
+        ("natural_codex_shape_separate", BoolSpec(False)),
+    ),
+)
+
+
+def _early_stop_required(acceptance_gate: DictSpec) -> tuple[tuple[str, Spec], ...]:
+    """The 32 closed early-stop keys; only the acceptance-gate position
+    varies (the projection-failure hook switches it to the fallback gate)."""
+    return (
+        ("acceptance_gate", acceptance_gate),
+        ("accounting", _CODEX_PHASE_CHECKPOINT_ACCOUNTING_SPEC),
+        ("all_lifetime_counts", _ACCUMULATOR_COUNTS_SPEC),
+        ("candidate_listener_removed", _BOOL),
+        ("candidate_only_observation", CANDIDATE_ONLY_OBSERVATION_SPEC),
+        ("candidate_provenance", CANDIDATE_PROVENANCE_SPEC),
+        ("cleanup_observation", CLEANUP_OBSERVATION_SPEC),
+        ("codex", CODEX_FACTS_SPEC),
+        (
+            "evidence_kind",
+            StrSpec(vocabulary=frozenset({"synthetic_orchestration_only"})),
+        ),
+        ("fake_idless_http_regression", FAKE_IDLESS_HTTP_REGRESSION_SPEC),
+        ("fake_provider", _FAKE_PROVIDER_OBSERVATION),
+        ("gap_inventory", GAP_INVENTORY_SPEC),
+        ("gateway_listener_removed", _BOOL),
+        ("gateway_sha", StrSpec(vocabulary=frozenset({GATEWAY_MAIN_SHA}))),
+        ("idless_composed_companion", COMPANION_NOT_RUN_SPEC),
+        ("logs_secret_free", _BOOL),
+        ("phase_checkpoints", ListSpec(CHECKPOINT_SPEC, 64)),
+        ("protected_acceptance", BoolSpec(False)),
+        ("protected_conformance", PROTECTED_CONFORMANCE_SPEC),
+        ("protected_later_inference", BoolSpec(False)),
+        ("protected_mode_synthetic", NOT_RUN_SPEC),
+        ("protected_mode_synthetic_cases", dict_spec(required=())),
+        (
+            "protected_stop_reason",
+            StrSpec(
+                vocabulary=frozenset(
+                    {"protected_provider_boundary_unobserved", "codex_chain_failed"}
+                )
+            ),
+        ),
+        ("protected_unchanged", PROTECTED_UNCHANGED_FACTS_SPEC),
+        ("provider_observation", PROVIDER_OBSERVATION_SPEC),
+        ("provider_target", StrSpec(vocabulary=frozenset({"protected"}))),
+        ("run_accumulator", RUN_ACCUMULATOR_SPEC),
+        (
+            "runtime_observations",
+            build_runtime_observations_spec(PROTECTED_RESULT_SCHEMA_KEYS),
+        ),
+        ("status", StrSpec(vocabulary=frozenset({"BLOCKED"}))),
+        ("temporary_state_removed", _BOOL),
+        (
+            "topology_observation",
+            dict_spec(
+                required=(
+                    ("codex_gateway_local_provider", BoolSpec(True)),
+                    ("no_direct_route", BoolSpec(True)),
+                )
+            ),
+        ),
+        ("transport_observation", SNAPSHOT_SPEC),
+    )
+
+
+#: Nested observer case (failure injected at the first inference dispatch,
+#: projection path healthy): the full protected gate with the runtime
+#: failure fact.
+_SYNTHETIC_PROTECTED_EARLY_STOP_SPEC: DictSpec = dict_spec(
+    required=_early_stop_required(_ACCEPTANCE_GATE_PROTECTED_SPEC)
+)
+
+#: Nested observer case (failure injected at the first inference dispatch
+#: plus the synthetic projection/cleanup failure hooks): the gate is built
+#: by the ``finalize_result`` serialization fallback, which omits the
+#: ``runtime_failure`` key.
+_SYNTHETIC_PROTECTED_EARLY_STOP_PROJECTION_SPEC: DictSpec = dict_spec(
+    required=_early_stop_required(_ACCEPTANCE_GATE_FALLBACK_PROTECTED_SPEC)
+)
+
+#: Nested predispatch case (mapping dependency refused before the first
+#: provider work): the preflight-mapping refusal document plus the
+#: accumulator, gate, and synthetic additions.
+_SYNTHETIC_PROTECTED_PREFLIGHT_REFUSAL_SPEC: DictSpec = dict_spec(
+    required=(
+        ("acceptance_gate", _ACCEPTANCE_GATE_PROTECTED_SPEC),
+        ("all_lifetime_counts", _ACCUMULATOR_COUNTS_SPEC),
+        ("candidate_only_observation", NOT_RUN_SPEC),
+        (
+            "cleanup_observation",
+            dict_spec(
+                required=(
+                    ("processes", BoolSpec(True)),
+                    ("listeners", BoolSpec(True)),
+                    ("database", BoolSpec(True)),
+                    ("cache", BoolSpec(True)),
+                    ("codex_home", BoolSpec(True)),
+                )
+            ),
+        ),
+        (
+            "credential_hook_calls",
+            IntSpec(0, 0),
+        ),
+        (
+            "evidence_kind",
+            StrSpec(vocabulary=frozenset({"synthetic_orchestration_only"})),
+        ),
+        ("gap_inventory", GAP_INVENTORY_SPEC),
+        ("gateway_sha", StrSpec(vocabulary=frozenset({GATEWAY_MAIN_SHA}))),
+        ("phase_checkpoints", ListSpec(CHECKPOINT_SPEC, 64)),
+        ("preflight_mapping_validation", StrSpec(vocabulary=frozenset({"FAILED"}))),
+        ("protected_acceptance", BoolSpec(False)),
+        ("protected_conformance", PROTECTED_CONFORMANCE_SPEC),
+        ("protected_later_inference", BoolSpec(False)),
+        (
+            "protected_stop_reason",
+            StrSpec(vocabulary=frozenset({"preflight_mapping_dependency_invalid"})),
+        ),
+        ("provider_dispatches", IntSpec(0, 0)),
+        ("provider_target", StrSpec(vocabulary=frozenset({"protected"}))),
+        ("run_accumulator", RUN_ACCUMULATOR_SPEC),
+        (
+            "runtime_observations",
+            build_runtime_observations_spec(PROTECTED_RESULT_SCHEMA_KEYS),
+        ),
+        ("status", StrSpec(vocabulary=frozenset({"BLOCKED"}))),
+        ("topology_observation", dict_spec(required=())),
+        ("transport_observation", dict_spec(required=())),
+    ),
+)
+
+#: Nested vision cases (failure raised during the vision dispatch after a
+#: completed Codex checkpoint): the post-codex exception document plus the
+#: accumulator, gate, and synthetic additions; the Codex checkpoint facts
+#: (codex, provider_observation, accounting, transport_observation) are
+#: backfilled from the recorded Codex phase checkpoint.
+_SYNTHETIC_PROTECTED_POSTCODEX_FAILURE_SPEC: DictSpec = dict_spec(
+    required=(
+        ("acceptance_gate", _ACCEPTANCE_GATE_PROTECTED_SPEC),
+        ("accounting", _CODEX_PHASE_CHECKPOINT_ACCOUNTING_SPEC),
+        ("all_lifetime_counts", _ACCUMULATOR_COUNTS_SPEC),
+        ("candidate_only_observation", NOT_RUN_SPEC),
+        ("cleanup_observation", CLEANUP_OBSERVATION_SPEC),
+        ("codex", _CODEX_PHASE_CHECKPOINT_CODEX_SPEC),
+        (
+            "evidence_kind",
+            StrSpec(vocabulary=frozenset({"synthetic_orchestration_only"})),
+        ),
+        ("gap_inventory", GAP_INVENTORY_SPEC),
+        ("gateway_sha", StrSpec(vocabulary=frozenset({GATEWAY_MAIN_SHA}))),
+        ("phase_checkpoints", ListSpec(CHECKPOINT_SPEC, 64)),
+        ("protected_acceptance", BoolSpec(False)),
+        ("protected_conformance", PROTECTED_CONFORMANCE_SPEC),
+        ("protected_later_inference", BoolSpec(False)),
+        (
+            "protected_stop_reason",
+            UnionSpec((_NULL, _vocab(ACCUMULATOR_FAILURE_CLASSES))),
+        ),
+        (
+            "provider_observation",
+            _CODEX_PHASE_CHECKPOINT_PROVIDER_OBSERVATION_SPEC,
+        ),
+        ("provider_target", StrSpec(vocabulary=frozenset({"protected"}))),
+        ("run_accumulator", RUN_ACCUMULATOR_SPEC),
+        (
+            "runtime_observations",
+            build_runtime_observations_spec(PROTECTED_RESULT_SCHEMA_KEYS),
+        ),
+        ("status", StrSpec(vocabulary=frozenset({"BLOCKED"}))),
+        ("topology_observation", dict_spec(required=())),
+        (
+            "transport_observation",
+            UnionSpec(
+                (
+                    dict_spec(required=()),
+                    _CODEX_PHASE_CHECKPOINT_TRANSPORT_OBSERVATION_SPEC,
+                )
+            ),
+        ),
+    ),
+)
+
+#: ``protected_mode_synthetic_cases`` of the fake full-gate family: the six
+#: fixed producer case names, each closed to the one conformance shape its
+#: hook configuration produces.
+SYNTHETIC_PROTECTED_CASES_SPEC: DictSpec = dict_spec(
+    required=tuple(
+        (
+            name,
+            {
+                "healthy": _SYNTHETIC_PROTECTED_HEALTHY_SPEC,
+                "observer_failure_after_dispatch": _SYNTHETIC_PROTECTED_EARLY_STOP_SPEC,
+                "observer_projection_cleanup_failure": (
+                    _SYNTHETIC_PROTECTED_EARLY_STOP_PROJECTION_SPEC
+                ),
+                "predispatch_mapping_dependency_failure": (
+                    _SYNTHETIC_PROTECTED_PREFLIGHT_REFUSAL_SPEC
+                ),
+                "vision_failure_after_codex": _SYNTHETIC_PROTECTED_POSTCODEX_FAILURE_SPEC,
+                "vision_failure_projection_cleanup": (_SYNTHETIC_PROTECTED_POSTCODEX_FAILURE_SPEC),
+            }[name],
+        )
+        for name in SYNTHETIC_CASE_NAMES
+    )
+)
+
+assert set(name for name, _ in SYNTHETIC_PROTECTED_CASES_SPEC.required) == set(SYNTHETIC_CASE_NAMES)
+
+_FULL_GATE_REQUIRED: tuple[tuple[str, Spec], ...] = _full_gate_required(
+    frozenset({"fake"}),
+    status_vocabulary=frozenset({"PASSED", "FAILED", "COMPLETE", "BLOCKED"}),
+    provider_url_class=frozenset({"fake_loopback"}),
+    fake_provider=UnionSpec((_FAKE_PROVIDER_OBSERVATION, _NULL)),
+    provider_observation=UnionSpec((PROVIDER_OBSERVATION_SPEC, _NULL)),
+    protected_unchanged=PROTECTED_UNCHANGED_FAKE_LITERAL,
+    runtime_observations=build_runtime_observations_spec(FAKE_RESULT_SCHEMA_KEYS),
+    acceptance_gate=ACCEPTANCE_GATE_SPEC,
+    protected_mode_synthetic=_SYNTHETIC_PROTECTED_HEALTHY_SPEC,
+    protected_mode_synthetic_cases=SYNTHETIC_PROTECTED_CASES_SPEC,
+)
+
 
 #: Closed spec for the AP37/current full fake machine-gate family.
 #: ``aq_preflight`` is optional: the key post-dates AP37, so the AP37
@@ -3420,6 +3882,8 @@ def result_spec_for_role(role: str) -> DictSpec:
         return _PROTECTED_TARGET_RESULT_SPEC
     if role == "fake_target":
         return _FAKE_TARGET_RESULT_SPEC
+    if role == "full_fake_gate":
+        return FULL_FAKE_GATE_SPEC
     if role == "manifest":
         return MANIFEST_SPEC
     _reject("role_unknown")

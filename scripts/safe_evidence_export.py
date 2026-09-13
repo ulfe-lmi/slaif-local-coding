@@ -1,4 +1,4 @@
-"""Fail-closed safe-evidence export and the Objective-008-a historical audit.
+"""Fail-closed safe-evidence export and the Objective-008 historical audit.
 
 This is acceptance/OAP tooling only (expected production ``src/`` delta:
 none).  It performs zero network, provider, model, service, credential, Git
@@ -14,25 +14,31 @@ Commands
     atomically export it (exact or deterministic bytes) into the
     repository ``oap/evidence`` root.  Prints exactly one JSON line: the
     bounded provenance record on success, or ``{"rejected": "<class>"}``
-    (exit status 2) on any violation.  A destination that already exists is
-    refused, never overwritten.
+    (exit status 2) on any violation.  A destination that already exists
+    is refused, never overwritten.
 
 ``historical-audit``
     Inspect exactly the four literal historical paths pinned by the
-    008-a work order (and no other historical path).  The three retained
-    authorities (final protected 1024 success, decisive 32-token
-    diagnostic, final isolated fake target) are admitted through the full
-    audit (bounded read, closed schema, privacy scan) and accepted exact
-    bytes are preserved under stable names in ``oap/evidence/005-ar/``.
-    The fourth (AP37) authority is an optional source that is *not*
-    retained: it is classified by bounded stat-only preflight under one
-    fixed content-free classification (``optional_not_retained`` when
-    present and path-safe, the availability class when absent, a fixed
-    rejection class when path-unsafe) and no content, size, or hash fact
-    is produced for it.  The strict post-hoc manifest
-    ``oap/evidence/005-ar/manifest.json`` records all four authorities
-    plus the fixed non-retention decision.  Prints exactly one JSON line
-    containing classes, sizes, and hashes only.
+    008-a/008-b work orders (and no other historical path).  All four
+    authorities are retained: the final protected 1024 success, the
+    decisive 32-token diagnostic, the final isolated fake target, and the
+    AP37 fake machine-gate authority (closed ``full_fake_gate`` role,
+    exported under the stable name ``reused_ap37_fake_gate.json``).
+    Every retained authority is admitted through the full audit (bounded
+    read, closed schema, privacy scan) and the accepted exact bytes are
+    preserved under stable names in ``oap/evidence/005-ar/``.  A
+    destination that already exists is only re-verified (byte-identical
+    SHA-256 read-back); a byte deviation is refused fail-closed, never
+    overwritten.  The strict post-hoc manifest
+    ``oap/evidence/005-ar/manifest.json`` records all four authorities.
+    Destination read-backs use the anchored (repository-root) bounded
+    reader, so verification and replacement also work on hosts where the
+    repository sits below execute-only mount points.  The 008-b one-shot
+    replacement: if the manifest already exists it must match the exact
+    pinned Objective-008-a byte identity (SHA-256 and byte count) to be
+    replaced; any other pre-existing manifest is refused.  The
+    replacement is therefore exactly once per host.  Prints exactly one
+    JSON line containing classes, sizes, and hashes only.
 
 No command ever prints raw artifact content, secrets, or exception detail.
 """
@@ -40,6 +46,7 @@ No command ever prints raw artifact content, secrets, or exception detail.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from collections.abc import Callable
@@ -55,9 +62,11 @@ from tests.helpers.safe_evidence import (  # noqa: E402
     UnsafeEvidenceError,
     accept_evidence_bytes,
     export_safe_result,
+    read_existing_evidence_destination_bounded,
+    remove_verified_evidence_destination,
     safe_read_bounded,
-    safe_stat_bounded,
     validate_value,
+    verify_existing_evidence_destination,
 )
 
 EVIDENCE_SUBDIR: str = "005-ar"
@@ -65,25 +74,21 @@ EVIDENCE_SUBDIR: str = "005-ar"
 
 @dataclass(frozen=True)
 class Authority:
-    """One exact historical authority for the 008-a audit.
+    """One exact retained historical authority for the 008 audit.
 
     ``authority_role`` is the closed manifest role (the stable evidence
-    name); ``role`` is the closed export result schema a retained artifact
-    must satisfy (``None`` for the not-retained AP37 authority);
-    ``retained`` marks whether the artifact is admitted through the full
-    content audit and exported, or only classified by bounded stat-only
-    preflight under the fixed non-retention classification.
+    name); ``role`` is the closed export result schema the artifact must
+    satisfy; ``relative_path`` is the exact stable repository destination.
     """
 
     authority_role: str
-    role: str | None
+    role: str
     source: str
     relative_path: str
-    retained: bool = True
 
 
-#: The four exact paths authorized by the 008-a work order.  Nothing else
-#: is inspected; the list is exhaustive and literal.
+#: The four exact paths authorized by the 008-a/008-b work orders.
+#: Nothing else is inspected; the list is exhaustive and literal.
 HISTORICAL_AUTHORITIES: tuple[Authority, ...] = (
     Authority(
         authority_role="protected_final_1024_success",
@@ -105,10 +110,9 @@ HISTORICAL_AUTHORITIES: tuple[Authority, ...] = (
     ),
     Authority(
         authority_role="fake_ap37_gate_authority",
-        role=None,
+        role="full_fake_gate",
         source="/tmp/slaif-005-ap-fake-gate.rHO7rQ",
-        relative_path=f"{EVIDENCE_SUBDIR}/fake_ap37_gate_authority.json",
-        retained=False,
+        relative_path=f"{EVIDENCE_SUBDIR}/reused_ap37_fake_gate.json",
     ),
 )
 
@@ -136,54 +140,15 @@ def _entry(
     }
 
 
-def _classify_not_retained(repo_root: Path, authority: Authority) -> dict[str, object]:
-    """Classify the not-retained authority by bounded stat-only preflight.
-
-    No content is read, hashed, or scanned: the result carries the exact
-    fixed availability classification with null path/hash/count facts.
-    """
-    try:
-        safe_stat_bounded(Path(authority.source))
-    except UnsafeEvidenceError as exc:
-        if exc.rejection_class == "unsafe_path_missing":
-            return _entry(
-                authority,
-                availability="unavailable",
-                rejection_class=UNAVAILABLE_CLASS,
-                relative_path=None,
-                original_sha256=None,
-                committed_sha256=None,
-                byte_count=None,
-            )
-        return _entry(
-            authority,
-            availability="rejected",
-            rejection_class=exc.rejection_class,
-            relative_path=None,
-            original_sha256=None,
-            committed_sha256=None,
-            byte_count=None,
-        )
-    return _entry(
-        authority,
-        availability="optional_not_retained",
-        rejection_class=None,
-        relative_path=None,
-        original_sha256=None,
-        committed_sha256=None,
-        byte_count=None,
-    )
-
-
 def _export_one(repo_root: Path, authority: Authority) -> dict[str, object]:
-    """Admit one authority: full audit for retained, preflight otherwise."""
-    if not authority.retained:
-        return _classify_not_retained(repo_root, authority)
+    """Admit one authority through the full content audit and preserve it.
+
+    A destination that already exists is only re-verified: a byte-identical
+    SHA-256 read-back records the acceptance without any write; any
+    deviation is refused fail-closed (``destination_bytes_mismatch`` or a
+    bounded read class) and the pre-existing file is never touched.
+    """
     role = authority.role
-    if role is None:
-        # Unreachable for the closed historical authorities: every retained
-        # authority names a closed export role.  Fail closed regardless.
-        raise UnsafeEvidenceError("role_unknown", authority.authority_role)
     result_spec = contracts.result_spec_for_role(role)
     preflight_spec = contracts.preflight_spec_for_role(role)
     try:
@@ -222,25 +187,67 @@ def _export_one(repo_root: Path, authority: Authority) -> dict[str, object]:
             committed_sha256=None,
             byte_count=None,
         )
-    provenance = export_safe_result(
-        repo_root,
-        role=role,
-        schema=contracts.ROLE_SCHEMAS[role],
-        raw=raw,
-        result_spec=result_spec,
-        preflight_spec=preflight_spec,
-        relative_path=authority.relative_path,
-        mode="exact",
-    )
+    try:
+        byte_count = verify_existing_evidence_destination(
+            repo_root, authority.relative_path, original_sha
+        )
+    except UnsafeEvidenceError as exc:
+        if exc.rejection_class != "destination_missing":
+            # A pre-existing destination that does not carry the accepted
+            # exact bytes is a conflict: refuse, never overwrite.
+            raise
+        provenance = export_safe_result(
+            repo_root,
+            role=role,
+            schema=contracts.ROLE_SCHEMAS[role],
+            raw=raw,
+            result_spec=result_spec,
+            preflight_spec=preflight_spec,
+            relative_path=authority.relative_path,
+            mode="exact",
+        )
+        return _entry(
+            authority,
+            availability="accepted",
+            rejection_class=None,
+            relative_path=authority.relative_path,
+            original_sha256=original_sha,
+            committed_sha256=provenance.committed_sha256,
+            byte_count=provenance.byte_count,
+        )
     return _entry(
         authority,
         availability="accepted",
         rejection_class=None,
         relative_path=authority.relative_path,
         original_sha256=original_sha,
-        committed_sha256=provenance.committed_sha256,
-        byte_count=provenance.byte_count,
+        committed_sha256=original_sha,
+        byte_count=byte_count,
     )
+
+
+def _prepare_manifest_destination(repo_root: Path) -> None:
+    """Gate the 008-b one-shot manifest replacement on exact identity.
+
+    If the manifest destination does not exist, nothing is done (fresh
+    export path).  If it exists, its complete bytes must equal the pinned
+    Objective-008-a manifest identity (SHA-256 and byte count) to be
+    removed through the anchored walk; any deviation is refused
+    fail-closed and the pre-existing manifest is never touched.
+    """
+    manifest_relative = f"{EVIDENCE_SUBDIR}/manifest.json"
+    try:
+        raw = read_existing_evidence_destination_bounded(repo_root, manifest_relative)
+    except UnsafeEvidenceError as exc:
+        if exc.rejection_class == "destination_missing":
+            return
+        raise
+    if (
+        len(raw) != contracts.OBJECTIVE_008_A_MANIFEST_BYTE_COUNT
+        or hashlib.sha256(raw).hexdigest() != contracts.OBJECTIVE_008_A_MANIFEST_SHA256
+    ):
+        raise UnsafeEvidenceError("destination_bytes_mismatch", manifest_relative)
+    remove_verified_evidence_destination(repo_root, manifest_relative)
 
 
 def _build_manifest(entries: tuple[dict[str, object], ...]) -> dict[str, object]:
@@ -249,11 +256,6 @@ def _build_manifest(entries: tuple[dict[str, object], ...]) -> dict[str, object]
         "classification": "post_hoc_durable_preservation",
         "preserved_during_objective_005": False,
         "authorities": list(entries),
-        "optional_not_retained": {
-            "role": "fake_ap37_gate_authority",
-            "classification": contracts.MANIFEST_OPTIONAL_NOT_RETAINED,
-            "reason": contracts.MANIFEST_NOT_RETAINED_REASON,
-        },
         "historical_authority": {
             "objective_005_merged_local_sha": contracts.OBJECTIVE_005_MERGED_LOCAL_SHA,
             "objective_005_tested_local_sha": contracts.OBJECTIVE_005_TESTED_LOCAL_SHA,
@@ -277,6 +279,7 @@ def run_audit(
 ) -> dict[str, object]:
     """Run the full audit; return the bounded machine-readable summary."""
     entries = tuple(_export_one(repo_root, authority) for authority in authorities)
+    _prepare_manifest_destination(repo_root)
     manifest = _build_manifest(entries)
     manifest_document = json.loads(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
     validate_value(contracts.MANIFEST_SPEC, manifest_document, "manifest")

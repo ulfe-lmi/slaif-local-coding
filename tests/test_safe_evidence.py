@@ -38,9 +38,12 @@ from tests.helpers.safe_evidence import (
     atomic_write_bounded,
     export_safe_result,
     privacy_scan,
+    read_existing_evidence_destination_bounded,
+    remove_verified_evidence_destination,
     resolve_evidence_destination,
     safe_read_bounded,
     validate_value,
+    verify_existing_evidence_destination,
 )
 
 # --------------------------------------------------------------------------
@@ -123,10 +126,13 @@ def repo_root(tmp_path: Path) -> Path:
 
 
 def test_role_schemas_are_closed_and_distinct() -> None:
-    assert contracts.ROLES == frozenset({"protected_target", "fake_target", "manifest"})
+    assert contracts.ROLES == frozenset(
+        {"protected_target", "fake_target", "full_fake_gate", "manifest"}
+    )
     assert contracts.ROLE_SCHEMAS == {
         "protected_target": contracts.TARGET_RESULT_SCHEMA_NAME,
         "fake_target": contracts.TARGET_RESULT_SCHEMA_NAME,
+        "full_fake_gate": contracts.FULL_GATE_RESULT_SCHEMA_NAME,
         "manifest": contracts.MANIFEST_SCHEMA,
     }
     specs = {role: contracts.result_spec_for_role(role) for role in sorted(contracts.ROLES)}
@@ -139,19 +145,21 @@ def test_role_schemas_are_closed_and_distinct() -> None:
     fake_doc, _ = contracts.materialize_sample("fake_target")
     with pytest.raises(UnsafeEvidenceError):
         validate_value(specs["manifest"], fake_doc)
+    # The AP37 full-gate family is a supported closed export role: the
+    # exact full machine-gate document shape, no arbitrary JSON.
+    gate_doc, gate_preflight = contracts.materialize_sample("full_fake_gate")
+    with pytest.raises(UnsafeEvidenceError):
+        validate_value(specs["manifest"], gate_doc)
+    with pytest.raises(UnsafeEvidenceError):
+        validate_value(specs["full_fake_gate"], fake_doc)
+    assert gate_preflight is not None
     with pytest.raises(UnsafeEvidenceError) as exc_info:
         contracts.result_spec_for_role("nope")
     assert exc_info.value.rejection_class == "role_unknown"
-    # The AP37 full-gate family is a reference shape only, never a
-    # supported export role (no full machine-gate schema support claimed).
-    with pytest.raises(UnsafeEvidenceError) as exc_info:
-        contracts.result_spec_for_role("full_fake_gate")
-    assert exc_info.value.rejection_class == "role_unknown"
-    with pytest.raises(UnsafeEvidenceError):
-        contracts.preflight_spec_for_role("full_fake_gate")
     with pytest.raises(UnsafeEvidenceError):
         contracts.preflight_spec_for_role("nope")
     assert contracts.preflight_spec_for_role("manifest") is None
+    assert contracts.preflight_spec_for_role("full_fake_gate") is not None
 
 
 def test_materialize_samples_are_deterministic_and_valid() -> None:
@@ -850,6 +858,188 @@ def test_durable_export_survives_temp_source_deletion(repo_root: Path, tmp_path:
     assert dest.exists()
     assert dest.read_bytes() == raw
     assert hashlib.sha256(dest.read_bytes()).hexdigest() == prov.committed_sha256
+
+
+# --------------------------------------------------------------------------
+# Full fake gate (AP37) role: closed export and nested fail-closed shapes
+# --------------------------------------------------------------------------
+
+
+def test_full_fake_gate_role_exports_exact_and_deterministic(repo_root: Path) -> None:
+    raw = materialize_raw("full_fake_gate")
+    prov = export(
+        repo_root,
+        "full_fake_gate",
+        "005-ar/reused_ap37_fake_gate.json",
+        mode="exact",
+        raw=raw,
+    )
+    data = destination(repo_root, "005-ar/reused_ap37_fake_gate.json").read_bytes()
+    assert data == raw
+    assert prov.schema == contracts.FULL_GATE_RESULT_SCHEMA_NAME
+    assert prov.committed_sha256 == prov.original_sha256 == hashlib.sha256(raw).hexdigest()
+    assert prov.byte_count == len(raw)
+    prov_det = export(
+        repo_root, "full_fake_gate", "005-ar/ap37-deterministic.json", mode="deterministic"
+    )
+    det_data = destination(repo_root, "005-ar/ap37-deterministic.json").read_bytes()
+    assert prov_det.committed_sha256 == hashlib.sha256(det_data).hexdigest()
+    assert prov_det.original_sha256 == hashlib.sha256(raw).hexdigest()
+    # The deterministic document validates against the closed role spec.
+    validate_value(contracts.result_spec_for_role("full_fake_gate"), json.loads(det_data), "result")
+
+
+def test_full_fake_gate_nested_mutations_rejected_not_stripped(repo_root: Path) -> None:
+    def add_unknown_case_key(doc: dict[str, object]) -> None:
+        cases = doc["protected_mode_synthetic_cases"]
+        assert isinstance(cases, dict)
+        case = cases["observer_failure_after_dispatch"]
+        assert isinstance(case, dict)
+        case["injected_nested_key"] = {"x": 1}
+
+    def drop_case_key(doc: dict[str, object]) -> None:
+        cases = doc["protected_mode_synthetic_cases"]
+        assert isinstance(cases, dict)
+        case = cases["vision_failure_after_codex"]
+        assert isinstance(case, dict)
+        del case["status"]
+
+    def unsafe_nested_value(doc: dict[str, object]) -> None:
+        synthetic = doc["protected_mode_synthetic"]
+        assert isinstance(synthetic, dict)
+        conformance = synthetic["protected_conformance"]
+        assert isinstance(conformance, dict)
+        identities = conformance["source_identities"]
+        assert isinstance(identities, dict)
+        identities["runner"] = "other/module"
+
+    for mutate, expected in (
+        (add_unknown_case_key, "shape_key_unknown"),
+        (drop_case_key, "shape_key_missing"),
+        (unsafe_nested_value, "shape_string_value"),
+    ):
+        doc, preflight = contracts.materialize_sample("full_fake_gate")
+        mutate(doc)
+        raw = raw_from(doc, preflight)
+        spec = contracts.result_spec_for_role("full_fake_gate")
+        preflight_spec = contracts.preflight_spec_for_role("full_fake_gate")
+        with pytest.raises(UnsafeEvidenceError) as exc_info:
+            accept_evidence_bytes(raw, spec, preflight_spec=preflight_spec)
+        assert exc_info.value.rejection_class == expected
+        with pytest.raises(UnsafeEvidenceError):
+            export(repo_root, "full_fake_gate", "005-ar/never-written.json", raw=raw)
+    assert all_files(repo_root) == set()
+
+
+def test_full_fake_gate_durable_export_survives_temp_source_deletion(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    src_dir = tmp_path / "src"
+    src_dir.mkdir()
+    source = src_dir / "fake-gate.json"
+    raw = materialize_raw("full_fake_gate")
+    write_source(source, raw)
+    data = safe_read_bounded(source)
+    assert data == raw
+    prov = export(
+        repo_root,
+        "full_fake_gate",
+        "005-ar/reused_ap37_fake_gate.json",
+        mode="exact",
+        raw=data,
+    )
+    os.unlink(source)
+    src_dir.rmdir()
+    dest = destination(repo_root, "005-ar/reused_ap37_fake_gate.json")
+    assert dest.exists()
+    assert dest.read_bytes() == raw
+    assert hashlib.sha256(dest.read_bytes()).hexdigest() == prov.committed_sha256
+
+
+def test_verify_existing_evidence_destination_classes(repo_root: Path, tmp_path: Path) -> None:
+    raw = materialize_raw("full_fake_gate")
+    source = tmp_path / "gate.json"
+    write_source(source, raw)
+    prov = export(repo_root, "full_fake_gate", "005-ar/ap37-verify.json", mode="exact", raw=raw)
+    count = verify_existing_evidence_destination(
+        repo_root, "005-ar/ap37-verify.json", prov.committed_sha256
+    )
+    assert count == len(raw)
+    with pytest.raises(UnsafeEvidenceError) as exc_info:
+        verify_existing_evidence_destination(repo_root, "005-ar/ap37-verify.json", "0" * 64)
+    assert exc_info.value.rejection_class == "destination_bytes_mismatch"
+    assert destination(repo_root, "005-ar/ap37-verify.json").read_bytes() == raw
+    with pytest.raises(UnsafeEvidenceError) as exc_info:
+        verify_existing_evidence_destination(repo_root, "005-ar/absent.json", "0" * 64)
+    assert exc_info.value.rejection_class == "destination_missing"
+
+
+def test_destination_readback_works_below_execute_only_ancestor(
+    tmp_path: Path,
+) -> None:
+    """Anchored destination read-back must work under execute-only mounts.
+
+    On hosts where the repository sits below a directory that grants
+    search (``x``) but not read (``r``) permission (for example NFS home
+    mounts), the root-anchored source reader cannot traverse the barrier
+    at all, while the anchored destination reader must still verify
+    byte-identical read-backs through the repository-root anchor.
+    """
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("mode-bit barriers do not bind the root user")
+    barrier = tmp_path / "barrier"
+    barrier.mkdir()
+    try:
+        repo = barrier / "repo"
+        (repo / "oap" / "evidence" / "005-ar").mkdir(parents=True)
+        os.chmod(repo / "oap", 0o700)
+        os.chmod(repo / "oap" / "evidence", 0o700)
+        barrier.chmod(0o111)
+        payload = b'{"execute_only_ancestor": true}\n'
+        dest = repo / "oap" / "evidence" / "005-ar" / "exec-only.json"
+        dest.write_bytes(payload)
+        os.chmod(dest, 0o600)
+        # Root-anchored source reader: fixed rejection at the barrier.
+        with pytest.raises(UnsafeEvidenceError) as exc_info:
+            safe_read_bounded(dest)
+        assert exc_info.value.rejection_class == "unsafe_path_unreadable"
+        # Anchored destination reader: byte-identical read-back succeeds.
+        raw = read_existing_evidence_destination_bounded(repo, "005-ar/exec-only.json")
+        assert raw == payload
+        count = verify_existing_evidence_destination(
+            repo, "005-ar/exec-only.json", hashlib.sha256(payload).hexdigest()
+        )
+        assert count == len(payload)
+    finally:
+        barrier.chmod(0o700)
+
+
+def test_remove_verified_evidence_destination(repo_root: Path) -> None:
+    raw = materialize_raw("full_fake_gate")
+    prov = export(repo_root, "full_fake_gate", "005-ar/ap37-remove.json", mode="exact", raw=raw)
+    dest = destination(repo_root, "005-ar/ap37-remove.json")
+    remove_verified_evidence_destination(repo_root, "005-ar/ap37-remove.json")
+    assert not dest.exists()
+    assert prov.committed_sha256
+    with pytest.raises(UnsafeEvidenceError) as exc_info:
+        remove_verified_evidence_destination(repo_root, "005-ar/ap37-remove.json")
+    assert exc_info.value.rejection_class == "destination_missing"
+    # A non-0600 final node is refused, never removed.
+    export(repo_root, "full_fake_gate", "005-ar/ap37-remove-mode.json", mode="exact", raw=raw)
+    dest_mode = destination(repo_root, "005-ar/ap37-remove-mode.json")
+    os.chmod(dest_mode, 0o644)
+    with pytest.raises(UnsafeEvidenceError) as exc_info:
+        remove_verified_evidence_destination(repo_root, "005-ar/ap37-remove-mode.json")
+    assert exc_info.value.rejection_class == "destination_unsafe"
+    assert dest_mode.exists()
+    # A hard-linked final node (nlink > 1) is refused, never removed.
+    export(repo_root, "full_fake_gate", "005-ar/ap37-remove-link.json", mode="exact", raw=raw)
+    dest_link = destination(repo_root, "005-ar/ap37-remove-link.json")
+    os.link(dest_link, repo_root / "oap" / "evidence" / "005-ar" / "hardlink.json")
+    with pytest.raises(UnsafeEvidenceError) as exc_info:
+        remove_verified_evidence_destination(repo_root, "005-ar/ap37-remove-link.json")
+    assert exc_info.value.rejection_class == "destination_unsafe"
+    assert dest_link.exists()
 
 
 # --------------------------------------------------------------------------

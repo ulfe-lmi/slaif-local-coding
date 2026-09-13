@@ -223,11 +223,11 @@ def test_cli_export_rejects_unsafe_source(repo_root: Path, tmp_path: Path) -> No
 
 
 def synthetic_authorities(tmp_path: Path, *, fourth_present: bool = True) -> tuple[Any, ...]:
-    """Four closed authorities; the AP37 one is not retained.
+    """Four closed retained authorities.
 
-    Its source file (when present) is arbitrary safe bytes: the audit
-    classifies it by bounded stat-only preflight and never reads its
-    content.
+    The AP37 authority carries a valid synthetic full-fake-gate document
+    (deterministically materialized from the closed role schema); when
+    absent, the audit truthfully manifests it as unavailable.
     """
     from scripts import safe_evidence_export as exporter
 
@@ -235,11 +235,12 @@ def synthetic_authorities(tmp_path: Path, *, fourth_present: bool = True) -> tup
         "protected_a": materialize_raw("protected_target"),
         "protected_b": materialize_raw("protected_target"),
         "fake_a": materialize_raw("fake_target"),
+        "gate_a": materialize_raw("full_fake_gate"),
     }
     for name, data in raws.items():
+        if name == "gate_a" and not fourth_present:
+            continue
         write_source(tmp_path / "sources" / f"{name}.json", data)
-    if fourth_present:
-        write_source(tmp_path / "sources" / "gate_a.json", b"{}")
     return (
         exporter.Authority(
             authority_role="protected_final_1024_success",
@@ -261,10 +262,9 @@ def synthetic_authorities(tmp_path: Path, *, fourth_present: bool = True) -> tup
         ),
         exporter.Authority(
             authority_role="fake_ap37_gate_authority",
-            role=None,
+            role="full_fake_gate",
             source=str(tmp_path / "sources" / "gate_a.json"),
-            relative_path="005-ar/fake_ap37_gate_authority.json",
-            retained=False,
+            relative_path="005-ar/reused_ap37_fake_gate.json",
         ),
     )
 
@@ -280,7 +280,7 @@ def import_exporter() -> ModuleType:
     return exporter
 
 
-def test_audit_accepts_retained_and_classifies_ap37(repo_root: Path, tmp_path: Path) -> None:
+def test_audit_accepts_all_four_authorities(repo_root: Path, tmp_path: Path) -> None:
     exporter = import_exporter()
     authorities = synthetic_authorities(tmp_path)
     summary = exporter.run_audit(repo_root, authorities)
@@ -288,9 +288,11 @@ def test_audit_accepts_retained_and_classifies_ap37(repo_root: Path, tmp_path: P
         "accepted",
         "accepted",
         "accepted",
-        "optional_not_retained",
+        "accepted",
     ]
-    for authority, entry in zip(authorities[:3], summary["authorities"][:3], strict=True):
+    # All four entries carry hash/size/path coherence with the exact
+    # accepted source bytes.
+    for authority, entry in zip(authorities, summary["authorities"], strict=True):
         source_bytes = safe_read_bounded(Path(authority.source))
         committed = repo_root / "oap" / "evidence" / authority.relative_path
         assert committed.read_bytes() == source_bytes
@@ -298,16 +300,13 @@ def test_audit_accepts_retained_and_classifies_ap37(repo_root: Path, tmp_path: P
         assert entry["committed_sha256"] == entry["original_sha256"]
         assert entry["byte_count"] == len(source_bytes)
         assert entry["rejection_class"] is None
-    # The AP37 entry is fixed classification with null content facts, and
-    # nothing was exported for it.
+        assert entry["relative_path"] == authority.relative_path
+    # The AP37 authority is durably exported under its stable name.
     ap37 = summary["authorities"][3]
-    assert ap37["rejection_class"] is None
-    assert ap37["relative_path"] is None
-    assert ap37["original_sha256"] is None
-    assert ap37["committed_sha256"] is None
-    assert ap37["byte_count"] is None
-    ap37_dest = repo_root / "oap" / "evidence" / "005-ar" / "fake_ap37_gate_authority.json"
-    assert not ap37_dest.exists()
+    ap37_dest = repo_root / "oap" / "evidence" / "005-ar" / "reused_ap37_fake_gate.json"
+    assert ap37_dest.exists()
+    assert ap37["relative_path"] == "005-ar/reused_ap37_fake_gate.json"
+    assert ap37["byte_count"] == len(safe_read_bounded(Path(authorities[3].source)))
 
     manifest_path = repo_root / "oap" / "evidence" / "005-ar" / "manifest.json"
     assert manifest_path.exists()
@@ -318,11 +317,25 @@ def test_audit_accepts_retained_and_classifies_ap37(repo_root: Path, tmp_path: P
     assert manifest["schema"] == contracts.MANIFEST_SCHEMA
     assert manifest["classification"] == "post_hoc_durable_preservation"
     assert manifest["preserved_during_objective_005"] is False
-    assert manifest["optional_not_retained"] == {
-        "role": "fake_ap37_gate_authority",
-        "classification": contracts.MANIFEST_OPTIONAL_NOT_RETAINED,
-        "reason": contracts.MANIFEST_NOT_RETAINED_REASON,
-    }
+    assert "optional_not_retained" not in manifest
+    assert [entry["role"] for entry in manifest["authorities"]] == [
+        "protected_final_1024_success",
+        "protected_32_token_diagnostic",
+        "fake_isolated_target",
+        "fake_ap37_gate_authority",
+    ]
+    assert [entry["availability"] for entry in manifest["authorities"]] == [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+    ]
+    ap37_entry = manifest["authorities"][3]
+    ap37_source = safe_read_bounded(Path(authorities[3].source))
+    assert ap37_entry["relative_path"] == "005-ar/reused_ap37_fake_gate.json"
+    assert ap37_entry["original_sha256"] == hashlib.sha256(ap37_source).hexdigest()
+    assert ap37_entry["committed_sha256"] == ap37_entry["original_sha256"]
+    assert ap37_entry["byte_count"] == len(ap37_source)
     assert manifest["historical_authority"] == {
         "objective_005_merged_local_sha": contracts.OBJECTIVE_005_MERGED_LOCAL_SHA,
         "objective_005_tested_local_sha": contracts.OBJECTIVE_005_TESTED_LOCAL_SHA,
@@ -393,10 +406,9 @@ def test_audit_all_availability_states_are_truthful(repo_root: Path, tmp_path: P
         + (
             exporter.Authority(
                 authority_role="fake_ap37_gate_authority",
-                role=None,
+                role="full_fake_gate",
                 source=str(bad),
-                relative_path="005-ar/fake_ap37_gate_authority.json",
-                retained=False,
+                relative_path="005-ar/reused_ap37_fake_gate.json",
             ),
         )
     )
@@ -420,19 +432,16 @@ def test_audit_all_availability_states_are_truthful(repo_root: Path, tmp_path: P
     assert by_position[2]["byte_count"] is None
     fake_dest = repo_root / "oap" / "evidence" / "005-ar" / "fake_isolated_target_1024.json"
     assert not fake_dest.exists()
-    # The not-retained AP37 source is present and path-safe, so it is
-    # classified under the fixed non-retention classification; its content
-    # (which is invalid for any closed schema) is never read.
-    assert by_position[3]["availability"] == "optional_not_retained"
-    assert by_position[3]["rejection_class"] is None
+    # The AP37 source bytes are invalid for the closed full-fake-gate
+    # schema, so the retained authority is rejected under a fixed class
+    # with null content facts, and nothing is written for it.
+    assert by_position[3]["availability"] == "rejected"
+    assert by_position[3]["rejection_class"] == "shape_key_unknown"
     assert by_position[3]["relative_path"] is None
     assert by_position[3]["original_sha256"] is None
     assert by_position[3]["committed_sha256"] is None
     assert by_position[3]["byte_count"] is None
-    # Not-retained artifacts are never written.
-    assert not (
-        repo_root / "oap" / "evidence" / "005-ar" / "fake_ap37_gate_authority.json"
-    ).exists()
+    assert not (repo_root / "oap" / "evidence" / "005-ar" / "reused_ap37_fake_gate.json").exists()
     manifest = json.loads(
         (repo_root / "oap" / "evidence" / "005-ar" / "manifest.json").read_bytes()
     )
@@ -441,8 +450,116 @@ def test_audit_all_availability_states_are_truthful(repo_root: Path, tmp_path: P
         "accepted",
         "unavailable",
         "rejected",
-        "optional_not_retained",
+        "rejected",
     ]
+
+
+def _write_manifest(repo_root: Path, data: bytes) -> Path:
+    dest = repo_root / "oap" / "evidence" / "005-ar" / "manifest.json"
+    write_source(dest, data)
+    return dest
+
+
+def test_audit_replaces_pinned_008_a_manifest_once(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exporter = import_exporter()
+    # Synthetic pinned identity: only this exact pre-existing manifest is
+    # eligible for the one-shot replacement.
+    pinned_bytes = b'{"schema": "oap-008-a-durable-evidence-manifest-v1", "synthetic": true}\n'
+    monkeypatch.setattr(
+        contracts,
+        "OBJECTIVE_008_A_MANIFEST_SHA256",
+        hashlib.sha256(pinned_bytes).hexdigest(),
+    )
+    monkeypatch.setattr(contracts, "OBJECTIVE_008_A_MANIFEST_BYTE_COUNT", len(pinned_bytes))
+    _write_manifest(repo_root, pinned_bytes)
+    summary = exporter.run_audit(repo_root, synthetic_authorities(tmp_path))
+    assert [entry["availability"] for entry in summary["authorities"]] == [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+    ]
+    manifest_path = repo_root / "oap" / "evidence" / "005-ar" / "manifest.json"
+    assert manifest_path.read_bytes() != pinned_bytes
+    validate_value(contracts.MANIFEST_SPEC, json.loads(manifest_path.read_bytes()), "manifest")
+    # Second run: the manifest no longer matches the pinned identity, so
+    # the audit fails closed and the current manifest is untouched.
+    current = manifest_path.read_bytes()
+    with pytest.raises(UnsafeEvidenceError) as exc_info:
+        exporter.run_audit(repo_root, synthetic_authorities(tmp_path))
+    assert exc_info.value.rejection_class == "destination_bytes_mismatch"
+    assert manifest_path.read_bytes() == current
+
+
+def test_audit_refuses_non_pinned_preexisting_manifest(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exporter = import_exporter()
+    foreign = b'{"unknown": "manifest"}\n'
+    monkeypatch.setattr(contracts, "OBJECTIVE_008_A_MANIFEST_SHA256", "f" * 64)
+    monkeypatch.setattr(contracts, "OBJECTIVE_008_A_MANIFEST_BYTE_COUNT", len(foreign))
+    _write_manifest(repo_root, foreign)
+    with pytest.raises(UnsafeEvidenceError) as exc_info:
+        exporter.run_audit(repo_root, synthetic_authorities(tmp_path))
+    assert exc_info.value.rejection_class == "destination_bytes_mismatch"
+    assert (repo_root / "oap" / "evidence" / "005-ar" / "manifest.json").read_bytes() == foreign
+
+
+def test_audit_rerun_verifies_existing_destinations_without_rewrite(
+    repo_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    exporter = import_exporter()
+    authorities = synthetic_authorities(tmp_path)
+    first = exporter.run_audit(repo_root, authorities)
+    assert [entry["availability"] for entry in first["authorities"]] == [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+    ]
+    manifest_bytes = (repo_root / "oap" / "evidence" / "005-ar" / "manifest.json").read_bytes()
+    inodes = {
+        authority.relative_path: (repo_root / "oap" / "evidence" / authority.relative_path)
+        .stat()
+        .st_ino
+        for authority in authorities
+    }
+    # Pin the one-shot replacement to the manifest this run just published,
+    # then re-run: every destination must be re-verified byte-identical
+    # without any write (same inode), and the manifest replaced.
+    monkeypatch.setattr(
+        contracts,
+        "OBJECTIVE_008_A_MANIFEST_SHA256",
+        hashlib.sha256(manifest_bytes).hexdigest(),
+    )
+    monkeypatch.setattr(contracts, "OBJECTIVE_008_A_MANIFEST_BYTE_COUNT", len(manifest_bytes))
+    second = exporter.run_audit(repo_root, authorities)
+    assert [entry["availability"] for entry in second["authorities"]] == [
+        "accepted",
+        "accepted",
+        "accepted",
+        "accepted",
+    ]
+    for authority, entry in zip(authorities, second["authorities"], strict=True):
+        dest = repo_root / "oap" / "evidence" / authority.relative_path
+        assert dest.stat().st_ino == inodes[authority.relative_path]
+        assert entry["byte_count"] == dest.stat().st_size
+        assert entry["committed_sha256"] == hashlib.sha256(dest.read_bytes()).hexdigest()
+
+
+def test_audit_destination_bytes_mismatch_refused(repo_root: Path, tmp_path: Path) -> None:
+    exporter = import_exporter()
+    authorities = synthetic_authorities(tmp_path)
+    # A pre-existing destination that does not carry the accepted bytes is
+    # a conflict: the audit refuses and the file is never touched.
+    first_dest = repo_root / "oap" / "evidence" / authorities[0].relative_path
+    write_source(first_dest, b"foreign pre-existing bytes\n")
+    with pytest.raises(UnsafeEvidenceError) as exc_info:
+        exporter.run_audit(repo_root, authorities)
+    assert exc_info.value.rejection_class == "destination_bytes_mismatch"
+    assert first_dest.read_bytes() == b"foreign pre-existing bytes\n"
 
 
 def test_audit_performs_no_external_activity(
@@ -462,7 +579,7 @@ def test_audit_performs_no_external_activity(
         "accepted",
         "accepted",
         "accepted",
-        "optional_not_retained",
+        "accepted",
     ]
 
 
@@ -500,9 +617,19 @@ def test_historical_authorities_are_the_four_literal_paths() -> None:
         "/tmp/slaif-005-ap-fake-gate.rHO7rQ",
     ]
     roles = [authority.role for authority in exporter.HISTORICAL_AUTHORITIES]
-    assert roles == ["protected_target", "protected_target", "fake_target", None]
-    retained = [authority.retained for authority in exporter.HISTORICAL_AUTHORITIES]
-    assert retained == [True, True, True, False]
+    assert roles == [
+        "protected_target",
+        "protected_target",
+        "fake_target",
+        "full_fake_gate",
+    ]
+    relative_paths = [authority.relative_path for authority in exporter.HISTORICAL_AUTHORITIES]
+    assert relative_paths == [
+        "005-ar/protected_final_1024_success.json",
+        "005-ar/protected_32_token_diagnostic.json",
+        "005-ar/fake_isolated_target_1024.json",
+        "005-ar/reused_ap37_fake_gate.json",
+    ]
     authority_roles = [authority.authority_role for authority in exporter.HISTORICAL_AUTHORITIES]
     assert authority_roles == [
         "protected_final_1024_success",
