@@ -772,3 +772,61 @@ protected-invariance facts remained true (`pid`, `start`, `listener`,
 `worktree_count`, `text_inactive`, `no_18021`, and `no_18031`), and cleanup and
 secret-free logging passed. This is a truthful blocked protected result; the
 target pair, cutover, merge, and release readiness are not claimed.
+
+## Objective-008-a safe evidence export and durable preservation
+
+`scripts/safe_evidence_export.py` is acceptance/OAP tooling only (stdlib plus
+the repository-owned `tests/helpers/safe_evidence*` machinery) and gives
+sanitized acceptance results a durable, fail-closed export path so they cannot
+remain authoritative only in disposable temporary storage.
+
+- `export --source <exact file> --role {protected_target,fake_target}
+  --destination <relative> --mode {exact,deterministic}` validates one exact
+  source through the symlink-proof bounded directory-fd read, the closed role
+  result/preflight schemas, and the fixed-class privacy byte scan, then
+  atomically writes it under the repository `oap/evidence` root (exact
+  accepted bytes, or deterministic sorted-key re-serialization). Destinations
+  are relative identifier-only components; existing destinations, symlink
+  components, traversal/absolute escapes, and foreign ownership are refused.
+  Writes use an exclusive reservation, a `0600` temporary file, fsync/rename
+  resolved inside the directory descriptor (no process-wide `fchdir`), a
+  directory fsync, and a full read-back with SHA-256 comparison. Success
+  prints exactly one bounded provenance JSON line (role, schema, relative
+  path, byte count, original+committed SHA-256, mode); any violation prints
+  only `{"rejected": "<fixed class>"}` and leaves no apparently complete
+  result.
+- `historical-audit` inspects exactly the four 008-a literal historical paths.
+  The three retained authorities (final protected 1024 success, decisive
+  32-token max-output diagnostic, final isolated fake target) pass the full
+  audit and are preserved with exact bytes under stable names in
+  `oap/evidence/005-ar/`. The AP37 authority is an optional source that is
+  *not retained*: it is classified by bounded stat-only preflight under the
+  fixed content-free classification `optional_not_retained` (present and
+  path-safe), `historical_temp_artifact_unavailable_on_this_host` (absent), or
+  a fixed path-safety rejection class (unsafe), and no content, size, or hash
+  fact is produced for it. The materiality decision is recorded in the strict
+  manifest as one fixed single-literal field; the manifest
+  (`oap/evidence/005-ar/manifest.json`, schema
+  `oap-008-a-durable-evidence-manifest-v1`) carries exactly four unique
+  positional authority roles, `preserved_during_objective_005: false`, pinned
+  accepted-entry hash/path/count facts, null coherence for
+  unavailable/rejected/optional-not-retained entries, and the pinned
+  immutable Objective-005 authority block.
+- The AP37 full-gate family is not a supported export role: the closed target
+  schemas deliberately do not model its nested synthetic protected-case tree,
+  and the material fake chain is durably preserved by the 005-ai 37/37
+  fake-machine-gate evidence, the immutable 005-ar report, and the final
+  isolated fake target. `FULL_FAKE_GATE_SPEC` remains a closed reference shape
+  only; no arbitrary machine-gate schema support is claimed.
+- Missing historical artifacts are truthfully manifested (finite
+  availability/rejection class plus report citation), never a failure and
+  never reconstructed or rerun. Rejected artifacts are never committed. The
+  exporter performs zero network, provider, model, service, credential, Git
+  staging/commit, or GitHub operations. Committed evidence is a post-hoc
+  durable preservation of previously generated sanitized evidence, not
+  evidence produced during Objective 005, and it does not change
+  Objective-005 acceptance. Focused synthetic tests
+  (`tests/test_safe_evidence.py`, `tests/test_safe_evidence_export.py`)
+  cover the export contract, manifest contract, atomicity, symlink refusal,
+  descriptor discipline, and no-activity guarantees, and never require the
+  historical `/tmp` artifacts in ordinary CI.
