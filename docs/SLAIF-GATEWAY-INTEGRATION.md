@@ -873,3 +873,23 @@ the process identity/start, listener, worktree count, inactive text port, and
 absence of ports 18021 and 18031; cleanup and secret-free logging also passed.
 The immutable OAP report is authoritative for this blocked result. Protected
 acceptance, cutover, merge, and release readiness are not claimed.
+
+## Objective-007 current peer contract CI
+
+Objective-007 establishes a separate continuously-supported peer authority in
+`tests/fixtures/gateway/current_peer_authority.json`. The dedicated
+`gateway-contract` workflow checks out that exact public Gateway source into a
+runner-local `gateway/` directory, verifies repository identity, `HEAD`, pure
+source paths, and the Local Coding server plus Codex client module metadata,
+then runs focused contract tests with a socket/DNS denial guard. The normal
+Local test job remains independent and preserves the documented no-checkout
+skip for Gateway-dependent tests.
+
+This current pair is not a rewrite of Objective-005 acceptance pins or reports.
+The job performs no Gateway service, provider, database, Redis, Codex, model,
+Qwen/vLLM, credential, or deployment work; Gateway source is test input only
+and is excluded from the Local package. Checkout and dependency setup are the
+only network-enabled phases. `COMPLETE` CI evidence means the finite contract
+gate ran with zero skips and all selected tests passed; it does not mean
+IMPLEMENTED, TESTED, MERGED, DEPLOYED, or RELEASE-READY for the product
+topology.

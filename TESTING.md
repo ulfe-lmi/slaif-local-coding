@@ -285,6 +285,25 @@ Required GitHub checks for the current PR must all be present and successful.
 Green CI is necessary, not sufficient; strategic review also inspects live-test
 evidence, scope, security, architecture, and documentation.
 
+## Current Gateway contract CI
+
+The dedicated `gateway-contract` job reads the sole current peer authority from
+`tests/fixtures/gateway/current_peer_authority.json`, checks out that exact
+public Gateway repository/commit into a separate runner-owned directory, and
+proves the checkout origin, `HEAD`, expected pure source paths, and current
+server/client contract metadata. It runs the nine historically named
+`tests/test_gateway162_validator_factory.py` equivalents plus the clearly
+current `tests/test_current_gateway_contract.py` module (18 selected tests in
+the current pair). The runner rejects
+zero collection, skips, failures, errors, malformed fixture data, stale or
+incompatible facts, and network access during the test phase.
+
+The ordinary test job remains usable without `SLAIF_GATEWAY_ROOT`; only
+Gateway-dependent tests skip in that mode. See
+`docs/GATEWAY-CONTRACT-CI.md` for the optional fresh-checkout command,
+dependency boundary, update sequence, and limitations. Historical Objective-005
+pins remain immutable evidence and are not repointed by the current fixture.
+
 ## Objective-005-v protected acceptance
 
 The 005-v runner requires a complete fresh fake machine gate before protected
