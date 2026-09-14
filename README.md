@@ -42,6 +42,8 @@ Read first:
 - `AGENTS.md` — coding-agent constitution;
 - `SECURITY.md` and `TESTING.md`;
 - `docs/DEPLOYMENT.md` — the single supported deployment path and operator contract;
+- `docs/TOPOLOGY.md` — explicit runtime topology (hosts, network namespaces,
+  transports, per-hop boundaries) and the Gateway → Local transport decision;
 - `docs/RELEASE-ARTIFACT-POLICY.md` — supported-artifact policy (wheel) and
   mechanical artifact proof;
 - `docs/RELEASE-CUTOVER-RUNBOOK.md` — final live-cutover/rollback runbook

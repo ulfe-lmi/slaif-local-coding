@@ -1,8 +1,10 @@
-# Deployment configuration template (order 009-a). See docs/DEPLOYMENT.md.
+# Gateway-integrated deployment configuration template (order 010-a, C1).
 #
-# Label: development/local candidate (NOT production). The final
-# Gateway-integrated configuration is
-# config/adapter.gateway-integrated.template.toml (order 010-a).
+# Label: FINAL Gateway-integrated configuration for the supported production
+# path Codex -> Gateway runtime -> Local Coding -> loopback Qwen/vLLM. This is
+# the only supported configuration for the Gateway-integrated cutover. The
+# disabled-ingress template (config/adapter.deployment.template.toml) is the
+# development/local candidate only and is NOT production.
 #
 # Create the installed configuration (~/.config/slaif-local-coding/adapter.toml,
 # mode 0600) by substituting ONLY the documented placeholders below. No other
@@ -13,8 +15,14 @@
 #                          vLLM endpoint, e.g. http://127.0.0.1:18020/v1
 #   __UPSTREAM_MODEL__     served model name, e.g. qwen3.8-27b
 #
-# Never place secrets in this file. Credential values are referenced by
-# environment name only and provided through the mode-0600 EnvironmentFile.
+# Never place secrets in this file. All three Local-side secret roles are
+# referenced by environment name only and must be provided through the
+# mode-0600 EnvironmentFile with THREE DISTINCT env names (the config
+# validators reject a shared name):
+#   QWEN3090_API_KEY            protected upstream (Qwen/vLLM) credential
+#   SLAIF_ADAPTER_SERVICE_TOKEN Gateway -> Local service credential
+#   SLAIF_ADAPTER_SIGNING_SECRET Gateway -> Local signed-identity HMAC secret
+# The Gateway-only identity-derivation secret is never copied to Local.
 
 [server]
 listen_host = "127.0.0.1"
@@ -24,21 +32,21 @@ response_body_max_bytes = 67108864
 json_max_nesting_depth = 128
 
 [gateway_ingress]
-# Disabled preserves private loopback development behavior. Static mode
-# requires the complete explicit single-user [constitution] identity.
-# Signed mode is an adapter-side contract continuously tested against the
-# pinned Gateway peer (docs/GATEWAY-CONTRACT-CI.md); installed-service
-# binding and production cutover remain separate, human-authorized acts.
-mode = "disabled"
-# service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"
-# signing_secret_env = "SLAIF_ADAPTER_SIGNING_SECRET"
-# identity_version = "v1"
-# policy_version = "signed-identity-v1"
-# clock_skew_seconds = 60
-# replay_ttl_seconds = 60
-# max_replay_entries = 4096
-# nonce_min_length = 16
-# nonce_max_length = 128
+# Final Gateway-integrated ingress: service Bearer plus the signed identity
+# contract v1 (policy signed-identity-v1), as continuously tested against the
+# pinned Gateway peer (docs/GATEWAY-CONTRACT-CI.md). The Gateway route is the
+# sole authorized caller; the fixed defaults below are the accepted contract
+# values and are enforced by the configuration validators.
+mode = "service_bearer_signed_identity_v1"
+service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"
+signing_secret_env = "SLAIF_ADAPTER_SIGNING_SECRET"
+identity_version = "v1"
+policy_version = "signed-identity-v1"
+clock_skew_seconds = 60
+replay_ttl_seconds = 60
+max_replay_entries = 4096
+nonce_min_length = 16
+nonce_max_length = 128
 
 [upstream]
 base_url = "__UPSTREAM_BASE_URL__"
@@ -50,9 +58,9 @@ write_timeout_seconds = 30
 pool_timeout_seconds = 10
 
 [compiler]
-# Direct compiler calls remain disabled unless constitution integration is
-# explicitly enabled both here and on a route.
-enabled = false
+# Required by signed-request constitution identity: direct compiler calls are
+# enabled and go directly to upstream; they never traverse the adapter again.
+enabled = true
 schema_version = "constitution-index-v1"
 prompt_policy_version = "constitutional-rank-v2"
 reasoning_effort = "low"
@@ -80,14 +88,11 @@ ttl_seconds = 604800
 max_scan_entries = 4096
 
 [constitution]
-# Explicit local-appliance single-user MVP integration. When enabling static
-# mode, also set compiler.enabled = true and nonempty principal/session/
-# repository labels. Signed mode instead uses identity_source = "signed_request"
-# with no static labels and requires signed gateway ingress. Both modes
-# require observation_enabled = true and constitution_enabled = true on one
-# route.
-enabled = false
-# identity_source = "static"
+# Final Gateway-integrated constitution integration: identity comes from the
+# verified signed gateway request; static principal/session/repository labels
+# are forbidden (the config validators reject any coexistence).
+enabled = true
+identity_source = "signed_request"
 max_injected_bytes = 16384
 candidate_max_count = 128
 compile_failure_policy = "preserve_original"
@@ -104,9 +109,6 @@ injection_max_nodes = 16384
 [constitution.rehydration]
 # Process-local only. State is intentionally lost on restart and never
 # persists prompts, source, images, tool output, or request bodies.
-# Set false for shared service-Bearer deployments without trusted per-user
-# identity. This preserves current-request governance but disables zero-root
-# post-compaction rehydration and is not equivalent to the single-user path.
 enabled = true
 ttl_seconds = 3600
 max_entries = 64
@@ -133,8 +135,9 @@ enable_chat_completions = true
 # Disabled by default. The compatibility route may explicitly select
 # drop_disabled_codex_search to remove only tool_search/web_search declarations.
 responses_tool_policy = "passthrough"
+# The designated Codex vision route carries the constitutional integration.
 observation_enabled = true
-constitution_enabled = false
+constitution_enabled = true
 
 [observability]
 log_level = "INFO"

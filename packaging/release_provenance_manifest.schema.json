@@ -91,6 +91,7 @@
       "required": [
         "config_example_sha256",
         "deployment_config_template_sha256",
+        "gateway_integrated_config_template_sha256",
         "service_unit_sha256",
         "service_unit_example_sha256",
         "readyz_wait_sha256"
@@ -98,6 +99,7 @@
       "properties": {
         "config_example_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "deployment_config_template_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "gateway_integrated_config_template_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "service_unit_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "service_unit_example_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
         "readyz_wait_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}

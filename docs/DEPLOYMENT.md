@@ -33,7 +33,8 @@ Justification from current source review:
 | Asset | Role |
 | --- | --- |
 | `packaging/slaif-local-coding.service` | systemd user-unit template (loopback-only, hardened, external `EnvironmentFile`) |
-| `config/adapter.deployment.template.toml` | configuration template with exactly two documented placeholders |
+| `config/adapter.deployment.template.toml` | **development/local candidate** configuration template (ingress disabled; NOT production) with exactly two documented placeholders |
+| `config/adapter.gateway-integrated.template.toml` | **final Gateway-integrated** configuration template (signed ingress v1 + signed-request constitution identity) with exactly two documented placeholders |
 | `packaging/readyz-wait.sh` | bounded, fail-closed `/readyz` readiness poll (loopback only) |
 | `~/.config/slaif-local-coding/adapter.env` | protected environment file, **mode 0600**, credential values by env name only |
 | `~/.config/slaif-local-coding/adapter.toml` | installed configuration file, **mode 0600**, from the template |
@@ -59,10 +60,17 @@ and that the template contains only the documented placeholders.
   `adapter.toml`: `0600`. The unit file itself may be `0644` because it
   contains no secrets.
 - The `adapter.env` file holds credential **values** referenced by
-  environment name only — `QWEN3090_API_KEY` (protected upstream credential)
-  and, only when a `gateway_ingress` mode is enabled,
-  `SLAIF_ADAPTER_SERVICE_TOKEN`. Values are never written into the unit, argv,
-  TOML, examples, or documentation, and are never recorded in reports.
+  environment name only. The three Local-side secret roles, with THREE
+  DISTINCT environment names (the configuration validators reject any shared
+  name — order 010-a C2), are:
+  - `QWEN3090_API_KEY` — protected upstream (Qwen/vLLM) credential (always);
+  - `SLAIF_ADAPTER_SERVICE_TOKEN` — Gateway -> Local service credential
+    (whenever a `gateway_ingress` mode is enabled);
+  - `SLAIF_ADAPTER_SIGNING_SECRET` — Gateway -> Local signed-identity HMAC
+    secret (signed mode only).
+  The Gateway-only identity-derivation secret is never copied to Local.
+  Values are never written into the unit, argv, TOML, examples, or
+  documentation, and are never recorded in reports.
 - The unit enforces `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`,
   `ProtectHome=read-only`, `ProtectProc=invisible`, namespace/SUID/realtime
   restrictions, loopback-only `IPAddressAllow`, `UMask=0077`, and bounded
@@ -93,7 +101,10 @@ umask 077
 chmod 0600 "$HOME/.config/slaif-local-coding/adapter.env"
 
 # 4. Configuration from the documented template: substitute ONLY the two
-# documented placeholders, no other manual editing.
+# documented placeholders, no other manual editing. For the development/local
+# candidate use config/adapter.deployment.template.toml (ingress disabled;
+# NOT production). For the final Gateway-integrated configuration use
+# config/adapter.gateway-integrated.template.toml (see section 12).
 sed -e 's/__UPSTREAM_BASE_URL__/http:\/\/127.0.0.1:18020\/v1/' \
     -e 's/__UPSTREAM_MODEL__/qwen3.8-27b/' \
     config/adapter.deployment.template.toml \
@@ -166,8 +177,9 @@ systemctl --user start slaif-local-coding.service     # start
 systemctl --user stop slaif-local-coding.service      # stop
 systemctl --user restart slaif-local-coding.service   # restart (then poll readiness)
 systemctl --user status slaif-local-coding.service    # status
-systemctl --user enable slaif-local-coding.service    # start at login
+systemctl --user enable slaif-local-coding.service    # start at login (degraded mode A)
 systemctl --user disable slaif-local-coding.service   # stop at login
+# Unattended boot contract (supported mode B): see section 13.
 packaging/readyz-wait.sh                              # bounded readiness poll
 journalctl --user -u slaif-local-coding.service -n 100 --no-pager  # bounded logs
 ```
@@ -259,9 +271,105 @@ find /dev/shm/slaif-local-coding -mindepth 1 -delete   # optional cache purge
 
 Uninstalling must never touch the protected upstream model service, its unit,
 model/venv/patches, API-key files, firewall/VPN/network state, or any Codex
-profile.
+profile. If the appliance user's linger state was changed by the supported
+procedures (section 13), restore the pre-procedure linger state as part of
+uninstall (the change is documented, reversible, and verified).
 
-## 12. Qualification boundary
+## 12. Gateway-integrated deployment configuration (order 010-a)
+
+The **final Gateway-integrated configuration** is created from
+`config/adapter.gateway-integrated.template.toml`. It is the only supported
+configuration for the Gateway-integrated cutover (see
+[TOPOLOGY.md](TOPOLOGY.md) for the transport decision). The
+disabled-ingress template remains the **development/local candidate (NOT
+production)**; a development configuration must never be labeled production
+(the labels are mechanically checked by `tests/test_gateway_integrated_deployment.py`).
+
+Differences from the development template:
+
+- `[gateway_ingress]` `mode = "service_bearer_signed_identity_v1"` with
+  `service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"`,
+  `signing_secret_env = "SLAIF_ADAPTER_SIGNING_SECRET"`, and the fixed
+  accepted contract values (`identity_version = "v1"`,
+  `policy_version = "signed-identity-v1"`, `clock_skew_seconds = 60`,
+  `replay_ttl_seconds = 60`, `max_replay_entries = 4096`,
+  `nonce_min_length = 16`, `nonce_max_length = 128`);
+- `[constitution]` `enabled = true` with
+  `identity_source = "signed_request"` and **no** static
+  principal/session/repository labels (the validators forbid coexistence);
+- `[compiler]` `enabled = true` (direct compiler calls; required by the
+  constitution integration);
+- the designated route sets `observation_enabled = true` and
+  `constitution_enabled = true`.
+
+Install procedure (delta against section 4):
+
+```bash
+# Environment file with the THREE DISTINCT secret roles (mode 0600, values
+# referenced by environment name only, never recorded):
+install -d -m 0700 "$HOME/.config/slaif-local-coding"
+umask 077
+{
+  echo "QWEN3090_API_KEY=<protected upstream credential>"
+  echo "SLAIF_ADAPTER_SERVICE_TOKEN=<gateway-to-adapter service credential>"
+  echo "SLAIF_ADAPTER_SIGNING_SECRET=<gateway-to-adapter signing secret>"
+} > "$HOME/.config/slaif-local-coding/adapter.env"
+chmod 0600 "$HOME/.config/slaif-local-coding/adapter.env"
+
+# Configuration from the Gateway-integrated template: substitute ONLY the two
+# documented placeholders, no other manual editing.
+sed -e 's/__UPSTREAM_BASE_URL__/http:\/\/127.0.0.1:18020\/v1/' \
+    -e 's/__UPSTREAM_MODEL__/qwen3.8-27b/' \
+    config/adapter.gateway-integrated.template.toml \
+    > "$HOME/.config/slaif-local-coding/adapter.toml"
+chmod 0600 "$HOME/.config/slaif-local-coding/adapter.toml"
+
+# Start and wait for readiness (bounded, fail-closed):
+systemctl --user start slaif-local-coding.service
+packaging/readyz-wait.sh
+```
+
+Readiness contract: with signed ingress, `/readyz` reports
+`gateway_ingress = "ready"` only when **both** the service credential and
+the signing secret are available (fail closed — the service cannot serve the
+Gateway ingress, and the cutover runbook treats readiness failure as a
+rollback trigger).
+
+## 13. Boot contract and user-manager linger (order 010-a)
+
+The supported appliance boot contract is **unattended operation (mode B)**:
+the appliance user has user-manager linger enabled, so the adapter user
+service starts at boot without any login session. Without linger the
+documented degraded **mode A** applies: the service starts at login only.
+
+Supported procedure (each step documented, reversible, and verified; executed
+only by the human-authorized cutover order, never by this repository):
+
+```bash
+# Enable linger for the appliance user only (reversible):
+sudo loginctl enable-linger "$APPLIANCE_USER"
+# Verify the resulting state (must read Linger=yes):
+loginctl show-user "$APPLIANCE_USER" -p Linger
+# Restore the previous state when required (e.g. uninstall), then verify:
+sudo loginctl disable-linger "$APPLIANCE_USER"
+loginctl show-user "$APPLIANCE_USER" -p Linger
+```
+
+What happens without linger (degraded mode A): the service unit is still
+`WantedBy=default.target`, so it starts when the appliance user logs in; it
+does **not** start at boot in a headless/unattended situation. Operators
+detect the mode with `loginctl show-user <user> -p Linger` (`yes` = mode B,
+`no` = mode A); `scripts/boot_contract.py --inspect` prints the closed
+classification. Upgrade, rollback, and uninstall procedures manage linger
+explicitly: install verifies the intended mode, upgrade and rollback leave
+it unchanged, and uninstall restores the pre-procedure state (section 11).
+
+This objective records the host baseline only (read-only): the appliance
+user's linger state at qualification time is `no` (mode A) and is **not**
+changed by this objective; enabling linger is part of the separately
+authorized cutover.
+
+## 14. Qualification boundary
 
 This objective qualifies the deployment mechanics in a disposable environment
 against fake loopback upstreams only (see `scripts/disposable_deployment_qualification.py`

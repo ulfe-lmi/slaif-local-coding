@@ -272,6 +272,7 @@ def inspect_artifacts(dist_dir: Path) -> dict:
         "tests/test_app.py",
         "config/adapter.example.toml",
         "config/adapter.deployment.template.toml",
+        "config/adapter.gateway-integrated.template.toml",
         "packaging/slaif-local-coding.service",
         "packaging/readyz-wait.sh",
         ".github/workflows/ci.yml",
@@ -279,6 +280,8 @@ def inspect_artifacts(dist_dir: Path) -> dict:
         "docs/RELEASE-ARTIFACT-POLICY.md",
         "docs/RELEASE-CUTOVER-RUNBOOK.md",
         "docs/ADAPTER-CONFIGURATION.md",
+        "docs/TOPOLOGY.md",
+        "docs/topology.manifest.json",
     }
     for required in sorted(required_sdist):
         if required not in sdist_files:

@@ -132,3 +132,9 @@ exclude = ["oap/bin/check_state.py", "references/qwen38_vision_image_cap_proxy.p
 python_version = "3.12"
 strict = true
 packages = ["slaif_local_coding"]
+
+# Repository-only OAP tooling exercised by tests (order 010-a); resolved at
+# runtime via sys.path in the test module.
+[[tool.mypy.overrides]]
+module = "cutover_state_machine"
+ignore_missing_imports = true

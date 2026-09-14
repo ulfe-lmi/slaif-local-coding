@@ -94,6 +94,26 @@ resolves and runs (`--help`, `--version`), and runtime source provenance
 the repository checkout; entry point path and SHA-256 are recorded). It runs
 in CI on the runner and in the local qualification.
 
+## Cutover artifact authority and supersession (order 010-a, workstream G)
+
+The cutover artifact authority is always the exact wheel recorded in the
+current `packaging/release_provenance_manifest.json`. Objective 009's
+accepted wheel (0.1.0, SHA-256
+`e4759c00e37332998ed92dc5c01fe10be4b11b3a4b1df8c33edc64e176752ee1`, 81462
+bytes, 26 entries) was the cutover authority **only while the runtime package
+remained byte-identical**. Objective 010 adds a runtime configuration
+validator (distinct secret-role environment names, workstream C2), which
+changes the runtime package bytes; therefore the cleared rebuild is NOT
+byte-identical to the Objective-009 wheel and the current manifest records
+the **new** release-candidate artifact set (wheel + sdist hashes, sizes, and
+entry counts) generated from the Objective-010 implementation state. That
+exact new artifact is the **only** future cutover authority; the
+Objective-009 hash remains the accepted Objective-009 record only (immutable
+git history) and is no longer the cutover authority. Nothing is released: no
+registry publication, tag, or release state change. Any future objective
+that changes runtime package bytes must repeat this gate: cleared rebuild,
+hash comparison, and manifest regeneration in the same PR.
+
 ## Publication
 
 No artifact is published to any registry by this repository. A registry

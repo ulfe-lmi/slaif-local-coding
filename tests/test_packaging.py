@@ -67,10 +67,13 @@ def test_example_config_is_loopback_candidate_on_18031() -> None:
 
 DEPLOYMENT_UNIT = REPO_ROOT / "packaging" / "slaif-local-coding.service"
 DEPLOYMENT_TEMPLATE = REPO_ROOT / "config" / "adapter.deployment.template.toml"
+GATEWAY_INTEGRATED_TEMPLATE = REPO_ROOT / "config" / "adapter.gateway-integrated.template.toml"
 READYZ_WAIT = REPO_ROOT / "packaging" / "readyz-wait.sh"
 DEPLOYMENT_DOC = REPO_ROOT / "docs" / "DEPLOYMENT.md"
 ARTIFACT_POLICY_DOC = REPO_ROOT / "docs" / "RELEASE-ARTIFACT-POLICY.md"
 CUTOVER_RUNBOOK = REPO_ROOT / "docs" / "RELEASE-CUTOVER-RUNBOOK.md"
+TOPOLOGY_DOC = REPO_ROOT / "docs" / "TOPOLOGY.md"
+TOPOLOGY_MANIFEST = REPO_ROOT / "docs" / "topology.manifest.json"
 
 SECRET_VALUE_PATTERNS = [
     re.compile(rb"QWEN3090_API_KEY\s*=\s*[A-Za-z0-9._\-]{8,}"),
@@ -153,17 +156,20 @@ def _all_packaging_assets() -> list[Path]:
     assets = sorted((REPO_ROOT / "packaging").rglob("*"))
     assets += [
         DEPLOYMENT_TEMPLATE,
+        GATEWAY_INTEGRATED_TEMPLATE,
         REPO_ROOT / "config" / "adapter.example.toml",
         DEPLOYMENT_DOC,
         ARTIFACT_POLICY_DOC,
         CUTOVER_RUNBOOK,
+        TOPOLOGY_DOC,
+        TOPOLOGY_MANIFEST,
     ]
     return [asset for asset in assets if asset.is_file()]
 
 
 def test_no_secret_in_any_packaging_asset_or_document() -> None:
     assets = _all_packaging_assets()
-    assert len(assets) >= 8, "expected the full packaging asset set"
+    assert len(assets) >= 10, "expected the full packaging asset set"
     for asset in assets:
         data = asset.read_bytes()
         for pattern in SECRET_VALUE_PATTERNS:

@@ -427,6 +427,26 @@ class Settings(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def distinct_secret_role_env_names(self) -> Settings:
+        # C2 (order 010-a): the three Local-side secret roles must use
+        # distinct environment names so one value can never silently fill
+        # two roles (upstream credential, Gateway service credential,
+        # Gateway signing secret).
+        roles: dict[str, str] = {"upstream": self.upstream.api_key_env}
+        if self.gateway_ingress.service_token_env is not None:
+            roles["gateway_service"] = self.gateway_ingress.service_token_env
+        if self.gateway_ingress.signing_secret_env is not None:
+            roles["gateway_signing"] = self.gateway_ingress.signing_secret_env
+        names = list(roles.items())
+        for i, (label_a, name_a) in enumerate(names):
+            for label_b, name_b in names[i + 1 :]:
+                if name_a == name_b:
+                    raise ValueError(
+                        f"secret roles {label_a} and {label_b} cannot share one environment name"
+                    )
+        return self
+
+    @model_validator(mode="after")
     def unique_routes(self) -> Settings:
         names = [route.name for route in self.routes]
         if len(names) != len(set(names)):
