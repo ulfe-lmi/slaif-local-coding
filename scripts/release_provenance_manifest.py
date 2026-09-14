@@ -1,0 +1,200 @@
+"""Release/deployment provenance manifest generator (order 009-a, workstream E).
+
+Produces a content-free, machine-readable, schema-versioned provenance
+manifest for the release candidate. "Content-free" means the manifest carries
+only hashes, versions, counts, and fixed status facts — never host paths,
+credentials, provider keys, private identifiers, prompts, model output, or raw
+acceptance payloads (enforced by the forbidden-content scan shared with the
+artifact policy check and by tests/test_release_provenance_manifest.py).
+
+The manifest is generated from actual build inputs (git HEAD, the locked
+files, the built artifacts, the deployment templates, and the current Gateway
+peer fixture) and is committed under packaging/. The E3 test regenerates it
+and fails on any drift or forbidden content.
+
+Usage:
+
+    python scripts/release_provenance_manifest.py --emit packaging/release_provenance_manifest.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import platform
+import re
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+SCHEMA_NAME = "slaif-release-provenance-v1"
+SCHEMA_VERSION = 1
+OBJECTIVE = "009-a"
+REPOSITORY = "ulfe-lmi/slaif-local-coding"
+GATEWAY_PEER_FIXTURE = Path("tests/fixtures/gateway/current_peer_authority.json")
+PACKAGE_NAME = "slaif-local-coding"
+CODIX_CLIENT_VERSION = "0.149.0"
+CODIX_WIRE_FIXTURE_DIR = "tests/fixtures/codex/0.149.0"
+
+LIMITATIONS: list[str] = [
+    "deployment-qualified in a disposable environment against fake loopback upstreams only",
+    "cutover not performed",
+    "not released; no registry publication, tag, or release state change",
+    "single supported deployment path: systemd user service on the local host "
+    "with the repository venv",
+    "sdist is a developer-only source archive, not a supported release artifact",
+    "no multi-user, production-certification, compliance, or frontier-equivalence claim",
+    "single RTX 3090 fixture evidence is fixture-scoped, not generic production equivalence",
+]
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _artifact_facts(path: Path, kind: str) -> dict:
+    import tarfile
+    import zipfile
+
+    if kind == "wheel":
+        with zipfile.ZipFile(path) as wheel:
+            entries = [i.filename for i in wheel.infolist() if not i.is_dir()]
+    else:
+        with tarfile.open(path, "r:gz") as sdist:
+            entries = []
+            for member in sdist.getmembers():
+                if member.isfile():
+                    entries.append(member.name)
+    return {
+        "name": path.name,
+        "sha256": _sha256_file(path),
+        "size_bytes": path.stat().st_size,
+        "entry_count": len(entries),
+    }
+
+
+def _git_commit(root: Path) -> str:
+    out = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    if not re.fullmatch(r"[0-9a-f]{40}", out):
+        raise RuntimeError("git rev-parse HEAD did not return a 40-hex SHA")
+    return out
+
+
+def build_manifest(repo: Path, dist_dir: Path) -> dict:
+    with (repo / "pyproject.toml").open("rb") as stream:
+        pyproject = tomllib.load(stream)
+    package_version = pyproject["project"]["version"]
+
+    peer = json.loads((repo / GATEWAY_PEER_FIXTURE).read_text(encoding="utf-8"))
+
+    wheels = sorted(
+        set(dist_dir.glob(f"{PACKAGE_NAME.replace('-', '_')}-*.whl"))
+        | set(dist_dir.glob(f"{PACKAGE_NAME}-*.whl"))
+    )
+    sdists = sorted(
+        set(dist_dir.glob(f"{PACKAGE_NAME.replace('-', '_')}-*.tar.gz"))
+        | set(dist_dir.glob(f"{PACKAGE_NAME}-*.tar.gz"))
+    )
+    if len(wheels) != 1 or len(sdists) != 1:
+        raise RuntimeError("expected exactly one wheel and one sdist in dist dir")
+
+    python_version = platform.python_version()
+    major_minor = ".".join(python_version.split(".")[:2])
+
+    manifest = {
+        "schema": SCHEMA_NAME,
+        "schema_version": SCHEMA_VERSION,
+        "objective": OBJECTIVE,
+        "generated_from": {
+            "repository": REPOSITORY,
+            "git_commit": _git_commit(repo),
+        },
+        "gateway_peer": {
+            "repository": peer["repository"],
+            "commit": peer["commit"],
+            "server_module": {
+                "module_id": peer["server"]["module_id"],
+                "module_version": peer["server"]["module_version"],
+                "replay_mode": peer["server"]["replay_mode"],
+            },
+            "client_module": {
+                "module_id": peer["client"]["module_id"],
+                "module_version": peer["client"]["module_version"],
+            },
+        },
+        "runtime": {
+            "python": major_minor,
+            "package_name": PACKAGE_NAME,
+            "package_version": package_version,
+            "uv_lock_sha256": _sha256_file(repo / "uv.lock"),
+            "pyproject_sha256": _sha256_file(repo / "pyproject.toml"),
+        },
+        "artifacts": {
+            "wheel": _artifact_facts(wheels[0], "wheel"),
+            "sdist": _artifact_facts(sdists[0], "sdist"),
+        },
+        "templates": {
+            "config_example_sha256": _sha256_file(repo / "config/adapter.example.toml"),
+            "deployment_config_template_sha256": _sha256_file(
+                repo / "config/adapter.deployment.template.toml"
+            ),
+            "service_unit_sha256": _sha256_file(repo / "packaging/slaif-local-coding.service"),
+            "service_unit_example_sha256": _sha256_file(
+                repo / "packaging/slaif-local-coding.service.example"
+            ),
+            "readyz_wait_sha256": _sha256_file(repo / "packaging/readyz-wait.sh"),
+        },
+        "reference_compatibility": {
+            "model_name": "qwen3.8-27b",
+            "upstream_interface": "vllm-openai-compat-v1",
+            "codex_client": {
+                "version": CODIX_CLIENT_VERSION,
+                "wire_fixture_dir": CODIX_WIRE_FIXTURE_DIR,
+            },
+        },
+        "status": {
+            "deployment_qualified": "disposable-environment-only",
+            "cutover_performed": False,
+            "released": False,
+        },
+        "limitations": list(LIMITATIONS),
+    }
+    return manifest
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--emit",
+        type=Path,
+        default=Path("packaging/release_provenance_manifest.json"),
+    )
+    parser.add_argument("--dist", type=Path, default=Path("dist"))
+    args = parser.parse_args()
+
+    repo = Path(__file__).resolve().parents[1]
+    manifest = build_manifest(repo, args.dist.resolve())
+    payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
+    args.emit.parent.mkdir(parents=True, exist_ok=True)
+    args.emit.write_text(payload, encoding="utf-8")
+    print(f"wrote {args.emit} ({len(payload)} bytes)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

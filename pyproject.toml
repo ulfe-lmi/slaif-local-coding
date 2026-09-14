@@ -35,8 +35,75 @@ gateway-contract = [
 [project.scripts]
 slaif-local-coding = "slaif_local_coding.cli:main"
 
+# Release-artifact policy (order 009-a, docs/RELEASE-ARTIFACT-POLICY.md):
+# the wheel is the single supported distributable; the sdist is a
+# developer-only source archive. Both targets get an explicit, deliberate
+# include/exclude policy below instead of backend defaults.
+[tool.hatch.build]
+# Top-level exclusions apply to every build target. Orchestration transcripts,
+# OAP runtime state, caches, build outputs, placeholder files, and files that
+# embed protected-host-specific paths must never enter any artifact.
+exclude = [
+  ".git",
+  ".venv",
+  "dist",
+  "build",
+  "oap",
+  "references",
+  "scripts",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  "__pycache__",
+  "**/__pycache__",
+  "*.pyc",
+  "*.pyo",
+  "*.egg-info",
+  "Local",
+  "clean",
+  "unchanged",
+  "runtime.env",
+  "AGENTS.md",
+  "OAP-COMMUNICATION-coding-agent.md",
+  "ARCHITECTURE-for-agents.md",
+  "SECURITY.md",
+  "TESTING.md",
+  "ARCHITECTURE.md",
+  "docs/LIVE-TEST-ENVIRONMENT.md",
+  "docs/OAP-RUNBOOK.md",
+  "docs/SLAIF-GATEWAY-INTEGRATION.md",
+  # Static repo-asset contract tests that embed the forbidden-content
+  # scanner's literal patterns (meta-content), plus host-specific tests.
+  "tests/test_packaging.py",
+  "tests/test_config.py",
+  "tests/test_gateway_accounting_rehearsal.py",
+  "tests/test_safe_evidence.py",
+]
+
 [tool.hatch.build.targets.wheel]
+# Verified-clean property: runtime package plus dist-info metadata and license
+# files only. The mechanical policy check (scripts/artifact_policy_check.py)
+# re-proves this on every build in local gates and CI.
 packages = ["src/slaif_local_coding"]
+
+[tool.hatch.build.targets.sdist]
+# Deliberate developer-only whitelist; the complement of this list (plus the
+# top-level exclusions) is never shipped in the sdist.
+include = [
+  "pyproject.toml",
+  "uv.lock",
+  "README.md",
+  "LICENSE",
+  "NOTICE",
+  "THIRD_PARTY_NOTICES.md",
+  "CONTRIBUTING.md",
+  "src",
+  "config",
+  "packaging",
+  "tests",
+  "docs",
+  ".github/workflows/ci.yml",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

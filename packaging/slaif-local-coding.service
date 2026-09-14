@@ -1,0 +1,76 @@
+# SLAIF Local Coding adapter — systemd user service template (order 009-a).
+#
+# This is the single supported deployment path. Install it per
+# docs/DEPLOYMENT.md:
+#
+#   1. Copy this file to ~/.config/systemd/user/slaif-local-coding.service
+#      (mode 0644; the unit itself never contains secrets).
+#   2. Create the protected environment file
+#      ~/.config/slaif-local-coding/adapter.env (mode 0600) holding credential
+#      VALUES only, referenced by environment name:
+#        QWEN3090_API_KEY=(protected upstream credential, never recorded)
+#      Add SLAIF_ADAPTER_SERVICE_TOKEN=(value) only if a gateway_ingress mode
+#      is enabled in the configuration file.
+#   3. Create the configuration file
+#      ~/.config/slaif-local-coding/adapter.toml (mode 0600) from
+#      config/adapter.deployment.template.toml using only the documented
+#      placeholder substitutions.
+#
+# The unit keeps loopback-only networking, all hardening directives from the
+# earlier example, and the external EnvironmentFile. Secrets never appear in
+# this unit, in argv, in examples, or in documentation.
+#
+# Readiness: Type=exec means "main process started", NOT "ready". Operators
+# must poll /readyz with a bounded wait after start/restart (see
+# packaging/readyz-wait.sh and docs/DEPLOYMENT.md) before trusting traffic.
+[Unit]
+Description=SLAIF Local Coding adapter (loopback candidate service)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=exec
+# Repository-owned environment and checkout location; replace only the
+# repository directory name when it differs on another host.
+WorkingDirectory=%h/codex-work/slaif-local-coding
+# Mode-0600 file containing credential values by environment name only.
+EnvironmentFile=%h/.config/slaif-local-coding/adapter.env
+# Mode-0600 configuration file created from the documented template.
+ExecStart=%h/codex-work/slaif-local-coding/.venv/bin/slaif-local-coding --config=%h/.config/slaif-local-coding/adapter.toml
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=30s
+TimeoutStopSec=15s
+KillMode=mixed
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectProc=invisible
+LockPersonality=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=127.0.0.0/8
+IPAddressAllow=::1/128
+AmbientCapabilities=
+UMask=0077
+LimitNOFILE=4096
+TasksMax=128
+MemoryMax=1G
+# The default protected cache location. If an operator instead configures the
+# XDG cache fallback, that path must be added here as well.
+ReadWritePaths=/dev/shm/slaif-local-coding
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=slaif-local-coding
+
+[Install]
+WantedBy=default.target
