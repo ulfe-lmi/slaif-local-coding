@@ -1,0 +1,69 @@
+{
+  "invalid_assumption": {
+    "endpoint_address_class": "loopback",
+    "gateway_namespace_mode": "separate_namespace",
+    "qualified": false,
+    "reason": "loopback_does_not_cross_namespaces"
+  },
+  "live_facts_as_of_2026_09_14": {
+    "active_codex_provider_endpoint": "http://maelstrom1.lmi.link:8001/v1",
+    "active_codex_provider_transport": "plain_http_no_tls",
+    "gateway_deployment_on_local_host": false,
+    "gateway_peer_commit": "65666f5886832034c52211fdd7604046557e6ada",
+    "local_network": "single_rfc1918_slash24_dhcp_unencrypted_no_vpn",
+    "maelstrom1_to_vllm_mapping": "unresolved_operator_fact_captured_at_cutover_step_1",
+    "port_18021_absent": true,
+    "port_18031_absent": true,
+    "protected_vision_service": "running_on_18020_health_200"
+  },
+  "schema": "slaif-topology-manifest-v1",
+  "supported_path": {
+    "hops": [
+      {
+        "authentication": "gateway_key",
+        "endpoint_address_class": "public_edge",
+        "from": "codex_client",
+        "id": "codex_to_gateway_entry",
+        "publicly_reachable": true,
+        "to": "gateway_edge",
+        "transport": "tls_public_edge"
+      },
+      {
+        "authentication": "service_bearer_signed_identity_v1",
+        "endpoint": "127.0.0.1:18031",
+        "endpoint_address_class": "loopback",
+        "from": "gateway_runtime",
+        "gateway_namespace_mode": "shared_host_namespace",
+        "id": "gateway_runtime_to_local",
+        "publicly_reachable": false,
+        "to": "local_adapter",
+        "transport": "loopback_shared_host_namespace"
+      },
+      {
+        "authentication": "protected_upstream_credential",
+        "endpoint": "127.0.0.1:18020",
+        "endpoint_address_class": "loopback",
+        "from": "local_adapter",
+        "id": "local_adapter_to_qwen",
+        "publicly_reachable": false,
+        "to": "qwen_vllm",
+        "transport": "loopback_shared_host_namespace"
+      }
+    ]
+  },
+  "transport_decision": {
+    "confidentiality_boundary": [
+      "no_network_traversal",
+      "service_bearer",
+      "signed_identity_v1"
+    ],
+    "decision": "colocated_single_host_shared_namespace",
+    "endpoint_address_class": "loopback",
+    "gateway_api_runtime_requirement": "host_network_namespace_via_deployment_configuration",
+    "gateway_namespace_mode": "shared_host_namespace",
+    "local_binding_changes": false,
+    "multi_host_supported": false,
+    "new_network_mechanism": false
+  },
+  "version": 1
+}

@@ -7,6 +7,25 @@ settings validation/startup. Application code has
 no hard-coded upstream address. The example address is host-specific candidate
 configuration, not a public endpoint.
 
+The deployment templates are explicitly labeled:
+`config/adapter.deployment.template.toml` is the **development/local
+candidate (NOT production)** (ingress disabled);
+`config/adapter.gateway-integrated.template.toml` is the **final
+Gateway-integrated configuration** (signed ingress + signed-request
+constitution identity). In the Gateway-integrated configuration,
+`[gateway_ingress]` `mode = "service_bearer_signed_identity_v1"` requires
+`service_token_env` and `signing_secret_env`, the fixed accepted contract
+defaults, and — enforced by the configuration validators — an enabled
+constitution integration with `identity_source = "signed_request"` and no
+static principal/session/repository labels, an enabled direct compiler, and
+at least one route with `observation_enabled` and `constitution_enabled`.
+The three Local-side secret roles (`upstream.api_key_env`,
+`gateway_ingress.service_token_env`, `gateway_ingress.signing_secret_env`)
+must use **three distinct environment names**; any shared name fails closed
+at settings validation (order 010-a C2). With signed ingress, `/readyz`
+reports `gateway_ingress = "ready"` only when both ingress credentials are
+available (fail closed).
+
 The upstream credential is read from the environment variable named by
 `api_key_env`. Optional `[gateway_ingress]` service authentication is disabled
 by default. In `service_bearer_static_identity` mode, the adapter accepts one
