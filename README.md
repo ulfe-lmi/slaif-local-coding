@@ -41,6 +41,11 @@ Read first:
 - `ARCHITECTURE-for-agents.md` — compact normative implementation law;
 - `AGENTS.md` — coding-agent constitution;
 - `SECURITY.md` and `TESTING.md`;
+- `docs/DEPLOYMENT.md` — the single supported deployment path and operator contract;
+- `docs/RELEASE-ARTIFACT-POLICY.md` — supported-artifact policy (wheel) and
+  mechanical artifact proof;
+- `docs/RELEASE-CUTOVER-RUNBOOK.md` — final live-cutover/rollback runbook
+  (prepare-only; the cutover itself is a separate human-authorized act);
 - `oap/README.md` — versioned transcript contract;
 - `docs/OAP-RUNBOOK.md` — exact two-Codex startup/activation/recovery.
 
@@ -48,8 +53,32 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status: objectives `000`–`004` provide a private, loopback-only candidate
-adapter plus repository-only Objective-004 acceptance evidence. It forwards
+Current status (verified against merged GitHub truth on 2026-09-14):
+
+| Objective | Merged PR | Merge commit | Accepted state |
+| --- | --- | --- | --- |
+| 000 adapter foundation and image policy | PR #1 | `91463ae3199dd06e0448a9422a5e713da8ee92df` | implemented and merged |
+| 001 AGENTS observation, deterministic candidates | PR #2 | `176bf4d839ae9fa32d0cc3c4279a1b96220c1c61` | implemented and merged |
+| 002 constitutional compiler and validated cache | PR #3 | `867ed55e7d115d960c666380ebbc5952d43d97d1` | implemented and merged |
+| 003 working-set selection, injection, rehydration | PR #4, #5 | `68f212b5ad316b95fa12ef632e1538b56479081b`, `7a2c36a0a40958a6059a765c2f9d5e5bf4ddc161` | implemented and merged |
+| 004 real-Codex governed E2E, security/ops hardening | PR #6 | `570bd2b24ad4b041a07e0320d5ed44bc73e99ad5` | implemented and merged; real-E2E accepted (fixture-scoped) |
+| 005 gateway integration and cutover contract | PR #7 | `e3f10e93c1ea84bf4021fd15d566bf577d5a9dcf` | implemented and merged; cross-repository acceptance accepted under its documented composed closure |
+| 006 signed-request replay hardening | PR #8 | `efc4dbcd377dd796a670726b16ebc06bd54b6356` | implemented and merged |
+| 007 current Gateway contract CI | PR #9 | `2041bddc5a745ef0dd4f3088c24b74b9bceefdb9` | implemented and merged; continuously Gateway-contract tested against the pinned peer |
+| 008 durable acceptance evidence | PR #10 | `1a913bf3520e7570042774ef7c8ca5153da7a671` | implemented and merged |
+| 009 release candidate and operational closure | this PR | (open) | reproducible package (wheel is the single supported distributable) and deployment-qualified in a disposable environment only |
+
+Across the whole product: **cutover NOT performed** (see the prepare-only
+[final cutover/rollback runbook](docs/RELEASE-CUTOVER-RUNBOOK.md)) and **NOT
+released** (no tag, no registry publication; see the
+[release-artifact policy](docs/RELEASE-ARTIFACT-POLICY.md)). The original
+planned meanings formerly associated with numeric objectives 006–008 (for
+example "SME package") are historical planning prose, not live objective
+identifiers; the original product milestone "reproducible SME package and
+honest release evidence" is implemented under the Objective-009 milestone name.
+The deployment operator contract is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+The adapter is a private, loopback-only candidate. It forwards
 `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
@@ -60,9 +89,8 @@ compiler, observation, route, and complete static local-appliance identity
 configuration. It handles exactly one complete root and can rehydrate the last validated
 working set for an exact configured identity on a later zero-root request;
 multiple/incomplete roots preserve post-image-policy semantics.
-The current Objective-004 criterion state is in the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
-and the [OAP completeness record](oap/COMPLETENESS.md); objectives 005–006 remain
-separate milestones.
+The Objective-004 criterion state is in the [criterion ledger](docs/OBJECTIVE-004-LEDGER.md)
+and the [OAP completeness record](oap/COMPLETENESS.md).
 
 The accepted Objective-004 live fixture is the human-selected Qwen vision service:
 it supports one image per request and the repository-only run verified Codex
@@ -230,10 +258,13 @@ marker/shape failures return a sanitized 422 without forwarding. The pipeline
 supports either static local-appliance identity or an explicitly verified
 adapter-side signed identity v1; static labels are not multi-user production
 isolation. The optional adapter-side ingress contracts are documented in [the
-gateway integration contract](docs/SLAIF-GATEWAY-INTEGRATION.md). The current
-  the exact reviewed Gateway route emits signed identity, while gateway
-  quotas/accounting, production cutover, and generic production readiness remain
-  outside this boundary.
+gateway integration contract](docs/SLAIF-GATEWAY-INTEGRATION.md). The
+Gateway contract CI (objective 007) continuously tests the adapter-side
+service-Bearer and signed-ingress contracts against the exact pinned peer in
+`tests/fixtures/gateway/current_peer_authority.json`; the historical
+Objective-005 acceptance-harness pin remains immutable evidence and is not the
+current capability statement. Gateway quotas/accounting, production cutover,
+and generic production readiness remain outside this boundary.
 Repository-only Objective-004 evidence separately covers governed
 Codex E2E, adapter-boundary rehydration, security/observability review, the
 isolated systemd candidate, and fixture-scoped vision acceptance; native Codex
@@ -346,7 +377,15 @@ uv run --frozen ruff format --check .
 uv run --frozen mypy src tests
 uv run --frozen pytest -q
 uv build
+uv run --frozen python scripts/artifact_policy_check.py --dist dist --inspect
+uv run --frozen python scripts/artifact_policy_check.py --dist dist --install-smoke
 ```
+
+The artifact policy check mechanically proves the wheel's verified-clean
+property and the sdist's developer-only whitelist (see
+[docs/RELEASE-ARTIFACT-POLICY.md](docs/RELEASE-ARTIFACT-POLICY.md)); the
+install smoke proves the wheel installs into a fresh, empty venv with working
+console entry point and in-venv provenance.
 
 Live checks are opt-in and serial. Start the foreground candidate for adapter
 checks, then run `SLAIF_LIVE_TEST=1 uv run --frozen pytest -q tests/test_live.py`.
@@ -354,18 +393,20 @@ The compiler/cache live case calls the configured private upstream directly and
 does not require that foreground adapter. Tests use only synthetic prompts and
 bounded outputs. Stop the temporary adapter after testing; protected vLLM
 service, model, network, and Codex profiles remain untouched.
-The systemd file in `packaging/` is an uninstalled user-service example only.
-It requires a repository `.venv`, an explicit config path, and a mode-0600
-external environment file for `QWEN3090_API_KEY`; it does not accept credentials
-inline in the unit or command line. The example hardens the candidate with
-loopback-only networking, private temporary storage, read-only system/home
-views, bounded tasks/memory/file descriptors, a private umask, journal output,
-and bounded graceful shutdown. Prefer a uniquely named transient
-`systemd-run --user --collect` unit for proof, validate it with
-`systemd-analyze verify`, and remove the temporary unit/config/cache/env after
-the run. It never installs, restarts, or changes `qwen-serving` or port
-  `18020`. Public client authentication, gateway-side signed identity emission,
-  quotas, and TLS remain the separate gateway's responsibility; the adapter-side
-  service-Bearer and signed-ingress contracts are documented separately. The
-  signed-identity capability is source-bound to the exact reviewed Gateway route
-  and does not by itself establish production cutover or release readiness.
+Deployment: the single supported path is a systemd **user** service on the
+local host running the adapter from the repository venv on loopback port
+`18031`; see the complete operator contract in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). The unit
+(`packaging/slaif-local-coding.service`) keeps loopback-only networking and all
+hardening directives, and reads credential values only from a mode-0600
+external environment file — never inline in the unit, argv, examples, or
+documentation. The deployment mechanics are qualified in a disposable
+environment against fake loopback upstreams only
+(`scripts/disposable_deployment_qualification.py`); no persistent unit of the
+production host is installed or enabled by this repository, and the live
+cutover itself remains the separate human-authorized act in
+[docs/RELEASE-CUTOVER-RUNBOOK.md](docs/RELEASE-CUTOVER-RUNBOOK.md). Public
+client authentication, gateway-side signed identity emission, quotas, and TLS
+remain the separate gateway's responsibility. The signed-identity capability is
+continuously contract-tested against the pinned Gateway peer (objective 007)
+and does not by itself establish production cutover or release readiness.

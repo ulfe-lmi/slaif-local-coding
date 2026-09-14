@@ -132,10 +132,13 @@ claimed.
 The canonical conformance fixture is
 `tests/fixtures/gateway/signed_identity_v1_vectors.json`. It uses only a
 fixture-only synthetic secret and content-free request facts. The reviewed
-Gateway162 implementation emits these headers for its reviewed Codex route;
-installed-service binding, production cutover, and any broader gateway support
-remain separate acceptance decisions and are not authorized by this adapter
-configuration document.
+Gateway162 implementation (historical Objective-005 acceptance pin, immutable
+evidence) emitted these headers for its reviewed Codex route; the objective-007
+`gateway-contract` CI is the current continuous contract test against the
+pinned peer in `tests/fixtures/gateway/current_peer_authority.json`.
+Installed-service binding, production cutover (NOT performed), and any broader
+gateway support remain separate acceptance decisions and are not authorized by
+this adapter configuration document.
 
 The bounded compiler prompt requires exact case-sensitive literals in normative
 binding statements and evidence to survive derived indexing. This matters for
@@ -287,19 +290,26 @@ Objective-004 support and accepted evidence cover governed real-Codex E2E and
 fixture-scoped vision acceptance; see the [criterion ledger](OBJECTIVE-004-LEDGER.md)
 and [OAP completeness record](../oap/COMPLETENESS.md).
 
-The user-systemd file in `packaging/` is an uninstalled candidate example. It
-uses the repository `.venv`, an explicit repository config path, a separate
-mode-0600 `EnvironmentFile`, loopback-only address-family/IP restrictions,
-private temporary storage, read-only system/home protection, bounded tasks/
-memory/file descriptors, and explicit SIGTERM/timeout/journal behavior. The
-example config binds `127.0.0.1:18031` and forwards to the separately protected
-upstream; it does not load model weights or replace that service. Validate a
-rendered candidate with `systemd-analyze verify` before use and prefer a unique
+The single supported deployment path is the systemd user service in
+`packaging/slaif-local-coding.service` (superseding
+`packaging/slaif-local-coding.service.example`, retained for continuity), run
+from the repository `.venv` with the deployed configuration created from
+`config/adapter.deployment.template.toml`; see the complete operator contract
+in [DEPLOYMENT.md](DEPLOYMENT.md). The unit uses a separate mode-0600
+`EnvironmentFile`, loopback-only address-family/IP restrictions, private
+temporary storage, read-only system/home protection, bounded tasks/memory/file
+descriptors, and explicit SIGTERM/timeout/journal behavior. The configuration
+binds `127.0.0.1:18031` and forwards to the separately protected upstream; it
+does not load model weights or replace that service. Validate the unit with
+`systemd-analyze verify` before use and prefer a unique
 `systemd-run --user --collect --unit=...` transient unit for testing. Never put
 the credential in `Environment=`, `ExecStart`, or this repository.
 
 For a simple foreground candidate test, use the README command on
 `127.0.0.1:18031` and stop it with Ctrl-C. If an operator separately installs
-the example, stop and remove only that candidate unit and its repo-owned state.
-No Qwen/vLLM rollback is required because this candidate neither changes nor
-replaces the protected service.
+the unit, stop and remove only that candidate unit and its repo-owned state
+(DEPLOYMENT.md uninstall section). No Qwen/vLLM rollback is required because
+this candidate neither changes nor replaces the protected service. The
+deployment mechanics are qualified in a disposable environment against fake
+loopback upstreams only; the live cutover itself is the separate
+human-authorized act in [RELEASE-CUTOVER-RUNBOOK.md](RELEASE-CUTOVER-RUNBOOK.md).

@@ -48,8 +48,12 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
     occur before image, constitution, compiler, cache, rehydration, or upstream
     work.
     The exact pinned Gateway main used by the Objective-005 acceptance harness
-    emits the signed contract for its reviewed Codex route; adapter and
-    cross-repository qualification evidence is not production cutover.
+    (historical, immutable evidence) emitted the signed contract for its
+    reviewed Codex route; the objective-007 `gateway-contract` CI continuously
+    tests the adapter-side contracts against the current pinned peer
+    (`tests/fixtures/gateway/current_peer_authority.json`). Adapter and
+    cross-repository qualification evidence is not production cutover: cutover
+    is NOT performed and the product is NOT released as of 2026-09-14.
 
 ## Protected live-host resources
 

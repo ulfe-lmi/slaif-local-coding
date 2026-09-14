@@ -12,9 +12,7 @@ and an sdist containing the entire working tree (including OAP transcripts).
   property is that it contains exactly the `slaif_local_coding/` runtime
   package plus `*.dist-info/` metadata and license files
   (`LICENSE`, `NOTICE` under `licenses/`).
-- **sdist (`slaif-local-coding-<version>.tar.gz`): developer-only source
-  archive, not a supported release artifact.** It must never be
-  treated as one. It carries a deliberate whitelist (code, tests, fixtures,
+- **sdist** (`slaif-local-coding-<version>.tar.gz`): the developer-only source archive; not a supported release artifact and never treated as one. It carries a deliberate whitelist (code, tests, fixtures,
   config and packaging templates, current docs, CI workflow, project
   metadata) so that a developer can inspect or rebuild the package source
   without receiving orchestration transcripts or host-specific material.
@@ -23,6 +21,13 @@ The policy is implemented explicitly in `pyproject.toml`
 (`[tool.hatch.build]` top-level exclusions plus per-target
 `[tool.hatch.build.targets.wheel]` and `[tool.hatch.build.targets.sdist]`
 include/exclude lists). It is not a backend default.
+
+The release provenance manifest
+(`packaging/release_provenance_manifest.json`) and its schema are git-only
+provenance documents: because the manifest records the artifacts' own
+SHA-256 hashes, they are excluded from every artifact (no self-hash cycle).
+The manifest remains part of the git checkout and of the deployment
+runbook's preconditions.
 
 ## What no artifact may contain
 

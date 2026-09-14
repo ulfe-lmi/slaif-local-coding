@@ -15,9 +15,12 @@ The immediate reference deployment family is Qwen3.8-27B served by vLLM on a
 single RTX 3090. The accepted 004-al human-gated vision fixture provides a
 100000-token context window, OpenAI-compatible Responses traffic, ordinary
 function tools, streaming, and one-image vision. The mutually exclusive text
-configuration uses 150000 context and accepts zero images. The repository
-acceptance is fixture-scoped; production gateway integration, cutover, and
-generic readiness remain separate work. Two compatibility problems motivate the
+configuration uses 150000 context and accepts zero images. The repository acceptance is fixture-scoped. Gateway integration is
+implemented and merged (objective 005, PR #7, merge commit
+`e3f10e93c1ea84bf4021fd15d566bf577d5a9dcf`); the live cutover itself remains
+a separate human-authorized act (runbook: `docs/RELEASE-CUTOVER-RUNBOOK.md`,
+prepare-only), and cutover is NOT performed and the product is NOT released
+as of 2026-09-14. Two compatibility problems motivate the
 adapter behavior:
 
 1. Codex compacts long conversations. After compaction, a smaller local model can
@@ -1088,7 +1091,8 @@ and upstream error sanitization.
 The accepted development adapter must not automatically replace the current
 Codex-to-Qwen/vLLM path.
 
-A separate cutover objective must:
+A separate cutover objective must (see the exact prepare-only runbook in
+`docs/RELEASE-CUTOVER-RUNBOOK.md`):
 
 1. verify accepted/merged adapter version and clean CI;
 2. capture the current Codex profile/provider endpoint and relevant service config/backup;
@@ -1119,9 +1123,19 @@ The architecture is intentionally sliced into reviewable objectives:
 - 001: AGENTS detection and deterministic reference manifest;
 - 002: internal compiler and validated cache;
 - 003: injection, dependency acquisition, compaction rehydration;
-- 004: actual Codex E2E, security/operations hardening;
-- 005: gateway integration and controlled cutover;
-- 006: reproducible SME package and honest release evidence.
+- 004: actual Codex E2E, security/operations hardening (merged PR #6;
+  real-E2E accepted, fixture-scoped);
+- 005: gateway integration and controlled cutover contract (merged PR #7;
+  the live cutover itself remains the separate human-authorized final act);
+- 006: signed-request replay hardening (merged PR #8);
+- 007: current Gateway contract CI (merged PR #9);
+- 008: durable acceptance evidence (merged PR #10);
+- 009: release candidate and operational closure (open PR; the original
+  "reproducible SME package and honest release evidence" milestone name).
+
+The original planned meanings formerly associated with numeric 006-008 are
+historical planning prose, not live objective identifiers. Cutover is NOT
+performed and the product is NOT released.
 
 Each numeric objective is one PR. Follow-up letters amend the same PR until the
 strategic agent is satisfied and all required CI is green.
@@ -1144,8 +1158,9 @@ host without client modification:
 10. No raw prompt/code/image/secret appears in logs or metrics.
 11. vLLM, firewall, VPN, and current coding endpoint were not unintentionally
     modified.
-12. The gateway integration path is documented and tested or explicitly remains
-    the next separate milestone.
+12. The gateway integration path is implemented, merged, and continuously
+    Gateway-contract tested (objectives 005/007); the live cutover itself
+    remains the separate human-authorized final act.
 
 This is an SME-oriented engineering MVP, not a claim of general semantic memory,
 perfect instruction interpretation, unlimited multimodality, or production

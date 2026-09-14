@@ -38,9 +38,13 @@ duplicate admission, explicit per-request identity propagation, cache/
 rehydration isolation dimensions, header stripping, and secret/raw-content
 privacy. The adapter-side vector is
 `tests/fixtures/gateway/signed_identity_v1_vectors.json`. The exact pinned
-Gateway main used by the current Objective-005 acceptance harness emits signed
-identity for its reviewed Codex route; installed-service binding and production
-cutover remain separate acceptance decisions.
+Gateway main used by the Objective-005 acceptance harness (historical,
+immutable evidence) emitted signed identity for its reviewed Codex route; the
+objective-007 `gateway-contract` CI is the current continuous contract test
+against the pinned peer in
+`tests/fixtures/gateway/current_peer_authority.json`. Installed-service
+binding and production cutover remain separate acceptance decisions (cutover
+NOT performed; NOT released).
 
 ## Objective-005 repository-only acceptance harness
 
@@ -278,6 +282,33 @@ acceptance path. The current governed runner keeps raw streams temporary and
 reports only hashes, counts, fixed classes, fingerprints, and command status;
 the ordered run itself is exactly two global-yolo invocations with no
 qualification, retry, alternate prompt, or sandbox control.
+
+## Objective-009 release-candidate gates
+
+The `test` job additionally runs, after `uv build`:
+
+- `python scripts/artifact_policy_check.py --dist dist --inspect` — the
+  mechanical release-artifact content policy (wheel verified-clean property;
+  sdist developer-only whitelist; forbidden entries and forbidden byte
+  patterns in both artifacts);
+- `python scripts/artifact_policy_check.py --dist dist --install-smoke` —
+  fresh empty venv, wheel-only install, import, console entry point
+  `--help`/`--version`, and in-venv provenance proof.
+
+The pytest suite adds `tests/test_artifact_policy.py` (fresh-build policy
+inspection plus scanner negative controls) and
+`tests/test_release_provenance_manifest.py` (E3 drift gate: regenerates the
+manifest from the actual build inputs and fails on any drift or forbidden
+content; only `generated_from.git_commit` may advance, and the committed value
+must remain an ancestor of HEAD).
+
+`scripts/disposable_deployment_qualification.py` exercises the deployment
+mechanics in a disposable environment against fake loopback upstreams only
+(build, artifact policy, fresh venv install, template config creation,
+readiness, Responses/Chat JSON+SSE and tool envelopes, stop/restart, upgrade,
+rollback, injected failed start with recovery, optional transient systemd
+unit, cleanup with absence proof). It is operational qualification evidence,
+not a CI-required check, and never touches the protected upstream.
 
 ## CI and merge
 

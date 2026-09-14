@@ -90,9 +90,9 @@ def test_sdist_is_developer_only_whitelist(checker: types.ModuleType, built_dist
             name for name in sdist_files if name == forbidden or name.startswith(forbidden + "/")
         ]
         assert not offenders, (forbidden, offenders)
-    # The runtime package is present and complete in the archive.
-    assert "slaif_local_coding/__init__.py" in sdist_files
-    assert any(name.startswith("slaif_local_coding/constitution/") for name in sdist_files)
+    # The runtime package is present and complete in the archive (under src/).
+    assert "src/slaif_local_coding/__init__.py" in sdist_files
+    assert any(name.startswith("src/slaif_local_coding/constitution/") for name in sdist_files)
 
 
 def test_forbidden_entries_are_detected(checker: types.ModuleType, tmp_path: Path) -> None:

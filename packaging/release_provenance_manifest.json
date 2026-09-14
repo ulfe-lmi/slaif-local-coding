@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 98,
+      "entry_count": 96,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "e94aebf9a4c0c818d52378e577f1a470f35dfaca8d3a11687a9fa5c51e3e2219",
-      "size_bytes": 388096
+      "sha256": "80233f0ae25af0f54e969297212d7e0b700b2b60afa9a7b58d8c8653d77572fb",
+      "size_bytes": 389053
     },
     "wheel": {
       "entry_count": 26,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "d111e29289d18971d74e7f1de93d38194efef4ea4ea13bfb979da589bb767899",
-      "size_bytes": 80238
+      "sha256": "e4759c00e37332998ed92dc5c01fe10be4b11b3a4b1df8c33edc64e176752ee1",
+      "size_bytes": 81462
     }
   },
   "gateway_peer": {
@@ -27,7 +27,7 @@
     }
   },
   "generated_from": {
-    "git_commit": "dd1714328d21a2186d94e7de9891fa9c83bf8f50",
+    "git_commit": "a21ecc77aeff46b35486e3cf931579e5ca615710",
     "repository": "ulfe-lmi/slaif-local-coding"
   },
   "limitations": [
@@ -51,7 +51,7 @@
   "runtime": {
     "package_name": "slaif-local-coding",
     "package_version": "0.1.0",
-    "pyproject_sha256": "83aa4f6b3067838c5e07a10bd94efcbac920eea7d7278e5c8aa5713ad5704726",
+    "pyproject_sha256": "a4f373ad1c71afa2c58ce131c736198c4804edfc8b43e3fb4603ebc0007a3b74",
     "python": "3.12",
     "uv_lock_sha256": "1237cbd179f71b99984c80f927529549f5e61eb705585ef9cf2ab0fa9e26764a"
   },

@@ -87,6 +87,9 @@ FORBIDDEN_PATHS_EXACT: frozenset[str] = frozenset(
         "tests/test_config.py",
         "tests/test_gateway_accounting_rehearsal.py",
         "tests/test_safe_evidence.py",
+        "tests/test_artifact_policy.py",
+        "packaging/release_provenance_manifest.json",
+        "packaging/release_provenance_manifest.schema.json",
     }
 )
 
@@ -265,14 +268,12 @@ def inspect_artifacts(dist_dir: Path) -> dict:
         "NOTICE",
         "THIRD_PARTY_NOTICES.md",
         "CONTRIBUTING.md",
-        f"{PACKAGE_DIR}/__init__.py",
+        f"src/{PACKAGE_DIR}/__init__.py",
         "tests/test_app.py",
         "config/adapter.example.toml",
         "config/adapter.deployment.template.toml",
         "packaging/slaif-local-coding.service",
         "packaging/readyz-wait.sh",
-        "packaging/release_provenance_manifest.json",
-        "packaging/release_provenance_manifest.schema.json",
         ".github/workflows/ci.yml",
         "docs/DEPLOYMENT.md",
         "docs/RELEASE-ARTIFACT-POLICY.md",
@@ -319,8 +320,11 @@ def install_smoke(dist_dir: Path, workdir: Path, python: str = sys.executable) -
     workdir.mkdir(parents=True, exist_ok=True)
     venv_dir = workdir / "venv"
     try:
+        # ``--without-pip``: uv-managed and minimal system interpreters do
+        # not ship ensurepip; the wheel is installed with the project's
+        # mandated ``uv pip`` below instead of venv pip.
         subprocess.run(
-            [python, "-m", "venv", str(venv_dir)],
+            [python, "-m", "venv", "--without-pip", str(venv_dir)],
             check=True,
             capture_output=True,
             timeout=300,
@@ -332,20 +336,28 @@ def install_smoke(dist_dir: Path, workdir: Path, python: str = sys.executable) -
             "facts": facts,
         }
     venv_python = venv_dir / "bin" / "python"
-    venv_pip = venv_dir / "bin" / "pip"
-    if not venv_python.exists() or not venv_pip.exists():
+    if not venv_python.exists():
         return {
             "ok": False,
-            "violations": ["venv python/pip missing after creation"],
+            "violations": ["venv python missing after creation"],
+            "facts": facts,
+        }
+    uv = shutil.which("uv")
+    if uv is None:
+        return {
+            "ok": False,
+            "violations": ["uv not found on PATH; required for wheel installation"],
             "facts": facts,
         }
     try:
         subprocess.run(
             [
-                str(venv_pip),
+                uv,
+                "pip",
                 "install",
-                "--disable-pip-version-check",
-                "--no-input",
+                "--python",
+                str(venv_python),
+                "--no-cache",
                 str(wheel),
             ],
             check=True,

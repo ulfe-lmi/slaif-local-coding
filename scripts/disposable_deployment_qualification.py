@@ -46,6 +46,7 @@ import urllib.request
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CANDIDATE_PORT = 18031
@@ -253,11 +254,17 @@ class _FakeHandler(BaseHTTPRequestHandler):
             self.wfile.write(chunk)
             self.wfile.flush()
 
+    def _route_path(self) -> str:
+        # The adapter forwards an empty query as a trailing ``?`` (httpx URL
+        # joining); treat it as absent, matching real vLLM behavior.
+        return self.path.split("?", 1)[0]
+
     def do_GET(self) -> None:  # noqa: N802 - http.server API
-        self._record(self.path)
-        if self.path == "/health":
+        path = self._route_path()
+        self._record(path)
+        if path == "/health":
             self._send(200, b'{"status":"ok"}')
-        elif self.path == "/v1/models":
+        elif path == "/v1/models":
             self._send(
                 200,
                 json.dumps(
@@ -276,7 +283,8 @@ class _FakeHandler(BaseHTTPRequestHandler):
             )
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
-        self._record(self.path)
+        path = self._route_path()
+        self._record(path)
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length)
         try:
@@ -284,7 +292,7 @@ class _FakeHandler(BaseHTTPRequestHandler):
         except (UnicodeDecodeError, ValueError):
             self._send(400, b'{"error":{"message":"invalid json","type":"invalid_request_error"}}')
             return
-        if self.path == "/v1/responses":
+        if path == "/v1/responses":
             if body.get("stream"):
                 tool_call = any(
                     isinstance(t, dict) and t.get("name") == "fake_lookup"
@@ -331,7 +339,7 @@ class _FakeHandler(BaseHTTPRequestHandler):
                         }
                     ).encode(),
                 )
-        elif self.path == "/v1/chat/completions":
+        elif path == "/v1/chat/completions":
             if body.get("stream"):
                 include_usage = (body.get("stream_options") or {}).get("include_usage") is True
                 self._send_sse(_chat_sse(include_usage))
@@ -411,10 +419,23 @@ def port_listening(port: int) -> bool:
 
 
 def get_status(url: str, timeout: float = 3.0) -> int:
+    """Return the HTTP status (error statuses included) or 0 if unreachable.
+
+    ``urllib.request.urlopen`` raises on HTTP error statuses, which would
+    make a documented 503 readiness look like connection failure; use
+    ``http.client`` so the status code is observed directly.
+    """
+    parts = urlsplit(url)
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310 - loopback only
+        conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=timeout)
+        try:
+            conn.request("GET", parts.path or "/")
+            response = conn.getresponse()
+            response.read()
             return int(response.status)
-    except Exception:
+        finally:
+            conn.close()
+    except OSError:
         return 0
 
 
@@ -527,6 +548,28 @@ def run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, **kwargs)
 
 
+def install_wheel(venv: Path, wheel: Path, reinstall: bool = False) -> subprocess.CompletedProcess:
+    """Install a wheel into the disposable venv via the project's ``uv pip``.
+
+    The venv is created with ``--without-pip`` because uv-managed and minimal
+    system interpreters do not ship ensurepip; ``uv pip`` is the project's
+    mandated installer and keeps the install wheel-only plus index
+    dependencies.
+    """
+    cmd = [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        str(venv / "bin" / "python"),
+        "--no-cache",
+    ]
+    if reinstall:
+        cmd.append("--reinstall")
+    cmd.append(str(wheel))
+    return run(cmd, timeout=900)
+
+
 def start_candidate(venv: Path, config: Path, env_file: Path) -> subprocess.Popen:
     env = dict(os.environ)
     for line in env_file.read_text(encoding="utf-8").splitlines():
@@ -613,20 +656,11 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
 
         # S3: fresh disposable venv + wheel-only install.
         venv = workdir / "venv"
-        run([sys.executable, "-m", "venv", str(venv)], timeout=300)
+        run([sys.executable, "-m", "venv", "--without-pip", str(venv)], timeout=300)
         wheels = sorted(
             set(dist.glob("slaif_local_coding-*.whl")) | set(dist.glob("slaif-local-coding-*.whl"))
         )
-        install = run(
-            [
-                str(venv / "bin" / "pip"),
-                "install",
-                "--disable-pip-version-check",
-                "--no-input",
-                str(wheels[0]),
-            ],
-            timeout=900,
-        )
+        install = install_wheel(venv, wheels[0])
         probe = run(
             [
                 str(venv / "bin" / "python"),
@@ -637,7 +671,7 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
         )
         module_file = json.loads(probe.stdout.decode())["f"]
         evidence["steps"]["fresh_install"] = {
-            "pip_exit": install.returncode,
+            "install_exit": install.returncode,
             "module_file_in_venv": module_file.startswith(str(venv.resolve())),
             "module_file": module_file,
         }
@@ -848,8 +882,9 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
         backup_a.mkdir(parents=True, exist_ok=True)
         (backup_a / "adapter.toml").write_bytes(config.read_bytes())
         os.chmod(backup_a / "adapter.toml", 0o600)
-        (backup_a / "adapter-wheel").write_bytes(wheels[0].read_bytes())
-        os.chmod(backup_a / "adapter-wheel", 0o600)
+        # Keep the exact wheel filename: ``uv pip`` refuses non-wheel names.
+        (backup_a / wheels[0].name).write_bytes(wheels[0].read_bytes())
+        os.chmod(backup_a / wheels[0].name, 0o600)
         inventory_a = {
             "config_sha256": inv_before["config_sha256"],
             "wheel_sha256": _sha256_file(wheels[0]),
@@ -865,17 +900,7 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
             set(dist2.glob("slaif_local_coding-*.whl"))
             | set(dist2.glob("slaif-local-coding-*.whl"))
         )
-        reinstall = run(
-            [
-                str(venv / "bin" / "pip"),
-                "install",
-                "--disable-pip-version-check",
-                "--no-input",
-                "--force-reinstall",
-                str(wheels2[0]),
-            ],
-            timeout=900,
-        )
+        reinstall = install_wheel(venv, wheels2[0], reinstall=True)
         stop_facts2 = stop_candidate(candidate, config)
         candidate = start_candidate(venv, config, env_file)
         ready3, ready3_time, _ = wait_ready(base, READY_TIMEOUT_SECONDS)
@@ -893,7 +918,7 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
         evidence["steps"]["upgrade"] = {
             "previous_artifact_sha256": _sha256_file(wheels[0]),
             "new_artifact_sha256": _sha256_file(wheels2[0]),
-            "pip_exit": reinstall.returncode,
+            "install_exit": reinstall.returncode,
             "stop": stop_facts2,
             "ready": ready3,
             "ready_time_s": round(ready3_time, 3),
@@ -917,17 +942,7 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
 
         # S10: mechanical rollback from the backup.
         stop_facts3 = stop_candidate(candidate, config)
-        rollback_install = run(
-            [
-                str(venv / "bin" / "pip"),
-                "install",
-                "--disable-pip-version-check",
-                "--no-input",
-                "--force-reinstall",
-                str(backup_a / "adapter-wheel"),
-            ],
-            timeout=900,
-        )
+        rollback_install = install_wheel(venv, backup_a / wheels[0].name, reinstall=True)
         config.write_bytes((backup_a / "adapter.toml").read_bytes())
         os.chmod(config, 0o600)
         candidate = start_candidate(venv, config, env_file)
@@ -940,7 +955,7 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
         )
         evidence["steps"]["rollback"] = {
             "stop": stop_facts3,
-            "pip_exit": rollback_install.returncode,
+            "install_exit": rollback_install.returncode,
             "config_restored_sha256": _sha256_file(config),
             "config_matches_backup": _sha256_file(config)
             == _sha256_file(backup_a / "adapter.toml"),
@@ -967,8 +982,8 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
         backup_b.mkdir(parents=True, exist_ok=True)
         (backup_b / "adapter.toml").write_bytes(config.read_bytes())
         os.chmod(backup_b / "adapter.toml", 0o600)
-        (backup_b / "adapter-wheel").write_bytes((backup_a / "adapter-wheel").read_bytes())
-        os.chmod(backup_b / "adapter-wheel", 0o600)
+        (backup_b / wheels[0].name).write_bytes((backup_a / wheels[0].name).read_bytes())
+        os.chmod(backup_b / wheels[0].name, 0o600)
         rendered_bad = render_template(
             {
                 "__UPSTREAM_BASE_URL__": f"http://127.0.0.1:{dead_port}/v1",
@@ -983,17 +998,7 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
         readyz_body5 = http_json(CANDIDATE_PORT, "GET", "/readyz")
         stop_facts5 = stop_candidate(candidate, config)
         # Recovery: restore previous configuration and artifact.
-        rollback2 = run(
-            [
-                str(venv / "bin" / "pip"),
-                "install",
-                "--disable-pip-version-check",
-                "--no-input",
-                "--force-reinstall",
-                str(backup_b / "adapter-wheel"),
-            ],
-            timeout=900,
-        )
+        rollback2 = install_wheel(venv, backup_b / wheels[0].name, reinstall=True)
         config.write_bytes((backup_b / "adapter.toml").read_bytes())
         os.chmod(config, 0o600)
         candidate = start_candidate(venv, config, env_file)
@@ -1011,7 +1016,7 @@ def qualify(workdir: Path, keep: bool, skip_systemd: bool) -> dict:
             "unreachable_readyz_status": readyz_status5,
             "unreachable_readyz_upstream": (readyz_body5[1] or {}).get("upstream"),
             "stopped_after_injection": stop_facts5,
-            "recovery_pip_exit": rollback2.returncode,
+            "recovery_install_exit": rollback2.returncode,
             "recovery_config_sha256": _sha256_file(config),
             "recovery_config_matches_backup": _sha256_file(config)
             == _sha256_file(backup_b / "adapter.toml"),

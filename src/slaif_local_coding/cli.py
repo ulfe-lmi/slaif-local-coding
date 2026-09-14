@@ -15,11 +15,12 @@ from .config import load_settings
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--version", action="store_true", help="print the package version and exit")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"slaif-local-coding {__version__}",
+    )
     args = parser.parse_args()
-    if args.version:
-        print(f"slaif-local-coding {__version__}")
-        return
     settings = load_settings(args.config)
     uvicorn.run(
         create_app(settings),

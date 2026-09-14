@@ -78,6 +78,11 @@ exclude = [
   "tests/test_config.py",
   "tests/test_gateway_accounting_rehearsal.py",
   "tests/test_safe_evidence.py",
+  "tests/test_artifact_policy.py",
+  # The manifest hashes the artifacts, so it (and its schema) stay in git
+  # and are never part of any artifact (no self-hash fixed point needed).
+  "packaging/release_provenance_manifest.json",
+  "packaging/release_provenance_manifest.schema.json",
 ]
 
 [tool.hatch.build.targets.wheel]

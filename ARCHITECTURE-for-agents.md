@@ -197,9 +197,17 @@ cuts off active coding turn. Model weights never in Git. Pin/provenance/license
 all components; prominently credit Apache-2.0
 `syv-ai/qwen38-27b-rtx3090`; preserve notices/modified-file markers.
 
-## Planned objective boundaries
+## Objective boundaries
 
-000 pass-through+image policy/live fixtures; 001 detection+deterministic paths;
-002 compiler+cache; 003 injection/acquisition/rehydration; 004 real Codex+security/
-ops; 005 gateway+cutover; 006 SME package/release. Strategy may revise only from
-verified evidence. One numeric objective=one PR; coding never merges.
+Merged (verified 2026-09-14): 000 pass-through+image policy/live fixtures
+(PR #1); 001 detection+deterministic paths (PR #2); 002 compiler+cache
+(PR #3); 003 injection/acquisition/rehydration (PR #4/#5); 004 real
+Codex+security/ops (PR #6, real-E2E accepted fixture-scoped); 005 gateway
+integration+cutover contract (PR #7; the live cutover itself remains a
+separate human-authorized act); 006 signed-request replay hardening (PR #8);
+007 current Gateway contract CI (PR #9); 008 durable acceptance evidence
+(PR #10). Objective 009 (open PR): release candidate+operational closure —
+the original "SME package/release" milestone name. Cutover NOT performed;
+NOT released. The original planned meanings of numeric 006-008 are historical
+planning prose, not live identifiers. Strategy may revise only from verified
+evidence. One numeric objective=one PR; coding never merges.
