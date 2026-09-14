@@ -65,8 +65,22 @@ and loopback-only `/metrics` remain operator endpoints.
 
 ## Trusted identity status
 
-The exact pinned Gateway main used by the current Objective-005 acceptance
-harness emits trusted signed per-request identity for the reviewed Codex route.
+Two distinct Gateway authorities exist and must not be conflated:
+
+- **Historical acceptance pin (immutable evidence):** the exact pinned
+  Gateway main used by the Objective-005 acceptance harness
+  (`5ea38325ef3a3ebc69524b4679b795fab0c52935`) emitted trusted signed
+  per-request identity for the reviewed Codex route; its reports and pins
+  remain immutable history.
+- **Current continuous-test peer (objective 007, merged):** the
+  `gateway-contract` CI job continuously tests the adapter-side contracts
+  against the exact pinned peer
+  `65666f5886832034c52211fdd7604046557e6ada`
+  (`tests/fixtures/gateway/current_peer_authority.json`;
+  `local-coding-v1` module_version 2 with
+  `process_local_inclusive_horizon_fail_closed`,
+  `codex-0.149-responses-v1` module_version 4).
+
 Local Coding implements the adapter-side
 `service_bearer_signed_identity_v1` verifier behind an explicit configuration
 mode. Its configuration requires a separate visible-ASCII HMAC secret, bounded
@@ -110,7 +124,9 @@ on restart; no durable or cross-process replay protection is claimed.
 The exact synthetic conformance vector is
 `tests/fixtures/gateway/signed_identity_v1_vectors.json`.
 Gateway-side support for this adapter contract is source-bound to the exact
-pinned main and reviewed route used by Objective-005. The earlier activation
+pinned main and reviewed route used by Objective-005 (historical acceptance
+pin); the current continuously tested peer is the objective-007 authority
+above. The earlier activation
 snapshot below remains historical evidence and is not the current capability
 statement. Gateway key derivation/rotation, route capability, negative/security
 tests, accounting checks, and cross-repository conformance remain acceptance
@@ -119,9 +135,12 @@ responsibilities; unsigned `X-SLAIF-*` headers never establish identity.
 ### Objective-006 replay-mode compatibility handoff
 
 The exact Gateway main audited for this hardening is
-`5ea38325ef3a3ebc69524b4679b795fab0c52935`. Its source
-`app/slaif_gateway/modules/servers/local_coding/contract.py` currently admits
-only `replay_mode = "process_local_ttl_lru"`; the same contract defines
+`5ea38325ef3a3ebc69524b4679b795fab0c52935`. At that pinned SHA, its source
+`app/slaif_gateway/modules/servers/local_coding/contract.py` admitted only
+`replay_mode = "process_local_ttl_lru"` (the current continuous-test peer
+`65666f5886832034c52211fdd7604046557e6ada` already uses the truthful
+`process_local_inclusive_horizon_fail_closed` mode at module_version 2); the
+same contract defines
 `clock_skew_seconds` (default 60), `replay_ttl_seconds` (default 120), bounded
 nonce lengths, `deployment_mode = "single_worker"`, and the validation
 `replay_ttl_seconds >= clock_skew_seconds`. The Gateway adapter's
@@ -234,7 +253,11 @@ passes with ordinary Codex and OpenAI clients.
 
 ## Controlled cutover and rollback gates — preparation only
 
-Objective 005-a does not perform cutover. A later accepted continuation must
+Objective 005-a did not perform cutover. This 005-a list is historical
+preparation context; the exact current prepare-only runbook (authority classes,
+preconditions, rollback triggers) is
+[RELEASE-CUTOVER-RUNBOOK.md](RELEASE-CUTOVER-RUNBOOK.md) from objective 009.
+Cutover remains NOT performed. A later authorized continuation must
 prove, in order:
 
 1. a merged/green Local Coding version and pinned gateway commit;
@@ -254,8 +277,9 @@ prove, in order:
 9. rollback restores the exact prior provider route/profile/unit and health;
 10. final listener/firewall/VPN/service state is independently verified.
 
-Because no gateway service is installed or running on hinton1, the actual
-cutover and rollback proof are `NOT RUN`. No direct-vLLM retirement, public
+Because no gateway service is installed or running on the reference host, the
+actual cutover and rollback proof are `NOT RUN` (and remain so as of
+objective 009). No direct-vLLM retirement, public
 listener, TLS, database, Redis, Docker, gateway OAP workflow, or Codex profile
 change is authorized by this order.
 

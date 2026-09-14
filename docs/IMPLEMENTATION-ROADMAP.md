@@ -3,6 +3,26 @@
 This roadmap is strategic context, not an activated order. Live GitHub/host
 state and review outcomes control actual sequencing.
 
+## Current state (2026-09-14, verified against GitHub)
+
+Objectives 000–008 are **implemented and merged** (PR #1–#10; merge commits
+`91463ae3`, `176bf4d8`, `867ed55e`, `68f212b5` + `7a2c36a0`, `570bd2b2`,
+`e3f10e93`, `efc4dbcd`, `2041bddc`, `1a913bf3` — see `oap/COMPLETENESS.md`
+for the full table). Objective 004 real-Codex evidence is **accepted
+(fixture-scoped)**; the Gateway pair is **continuously Gateway-contract
+tested** (objective 007); durable acceptance evidence is accepted (objective
+008). Objective 009 (this PR) is the release candidate: reproducible package
+and **deployment-qualified (disposable environment only)**. **Cutover NOT
+performed; NOT released.**
+
+Identifier note: the original planned meanings of numeric objectives 006–008
+in this file (for example "SME package") are **historical planning prose, not
+live objective identifiers**. The live numeric identifiers 006/007/008 were
+signed-request replay hardening, current Gateway contract CI, and durable
+acceptance evidence respectively. The original milestone "reproducible SME
+package and honest release evidence" is implemented under the Objective-009
+milestone name.
+
 ## Objective 000 — live contract and adapter foundation
 
 - capture current vLLM/vision/Codex envelopes safely;
@@ -48,7 +68,11 @@ state and review outcomes control actual sequencing.
 - no raw-content logs; metrics and operator diagnostics;
 - documented service install on non-conflicting port.
 
-## Objective 005 — gateway integration and controlled cutover
+## Objective 005 — gateway integration and controlled cutover (merged, PR #7)
+
+Status: implemented and merged (merge commit `e3f10e93c1ea84bf4021fd15d566bf577d5a9dcf`);
+the live cutover itself was NOT performed and remains the separate
+human-authorized final act (runbook: `RELEASE-CUTOVER-RUNBOOK.md`).
 
 - coordinated internal identity/service-auth contract with
   `slaif-api-gateway`;
@@ -58,10 +82,31 @@ state and review outcomes control actual sequencing.
   rollback-proven cutover order;
 - vLLM remains private.
 
-## Objective 006 — SME package
+## Objective 006 — SME package (original planned meaning; historical)
+
+This planned meaning was never executed as numeric objective 006. The live
+objective 006 was signed-request replay hardening (merged PR #8). The
+planned SME-package milestone is implemented under the **Objective-009
+milestone name** (release candidate and operational closure): reproducible
+package, upgrade/rollback procedures, and honest release evidence. The
+planned "systemd and OCI/Compose options" item was deliberately narrowed: the
+single supported path is the systemd local-host user service (OCI/Compose
+remains out of scope by order).
 
 - reproducible installer/upgrade/rollback;
-- systemd and OCI/Compose options;
 - pinned upstream Qwen/vLLM integration and third-party notices;
 - admin/operator runbook, backup/cache purge, capacity guidance;
 - release claim limited to tested hardware/configuration.
+
+## Objective 009 — release candidate and operational closure (this PR)
+
+- reconcile current-facing documentation with merged software truth;
+- explicit supported-artifact policy with mechanically proven artifact
+  contents (wheel = single supported distributable; sdist = developer-only);
+- one supported deployment path (systemd user service, repository venv) with a
+  complete operator contract;
+- disposable operational qualification against fake loopback upstreams only;
+- content-free release provenance manifest;
+- exact final live-cutover/rollback runbook (prepare only, not executed);
+- regression/CI gates (artifact policy inspection, fresh-venv install smoke).
+

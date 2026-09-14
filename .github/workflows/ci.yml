@@ -9,7 +9,11 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # Full history so the provenance-manifest gate can verify the committed
+      # implementation commit is an ancestor of the PR head.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.5"
@@ -22,8 +26,12 @@ jobs:
       - run: uv run --frozen mypy src tests
       - run: uv run --frozen pytest -q
       - run: uv build
-      - run: python -m compileall -q src tests oap/bin
-      - run: bash -n oap/bin/*.sh
+      - name: Release-artifact content policy (wheel + sdist)
+        run: uv run --frozen python scripts/artifact_policy_check.py --dist dist --inspect
+      - name: Fresh-venv install smoke (wheel only)
+        run: uv run --frozen python scripts/artifact_policy_check.py --dist dist --install-smoke
+      - run: python -m compileall -q src tests oap/bin scripts
+      - run: bash -n oap/bin/*.sh packaging/*.sh
 
   gateway-contract:
     runs-on: ubuntu-latest

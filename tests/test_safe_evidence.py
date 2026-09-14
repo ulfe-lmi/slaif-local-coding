@@ -1336,10 +1336,22 @@ def test_wheel_excludes_exporter_and_evidence() -> None:
     pyproject: dict[str, Any] = tomllib.loads((root / "pyproject.toml").read_text("utf-8"))
     wheel: dict[str, Any] = pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]
     assert wheel["packages"] == ["src/slaif_local_coding"]
-    build_blob = json.dumps(pyproject["tool"]["hatch"]["build"])
-    assert "tests" not in build_blob
-    assert "oap" not in build_blob
-    assert "safe_evidence" not in build_blob
+    # The wheel target must not reference tests, oap, or the exporter.
+    wheel_blob = json.dumps(wheel)
+    assert "tests" not in wheel_blob
+    assert "oap" not in wheel_blob
+    assert "safe_evidence" not in wheel_blob
+    # Order 009-a deliberate build policy (docs/RELEASE-ARTIFACT-POLICY.md):
+    # the top-level exclude keeps orchestration transcripts, OAP runtime state,
+    # harness scripts, references, and placeholder files out of every artifact;
+    # the sdist is an explicit developer-only whitelist that never includes
+    # oap/ or runtime state.
+    top_exclude: list[Any] = pyproject["tool"]["hatch"]["build"]["exclude"]
+    for forbidden in ("oap", "scripts", "references", "runtime.env", "Local", "clean", "unchanged"):
+        assert forbidden in top_exclude
+    sdist_include: list[Any] = pyproject["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
+    assert "oap" not in sdist_include
+    assert "scripts" not in sdist_include
     # The exporter and its fixtures live under tests/, outside the wheel
     # package root.
     assert "tests" in Path(__file__).resolve().parent.parts

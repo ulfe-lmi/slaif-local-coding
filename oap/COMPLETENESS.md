@@ -1,13 +1,40 @@
-# OAP MVP Completeness — 2026-08-24
+# OAP Completeness — 2026-09-14
 
-Assessment target: full SME MVP represented by objectives 000–006.
-Current authoritative recovery-branch readiness: ~91%.
+Assessment target: the accepted Local Coding implementation (objectives
+000–008, all merged) plus the Objective-009 release candidate.
+
+## Merged state (verified against GitHub on 2026-09-14)
+
+| Objective | Merged PR | Merge commit | Accepted state |
+|---|---|---|---|
+| 000 adapter foundation, proxy, image policy | PR #1 | `91463ae3199dd06e0448a9422a5e713da8ee92df` | implemented and merged |
+| 001 AGENTS observation and deterministic candidates | PR #2 | `176bf4d839ae9fa32d0cc3c4279a1b96220c1c61` | implemented and merged |
+| 002 compiler, validation, bounded cache | PR #3 | `867ed55e7d115d960c666380ebbc5952d43d97d1` | implemented and merged |
+| 003 selection, injection, acquisition, rehydration | PR #4, #5 | `68f212b5ad316b95fa12ef632e1538b56479081b`, `7a2c36a0a40958a6059a765c2f9d5e5bf4ddc161` | implemented and merged |
+| 004 real Codex E2E, security/operations hardening | PR #6 | `570bd2b24ad4b041a07e0320d5ed44bc73e99ad5` | implemented and merged; real-E2E accepted (fixture-scoped) |
+| 005 gateway integration and controlled cutover contract | PR #7 | `e3f10e93c1ea84bf4021fd15d566bf577d5a9dcf` | implemented and merged; accepted under its documented composed closure |
+| 006 signed-request replay hardening | PR #8 | `efc4dbcd377dd796a670726b16ebc06bd54b6356` | implemented and merged |
+| 007 current Gateway contract CI | PR #9 | `2041bddc5a745ef0dd4f3088c24b74b9bceefdb9` | implemented and merged; continuously Gateway-contract tested |
+| 008 durable acceptance evidence | PR #10 | `1a913bf3520e7570042774ef7c8ca5153da7a671` | implemented and merged |
+| 009 release candidate and operational closure | this PR (open) | — | reproducible package (wheel = single supported distributable) and deployment-qualified (disposable environment only); cutover NOT performed; NOT released |
+
+Identifier note: the original planned meanings formerly associated with numeric
+objectives 006–008 (for example "reproducible SME package/release") are
+historical planning prose, not live objective identifiers. The original product
+milestone "reproducible SME package and honest release evidence" is implemented
+under the Objective-009 milestone name.
+
+## Historical assessment (2026-08-24, retained as dated audit context)
+
+Assessment target at the time: full SME MVP represented by objectives 000–006
+under original planned semantics.
+Readiness at the time: ~91% on the recovery branch.
 Historical PR #6 base snapshot before Objective-004 acceptance, readiness: ~74%
 (retained audit context only; not current branch status).
 The protected vision fixture completed the single ordered full-image then crop
 acceptance run. This is fixture-scoped evidence, not production readiness.
 
-| Objective | Weight | Complete | Evidence | Remaining gap |
+| Objective (original planned semantics) | Weight | Complete | Evidence | Remaining gap |
 |---|---:|---:|---|---|
 | 000 adapter foundation, proxy, image policy | 15% | 100% | Merged PR #1; fake/live tests | None within objective |
 | 001 AGENTS observation and deterministic candidates | 10% | 100% | Merged PR #2; fixtures/tests | Compiler/injection intentionally later |

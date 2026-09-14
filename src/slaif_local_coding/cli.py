@@ -7,6 +7,7 @@ from pathlib import Path
 
 import uvicorn
 
+from . import __version__
 from .app import create_app
 from .config import load_settings
 
@@ -14,6 +15,11 @@ from .config import load_settings
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"slaif-local-coding {__version__}",
+    )
     args = parser.parse_args()
     settings = load_settings(args.config)
     uvicorn.run(

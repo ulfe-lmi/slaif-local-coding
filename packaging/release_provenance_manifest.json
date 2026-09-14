@@ -1,0 +1,72 @@
+{
+  "artifacts": {
+    "sdist": {
+      "entry_count": 96,
+      "name": "slaif_local_coding-0.1.0.tar.gz",
+      "sha256": "80233f0ae25af0f54e969297212d7e0b700b2b60afa9a7b58d8c8653d77572fb",
+      "size_bytes": 389053
+    },
+    "wheel": {
+      "entry_count": 26,
+      "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
+      "sha256": "e4759c00e37332998ed92dc5c01fe10be4b11b3a4b1df8c33edc64e176752ee1",
+      "size_bytes": 81462
+    }
+  },
+  "gateway_peer": {
+    "client_module": {
+      "module_id": "codex-0.149-responses-v1",
+      "module_version": "4"
+    },
+    "commit": "65666f5886832034c52211fdd7604046557e6ada",
+    "repository": "ulfe-lmi/slaif-api-gateway",
+    "server_module": {
+      "module_id": "local-coding-v1",
+      "module_version": "2",
+      "replay_mode": "process_local_inclusive_horizon_fail_closed"
+    }
+  },
+  "generated_from": {
+    "git_commit": "a21ecc77aeff46b35486e3cf931579e5ca615710",
+    "repository": "ulfe-lmi/slaif-local-coding"
+  },
+  "limitations": [
+    "deployment-qualified in a disposable environment against fake loopback upstreams only",
+    "cutover not performed",
+    "not released; no registry publication, tag, or release state change",
+    "single supported deployment path: systemd user service on the local host with the repository venv",
+    "sdist is a developer-only source archive, not a supported release artifact",
+    "no multi-user, production-certification, compliance, or frontier-equivalence claim",
+    "single RTX 3090 fixture evidence is fixture-scoped, not generic production equivalence"
+  ],
+  "objective": "009-a",
+  "reference_compatibility": {
+    "codex_client": {
+      "version": "0.149.0",
+      "wire_fixture_dir": "tests/fixtures/codex/0.149.0"
+    },
+    "model_name": "qwen3.8-27b",
+    "upstream_interface": "vllm-openai-compat-v1"
+  },
+  "runtime": {
+    "package_name": "slaif-local-coding",
+    "package_version": "0.1.0",
+    "pyproject_sha256": "a4f373ad1c71afa2c58ce131c736198c4804edfc8b43e3fb4603ebc0007a3b74",
+    "python": "3.12",
+    "uv_lock_sha256": "1237cbd179f71b99984c80f927529549f5e61eb705585ef9cf2ab0fa9e26764a"
+  },
+  "schema": "slaif-release-provenance-v1",
+  "schema_version": 1,
+  "status": {
+    "cutover_performed": false,
+    "deployment_qualified": "disposable-environment-only",
+    "released": false
+  },
+  "templates": {
+    "config_example_sha256": "92050fceec9511a0a1470d2de20b9788b41f84321925de38e228cd0879097d86",
+    "deployment_config_template_sha256": "48f126fcfc06b011b1c7caa2b6361f73a84021f348103ad6555cbfa3c6afac7d",
+    "readyz_wait_sha256": "a667934433c32b3cb3724cf8667c9ec64f08d984a43656dd699cc46bd1f4075b",
+    "service_unit_example_sha256": "8afbc2a9c57bde8aa4d6121cb5c383707cb848c19d0d90843b217af9bfb97eaa",
+    "service_unit_sha256": "eea6896221656311b6f7b71899ae24613f0f7cb7ac9e291ee3aa962cee9c5531"
+  }
+}
