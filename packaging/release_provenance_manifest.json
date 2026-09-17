@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 105,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "2a2bc0bc86d1d784c855ebd0d520035044c0eeb12b458881ce7ae10e1824df63",
-      "size_bytes": 424612
+      "sha256": "4ba17680c55c557494593087f4d632abb6a79f0c595ecab08bb2414abc86f5d6",
+      "size_bytes": 424608
     },
     "wheel": {
       "entry_count": 26,
@@ -27,7 +27,7 @@
     }
   },
   "generated_from": {
-    "git_commit": "5500e805a93008993103e457229b1e2605d73080",
+    "git_commit": "37bfdc255954f1743984df364d75e4074376838f",
     "repository": "ulfe-lmi/slaif-local-coding"
   },
   "limitations": [
