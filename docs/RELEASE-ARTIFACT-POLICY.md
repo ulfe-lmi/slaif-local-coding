@@ -143,12 +143,22 @@ artifact set (wheel + sdist + OCI build inputs, manifest schema v2,
 Objective-011 state; the Objective-010-a wheel hash `8678e16b41bd9d73849a956c9d1f25235532eaf52c772fc695718b2063b54472`
 remains the accepted Objective-010 record only. Objective 012 re-pins the
 Gateway peer and regenerates the manifest (`objective: "012-a"`) with no
-runtime package byte change: the cleared rebuild proves the artifact set is
-byte-identical to the Objective-011-a record (same wheel and sdist
-SHA-256s), and the only OCI build input that changes is the Dockerfile
+runtime source byte change: the entry-level diff of the cleared rebuild
+proves all 20 wheel runtime files byte-identical to the Objective-011
+record (only `dist-info/METADATA` and `dist-info/RECORD` differ); the
+artifact bytes changed ONLY because (a) the Objective-012-mandated README
+status-row fix is embedded in the wheel `dist-info/METADATA` long
+description (`readme = "README.md"`; wheel
+`7cede0b8e930463400a40662248a97aae22f75b0512dcd8151d6122a99157166` ->
+`fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`,
++27 B) and (b) the sdist carries the in-scope `README.md`/`docs/`/`tests/`
+text changes (sdist `4ba17680c55c557494593087f4d632abb6a79f0c595ecab08bb2414abc86f5d6`
+-> `910b65db8abe331fb1ad0507697c1e089fd9ea4ede2ec1792b7fac5c8f5c1240`);
+the only OCI build input that changes is the Dockerfile
 `SLAIF_GATEWAY_PEER_SHA` label input; the regenerated Objective-012
 manifest is the **only** future cutover authority, and the Objective-011-a
-manifest record remains the accepted Objective-011 record only. Nothing is
+artifact record (wheel `7cede0b8...` / sdist `4ba17680...`) remains the
+accepted Objective-011 record only. Nothing is
 released: no
 registry publication, tag, or release state change; no image is pushed. Any
 future objective that changes runtime package bytes or OCI build inputs must
