@@ -136,7 +136,9 @@ def test_gateway_ingress_requires_complete_static_identity() -> None:
 
 def test_non_loopback_and_unknown_policy_fail_closed() -> None:
     with pytest.raises(ValidationError):
-        ServerConfig(listen_host="0.0.0.0")
+        ServerConfig(listen_host="hostname.example")
+    with pytest.raises(ValidationError):
+        ServerConfig(listen_host="127.0.0.1:8000")
     with pytest.raises(ValidationError):
         RouteConfig(name="x", model="m", image_overflow_policy="guess")  # type: ignore[arg-type]
     assert (
@@ -412,3 +414,166 @@ def test_rehydration_bounds_fail_closed() -> None:
         )
     )
     assert valid.rehydration.max_total_bytes == 1024
+
+
+# ---------------------------------------------------------------------------
+# Objective 011-a workstream A2: LAN-visible binding law configuration matrix
+# (pure unit, no network). Loopback x {disabled, static, signed} valid;
+# non-loopback literal x {disabled, static} rejected; non-loopback literal x
+# signed valid; 0.0.0.0/:: x signed valid; hostname rejected in every mode;
+# the three distinct secret-role names remain enforced (010 C2 invariant).
+# ---------------------------------------------------------------------------
+
+
+def _matrix_settings(
+    listen_host: str,
+    mode: str,
+) -> Settings:
+    observation_enabled = True
+    constitution_enabled = True
+    if mode == "service_bearer_static_identity":
+        ingress = GatewayIngressConfig(
+            mode="service_bearer_static_identity",
+            service_token_env="MATRIX_SERVICE_TOKEN",
+        )
+        constitution = ConstitutionIntegrationConfig(
+            enabled=True,
+            identity_source="static",
+            principal="matrix-principal",
+            session="matrix-session",
+            repository="matrix-repository",
+        )
+    elif mode == "service_bearer_signed_identity_v1":
+        ingress = GatewayIngressConfig(
+            mode="service_bearer_signed_identity_v1",
+            service_token_env="MATRIX_SERVICE_TOKEN",
+            signing_secret_env="MATRIX_SIGNING_SECRET",
+        )
+        constitution = ConstitutionIntegrationConfig(enabled=True, identity_source="signed_request")
+    else:
+        ingress = GatewayIngressConfig()
+        constitution = ConstitutionIntegrationConfig()
+        observation_enabled = False
+        constitution_enabled = False
+    return Settings(
+        server=ServerConfig(listen_host=listen_host),
+        gateway_ingress=ingress,
+        upstream=UpstreamConfig(
+            base_url="http://upstream.test/v1", api_key_env="MATRIX_KEY", model="qwen"
+        ),
+        routes=[
+            RouteConfig(
+                name="matrix-route",
+                model="qwen",
+                max_images_per_request=1,
+                image_overflow_policy="retain_newest",
+                observation_enabled=observation_enabled,
+                constitution_enabled=constitution_enabled,
+            )
+        ],
+        compiler=CompilerConfig(enabled=True, api_key_env="MATRIX_COMPILER_KEY"),
+        constitution=constitution,
+    )
+
+
+@pytest.mark.parametrize(
+    ("listen_host", "mode"),
+    [
+        # loopback x every mode: valid
+        ("127.0.0.1", "disabled"),
+        ("::1", "disabled"),
+        ("localhost", "disabled"),
+        ("127.0.0.1", "service_bearer_static_identity"),
+        ("::1", "service_bearer_static_identity"),
+        ("localhost", "service_bearer_static_identity"),
+        ("127.0.0.1", "service_bearer_signed_identity_v1"),
+        ("::1", "service_bearer_signed_identity_v1"),
+        ("localhost", "service_bearer_signed_identity_v1"),
+        # non-loopback bare literal x signed: valid
+        ("172.17.0.1", "service_bearer_signed_identity_v1"),
+        ("10.88.0.9", "service_bearer_signed_identity_v1"),
+        ("fe80::1", "service_bearer_signed_identity_v1"),
+        # all-interfaces literals x signed: valid
+        ("0.0.0.0", "service_bearer_signed_identity_v1"),
+        ("::", "service_bearer_signed_identity_v1"),
+    ],
+)
+def test_binding_law_matrix_accepts(listen_host: str, mode: str) -> None:
+    settings = _matrix_settings(listen_host, mode)
+    assert settings.server.listen_host == listen_host
+    assert settings.gateway_ingress.mode == mode
+
+
+@pytest.mark.parametrize(
+    ("listen_host", "mode"),
+    [
+        # non-loopback literal x {disabled, static}: rejected
+        ("172.17.0.1", "disabled"),
+        ("10.88.0.9", "disabled"),
+        ("fe80::1", "disabled"),
+        ("0.0.0.0", "disabled"),
+        ("::", "disabled"),
+        ("172.17.0.1", "service_bearer_static_identity"),
+        ("0.0.0.0", "service_bearer_static_identity"),
+        ("::", "service_bearer_static_identity"),
+    ],
+)
+def test_binding_law_matrix_rejects_non_loopback_without_full_signed_ingress(
+    listen_host: str, mode: str
+) -> None:
+    with pytest.raises(ValidationError, match="service_bearer_signed_identity_v1"):
+        _matrix_settings(listen_host, mode)
+
+
+@pytest.mark.parametrize(
+    "host",
+    ["hostname.example", "myhost", "http://127.0.0.1", "127.0.0.1:8000", "256.0.0.1"],
+)
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "disabled",
+        "service_bearer_static_identity",
+        "service_bearer_signed_identity_v1",
+    ],
+)
+def test_binding_law_matrix_rejects_hostname_in_every_mode(host: str, mode: str) -> None:
+    with pytest.raises(ValidationError):
+        _matrix_settings(host, mode)
+
+
+def test_binding_law_default_is_unchanged_loopback() -> None:
+    settings = _matrix_settings("127.0.0.1", "disabled")
+    assert settings.server.listen_host == "127.0.0.1"
+    assert ServerConfig().listen_host == "127.0.0.1"
+
+
+def test_binding_law_keeps_distinct_secret_role_names_enforced() -> None:
+    # 010 C2 invariant: shared env names across the three Local-side secret
+    # roles still fail closed, including on a signed non-loopback bind.
+    with pytest.raises(ValidationError, match="cannot share one environment name"):
+        Settings(
+            server=ServerConfig(listen_host="0.0.0.0"),
+            gateway_ingress=GatewayIngressConfig(
+                mode="service_bearer_signed_identity_v1",
+                service_token_env="SHARED_ROLE_NAME",
+                signing_secret_env="MATRIX_SIGNING_SECRET",
+            ),
+            upstream=UpstreamConfig(
+                base_url="http://upstream.test/v1", api_key_env="SHARED_ROLE_NAME", model="qwen"
+            ),
+            routes=[
+                RouteConfig(
+                    name="matrix-route",
+                    model="qwen",
+                    max_images_per_request=1,
+                    image_overflow_policy="retain_newest",
+                    observation_enabled=True,
+                    constitution_enabled=True,
+                )
+            ],
+            compiler=CompilerConfig(enabled=True, api_key_env="SHARED_ROLE_NAME"),
+            constitution=ConstitutionIntegrationConfig(
+                enabled=True, identity_source="signed_request"
+            ),
+        )

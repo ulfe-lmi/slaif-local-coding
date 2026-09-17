@@ -1,0 +1,49 @@
+# SLAIF Local Coding build-context exclusions (order 011-a, workstream B2).
+# Explicit, not accidental: the build stage needs exactly src/, pyproject.toml,
+# uv.lock, LICENSE, NOTICE, and README.md (wheel metadata). Everything else
+# stays out of the build context and therefore out of every image layer.
+
+# Orchestration transcripts and OAP state (never in an artifact/image)
+oap/
+runtime.env
+AGENTS.md
+OAP-COMMUNICATION-coding-agent.md
+
+# VCS, virtual environments, caches, build outputs
+.git/
+.venv/
+dist/
+build/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info
+
+# Tests, docs, references, scripts, config templates, packaging, CI
+tests/
+docs/
+references/
+scripts/
+config/
+packaging/
+.github/
+
+# Repository-root placeholder files and any env/secret material
+Local
+clean
+unchanged
+*.env
+*.key
+*.pem
+secrets/
+
+# Other top-level documents not required by the wheel build
+ARCHITECTURE.md
+ARCHITECTURE-for-agents.md
+CONTRIBUTING.md
+SECURITY.md
+TESTING.md
+THIRD_PARTY_NOTICES.md

@@ -1,4 +1,4 @@
-"""Cutover state machine (order 010-a, workstream D4).
+"""Cutover state machine (order 010-a, workstream D4; 011-a G1).
 
 Pure, deterministic model of the cutover runbook in
 docs/RELEASE-CUTOVER-RUNBOOK.md: three independent tracked states
@@ -29,6 +29,19 @@ class LocalServiceState(StrEnum):
 class LocalListener(StrEnum):
     NONE = "none"
     LOOPBACK_18031 = "loopback_18031"
+    LAN_18031_SIGNED = "lan_18031_signed"
+
+
+class LocalBindingClass(StrEnum):
+    """D1 binding law class of the local 18031 bind (order 011-a, G1).
+
+    ``loopback_18031`` is the loopback-only bind (the only class legal
+    without the full signed ingress contract); ``lan_18031_signed`` is the
+    LAN-visible bind, legal only under ``service_bearer_signed_identity_v1``.
+    """
+
+    LOOPBACK_18031 = "loopback_18031"
+    LAN_18031_SIGNED = "lan_18031_signed"
 
 
 class LocalArtifactClass(StrEnum):
@@ -55,6 +68,7 @@ class CodexProviderClass(StrEnum):
 class LocalState:
     artifact_sha256: LocalArtifactClass
     config_label: LocalConfigLabel
+    binding_class: LocalBindingClass
     service_state: LocalServiceState
     listener: LocalListener
 
@@ -164,7 +178,11 @@ def preconditions(state: CutoverState, applied: frozenset[Transition]) -> None:
     raise TransitionError("unreachable_transition")  # pragma: no cover
 
 
-def _mutate(state: CutoverState, transition: Transition) -> CutoverState:
+def _mutate(
+    state: CutoverState,
+    transition: Transition,
+    candidate_binding_class: LocalBindingClass = LocalBindingClass.LOOPBACK_18031,
+) -> CutoverState:
     if transition is Transition.T2_INSTALL_LOCAL_ARTIFACT:
         return replace(
             state,
@@ -175,12 +193,18 @@ def _mutate(state: CutoverState, transition: Transition) -> CutoverState:
             ),
         )
     if transition is Transition.T3_START_CANDIDATE:
+        listener = (
+            LocalListener.LAN_18031_SIGNED
+            if candidate_binding_class is LocalBindingClass.LAN_18031_SIGNED
+            else LocalListener.LOOPBACK_18031
+        )
         return replace(
             state,
             local=replace(
                 state.local,
                 service_state=LocalServiceState.READY,
-                listener=LocalListener.LOOPBACK_18031,
+                listener=listener,
+                binding_class=candidate_binding_class,
             ),
         )
     if transition is Transition.T5_POINT_GATEWAY_TO_ADAPTER:
@@ -199,7 +223,11 @@ def _mutate(state: CutoverState, transition: Transition) -> CutoverState:
     return state
 
 
-def _inverse(state: CutoverState, transition: Transition) -> CutoverState:
+def _inverse(
+    state: CutoverState,
+    transition: Transition,
+    snapshot_binding_class: LocalBindingClass = LocalBindingClass.LOOPBACK_18031,
+) -> CutoverState:
     if transition is Transition.T2_INSTALL_LOCAL_ARTIFACT:
         return replace(
             state,
@@ -210,12 +238,14 @@ def _inverse(state: CutoverState, transition: Transition) -> CutoverState:
             ),
         )
     if transition is Transition.T3_START_CANDIDATE:
+        # Rollback restores the step-1 binding class (order 011-a, G1).
         return replace(
             state,
             local=replace(
                 state.local,
                 service_state=LocalServiceState.STOPPED,
                 listener=LocalListener.NONE,
+                binding_class=snapshot_binding_class,
             ),
         )
     if transition is Transition.T5_POINT_GATEWAY_TO_ADAPTER:
@@ -230,10 +260,20 @@ def _inverse(state: CutoverState, transition: Transition) -> CutoverState:
 
 
 class CutoverRun:
-    """One linear cutover attempt with fail-closed ordering and rollback."""
+    """One linear cutover attempt with fail-closed ordering and rollback.
 
-    def __init__(self, snapshot: CutoverState) -> None:
+    ``candidate_binding_class`` is the D1 binding class the candidate
+    configuration binds at T3 (loopback by default; the LAN-visible signed
+    variant requires the full signed ingress contract, checked at T3).
+    """
+
+    def __init__(
+        self,
+        snapshot: CutoverState,
+        candidate_binding_class: LocalBindingClass = LocalBindingClass.LOOPBACK_18031,
+    ) -> None:
         self.snapshot = snapshot
+        self.candidate_binding_class = candidate_binding_class
         self.state = snapshot
         self.applied: list[Transition] = []
 
@@ -245,7 +285,15 @@ class CutoverRun:
         if transition is not expected:
             raise TransitionError("transition_out_of_order")
         preconditions(self.state, frozenset(self.applied))
-        self.state = _mutate(self.state, transition)
+        if transition is Transition.T3_START_CANDIDATE and (
+            self.candidate_binding_class is LocalBindingClass.LAN_18031_SIGNED
+        ):
+            # D1: the LAN-visible bind is legal only under the full signed
+            # ingress contract (the adapter configuration enforces the same
+            # law fail-closed at startup).
+            if not self.state.gateway.signed_contract:
+                raise TransitionError("non_loopback_bind_requires_signed_ingress")
+        self.state = _mutate(self.state, transition, self.candidate_binding_class)
         self.applied.append(transition)
         return self.state
 
@@ -263,7 +311,11 @@ class CutoverRun:
         for transition in reversed(self.applied):
             if transition not in PRE_FINAL_MUTATORS:
                 continue
-            self.state = _inverse(self.state, transition)
+            self.state = _inverse(self.state, transition, self.snapshot.local.binding_class)
+        # G1 mechanical proof: rollback restores the step-1 snapshot field by
+        # field, including the step-1 local binding class.
+        if self.state != self.snapshot:
+            raise TransitionError("rollback_state_mismatch")
         return self.state
 
 
@@ -273,6 +325,7 @@ def canonical_snapshot(authority_sha: str) -> CutoverState:
         local=LocalState(
             artifact_sha256=LocalArtifactClass.PREVIOUS,
             config_label=LocalConfigLabel.PREVIOUS,
+            binding_class=LocalBindingClass.LOOPBACK_18031,
             service_state=LocalServiceState.STOPPED,
             listener=LocalListener.NONE,
         ),
@@ -329,6 +382,37 @@ def self_test() -> dict[str, object]:
         assert restored == snapshot, (failed_at, restored)
         assert restored.local.listener is LocalListener.NONE
 
+    # 011-a G1: the LAN-visible signed candidate class is tracked by every
+    # mutating transition and the complete rollback table, and is rejected
+    # without the full signed ingress contract.
+    lan_run = CutoverRun(snapshot, LocalBindingClass.LAN_18031_SIGNED)
+    for transition in TRANSITION_ORDER:
+        lan_run.apply(transition)
+    assert lan_run.state.cutover_performed is True
+    assert lan_run.state.local.binding_class is LocalBindingClass.LAN_18031_SIGNED
+    for failed_at in TRANSITION_ORDER[:-1]:
+        runner = CutoverRun(snapshot, LocalBindingClass.LAN_18031_SIGNED)
+        runner.apply_until(failed_at)
+        restored = runner.rollback(failed_at)
+        assert restored == snapshot, (failed_at, restored)
+        assert restored.local.binding_class is LocalBindingClass.LOOPBACK_18031, failed_at
+    unsigned = replace(
+        snapshot,
+        gateway=replace(snapshot.gateway, signed_contract=False),
+    )
+    lan_unsigned = CutoverRun(unsigned, LocalBindingClass.LAN_18031_SIGNED)
+    lan_unsigned.apply(Transition.T1_CAPTURE_BASELINE)
+    lan_unsigned.apply(Transition.T2_INSTALL_LOCAL_ARTIFACT)
+    try:
+        lan_unsigned.apply(Transition.T3_START_CANDIDATE)
+    except TransitionError as exc:
+        assert exc.code == "non_loopback_bind_requires_signed_ingress"
+    else:
+        raise AssertionError("LAN bind without the signed contract was accepted")
+    # The rejected transition mutated nothing.
+    assert lan_unsigned.state.local.listener is LocalListener.NONE
+    assert lan_unsigned.state.local.binding_class is LocalBindingClass.LOOPBACK_18031
+
     # Post-final rollback is rejected.
     final = CutoverRun(snapshot)
     for transition in TRANSITION_ORDER:
@@ -345,6 +429,7 @@ def self_test() -> dict[str, object]:
         "transitions": len(TRANSITION_ORDER),
         "pre_final_mutators": len(PRE_FINAL_MUTATORS),
         "rollback_points_checked": len(TRANSITION_ORDER) - 1,
+        "lan_rollback_points_checked": len(TRANSITION_ORDER) - 1,
     }
 
 

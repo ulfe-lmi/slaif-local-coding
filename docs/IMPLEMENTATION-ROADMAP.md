@@ -3,16 +3,23 @@
 This roadmap is strategic context, not an activated order. Live GitHub/host
 state and review outcomes control actual sequencing.
 
-## Current state (2026-09-14, verified against GitHub)
+## Current state (2026-09-17, verified against GitHub)
 
-Objectives 000–008 are **implemented and merged** (PR #1–#10; merge commits
+Objectives 000–010 are **implemented and merged** (PR #1–#12; merge commits
 `91463ae3`, `176bf4d8`, `867ed55e`, `68f212b5` + `7a2c36a0`, `570bd2b2`,
-`e3f10e93`, `efc4dbcd`, `2041bddc`, `1a913bf3` — see `oap/COMPLETENESS.md`
-for the full table). Objective 004 real-Codex evidence is **accepted
-(fixture-scoped)**; the Gateway pair is **continuously Gateway-contract
-tested** (objective 007); durable acceptance evidence is accepted (objective
-008). Objective 009 (this PR) is the release candidate: reproducible package
-and **deployment-qualified (disposable environment only)**. **Cutover NOT
+`e3f10e93`, `efc4dbcd`, `2041bddc`, `1a913bf3`,
+`4fd4502deda23ef8815740f4db0c1e615a5a1936` (009),
+`4aa805fdd197938f1f25c9ca034c2e3c3cf2fc87` (010) — see
+`oap/COMPLETENESS.md` for the full table). Objective 004 real-Codex evidence
+is **accepted (fixture-scoped)**; the Gateway pair is **continuously
+Gateway-contract tested** (objective 007); durable acceptance evidence is
+accepted (objective 008). Objective 009 is the accepted release candidate
+(reproducible package, deployment-qualified in a disposable environment
+only). Objective 010 closed the pre-cutover topology and signed-ingress
+correctness work (prepare-only; the cutover was NOT performed). Objective 011
+(this PR) is the Docker MVP release candidate: **Docker MVP packaging,
+LAN-visible installation law, and release-readiness closure** —
+deployment-qualified (disposable/CI environments only). **Cutover NOT
 performed; NOT released.**
 
 Identifier note: the original planned meanings of numeric objectives 006–008

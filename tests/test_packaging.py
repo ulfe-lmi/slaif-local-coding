@@ -215,9 +215,18 @@ def test_runbook_marks_authority_classes_and_is_prepare_only() -> None:
         assert required in runbook, required
 
 
-def test_artifact_policy_doc_states_wheel_is_sole_supported_artifact() -> None:
+def test_artifact_policy_doc_states_supported_artifacts() -> None:
+    # Order 011-a F8: the wheel is the single supported PYTHON
+    # distributable; the OCI image is the supported distribution
+    # artifact of the Docker deployment path, built from the wheel;
+    # the sdist remains developer-only.
     doc = ARTIFACT_POLICY_DOC.read_text(encoding="utf-8")
-    assert "single supported distributable" in doc
-    assert "developer-only source archive" in doc
+    assert "supported Python distributable" in doc
+    assert "distribution artifact" in doc
+    assert "Docker deployment path" in doc
+    assert "built **from** the supported" in doc
+    assert "the runtime stage installs the built wheel non-editable" in doc
+    assert "developer-only" in doc
+    assert "source archive" in doc
     assert "not a supported release artifact" in doc
     assert "scripts/artifact_policy_check.py" in doc

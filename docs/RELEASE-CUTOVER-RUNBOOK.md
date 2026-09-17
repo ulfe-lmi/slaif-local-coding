@@ -37,8 +37,9 @@ it mutates; verification transitions mutate nothing.
 | --- | --- |
 | `local.artifact_sha256` | `previous` (step-1 value) \| `release_candidate` (the exact cutover-authority wheel SHA from the current release provenance manifest) |
 | `local.config_label` | `previous` \| `gateway_integrated` |
-| `local.service_state` | `stopped` \| `ready` (ready = `/readyz` 200 on loopback 18031) |
-| `local.listener` | `none` \| `loopback_18031` |
+| `local.binding_class` | `loopback_18031` (loopback bind, the only class legal without the full signed ingress contract) \| `lan_18031_signed` (LAN-visible bind, legal only under `service_bearer_signed_identity_v1` — D1 binding law, order 011-a) |
+| `local.service_state` | `stopped` \| `ready` (ready = `/readyz` 200 on the candidate bind) |
+| `local.listener` | `none` \| `loopback_18031` \| `lan_18031_signed` |
 
 Plus the protected-fixture invariance facts captured at step 1 (vision unit
 state, main PID, 18020 listener, `/health` status, active Codex profile
@@ -60,7 +61,13 @@ Gateway — compose per-service host networking for the `api` runtime, or an
 equivalent single-host shared-namespace runtime deployment). The route
 backend URL is per-provider configuration (`ProviderConfig.base_url`) with
 server-side secret env lookup; pointing it at `http://127.0.0.1:18031/v1`
-is Gateway configuration, not Gateway source change.
+is Gateway configuration, not Gateway source change. **Bridge-container
+variant (order 011-a, TOPOLOGY.md §4):** when the Gateway `api` runtime
+keeps the pinned deployment's bridge networking instead, the config-only
+route backend is the **host bridge interface IP** at port `18031` (e.g.
+`http://172.17.0.1:18031/v1`) — still Gateway configuration only, and
+still legal only because the adapter bind then carries the full signed
+ingress contract (D1).
 
 ### CODEX state (active client profile)
 
@@ -71,13 +78,15 @@ is Gateway configuration, not Gateway source change.
 
 ## Preconditions (all must be true before step 1)
 
-1. The pre-cutover correctness objective (010) is accepted and merged; CI is
+1. The pre-cutover objectives (010 and 011) are accepted and merged; CI is
    green at the merged head.
 2. The deployed adapter artifact is the current cutover-authority wheel with
    the SHA-256 recorded in `packaging/release_provenance_manifest.json`
-   (Objective 010 regenerates this manifest when the runtime package bytes
-   change; the Objective-009 hash remains the accepted 009 record only); the
-   local artifact policy check passes on it.
+   (the **Objective-011-a regenerated manifest** — schema v2,
+   `objective: "011-a"` — is the cutover authority; for the Docker path the
+   manifest's `oci` build inputs are part of the authority; the
+   Objective-010-a and Objective-009 wheel hashes remain the accepted
+   010/009 records only); the local artifact policy check passes on it.
 3. `cutover_performed` is still `false` and `released` is still `false` in
    the manifest; this runbook has not been started before.
 4. The protected upstream (vision service, port 18020) is running and its
@@ -133,16 +142,24 @@ step-2 backup (DEPLOYMENT.md §10).
 ### T3 — Step 3 — Start candidate privately on 18031
 `HUMAN-AUTHORIZED (protected/live/release)`
 
-Start the candidate user service (loopback `127.0.0.1:18031` only) with the
-installed configuration and poll readiness with `packaging/readyz-wait.sh`.
-Precondition: `127.0.0.1:18031` is free (any pre-existing listener is
-stopped and recorded first — no forgotten listener is left behind). The
-protected upstream on 18020 remains the active path for all clients at this
-point; nothing is re-pointed yet.
+Start the candidate (systemd user service on loopback `127.0.0.1:18031`,
+or the Docker container per [DEPLOYMENT.md §15](DEPLOYMENT.md#15-docker-path-procedures-exact-link)
+with the site `__LISTEN_HOST__`) with the installed configuration and poll
+readiness with `packaging/readyz-wait.sh` (systemd) or the compose healthcheck
+(Docker). Precondition: the candidate bind address is free (any pre-existing
+listener is stopped and recorded first — no forgotten listener is left
+behind). The protected upstream on 18020 remains the active path for all
+clients at this point; nothing is re-pointed yet. The D1 binding law applies:
+a non-loopback candidate bind is legal only under the full signed ingress
+contract; the state machine rejects a `lan_18031_signed` candidate without
+the signed contract.
 
-Mutates LOCAL: `service_state := ready`, `listener := loopback_18031`.
-Inverse: `systemctl --user stop` the candidate; verify `listener := none`
-(absence proof on 18031).
+Mutates LOCAL: `service_state := ready`, `listener := loopback_18031` (or
+`lan_18031_signed`), `binding_class := loopback_18031` (or
+`lan_18031_signed`, matching the candidate configuration's `listen_host`).
+Inverse: stop the candidate; verify `listener := none` and
+`binding_class := <step-1 binding class>` (absence proof on 18031; rollback
+restores the step-1 binding class).
 
 ### T4 — Step 4 — Verify the candidate
 `CODING-SAFE` (against the loopback candidate only)

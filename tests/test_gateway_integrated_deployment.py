@@ -41,10 +41,12 @@ SERVICE_UNIT = REPO_ROOT / "packaging" / "slaif-local-coding.service"
 CUTOVER_RUNBOOK = REPO_ROOT / "docs" / "RELEASE-CUTOVER-RUNBOOK.md"
 
 
-def _render_gateway_template() -> str:
+def _render_gateway_template(listen_host: str = "127.0.0.1") -> str:
     text = GATEWAY_TEMPLATE.read_text(encoding="utf-8")
-    rendered = text.replace("__UPSTREAM_BASE_URL__", "http://127.0.0.1:18020/v1").replace(
-        "__UPSTREAM_MODEL__", "qwen3.8-27b"
+    rendered = (
+        text.replace("__LISTEN_HOST__", listen_host)
+        .replace("__UPSTREAM_BASE_URL__", "http://127.0.0.1:18020/v1")
+        .replace("__UPSTREAM_MODEL__", "qwen3.8-27b")
     )
     return rendered
 
@@ -52,11 +54,11 @@ def _render_gateway_template() -> str:
 def test_gateway_integrated_template_uses_only_documented_placeholders() -> None:
     text = GATEWAY_TEMPLATE.read_text(encoding="utf-8")
     tokens = sorted(set(re.findall(r"__[A-Z0-9_]+__", text)))
-    assert tokens == ["__UPSTREAM_BASE_URL__", "__UPSTREAM_MODEL__"]
+    assert tokens == ["__LISTEN_HOST__", "__UPSTREAM_BASE_URL__", "__UPSTREAM_MODEL__"]
 
 
 def test_gateway_integrated_config_parses_and_enables_accepted_contract() -> None:
-    rendered = _render_gateway_template()
+    rendered = _render_gateway_template("127.0.0.1")
     assert "__" not in rendered
     config = tomllib.loads(rendered)
     assert config["server"]["listen_host"] == "127.0.0.1"
@@ -304,3 +306,116 @@ def test_no_public_binding_in_deployment_assets() -> None:
     gateway_config = tomllib.loads(_render_gateway_template())
     assert gateway_config["server"]["listen_host"] == "127.0.0.1"
     assert gateway_config["observability"]["metrics_host"] == "127.0.0.1"
+
+
+# ---------------------------------------------------------------------------
+# Objective 011-a workstream A4: exactly three documented placeholders; the
+# substituted loopback variant and the substituted non-loopback variant both
+# parse; the non-loopback variant is rejected by the validators when
+# gateway_ingress is disabled or static (fail closed).
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_integrated_non_loopback_variant_parses_under_full_signed_ingress() -> None:
+    rendered = _render_gateway_template("172.17.0.1")
+    assert "__" not in rendered
+    config = tomllib.loads(rendered)
+    assert config["server"]["listen_host"] == "172.17.0.1"
+    assert config["gateway_ingress"]["mode"] == "service_bearer_signed_identity_v1"
+
+    from slaif_local_coding.config import load_settings
+
+    path = REPO_ROOT / ".tmp-gateway-integrated-nonloopback.toml"
+    path.write_text(rendered, encoding="utf-8")
+    try:
+        settings = load_settings(path)
+    finally:
+        path.unlink()
+    assert settings.server.listen_host == "172.17.0.1"
+    assert settings.gateway_ingress.signed is True
+
+
+@pytest.mark.parametrize("mode", ["disabled", "service_bearer_static_identity"])
+def test_gateway_integrated_non_loopback_variant_fails_closed_without_full_signed_ingress(
+    mode: str,
+) -> None:
+    rendered = _render_gateway_template("172.17.0.1")
+    # Rewrite the rendered final template into a non-loopback variant WITHOUT
+    # the full signed ingress contract. The rewrite keeps the variant
+    # otherwise validator-valid (mode-appropriate identity) so that the D1
+    # binding law is the first-class contract under test.
+    rendered = rendered.replace(
+        'mode = "service_bearer_signed_identity_v1"',
+        f'mode = "{mode}"',
+    )
+    rendered = rendered.replace('signing_secret_env = "SLAIF_ADAPTER_SIGNING_SECRET"\n', "")
+    if mode == "disabled":
+        # disabled ingress cannot keep the service token env either.
+        rendered = rendered.replace('service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"\n', "")
+    rendered = rendered.replace(
+        'identity_source = "signed_request"',
+        'identity_source = "static"\nprincipal = "a"\nsession = "b"\nrepository = "c"',
+    )
+
+    from slaif_local_coding.config import load_settings
+
+    path = REPO_ROOT / ".tmp-gateway-integrated-nonloopback-nomode.toml"
+    path.write_text(rendered, encoding="utf-8")
+    try:
+        with pytest.raises(ValidationError, match="service_bearer_signed_identity_v1"):
+            load_settings(path)
+    finally:
+        path.unlink()
+
+
+def test_gateway_integrated_all_interfaces_variant_parses_under_full_signed_ingress() -> None:
+    rendered = _render_gateway_template("0.0.0.0")
+    assert "__" not in rendered
+    from slaif_local_coding.config import load_settings
+
+    path = REPO_ROOT / ".tmp-gateway-integrated-allif.toml"
+    path.write_text(rendered, encoding="utf-8")
+    try:
+        settings = load_settings(path)
+    finally:
+        path.unlink()
+    assert settings.server.listen_host == "0.0.0.0"
+    assert settings.gateway_ingress.signed is True
+
+
+# ---------------------------------------------------------------------------
+# Objective 011-a workstream B7: the canonical compose is the production
+# Docker MVP path; the documented development variant (ingress disabled,
+# loopback) is a separate clearly-labeled example that is never production.
+# ---------------------------------------------------------------------------
+
+COMPOSE_FILE = REPO_ROOT / "compose.yaml"
+DOCKER_INSTALL_DOC = REPO_ROOT / "docs" / "DOCKER-INSTALL.md"
+
+
+def test_compose_is_labeled_canonical_production_docker_path() -> None:
+    text = COMPOSE_FILE.read_text(encoding="utf-8")
+    header = text.splitlines()[:16]
+    assert any("canonical" in line.lower() for line in header)
+    assert any("production" in line.lower() for line in header)
+    # host networking law (D2), no published ports, no secret interpolation.
+    assert "network_mode: host" in text
+    assert "ports:" not in text
+    assert "privileged" not in text
+    for secret_env in (
+        "SLAIF_ADAPTER_SERVICE_TOKEN=",
+        "SLAIF_ADAPTER_SIGNING_SECRET=",
+        "QWEN3090_API_KEY=",
+    ):
+        assert secret_env not in text
+
+
+def test_development_docker_variant_is_labeled_development_not_production() -> None:
+    text = DOCKER_INSTALL_DOC.read_text(encoding="utf-8")
+    assert "development" in text.lower()
+    # The development variant must be labeled as NOT production.
+    lowered = text.lower()
+    dev_positions = [m.start() for m in re.finditer(r"development variant", lowered)]
+    assert dev_positions, "the development variant section must exist"
+    tail = text[dev_positions[0] : dev_positions[0] + 2000].lower()
+    assert "not production" in tail or "development only" in tail

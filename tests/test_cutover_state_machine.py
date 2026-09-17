@@ -145,3 +145,68 @@ def test_self_test_cli_contract() -> None:
     assert facts["ok"] is True
     assert facts["transitions"] == 9
     assert facts["rollback_points_checked"] == 8
+    assert facts["lan_rollback_points_checked"] == 8
+
+
+# ---------------------------------------------------------------------------
+# Objective 011-a workstream G1/G3: local.binding_class is a tracked LOCAL
+# field; every mutating transition and the complete rollback table track it
+# (rollback restores the step-1 binding class); the LAN-visible bind is
+# rejected without the full signed ingress contract. Mechanical,
+# deterministic, synthetic only.
+# ---------------------------------------------------------------------------
+
+
+LocalBindingClass = cutover_state_machine.LocalBindingClass
+
+
+def test_canonical_snapshot_tracks_loopback_binding_class(snapshot: Any) -> None:
+    assert snapshot.local.binding_class.value == "loopback_18031"
+    assert snapshot.local.listener.value == "none"
+
+
+def test_loopback_run_tracks_binding_class_unchanged(snapshot: Any) -> None:
+    run = CutoverRun(snapshot)
+    for transition in TRANSITION_ORDER:
+        run.apply(transition)
+    assert run.state.local.binding_class.value == "loopback_18031"
+    assert run.state.local.listener.value == "loopback_18031"
+
+
+def test_lan_run_tracks_lan_binding_class(snapshot: Any) -> None:
+    run = CutoverRun(snapshot, LocalBindingClass.LAN_18031_SIGNED)
+    run.apply_until(Transition.T3_START_CANDIDATE)
+    run.apply(Transition.T3_START_CANDIDATE)
+    assert run.state.local.binding_class.value == "lan_18031_signed"
+    assert run.state.local.listener.value == "lan_18031_signed"
+    for transition in list(TRANSITION_ORDER)[3:]:
+        run.apply(transition)
+    assert run.state.cutover_performed is True
+
+
+def test_lan_rollback_restores_step1_binding_class_from_every_failure_point(
+    snapshot: Any,
+) -> None:
+    for failed_at in TRANSITION_ORDER[:-1]:
+        run = CutoverRun(snapshot, LocalBindingClass.LAN_18031_SIGNED)
+        run.apply_until(failed_at)
+        restored = run.rollback(failed_at)
+        assert restored == snapshot, failed_at
+        assert restored.local.binding_class.value == "loopback_18031", failed_at
+        assert restored.local.listener.value == "none", failed_at
+
+
+def test_lan_bind_without_signed_contract_is_rejected_at_start(snapshot: Any) -> None:
+    unsigned = cutover_state_machine.replace(
+        snapshot,
+        gateway=cutover_state_machine.replace(snapshot.gateway, signed_contract=False),
+    )
+    run = CutoverRun(unsigned, LocalBindingClass.LAN_18031_SIGNED)
+    run.apply(Transition.T1_CAPTURE_BASELINE)
+    run.apply(Transition.T2_INSTALL_LOCAL_ARTIFACT)
+    with pytest.raises(TransitionError, match="non_loopback_bind_requires_signed_ingress"):
+        run.apply(Transition.T3_START_CANDIDATE)
+    # Nothing was mutated by the rejected transition.
+    assert run.state.local.service_state.value == "stopped"
+    assert run.state.local.listener.value == "none"
+    assert run.state.local.binding_class.value == "loopback_18031"
