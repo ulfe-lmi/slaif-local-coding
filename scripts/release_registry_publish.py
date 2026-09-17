@@ -1,10 +1,9 @@
 """Publish the release image to GHCR and registry-verify a single digest.
 
 Order 013-a, workstream D (R11/R12); order 013-c, workstream C1 (fully
-qualified push references) and C2 (secret-based registry credential). Runs
-ONLY from the activated `.github/workflows/release-image.yml`
-(workflow_dispatch-only; the registry credential is the `SLAIF_GHCR_TOKEN`
-repository secret, loaded only on manual dispatch and never printed).
+qualified push references); order 013-d, workstream C2 (credential
+correction). Runs ONLY from the activated
+`.github/workflows/release-image.yml` (workflow_dispatch-only).
 Procedure:
 
 1. push the built image as `ghcr.io/<repo>:sha-<S>` UNCONDITIONALLY
@@ -17,9 +16,10 @@ Procedure:
 4. push `0.1.0` and registry-verify BOTH tags resolve to `D`;
 5. emit `SLAIF_PUBLISHED_DIGEST=D` (run log + GITHUB_OUTPUT when set).
 
-The registry credential is read from the environment (SLAIF_GHCR_TOKEN) and
-is never printed, logged, or placed on a command line. Stdlib + docker CLI
-only; no new dependencies.
+The registry credential is the workflow `GITHUB_TOKEN` (declared
+`packages: write`), passed to the script via the `SLAIF_GHCR_TOKEN`
+environment variable, and is never printed, logged, or placed on a command
+line. Stdlib + docker CLI only; no new dependencies.
 """
 
 from __future__ import annotations
