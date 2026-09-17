@@ -184,6 +184,19 @@ def _render_gateway_template(
     return rendered
 
 
+def _docker_versions() -> dict[str, str]:
+    versions = {}
+    for key, cmd in (
+        ("docker_server", ["docker", "version", "--format", "{{.Server.Version}}"]),
+        ("docker_compose", ["docker", "compose", "version", "--short"]),
+    ):
+        proc = _run(cmd, timeout=30)
+        versions[key] = (
+            proc.stdout.decode().strip() if proc.returncode == 0 else f"error:{proc.returncode}"
+        )
+    return versions
+
+
 class Qualification:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -856,10 +869,18 @@ services:
         info = json.loads(proc.stdout.decode())[0]
         host_config = info.get("HostConfig", {})
         config = info.get("Config", {})
+        security_opt = host_config.get("SecurityOpt") or []
+        tmpfs_map = host_config.get("Tmpfs") or {}
         checks = {
             "non_root_user": config.get("User") in {"10001", "slaif"},
             "read_only_rootfs": host_config.get("ReadonlyRootfs") is True,
-            "no_new_privileges": host_config.get("NoNewPrivileges") is True,
+            # The no-new-privileges flag is applied by the daemon from either
+            # the HostConfig.NoNewPrivileges boolean or the
+            # "no-new-privileges:true" SecurityOpt entry (the compose
+            # representation). Both forms are kernel-equivalent; verified by
+            # a setuid-escalation negative in the qualification evidence.
+            "no_new_privileges": host_config.get("NoNewPrivileges") is True
+            or "no-new-privileges:true" in security_opt,
             "cap_drop_all": host_config.get("CapDrop") == ["ALL"],
             "not_privileged": host_config.get("Privileged") is False,
             "network_mode_host": host_config.get("NetworkMode") == "host",
@@ -877,8 +898,13 @@ services:
             str(REPO_ROOT / "src") in b or ":ro" not in b for b in binds
         )
         mounts = {m["Destination"]: m.get("Type") for m in info.get("Mounts", [])}
-        checks["tmpfs_tmp"] = mounts.get("/tmp") == "tmpfs"
-        checks["tmpfs_dev_shm"] = mounts.get("/dev/shm") == "tmpfs"
+        # HostConfig.Tmpfs is the authoritative bounded-tmpfs declaration;
+        # some engine versions additionally surface the mounts in the
+        # Mounts array, so either representation is accepted.
+        checks["tmpfs_tmp"] = tmpfs_map.get("/tmp") == "size=64m" or mounts.get("/tmp") == "tmpfs"
+        checks["tmpfs_dev_shm"] = (
+            tmpfs_map.get("/dev/shm") == "size=256m" or mounts.get("/dev/shm") == "tmpfs"
+        )
         labels = config.get("Labels") or {}
         label_checks = {
             "oci_source": labels.get("org.opencontainers.image.source")
@@ -895,8 +921,25 @@ services:
         }
         failures = [k for k, v in {**checks, **label_checks}.items() if not v]
         if failures:
-            raise QualificationError("hardening_and_labels", "checks_failed", ",".join(failures))
-        return {**checks, **label_checks}
+            observed = {
+                "failed_checks": failures,
+                "docker_versions": _docker_versions(),
+                "user": config.get("User"),
+                "no_new_privileges": host_config.get("NoNewPrivileges"),
+                "security_opt": host_config.get("SecurityOpt"),
+                "cap_drop": host_config.get("CapDrop"),
+                "privileged": host_config.get("Privileged"),
+                "read_only_rootfs": host_config.get("ReadonlyRootfs"),
+                "network_mode": host_config.get("NetworkMode"),
+                "restart_policy": host_config.get("RestartPolicy"),
+                "tmpfs": host_config.get("Tmpfs"),
+                "binds": binds,
+                "mounts": {m.get("Destination"): m.get("Type") for m in info.get("Mounts", [])},
+            }
+            raise QualificationError(
+                "hardening_and_labels", "checks_failed", json.dumps(observed, sort_keys=True)
+            )
+        return {**checks, **label_checks, **_docker_versions()}
 
     def _do_operations_stop_start_recreate_upgrade_rollback(self) -> dict:
         config_path = self.workdir / "slaif-adapter.toml"
