@@ -39,8 +39,8 @@ PACKAGE_VERSION = "0.1.0"
 CANONICAL_PROJECT = "slaif-local-coding"  # compose `name:`
 COMPOSE_PRIMARY = "compose.yaml"  # pull-based canonical (no build key)
 COMPOSE_BUILD_OVERRIDE = "compose.build.yaml"  # qualification/development build override
-PRE013_CANONICAL_FIXTURE = "tests" / "fixtures" / "compose" / "canonical_compose_pre013.yaml"
-RELEASE_RECORD = "packaging" / "release_record.json"
+PRE013_CANONICAL_FIXTURE = Path("tests") / "fixtures" / "compose" / "canonical_compose_pre013.yaml"
+RELEASE_RECORD = Path("packaging") / "release_record.json"
 PUBLISHED_QUALIFICATION_LABEL = "mvp-release-0.1.0"
 TOPOLOGY_MODE_LABEL = (
     "linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress"
