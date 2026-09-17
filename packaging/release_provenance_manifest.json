@@ -27,7 +27,7 @@
     }
   },
   "generated_from": {
-    "git_commit": "79592ee8d6243e878540c2c26dc5bb61d77c8f54",
+    "git_commit": "817d9b0ce368fbe35582aaf06e11b943307f306b",
     "repository": "ulfe-lmi/slaif-local-coding"
   },
   "limitations": [
@@ -57,7 +57,7 @@
       "name": "ghcr.io/astral-sh/uv:0.12.5"
     },
     "compose_sha256": "5d261953878150243ca455a739cebd2e605ddda3cd9518b407a15aaef795e301",
-    "dockerfile_sha256": "f4809899c514cf5024b82a0bb3046b157a3129090f9627199ae1238eefd16f3d",
+    "dockerfile_sha256": "aa9bda2ee03ca650cf762bdb42162f7d7b6d8ef3cfd22f585ac77ead131e26a4",
     "dockerignore_sha256": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     "image_digest": null,
     "image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
