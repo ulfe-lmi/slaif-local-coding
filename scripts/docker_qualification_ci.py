@@ -304,14 +304,22 @@ class Qualification:
         finally:
             self._cleanup()
 
+    def _stop_fake_upstream(self) -> None:
+        if self.fake_proc is None or self.fake_proc.poll() is not None:
+            return
+        self.fake_proc.send_signal(signal.SIGTERM)
+        try:
+            self.fake_proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.fake_proc.kill()
+            try:
+                self.fake_proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+
     def _cleanup(self) -> None:
         try:
-            if self.fake_proc is not None and self.fake_proc.poll() is None:
-                self.fake_proc.send_signal(signal.SIGTERM)
-                try:
-                    self.fake_proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    self.fake_proc.kill()
+            self._stop_fake_upstream()
             _compose(self.env, "down", "--remove-orphans", timeout=120)
         except Exception:
             pass
@@ -993,6 +1001,11 @@ services:
         return {"config_sha256": config_hash, "sequence": sequence}
 
     def _do_teardown_absence_proof(self) -> dict:
+        # The fake upstream is this job's own disposable process; tear it
+        # down as part of the teardown so the absence proof covers every
+        # listener the job created (it is otherwise only stopped by the
+        # post-run cleanup, which happens after this phase).
+        self._stop_fake_upstream()
         proc = _compose(self.env, "down", "--remove-orphans", timeout=180)
         if proc.returncode != 0:
             raise QualificationError("teardown_absence_proof", "compose_down_failed")
