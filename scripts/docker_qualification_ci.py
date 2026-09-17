@@ -80,14 +80,24 @@ def _container_identity() -> tuple[int, int]:
 
 
 def _own_for_container(path: Path) -> None:
-    """Make a bind-mounted 0600 file readable by the fixed container runtime
-    user. The 0600 mode is preserved; only the owner changes to the uid/gid
-    created in the image (the non-root container cannot read a file owned by
-    another host uid at 0600)."""
+    """Make a bind-mounted file readable by the fixed container runtime user
+    (the non-root container cannot read a file owned by another host uid at
+    0600). Preferred: chown to the image uid/gid (0600 preserved) — used on
+    hosts where the operator has the privilege (e.g. the protected-host D6
+    run via the docker admin). GitHub-hosted runners drop CAP_CHOWN even for
+    root, so fall back to making the disposable file world-readable: CI site
+    files contain only generated fake values (no real credentials, never
+    recorded), and the runner is disposable and non-protected. The canonical
+    operator deployment keeps mode 0600 with owner 10001 (documented in
+    docs/DOCKER-INSTALL.md)."""
     uid, gid = _container_identity()
     stat = path.stat()
-    if stat.st_uid != uid or stat.st_gid != gid:
+    if stat.st_uid == uid and stat.st_gid == gid:
+        return
+    try:
         os.chown(path, uid, gid)
+    except PermissionError:
+        path.chmod(0o644)
 
 
 def _run(
