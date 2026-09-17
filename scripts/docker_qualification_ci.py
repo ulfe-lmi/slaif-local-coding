@@ -587,82 +587,89 @@ class Qualification:
     def _do_compose_merge_equivalence(self) -> dict:
         """R8: the two-file merge must equal the pre-013 single-file
         effective adapter spec for the closed field set."""
-        # Render the pre-013 fixture from a repo-root copy: compose resolves
-        # `build.context: .` relative to the compose file's directory, so the
-        # fixture must sit at the repo root for the closed-field-set
-        # comparison (build.context included) to be meaningful.
-        fixture_copy = self.workdir / "pre013-canonical-compose.yaml"
+        # Render the pre-013 fixture from a TEMPORARY repo-root copy:
+        # compose resolves `build.context: .` relative to the compose
+        # file's directory, and the pre-013 canonical file sat at the repo
+        # root, so the copy must sit at the repo root for the closed
+        # field-set comparison (build.context included) to be meaningful.
+        # The copy is removed in a finally (and again by _cleanup).
+        fixture_copy = REPO_ROOT / "pre013-canonical-compose.yaml"
         fixture_copy.write_bytes((REPO_ROOT / PRE013_CANONICAL_FIXTURE).read_bytes())
-        merged = _compose(
-            self.env,
-            "-f",
-            str(REPO_ROOT / COMPOSE_PRIMARY),
-            "-f",
-            str(REPO_ROOT / COMPOSE_BUILD_OVERRIDE),
-            "config",
-            "--format",
-            "json",
-        )
-        if merged.returncode != 0:
-            raise QualificationError(
-                "compose_merge_equivalence", "merged_render_failed", merged.stderr.decode()[:2000]
+        try:
+            merged = _compose(
+                self.env,
+                "-f",
+                str(REPO_ROOT / COMPOSE_PRIMARY),
+                "-f",
+                str(REPO_ROOT / COMPOSE_BUILD_OVERRIDE),
+                "config",
+                "--format",
+                "json",
             )
-        base = _compose(
-            self.env,
-            "-f",
-            str(fixture_copy),
-            "config",
-            "--format",
-            "json",
-        )
-        if base.returncode != 0:
-            raise QualificationError(
-                "compose_merge_equivalence", "pre013_render_failed", base.stderr.decode()[:2000]
+            if merged.returncode != 0:
+                raise QualificationError(
+                    "compose_merge_equivalence",
+                    "merged_render_failed",
+                    merged.stderr.decode()[:2000],
+                )
+            base = _compose(
+                self.env,
+                "-f",
+                str(fixture_copy),
+                "config",
+                "--format",
+                "json",
             )
-        merged_spec = json.loads(merged.stdout)["services"]["adapter"]
-        base_spec = json.loads(base.stdout)["services"]["adapter"]
-        closed_field_set = (
-            "image",
-            "build.context",
-            "build.args",
-            "network_mode",
-            "read_only",
-            "security_opt",
-            "cap_drop",
-            "tmpfs",
-            "volumes",
-            "env_file",
-            "healthcheck.test",
-            "healthcheck.interval",
-            "healthcheck.timeout",
-            "healthcheck.retries",
-            "healthcheck.start_period",
-            "restart",
-            "environment",
-        )
+            if base.returncode != 0:
+                raise QualificationError(
+                    "compose_merge_equivalence", "pre013_render_failed", base.stderr.decode()[:2000]
+                )
+            merged_spec = json.loads(merged.stdout)["services"]["adapter"]
+            base_spec = json.loads(base.stdout)["services"]["adapter"]
+            closed_field_set = (
+                "image",
+                "build.context",
+                "build.args",
+                "network_mode",
+                "read_only",
+                "security_opt",
+                "cap_drop",
+                "tmpfs",
+                "volumes",
+                "env_file",
+                "healthcheck.test",
+                "healthcheck.interval",
+                "healthcheck.timeout",
+                "healthcheck.retries",
+                "healthcheck.start_period",
+                "restart",
+                "environment",
+            )
 
-        def pick(spec: dict, dotted: str):
-            cur = spec
-            for part in dotted.split("."):
-                if not isinstance(cur, dict) or part not in cur:
-                    return None
-                cur = cur[part]
-            return cur
+            def pick(spec: dict, dotted: str):
+                cur = spec
+                for part in dotted.split("."):
+                    if not isinstance(cur, dict) or part not in cur:
+                        return None
+                    cur = cur[part]
+                return cur
 
-        diffs = []
-        for key in closed_field_set:
-            m, b = pick(merged_spec, key), pick(base_spec, key)
-            if m != b:
-                diffs.append(f"{key}: merged={m!r} pre013={b!r}")
-        if diffs:
-            raise QualificationError(
-                "compose_merge_equivalence", "merged_spec_drift", "; ".join(diffs)
-            )
-        return {
-            "closed_field_set": list(closed_field_set),
-            "merged_equals_pre013": True,
-            "project_name": json.loads(merged.stdout).get("name"),
-        }
+            diffs = []
+            for key in closed_field_set:
+                m, b = pick(merged_spec, key), pick(base_spec, key)
+                if m != b:
+                    diffs.append(f"{key}: merged={m!r} pre013={b!r}")
+            if diffs:
+                raise QualificationError(
+                    "compose_merge_equivalence", "merged_spec_drift", "; ".join(diffs)
+                )
+            return {
+                "closed_field_set": list(closed_field_set),
+                "merged_equals_pre013": True,
+                "project_name": json.loads(merged.stdout).get("name"),
+            }
+        finally:
+            fixture_copy.unlink(missing_ok=True)
 
     def _do_pull_preexistence_no_build(self) -> dict:
         """R13e: in published mode the image exists locally ONLY via pull
