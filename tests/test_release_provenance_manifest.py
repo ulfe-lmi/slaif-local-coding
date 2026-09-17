@@ -278,7 +278,7 @@ def _dockerfile_from_lines() -> dict[str, tuple[str, str]]:
 def test_objective_field_records_producing_objective() -> None:
     # R4(e): in BOTH states the objective constant records the producing round.
     committed = _committed()
-    assert committed["objective"] == "013-b"
+    assert committed["objective"] == "013-c"
 
 
 def test_status_fields_state_conditional() -> None:

@@ -32,7 +32,9 @@ and an sdist containing the entire working tree (including OAP transcripts).
   bound to the committed artifact: the in-image retained wheel hash must
   equal the provenance-manifest wheel hash (B8/C2). No image is published to
   the registry as of this PR's head: the publication path is ACTIVATED
-  (`workflow_dispatch`-only `release-image.yml`, GITHUB_TOKEN only) but not
+  (`workflow_dispatch`-only `release-image.yml`; registry credential via the
+  `SLAIF_GHCR_TOKEN` repository secret, loaded only on manual dispatch and
+  never printed — order 013-c, strategic re-adjudication 3) but not
   executed — the 013-a round ended on the order's R18 hold (the remote
   Gateway `main` moved off the pinned peer; strategy must inspect and
   deliberately re-qualify; exact delta in the OAP report). At publication:
@@ -210,8 +212,17 @@ No artifact is published to any registry by this repository as of this
 PR's head. The MVP 0.1.0 **OCI image** publication to GHCR
 (`ghcr.io/ulfe-lmi/slaif-local-coding`, tags `0.1.0` + `sha-<S>`,
 registry-verified single digest) is a human-authorized act to be executed by
-the `workflow_dispatch`-only `release-image.yml` (GITHUB_TOKEN only, no
-repository secrets); it is PENDING the order 013-a R18 Gateway-peer hold
+the `workflow_dispatch`-only `release-image.yml`; the registry credential is
+the `SLAIF_GHCR_TOKEN` repository secret, loaded ONLY when the workflow is
+manually dispatched (never on PR/push/branch events), never printed, and
+holding the repository-owner org-member classic PAT (scope `repo`) — order
+013-c, strategic re-adjudication 3; the rejected alternative (raising the
+repository Actions workflow-permission ceiling, a persistent repository-wide
+security-policy broadening) is not adopted and the ceiling remains `read`;
+post-release hardening advisory: rotate to a dedicated fine-grained PAT
+scoped to `packages: write` + `contents: read` on this single repository
+and adopt a rotation procedure; it is PENDING the order 013-a R18
+Gateway-peer hold
 (the remote Gateway `main` moved off the pinned peer; strategy must inspect
 and deliberately re-qualify; exact delta in the OAP report). No other
 artifact is published by this repository (no PyPI, no sdist publication). Further publication-adjacent acts remain

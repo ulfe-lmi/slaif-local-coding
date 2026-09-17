@@ -327,8 +327,10 @@ path always uses the final Gateway-integrated (signed) configuration.
 ## Publication and provenance (registry-only)
 
 - The release image will be published exclusively by the activated
-  `.github/workflows/release-image.yml` (`workflow_dispatch`-only;
-  GITHUB_TOKEN only; no repository secrets) — activated but NOT yet
+  `.github/workflows/release-image.yml` (`workflow_dispatch`-only; registry
+  credential via the `SLAIF_GHCR_TOKEN` repository secret, loaded only on
+  manual dispatch and never printed — order 013-c, strategic re-adjudication
+  3) — activated but NOT yet
   executed as of this PR's head (R18 hold): it builds the locked wheel,
   binds its SHA-256 to the committed manifest, builds the image from the
   dispatched commit `S` via the two-file compose with the
