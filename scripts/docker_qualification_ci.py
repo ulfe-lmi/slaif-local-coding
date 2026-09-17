@@ -426,16 +426,18 @@ class Qualification:
         }
 
     def _do_in_image_provenance(self) -> dict:
-        code = (
-            "import hashlib,importlib.metadata as md,slaif_local_coding as m"
-            "dist=md.distribution('slaif-local-coding')"
-            "assert dist.version=='0.1.0',dist.version"
-            "loc=m.__file__"
-            "assert '/site-packages/slaif_local_coding/' in loc,loc"
-            "wheel='/opt/slaif/artifacts/slaif_local_coding-0.1.0-py3-none-any.whl'"
-            "d=hashlib.sha256(open(wheel,'rb').read()).hexdigest()"
-            "import json;print(json.dumps({'version':dist.version,'module_path':loc,"
-            "'wheel_sha256':d}))"
+        code = "\n".join(
+            [
+                "import hashlib,importlib.metadata as md,slaif_local_coding as m",
+                "dist=md.distribution('slaif-local-coding')",
+                "assert dist.version=='0.1.0',dist.version",
+                "loc=m.__file__",
+                "assert '/site-packages/slaif_local_coding/' in loc,loc",
+                "wheel='/opt/slaif/artifacts/slaif_local_coding-0.1.0-py3-none-any.whl'",
+                "d=hashlib.sha256(open(wheel,'rb').read()).hexdigest()",
+                "import json;print(json.dumps({'version':dist.version,'module_path':loc,"
+                "'wheel_sha256':d}))",
+            ]
         )
         proc = _run(
             [
