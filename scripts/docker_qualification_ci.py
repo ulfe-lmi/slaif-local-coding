@@ -37,6 +37,26 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 IMAGE_REPO = "slaif-local-coding"
 PACKAGE_VERSION = "0.1.0"
 CANONICAL_PROJECT = "slaif-local-coding"  # compose `name:`
+COMPOSE_PRIMARY = "compose.yaml"  # pull-based canonical (no build key)
+COMPOSE_BUILD_OVERRIDE = "compose.build.yaml"  # qualification/development build override
+PRE013_CANONICAL_FIXTURE = "tests" / "fixtures" / "compose" / "canonical_compose_pre013.yaml"
+RELEASE_RECORD = "packaging" / "release_record.json"
+PUBLISHED_QUALIFICATION_LABEL = "mvp-release-0.1.0"
+TOPOLOGY_MODE_LABEL = (
+    "linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress"
+)
+RECORD_KEYS = {
+    "schema",
+    "version",
+    "git_tag",
+    "image_source_commit",
+    "oci_image_reference",
+    "oci_image_digest",
+    "oci_tags",
+    "published_at",
+    "publication_workflow",
+    "publication_workflow_run_id",
+}
 
 
 class QualificationError(RuntimeError):
@@ -98,6 +118,45 @@ def _own_for_container(path: Path) -> None:
         os.chown(path, uid, gid)
     except PermissionError:
         path.chmod(0o644)
+
+
+def _load_release_record() -> dict:
+    """Load and strictly validate the release record (slaif-release-record-v1).
+
+    Closed key set, fixed reference/workflow values, 40-hex source commit,
+    sha256:<64-hex> digest, tag pair [0.1.0, sha-<source commit>], RFC 3339 UTC
+    published_at, integer-or-null workflow run id. Any deviation is a
+    qualification failure, never a warning.
+    """
+    path = REPO_ROOT / RELEASE_RECORD
+    if not path.is_file():
+        raise QualificationError("release_record", "record_missing", str(path))
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if set(record) != RECORD_KEYS:
+        raise QualificationError("release_record", "record_key_set", f"keys={sorted(record)}")
+    if record["schema"] != "slaif-release-record-v1":
+        raise QualificationError("release_record", "record_schema", str(record["schema"]))
+    if not re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"])):
+        raise QualificationError("release_record", "record_source_commit")
+    if record["oci_image_reference"] != "ghcr.io/ulfe-lmi/slaif-local-coding":
+        raise QualificationError("release_record", "record_image_reference")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(record["oci_image_digest"])):
+        raise QualificationError("release_record", "record_image_digest")
+    source = str(record["image_source_commit"])
+    if record["oci_tags"] != ["0.1.0", f"sha-{source}"]:
+        raise QualificationError("release_record", "record_tags")
+    if not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", str(record["published_at"])
+    ):
+        raise QualificationError("release_record", "record_published_at")
+    if record["publication_workflow"] != "release-image.yml":
+        raise QualificationError("release_record", "record_workflow")
+    run_id = record["publication_workflow_run_id"]
+    if run_id is not None and not (
+        isinstance(run_id, int) and not isinstance(run_id, bool) and run_id > 0
+    ):
+        raise QualificationError("release_record", "record_run_id")
+    return record
 
 
 def _run(
@@ -200,8 +259,7 @@ def _docker_versions() -> dict[str, str]:
 class Qualification:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
-        self.image_tag = f"{IMAGE_REPO}:{PACKAGE_VERSION}-{args.tag_sha}"
-        self.image_tag_upgrade = f"{IMAGE_REPO}:{PACKAGE_VERSION}-{args.tag_sha}-b"
+        self.mode = "published" if args.published else "build"
         self.workdir = REPO_ROOT / ".ci-docker"
         self.sentinel = f"SLAIF_FAKE_SENTINEL:{secrets.token_hex(8)}"
         self.fake = secrets.token_hex(24)
@@ -210,12 +268,45 @@ class Qualification:
         self.fake_proc: subprocess.Popen | None = None
         self.fake_log: Path | None = None
         self.results: dict[str, str] = {}
-        self.env = {
-            "SLAIF_GIT_SHA": args.tag_sha,
-            "SLAIF_WHEEL_SHA256": args.wheel_sha256,
-            "SLAIF_CONFIG_FILE": str(self.workdir / "slaif-adapter.toml"),
-            "SLAIF_ENV_FILE": str(self.workdir / "slaif-adapter.env"),
-        }
+        self.pulled_image_id: str | None = None
+        self.record: dict = {}
+        if self.mode == "build":
+            # Qualification/development: locally BUILT image via the two-file
+            # compose (canonical pull file + build override).
+            self.image_tag = f"{IMAGE_REPO}:{PACKAGE_VERSION}-{args.tag_sha}"
+            self.image_tag_upgrade = f"{IMAGE_REPO}:{PACKAGE_VERSION}-{args.tag_sha}-b"
+            self.image_ref = self.image_tag
+            self.compose_files = (COMPOSE_PRIMARY, COMPOSE_BUILD_OVERRIDE)
+            self.source_commit = args.full_sha
+            self.env = {
+                "SLAIF_GIT_SHA": args.tag_sha,
+                "SLAIF_WHEEL_SHA256": args.wheel_sha256,
+                "SLAIF_CONFIG_FILE": str(self.workdir / "slaif-adapter.toml"),
+                "SLAIF_ENV_FILE": str(self.workdir / "slaif-adapter.env"),
+            }
+        else:
+            # Published: the PULLED release image (primary compose file only,
+            # reference pinned to the recorded registry digest). The release
+            # record is authoritative for the source commit and the digest.
+            self.image_tag = ""
+            self.image_tag_upgrade = ""
+            self.record = _load_release_record()
+            self.source_commit = self.record["image_source_commit"]
+            self.image_ref = args.image or (
+                f"{self.record['oci_image_reference']}@{self.record['oci_image_digest']}"
+            )
+            self.compose_files = (COMPOSE_PRIMARY,)
+            self.env = {
+                "SLAIF_LOCAL_CODING_IMAGE": self.image_ref,
+                "SLAIF_CONFIG_FILE": str(self.workdir / "slaif-adapter.toml"),
+                "SLAIF_ENV_FILE": str(self.workdir / "slaif-adapter.env"),
+            }
+
+    def _stack_args(self) -> list[str]:
+        args: list[str] = []
+        for name in self.compose_files:
+            args.extend(["-f", str(REPO_ROOT / name)])
+        return args
 
     # -- lifecycle ---------------------------------------------------------
     def setup_site_files(self) -> None:
@@ -270,22 +361,41 @@ class Qualification:
     def run(self) -> int:
         try:
             self.setup_site_files()
-            for name in (
-                "verify_wheel_binding",
-                "compose_rendered_validation",
-                "image_build",
-                "fake_upstream_start",
-                "adapter_stack_up",
-                "in_image_provenance",
-                "bridge_positive_signed",
-                "bridge_negative_contract",
-                "config_time_rejection",
-                "fail_closed_readiness",
-                "image_content_scan",
-                "hardening_and_labels",
-                "operations_stop_start_recreate_upgrade_rollback",
-                "teardown_absence_proof",
-            ):
+            if self.mode == "build":
+                phases = (
+                    "verify_wheel_binding",
+                    "compose_rendered_validation",
+                    "compose_merge_equivalence",
+                    "image_build",
+                    "fake_upstream_start",
+                    "adapter_stack_up",
+                    "in_image_provenance",
+                    "bridge_positive_signed",
+                    "bridge_negative_contract",
+                    "config_time_rejection",
+                    "fail_closed_readiness",
+                    "image_content_scan",
+                    "hardening_and_labels",
+                    "operations_stop_start_recreate_upgrade_rollback",
+                    "teardown_absence_proof",
+                )
+            else:
+                phases = (
+                    "verify_wheel_binding",
+                    "compose_rendered_validation",
+                    "pull_preexistence_no_build",
+                    "fake_upstream_start",
+                    "adapter_stack_up",
+                    "in_image_provenance",
+                    "bridge_positive_signed",
+                    "bridge_negative_contract",
+                    "config_time_rejection",
+                    "fail_closed_readiness",
+                    "image_content_scan",
+                    "hardening_and_labels",
+                    "teardown_absence_proof",
+                )
+            for name in phases:
                 line = self._phase(name, getattr(self, f"_do_{name}"))
                 if line["status"] != "PASSED":
                     return 1
@@ -293,6 +403,7 @@ class Qualification:
                 json.dumps(
                     {
                         "summary": "PASSED",
+                        "mode": self.mode,
                         "phases": self.results,
                         "endpoint_address_class": "host_bridge_ip_from_separate_namespace",
                     },
@@ -320,7 +431,7 @@ class Qualification:
     def _cleanup(self) -> None:
         try:
             self._stop_fake_upstream()
-            _compose(self.env, "down", "--remove-orphans", timeout=120)
+            _compose(self.env, *self._stack_args(), "down", "--remove-orphans", timeout=120)
         except Exception:
             pass
         scan = f"slaif-image-scan-{os.getpid()}"
@@ -328,11 +439,12 @@ class Qualification:
             _run(["docker", "rm", "-f", scan], timeout=60)
         except Exception:
             pass
-        for tag in (self.image_tag, self.image_tag_upgrade):
-            try:
-                _run(["docker", "image", "rm", "-f", tag], timeout=60)
-            except Exception:
-                pass
+        if self.mode == "build":
+            for tag in (self.image_tag, self.image_tag_upgrade):
+                try:
+                    _run(["docker", "image", "rm", "-f", tag], timeout=60)
+                except Exception:
+                    pass
         shutil.rmtree(self.workdir, ignore_errors=True)
 
     # -- phases ------------------------------------------------------------
@@ -356,14 +468,14 @@ class Qualification:
         }
 
     def _do_compose_rendered_validation(self) -> dict:
-        proc = _compose(self.env, "config", "--quiet")
+        proc = _compose(self.env, *self._stack_args(), "config", "--quiet")
         if proc.returncode != 0:
             raise QualificationError(
                 "compose_rendered_validation",
                 "render_failed",
                 proc.stderr.decode()[:2000],
             )
-        rendered = _compose(self.env, "config")
+        rendered = _compose(self.env, *self._stack_args(), "config")
         if rendered.returncode != 0:
             raise QualificationError(
                 "compose_rendered_validation",
@@ -386,16 +498,26 @@ class Qualification:
             raise QualificationError(
                 "compose_rendered_validation", "forbidden_content", "; ".join(violations)
             )
-        source = (REPO_ROOT / "compose.yaml").read_bytes()
-        for label, pattern in checker.FORBIDDEN_CONTENT_PATTERNS:
-            if pattern.search(source):
-                raise QualificationError(
-                    "compose_rendered_validation", "forbidden_content_in_source", label
-                )
-        return {"rendered_valid": True, "secret_values_in_rendered_output": False}
+        # Source content policy covers EVERY compose file of the stack
+        # (both files in build mode, the canonical pull file in published
+        # mode).
+        scanned: list[str] = []
+        for name in self.compose_files:
+            source = (REPO_ROOT / name).read_bytes()
+            for label, pattern in checker.FORBIDDEN_CONTENT_PATTERNS:
+                if pattern.search(source):
+                    raise QualificationError(
+                        "compose_rendered_validation", "forbidden_content_in_source", label
+                    )
+            scanned.append(name)
+        return {
+            "rendered_valid": True,
+            "secret_values_in_rendered_output": False,
+            "source_files_scanned": scanned,
+        }
 
     def _do_image_build(self) -> dict:
-        proc = _compose(self.env, "build")
+        proc = _compose(self.env, *self._stack_args(), "build")
         if proc.returncode != 0:
             raise QualificationError(
                 "image_build", "compose_build_failed", proc.stderr.decode()[:2000]
@@ -403,7 +525,8 @@ class Qualification:
         image_id = proc.stdout.decode().strip().splitlines()[-1][:200]
         return {
             "image": self.image_tag,
-            "label_revision": self.args.full_sha,
+            "compose_files": list(self.compose_files),
+            "label_revision": self.source_commit,
             "build_output_tail": image_id,
         }
 
@@ -432,18 +555,132 @@ class Qualification:
         return {"fake_upstream_port": self.args.fake_port, "health": status, "sentinel_set": True}
 
     def _do_adapter_stack_up(self) -> dict:
-        proc = _compose(self.env, "up", "-d")
+        proc = _compose(self.env, *self._stack_args(), "up", "-d")
         if proc.returncode != 0:
             raise QualificationError(
                 "adapter_stack_up", "compose_up_failed", proc.stderr.decode()[:2000]
             )
         name = _container_name()
         health = _wait_healthy(name, 240, "adapter_stack_up")
-        return {
+        result = {
             "container": name,
             "health": health,
             "listen": f"0.0.0.0:{self.args.adapter_port}",
             "network_mode": "host",
+        }
+        if self.mode == "published":
+            # NO-BUILD proof (R13e): the running container must be the
+            # PULLED image, byte-identical by image ID.
+            ci = _run(["docker", "inspect", "--format", "{{.Image}}", name])
+            if ci.returncode != 0:
+                raise QualificationError("adapter_stack_up", "container_inspect_failed")
+            container_image = ci.stdout.decode().strip()
+            if self.pulled_image_id is None or container_image != self.pulled_image_id:
+                raise QualificationError(
+                    "adapter_stack_up",
+                    "container_image_id_mismatch",
+                    f"container={container_image} pulled={self.pulled_image_id}",
+                )
+            result["image_id_matches_pull"] = True
+        return result
+
+    def _do_compose_merge_equivalence(self) -> dict:
+        """R8: the two-file merge must equal the pre-013 single-file
+        effective adapter spec for the closed field set."""
+        # Render the pre-013 fixture from a repo-root copy: compose resolves
+        # `build.context: .` relative to the compose file's directory, so the
+        # fixture must sit at the repo root for the closed-field-set
+        # comparison (build.context included) to be meaningful.
+        fixture_copy = self.workdir / "pre013-canonical-compose.yaml"
+        fixture_copy.write_bytes((REPO_ROOT / PRE013_CANONICAL_FIXTURE).read_bytes())
+        merged = _compose(
+            self.env,
+            "-f",
+            str(REPO_ROOT / COMPOSE_PRIMARY),
+            "-f",
+            str(REPO_ROOT / COMPOSE_BUILD_OVERRIDE),
+            "config",
+            "--format",
+            "json",
+        )
+        if merged.returncode != 0:
+            raise QualificationError(
+                "compose_merge_equivalence", "merged_render_failed", merged.stderr.decode()[:2000]
+            )
+        base = _compose(
+            self.env,
+            "-f",
+            str(fixture_copy),
+            "config",
+            "--format",
+            "json",
+        )
+        if base.returncode != 0:
+            raise QualificationError(
+                "compose_merge_equivalence", "pre013_render_failed", base.stderr.decode()[:2000]
+            )
+        merged_spec = json.loads(merged.stdout)["services"]["adapter"]
+        base_spec = json.loads(base.stdout)["services"]["adapter"]
+        closed_field_set = (
+            "image",
+            "build.context",
+            "build.args",
+            "network_mode",
+            "read_only",
+            "security_opt",
+            "cap_drop",
+            "tmpfs",
+            "volumes",
+            "env_file",
+            "healthcheck.test",
+            "healthcheck.interval",
+            "healthcheck.timeout",
+            "healthcheck.retries",
+            "healthcheck.start_period",
+            "restart",
+            "environment",
+        )
+
+        def pick(spec: dict, dotted: str):
+            cur = spec
+            for part in dotted.split("."):
+                if not isinstance(cur, dict) or part not in cur:
+                    return None
+                cur = cur[part]
+            return cur
+
+        diffs = []
+        for key in closed_field_set:
+            m, b = pick(merged_spec, key), pick(base_spec, key)
+            if m != b:
+                diffs.append(f"{key}: merged={m!r} pre013={b!r}")
+        if diffs:
+            raise QualificationError(
+                "compose_merge_equivalence", "merged_spec_drift", "; ".join(diffs)
+            )
+        return {
+            "closed_field_set": list(closed_field_set),
+            "merged_equals_pre013": True,
+            "project_name": json.loads(merged.stdout).get("name"),
+        }
+
+    def _do_pull_preexistence_no_build(self) -> dict:
+        """R13e: in published mode the image exists locally ONLY via pull
+        before `up`, and the canonical compose file carries no build key."""
+        proc = _run(["docker", "image", "inspect", "--format", "{{.Id}}", self.image_ref])
+        if proc.returncode != 0:
+            raise QualificationError("pull_preexistence_no_build", "image_not_pulled_before_up")
+        self.pulled_image_id = proc.stdout.decode().strip()
+        compose_text = (REPO_ROOT / COMPOSE_PRIMARY).read_text(encoding="utf-8")
+        if re.search(r"^[ \t]+build:", compose_text, re.MULTILINE):
+            raise QualificationError(
+                "pull_preexistence_no_build", "canonical_compose_has_build_key"
+            )
+        return {
+            "image_ref": self.image_ref,
+            "image_id": self.pulled_image_id,
+            "pulled_before_up": True,
+            "canonical_compose_build_key_absent": True,
         }
 
     def _do_in_image_provenance(self) -> dict:
@@ -469,7 +706,7 @@ class Qualification:
                 "none",
                 "--entrypoint",
                 "/opt/slaif/venv/bin/python",
-                self.image_tag,
+                self.image_ref,
                 "-c",
                 code,
             ],
@@ -491,7 +728,7 @@ class Qualification:
                 "none",
                 "--entrypoint",
                 "/opt/slaif/venv/bin/slaif-local-coding",
-                self.image_tag,
+                self.image_ref,
                 "--version",
             ],
             timeout=180,
@@ -523,7 +760,7 @@ class Qualification:
                 "--mount",
                 f"type=bind,source={REPO_ROOT / 'scripts' / 'sim_gateway_client.py'},"
                 "target=/opt/sim/sim_gateway_client.py,readonly",
-                self.image_tag,
+                self.image_ref,
                 "-c",
                 "set -a; . /opt/sim/sim.env; set +a; exec python "
                 "/opt/sim/sim_gateway_client.py --operation "
@@ -670,7 +907,7 @@ class Qualification:
 
 services:
   adapter:
-    image: {self.image_tag}
+    image: {self.image_ref}
     network_mode: host
     read_only: true
     security_opt:
@@ -745,7 +982,7 @@ services:
 
     def _do_image_content_scan(self) -> dict:
         scan = f"slaif-image-scan-{os.getpid()}"
-        proc = _run(["docker", "create", "--name", scan, self.image_tag, "true"])
+        proc = _run(["docker", "create", "--name", scan, self.image_ref, "true"])
         if proc.returncode != 0:
             raise QualificationError(
                 "image_content_scan", "docker_create_failed", proc.stderr.decode()[:1000]
@@ -914,19 +1151,46 @@ services:
             tmpfs_map.get("/dev/shm") == "size=256m" or mounts.get("/dev/shm") == "tmpfs"
         )
         labels = config.get("Labels") or {}
-        label_checks = {
-            "oci_source": labels.get("org.opencontainers.image.source")
-            == "https://github.com/ulfe-lmi/slaif-local-coding",
-            "oci_revision": labels.get("org.opencontainers.image.revision") == self.args.full_sha,
-            "oci_version": labels.get("org.opencontainers.image.version") == PACKAGE_VERSION,
-            "oci_created": bool(labels.get("org.opencontainers.image.created")),
-            "wheel_sha256_label": labels.get("slaif-local-coding.wheel.sha256")
-            == self.args.wheel_sha256,
-            "gateway_peer_label": bool(labels.get("slaif-local-coding.gateway.peer.sha")),
-            "topology_label": bool(labels.get("slaif-local-coding.topology.mode")),
-            "qualification_label": "not released"
-            in (labels.get("slaif-local-coding.qualification") or ""),
-        }
+        if self.mode == "published":
+            # Published image: exact release label set bound to the release
+            # record (source commit S), the committed manifest (peer), and
+            # the published qualification label.
+            manifest = json.loads(
+                (REPO_ROOT / "packaging" / "release_provenance_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            label_checks = {
+                "oci_source": labels.get("org.opencontainers.image.source")
+                == "https://github.com/ulfe-lmi/slaif-local-coding",
+                "oci_revision": labels.get("org.opencontainers.image.revision")
+                == self.source_commit,
+                "oci_version": labels.get("org.opencontainers.image.version") == PACKAGE_VERSION,
+                "oci_created": bool(labels.get("org.opencontainers.image.created")),
+                "wheel_sha256_label": labels.get("slaif-local-coding.wheel.sha256")
+                == self.args.wheel_sha256,
+                "gateway_peer_label": labels.get("slaif-local-coding.gateway.peer.sha")
+                == manifest["gateway_peer"]["commit"],
+                "topology_label": labels.get("slaif-local-coding.topology.mode")
+                == TOPOLOGY_MODE_LABEL,
+                "qualification_label": labels.get("slaif-local-coding.qualification")
+                == PUBLISHED_QUALIFICATION_LABEL,
+            }
+        else:
+            label_checks = {
+                "oci_source": labels.get("org.opencontainers.image.source")
+                == "https://github.com/ulfe-lmi/slaif-local-coding",
+                "oci_revision": labels.get("org.opencontainers.image.revision")
+                == self.args.full_sha,
+                "oci_version": labels.get("org.opencontainers.image.version") == PACKAGE_VERSION,
+                "oci_created": bool(labels.get("org.opencontainers.image.created")),
+                "wheel_sha256_label": labels.get("slaif-local-coding.wheel.sha256")
+                == self.args.wheel_sha256,
+                "gateway_peer_label": bool(labels.get("slaif-local-coding.gateway.peer.sha")),
+                "topology_label": bool(labels.get("slaif-local-coding.topology.mode")),
+                "qualification_label": "not released"
+                in (labels.get("slaif-local-coding.qualification") or ""),
+            }
         failures = [k for k, v in {**checks, **label_checks}.items() if not v]
         if failures:
             observed = {
@@ -964,17 +1228,19 @@ services:
             sequence.append({"step": label, "health": "healthy", "config_hash_unchanged": True})
 
         def stop() -> None:
-            proc = _compose(self.env, "stop", timeout=120)
+            proc = _compose(self.env, *self._stack_args(), "stop", timeout=120)
             if proc.returncode != 0:
                 raise QualificationError("operations", "stop_failed")
 
         def start() -> None:
-            proc = _compose(self.env, "start", timeout=120)
+            proc = _compose(self.env, *self._stack_args(), "start", timeout=120)
             if proc.returncode != 0:
                 raise QualificationError("operations", "start_failed")
 
         def recreate() -> None:
-            proc = _compose(self.env, "up", "-d", "--force-recreate", timeout=300)
+            proc = _compose(
+                self.env, *self._stack_args(), "up", "-d", "--force-recreate", timeout=300
+            )
             if proc.returncode != 0:
                 raise QualificationError("operations", "recreate_failed")
 
@@ -984,12 +1250,14 @@ services:
                 raise QualificationError("operations", "upgrade_tag_failed")
             env = dict(self.env)
             env["SLAIF_GIT_SHA"] = f"{self.args.tag_sha}-b"
-            proc = _compose(env, "up", "-d", "--force-recreate", timeout=300)
+            proc = _compose(env, *self._stack_args(), "up", "-d", "--force-recreate", timeout=300)
             if proc.returncode != 0:
                 raise QualificationError("operations", "upgrade_failed")
 
         def rollback() -> None:
-            proc = _compose(self.env, "up", "-d", "--force-recreate", timeout=300)
+            proc = _compose(
+                self.env, *self._stack_args(), "up", "-d", "--force-recreate", timeout=300
+            )
             if proc.returncode != 0:
                 raise QualificationError("operations", "rollback_failed")
 
@@ -1006,11 +1274,12 @@ services:
         # listener the job created (it is otherwise only stopped by the
         # post-run cleanup, which happens after this phase).
         self._stop_fake_upstream()
-        proc = _compose(self.env, "down", "--remove-orphans", timeout=180)
+        proc = _compose(self.env, *self._stack_args(), "down", "--remove-orphans", timeout=180)
         if proc.returncode != 0:
             raise QualificationError("teardown_absence_proof", "compose_down_failed")
-        for tag in (self.image_tag, self.image_tag_upgrade):
-            _run(["docker", "image", "rm", "-f", tag], timeout=60)
+        if self.mode == "build":
+            for tag in (self.image_tag, self.image_tag_upgrade):
+                _run(["docker", "image", "rm", "-f", tag], timeout=60)
         ports = {self.args.adapter_port, self.args.fake_port, self.args.failclosed_port}
         listeners = []
         for path in ("/proc/net/tcp", "/proc/net/tcp6"):
@@ -1043,6 +1312,22 @@ services:
             .stdout.decode()
             .strip()
         )
+        if self.mode == "published":
+            # The pulled release image is intentionally RETAINED locally in
+            # published mode (it is registry material, not job residue); the
+            # absence proof covers containers and listeners.
+            if listeners or containers:
+                raise QualificationError(
+                    "teardown_absence_proof",
+                    "leftover_state",
+                    f"listeners={listeners} containers={containers!r}",
+                )
+            return {
+                "listeners_absent": True,
+                "containers_absent": True,
+                "pulled_image_retained": True,
+                "ports_checked": sorted(ports),
+            }
         images = (
             _run(["docker", "images", IMAGE_REPO, "--format", "{{.Tag}}"]).stdout.decode().strip()
         )
@@ -1062,13 +1347,31 @@ services:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--tag-sha", required=True)
-    parser.add_argument("--full-sha", required=True)
+    parser.add_argument("--tag-sha")
+    parser.add_argument("--full-sha")
     parser.add_argument("--wheel-sha256", required=True)
+    parser.add_argument(
+        "--published",
+        action="store_true",
+        help="published-image mode: pull-based primary compose only; the "
+        "release record is authoritative for source commit and digest",
+    )
+    parser.add_argument(
+        "--image",
+        default=None,
+        help="explicit pulled image reference (published mode; default: the "
+        "record's registry reference pinned to the recorded digest)",
+    )
     parser.add_argument("--adapter-port", type=int, default=18031)
     parser.add_argument("--fake-port", type=int, default=18033)
     parser.add_argument("--failclosed-port", type=int, default=18034)
     args = parser.parse_args()
+    if args.published:
+        if args.image is not None and "@" not in args.image:
+            parser.error("--image in published mode must be a digest-pinned reference")
+    else:
+        if not args.tag_sha or not args.full_sha:
+            parser.error("--tag-sha and --full-sha are required in build mode")
     return Qualification(args).run()
 
 

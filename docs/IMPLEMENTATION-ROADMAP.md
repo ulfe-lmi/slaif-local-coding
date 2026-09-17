@@ -28,7 +28,25 @@ current artifact record is `packaging/release_provenance_manifest.json` —
 wheel `fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`;
 the sdist is developer-only and its hash is manifest-recorded; per
 `RELEASE-ARTIFACT-POLICY.md`), and closed the post-011 documentation
-drift. **Cutover NOT performed; NOT released.**
+drift. Objective 013 (PR #15, open as of this writing) is the MVP
+**publication closure**: the implementation (pull-based canonical compose,
+activated `workflow_dispatch`-only release workflow, `docker-published` CI
+gate, schema-v3 state-aware provenance) is complete and CI-verified at the
+PR head; the **registry publication is PENDING** — the 013-a round ended
+before publishing because the remote Gateway `main` moved off the pinned
+peer `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` and the order's R18 hold
+forbids publication until strategy inspects and deliberately re-qualifies
+(exact delta in the OAP report). At publication, the reviewed runtime image
+goes to `ghcr.io/ulfe-lmi/slaif-local-coding` with tags `0.1.0` and
+`sha-<S>` (image source commit `S`; digest `D` recorded in
+`packaging/release_record.json` and the schema-v3 provenance manifest), the
+**pull-based Docker installation is the canonical operator path** (no local
+build, no Python/uv/venv on the install host), and the published image is
+CI-verified by the `docker-published` job. The Git tag `v0.1.0` will target
+`S` as the release reference (strategic post-merge act; the GitHub Release
+follows the tag). **Cutover NOT performed; no real deployment yet
+evidenced; Docker qualification remains deployment-qualified
+(disposable/CI environments only).**
 
 Identifier note: the original planned meanings of numeric objectives 006–008
 in this file (for example "SME package") are **historical planning prose, not

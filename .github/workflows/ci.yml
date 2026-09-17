@@ -105,3 +105,118 @@ jobs:
             --adapter-port 18031 \
             --fake-port 18033 \
             --failclosed-port 18034
+
+      # Order 013-a, workstream E: PUBLISHED-image gate. Runs ONLY when
+      # packaging/release_record.json exists with a non-null digest; before
+      # the record exists it skips with the explicit not-yet-published line.
+      # Anonymous GHCR pull (public repository). Proves: pull by digest and
+      # by both tags (each resolving to the recorded digest D), the exact
+      # OCI label set, the full signed-ingress contract against a disposable
+      # fake upstream on canonical port 18031 (pull-based compose only), the
+      # no-build proof, and the teardown absence proof.
+  docker-published:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Publication gate (release record with non-null digest)
+        id: gate
+        run: |
+          if [ -f packaging/release_record.json ]; then
+            python3 - "$GITHUB_OUTPUT" <<'PY'
+          import json, re, sys
+          out = sys.argv[1]
+          record = json.load(open("packaging/release_record.json"))
+          digest = record.get("oci_image_digest")
+          source = record.get("image_source_commit")
+          if (
+              isinstance(digest, str)
+              and re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+              and isinstance(source, str)
+              and re.fullmatch(r"[0-9a-f]{40}", source)
+          ):
+              print(f"publication gate: published (digest {digest}, source {source})")
+              with open(out, "a", encoding="utf-8") as handle:
+                  handle.write(f"published=true\n")
+                  handle.write(f"digest={digest}\n")
+                  handle.write(f"source_commit={source}\n")
+          else:
+              print("not yet published (release record digest is null) — docker-published skipped")
+              with open(out, "a", encoding="utf-8") as handle:
+                  handle.write("published=false\n")
+          PY
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "not yet published (packaging/release_record.json absent) — docker-published skipped"
+          fi
+      - name: Pull the published image by digest
+        if: steps.gate.outputs.published == 'true'
+        run: |
+          docker pull "ghcr.io/ulfe-lmi/slaif-local-coding@${{ steps.gate.outputs.digest }}"
+      - name: Pull by tags and assert each resolves to the recorded digest
+        if: steps.gate.outputs.published == 'true'
+        run: |
+          D="${{ steps.gate.outputs.digest }}"
+          S="${{ steps.gate.outputs.source_commit }}"
+          docker pull "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0"
+          docker pull "ghcr.io/ulfe-lmi/slaif-local-coding:sha-${S}"
+          DIGEST_ID="$(docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding@${D}" --format '{{.Id}}')"
+          T010_ID="$(docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0" --format '{{.Id}}')"
+          TSHA_ID="$(docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:sha-${S}" --format '{{.Id}}')"
+          test "$T010_ID" = "$DIGEST_ID"
+          test "$TSHA_ID" = "$DIGEST_ID"
+          ACTUAL_010="$(python3 scripts/ghcr_tag_check.py --repo ulfe-lmi/slaif-local-coding --tag 0.1.0)"
+          ACTUAL_SHA="$(python3 scripts/ghcr_tag_check.py --repo ulfe-lmi/slaif-local-coding --tag "sha-${S}")"
+          echo "registry 0.1.0 -> $ACTUAL_010"
+          echo "registry sha-${S} -> $ACTUAL_SHA"
+          test "$ACTUAL_010" = "$D"
+          test "$ACTUAL_SHA" = "$D"
+      - name: Verify the OCI label set on the published image
+        if: steps.gate.outputs.published == 'true'
+        run: |
+          D="$(python3 -c 'import json; print(json.load(open("packaging/release_record.json"))["oci_image_digest"])')"
+          S="${{ steps.gate.outputs.source_commit }}"
+          docker inspect --format '{{json .Config.Labels}}'             "ghcr.io/ulfe-lmi/slaif-local-coding@${D}" > .ci-published-labels.json
+          python3 - "$S" <<'PY'
+          import json, sys
+
+          source = sys.argv[1]
+          labels = json.load(open(".ci-published-labels.json"))
+          manifest = json.load(open("packaging/release_provenance_manifest.json"))
+          expected = {
+              "org.opencontainers.image.revision": source,
+              "org.opencontainers.image.version": "0.1.0",
+              "slaif-local-coding.package.version": "0.1.0",
+              "slaif-local-coding.gateway.peer.sha": manifest["gateway_peer"]["commit"],
+              "slaif-local-coding.wheel.sha256": manifest["artifacts"]["wheel"]["sha256"],
+              "slaif-local-coding.qualification": "mvp-release-0.1.0",
+              "slaif-local-coding.topology.mode": manifest["oci"]["labels"][
+                  "slaif-local-coding.topology.mode"
+              ],
+          }
+          failures = {
+              k: {"image": labels.get(k), "expected": v}
+              for k, v in expected.items()
+              if labels.get(k) != v
+          }
+          if failures:
+              raise SystemExit(f"label mismatch: {json.dumps(failures, sort_keys=True)}")
+          print("published image label set verified")
+          PY
+          rm -f .ci-published-labels.json
+      - name: Pull-based signed-ingress contract run (fake upstream, canonical port 18031)
+        if: steps.gate.outputs.published == 'true'
+        run: |
+          uv sync --frozen --extra dev
+          WHEEL_SHA256="$(python3 -c 'import json; print(json.load(open("packaging/release_provenance_manifest.json"))["artifacts"]["wheel"]["sha256"])')"
+          uv run --frozen python scripts/docker_qualification_ci.py \
+            --published \
+            --wheel-sha256 "$WHEEL_SHA256" \
+            --adapter-port 18031 \
+            --fake-port 18033 \
+            --failclosed-port 18034

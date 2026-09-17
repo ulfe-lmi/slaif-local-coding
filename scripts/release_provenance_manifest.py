@@ -1,4 +1,5 @@
-"""Release/deployment provenance manifest generator (order 009-a, workstream E).
+"""Release/deployment provenance manifest generator (order 009-a, workstream E;
+order 013-a, workstream A: state-aware schema v3).
 
 Produces a content-free, machine-readable, schema-versioned provenance
 manifest for the release candidate. "Content-free" means the manifest carries
@@ -11,6 +12,16 @@ The manifest is generated from actual build inputs (git HEAD, the locked
 files, the built artifacts, the deployment templates, and the current Gateway
 peer fixture) and is committed under packaging/. The E3 test regenerates it
 and fails on any drift or forbidden content.
+
+State-awareness (order 013-a): when packaging/release_record.json exists
+(schema slaif-release-record-v1), the manifest is emitted in the PUBLISHED
+state: status.released true, oci.published true, oci.image_digest = the
+recorded registry digest, the published qualification label, the published
+tag convention, and a top-level `release` section bound to the record.
+Without the record, the not-yet-published state is emitted (null digest,
+published false, released false, reserved-reference tag convention).
+In BOTH states the `objective` constant records the producing round
+(013-a).
 
 Usage:
 
@@ -29,15 +40,37 @@ import sys
 import tomllib
 from pathlib import Path
 
-SCHEMA_NAME = "slaif-release-provenance-v2"
-SCHEMA_VERSION = 2
-OBJECTIVE = "012-c"
+SCHEMA_NAME = "slaif-release-provenance-v3"
+SCHEMA_VERSION = 3
+OBJECTIVE = "013-a"
+RELEASE_RECORD_PATH = Path("packaging/release_record.json")
+RELEASE_RECORD_KEYS = {
+    "schema",
+    "version",
+    "git_tag",
+    "image_source_commit",
+    "oci_image_reference",
+    "oci_image_digest",
+    "oci_tags",
+    "published_at",
+    "publication_workflow",
+    "publication_workflow_run_id",
+}
 REPOSITORY = "ulfe-lmi/slaif-local-coding"
 GATEWAY_PEER_FIXTURE = Path("tests/fixtures/gateway/current_peer_authority.json")
 PACKAGE_NAME = "slaif-local-coding"
 CODIX_CLIENT_VERSION = "0.149.0"
 CODIX_WIRE_FIXTURE_DIR = "tests/fixtures/codex/0.149.0"
 
+# The two bullets replaced (and only those two) in the published state by
+# _published_limitations(); every other bullet is preserved verbatim in
+# both states (order 013-a, R3).
+LIMITATION_NOT_RELEASED = "not released; no registry publication, tag, or release state change"
+LIMITATION_OCI_UNPUBLISHED = (
+    "OCI image not published (oci.image_digest null, oci.published false); the "
+    "container publication path is documented (workflow_dispatch-only, inert) "
+    "and not executed"
+)
 LIMITATIONS: list[str] = [
     "two supported deployment paths: Docker (canonical MVP installation path) "
     "and systemd user service on the local host (secondary direct-host path, "
@@ -49,10 +82,8 @@ LIMITATIONS: list[str] = [
     "legal only under the full signed ingress contract "
     "(service_bearer_signed_identity_v1); loopback remains the default",
     "cutover not performed",
-    "not released; no registry publication, tag, or release state change",
-    "OCI image not published (oci.image_digest null, oci.published false); the "
-    "container publication path is documented (workflow_dispatch-only, inert) "
-    "and not executed",
+    LIMITATION_NOT_RELEASED,
+    LIMITATION_OCI_UNPUBLISHED,
     "sdist is a developer-only source archive, not a supported release artifact",
     "no multi-user, production-certification, compliance, or frontier-equivalence claim",
     "single RTX 3090 fixture evidence is fixture-scoped, not generic production equivalence",
@@ -72,6 +103,82 @@ TOPOLOGY_MODE_LABEL = (
     "linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress"
 )
 QUALIFICATION_LABEL = "disposable-qualification-only; not released"
+PUBLISHED_QUALIFICATION_LABEL = "mvp-release-0.1.0"
+IMAGE_REFERENCE = "ghcr.io/ulfe-lmi/slaif-local-coding"
+PUBLISHED_VERSION = "0.1.0"
+PUBLISHED_GIT_TAG = "v0.1.0"
+PUBLICATION_WORKFLOW = "release-image.yml"
+PUBLISHED_AT_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
+
+
+def load_release_record(repo: Path) -> dict | None:
+    """Load and strictly validate the release record, if present.
+
+    Closed key set (slaif-release-record-v1): schema, version, git_tag,
+    image_source_commit, oci_image_reference, oci_image_digest, oci_tags,
+    published_at, publication_workflow, publication_workflow_run_id. No host
+    paths, no URLs beyond the fixed repository/registry references, no
+    secret-like content. Any deviation is a generation failure, never a
+    warning.
+    """
+    path = repo / RELEASE_RECORD_PATH
+    if not path.is_file():
+        return None
+    record = json.loads(path.read_text(encoding="utf-8"))
+    if set(record) != RELEASE_RECORD_KEYS:
+        raise RuntimeError(f"release record key set drift: {sorted(record)}")
+    if record["schema"] != "slaif-release-record-v1":
+        raise RuntimeError("release record schema drift")
+    if record["version"] != PUBLISHED_VERSION:
+        raise RuntimeError("release record version drift")
+    if record["git_tag"] != PUBLISHED_GIT_TAG:
+        raise RuntimeError("release record git_tag drift")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"])):
+        raise RuntimeError("release record image_source_commit is not 40-hex")
+    if record["oci_image_reference"] != IMAGE_REFERENCE:
+        raise RuntimeError("release record oci_image_reference drift")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(record["oci_image_digest"])):
+        raise RuntimeError("release record oci_image_digest is not sha256:<64-hex>")
+    source = str(record["image_source_commit"])
+    if record["oci_tags"] != [PUBLISHED_VERSION, f"sha-{source}"]:
+        raise RuntimeError("release record oci_tags must be [0.1.0, sha-<source>]")
+    if not PUBLISHED_AT_PATTERN.fullmatch(str(record["published_at"])):
+        raise RuntimeError("release record published_at is not RFC 3339 UTC")
+    if record["publication_workflow"] != PUBLICATION_WORKFLOW:
+        raise RuntimeError("release record publication_workflow drift")
+    run_id = record["publication_workflow_run_id"]
+    if run_id is not None and not (
+        isinstance(run_id, int) and not isinstance(run_id, bool) and run_id > 0
+    ):
+        raise RuntimeError("release record publication_workflow_run_id invalid")
+    return record
+
+
+def _published_limitations(digest: str, source: str) -> list[str]:
+    """Published-state limitations: replace EXACTLY the two not-yet-published
+    bullets with truthful published-state bullets (order 013-a, R3); all
+    other bullets are preserved verbatim in order."""
+    published_bullet_1 = (
+        f"MVP {PUBLISHED_VERSION} published to {IMAGE_REFERENCE} at digest "
+        f"{digest} with tags {PUBLISHED_VERSION} and sha-{source}; image "
+        f"source commit {source}; the git tag {PUBLISHED_GIT_TAG} targets "
+        f"{source} as the release reference (created by strategy post-merge; "
+        "the GitHub Release follows that tag)"
+    )
+    published_bullet_2 = (
+        "publication is registry-only: no protected-host cutover, no real "
+        "deployment yet evidenced; the protected-host cutover remains a "
+        "separate human-authorized act"
+    )
+    out: list[str] = []
+    for bullet in LIMITATIONS:
+        if bullet == LIMITATION_NOT_RELEASED:
+            out.append(published_bullet_1)
+        elif bullet == LIMITATION_OCI_UNPUBLISHED:
+            out.append(published_bullet_2)
+        else:
+            out.append(bullet)
+    return out
 
 
 def _sha256_file(path: Path) -> str:
@@ -147,6 +254,16 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
         pyproject = tomllib.load(stream)
     package_version = pyproject["project"]["version"]
 
+    record = load_release_record(repo)
+    published = record is not None
+    if published:
+        assert record is not None
+        digest = str(record["oci_image_digest"])
+        source = str(record["image_source_commit"])
+    else:
+        digest = ""
+        source = ""
+
     peer = json.loads((repo / GATEWAY_PEER_FIXTURE).read_text(encoding="utf-8"))
 
     wheels = sorted(
@@ -221,15 +338,36 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
         "status": {
             "deployment_qualified": "disposable-environment-only",
             "cutover_performed": False,
-            "released": False,
+            "released": published,
         },
-        "limitations": list(LIMITATIONS),
+        "limitations": (_published_limitations(digest, source) if published else list(LIMITATIONS)),
     }
+    if published:
+        assert record is not None
+        manifest["release"] = {
+            "version": str(record["version"]),
+            "git_tag": str(record["git_tag"]),
+            "git_tag_target": source,
+            "image_source_commit": source,
+            "oci_image_digest": digest,
+            "oci_tags": list(record["oci_tags"]),
+            "published_at": str(record["published_at"]),
+            "publication_workflow_run_id": record["publication_workflow_run_id"],
+        }
 
     build_tool_image, build_base_image, base_image = _dockerfile_base_images(repo)
+    if published:
+        tag_convention = (
+            f"published reference {IMAGE_REFERENCE} tags {PUBLISHED_VERSION} + "
+            f"sha-<full image-source SHA> (digest {digest} recorded in this "
+            "manifest); local qualification tags slaif-local-coding:0.1.0-<sha> "
+            "via compose.build.yaml"
+        )
+    else:
+        tag_convention = TAG_CONVENTION
     manifest["oci"] = {
         "image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
-        "tag_convention": TAG_CONVENTION,
+        "tag_convention": tag_convention,
         "base_image": base_image,
         "build_base_image": build_base_image,
         "build_tool_image": build_tool_image,
@@ -237,15 +375,17 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
         "compose_sha256": _sha256_file(repo / "compose.yaml"),
         "dockerignore_sha256": _sha256_file(repo / ".dockerignore"),
         "wheel_sha256": manifest["artifacts"]["wheel"]["sha256"],
-        "image_digest": None,
-        "published": False,
+        "image_digest": digest if published else None,
+        "published": published,
         "labels": {
             "org.opencontainers.image.source": ("https://github.com/ulfe-lmi/slaif-local-coding"),
             "org.opencontainers.image.version": package_version,
             "slaif-local-coding.package.version": package_version,
             "slaif-local-coding.gateway.peer.sha": manifest["gateway_peer"]["commit"],
             "slaif-local-coding.topology.mode": TOPOLOGY_MODE_LABEL,
-            "slaif-local-coding.qualification": QUALIFICATION_LABEL,
+            "slaif-local-coding.qualification": (
+                PUBLISHED_QUALIFICATION_LABEL if published else QUALIFICATION_LABEL
+            ),
             "slaif-local-coding.wheel.sha256": manifest["artifacts"]["wheel"]["sha256"],
         },
     }

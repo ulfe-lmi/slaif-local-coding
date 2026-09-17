@@ -14,20 +14,34 @@ and an sdist containing the entire working tree (including OAP transcripts).
   contains exactly the `slaif_local_coding/` runtime package plus
   `*.dist-info/` metadata and license files (`LICENSE`, `NOTICE` under
   `licenses/`).
-- **OCI image (`slaif-local-coding:0.1.0-<sha>` locally; reserved publication
-  reference `ghcr.io/ulfe-lmi/slaif-local-coding`):** the supported
-  distribution artifact of the **Docker deployment path** (the canonical MVP
-  installation path, order 011-a). The image is built **from** the supported
-  wheel: the runtime stage installs the built wheel non-editable on top of
-  the frozen locked dependencies, so the image content law mirrors this
+- **OCI image (publication reference
+  `ghcr.io/ulfe-lmi/slaif-local-coding` with tags `0.1.0` and `sha-<full
+  image-source SHA>` — publication PENDING as of this PR's head, order
+  013-a R18 Gateway-peer hold; local qualification/development tag
+  `slaif-local-coding:0.1.0-<sha>` via `compose.build.yaml`):** the supported distribution artifact of the
+  **Docker deployment path** (the canonical MVP installation path, order
+  011-a; pull-based canonical operator path since order 013-a). The image is
+  built **from** the supported wheel;
+  the runtime stage installs the built wheel non-editable on top of the
+  frozen locked dependencies, so the image content law mirrors this
   artifact policy's exclusions (no `oap/`, no `tests/`, no `references/`, no
   `scripts/`, no `.git`, no caches, no placeholder files, no env/secret
   material, no host-specific paths, no credential values — mechanically
-  asserted by the `docker` CI job image content scan and by the local
-  disposable run). The image is bound to the committed artifact: the in-image
-  retained wheel hash must equal the provenance-manifest wheel hash (B8/C2).
-  No image is published by this repository (the publication path is
-  documented, not executed); no tag or release state exists.
+  asserted by the `docker` CI job image content scan, the local disposable
+  run, and the `docker-published` CI job for the PULLED image). The image is
+  bound to the committed artifact: the in-image retained wheel hash must
+  equal the provenance-manifest wheel hash (B8/C2). No image is published to
+  the registry as of this PR's head: the publication path is ACTIVATED
+  (`workflow_dispatch`-only `release-image.yml`, GITHUB_TOKEN only) but not
+  executed — the 013-a round ended on the order's R18 hold (the remote
+  Gateway `main` moved off the pinned peer; strategy must inspect and
+  deliberately re-qualify; exact delta in the OAP report). At publication:
+  tags `0.1.0` + `sha-<S>` will resolve to one registry digest `D` recorded
+  in `packaging/release_record.json` and the schema-v3 manifest (image
+  source commit `S`); the Git tag `v0.1.0` will target `S` as the release
+  reference (a strategic post-merge act). Publication will be
+  registry-only: no protected-host cutover, no real deployment yet
+  evidenced.
 - **sdist** (`slaif-local-coding-<version>.tar.gz`): the developer-only
   source archive; not a supported release artifact and never treated as one.
   It carries a deliberate whitelist (code, tests, fixtures, config and
@@ -48,9 +62,15 @@ The manifest remains part of the git checkout and of the deployment
 runbook's preconditions. From schema v2 (order 011-a) the manifest covers
 **wheel + sdist + OCI build inputs**: the `oci` section records the image
 reference, tag convention, base-image name + digest, Dockerfile/compose/
-.dockerignore hashes, the cross-referenced wheel hash, the reserved
-`image_digest` (null until a human publication), `published: false`, and the
-image label set.
+.dockerignore hashes, the cross-referenced wheel hash, the `image_digest`,
+the `published` flag, and the image label set. From schema v3 (order 013-a)
+the manifest is state-aware: without the release record it records the
+not-yet-published state (null digest, `published: false`,
+`released: false`, reserved-reference tag convention); with
+`packaging/release_record.json` present it records the published state
+(digest `D`, `published: true`, `released: true`, the published
+qualification label, the published tag convention) plus a closed top-level
+`release` section binding the record's identity facts.
 
 ## What no artifact may contain
 
@@ -157,7 +177,7 @@ release artifact: it embeds `README.md`, `docs/`, and `tests/`, so its
 hash changes with any in-scope text edit, and no current-facing document
 cites the current sdist hash — the authoritative current sdist hash is the
 one recorded in `packaging/release_provenance_manifest.json` (schema
-`slaif-release-provenance-v2`) and mechanically re-derived from the final
+`slaif-release-provenance-v3`) and mechanically re-derived from the final
 state by `test_committed_manifest_matches_regenerated`. The historical
 artifact records, cited as historical only, are the Objective-011-a
 record (wheel `7cede0b8...` / sdist `4ba17680...`) and the
@@ -166,15 +186,36 @@ Objective-012-a-state record (wheel `fceadc37...` / sdist
 `SLAIF_GATEWAY_PEER_SHA` label input; the regenerated Objective-012
 manifest (producing round recorded in the manifest itself) is the **only**
 future cutover authority, and the Objective-011-a artifact record remains
-the accepted Objective-011 record only. Nothing is
-released: no
-registry publication, tag, or release state change; no image is pushed. Any
-future objective that changes runtime package bytes or OCI build inputs must
-repeat this gate: cleared rebuild, hash comparison, and manifest
-regeneration in the same PR.
+the accepted Objective-011 record only. Objective 013 (PR #15) changes
+no runtime package bytes and no OCI build input semantics: the wheel
+remains `fceadc37...` (byte-identical), and the only OCI build-input deltas
+are the parameterized qualification label ARG in the Dockerfile (default
+byte-identical to the pre-013 label) and the compose split (pull-based
+canonical `compose.yaml` + qualification override `compose.build.yaml`,
+mechanically proven equivalent for the closed field set). The MVP 0.1.0
+image is NOT yet published as of this PR's head (publication pending the
+R18 Gateway-peer hold; the publication path is activated but not executed);
+at publication it will go to `ghcr.io/ulfe-lmi/slaif-local-coding`
+(human-authorized, registry-only, order 013-a) with tags `0.1.0` and
+`sha-<S>` resolving to one digest `D` recorded in
+`packaging/release_record.json` and the schema-v3 manifest (image source
+commit `S`). Any future objective that changes runtime package bytes or OCI
+build inputs must repeat this gate: cleared rebuild, hash comparison, and
+manifest regeneration in the same PR, and a fresh publication round for any
+new image.
 
 ## Publication
 
-No artifact is published to any registry by this repository. A registry
-publication, tag, or release state change is a separate human-authorized act
+No artifact is published to any registry by this repository as of this
+PR's head. The MVP 0.1.0 **OCI image** publication to GHCR
+(`ghcr.io/ulfe-lmi/slaif-local-coding`, tags `0.1.0` + `sha-<S>`,
+registry-verified single digest) is a human-authorized act to be executed by
+the `workflow_dispatch`-only `release-image.yml` (GITHUB_TOKEN only, no
+repository secrets); it is PENDING the order 013-a R18 Gateway-peer hold
+(the remote Gateway `main` moved off the pinned peer; strategy must inspect
+and deliberately re-qualify; exact delta in the OAP report). No other
+artifact is published by this repository (no PyPI, no sdist publication). Further publication-adjacent acts remain
+separate human-authorized/strategic acts: the Git tag `v0.1.0` (targets the
+image source commit `S`; strategic post-merge act), the GitHub Release
+(follows that tag), and the protected-host cutover
 (see [the cutover/runbook boundary](RELEASE-CUTOVER-RUNBOOK.md)).

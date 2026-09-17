@@ -326,5 +326,9 @@ report the exact sanitized failure class.
 No step above was executed. No protected service, Gateway deployment, Codex
 profile, firewall/VPN/network state, systemd production unit, public
 binding, or release state was mutated by Objective 010. The manifest
-records `deployment-qualified (disposable environment only)`,
-`cutover not performed`, and `not released`.
+records `deployment-qualified (disposable environment only)` and
+`cutover not performed`; as of this PR's head the product is NOT released
+(the MVP 0.1.0 registry-only GHCR publication is pending the order 013-a
+R18 Gateway-peer hold — the remote Gateway `main` moved off the pinned
+peer; exact delta in the OAP report) and no real deployment is yet
+evidenced.

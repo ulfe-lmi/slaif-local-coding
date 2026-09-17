@@ -1,25 +1,11 @@
-# SLAIF Local Coding — canonical PULL-BASED Docker MVP deployment
-# (order 011-a D2/D3; order 013-a workstream C: the published-image path).
+# SLAIF Local Coding — canonical Docker MVP deployment (order 011-a, D2/D3).
 #
-# Label: CANONICAL OPERATOR Docker MVP installation path (the final
-# Gateway-integrated, signed-ingress configuration). The released-user path
-# is PULL-BASED: this file carries NO build key; the image reference defaults
-# to the published MVP release
-# ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0 (at publication the image
-# source commit and the registry digest D are recorded in
-# packaging/release_record.json and the schema-v3 provenance manifest; the
-# Git tag v0.1.0 targets that commit as the release reference, created by
-# strategy post-merge; publication is PENDING as of this PR's head — R18
-# Gateway-peer hold, see the OAP report). Override the
-# reference with SLAIF_LOCAL_CODING_IMAGE, including a digest-pinned form
-# ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D> for exact reproduction.
-# The build-from-source path is the QUALIFICATION/DEVELOPMENT path
-# (compose.build.yaml), clearly NOT the released-user path; see
-# docs/DOCKER-INSTALL.md. The documented development variant (ingress
-# disabled, loopback) is development-only, NOT production.
+# Label: CANONICAL PRODUCTION Docker MVP installation path (the final
+# Gateway-integrated, signed-ingress configuration). The documented
+# development variant (ingress disabled, loopback) is described in
+# docs/DOCKER-INSTALL.md and is development-only, NOT production.
 #
-# Supported platform: Linux Docker Engine + Compose v2 plugin only. The host
-# needs NO Python, uv, project dependencies, or virtualenv for this path.
+# Supported platform: Linux Docker Engine + Compose v2 plugin only.
 #
 # Network law (D2): network_mode: host so that, in one container, the Qwen
 # hop stays TRUE host loopback (127.0.0.1:18020), a co-located Gateway
@@ -32,29 +18,32 @@
 # Site values are provided OUTSIDE this file, by environment-variable
 # interpolation of operator-controlled names (no secrets in any
 # interpolation default; secret values exist only in the mode-0600 env file):
-#   SLAIF_LOCAL_CODING_IMAGE  pulled image reference (default: the published
-#                       MVP release tag; digest-pinned form supported)
-#   SLAIF_CONFIG_FILE         mode-0600 host config instantiated from
+#   SLAIF_GIT_SHA       reviewed commit (short or full SHA) — the image tag
+#                       suffix per the documented convention
+#                       slaif-local-coding:0.1.0-<sha>
+#   SLAIF_CONFIG_FILE   mode-0600 host config instantiated from
 #                       config/adapter.gateway-integrated.template.toml
 #                       (placeholders resolved to site values), owned by the
 #                       container runtime user 10001:10001 (the fixed
 #                       non-root user created in the image): the read-only
 #                       mounted file must be readable by that user
-#   SLAIF_ENV_FILE            mode-0600 host environment file holding the
-#                       three DISTINCT secret roles by env name only:
+#   SLAIF_ENV_FILE      mode-0600 host environment file holding the three
+#                       DISTINCT secret roles by env name only:
 #                       QWEN3090_API_KEY, SLAIF_ADAPTER_SERVICE_TOKEN,
 #                       SLAIF_ADAPTER_SIGNING_SECRET
-#   SLAIF_HEALTH_ENDPOINT     readiness target for the compose healthcheck
+#   SLAIF_HEALTH_ENDPOINT  readiness target for the compose healthcheck
 #                       (default 127.0.0.1:18031; set to the site bind,
 #                       e.g. 172.17.0.1:18032, in confined runs)
 name: slaif-local-coding
 
 services:
   adapter:
-    # Pull-based canonical image reference (order 013-a, R7/R10): no build
-    # key in this file; SLAIF_LOCAL_CODING_IMAGE renders verbatim, including
-    # the digest-pinned form <reference>@sha256:<64-hex>.
-    image: ${SLAIF_LOCAL_CODING_IMAGE:-ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0}
+    image: slaif-local-coding:0.1.0-${SLAIF_GIT_SHA:-local}
+    build:
+      context: .
+      args:
+        SLAIF_GIT_SHA: ${SLAIF_GIT_SHA:-local}
+        SLAIF_WHEEL_SHA256: ${SLAIF_WHEEL_SHA256:-}
     network_mode: host
     environment:
       # Non-secret site value consumed by the in-image healthcheck below.

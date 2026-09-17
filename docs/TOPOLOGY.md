@@ -218,7 +218,19 @@ bumped the machine-readable manifest to schema v2
 qualification decision table with the signed-contract dimension (workstream
 G2). It changed no live state: no deployment was created or mutated, no
 Gateway deployment, Codex profile, firewall/VPN/network state, or protected
-service state was changed, and no image was published. The cutover is not
-performed and the product is not released; this document remains the
-prepare-only topology authority for the next human-authorized cutover
-order.
+service state was changed, and no image was published by objective 011.
+Objective 013 (PR #15, open as of this writing) implemented the publication
+closure (pull-based canonical operator path, activated
+`workflow_dispatch`-only release workflow, `docker-published` CI gate,
+schema-v3 provenance) and changed no live state either; its registry
+publication of the MVP 0.1.0 image to `ghcr.io/ulfe-lmi/slaif-local-coding`
+(registry-only; tags `0.1.0` + `sha-<S>`, image source commit `S`, digest
+recorded in `packaging/release_record.json`) is PENDING — the 013-a round
+ended before publication on the order's R18 hold (the remote Gateway `main`
+moved off the pinned peer; strategy must inspect and deliberately
+re-qualify; exact delta in the OAP report). The cutover is still not
+performed and no real deployment is yet evidenced; the product is NOT yet
+released (the registry reference does not exist as of this PR's head). This
+document remains the prepare-only topology authority for the next
+human-authorized cutover order; the D1 binding law, the loopback default,
+and the topology are unchanged.

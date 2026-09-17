@@ -1,4 +1,5 @@
-# Docker installation (canonical MVP path, order 011-a)
+# Docker installation (canonical MVP path, order 011-a; pull-based
+# canonical operator path since order 013-a)
 
 This is the operator-facing procedure for the **canonical MVP Docker
 installation path** of SLAIF Local Coding. The companion systemd user
@@ -12,20 +13,41 @@ non-loopback bind. The canonical compose configuration is the final
 Gateway-integrated (signed) configuration; the development variant below is
 development-only and is **not production**.
 
+**The released-user path is PULL-BASED** (implemented; registry
+publication pending). The canonical pull-based compose is committed and is
+the canonical operator installation path: at publication the reference
+`ghcr.io/ulfe-lmi/slaif-local-coding` carries tags `0.1.0` and `sha-<S>`
+(both resolving to one registry digest `D`; `S` is the image source commit,
+the commit that the Git tag `v0.1.0` targets as the release reference), and
+`D` and `S` are recorded in `packaging/release_record.json` and the
+schema-v3 provenance manifest (`oci.image_digest`, `release` section).
+**The registry publication is PENDING as of this PR's head:** the 013-a
+round ended before publication because the remote Gateway `main` moved off
+the pinned peer and the order's R18 hold forbids publication until strategy
+inspects and deliberately re-qualifies (exact delta in
+`oap/reports/013-a-mvp-release-publication.md`). The reference does NOT yet
+exist in the registry (a pull of it fails until publication); until then,
+the build-from-source qualification path (below) is the only available
+path. The Git tag `v0.1.0` is a strategic post-merge act; the GitHub
+Release follows that tag. When performed, publication is registry-only: the
+protected-host cutover is NOT performed by publication and no real
+deployment is yet evidenced.
+
 ## Prerequisites
 
 - A **Linux host** with Docker Engine and the **Compose v2 plugin**
   (`docker compose version`). No other platform is claimed.
+- **The host needs NO Python, NO uv, NO project dependencies, and NO project
+  virtualenv on this path**: the runtime is the pulled wheel-based container
+  image. The host only provides Docker, the mode-0600 site files, and
+  outbound registry pull connectivity.
 - The host runs the protected **Qwen/vLLM OpenAI-compatible upstream on the
   same host**, reachable at the documented loopback address (for the MVP
   appliance: `http://127.0.0.1:18020/v1`; for evaluation: a disposable fake
   upstream, e.g. `scripts/fake_upstream_server.py`). The host-loopback Qwen
   hop is the reason the container uses `network_mode: host`.
-- Outbound connectivity **at build time only** (base image pulls and the
-  locked build-backend resolution). The runtime performs no package
-  downloads.
-- The host **never needs Python, uv, project dependencies, or a project
-  virtualenv**: the runtime is the wheel-based container image.
+- Outbound connectivity to the registry **at pull time only**. The runtime
+  performs no package downloads.
 - The supported bind law (D1): loopback is the default; a non-loopback bind
   is accepted **only** under the full signed ingress mode
   (`service_bearer_signed_identity_v1`), which the final Gateway-integrated
@@ -33,41 +55,42 @@ development-only and is **not production**.
 
 ## Image identity
 
-- Local tag convention (deterministic): `slaif-local-coding:0.1.0-<sha>`
-  where `<sha>` is the short or full reviewed Git SHA
-  (`slaif-local-coding:0.1.0-<short-sha>` is the documented form).
-- Reserved publication reference (future human release only, **no push in
-  this objective**): `ghcr.io/ulfe-lmi/slaif-local-coding`.
+- Published reference (PENDING as of this PR's head — see the header note):
+  `ghcr.io/ulfe-lmi/slaif-local-coding` with tags `0.1.0` and
+  `sha-<full image-source SHA>` (one registry digest `D` will be recorded
+  in `packaging/release_record.json` at publication; the pull-based
+  canonical default is the `0.1.0` tag).
+- Exact-reproduction option: the digest-pinned form
+  `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>` (see "Digest pinning").
+- Local qualification/development tag convention (NOT the released-user
+  path, `compose.build.yaml` only): `slaif-local-coding:0.1.0-<sha>` where
+  `<sha>` is the short or full reviewed Git SHA.
 - The image carries OCI labels (`org.opencontainers.image.source`,
   `.revision`, `.version`, `.created`) and project labels (package version,
   pinned Gateway peer SHA, supported topology mode, qualification status
-  `disposable-qualification-only; not released`, and the bound wheel
-  SHA-256). Both base images are pinned by immutable digest.
+  `mvp-release-0.1.0` for the published release image,
+  `disposable-qualification-only; not released` for local qualification
+  builds, and the bound wheel SHA-256). Both base images are pinned by
+  immutable digest. The published image's label set is mechanically
+  verified by the `docker-published` CI job.
 
-## 1. Obtain the reviewed commit
+## 1. Obtain the release file set
+
+The pull path needs only `compose.yaml` (the build override
+`compose.build.yaml` must NOT be part of the operator project — it is the
+qualification/development build path) and the config template:
 
 ```bash
-git clone https://github.com/ulfe-lmi/slaif-local-coding.git
+git clone --depth 1 --branch <reviewed-tag-or-commit> \
+    https://github.com/ulfe-lmi/slaif-local-coding.git
 cd slaif-local-coding
-git checkout <reviewed-commit-sha>
 ```
 
-## 2. Build the image
+An equivalent documented file set (just `compose.yaml` plus
+`config/adapter.gateway-integrated.template.toml`) is equally valid. The
+plain `docker compose` command below loads `compose.yaml` only.
 
-Set the image identity from the reviewed commit and the committed
-provenance manifest (`packaging/release_provenance_manifest.json`,
-`artifacts.wheel.sha256`) so the image is bound to the committed artifact:
-
-```bash
-export SLAIF_GIT_SHA=<short-sha-of-reviewed-commit>
-export SLAIF_WHEEL_SHA256=<wheel sha256 from the provenance manifest>
-docker compose build
-```
-
-(Or pull the published image after a human release; see "Container
-publication (documented, not executed)" at the end of this document.)
-
-## 3. Instantiate the configuration and environment file
+## 2. Instantiate the configuration and environment file
 
 Create a private state directory **outside the repository checkout** and
 instantiate the **final Gateway-integrated template**, substituting **only**
@@ -107,10 +130,24 @@ chmod 0600 /opt/slaif/adapter.toml
 chown 10001:10001 /opt/slaif/adapter.toml
 ```
 
+## 3. Pull the published image
+
+**Only after publication** (as of this PR's head the reference does not
+exist in the registry and this pull fails):
+
+```bash
+SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
+SLAIF_ENV_FILE=/opt/slaif/adapter.env \
+docker compose pull
+```
+
+This pulls `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0` (the canonical
+default reference in `compose.yaml`; no local build occurs — the file
+carries no build key).
+
 ## 4. Start
 
 ```bash
-SLAIF_GIT_SHA="$SLAIF_GIT_SHA" \
 SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
 SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose up -d
@@ -155,14 +192,17 @@ docker compose logs --tail 100 adapter   # bounded sanitized logs
 
 ## 7. Upgrade
 
-Check out the new reviewed commit, rebuild under the new tag, and recreate:
+Pin the NEXT published image tag/digest and recreate — no build on the host:
 
 ```bash
-git checkout <new-reviewed-sha>
-export SLAIF_GIT_SHA=<new-short-sha>
-export SLAIF_WHEEL_SHA256=<new wheel sha256 from the new provenance manifest>
-docker compose build
-SLAIF_GIT_SHA="$SLAIF_GIT_SHA" \
+export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding:<next-tag>
+# or the exact-reproduction digest form:
+# export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<next-D>
+SLAIF_LOCAL_CODING_IMAGE="$SLAIF_LOCAL_CODING_IMAGE" \
+SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
+SLAIF_ENV_FILE=/opt/slaif/adapter.env \
+docker compose pull
+SLAIF_LOCAL_CODING_IMAGE="$SLAIF_LOCAL_CODING_IMAGE" \
 SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
 SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose up -d --force-recreate
@@ -175,11 +215,15 @@ construction; no persistent cache state is claimed).
 
 ## 8. Rollback
 
-Same mechanics with the previous reviewed tag:
+Same mechanics with the PREVIOUS image tag/digest:
 
 ```bash
-export SLAIF_GIT_SHA=<previous-short-sha>
-SLAIF_GIT_SHA="$SLAIF_GIT_SHA" \
+export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding:<previous-tag-or-digest>
+SLAIF_LOCAL_CODING_IMAGE="$SLAIF_LOCAL_CODING_IMAGE" \
+SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
+SLAIF_ENV_FILE=/opt/slaif/adapter.env \
+docker compose pull
+SLAIF_LOCAL_CODING_IMAGE="$SLAIF_LOCAL_CODING_IMAGE" \
 SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
 SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose up -d --force-recreate
@@ -193,7 +237,6 @@ container recreate (no persistent cache state exists to purge on disk):
 
 ```bash
 docker compose down
-SLAIF_GIT_SHA="$SLAIF_GIT_SHA" \
 SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
 SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose up -d
@@ -205,12 +248,56 @@ Nothing is persistent by design:
 
 ```bash
 docker compose down --remove-orphans
-docker image rm slaif-local-coding:0.1.0-"$SLAIF_GIT_SHA"
+# Remove the pulled release image(s) from the local registry cache:
+docker image rm ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0 2>/dev/null || true
 rm /opt/slaif/adapter.toml /opt/slaif/adapter.env   # only if not explicitly retained
 ```
 
 Uninstalling must never touch the protected upstream model service, the
 Gateway, firewall/VPN/network state, or any Codex profile.
+
+## Digest pinning (exact reproduction)
+
+`compose.yaml` renders `SLAIF_LOCAL_CODING_IMAGE` verbatim, so the
+digest-pinned form is a first-class reference:
+
+```bash
+export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>
+docker compose pull && docker compose up -d --force-recreate
+```
+
+`<D>` is the published registry digest recorded in
+`packaging/release_record.json` (`oci_image_digest`) and the schema-v3
+provenance manifest (`oci.image_digest`) at publication. A digest-pinned
+pull can never silently move to different image content.
+
+## Build-from-source (QUALIFICATION/DEVELOPMENT path — NOT the released-user path)
+
+Building the image locally (Dockerfile, `uv`-locked wheel) is the
+**qualification/development** path used by CI (`docker` job), the release
+workflow (which publishes the reviewed image at publication), and local
+development. It is clearly **NOT** the released-user path and requires the
+build chain (Docker build, `uv` in the build stage only). **Until
+publication it is also the only available path** (the published reference
+does not yet exist in the registry). With the two-file compose:
+
+```bash
+export SLAIF_GIT_SHA=<short-sha-of-reviewed-commit>
+export SLAIF_WHEEL_SHA256=<wheel sha256 from packaging/release_provenance_manifest.json>
+docker compose -f compose.yaml -f compose.build.yaml build
+SLAIF_GIT_SHA="$SLAIF_GIT_SHA" \
+SLAIF_WHEEL_SHA256="$SLAIF_WHEEL_SHA256" \
+SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
+SLAIF_ENV_FILE=/opt/slaif/adapter.env \
+docker compose -f compose.yaml -f compose.build.yaml up -d
+```
+
+The build override does NOT set the `SLAIF_QUALIFICATION_LABEL` ARG, so
+every local qualification build carries the label
+`disposable-qualification-only; not released`. The merged two-file spec is
+mechanically asserted to equal the pre-013 single-file effective adapter
+spec for the closed field set (CI `docker` job, phase
+`compose_merge_equivalence`).
 
 ## Connecting the SLAIF API Gateway
 
@@ -226,7 +313,7 @@ Gateway source change:
   environment name on the Gateway side and emits the signed identity v1
   contract (continuously tested by the `gateway-contract` CI against the
   pinned peer);
-- the three Local-side secret roles (step 3) are the Local-side names for the
+- the three Local-side secret roles (step 2) are the Local-side names for the
   same contract.
 
 ## Direct client access (honesty note)
@@ -246,22 +333,35 @@ production**: it is never labeled production, it must not be exposed beyond
 loopback, and it carries no Gateway signed identity. The canonical compose
 path always uses the final Gateway-integrated (signed) configuration.
 
-## Container publication (documented, not executed)
+## Publication and provenance (registry-only)
 
-No image is pushed by this objective. The future human-authorized
-publication procedure is:
-
-1. build the reviewed image (`docker compose build`, step 2);
-2. authenticate to the registry and push with the documented tags:
-   `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0` and
-   `ghcr.io/ulfe-lmi/slaif-local-coding:sha-<full-sha>`;
-3. capture the pushed image digest;
-4. a later human-authorized release order fills
-   `oci.image_digest` in `packaging/release_provenance_manifest.json` and
-   flips `oci.published` to `true` (manifest regeneration discipline of
-   objectives 009/010/011).
-
-The committed `.github/workflows/release-image.yml` is inert:
-`workflow_dispatch`-only, declares `packages: write`, has no secrets
-configured, and cannot run on PRs/pushes. It exists only as the reviewed
-publication path and is not executed by this objective.
+- The release image will be published exclusively by the activated
+  `.github/workflows/release-image.yml` (`workflow_dispatch`-only;
+  GITHUB_TOKEN only; no repository secrets) — activated but NOT yet
+  executed as of this PR's head (R18 hold): it builds the locked wheel,
+  binds its SHA-256 to the committed manifest, builds the image from the
+  dispatched commit `S` via the two-file compose with the
+  `mvp-release-0.1.0` qualification label, pushes
+  `ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>` unconditionally (content-
+  addressed), pushes `:0.1.0` only if the registry proves the tag absent or
+  already at the same digest (a pre-existing different digest fails the
+  run), and registry-verifies that both tags resolve to one digest `D`.
+- At publication, the release record (`packaging/release_record.json`,
+  schema `slaif-release-record-v1`; not present in this PR's tree) and the
+  schema-v3 provenance manifest bind `S` (image source commit, git-tag
+  target, OCI revision label), `D` (OCI digest), the release tags, the
+  byte-identical wheel
+  (`fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`), and
+  the pinned Gateway peer.
+- The Git tag `v0.1.0` targets `S` as the release reference (created by
+  strategy post-merge — it does not exist at the time this document is
+  written); the GitHub Release follows that tag.
+- Publication is **registry-only**: no protected-host cutover, no real
+  deployment yet evidenced. Once published, the image is continuously
+  CI-verified by the `docker-published` job (pull by digest and by both
+  tags, exact OCI label set, full signed-ingress contract against a
+  disposable fake upstream, no-build proof, teardown absence proof); the
+  job is gated on the release record and skips with an explicit line until
+  publication.
+- The repository is public, so once the package is published, anonymous
+  GHCR pull is available to released users and to CI.

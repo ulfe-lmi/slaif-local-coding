@@ -1,7 +1,13 @@
 # OAP Completeness — 2026-09-17
 
 Assessment target: the accepted Local Coding implementation (objectives
-000–010, all merged) plus the Objective-011 Docker MVP release candidate.
+000–012, all merged) plus the Objective-013 MVP 0.1.0 publication closure
+(PR #15 open as of this writing: the pull-based canonical compose, the
+activated release workflow, the `docker-published` CI gate, and the
+schema-v3 provenance generator are committed in this PR's head; the registry
+publication is PENDING the R18 Gateway-peer hold — no release record exists
+yet; the Git tag `v0.1.0` targeting the image source commit `S` is a
+strategic post-merge act, and the GitHub Release follows that tag).
 
 ## Merged state (verified against GitHub on 2026-09-17)
 
@@ -18,7 +24,9 @@ Assessment target: the accepted Local Coding implementation (objectives
 | 008 durable acceptance evidence | PR #10 | `1a913bf3520e7570042774ef7c8ca5153da7a671` | implemented and merged |
 | 009 release candidate and operational closure | PR #11 | `4fd4502deda23ef8815740f4db0c1e615a5a1936` | reproducible package (wheel = single supported distributable) and deployment-qualified (disposable environment only); cutover NOT performed; NOT released |
 | 010 pre-cutover topology and signed-ingress correctness | PR #12 | `4aa805fdd197938f1f25c9ca034c2e3c3cf2fc87` | implemented and merged; cutover prepare-only, not performed |
-| 011 Docker MVP packaging and release-readiness closure | PR #13 | `e860e0bff687afded7782fb2687b5b435792459a` | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released |
+| 011 Docker MVP packaging and release-readiness closure | PR #13 | `e860e0bff687afded7782fb2687b5b435792459a` | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released at that objective's acceptance |
+| 012 current Gateway peer re-pin | PR #14 | `a04693e6792df6a8ad4262acfb46336a0f662202` | implemented and merged; current pinned Gateway peer `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` (contract surface byte-identical, proven at the blob level) |
+| 013 MVP 0.1.0 GHCR publication and release provenance closure | PR #15 (open as of this writing) | — | implementation complete and CI-verified; registry publication PENDING the R18 Gateway-peer hold (the remote Gateway `main` moved off the pinned peer `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`; strategy must inspect and deliberately re-qualify); pull-based installation is the canonical operator path; schema-v3 provenance with regeneration/cross-consistency gates; cutover NOT performed |
 
 Identifier note: the original planned meanings formerly associated with numeric
 objectives 006–008 (for example "reproducible SME package/release") are
