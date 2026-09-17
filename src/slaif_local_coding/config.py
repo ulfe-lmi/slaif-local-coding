@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import tomllib
 from pathlib import Path
@@ -45,6 +46,22 @@ def validate_signing_secret(value: str) -> bytes:
     return encoded
 
 
+# Objective-011 binding law (strategic decision D1, human-mandated): the
+# always-accepted loopback literals, the all-interfaces literals, and bare
+# IPv4/IPv6 literals are the only syntactically valid bind addresses. A
+# non-loopback bind is additionally permitted only under the full accepted
+# signed ingress contract (enforced by the Settings-level cross-validator
+# ``binding_law``); loopback remains the default and the only permitted bind
+# when ingress is disabled or static.
+LOOPBACK_BIND_LITERALS: frozenset[str] = frozenset({"127.0.0.1", "::1", "localhost"})
+ALL_INTERFACES_BIND_LITERALS: frozenset[str] = frozenset({"0.0.0.0", "::"})
+
+
+def is_loopback_bind_literal(value: str) -> bool:
+    """True for the always-accepted loopback bind literals (D1)."""
+    return value in LOOPBACK_BIND_LITERALS
+
+
 class ServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     listen_host: str = "127.0.0.1"
@@ -54,9 +71,21 @@ class ServerConfig(BaseModel):
     json_max_nesting_depth: int = Field(default=128, ge=1, le=256)
 
     @model_validator(mode="after")
-    def loopback_only(self) -> ServerConfig:
-        if self.listen_host not in {"127.0.0.1", "::1", "localhost"}:
-            raise ValueError("objective-000 adapter must bind to loopback")
+    def validated_bind_host(self) -> ServerConfig:
+        # Syntactic law (D1): loopback literals always; bare IPv4/IPv6
+        # literals and the all-interfaces literals only (cross-mode law is
+        # enforced at the Settings level by ``binding_law``). Hostnames,
+        # schemes, ports, and malformed values are rejected here.
+        value = self.listen_host
+        if value in LOOPBACK_BIND_LITERALS or value in ALL_INTERFACES_BIND_LITERALS:
+            return self
+        try:
+            ipaddress.ip_address(value)
+        except ValueError:
+            raise ValueError(
+                "listen_host must be a loopback literal, a bare IPv4/IPv6 "
+                "literal, or the all-interfaces literal"
+            ) from None
         return self
 
 
@@ -424,6 +453,20 @@ class Settings(BaseModel):
                 raise ValueError(
                     "route constitution integration requires global enablement and observation"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def binding_law(self) -> Settings:
+        # D1 cross-mode rule: a non-loopback bind is legal if and only if the
+        # full accepted signed ingress contract is active; loopback stays
+        # legal (and is the only legal bind) without it.
+        if not is_loopback_bind_literal(self.server.listen_host) and not (
+            self.gateway_ingress.mode == "service_bearer_signed_identity_v1"
+        ):
+            raise ValueError(
+                "non-loopback listen_host requires "
+                "gateway_ingress mode service_bearer_signed_identity_v1"
+            )
         return self
 
     @model_validator(mode="after")

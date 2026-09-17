@@ -7,15 +7,33 @@ and an sdist containing the entire working tree (including OAP transcripts).
 
 ## Supported artifacts
 
-- **Wheel (`slaif-local-coding-<version>-py3-none-any.whl`): the single supported distributable.** It is the only artifact used for deployment,
-  upgrade, and rollback (see [deployment](DEPLOYMENT.md)). Its verified-clean
-  property is that it contains exactly the `slaif_local_coding/` runtime
-  package plus `*.dist-info/` metadata and license files
-  (`LICENSE`, `NOTICE` under `licenses/`).
-- **sdist** (`slaif-local-coding-<version>.tar.gz`): the developer-only source archive; not a supported release artifact and never treated as one. It carries a deliberate whitelist (code, tests, fixtures,
-  config and packaging templates, current docs, CI workflow, project
-  metadata) so that a developer can inspect or rebuild the package source
-  without receiving orchestration transcripts or host-specific material.
+- **Wheel (`slaif-local-coding-<version>-py3-none-any.whl`): the single
+  supported Python distributable.** It is the only wheel-based artifact used
+  for deployment, upgrade, and rollback (see
+  [deployment](DEPLOYMENT.md)). Its verified-clean property is that it
+  contains exactly the `slaif_local_coding/` runtime package plus
+  `*.dist-info/` metadata and license files (`LICENSE`, `NOTICE` under
+  `licenses/`).
+- **OCI image (`slaif-local-coding:0.1.0-<sha>` locally; reserved publication
+  reference `ghcr.io/ulfe-lmi/slaif-local-coding`):** the supported
+  distribution artifact of the **Docker deployment path** (the canonical MVP
+  installation path, order 011-a). The image is built **from** the supported
+  wheel: the runtime stage installs the built wheel non-editable on top of
+  the frozen locked dependencies, so the image content law mirrors this
+  artifact policy's exclusions (no `oap/`, no `tests/`, no `references/`, no
+  `scripts/`, no `.git`, no caches, no placeholder files, no env/secret
+  material, no host-specific paths, no credential values — mechanically
+  asserted by the `docker` CI job image content scan and by the local
+  disposable run). The image is bound to the committed artifact: the in-image
+  retained wheel hash must equal the provenance-manifest wheel hash (B8/C2).
+  No image is published by this repository (the publication path is
+  documented, not executed); no tag or release state exists.
+- **sdist** (`slaif-local-coding-<version>.tar.gz`): the developer-only
+  source archive; not a supported release artifact and never treated as one.
+  It carries a deliberate whitelist (code, tests, fixtures, config and
+  packaging templates, current docs, CI workflow, project metadata) so that a
+  developer can inspect or rebuild the package source without receiving
+  orchestration transcripts or host-specific material.
 
 The policy is implemented explicitly in `pyproject.toml`
 (`[tool.hatch.build]` top-level exclusions plus per-target
@@ -27,7 +45,12 @@ The release provenance manifest
 provenance documents: because the manifest records the artifacts' own
 SHA-256 hashes, they are excluded from every artifact (no self-hash cycle).
 The manifest remains part of the git checkout and of the deployment
-runbook's preconditions.
+runbook's preconditions. From schema v2 (order 011-a) the manifest covers
+**wheel + sdist + OCI build inputs**: the `oci` section records the image
+reference, tag convention, base-image name + digest, Dockerfile/compose/
+.dockerignore hashes, the cross-referenced wheel hash, the reserved
+`image_digest` (null until a human publication), `published: false`, and the
+image label set.
 
 ## What no artifact may contain
 
@@ -97,7 +120,10 @@ in CI on the runner and in the local qualification.
 ## Cutover artifact authority and supersession (order 010-a, workstream G)
 
 The cutover artifact authority is always the exact wheel recorded in the
-current `packaging/release_provenance_manifest.json`. Objective 009's
+current `packaging/release_provenance_manifest.json`, and — for the Docker
+path — the exact OCI build inputs (Dockerfile/compose/.dockerignore hashes,
+base-image digest, bound wheel hash) recorded in the manifest's `oci`
+section. Objective 009's
 accepted wheel (0.1.0, SHA-256
 `e4759c00e37332998ed92dc5c01fe10be4b11b3a4b1df8c33edc64e176752ee1`, 81462
 bytes, 26 entries) was the cutover authority **only while the runtime package
@@ -107,12 +133,19 @@ changes the runtime package bytes; therefore the cleared rebuild is NOT
 byte-identical to the Objective-009 wheel and the current manifest records
 the **new** release-candidate artifact set (wheel + sdist hashes, sizes, and
 entry counts) generated from the Objective-010 implementation state. That
-exact new artifact is the **only** future cutover authority; the
-Objective-009 hash remains the accepted Objective-009 record only (immutable
-git history) and is no longer the cutover authority. Nothing is released: no
-registry publication, tag, or release state change. Any future objective
-that changes runtime package bytes must repeat this gate: cleared rebuild,
-hash comparison, and manifest regeneration in the same PR.
+exact new artifact was the **only** future cutover authority for the
+Objective-010 state; the Objective-009 hash remains the accepted
+Objective-009 record only (immutable git history) and is no longer the
+cutover authority. Objective 011 adds the D1 binding-law validator (workstream
+A), which changes the runtime package bytes again: the regenerated Objective-011
+artifact set (wheel + sdist + OCI build inputs, manifest schema v2,
+`objective: "011-a"`) is the **only** future cutover authority; the
+Objective-010-a wheel hash `8678e16b41bd9d73849a956c9d1f25235532eaf52c772fc695718b2063b54472`
+remains the accepted Objective-010 record only. Nothing is released: no
+registry publication, tag, or release state change; no image is pushed. Any
+future objective that changes runtime package bytes or OCI build inputs must
+repeat this gate: cleared rebuild, hash comparison, and manifest
+regeneration in the same PR.
 
 ## Publication
 

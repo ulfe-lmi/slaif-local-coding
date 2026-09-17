@@ -1,17 +1,34 @@
 # Deployment and operator contract
 
-Order 009-a, workstream C. This is the single supported deployment path and its
-complete operator contract. Links: [release-artifact policy](RELEASE-ARTIFACT-POLICY.md),
+Order 009-a, workstream C; restated by order 011-a (two supported paths).
+This is the complete operator contract for both supported deployment paths.
+Links: [release-artifact policy](RELEASE-ARTIFACT-POLICY.md),
+[Docker installation (canonical MVP path)](DOCKER-INSTALL.md),
+[Docker security delta (release gate)](DOCKER-SECURITY-DELTA.md),
 [cutover/rollback runbook (prepare-only)](RELEASE-CUTOVER-RUNBOOK.md),
 [adapter configuration reference](ADAPTER-CONFIGURATION.md).
 
-## 1. Supported path and justification
+## 1. Supported paths and justification
 
-Exactly one primary supported deployment path exists for this objective:
-**a systemd user service on the local host running the adapter from the
-repository-owned virtual environment**, binding loopback port `18031`.
+Two supported deployment paths exist (order 011-a, strategic decision D3):
 
-Justification from current source review:
+1. **Docker container — the canonical MVP installation path** (order 011-a,
+   D2): a single adapter container on **Linux Docker Engine** using
+   `network_mode: host`, the non-editable wheel-based runtime image
+   (`Dockerfile`), the canonical compose definition (`compose.yaml`), and the
+   final Gateway-integrated (signed) configuration. Host networking keeps the
+   Qwen hop true host loopback (`127.0.0.1:18020`) in one container while a
+   co-located host-namespace Gateway, a bridge-container Gateway, and a
+   LAN-different-host Gateway/client all reach the adapter (D1/D2/D4). The
+   exact operator procedure is in [DOCKER-INSTALL.md](DOCKER-INSTALL.md);
+   this section documents the shared path law, and the Docker-specific
+   commands are not duplicated here.
+2. **systemd user service — the secondary direct-host path** (order 009-a,
+   retained unchanged; including the protected-host cutover path): a systemd
+   user service on the local host running the adapter from the
+   repository-owned virtual environment, binding loopback port `18031`.
+
+Justification (systemd path, from current source review):
 
 - the adapter is CPU-only and ships one console entry point
   (`slaif-local-coding`, `src/slaif_local_coding/cli.py`) that loads a single
@@ -24,14 +41,22 @@ Justification from current source review:
 - configuration defaults (`config/adapter.example.toml`) already assume
   loopback `127.0.0.1:18031`, the private upstream on `127.0.0.1:18020/v1`,
   and the protected cache `/dev/shm/slaif-local-coding`, which the unit grants
-  via `ReadWritePaths` under `ProtectSystem=strict`;
-- there is no OCI/Compose support in the repository, and adding a second
-  deployment system is an explicit non-goal of this objective.
+  via `ReadWritePaths` under `ProtectSystem=strict`.
+
+Path selection is an operator deployment decision; both paths serve the same
+runtime wheel under the same configuration law, the same D1 bind law
+(loopback default; non-loopback only under the full signed ingress
+contract), and the same readiness/ingress fail-closed contract. The
+containment classes differ: see
+[DOCKER-SECURITY-DELTA.md](DOCKER-SECURITY-DELTA.md).
 
 ## 2. Asset set
 
 | Asset | Role |
 | --- | --- |
+| `Dockerfile` | multi-stage Linux image: locked wheel build (pinned uv) + digest-pinned wheel-based non-root runtime (no repository source, no `oap/`, no `tests/`, no caches) |
+| `.dockerignore` | explicit build-context exclusions (OAP transcripts, tests, docs, caches, env/secret files, placeholders) |
+| `compose.yaml` | canonical Docker MVP deployment: `network_mode: host`, hardened (non-root, read-only rootfs, no-new-privileges, cap drop ALL, bounded tmpfs), read-only config mount, mode-0600 `env_file`, bounded `/readyz` healthcheck, no published ports |
 | `packaging/slaif-local-coding.service` | systemd user-unit template (loopback-only, hardened, external `EnvironmentFile`) |
 | `config/adapter.deployment.template.toml` | **development/local candidate** configuration template (ingress disabled; NOT production) with exactly two documented placeholders |
 | `config/adapter.gateway-integrated.template.toml` | **final Gateway-integrated** configuration template (signed ingress v1 + signed-request constitution identity) with exactly two documented placeholders |
@@ -369,12 +394,50 @@ user's linger state at qualification time is `no` (mode A) and is **not**
 changed by this objective; enabling linger is part of the separately
 authorized cutover.
 
-## 14. Qualification boundary
+## 14. Qualification boundary (order 011-a, D6 split)
 
-This objective qualifies the deployment mechanics in a disposable environment
-against fake loopback upstreams only (see `scripts/disposable_deployment_qualification.py`
-and the order's workstream D). No persistent unit of this host is installed or
-enabled by the objective; any unit used for qualification is transient,
-uniquely named, and fully removed with proof. The live cutover itself remains
-the separate, human-authorized final act described in
+Deployment qualification is disposable and split by environment:
+
+- **GitHub runner (disposable, not a protected host):** the mandatory
+  `docker` CI job proves the canonical-port (`18031`) containerized
+  qualification — build, start, readiness, signed-request evidence from a
+  separate bridge-network namespace (simulated Gateway runtime),
+  negative/contract evidence, fail-closed readiness, image content/
+  hardening/label scans, and stop/start/recreate/upgrade/rollback operations —
+  all against fake loopback upstreams, with a teardown absence proof.
+- **Protected host (read-only fixture):** only a D6-confined disposable
+  container run is permitted: bind `172.17.0.1` (docker0 link-local only,
+  **no LAN-exposed listener at any time**) on port `18032`, signed ingress
+  enabled, three-role mode-0600 env file (fake values, never recorded),
+  fake upstream on loopback, readiness/fail-closed, image content scan, and
+  full removal with an absence proof (no container/image/listener left).
+- **systemd path:** `scripts/disposable_deployment_qualification.py`
+  (unchanged objective-009/010 boundary: transient uniquely named unit,
+  fully removed with proof).
+
+No persistent unit or container of any host is installed or enabled by the
+repository; no protected service is touched by either environment. The live
+cutover itself remains the separate, human-authorized final act described in
 [RELEASE-CUTOVER-RUNBOOK.md](RELEASE-CUTOVER-RUNBOOK.md).
+
+## 15. Docker path procedures (exact link)
+
+The Docker install, upgrade, rollback, cache-purge, and uninstall procedures
+are documented **exactly once** in
+[DOCKER-INSTALL.md](DOCKER-INSTALL.md) (canonical MVP path; commands in
+sections 1–10 of that document, matching `compose.yaml` behavior
+command-for-command). This section deliberately does not duplicate those
+command sequences. The Docker path uses:
+
+- the final Gateway-integrated template
+  (`config/adapter.gateway-integrated.template.toml`) with the
+  `__LISTEN_HOST__` placeholder resolved to the site bind value;
+- a mode-0600 environment file holding the three distinct Local-side secret
+  roles by env name only (`QWEN3090_API_KEY`,
+  `SLAIF_ADAPTER_SERVICE_TOKEN`, `SLAIF_ADAPTER_SIGNING_SECRET`);
+- the bounded compose healthcheck against `/readyz` (the documented
+  equivalent of `packaging/readyz-wait.sh` for the Docker path; the host
+  loopback poll also works because host networking makes the container
+  loopback the host loopback);
+- the D1 bind law: loopback `127.0.0.1` by default; `0.0.0.0`/interface IP
+  only under the full signed ingress mode the template carries.

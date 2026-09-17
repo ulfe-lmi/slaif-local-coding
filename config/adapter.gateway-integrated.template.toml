@@ -11,6 +11,13 @@
 # manual editing is part of the supported procedure; any additional change
 # voids the deployment-qualified evidence.
 #
+#   __LISTEN_HOST__        adapter bind address (D1 binding law): loopback
+#                          127.0.0.1 for the systemd/co-located path; an
+#                          interface IP or the all-interfaces literal for the
+#                          Docker LAN-visible path. A non-loopback value is
+#                          accepted only under the full signed ingress mode
+#                          below (the configuration validators fail closed
+#                          otherwise).
 #   __UPSTREAM_BASE_URL__  private OpenAI-compatible base URL of the protected
 #                          vLLM endpoint, e.g. http://127.0.0.1:18020/v1
 #   __UPSTREAM_MODEL__     served model name, e.g. qwen3.8-27b
@@ -25,7 +32,7 @@
 # The Gateway-only identity-derivation secret is never copied to Local.
 
 [server]
-listen_host = "127.0.0.1"
+listen_host = "__LISTEN_HOST__"
 listen_port = 18031
 request_body_max_bytes = 67108864
 response_body_max_bytes = 67108864

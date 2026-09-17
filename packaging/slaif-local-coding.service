@@ -1,16 +1,21 @@
-# SLAIF Local Coding adapter — systemd user service template (order 009-a).
+# SLAIF Local Coding adapter — systemd user service template (order 009-a;
+# restated by order 011-a: secondary direct-host path).
 #
-# This is the single supported deployment path. Install it per
-# docs/DEPLOYMENT.md:
+# The Docker container is the canonical MVP installation path; this systemd
+# user service is the supported secondary direct-host path (including the
+# protected-host cutover path). Install it per docs/DEPLOYMENT.md:
 #
 #   1. Copy this file to ~/.config/systemd/user/slaif-local-coding.service
 #      (mode 0644; the unit itself never contains secrets).
 #   2. Create the protected environment file
 #      ~/.config/slaif-local-coding/adapter.env (mode 0600) holding credential
-#      VALUES only, referenced by environment name:
+#      VALUES only, referenced by environment name. The three Local-side
+#      secret roles use THREE DISTINCT env names (the configuration
+#      validators reject a shared name):
 #        QWEN3090_API_KEY=(protected upstream credential, never recorded)
-#      Add SLAIF_ADAPTER_SERVICE_TOKEN=(value) only if a gateway_ingress mode
-#      is enabled in the configuration file.
+#        SLAIF_ADAPTER_SERVICE_TOKEN=(value, whenever a gateway_ingress mode
+#           is enabled in the configuration file)
+#        SLAIF_ADAPTER_SIGNING_SECRET=(value, signed ingress mode only)
 #   3. Create the configuration file
 #      ~/.config/slaif-local-coding/adapter.toml (mode 0600) from
 #      config/adapter.deployment.template.toml using only the documented

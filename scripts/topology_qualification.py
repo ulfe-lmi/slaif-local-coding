@@ -1,4 +1,4 @@
-"""Topology reachability qualification (order 010-a, workstream E).
+"""Topology reachability qualification (order 010-a, workstream E; 011-a G2).
 
 Disposable, fake-only qualification of the Gateway -> Local transport:
 
@@ -34,10 +34,12 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
-SCHEMA = "slaif-topology-qualification-v1"
+SCHEMA = "slaif-topology-qualification-v2"
 
 GATEWAY_NAMESPACE_MODES = ("shared_host_namespace", "separate_namespace")
-ENDPOINT_ADDRESS_CLASSES = ("loopback", "rfc1918_plaintext", "encrypted")
+ENDPOINT_ADDRESS_CLASSES = ("loopback", "trusted_lan", "rfc1918_plaintext", "encrypted")
+INGRESS_CONTRACTS = ("none", "service_bearer_static", "full_signed_v1")
+FULL_SIGNED_INGRESS = "full_signed_v1"
 
 # Ports that must never be used or touched by the qualification (protected
 # fixture and development port).
@@ -81,33 +83,44 @@ except Exception:
 """
 
 
-def qualify_transport(gateway_namespace_mode: str, endpoint_address_class: str) -> tuple[bool, str]:
+def qualify_transport(
+    gateway_namespace_mode: str,
+    endpoint_address_class: str,
+    ingress_contract: str = "none",
+) -> tuple[bool, str]:
     """Closed decision table for the Gateway -> Local transport contract.
 
-    - (shared_host_namespace, loopback) is the only supported combination
-      (co-located deployment, true loopback, no network traversal).
-    - (separate_namespace, loopback) is the documented invalid assumption:
-      loopback does not cross network namespaces.
-    - unencrypted separate-namespace transport puts request content on an
-      untrusted plaintext network.
-    - encrypted separate-namespace transport would require a human
-      architecture decision (Local binding law change) and is NOT supported
-      by this objective.
-    - anything unknown fails closed.
+    Preserved 010 law:
+
+    - (shared_host_namespace, loopback) is supported for every ingress
+      contract (co-located deployment, true loopback, no network traversal;
+      ingress disabled is the loopback development mode).
+    - (separate_namespace, loopback) is the documented invalid assumption
+      for every ingress contract: loopback does not cross network
+      namespaces.
+    - unknown inputs fail closed.
+
+    Objective-011 D1/D2/D4 extension (the supported LAN-visible signed
+    variant): a non-loopback bind (``trusted_lan``, ``rfc1918_plaintext``,
+    or ``encrypted`` endpoint class) is supported if and only if the full
+    accepted signed ingress contract (``full_signed_v1``) is in force, in
+    either namespace mode; every non-loopback combination without it fails
+    closed. The trusted-private-LAN confidentiality boundary and the no-
+    anonymous-surface requirement are recorded in docs/TOPOLOGY.md.
     """
     if gateway_namespace_mode not in GATEWAY_NAMESPACE_MODES:
         return False, "unknown_transport_fails_closed"
     if endpoint_address_class not in ENDPOINT_ADDRESS_CLASSES:
         return False, "unknown_transport_fails_closed"
-    if gateway_namespace_mode == "shared_host_namespace":
-        if endpoint_address_class == "loopback":
-            return True, "supported_colocated_loopback"
-        return False, "local_loopback_only_law"
+    if ingress_contract not in INGRESS_CONTRACTS:
+        return False, "unknown_transport_fails_closed"
     if endpoint_address_class == "loopback":
+        if gateway_namespace_mode == "shared_host_namespace":
+            return True, "supported_colocated_loopback"
         return False, "loopback_does_not_cross_namespaces"
-    if endpoint_address_class == "rfc1918_plaintext":
-        return False, "untrusted_plaintext_network"
-    return False, "multi_host_not_supported_requires_human_decision"
+    if ingress_contract != FULL_SIGNED_INGRESS:
+        return False, "non_loopback_bind_requires_full_signed_ingress"
+    return True, "supported_lan_visible_signed"
 
 
 def detect_namespace_prefix(timeout: float = 5.0) -> list[str] | None:
@@ -243,6 +256,23 @@ def _manifest_facts(manifest_path: Path) -> dict[str, object]:
     invalid_qualifies, invalid_reason = qualify_transport(
         str(invalid["gateway_namespace_mode"]), str(invalid["endpoint_address_class"])
     )
+
+    def _facts_for(entry: dict[str, object]) -> dict[str, object]:
+        qualifies, reason = qualify_transport(
+            str(entry["gateway_namespace_mode"]),
+            str(entry["endpoint_address_class"]),
+            str(entry["ingress_contract"]),
+        )
+        return {
+            "gateway_namespace_mode": entry["gateway_namespace_mode"],
+            "endpoint_address_class": entry["endpoint_address_class"],
+            "ingress_contract": entry["ingress_contract"],
+            "qualified": qualifies,
+            "reason": reason,
+            "documented_reason": entry["reason"],
+        }
+
+    lan = manifest["lan_visible_variant"]
     return {
         "supported": {
             "gateway_namespace_mode": supported["gateway_namespace_mode"],
@@ -257,6 +287,10 @@ def _manifest_facts(manifest_path: Path) -> dict[str, object]:
             "reason": invalid_reason,
             "documented_reason": invalid["reason"],
         },
+        "lan_visible_variant": {
+            "supported": [_facts_for(entry) for entry in lan["supported_combinations"]],
+            "rejected": [_facts_for(entry) for entry in lan["rejected_combinations"]],
+        },
     }
 
 
@@ -270,10 +304,23 @@ def self_test() -> dict[str, object]:
     if manifest["invalid_assumption"]["reason"] != "loopback_does_not_cross_namespaces":
         raise AssertionError("invalid assumption must fail for the namespace reason")
 
+    lan = manifest["lan_visible_variant"]
+    for entry in lan["supported"]:
+        if entry["qualified"] is not True or entry["reason"] != entry["documented_reason"]:
+            raise AssertionError(f"supported LAN-visible combination not qualified: {entry}")
+        if entry["ingress_contract"] != "full_signed_v1":
+            raise AssertionError("supported LAN-visible combination lacks full signed ingress")
+    for entry in lan["rejected"]:
+        if entry["qualified"] is not False or entry["reason"] != entry["documented_reason"]:
+            raise AssertionError(f"rejected LAN-visible combination not rejected: {entry}")
+
     decision_table: dict[str, tuple[bool, str]] = {}
     for mode in GATEWAY_NAMESPACE_MODES:
         for address_class in ENDPOINT_ADDRESS_CLASSES:
-            decision_table[f"{mode}+{address_class}"] = qualify_transport(mode, address_class)
+            for contract in INGRESS_CONTRACTS:
+                decision_table[f"{mode}+{address_class}+{contract}"] = qualify_transport(
+                    mode, address_class, contract
+                )
 
     host_probe = run_probe(fresh_namespace=False)
     if not (host_probe["probe"]["reachable"] and host_probe["probe"]["sentinel_match"]):

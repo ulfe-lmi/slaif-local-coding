@@ -2,10 +2,47 @@
 
 `config/adapter.example.toml` is the objective-000 contract. Unknown fields,
 policies, duplicate route names, duplicate `(model, endpoint)` matches,
-non-loopback listeners, invalid bounds, and routes that do not uniquely match a request fail closed at
+non-loopback listeners without the full signed ingress contract, invalid
+bounds, and routes that do not uniquely match a request fail closed at
 settings validation/startup. Application code has
 no hard-coded upstream address. The example address is host-specific candidate
 configuration, not a public endpoint.
+
+## Bind law (`[server].listen_host`, objective 011-a D1)
+
+The adapter bind address is governed by the D1 binding law (human-mandated,
+recorded in order `011-a`):
+
+- **Always accepted (every ingress mode):** the loopback literals
+  `127.0.0.1`, `::1`, and `localhost`. Loopback `127.0.0.1` remains the
+  default and remains the only permitted bind when `gateway_ingress` is
+  `disabled` or `service_bearer_static_identity`.
+- **Accepted only under the full signed ingress contract:** bare IPv4/IPv6
+  literals and the all-interfaces literals `0.0.0.0`/`::` are accepted **if
+  and only if** `gateway_ingress.mode = "service_bearer_signed_identity_v1"`
+  (service Bearer + signed identity v1 + replay protection). A non-loopback
+  bind with any other ingress mode is rejected at settings validation
+  (fail closed, precise error message).
+- **Always rejected:** hostnames, schemes, ports, and malformed values (the
+  syntactic validator rejects them in every mode).
+
+The authentication/integrity contract is unchanged and remains mandatory in
+every non-loopback configuration; the Qwen hop remains true host loopback.
+The configuration matrix is mechanically tested in
+`tests/test_config.py` (workstream A2) and
+`tests/test_gateway_integrated_deployment.py` (A4).
+
+## Metrics host policy (`[observability].metrics_host`)
+
+`metrics_host` is a **configuration-level loopback declaration only**, not a
+second network binding: `/healthz`, `/readyz`, and `/metrics` are all served
+on the single adapter socket (one uvicorn process) at `listen_host`.
+`metrics_host` is constrained to loopback literals by the validators and
+documents that the metrics surface never gains an independent bind. On a
+LAN-visible adapter bind (D1), `/metrics` is reachable from the same trusted
+surface as the rest of the socket and exposes state/counts only (no raw
+content); this is accepted and documented in
+[DOCKER-SECURITY-DELTA.md](DOCKER-SECURITY-DELTA.md) (strategic decision D4).
 
 The deployment templates are explicitly labeled:
 `config/adapter.deployment.template.toml` is the **development/local
@@ -309,12 +346,14 @@ Objective-004 support and accepted evidence cover governed real-Codex E2E and
 fixture-scoped vision acceptance; see the [criterion ledger](OBJECTIVE-004-LEDGER.md)
 and [OAP completeness record](../oap/COMPLETENESS.md).
 
-The single supported deployment path is the systemd user service in
-`packaging/slaif-local-coding.service` (superseding
-`packaging/slaif-local-coding.service.example`, retained for continuity), run
-from the repository `.venv` with the deployed configuration created from
-`config/adapter.deployment.template.toml`; see the complete operator contract
-in [DEPLOYMENT.md](DEPLOYMENT.md). The unit uses a separate mode-0600
+There are two supported deployment paths (order 011-a, D3): the Docker
+container, the canonical MVP installation path
+([DOCKER-INSTALL.md](DOCKER-INSTALL.md)), and the systemd user service in
+`packaging/slaif-local-coding.service`, the secondary direct-host path
+(superseding `packaging/slaif-local-coding.service.example`, retained for
+continuity), run from the repository `.venv` with the deployed configuration
+created from `config/adapter.deployment.template.toml`; see the complete
+operator contract in [DEPLOYMENT.md](DEPLOYMENT.md). The unit uses a separate mode-0600
 `EnvironmentFile`, loopback-only address-family/IP restrictions, private
 temporary storage, read-only system/home protection, bounded tasks/memory/file
 descriptors, and explicit SIGTERM/timeout/journal behavior. The configuration

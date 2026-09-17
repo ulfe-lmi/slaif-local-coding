@@ -1,0 +1,92 @@
+# SLAIF Local Coding — canonical Docker MVP deployment (order 011-a, D2/D3).
+#
+# Label: CANONICAL PRODUCTION Docker MVP installation path (the final
+# Gateway-integrated, signed-ingress configuration). The documented
+# development variant (ingress disabled, loopback) is described in
+# docs/DOCKER-INSTALL.md and is development-only, NOT production.
+#
+# Supported platform: Linux Docker Engine + Compose v2 plugin only.
+#
+# Network law (D2): network_mode: host so that, in one container, the Qwen
+# hop stays TRUE host loopback (127.0.0.1:18020), a co-located Gateway
+# runtime in the host namespace still reaches the adapter at
+# 127.0.0.1:18031, a bridge-networked Gateway container reaches the adapter
+# at the host bridge IP, and a Gateway/client on another LAN host reaches it
+# at the host LAN IP under the D1 binding law. Bridge-only networking cannot
+# satisfy the Qwen loopback hop; it is not supported.
+#
+# Site values are provided OUTSIDE this file, by environment-variable
+# interpolation of operator-controlled names (no secrets in any
+# interpolation default; secret values exist only in the mode-0600 env file):
+#   SLAIF_GIT_SHA       reviewed commit (short or full SHA) — the image tag
+#                       suffix per the documented convention
+#                       slaif-local-coding:0.1.0-<sha>
+#   SLAIF_CONFIG_FILE   mode-0600 host config instantiated from
+#                       config/adapter.gateway-integrated.template.toml
+#                       (placeholders resolved to site values), owned by the
+#                       container runtime user 10001:10001 (the fixed
+#                       non-root user created in the image): the read-only
+#                       mounted file must be readable by that user
+#   SLAIF_ENV_FILE      mode-0600 host environment file holding the three
+#                       DISTINCT secret roles by env name only:
+#                       QWEN3090_API_KEY, SLAIF_ADAPTER_SERVICE_TOKEN,
+#                       SLAIF_ADAPTER_SIGNING_SECRET
+#   SLAIF_HEALTH_ENDPOINT  readiness target for the compose healthcheck
+#                       (default 127.0.0.1:18031; set to the site bind,
+#                       e.g. 172.17.0.1:18032, in confined runs)
+name: slaif-local-coding
+
+services:
+  adapter:
+    image: slaif-local-coding:0.1.0-${SLAIF_GIT_SHA:-local}
+    build:
+      context: .
+      args:
+        SLAIF_GIT_SHA: ${SLAIF_GIT_SHA:-local}
+        SLAIF_WHEEL_SHA256: ${SLAIF_WHEEL_SHA256:-}
+    network_mode: host
+    environment:
+      # Non-secret site value consumed by the in-image healthcheck below.
+      SLAIF_HEALTH_ENDPOINT: ${SLAIF_HEALTH_ENDPOINT:-127.0.0.1:18031}
+    # Hardening (B3): dedicated non-root user (created in the image),
+    # read-only root filesystem, no privilege gain, no capabilities.
+    # Deliberately ABSENT: the privilege-escalation flag, the Docker
+    # socket mount, repository source bind mounts, and any published
+    # ports (host mode makes them meaningless; the binding is governed
+    # by the mounted configuration under the D1 binding law).
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    tmpfs:
+      # Bounded tmpfs: disposable operational scratch and the protected
+      # cache mount. The gateway-integrated template's cache root
+      # /dev/shm/slaif-local-coding lands on this bounded tmpfs, so the
+      # derived cache is disposable by construction and no persistent cache
+      # state is claimed (purge = container recreate).
+      - /tmp:size=64m
+      - /dev/shm:size=256m
+    volumes:
+      # The ONLY mounted state: the instantiated configuration, read-only.
+      # No repository source, no image, no persistent cache bind.
+      - ${SLAIF_CONFIG_FILE:-./slaif-adapter.toml}:/etc/slaif/adapter.toml:ro
+    env_file:
+      - ${SLAIF_ENV_FILE:-./slaif-adapter.env}
+    healthcheck:
+      # In-image Python against the site readiness endpoint (documented
+      # bounded wait: 10 s interval, 5 s timeout, 12 retries, 30 s
+      # start period). Ready = /readyz 200 (upstream + ingress + compiler
+      # + cache facts all fail closed otherwise).
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import os,sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://'+os.environ.get('SLAIF_HEALTH_ENDPOINT','127.0.0.1:18031')+'/readyz',timeout=4).status==200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s

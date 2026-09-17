@@ -1,9 +1,9 @@
-# OAP Completeness — 2026-09-14
+# OAP Completeness — 2026-09-17
 
 Assessment target: the accepted Local Coding implementation (objectives
-000–008, all merged) plus the Objective-009 release candidate.
+000–010, all merged) plus the Objective-011 Docker MVP release candidate.
 
-## Merged state (verified against GitHub on 2026-09-14)
+## Merged state (verified against GitHub on 2026-09-17)
 
 | Objective | Merged PR | Merge commit | Accepted state |
 |---|---|---|---|
@@ -16,7 +16,9 @@ Assessment target: the accepted Local Coding implementation (objectives
 | 006 signed-request replay hardening | PR #8 | `efc4dbcd377dd796a670726b16ebc06bd54b6356` | implemented and merged |
 | 007 current Gateway contract CI | PR #9 | `2041bddc5a745ef0dd4f3088c24b74b9bceefdb9` | implemented and merged; continuously Gateway-contract tested |
 | 008 durable acceptance evidence | PR #10 | `1a913bf3520e7570042774ef7c8ca5153da7a671` | implemented and merged |
-| 009 release candidate and operational closure | this PR (open) | — | reproducible package (wheel = single supported distributable) and deployment-qualified (disposable environment only); cutover NOT performed; NOT released |
+| 009 release candidate and operational closure | PR #11 | `4fd4502deda23ef8815740f4db0c1e615a5a1936` | reproducible package (wheel = single supported distributable) and deployment-qualified (disposable environment only); cutover NOT performed; NOT released |
+| 010 pre-cutover topology and signed-ingress correctness | PR #12 | `4aa805fdd197938f1f25c9ca034c2e3c3cf2fc87` | implemented and merged; cutover prepare-only, not performed |
+| 011 Docker MVP packaging and release-readiness closure | this PR (pre-merge) | — | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released |
 
 Identifier note: the original planned meanings formerly associated with numeric
 objectives 006–008 (for example "reproducible SME package/release") are

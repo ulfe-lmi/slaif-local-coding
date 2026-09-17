@@ -1,12 +1,13 @@
-# Runtime topology (order 010-a, workstream A)
+# Runtime topology (order 010-a, workstream A; order 011-a G2/F7)
 
-Explicit intended RUNTIME topology for the supported final path. This document
-supersedes the implicit topology assumed by earlier runbook drafts and is the
-normative topology reference for the cutover runbook, the deployment
-procedure, and the topology qualification harness.
+Explicit intended RUNTIME topology for the supported final path and the
+supported LAN-visible signed variant. This document supersedes the implicit
+topology assumed by earlier runbook drafts and is the normative topology
+reference for the cutover runbook, the deployment procedure, and the topology
+qualification harness.
 
 Machine-readable companion: [`topology.manifest.json`](topology.manifest.json)
-(schema `slaif-topology-manifest-v1`), mechanically checked by
+(schema `slaif-topology-manifest-v2`), mechanically checked by
 `tests/test_topology_qualification.py` and `scripts/topology_qualification.py`.
 
 ## 1. Strictly separate concepts
@@ -123,7 +124,34 @@ explicitly in the GATEWAY state and in the step that configures the route.
 No Gateway product defect was found; no cross-repository handoff document is
 required.
 
-**Multi-host topologies are NOT supported in this objective.** Their exact
+### Supported LAN-visible signed variant (order 011-a, decisions D1/D2/D4)
+
+Objective 011 records a second supported transport variant, mandated by the
+human release decision (LAN-visible installation) and bounded by the D1
+binding law: **a non-loopback adapter bind is legal if and only if the full
+accepted signed ingress contract** (`service_bearer_signed_identity_v1`)
+**is in force.** Under the Docker `network_mode: host` deployment the
+adapter binds `0.0.0.0:18031` (or a site interface IP) and the per-hop
+table extends as follows:
+
+| Hop | Network namespace | Address class | Authentication | Confidentiality boundary | Owning repository/service | Publicly reachable? |
+| --- | --- | --- | --- | --- | --- | --- |
+| Co-located host-namespace Gateway -> Local | shared host network namespace (unchanged) | loopback `127.0.0.1:18031` | service Bearer + signed identity v1 (mandatory; fail-closed) | loopback only, plus the full signed contract | adapter + Gateway route configuration | No: loopback bind, single socket |
+| Bridge-container Gateway -> Local | separate container network namespace -> host namespace | host bridge interface IP `:18031` (e.g. docker0 link-local) | service Bearer + signed identity v1 (mandatory; fail-closed) | declared trusted private LAN (D4), plus the full signed contract; **no anonymous surface** | adapter + Gateway route configuration | No: not publicly routable; reachable only from the host bridge and the declared LAN |
+| LAN-different-host Gateway/client -> Local | separate host/network namespace -> host namespace | host LAN interface IP `:18031` (declared trusted private LAN) | service Bearer + signed identity v1 via the Gateway edge (clients never reach the adapter directly; D8) | declared trusted private LAN (D4), plus the full signed contract; **no anonymous surface** | adapter + Gateway route configuration | No: not publicly routable; the Gateway edge is the only public surface |
+
+The impossible cross-namespace loopback (a separate-namespace Gateway
+targeting `127.0.0.1:18031`) **remains rejected** in this variant exactly as
+in the 010 decision: loopback does not cross network namespaces. Every
+non-loopback combination **without** the full signed contract fails closed
+(`non_loopback_bind_requires_full_signed_ingress`), and every unknown input
+fails closed (`unknown_transport_fails_closed`). The Qwen hop remains true
+host loopback (`127.0.0.1:18020`) inside the single container (D2). The
+bridge-container Gateway variant is **Gateway configuration only** (route
+backend at the host bridge IP); no Gateway source change is required.
+
+**Multi-host topologies beyond the declared trusted single private LAN are
+NOT supported in this objective.** Their exact
 requirements are recorded so a future human architecture decision can be
 made on evidence, not inference:
 
@@ -145,7 +173,13 @@ decision table mechanically and fails closed on every other combination.
 
 Regardless of mechanism, the documented transport MUST:
 
-1. keep request content off untrusted plaintext networks;
+1. keep request content off untrusted plaintext networks — re-adjudicated by
+   order 011-a (D4) for the LAN-visible variant: the supported non-loopback
+   surface is the declared trusted private LAN under the full signed ingress
+   contract (service Bearer + HMAC-signed identity v1 + replay protection),
+   with **no anonymous endpoint** and fail-closed readiness; a "private
+   RFC1918 address" alone (without the full signed contract) still never
+   qualifies;
 2. keep the Local endpoint non-publicly-reachable (loopback-only binding);
 3. keep signed identity + service Bearer mandatory (fail closed on absence);
 4. fail closed at startup/readiness when the transport is absent
@@ -155,10 +189,21 @@ Regardless of mechanism, the documented transport MUST:
    workstream E); and
 6. rollback without leaving a forgotten listener, tunnel, or proxy.
 
-## 6. What this objective did not do
+## 6. What this objective did and did not do
 
-No deployment was created or mutated. No Gateway deployment, Codex profile,
-firewall/VPN/network state, or protected service state was changed. The
-cutover is not performed and the product is not released; this document is
-the prepare-only topology authority for the next human-authorized cutover
+Objective 010 (base): no deployment was created or mutated; no Gateway
+deployment, Codex profile, firewall/VPN/network state, or protected service
+state was changed.
+
+Objective 011 (this PR): extended §4 with the supported LAN-visible signed
+variant and its per-hop rows (D1/D2/D4), re-adjudicated §5 invariant 1
+(trusted-LAN boundary under the full signed contract, no anonymous surface),
+bumped the machine-readable manifest to schema v2
+(`lan_visible_variant` section, mechanically checked), and extended the
+qualification decision table with the signed-contract dimension (workstream
+G2). It changed no live state: no deployment was created or mutated, no
+Gateway deployment, Codex profile, firewall/VPN/network state, or protected
+service state was changed, and no image was published. The cutover is not
+performed and the product is not released; this document remains the
+prepare-only topology authority for the next human-authorized cutover
 order.

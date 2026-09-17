@@ -1,0 +1,56 @@
+# Inert container-publication path (order 011-a, E5) — REVIEWED DESIGN ONLY.
+#
+# This workflow is committed as the documented, inert publication path for
+# the future human-authorized OCI publication of
+# ghcr.io/ulfe-lmi/slaif-local-coding. It is:
+#
+# - gated to `workflow_dispatch` only: it CANNOT run on PRs or pushes;
+# - declared with `packages: write` for the future publication step;
+# - configured with NO secrets: no registry credential is wired up, and the
+#   publication step intentionally performs NO push.
+#
+# This objective does not publish any image. A future human-authorized
+# release order wires the credential and implements the push step per the
+# procedure in docs/DOCKER-INSTALL.md ("Container publication"), captures
+# the image digest, and updates the provenance manifest (oci.image_digest,
+# oci.published) under the regeneration discipline of objectives 009/010/011.
+name: Release image (inert, workflow_dispatch only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  build-and-document-publication-path:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build the reviewed image (no push)
+        run: |
+          export SLAIF_GIT_SHA="$GITHUB_SHA"
+          export SLAIF_WHEEL_SHA256="$(
+            python -c 'import json; print(json.load(open("packaging/release_provenance_manifest.json"))["artifacts"]["wheel"]["sha256"])'
+          )"
+          docker compose build
+          docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
+            --format "built image: {{.Id}} (no push performed)"
+      - name: Publication path (documented, not executed)
+        run: |
+          cat <<'DOC'
+          No image is pushed by this workflow: no registry credential is
+          configured (no secrets). The future human-authorized publication is:
+            1. docker tag slaif-local-coding:0.1.0-<sha> \
+                 ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0
+            2. docker tag slaif-local-coding:0.1.0-<sha> \
+                 ghcr.io/ulfe-lmi/slaif-local-coding:sha-<full-sha>
+            3. docker login ghcr.io   (credential supplied by the release order)
+            4. docker push ghcr.io/ulfe-lmi/slaif-local-coding:<tags>
+            5. capture the pushed image digest
+            6. update packaging/release_provenance_manifest.json
+               (oci.image_digest, oci.published) via the regeneration
+               discipline, in the release order's PR
+          See docs/DOCKER-INSTALL.md, "Container publication".
+          DOC

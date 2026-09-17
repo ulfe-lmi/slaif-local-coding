@@ -41,9 +41,16 @@ Read first:
 - `ARCHITECTURE-for-agents.md` — compact normative implementation law;
 - `AGENTS.md` — coding-agent constitution;
 - `SECURITY.md` and `TESTING.md`;
-- `docs/DEPLOYMENT.md` — the single supported deployment path and operator contract;
+- `docs/DEPLOYMENT.md` — the supported deployment paths (Docker canonical
+  MVP installation path; systemd secondary direct-host path) and the complete
+  operator contract;
+- `docs/DOCKER-INSTALL.md` — the canonical MVP Docker installation procedure;
+- `docs/DOCKER-SECURITY-DELTA.md` — Docker vs systemd containment release-gate
+  review (isolation lost, invariants kept, compensating controls, accepted
+  threats);
 - `docs/TOPOLOGY.md` — explicit runtime topology (hosts, network namespaces,
-  transports, per-hop boundaries) and the Gateway → Local transport decision;
+  transports, per-hop boundaries) and the Gateway → Local transport decision
+  (including the supported LAN-visible signed variant);
 - `docs/RELEASE-ARTIFACT-POLICY.md` — supported-artifact policy (wheel) and
   mechanical artifact proof;
 - `docs/RELEASE-CUTOVER-RUNBOOK.md` — final live-cutover/rollback runbook
@@ -55,7 +62,7 @@ The project is developed through Orchestrated Agentic Programming. The coding
 agent never merges. The strategic agent independently reviews GitHub state and
 merges only when required CI is green and the objective is satisfactory.
 
-Current status (verified against merged GitHub truth on 2026-09-14):
+Current status (verified against merged GitHub truth on 2026-09-17):
 
 | Objective | Merged PR | Merge commit | Accepted state |
 | --- | --- | --- | --- |
@@ -68,7 +75,9 @@ Current status (verified against merged GitHub truth on 2026-09-14):
 | 006 signed-request replay hardening | PR #8 | `efc4dbcd377dd796a670726b16ebc06bd54b6356` | implemented and merged |
 | 007 current Gateway contract CI | PR #9 | `2041bddc5a745ef0dd4f3088c24b74b9bceefdb9` | implemented and merged; continuously Gateway-contract tested against the pinned peer |
 | 008 durable acceptance evidence | PR #10 | `1a913bf3520e7570042774ef7c8ca5153da7a671` | implemented and merged |
-| 009 release candidate and operational closure | this PR | (open) | reproducible package (wheel is the single supported distributable) and deployment-qualified in a disposable environment only |
+| 009 release candidate and operational closure | PR #11 | `4fd4502deda23ef8815740f4db0c1e615a5a1936` | reproducible package (wheel is the single supported distributable) and deployment-qualified in a disposable environment only |
+| 010 pre-cutover topology and signed-ingress correctness | PR #12 | `4aa805fdd197938f1f25c9ca034c2e3c3cf2fc87` | implemented and merged; cutover prepare-only, not performed |
+| 011 Docker MVP packaging and release-readiness closure | this PR | (pre-merge) | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released |
 
 Across the whole product: **cutover NOT performed** (see the prepare-only
 [final cutover/rollback runbook](docs/RELEASE-CUTOVER-RUNBOOK.md)) and **NOT
@@ -78,9 +87,16 @@ planned meanings formerly associated with numeric objectives 006–008 (for
 example "SME package") are historical planning prose, not live objective
 identifiers; the original product milestone "reproducible SME package and
 honest release evidence" is implemented under the Objective-009 milestone name.
-The deployment operator contract is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+The deployment operator contract is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md);
+the **Docker container is the canonical MVP installation path**
+([docs/DOCKER-INSTALL.md](docs/DOCKER-INSTALL.md)), with the systemd user
+service retained as the secondary direct-host path. Docker qualification is
+**disposable/CI environments only** (not release-qualified, not released).
 
-The adapter is a private, loopback-only candidate. It forwards
+The adapter is a private candidate whose bind is loopback by default;
+under the D1 binding law (objective 011) a non-loopback bind is accepted only
+under the full accepted signed ingress contract
+(`service_bearer_signed_identity_v1`) and never otherwise. It forwards
 `/health`, `/v1/models`, `/v1/responses`, and
 `/v1/chat/completions`; exposes `/healthz`, `/readyz`, and private `/metrics`;
 applies an explicit per-model image policy; can observe evidenced effective
@@ -395,18 +411,25 @@ The compiler/cache live case calls the configured private upstream directly and
 does not require that foreground adapter. Tests use only synthetic prompts and
 bounded outputs. Stop the temporary adapter after testing; protected vLLM
 service, model, network, and Codex profiles remain untouched.
-Deployment: the single supported path is a systemd **user** service on the
-local host running the adapter from the repository venv on loopback port
-`18031`; see the complete operator contract in
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). The unit
+Deployment: two supported paths (objective 011): the **Docker container
+(canonical MVP installation path)** — see
+[docs/DOCKER-INSTALL.md](docs/DOCKER-INSTALL.md) for the exact operator
+procedure and [docs/DOCKER-SECURITY-DELTA.md](docs/DOCKER-SECURITY-DELTA.md)
+for the containment release-gate review — and the **systemd user service
+(secondary direct-host path**, including the protected-host cutover path)
+running the adapter from the repository venv; see the complete operator
+contract in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Both paths bind loopback
+port `18031` by default; a non-loopback bind is legal only under the full
+signed ingress contract (D1). The systemd unit
 (`packaging/slaif-local-coding.service`) keeps loopback-only networking and all
-hardening directives, and reads credential values only from a mode-0600
-external environment file — never inline in the unit, argv, examples, or
-documentation. The deployment mechanics are qualified in a disposable
-environment against fake loopback upstreams only
-(`scripts/disposable_deployment_qualification.py`); no persistent unit of the
-production host is installed or enabled by this repository, and the live
-cutover itself remains the separate human-authorized act in
+hardening directives, and both paths read credential values only from a
+mode-0600 external environment file — never inline in the unit, compose file,
+argv, examples, or documentation. The deployment mechanics are qualified in
+disposable environments against fake loopback upstreams only (Docker: the
+`docker` CI job plus the D6-confined local run; systemd:
+`scripts/disposable_deployment_qualification.py`); no persistent unit or
+container of the production host is installed or enabled by this repository,
+and the live cutover itself remains the separate human-authorized act in
 [docs/RELEASE-CUTOVER-RUNBOOK.md](docs/RELEASE-CUTOVER-RUNBOOK.md). Public
 client authentication, gateway-side signed identity emission, quotas, and TLS
 remain the separate gateway's responsibility. The signed-identity capability is

@@ -5,6 +5,129 @@
     "qualified": false,
     "reason": "loopback_does_not_cross_namespaces"
   },
+  "lan_visible_variant": {
+    "binding_law": "non_loopback_bind_only_under_full_signed_ingress",
+    "confidentiality_boundary": [
+      "declared_trusted_private_lan",
+      "service_bearer",
+      "signed_identity_v1",
+      "no_anonymous_surface",
+      "fail_closed_readiness",
+      "tls_termination_operator_option_out_of_scope_for_mvp"
+    ],
+    "decision": "lan_visible_single_host_trusted_lan",
+    "hops": [
+      {
+        "authentication": "service_bearer_signed_identity_v1",
+        "endpoint": "127.0.0.1:18031",
+        "endpoint_address_class": "loopback",
+        "from": "gateway_runtime",
+        "gateway_namespace_mode": "shared_host_namespace",
+        "id": "gateway_runtime_to_local_colocated",
+        "publicly_reachable": false,
+        "to": "local_adapter"
+      },
+      {
+        "authentication": "service_bearer_signed_identity_v1",
+        "endpoint": "host bridge interface IP:18031 (e.g. docker0 link-local)",
+        "endpoint_address_class": "trusted_lan",
+        "from": "gateway_runtime",
+        "gateway_namespace_mode": "separate_namespace",
+        "id": "gateway_bridge_container_to_local",
+        "publicly_reachable": false,
+        "to": "local_adapter"
+      },
+      {
+        "authentication": "service_bearer_signed_identity_v1 (clients via the Gateway edge, which carries the contract)",
+        "endpoint": "host LAN interface IP:18031 (declared trusted private LAN)",
+        "endpoint_address_class": "trusted_lan",
+        "from": "gateway_or_client_host",
+        "gateway_namespace_mode": "separate_namespace",
+        "id": "gateway_or_client_lan_host_to_local",
+        "publicly_reachable": false,
+        "to": "local_adapter"
+      }
+    ],
+    "rejected_combinations": [
+      {
+        "endpoint_address_class": "trusted_lan",
+        "gateway_namespace_mode": "shared_host_namespace",
+        "ingress_contract": "none",
+        "qualified": false,
+        "reason": "non_loopback_bind_requires_full_signed_ingress"
+      },
+      {
+        "endpoint_address_class": "trusted_lan",
+        "gateway_namespace_mode": "shared_host_namespace",
+        "ingress_contract": "service_bearer_static",
+        "qualified": false,
+        "reason": "non_loopback_bind_requires_full_signed_ingress"
+      },
+      {
+        "endpoint_address_class": "trusted_lan",
+        "gateway_namespace_mode": "separate_namespace",
+        "ingress_contract": "none",
+        "qualified": false,
+        "reason": "non_loopback_bind_requires_full_signed_ingress"
+      },
+      {
+        "endpoint_address_class": "trusted_lan",
+        "gateway_namespace_mode": "separate_namespace",
+        "ingress_contract": "service_bearer_static",
+        "qualified": false,
+        "reason": "non_loopback_bind_requires_full_signed_ingress"
+      },
+      {
+        "endpoint_address_class": "loopback",
+        "gateway_namespace_mode": "separate_namespace",
+        "ingress_contract": "full_signed_v1",
+        "qualified": false,
+        "reason": "loopback_does_not_cross_namespaces"
+      }
+    ],
+    "strategic_decisions": [
+      "D1",
+      "D2",
+      "D4"
+    ],
+    "supported_combinations": [
+      {
+        "endpoint_address_class": "trusted_lan",
+        "gateway_namespace_mode": "separate_namespace",
+        "ingress_contract": "full_signed_v1",
+        "qualified": true,
+        "reason": "supported_lan_visible_signed"
+      },
+      {
+        "endpoint_address_class": "trusted_lan",
+        "gateway_namespace_mode": "shared_host_namespace",
+        "ingress_contract": "full_signed_v1",
+        "qualified": true,
+        "reason": "supported_lan_visible_signed"
+      },
+      {
+        "endpoint_address_class": "rfc1918_plaintext",
+        "gateway_namespace_mode": "separate_namespace",
+        "ingress_contract": "full_signed_v1",
+        "qualified": true,
+        "reason": "supported_lan_visible_signed"
+      },
+      {
+        "endpoint_address_class": "rfc1918_plaintext",
+        "gateway_namespace_mode": "shared_host_namespace",
+        "ingress_contract": "full_signed_v1",
+        "qualified": true,
+        "reason": "supported_lan_visible_signed"
+      },
+      {
+        "endpoint_address_class": "encrypted",
+        "gateway_namespace_mode": "shared_host_namespace",
+        "ingress_contract": "full_signed_v1",
+        "qualified": true,
+        "reason": "supported_lan_visible_signed"
+      }
+    ]
+  },
   "live_facts_as_of_2026_09_14": {
     "active_codex_provider_endpoint": "http://maelstrom1.lmi.link:8001/v1",
     "active_codex_provider_transport": "plain_http_no_tls",
@@ -16,7 +139,7 @@
     "port_18031_absent": true,
     "protected_vision_service": "running_on_18020_health_200"
   },
-  "schema": "slaif-topology-manifest-v1",
+  "schema": "slaif-topology-manifest-v2",
   "supported_path": {
     "hops": [
       {
@@ -65,5 +188,5 @@
     "multi_host_supported": false,
     "new_network_mechanism": false
   },
-  "version": 1
+  "version": 2
 }

@@ -67,3 +67,41 @@ jobs:
         env:
           SLAIF_GATEWAY_ROOT: ${{ github.workspace }}/gateway
         run: uv run --frozen python scripts/gateway_contract.py --gateway-root "$SLAIF_GATEWAY_ROOT" --run-tests
+
+  # Order 011-a, workstream C: mandatory Docker qualification (remote
+  # evidence). The disposable runner is not a protected host; the canonical
+  # port 18031 is used here. The protected-host D6-confined run
+  # (172.17.0.1:18032, loopback/docker0 link-local only, no LAN-exposed
+  # listener) is the recorded compensating evidence for the host-specific
+  # steps that cannot run in hosted CI (C11): protected-host before/after
+  # fixture invariance and the docker0 link-local bind class itself.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen --extra dev
+      - name: Build the locked wheel and bind it to the committed manifest
+        run: |
+          uv build --wheel --out-dir dist
+          WHEEL="$(ls dist/slaif_local_coding-*-py3-none-any.whl)"
+          WHEEL_SHA256="$(sha256sum "$WHEEL" | cut -d" " -f1)"
+          MANIFEST_SHA256="$(uv run --frozen python -c 'import json; print(json.load(open("packaging/release_provenance_manifest.json"))[\"artifacts\"][\"wheel\"][\"sha256\"])')"
+          echo "fresh wheel sha256:    $WHEEL_SHA256"
+          echo "manifest wheel sha256: $MANIFEST_SHA256"
+          test "$WHEEL_SHA256" = "$MANIFEST_SHA256"
+          echo "SLAIF_WHEEL_SHA256=$WHEEL_SHA256" >> "$GITHUB_ENV"
+      - name: Docker qualification (C2-C9)
+        run: |
+          uv run --frozen python scripts/docker_qualification_ci.py \
+            --tag-sha "$GITHUB_SHA" \
+            --full-sha "$GITHUB_SHA" \
+            --wheel-sha256 "$SLAIF_WHEEL_SHA256" \
+            --adapter-port 18031 \
+            --fake-port 18033 \
+            --failclosed-port 18034
