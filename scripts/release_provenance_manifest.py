@@ -21,7 +21,7 @@ tag convention, and a top-level `release` section bound to the record.
 Without the record, the not-yet-published state is emitted (null digest,
 published false, released false, reserved-reference tag convention).
 In BOTH states the `objective` constant records the producing round
-(013-d).
+(013-e).
 
 Usage:
 
@@ -42,7 +42,7 @@ from pathlib import Path
 
 SCHEMA_NAME = "slaif-release-provenance-v3"
 SCHEMA_VERSION = 3
-OBJECTIVE = "013-d"
+OBJECTIVE = "013-e"
 RELEASE_RECORD_PATH = Path("packaging/release_record.json")
 RELEASE_RECORD_KEYS = {
     "schema",

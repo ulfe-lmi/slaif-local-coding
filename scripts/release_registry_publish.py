@@ -51,15 +51,46 @@ def _docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[bytes
     return proc
 
 
+PUSH_DIGEST_LINE_RE = re.compile(
+    r"^(?:[^ ]+:\s+)?digest:\s?sha256:([0-9a-f]{64})(?:\s+size:\s?\d+)?\s*$"
+)
+
+
+def extract_push_digest(output: str) -> str | None:
+    """Return the sha256 digest from docker push output, or None.
+
+    Accepts the final digest line in the two observed docker-CLI forms:
+    '<ref>: digest:sha256:<64-hex> size:<n>' (current CLI, non-TTY; the CLI
+    prints the size suffix with or without a space after the colon) and the
+    legacy bare 'digest: sha256:<64-hex>' / 'digest:sha256:<64-hex>'. Scans
+    all lines (str.splitlines); returns the LAST match's digest.
+    """
+    digest: str | None = None
+    for line in output.splitlines():
+        match = PUSH_DIGEST_LINE_RE.match(line.strip())
+        if match:
+            digest = "sha256:" + match.group(1)
+    return digest
+
+
 def _push_digest(ref: str) -> str:
-    """Push `ref` and return the `sha256:<64-hex>` digest from the push log."""
+    """Push `ref` and return the `sha256:<64-hex>` digest from the push log.
+
+    Order 013-e, D1: the docker CLI (non-TTY) emits push progress — including
+    the final digest line — on stderr, so the digest is extracted from the
+    joined stdout+stderr output (stdout first) via `extract_push_digest`.
+    """
     proc = _docker("push", ref)
-    stdout = proc.stdout.decode()
-    for line in reversed(stdout.splitlines()):
-        m = re.match(r"^digest:\s*(sha256:[0-9a-f]{64})\s*$", line.strip())
-        if m:
-            return m.group(1)
-    raise PublishError(f"no digest line in push output for {ref}")
+    combined = proc.stdout.decode() + proc.stderr.decode()
+    digest = extract_push_digest(combined)
+    if digest is not None:
+        return digest
+    token = os.environ.get("SLAIF_GHCR_TOKEN") or ""
+    non_empty = [line for line in combined.splitlines() if line.strip()]
+    tail = non_empty[-25:]
+    if token:
+        tail = [line.replace(token, "***") for line in tail]
+    raise PublishError(f"no digest line in push output for {ref}; tail:\n" + "\n".join(tail))
 
 
 def build_push_references(repo: str, git_sha: str) -> tuple[str, str]:
