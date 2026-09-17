@@ -1204,6 +1204,10 @@ services:
                 "failed_checks": failures,
                 "docker_versions": _docker_versions(),
                 "user": config.get("User"),
+                # Non-secret build facts only (SHAs, versions, fixed strings);
+                # the full label set makes a label-mismatch failure directly
+                # diagnosable without a rebuild.
+                "labels": labels,
                 "no_new_privileges": host_config.get("NoNewPrivileges"),
                 "security_opt": host_config.get("SecurityOpt"),
                 "cap_drop": host_config.get("CapDrop"),

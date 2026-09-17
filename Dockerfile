@@ -48,7 +48,7 @@ ARG SLAIF_IMAGE_CREATED=unknown
 # byte-identical to the pre-013 hardcoded label, so every qualification build
 # (compose.build.yaml, which does not set this ARG) is unchanged; the release
 # workflow sets it to the published release label.
-ARG SLAIF_QUALIFICATION_LABEL=disposable-qualification-only; not released
+ARG SLAIF_QUALIFICATION_LABEL="disposable-qualification-only; not released"
 LABEL org.opencontainers.image.source="https://github.com/ulfe-lmi/slaif-local-coding" \
       org.opencontainers.image.revision="${SLAIF_GIT_SHA}" \
       org.opencontainers.image.version="${SLAIF_PACKAGE_VERSION}" \
