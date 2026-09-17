@@ -579,6 +579,14 @@ class Qualification:
                 'mode = "service_bearer_signed_identity_v1"',
                 f'mode = "{mode}"',
             )
+            if mode == "disabled":
+                # A well-formed disabled ingress configures no service token
+                # env at all; leaving it in would make the ingress-level
+                # validator fire before the Settings-level binding-law
+                # validator, masking the error under test.
+                rendered = rendered.replace(
+                    'service_token_env = "SLAIF_ADAPTER_SERVICE_TOKEN"\n', ""
+                )
             if mode != "service_bearer_signed_identity_v1":
                 rendered = rendered.replace(
                     'signing_secret_env = "SLAIF_ADAPTER_SIGNING_SECRET"\n', ""

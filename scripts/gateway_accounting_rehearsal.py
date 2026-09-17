@@ -1003,6 +1003,12 @@ class _FakeQwenServer(http.server.ThreadingHTTPServer):
 class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
     server: _FakeQwenServer
 
+    # Per-request dispatch context used by the pre-byte bookkeeping hook.
+    # Stashed at the start of each /v1/responses request and consumed
+    # synchronously by that same request's stream write.
+    _dispatch_payload: dict[str, object]
+    _dispatch_observation: dict[str, object]
+
     def log_message(self, _format: str, *_args: object) -> None:
         return
 
@@ -1019,6 +1025,27 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         if not authorized:
             self.server.bad_auth = True
         return authorized
+
+    def _dispatch_bookkeeping(self, returned_call: dict[str, object] | None) -> Callable[[], None]:
+        payload = self._dispatch_payload
+        observation = self._dispatch_observation
+
+        def bookkeeping() -> None:
+            if returned_call is not None and observation.get("request_class") == "function_initial":
+                self.server.register_returned_call(returned_call, payload)
+            self.server.record(
+                compiler=False,
+                streaming=True,
+                tool_types=self._tool_types(payload),
+                payload=payload,
+                request_class=str(observation.get("request_class", "unknown")),
+                tool_class=str(observation.get("tool_class", "unknown")),
+                function_result_adjacent=observation.get("function_result_adjacent") is True,
+                item_id_presence=str(observation.get("item_id_presence", "unknown")),
+                call_id_relation=str(observation.get("call_id_relation", "unknown")),
+            )
+
+        return bookkeeping
 
     def _body(self) -> dict[str, object] | None:
         try:
@@ -1403,10 +1430,15 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 },
             ),
         )
-        self._write_events(events)
+        self._write_events(events, dispatch_hook=self._dispatch_bookkeeping(returned_call))
         return returned_call
 
-    def _write_events(self, events: tuple[dict[str, object], ...]) -> None:
+    def _write_events(
+        self,
+        events: tuple[dict[str, object], ...],
+        *,
+        dispatch_hook: Callable[[], None] | None = None,
+    ) -> None:
         if not events or len(events) > FAKE_MAX_EVENTS:
             raise _FakeStreamError("event_count_bound")
         allowed = {
@@ -1508,6 +1540,15 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 or function_item.get("call_id") != FAKE_FUNCTION_CALL_ID
             ):
                 raise _FakeStreamError("function_identity")
+        # Dispatch bookkeeping (returned-call registration + call record)
+        # runs only after every validation above has passed and before any
+        # response byte is delivered. The stream is Content-Length framed,
+        # so the client observes the complete body as soon as the last byte
+        # arrives; bookkeeping after the send would therefore race with
+        # client-side snapshot reads. Streams that fail validation never
+        # reach this point and remain unrecorded.
+        if dispatch_hook is not None:
+            dispatch_hook()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -1656,7 +1697,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 },
             },
         )
-        self._write_events(events)
+        self._write_events(events, dispatch_hook=self._dispatch_bookkeeping(None))
 
     def _stream(self, payload: dict[str, object]) -> dict[str, object] | None:
         tool_name = self._function_tool(payload)
@@ -1886,7 +1927,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 },
             },
         )
-        self._write_events(events)
+        self._write_events(events, dispatch_hook=self._dispatch_bookkeeping(None))
         return None
 
     def do_GET(self) -> None:
@@ -1928,6 +1969,8 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             streaming=streaming,
             observation=observation,
         )
+        self._dispatch_payload = payload
+        self._dispatch_observation = observation
         if (
             observation.get("request_class") == "function_continuation"
             and observation.get("call_id_relation") != "matching"
@@ -1935,20 +1978,18 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             self._json(502, {"error": {"code": "function_continuation_invalid"}})
             return
         if streaming:
+            # The dispatch bookkeeping runs inside the stream write, before
+            # the first response byte, so a client that has received the
+            # complete body always observes the completed bookkeeping.
             try:
-                returned_call = self._stream(payload)
+                self._stream(payload)
             except (BrokenPipeError, ConnectionResetError, _FakeStreamError):
                 if not self.wfile.closed:
                     self._json(502, {"error": {"code": "fake_stream_invalid"}})
-                return
-        else:
-            returned_call = None
-            self._json(200, self._response(payload))
-        if returned_call is not None and observation.get("request_class") == "function_initial":
-            self.server.register_returned_call(returned_call, payload)
+            return
         self.server.record(
             compiler=False,
-            streaming=streaming,
+            streaming=False,
             tool_types=self._tool_types(payload),
             payload=payload,
             request_class=str(observation.get("request_class", "unknown")),
@@ -1957,6 +1998,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
             item_id_presence=str(observation.get("item_id_presence", "unknown")),
             call_id_relation=str(observation.get("call_id_relation", "unknown")),
         )
+        self._json(200, self._response(payload))
 
 
 class _FailureServer(http.server.ThreadingHTTPServer):
