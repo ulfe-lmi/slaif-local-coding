@@ -91,7 +91,7 @@ jobs:
           uv build --wheel --out-dir dist
           WHEEL="$(ls dist/slaif_local_coding-*-py3-none-any.whl)"
           WHEEL_SHA256="$(sha256sum "$WHEEL" | cut -d" " -f1)"
-          MANIFEST_SHA256="$(uv run --frozen python -c 'import json; print(json.load(open("packaging/release_provenance_manifest.json"))[\"artifacts\"][\"wheel\"][\"sha256\"])')"
+          MANIFEST_SHA256="$(uv run --frozen python -c "import json; print(json.load(open('packaging/release_provenance_manifest.json'))['artifacts']['wheel']['sha256'])")"
           echo "fresh wheel sha256:    $WHEEL_SHA256"
           echo "manifest wheel sha256: $MANIFEST_SHA256"
           test "$WHEEL_SHA256" = "$MANIFEST_SHA256"
