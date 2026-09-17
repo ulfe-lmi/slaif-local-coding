@@ -17,10 +17,18 @@ accepted (objective 008). Objective 009 is the accepted release candidate
 (reproducible package, deployment-qualified in a disposable environment
 only). Objective 010 closed the pre-cutover topology and signed-ingress
 correctness work (prepare-only; the cutover was NOT performed). Objective 011
-(this PR) is the Docker MVP release candidate: **Docker MVP packaging,
+(PR #13, merged 2026-09-17 as `e860e0bff687afded7782fb2687b5b435792459a`) is
+the Docker MVP release candidate: **Docker MVP packaging,
 LAN-visible installation law, and release-readiness closure** —
-deployment-qualified (disposable/CI environments only). **Cutover NOT
-performed; NOT released.**
+deployment-qualified (disposable/CI environments only). Objective 012
+(2026-09-17) re-pinned the current Gateway peer to
+`1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` (contract surface byte-identical,
+proven at the blob level), regenerated the release provenance manifest (the
+current artifact record is `packaging/release_provenance_manifest.json` —
+wheel `fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`;
+the sdist is developer-only and its hash is manifest-recorded; per
+`RELEASE-ARTIFACT-POLICY.md`), and closed the post-011 documentation
+drift. **Cutover NOT performed; NOT released.**
 
 Identifier note: the original planned meanings of numeric objectives 006–008
 in this file (for example "SME package") are **historical planning prose, not
@@ -105,7 +113,7 @@ remains out of scope by order).
 - admin/operator runbook, backup/cache purge, capacity guidance;
 - release claim limited to tested hardware/configuration.
 
-## Objective 009 — release candidate and operational closure (this PR)
+## Objective 009 — release candidate and operational closure (PR #11)
 
 - reconcile current-facing documentation with merged software truth;
 - explicit supported-artifact policy with mechanically proven artifact

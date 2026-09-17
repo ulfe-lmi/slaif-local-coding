@@ -2,7 +2,7 @@
   "schema": "slaif-local-gateway-peer-authority-v1",
   "version": 1,
   "repository": "ulfe-lmi/slaif-api-gateway",
-  "commit": "65666f5886832034c52211fdd7604046557e6ada",
+  "commit": "1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb",
   "server": {
     "module_id": "local-coding-v1",
     "module_version": "2",

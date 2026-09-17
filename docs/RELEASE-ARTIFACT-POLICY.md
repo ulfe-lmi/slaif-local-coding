@@ -139,9 +139,35 @@ Objective-009 record only (immutable git history) and is no longer the
 cutover authority. Objective 011 adds the D1 binding-law validator (workstream
 A), which changes the runtime package bytes again: the regenerated Objective-011
 artifact set (wheel + sdist + OCI build inputs, manifest schema v2,
-`objective: "011-a"`) is the **only** future cutover authority; the
-Objective-010-a wheel hash `8678e16b41bd9d73849a956c9d1f25235532eaf52c772fc695718b2063b54472`
-remains the accepted Objective-010 record only. Nothing is released: no
+`objective: "011-a"`) was the **only** future cutover authority for the
+Objective-011 state; the Objective-010-a wheel hash `8678e16b41bd9d73849a956c9d1f25235532eaf52c772fc695718b2063b54472`
+remains the accepted Objective-010 record only. Objective 012 re-pins the
+Gateway peer and regenerates the manifest with no runtime source byte
+change: the entry-level diff of the cleared rebuild proves all 20 wheel
+runtime files byte-identical to the Objective-011 record (only
+`dist-info/METADATA` and `dist-info/RECORD` differ); the artifact bytes
+changed ONLY because (a) the Objective-012-mandated README status-row fix
+is embedded in the wheel `dist-info/METADATA` long description
+(`readme = "README.md"`; wheel
+`7cede0b8e930463400a40662248a97aae22f75b0512dcd8151d6122a99157166` ->
+`fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`,
++27 B) and (b) the sdist carries in-scope `README.md`/`docs/`/`tests/`
+text. The sdist is a developer-only source archive, not a supported
+release artifact: it embeds `README.md`, `docs/`, and `tests/`, so its
+hash changes with any in-scope text edit, and no current-facing document
+cites the current sdist hash — the authoritative current sdist hash is the
+one recorded in `packaging/release_provenance_manifest.json` (schema
+`slaif-release-provenance-v2`) and mechanically re-derived from the final
+state by `test_committed_manifest_matches_regenerated`. The historical
+artifact records, cited as historical only, are the Objective-011-a
+record (wheel `7cede0b8...` / sdist `4ba17680...`) and the
+Objective-012-a-state record (wheel `fceadc37...` / sdist
+`910b65db...`); the only OCI build input that changes is the Dockerfile
+`SLAIF_GATEWAY_PEER_SHA` label input; the regenerated Objective-012
+manifest (producing round recorded in the manifest itself) is the **only**
+future cutover authority, and the Objective-011-a artifact record remains
+the accepted Objective-011 record only. Nothing is
+released: no
 registry publication, tag, or release state change; no image is pushed. Any
 future objective that changes runtime package bytes or OCI build inputs must
 repeat this gate: cleared rebuild, hash comparison, and manifest

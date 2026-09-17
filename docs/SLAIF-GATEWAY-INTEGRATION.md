@@ -72,14 +72,19 @@ Two distinct Gateway authorities exist and must not be conflated:
   (`5ea38325ef3a3ebc69524b4679b795fab0c52935`) emitted trusted signed
   per-request identity for the reviewed Codex route; its reports and pins
   remain immutable history.
-- **Current continuous-test peer (objective 007, merged):** the
-  `gateway-contract` CI job continuously tests the adapter-side contracts
-  against the exact pinned peer
-  `65666f5886832034c52211fdd7604046557e6ada`
+- **Current continuous-test peer (objective 007, merged; re-pinned by
+  Objective 012 on 2026-09-17):** the `gateway-contract` CI job
+  continuously tests the adapter-side contracts against the exact pinned
+  peer `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`
   (`tests/fixtures/gateway/current_peer_authority.json`;
   `local-coding-v1` module_version 2 with
   `process_local_inclusive_horizon_fail_closed`,
-  `codex-0.149-responses-v1` module_version 4).
+  `codex-0.149-responses-v1` module_version 4). The Objective-012 re-pin
+  replaced the previous pin `65666f5886832034c52211fdd7604046557e6ada` after gateway
+  PR #302 (Objective 165, merged 2026-09-17) advanced Gateway main; the
+  three contract source files the gate validates are byte-identical
+  (GitHub blob SHAs) between the two pins, so the re-pin is a contract
+  no-op proven at blob level.
 
 Local Coding implements the adapter-side
 `service_bearer_signed_identity_v1` verifier behind an explicit configuration
@@ -137,8 +142,9 @@ responsibilities; unsigned `X-SLAIF-*` headers never establish identity.
 The exact Gateway main audited for this hardening is
 `5ea38325ef3a3ebc69524b4679b795fab0c52935`. At that pinned SHA, its source
 `app/slaif_gateway/modules/servers/local_coding/contract.py` admitted only
-`replay_mode = "process_local_ttl_lru"` (the current continuous-test peer
-`65666f5886832034c52211fdd7604046557e6ada` already uses the truthful
+`replay_mode = "process_local_ttl_lru"` (the current continuous-test peer,
+re-pinned by Objective 012 — see the "Current continuous-test peer"
+statement above — already uses the truthful
 `process_local_inclusive_horizon_fail_closed` mode at module_version 2); the
 same contract defines
 `clock_skew_seconds` (default 60), `replay_ttl_seconds` (default 120), bounded

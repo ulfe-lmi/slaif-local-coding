@@ -51,7 +51,7 @@ trigger.
 | Field | Class values |
 | --- | --- |
 | `gateway.route_backend` | `direct_upstream` (pre-cutover route target, captured at step 1) \| `adapter_loopback_18031` |
-| `gateway.authority_sha` | the exact Gateway authority SHA/version pinned for the cutover (default-branch main at order time: `65666f5886832034c52211fdd7604046557e6ada`) |
+| `gateway.authority_sha` | the exact Gateway authority SHA/version pinned for the cutover (current pinned peer, re-pinned by Objective 012 on 2026-09-17: `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`, gateway default-branch main at that order time; the three contract source files are byte-identical between the old and new pins) |
 | `gateway.signed_contract` | `true` — the Codex route carries `identity_mode = "signed_identity_v1"` with the pinned replay mode (continuously tested by the `gateway-contract` CI) |
 
 The Gateway deployment requirement for the supported topology
@@ -78,15 +78,20 @@ ingress contract (D1).
 
 ## Preconditions (all must be true before step 1)
 
-1. The pre-cutover objectives (010 and 011) are accepted and merged; CI is
-   green at the merged head.
+1. The pre-cutover objectives (010, 011, and 012) are accepted and
+   merged; CI is green at the merged head.
 2. The deployed adapter artifact is the current cutover-authority wheel with
    the SHA-256 recorded in `packaging/release_provenance_manifest.json`
-   (the **Objective-011-a regenerated manifest** — schema v2,
-   `objective: "011-a"` — is the cutover authority; for the Docker path the
+   (the current `packaging/release_provenance_manifest.json` — schema v2
+   `slaif-release-provenance-v2`, produced by Objective 012, with runtime
+   source proven byte-identical to the Objective-011-a set (artifact bytes
+   differ only via the embedded README METADATA and the sdist-carried
+   in-scope text files; see RELEASE-ARTIFACT-POLICY.md) — is the cutover
+   authority; for the Docker path the
    manifest's `oci` build inputs are part of the authority; the
-   Objective-010-a and Objective-009 wheel hashes remain the accepted
-   010/009 records only); the local artifact policy check passes on it.
+   Objective-011-a, Objective-010-a, and Objective-009 wheel hashes remain
+   the accepted 011/010/009 records only); the local artifact policy check
+   passes on it.
 3. `cutover_performed` is still `false` and `released` is still `false` in
    the manifest; this runbook has not been started before.
 4. The protected upstream (vision service, port 18020) is running and its

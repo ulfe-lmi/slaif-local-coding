@@ -341,7 +341,7 @@ def canonical_snapshot(authority_sha: str) -> CutoverState:
 
 def self_test() -> dict[str, object]:
     """Deterministic assertions mirroring the pytest suite."""
-    authority_sha = "65666f5886832034c52211fdd7604046557e6ada"
+    authority_sha = "1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb"
     snapshot = canonical_snapshot(authority_sha)
 
     # Happy path: the full ordered run reaches the final switch.
