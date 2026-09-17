@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 108,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "6537f6266cc7a77ce427fd7c8af0675abb3b496d444b75e7c858fec909fc9fc2",
-      "size_bytes": 439894
+      "sha256": "5a60cd6ef41764f16871fd0134b6c234409ba2708b3159bdc0863fc84e7e520f",
+      "size_bytes": 439900
     },
     "wheel": {
       "entry_count": 26,
