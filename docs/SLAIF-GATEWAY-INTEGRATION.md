@@ -73,18 +73,22 @@ Two distinct Gateway authorities exist and must not be conflated:
   per-request identity for the reviewed Codex route; its reports and pins
   remain immutable history.
 - **Current continuous-test peer (objective 007, merged; re-pinned by
-  Objective 012 on 2026-09-17):** the `gateway-contract` CI job
+  Objective 012 on 2026-09-17 and re-pinned again by Objective 013-b on
+  2026-09-17):** the `gateway-contract` CI job
   continuously tests the adapter-side contracts against the exact pinned
-  peer `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`
+  peer `08ca421bee1ddca62078302b910e8be88cf705be`
   (`tests/fixtures/gateway/current_peer_authority.json`;
   `local-coding-v1` module_version 2 with
   `process_local_inclusive_horizon_fail_closed`,
   `codex-0.149-responses-v1` module_version 4). The Objective-012 re-pin
   replaced the previous pin `65666f5886832034c52211fdd7604046557e6ada` after gateway
   PR #302 (Objective 165, merged 2026-09-17) advanced Gateway main; the
-  three contract source files the gate validates are byte-identical
-  (GitHub blob SHAs) between the two pins, so the re-pin is a contract
-  no-op proven at blob level.
+  Objective-013-b re-pin replaced
+  `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` with this commit after gateway
+  PRs #303/#304 (Objectives 166-a/167-a, merged 2026-09-17) advanced Gateway
+  main further; the three contract source files the gate validates are
+  byte-identical (GitHub blob SHAs) between all three pins, so both re-pins
+  are contract no-ops proven at blob level.
 
 Local Coding implements the adapter-side
 `service_bearer_signed_identity_v1` verifier behind an explicit configuration

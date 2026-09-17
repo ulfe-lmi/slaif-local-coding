@@ -53,16 +53,20 @@ the coding agent on the Local host; recorded here without credential values:
   the cutover runbook captures in its step-1 baseline; nothing in this
   repository assumes how that endpoint is backed.
 - **Gateway peer authority**: the pinned Gateway peer commit
-  `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` (repository
+  `08ca421bee1ddca62078302b910e8be88cf705be` (repository
   `ulfe-lmi/slaif-api-gateway`, module `local-coding-v1` v2, client module
   `codex-0.149-responses-v1` v4) is the gateway repository default-branch
-  main at the Objective-012 order time (2026-09-17). The local fixture pin
+  main at the Objective-013-b order time (2026-09-17). The local fixture pin
   was re-pinned by Objective 012 (2026-09-17) from
-  `65666f5886832034c52211fdd7604046557e6ada` to this commit after gateway PR #302 (Objective 165,
-  merged 2026-09-17) advanced Gateway main; the re-pin is documentation/
-  OAP/doc-check work only, and the three contract source files the
-  `gateway-contract` gate validates are byte-identical (GitHub blob SHAs)
-  between the two pins, so the contract surface is unchanged.
+  `65666f5886832034c52211fdd7604046557e6ada` to
+  `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` after gateway PR #302 (Objective 165,
+  merged 2026-09-17) advanced Gateway main, and re-pinned again by
+  Objective 013-b (2026-09-17) to this commit after gateway PRs #303/#304
+  (Objectives 166-a/167-a, merged 2026-09-17) advanced Gateway main
+  further; each re-pin is documentation/OAP/doc-check work only, and the
+  three contract source files the `gateway-contract` gate validates are
+  byte-identical (GitHub blob SHAs) between all pins, so the contract
+  surface is unchanged.
 
 ## 3. Supported final path
 
@@ -121,8 +125,11 @@ commit `65666f5886832034c52211fdd7604046557e6ada`, read-only) established:
 Objective 012 (2026-09-17) re-verified the identical contract surface at
 the re-pinned peer `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`: the three contract source files the
 `gateway-contract` gate validates are byte-identical (GitHub blob SHAs)
-between the 010-era pin above and the current pin, so these findings
-remain valid at the current pin.
+between the 010-era pin above and the pin then current, so these findings
+remain valid at the current pin. Objective 013-b (2026-09-17) re-pinned the
+peer to `08ca421bee1ddca62078302b910e8be88cf705be`; the contract surface is
+byte-identical there as well (GitHub blob SHAs), so these findings remain
+valid at the current pin.
 
 Therefore the supported topology is **executable** against the pinned
 Gateway deployment contract **with a deployment-level (not source-level)

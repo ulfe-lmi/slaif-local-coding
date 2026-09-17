@@ -13,23 +13,17 @@ non-loopback bind. The canonical compose configuration is the final
 Gateway-integrated (signed) configuration; the development variant below is
 development-only and is **not production**.
 
-**The released-user path is PULL-BASED** (implemented; registry
-publication pending). The canonical pull-based compose is committed and is
-the canonical operator installation path: at publication the reference
+**The released-user path is PULL-BASED**. The canonical pull-based compose
+is the canonical operator installation path: the reference
 `ghcr.io/ulfe-lmi/slaif-local-coding` carries tags `0.1.0` and `sha-<S>`
 (both resolving to one registry digest `D`; `S` is the image source commit,
 the commit that the Git tag `v0.1.0` targets as the release reference), and
 `D` and `S` are recorded in `packaging/release_record.json` and the
-schema-v3 provenance manifest (`oci.image_digest`, `release` section).
-**The registry publication is PENDING as of this PR's head:** the 013-a
-round ended before publication because the remote Gateway `main` moved off
-the pinned peer and the order's R18 hold forbids publication until strategy
-inspects and deliberately re-qualifies (exact delta in
-`oap/reports/013-a-mvp-release-publication.md`). The reference does NOT yet
-exist in the registry (a pull of it fails until publication); until then,
-the build-from-source qualification path (below) is the only available
-path. The Git tag `v0.1.0` is a strategic post-merge act; the GitHub
-Release follows that tag. When performed, publication is registry-only: the
+schema-v3 provenance manifest (`oci.image_digest`, `release` section). The
+publication (Objective 013, round 013-b) was executed from the final
+implementation head of PR #15 after the Gateway peer was re-qualified to
+the current peer. The Git tag `v0.1.0` is a strategic post-merge act; the
+GitHub Release follows that tag. Publication is registry-only: the
 protected-host cutover is NOT performed by publication and no real
 deployment is yet evidenced.
 
@@ -55,11 +49,10 @@ deployment is yet evidenced.
 
 ## Image identity
 
-- Published reference (PENDING as of this PR's head — see the header note):
-  `ghcr.io/ulfe-lmi/slaif-local-coding` with tags `0.1.0` and
-  `sha-<full image-source SHA>` (one registry digest `D` will be recorded
-  in `packaging/release_record.json` at publication; the pull-based
-  canonical default is the `0.1.0` tag).
+- Published reference: `ghcr.io/ulfe-lmi/slaif-local-coding` with tags
+  `0.1.0` and `sha-<full image-source SHA>` (one registry digest `D`,
+  recorded in `packaging/release_record.json`; the pull-based canonical
+  default is the `0.1.0` tag).
 - Exact-reproduction option: the digest-pinned form
   `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>` (see "Digest pinning").
 - Local qualification/development tag convention (NOT the released-user
@@ -132,8 +125,7 @@ chown 10001:10001 /opt/slaif/adapter.toml
 
 ## 3. Pull the published image
 
-**Only after publication** (as of this PR's head the reference does not
-exist in the registry and this pull fails):
+Pulls the published release image:
 
 ```bash
 SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
@@ -268,18 +260,17 @@ docker compose pull && docker compose up -d --force-recreate
 
 `<D>` is the published registry digest recorded in
 `packaging/release_record.json` (`oci_image_digest`) and the schema-v3
-provenance manifest (`oci.image_digest`) at publication. A digest-pinned
+provenance manifest (`oci.image_digest`). A digest-pinned
 pull can never silently move to different image content.
 
 ## Build-from-source (QUALIFICATION/DEVELOPMENT path — NOT the released-user path)
 
 Building the image locally (Dockerfile, `uv`-locked wheel) is the
 **qualification/development** path used by CI (`docker` job), the release
-workflow (which publishes the reviewed image at publication), and local
+workflow (which built and published the reviewed `0.1.0` image), and local
 development. It is clearly **NOT** the released-user path and requires the
-build chain (Docker build, `uv` in the build stage only). **Until
-publication it is also the only available path** (the published reference
-does not yet exist in the registry). With the two-file compose:
+build chain (Docker build, `uv` in the build stage only). With the two-file
+compose:
 
 ```bash
 export SLAIF_GIT_SHA=<short-sha-of-reviewed-commit>
