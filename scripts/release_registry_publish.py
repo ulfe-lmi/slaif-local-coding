@@ -1,8 +1,11 @@
 """Publish the release image to GHCR and registry-verify a single digest.
 
-Order 013-a, workstream D (R11/R12). Runs ONLY from the activated
-`.github/workflows/release-image.yml` (workflow_dispatch-only, GITHUB_TOKEN
-only). Procedure:
+Order 013-a, workstream D (R11/R12); order 013-c, workstream C1 (fully
+qualified push references) and C2 (secret-based registry credential). Runs
+ONLY from the activated `.github/workflows/release-image.yml`
+(workflow_dispatch-only; the registry credential is the `SLAIF_GHCR_TOKEN`
+repository secret, loaded only on manual dispatch and never printed).
+Procedure:
 
 1. push the built image as `ghcr.io/<repo>:sha-<S>` UNCONDITIONALLY
    (content-addressed by the full image-source commit);
@@ -33,6 +36,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ghcr_tag_check import tag_digest  # noqa: E402
 
 REPO_DEFAULT = "ulfe-lmi/slaif-local-coding"
+RELEASE_TAG = "0.1.0"
+REGISTRY = "ghcr.io"
 
 
 class PublishError(RuntimeError):
@@ -57,21 +62,64 @@ def _push_digest(ref: str) -> str:
     raise PublishError(f"no digest line in push output for {ref}")
 
 
+def build_push_references(repo: str, git_sha: str) -> tuple[str, str]:
+    """Return the fully qualified (sha-tag, release-tag) push references.
+
+    Order 013-c, C1: both references are qualified against `ghcr.io` so the
+    docker CLI resolves them against the GHCR registry instead of letting
+    the unqualified `<repo>:<tag>` form resolve against Docker Hub. Pure
+    transformation: no docker, network, or I/O.
+    """
+    sha_tag = f"sha-{git_sha}"
+    return (f"{REGISTRY}/{repo}:{sha_tag}", f"{REGISTRY}/{repo}:{RELEASE_TAG}")
+
+
+def self_check_references() -> int:
+    """Deterministic local proof (order 013-c, C1; NO host push).
+
+    Asserts the exact qualified reference strings the script builds for a
+    fixture git-sha; exits nonzero on any deviation.
+    """
+    fixture_sha = "0" * 40
+    expected = (
+        f"{REGISTRY}/{REPO_DEFAULT}:sha-{fixture_sha}",
+        f"{REGISTRY}/{REPO_DEFAULT}:{RELEASE_TAG}",
+    )
+    built = build_push_references(REPO_DEFAULT, fixture_sha)
+    if built != expected:
+        message = f"reference self-check FAILED: built={built!r} expected={expected!r}"
+        print(message, file=sys.stderr)
+        return 1
+    print(f"reference self-check OK: sha-tag {built[0]}; release-tag {built[1]}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--local-image", required=True, help="locally built image tag")
-    parser.add_argument("--git-sha", required=True, help="full image-source commit S")
+    parser.add_argument("--local-image", help="locally built image tag")
+    parser.add_argument("--git-sha", help="full image-source commit S")
     parser.add_argument("--repo", default=REPO_DEFAULT)
+    parser.add_argument(
+        "--self-check-refs",
+        action="store_true",
+        help="local proof that the built push references are qualified (no docker, no push)",
+    )
     args = parser.parse_args()
+
+    if args.self_check_refs:
+        return self_check_references()
+    if not args.local_image or not args.git_sha:
+        parser.error("--local-image and --git-sha are required for publication")
 
     if not re.fullmatch(r"[0-9a-f]{40}", args.git_sha):
         raise PublishError("git-sha must be 40-hex")
     token = os.environ.get("SLAIF_GHCR_TOKEN") or None
     sha_tag = f"sha-{args.git_sha}"
+    sha_ref, release_ref = build_push_references(args.repo, args.git_sha)
 
-    print(f"publishing {args.local_image} as {args.repo}:{sha_tag}", flush=True)
-    _docker("tag", args.local_image, f"{args.repo}:{sha_tag}")
-    push_digest = _push_digest(f"{args.repo}:{sha_tag}")
+    print(f"publishing {args.local_image} as {sha_ref}", flush=True)
+    _docker("tag", args.local_image, sha_ref)
+    push_digest = _push_digest(sha_ref)
     api_digest = tag_digest(args.repo, sha_tag, token)
     if api_digest != push_digest:
         raise PublishError(f"registry/api digest mismatch: push={push_digest} api={api_digest}")
@@ -86,8 +134,8 @@ def main() -> int:
     if existing is not None:
         print("0.1.0 already present at the same digest (idempotent republish)", flush=True)
 
-    _docker("tag", args.local_image, f"{args.repo}:0.1.0")
-    release_push_digest = _push_digest(f"{args.repo}:0.1.0")
+    _docker("tag", args.local_image, release_ref)
+    release_push_digest = _push_digest(release_ref)
     if release_push_digest != api_digest:
         raise PublishError(
             f"0.1.0 push digest differs from sha-<S> digest: {release_push_digest} vs {api_digest}"

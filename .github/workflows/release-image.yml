@@ -1,8 +1,15 @@
-# ACTIVE container-publication path (order 013-a, workstream D).
+# ACTIVE container-publication path (order 013-a, workstream D; order 013-c,
+# workstream C2).
 #
 # `workflow_dispatch` ONLY: this workflow can never run on PRs or pushes.
-# GITHUB_TOKEN ONLY: no repository secrets are referenced and no new
-# long-lived credential of any kind is introduced.
+# Registry credential (order 013-c, strategic re-adjudication 3): the
+# repository secret SLAIF_GHCR_TOKEN, holding the repository-owner
+# org-member classic PAT (scope: repo). The secret is loaded ONLY when this
+# workflow is manually dispatched (never on PR/push/branch events); the
+# token is never printed (no echo, no unmasked environment dumps). The
+# repository Actions workflow-permission ceiling stays `read`: the
+# ceiling-raising alternative was explicitly rejected as a persistent,
+# repository-wide security-policy broadening.
 #
 # Procedure (bound to the dispatched commit S):
 #   1. build the locked wheel and assert its SHA-256 equals the committed
@@ -11,7 +18,8 @@
 #      pull-based compose.yaml + qualification override compose.build.yaml)
 #      with SLAIF_GIT_SHA = S, SLAIF_WHEEL_SHA256 = the manifest wheel hash,
 #      and SLAIF_QUALIFICATION_LABEL = mvp-release-0.1.0;
-#   3. authenticate to GHCR with GITHUB_TOKEN;
+#   3. authenticate to GHCR with the SLAIF_GHCR_TOKEN secret (org-name
+#      username, --password-stdin);
 #   4. push the SAME built image as ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>
 #      UNCONDITIONALLY (content-addressed) and as :0.1.0 ONLY if the registry
 #      proves the tag is absent or already points at this exact digest (a
@@ -24,12 +32,20 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  packages: write
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fail fast when the registry credential secret is missing
+        env:
+          SLAIF_GHCR_TOKEN: ${{ secrets.SLAIF_GHCR_TOKEN }}
+        run: |
+          test -n "$SLAIF_GHCR_TOKEN" || {
+            echo "SLAIF_GHCR_TOKEN repository secret is missing or empty; aborting before build" >&2
+            exit 1
+          }
+          echo "SLAIF_GHCR_TOKEN present (value never printed)"
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.5"
@@ -53,12 +69,14 @@ jobs:
             --build-arg SLAIF_QUALIFICATION_LABEL=mvp-release-0.1.0
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
             --format "built image: {{.Id}} (push performed in the next steps)"
-      - name: Authenticate to GHCR (GITHUB_TOKEN only)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+      - name: Authenticate to GHCR (SLAIF_GHCR_TOKEN repository secret)
+        env:
+          SLAIF_GHCR_TOKEN: ${{ secrets.SLAIF_GHCR_TOKEN }}
+        run: printf '%s' "$SLAIF_GHCR_TOKEN" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
       - name: Push tags and registry-verify a single digest
         id: publish
         env:
-          SLAIF_GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLAIF_GHCR_TOKEN: ${{ secrets.SLAIF_GHCR_TOKEN }}
         run: |
           python3 scripts/release_registry_publish.py \
             --local-image "slaif-local-coding:0.1.0-${GITHUB_SHA}" \
