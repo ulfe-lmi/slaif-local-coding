@@ -131,6 +131,7 @@ NO other file in `scripts/`. Required changes:
        r"^(?:[^ ]+:\s+)?digest:\s?sha256:([0-9a-f]{64})(?:\s+size:\d+)?\s*$"
    )
 
+
    def extract_push_digest(output: str) -> str | None:
        """Return the sha256 digest from docker push output, or None.
 
