@@ -35,8 +35,9 @@ RECORD = REPO_ROOT / "packaging" / "release_record.json"
 # Accepted release wheel (order 013-b wheel ruling): the README became a
 # published-truth document, so the wheel's dist-info METADATA legitimately
 # changed; the B6 METADATA-ONLY proof establishes that every other entry is
-# byte-identical to the 012 authority wheel fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb.
-# The accepted release wheel hash must remain exact at H_new.
+# byte-identical to the 012 authority wheel
+# (fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb). The
+# accepted release wheel hash must remain exact at H_new.
 ACCEPTED_WHEEL_SHA256 = "879baa3ad19e0f513090add965d267957d27f7bcd904d1e225586d76126f8b19"
 
 RELEASE_RECORD_KEYS = {
