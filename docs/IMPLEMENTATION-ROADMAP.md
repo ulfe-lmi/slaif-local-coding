@@ -17,7 +17,8 @@ accepted (objective 008). Objective 009 is the accepted release candidate
 (reproducible package, deployment-qualified in a disposable environment
 only). Objective 010 closed the pre-cutover topology and signed-ingress
 correctness work (prepare-only; the cutover was NOT performed). Objective 011
-(this PR) is the Docker MVP release candidate: **Docker MVP packaging,
+(PR #13, merged 2026-09-17 as `e860e0bff687afded7782fb2687b5b435792459a`) is
+the Docker MVP release candidate: **Docker MVP packaging,
 LAN-visible installation law, and release-readiness closure** —
 deployment-qualified (disposable/CI environments only). **Cutover NOT
 performed; NOT released.**
@@ -105,7 +106,7 @@ remains out of scope by order).
 - admin/operator runbook, backup/cache purge, capacity guidance;
 - release claim limited to tested hardware/configuration.
 
-## Objective 009 — release candidate and operational closure (this PR)
+## Objective 009 — release candidate and operational closure (PR #11)
 
 - reconcile current-facing documentation with merged software truth;
 - explicit supported-artifact policy with mechanically proven artifact

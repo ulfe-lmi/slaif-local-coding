@@ -139,9 +139,17 @@ Objective-009 record only (immutable git history) and is no longer the
 cutover authority. Objective 011 adds the D1 binding-law validator (workstream
 A), which changes the runtime package bytes again: the regenerated Objective-011
 artifact set (wheel + sdist + OCI build inputs, manifest schema v2,
-`objective: "011-a"`) is the **only** future cutover authority; the
-Objective-010-a wheel hash `8678e16b41bd9d73849a956c9d1f25235532eaf52c772fc695718b2063b54472`
-remains the accepted Objective-010 record only. Nothing is released: no
+`objective: "011-a"`) was the **only** future cutover authority for the
+Objective-011 state; the Objective-010-a wheel hash `8678e16b41bd9d73849a956c9d1f25235532eaf52c772fc695718b2063b54472`
+remains the accepted Objective-010 record only. Objective 012 re-pins the
+Gateway peer and regenerates the manifest (`objective: "012-a"`) with no
+runtime package byte change: the cleared rebuild proves the artifact set is
+byte-identical to the Objective-011-a record (same wheel and sdist
+SHA-256s), and the only OCI build input that changes is the Dockerfile
+`SLAIF_GATEWAY_PEER_SHA` label input; the regenerated Objective-012
+manifest is the **only** future cutover authority, and the Objective-011-a
+manifest record remains the accepted Objective-011 record only. Nothing is
+released: no
 registry publication, tag, or release state change; no image is pushed. Any
 future objective that changes runtime package bytes or OCI build inputs must
 repeat this gate: cleared rebuild, hash comparison, and manifest

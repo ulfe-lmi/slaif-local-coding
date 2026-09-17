@@ -77,7 +77,7 @@ Current status (verified against merged GitHub truth on 2026-09-17):
 | 008 durable acceptance evidence | PR #10 | `1a913bf3520e7570042774ef7c8ca5153da7a671` | implemented and merged |
 | 009 release candidate and operational closure | PR #11 | `4fd4502deda23ef8815740f4db0c1e615a5a1936` | reproducible package (wheel is the single supported distributable) and deployment-qualified in a disposable environment only |
 | 010 pre-cutover topology and signed-ingress correctness | PR #12 | `4aa805fdd197938f1f25c9ca034c2e3c3cf2fc87` | implemented and merged; cutover prepare-only, not performed |
-| 011 Docker MVP packaging and release-readiness closure | this PR | (pre-merge) | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released |
+| 011 Docker MVP packaging and release-readiness closure | PR #13 | `e860e0bff687afded7782fb2687b5b435792459a` | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released |
 
 Across the whole product: **cutover NOT performed** (see the prepare-only
 [final cutover/rollback runbook](docs/RELEASE-CUTOVER-RUNBOOK.md)) and **NOT

@@ -53,10 +53,16 @@ the coding agent on the Local host; recorded here without credential values:
   the cutover runbook captures in its step-1 baseline; nothing in this
   repository assumes how that endpoint is backed.
 - **Gateway peer authority**: the pinned Gateway peer commit
-  `65666f5886832034c52211fdd7604046557e6ada` (repository
+  `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` (repository
   `ulfe-lmi/slaif-api-gateway`, module `local-coding-v1` v2, client module
   `codex-0.149-responses-v1` v4) is the gateway repository default-branch
-  main and is unchanged at order time; the local fixture pin is unchanged.
+  main at the Objective-012 order time (2026-09-17). The local fixture pin
+  was re-pinned by Objective 012 (2026-09-17) from
+  `65666f5886832034c52211fdd7604046557e6ada` to this commit after gateway PR #302 (Objective 165,
+  merged 2026-09-17) advanced Gateway main; the re-pin is documentation/
+  OAP/doc-check work only, and the three contract source files the
+  `gateway-contract` gate validates are byte-identical (GitHub blob SHAs)
+  between the two pins, so the contract surface is unchanged.
 
 ## 3. Supported final path
 
@@ -92,8 +98,8 @@ the confidentiality boundary is loopback (no network traversal) plus service
 Bearer plus signed identity, with the Gateway route as the sole authorized
 caller.
 
-Pinned-Gateway source inspection (commit
-`65666f5886832034c52211fdd7604046557e6ada`, read-only) established:
+Pinned-Gateway source inspection (Objective-010-era
+commit `65666f5886832034c52211fdd7604046557e6ada`, read-only) established:
 
 - The provider route backend URL is per-provider configuration
   (`ProviderConfig.base_url`) with server-side secret env lookup and
@@ -111,6 +117,12 @@ Pinned-Gateway source inspection (commit
   service joins an internal bridge network (plus an egress network) and its
   diagnostic port is published to host loopback only. A bridge-networked
   container's `127.0.0.1` is the container's own loopback, not the host's.
+
+Objective 012 (2026-09-17) re-verified the identical contract surface at
+the re-pinned peer `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`: the three contract source files the
+`gateway-contract` gate validates are byte-identical (GitHub blob SHAs)
+between the 010-era pin above and the current pin, so these findings
+remain valid at the current pin.
 
 Therefore the supported topology is **executable** against the pinned
 Gateway deployment contract **with a deployment-level (not source-level)
@@ -160,9 +172,11 @@ made on evidence, not inference:
   two hosts — "private RFC1918 address" alone is **not** an encrypted
   boundary and never qualifies.
 - A corresponding change to the Local binding law (bind address, unit
-  `IPAddressAllow`, configuration `listen_host`) — the Local loopback-only
-  binding law is preserved by this objective and may change only by a
-  human architecture decision.
+  `IPAddressAllow`, configuration `listen_host`) — the current D1 binding
+  law (in force since Objective 011) is: loopback is the default bind, and
+  a non-loopback bind is legal only under the full
+  `service_bearer_signed_identity_v1` contract; any further change to the
+  binding law requires a human architecture decision.
 - Rollback must not leave a forgotten listener, tunnel, or proxy.
 
 The qualification predicate
@@ -195,8 +209,9 @@ Objective 010 (base): no deployment was created or mutated; no Gateway
 deployment, Codex profile, firewall/VPN/network state, or protected service
 state was changed.
 
-Objective 011 (this PR): extended §4 with the supported LAN-visible signed
-variant and its per-hop rows (D1/D2/D4), re-adjudicated §5 invariant 1
+Objective 011 (PR #13, merged 2026-09-17 as
+`e860e0bff687afded7782fb2687b5b435792459a`): extended §4 with the supported
+LAN-visible signed variant and its per-hop rows (D1/D2/D4), re-adjudicated §5 invariant 1
 (trusted-LAN boundary under the full signed contract, no anonymous surface),
 bumped the machine-readable manifest to schema v2
 (`lan_visible_variant` section, mechanically checked), and extended the

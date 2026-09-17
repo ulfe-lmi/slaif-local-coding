@@ -41,7 +41,7 @@ RUN groupadd --gid "${SLAIF_GID}" --system slaif \
 # wheel hash bound to this image (B8/C2).
 ARG SLAIF_GIT_SHA=unknown
 ARG SLAIF_PACKAGE_VERSION=0.1.0
-ARG SLAIF_GATEWAY_PEER_SHA=65666f5886832034c52211fdd7604046557e6ada
+ARG SLAIF_GATEWAY_PEER_SHA=1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb
 ARG SLAIF_WHEEL_SHA256=
 ARG SLAIF_IMAGE_CREATED=unknown
 LABEL org.opencontainers.image.source="https://github.com/ulfe-lmi/slaif-local-coding" \

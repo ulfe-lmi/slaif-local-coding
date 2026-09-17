@@ -33,7 +33,7 @@ preconditions: Any = cutover_state_machine.preconditions
 
 @pytest.fixture(scope="module")
 def snapshot() -> Any:
-    return cutover_state_machine.canonical_snapshot("65666f5886832034c52211fdd7604046557e6ada")
+    return cutover_state_machine.canonical_snapshot("1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb")
 
 
 def test_transition_set_is_the_runbook_step_set() -> None:

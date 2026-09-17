@@ -31,7 +31,7 @@ from pathlib import Path
 
 SCHEMA_NAME = "slaif-release-provenance-v2"
 SCHEMA_VERSION = 2
-OBJECTIVE = "011-a"
+OBJECTIVE = "012-a"
 REPOSITORY = "ulfe-lmi/slaif-local-coding"
 GATEWAY_PEER_FIXTURE = Path("tests/fixtures/gateway/current_peer_authority.json")
 PACKAGE_NAME = "slaif-local-coding"

@@ -218,7 +218,7 @@ def _dockerfile_from_lines() -> dict[str, tuple[str, str]]:
 
 def test_objective_field_records_producing_objective() -> None:
     committed = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    assert committed["objective"] == "011-a"
+    assert committed["objective"] == "012-a"
 
 
 def test_status_fields_cutover_not_performed_not_released_oci_unpublished() -> None:
