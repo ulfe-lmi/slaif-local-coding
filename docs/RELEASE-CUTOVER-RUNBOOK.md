@@ -82,11 +82,12 @@ ingress contract (D1).
    merged; CI is green at the merged head.
 2. The deployed adapter artifact is the current cutover-authority wheel with
    the SHA-256 recorded in `packaging/release_provenance_manifest.json`
-   (the **Objective-012-a regenerated manifest** — schema v2,
-   `objective: "012-a"`, with runtime source proven byte-identical to the
-   Objective-011-a set (artifact bytes differ only via the embedded README
-   METADATA and the sdist-carried in-scope text files; see
-   RELEASE-ARTIFACT-POLICY.md) — is the cutover authority; for the Docker path the
+   (the current `packaging/release_provenance_manifest.json` — schema v2
+   `slaif-release-provenance-v2`, produced by Objective 012, with runtime
+   source proven byte-identical to the Objective-011-a set (artifact bytes
+   differ only via the embedded README METADATA and the sdist-carried
+   in-scope text files; see RELEASE-ARTIFACT-POLICY.md) — is the cutover
+   authority; for the Docker path the
    manifest's `oci` build inputs are part of the authority; the
    Objective-011-a, Objective-010-a, and Objective-009 wheel hashes remain
    the accepted 011/010/009 records only); the local artifact policy check

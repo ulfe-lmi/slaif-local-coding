@@ -23,12 +23,12 @@ LAN-visible installation law, and release-readiness closure** —
 deployment-qualified (disposable/CI environments only). Objective 012
 (2026-09-17) re-pinned the current Gateway peer to
 `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` (contract surface byte-identical,
-proven at the blob level), regenerated the release provenance manifest
-(`objective: "012-a"`; wheel
-`fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb` / sdist
-`910b65db8abe331fb1ad0507697c1e089fd9ea4ede2ec1792b7fac5c8f5c1240`; artifact
-record per `RELEASE-ARTIFACT-POLICY.md`), and closed the post-011
-documentation drift. **Cutover NOT performed; NOT released.**
+proven at the blob level), regenerated the release provenance manifest (the
+current artifact record is `packaging/release_provenance_manifest.json` —
+wheel `fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`;
+the sdist is developer-only and its hash is manifest-recorded; per
+`RELEASE-ARTIFACT-POLICY.md`), and closed the post-011 documentation
+drift. **Cutover NOT performed; NOT released.**
 
 Identifier note: the original planned meanings of numeric objectives 006–008
 in this file (for example "SME package") are **historical planning prose, not
