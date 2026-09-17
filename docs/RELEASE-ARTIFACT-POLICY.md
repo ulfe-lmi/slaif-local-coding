@@ -30,14 +30,20 @@ and an sdist containing the entire working tree (including OAP transcripts).
   asserted by the `docker` CI job image content scan, the local disposable
   run, and the `docker-published` CI job for the PULLED image). The image is
   bound to the committed artifact: the in-image retained wheel hash must
-  equal the provenance-manifest wheel hash (B8/C2). No image is published to
-  the registry as of this PR's head: the publication path is ACTIVATED
-  (`workflow_dispatch`-only `release-image.yml`; registry credential via the
-  `SLAIF_GHCR_TOKEN` repository secret, loaded only on manual dispatch and
-  never printed — order 013-c, strategic re-adjudication 3) but not
-  executed — the 013-a round ended on the order's R18 hold (the remote
-  Gateway `main` moved off the pinned peer; strategy must inspect and
-  deliberately re-qualify; exact delta in the OAP report). At publication:
+  equal the provenance-manifest wheel hash (B8/C2). The publication path is
+  ACTIVATED (`workflow_dispatch`-only `release-image.yml`; registry
+  credential is the workflow `GITHUB_TOKEN` with declared `contents: read`
+  + `packages: write` — the documented mechanism for publishing the
+  workflow repository's container package per the current GitHub
+  Container-registry authentication guidance; no long-lived credential of
+  any kind is referenced or introduced) and is executed at the final
+  implementation head of this PR (order 013-d); the 013-a round had ended
+  on the order's R18 hold (the remote Gateway `main` moved off the pinned
+  peer; strategy must inspect and deliberately re-qualify; exact delta in
+  the OAP report), resolved by the 013-b re-qualification and the 013-d
+  frozen 0.1.0 release compatibility authority (see the "Gateway
+  compatibility authority (frozen for 0.1.0)" section below). At
+  publication:
   tags `0.1.0` + `sha-<S>` will resolve to one registry digest `D` recorded
   in `packaging/release_record.json` and the schema-v3 manifest (image
   source commit `S`); the Git tag `v0.1.0` will target `S` as the release
@@ -195,12 +201,12 @@ are the parameterized qualification label ARG in the Dockerfile (default
 byte-identical to the pre-013 label) and the compose split (pull-based
 canonical `compose.yaml` + qualification override `compose.build.yaml`,
 mechanically proven equivalent for the closed field set). The MVP 0.1.0
-image is NOT yet published as of this PR's head (publication pending the
-R18 Gateway-peer hold; the publication path is activated but not executed);
-at publication it will go to `ghcr.io/ulfe-lmi/slaif-local-coding`
-(human-authorized, registry-only, order 013-a) with tags `0.1.0` and
-`sha-<S>` resolving to one digest `D` recorded in
-`packaging/release_record.json` and the schema-v3 manifest (image source
+image publication is the `workflow_dispatch`-only release workflow
+executed at the final implementation head of this PR (order 013-d), to
+`ghcr.io/ulfe-lmi/slaif-local-coding` (human-authorized, registry-only,
+order 013-a) with tags `0.1.0` and `sha-<S>` resolving to one digest `D`
+recorded in `packaging/release_record.json` (present from the
+release-record commit onward) and the schema-v3 manifest (image source
 commit `S`). Any future objective that changes runtime package bytes or OCI
 build inputs must repeat this gate: cleared rebuild, hash comparison, and
 manifest regeneration in the same PR, and a fresh publication round for any
@@ -208,25 +214,57 @@ new image.
 
 ## Publication
 
-No artifact is published to any registry by this repository as of this
-PR's head. The MVP 0.1.0 **OCI image** publication to GHCR
-(`ghcr.io/ulfe-lmi/slaif-local-coding`, tags `0.1.0` + `sha-<S>`,
-registry-verified single digest) is a human-authorized act to be executed by
-the `workflow_dispatch`-only `release-image.yml`; the registry credential is
-the `SLAIF_GHCR_TOKEN` repository secret, loaded ONLY when the workflow is
-manually dispatched (never on PR/push/branch events), never printed, and
-holding the repository-owner org-member classic PAT (scope `repo`) — order
-013-c, strategic re-adjudication 3; the rejected alternative (raising the
-repository Actions workflow-permission ceiling, a persistent repository-wide
-security-policy broadening) is not adopted and the ceiling remains `read`;
-post-release hardening advisory: rotate to a dedicated fine-grained PAT
-scoped to `packages: write` + `contents: read` on this single repository
-and adopt a rotation procedure; it is PENDING the order 013-a R18
-Gateway-peer hold
-(the remote Gateway `main` moved off the pinned peer; strategy must inspect
-and deliberately re-qualify; exact delta in the OAP report). No other
+The only registry publication of this PR is the MVP 0.1.0 **OCI image**
+publication to GHCR (`ghcr.io/ulfe-lmi/slaif-local-coding`, tags `0.1.0` +
+`sha-<S>`, registry-verified single digest), a human-authorized act
+executed by the `workflow_dispatch`-only `release-image.yml` at the final
+implementation head of this PR (order 013-d); the registry credential is
+the workflow `GITHUB_TOKEN` with declared `contents: read` + `packages:
+write` — the documented mechanism for publishing the workflow repository's
+container package per the current GitHub Container-registry
+authentication guidance; no long-lived credential of any kind is
+referenced or introduced (the token is scoped to the single workflow run,
+loaded only on manual dispatch, never on PR/push/branch events, and never
+printed). Correction record (order 013-d): the 013-b "repository
+workflow-permission ceiling clamps declared permissions" diagnosis was
+wrong — the 013-b run logs show the `GITHUB_TOKEN` was granted `Packages:
+write`; the 013-b failure was the unqualified push reference (fixed in
+013-c); no repository security setting was ever changed; and the 013-c
+repository-secret workaround is withdrawn (its broad PAT secret removed).
+For human/CLI (non-workflow) publication, the documented option is a
+classic PAT with at least the `write:packages` scope — explicitly NOT the
+broad `repo` scope (enable org SSO for the PAT if the org requires it);
+fine-grained PATs are not a supported GHCR credential type. No other
 artifact is published by this repository (no PyPI, no sdist publication). Further publication-adjacent acts remain
 separate human-authorized/strategic acts: the Git tag `v0.1.0` (targets the
 image source commit `S`; strategic post-merge act), the GitHub Release
 (follows that tag), and the protected-host cutover
 (see [the cutover/runbook boundary](RELEASE-CUTOVER-RUNBOOK.md)).
+
+## Gateway compatibility authority (frozen for 0.1.0)
+
+The 0.1.0 **release compatibility authority** is FROZEN at Gateway
+`08ca421bee1ddca62078302b910e8be88cf705be`
+(`ulfe-lmi/slaif-api-gateway`, `local-coding-v1` module_version 2 with
+`process_local_inclusive_horizon_fail_closed`, client module
+`codex-0149-responses-v1` module_version 4). Evidence: the strict Local
+gateway-contract gate passed 18/18 at that pin (CI run `35208071525` and
+the 013-c local re-run, network guard enabled), and the contract surface
+is blob-identical (GitHub blob SHAs) across all pins
+(`1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`,
+`08ca421bee1ddca62078302b910e8be88cf705be`, and
+`2b61312e0eb569aa7c6f953f52e35b44e84b91c1` — the 16-commit 2026-09-17
+drift to `2b61312e0eb569aa7c6f953f52e35b44e84b91c1` changes no contract
+file).
+
+The CI fixture (`tests/fixtures/gateway/current_peer_authority.json`,
+`purpose: current_ci_compatibility_authority`) is a development
+COMPATIBILITY-TRACKING pin: it may follow Gateway `main` through separate,
+deliberately re-qualified re-pin objectives (the 012-a precedent). That
+tracking never changes the frozen release authority, never requires any
+re-release or re-publication of 0.1.0, and no 013-d work re-pins it to
+`2b61312e0eb569aa7c6f953f52e35b44e84b91c1` (or any other Gateway `main`
+revision). The frozen value is bound in the Dockerfile
+`SLAIF_GATEWAY_PEER_SHA` ARG default, the in-image
+`slaif-local-coding.gateway.peer.sha` label, and the schema-v3 manifest
+`gateway_peer.commit` in every 013-d manifest state.

@@ -21,8 +21,11 @@ the commit that the Git tag `v0.1.0` targets as the release reference), and
 `D` and `S` are recorded in `packaging/release_record.json` and the
 schema-v3 provenance manifest (`oci.image_digest`, `release` section). The
 publication (Objective 013, round 013-b) was executed from the final
-implementation head of PR #15 after the Gateway peer was re-qualified to
-the current peer. The Git tag `v0.1.0` is a strategic post-merge act; the
+implementation head of PR #15 after the Gateway peer was re-qualified;
+that re-qualified pin, `08ca421…`, is the FROZEN 0.1.0 release
+compatibility authority (see the "Gateway compatibility authority (frozen
+for 0.1.0)" section of
+[RELEASE-ARTIFACT-POLICY.md](RELEASE-ARTIFACT-POLICY.md)). The Git tag `v0.1.0` is a strategic post-merge act; the
 GitHub Release follows that tag. Publication is registry-only: the
 protected-host cutover is NOT performed by publication and no real
 deployment is yet evidenced.
@@ -326,12 +329,13 @@ path always uses the final Gateway-integrated (signed) configuration.
 
 ## Publication and provenance (registry-only)
 
-- The release image will be published exclusively by the activated
+- The release image is published exclusively by the activated
   `.github/workflows/release-image.yml` (`workflow_dispatch`-only; registry
-  credential via the `SLAIF_GHCR_TOKEN` repository secret, loaded only on
-  manual dispatch and never printed — order 013-c, strategic re-adjudication
-  3) — activated but NOT yet
-  executed as of this PR's head (R18 hold): it builds the locked wheel,
+  credential is the workflow `GITHUB_TOKEN` with declared `contents: read`
+  + `packages: write` — the documented mechanism for publishing the
+  workflow repository's container package; no long-lived credential of any
+  kind is referenced or introduced) — executed at the final implementation
+  head of this PR (order 013-d): it builds the locked wheel,
   binds its SHA-256 to the committed manifest, builds the image from the
   dispatched commit `S` via the two-file compose with the
   `mvp-release-0.1.0` qualification label, pushes

@@ -88,7 +88,12 @@ Two distinct Gateway authorities exist and must not be conflated:
   PRs #303/#304 (Objectives 166-a/167-a, merged 2026-09-17) advanced Gateway
   main further; the three contract source files the gate validates are
   byte-identical (GitHub blob SHAs) between all three pins, so both re-pins
-  are contract no-ops proven at blob level.
+  are contract no-ops proven at blob level. The 0.1.0
+  release compatibility authority is FROZEN at this pinned commit (see the
+  "Gateway compatibility authority (frozen for 0.1.0)" section of
+  [RELEASE-ARTIFACT-POLICY.md](RELEASE-ARTIFACT-POLICY.md)); continuous-test
+  re-pins are development tracking only and never change the frozen release
+  authority.
 
 Local Coding implements the adapter-side
 `service_bearer_signed_identity_v1` verifier behind an explicit configuration

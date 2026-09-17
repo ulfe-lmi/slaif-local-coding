@@ -66,7 +66,12 @@ the coding agent on the Local host; recorded here without credential values:
   further; each re-pin is documentation/OAP/doc-check work only, and the
   three contract source files the `gateway-contract` gate validates are
   byte-identical (GitHub blob SHAs) between all pins, so the contract
-  surface is unchanged.
+  surface is unchanged. The 0.1.0 release
+  compatibility authority is FROZEN at this pinned commit (see the "Gateway
+  compatibility authority (frozen for 0.1.0)" section of
+  [RELEASE-ARTIFACT-POLICY.md](RELEASE-ARTIFACT-POLICY.md)); the CI fixture
+  pin is development tracking only and never changes the frozen release
+  authority.
 
 ## 3. Supported final path
 

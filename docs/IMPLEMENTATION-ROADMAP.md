@@ -35,7 +35,11 @@ CI-verified at its head, and held publication at its R18 Gateway-peer rule
 (exact delta in the OAP report); the 013-b round re-qualified and re-pinned
 the current Gateway peer to
 `08ca421bee1ddca62078302b910e8be88cf705be` (contract surface byte-identical
-to the 012 pin, proven at the blob level) and **completed the
+to the 012 pin, proven at the blob level — the 0.1.0 release compatibility
+authority is FROZEN at that pinned commit; see the "Gateway compatibility
+authority (frozen for 0.1.0)" section of
+[RELEASE-ARTIFACT-POLICY.md](RELEASE-ARTIFACT-POLICY.md)) and **completed
+the
 publication**: the MVP `0.1.0` image is RELEASED on
 `ghcr.io/ulfe-lmi/slaif-local-coding` with tags `0.1.0` and `sha-<S>`
 (`S` = the image source commit, the final implementation head of PR #15;
