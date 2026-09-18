@@ -77,11 +77,19 @@ Current status (verified against merged GitHub truth on 2026-09-17):
 | 008 durable acceptance evidence | PR #10 | `1a913bf3520e7570042774ef7c8ca5153da7a671` | implemented and merged |
 | 009 release candidate and operational closure | PR #11 | `4fd4502deda23ef8815740f4db0c1e615a5a1936` | reproducible package (wheel is the single supported distributable) and deployment-qualified in a disposable environment only |
 | 010 pre-cutover topology and signed-ingress correctness | PR #12 | `4aa805fdd197938f1f25c9ca034c2e3c3cf2fc87` | implemented and merged; cutover prepare-only, not performed |
-| 011 Docker MVP packaging and release-readiness closure | PR #13 | `e860e0bff687afded7782fb2687b5b435792459a` | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released |
+| 011 Docker MVP packaging and release-readiness closure | PR #13 | `e860e0bff687afded7782fb2687b5b435792459a` | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released at that objective's acceptance |
 
 Across the whole product: **cutover NOT performed** (see the prepare-only
-[final cutover/rollback runbook](docs/RELEASE-CUTOVER-RUNBOOK.md)) and **NOT
-released** (no tag, no registry publication; see the
+[final cutover/rollback runbook](docs/RELEASE-CUTOVER-RUNBOOK.md)). The MVP
+`0.1.0` **is RELEASED** on `ghcr.io/ulfe-lmi/slaif-local-coding` with tags
+`0.1.0` and `sha-<image-source commit>` (both resolving to one registry
+digest); the digest and the image-source commit are authoritatively recorded
+in `packaging/release_record.json` and the schema-v3 provenance manifest
+(`oci.image_digest`, `release` section), and the Git tag `v0.1.0` targets
+the image-source commit as the release reference (created by strategy
+post-merge; the GitHub Release follows that tag). Publication is
+registry-only: no protected-host cutover and no real deployment yet
+evidenced (see the
 [release-artifact policy](docs/RELEASE-ARTIFACT-POLICY.md)). The original
 planned meanings formerly associated with numeric objectives 006–008 (for
 example "SME package") are historical planning prose, not live objective
@@ -91,7 +99,8 @@ The deployment operator contract is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md);
 the **Docker container is the canonical MVP installation path**
 ([docs/DOCKER-INSTALL.md](docs/DOCKER-INSTALL.md)), with the systemd user
 service retained as the secondary direct-host path. Docker qualification is
-**disposable/CI environments only** (not release-qualified, not released).
+**disposable/CI environments only** (deployment-qualified); the published
+MVP `0.1.0` release image is CI-verified by the `docker-published` job.
 
 The adapter is a private candidate whose bind is loopback by default;
 under the D1 binding law (objective 011) a non-loopback bind is accepted only

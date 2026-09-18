@@ -13,16 +13,24 @@ Links: [release-artifact policy](RELEASE-ARTIFACT-POLICY.md),
 Two supported deployment paths exist (order 011-a, strategic decision D3):
 
 1. **Docker container — the canonical MVP installation path** (order 011-a,
-   D2): a single adapter container on **Linux Docker Engine** using
-   `network_mode: host`, the non-editable wheel-based runtime image
-   (`Dockerfile`), the canonical compose definition (`compose.yaml`), and the
-   final Gateway-integrated (signed) configuration. Host networking keeps the
-   Qwen hop true host loopback (`127.0.0.1:18020`) in one container while a
+   D2; pull-based canonical operator path since order 013-a): a single
+   adapter container on **Linux Docker Engine** using `network_mode: host`,
+   the non-editable wheel-based runtime image (`Dockerfile`), the canonical
+   **pull-based** compose definition (`compose.yaml`, no build key; the
+   published MVP release `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0` by
+   default, overridable via `SLAIF_LOCAL_CODING_IMAGE` including the
+   digest-pinned form — reference publication PENDING as of this PR's head,
+   R18 Gateway-peer hold; until then the qualification override is the only
+   available path), the qualification/development build override
+   (`compose.build.yaml`, NOT the released-user path), and the final
+   Gateway-integrated (signed) configuration. Host networking keeps the Qwen
+   hop true host loopback (`127.0.0.1:18020`) in one container while a
    co-located host-namespace Gateway, a bridge-container Gateway, and a
    LAN-different-host Gateway/client all reach the adapter (D1/D2/D4). The
-   exact operator procedure is in [DOCKER-INSTALL.md](DOCKER-INSTALL.md);
-   this section documents the shared path law, and the Docker-specific
-   commands are not duplicated here.
+   install host needs no Python, uv, project dependencies, or virtualenv on
+   this path. The exact operator procedure is in
+   [DOCKER-INSTALL.md](DOCKER-INSTALL.md); this section documents the shared
+   path law, and the Docker-specific commands are not duplicated here.
 2. **systemd user service — the secondary direct-host path** (order 009-a,
    retained unchanged; including the protected-host cutover path): a systemd
    user service on the local host running the adapter from the
@@ -56,7 +64,10 @@ containment classes differ: see
 | --- | --- |
 | `Dockerfile` | multi-stage Linux image: locked wheel build (pinned uv) + digest-pinned wheel-based non-root runtime (no repository source, no `oap/`, no `tests/`, no caches) |
 | `.dockerignore` | explicit build-context exclusions (OAP transcripts, tests, docs, caches, env/secret files, placeholders) |
-| `compose.yaml` | canonical Docker MVP deployment: `network_mode: host`, hardened (non-root, read-only rootfs, no-new-privileges, cap drop ALL, bounded tmpfs), read-only config mount, mode-0600 `env_file`, bounded `/readyz` healthcheck, no published ports |
+| `compose.yaml` | canonical PULL-BASED Docker MVP deployment (no build key; image `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0` by default, `SLAIF_LOCAL_CODING_IMAGE` override; reference publication PENDING as of this PR's head): `network_mode: host`, hardened (non-root, read-only rootfs, no-new-privileges, cap drop ALL, bounded tmpfs), read-only config mount, mode-0600 `env_file`, bounded `/readyz` healthcheck, no published ports |
+| `compose.build.yaml` | qualification/development build override (NOT the released-user path): local image `slaif-local-coding:0.1.0-${SLAIF_GIT_SHA:-local}` plus `build:` (context `.`; args `SLAIF_GIT_SHA`, `SLAIF_WHEEL_SHA256`); the two-file merge equals the pre-013 single-file effective adapter spec for the closed field set (CI-asserted) |
+| `packaging/release_record.json` | release record (schema `slaif-release-record-v1`): published digest, image source commit, tags, Git tag reference, publication workflow run id |
+| `packaging/release_provenance_manifest.json` (+ schema) | schema-v3 provenance manifest (state-aware; `release` section present iff the record exists) |
 | `packaging/slaif-local-coding.service` | systemd user-unit template (loopback-only, hardened, external `EnvironmentFile`) |
 | `config/adapter.deployment.template.toml` | **development/local candidate** configuration template (ingress disabled; NOT production) with exactly two documented placeholders |
 | `config/adapter.gateway-integrated.template.toml` | **final Gateway-integrated** configuration template (signed ingress v1 + signed-request constitution identity) with exactly two documented placeholders |
@@ -404,7 +415,14 @@ Deployment qualification is disposable and split by environment:
   separate bridge-network namespace (simulated Gateway runtime),
   negative/contract evidence, fail-closed readiness, image content/
   hardening/label scans, and stop/start/recreate/upgrade/rollback operations —
-  all against fake loopback upstreams, with a teardown absence proof.
+  all against fake loopback upstreams, with a teardown absence proof. The
+  `docker-published` CI job (order 013-a) additionally proves the
+  PUBLISHED-image path once `packaging/release_record.json` carries a
+  non-null digest: pull by digest and by both tags (each resolving to the
+  recorded digest), the exact OCI label set, the full signed-ingress
+  contract against a disposable fake upstream on the canonical port via the
+  pull-based compose only, the no-build proof, and the teardown absence
+  proof.
 - **Protected host (read-only fixture):** only a D6-confined disposable
   container run is permitted: bind `172.17.0.1` (docker0 link-local only,
   **no LAN-exposed listener at any time**) on port `18032`, signed ingress
@@ -424,10 +442,11 @@ cutover itself remains the separate, human-authorized final act described in
 
 The Docker install, upgrade, rollback, cache-purge, and uninstall procedures
 are documented **exactly once** in
-[DOCKER-INSTALL.md](DOCKER-INSTALL.md) (canonical MVP path; commands in
-sections 1–10 of that document, matching `compose.yaml` behavior
-command-for-command). This section deliberately does not duplicate those
-command sequences. The Docker path uses:
+[DOCKER-INSTALL.md](DOCKER-INSTALL.md) (canonical MVP path; the PRIMARY
+operator path is PULL-BASED — sections 1–10 of that document, matching
+`compose.yaml` behavior command-for-command; the build-from-source
+qualification/development path is clearly separated). This section
+deliberately does not duplicate those command sequences. The Docker path uses:
 
 - the final Gateway-integrated template
   (`config/adapter.gateway-integrated.template.toml`) with the

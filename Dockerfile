@@ -41,9 +41,14 @@ RUN groupadd --gid "${SLAIF_GID}" --system slaif \
 # wheel hash bound to this image (B8/C2).
 ARG SLAIF_GIT_SHA=unknown
 ARG SLAIF_PACKAGE_VERSION=0.1.0
-ARG SLAIF_GATEWAY_PEER_SHA=1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb
+ARG SLAIF_GATEWAY_PEER_SHA=08ca421bee1ddca62078302b910e8be88cf705be
 ARG SLAIF_WHEEL_SHA256=
 ARG SLAIF_IMAGE_CREATED=unknown
+# Release-qualification label (order 013-a, workstream B): the default is
+# byte-identical to the pre-013 hardcoded label, so every qualification build
+# (compose.build.yaml, which does not set this ARG) is unchanged; the release
+# workflow sets it to the published release label.
+ARG SLAIF_QUALIFICATION_LABEL="disposable-qualification-only; not released"
 LABEL org.opencontainers.image.source="https://github.com/ulfe-lmi/slaif-local-coding" \
       org.opencontainers.image.revision="${SLAIF_GIT_SHA}" \
       org.opencontainers.image.version="${SLAIF_PACKAGE_VERSION}" \
@@ -51,7 +56,7 @@ LABEL org.opencontainers.image.source="https://github.com/ulfe-lmi/slaif-local-c
       slaif-local-coding.package.version="${SLAIF_PACKAGE_VERSION}" \
       slaif-local-coding.gateway.peer.sha="${SLAIF_GATEWAY_PEER_SHA}" \
       slaif-local-coding.topology.mode="linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress" \
-      slaif-local-coding.qualification="disposable-qualification-only; not released" \
+      slaif-local-coding.qualification="${SLAIF_QUALIFICATION_LABEL}" \
       slaif-local-coding.wheel.sha256="${SLAIF_WHEEL_SHA256}"
 
 # Runtime dependencies resolved from the committed uv.lock (frozen), then the

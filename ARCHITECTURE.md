@@ -19,8 +19,15 @@ configuration uses 150000 context and accepts zero images. The repository accept
 implemented and merged (objective 005, PR #7, merge commit
 `e3f10e93c1ea84bf4021fd15d566bf577d5a9dcf`); the live cutover itself remains
 a separate human-authorized act (runbook: `docs/RELEASE-CUTOVER-RUNBOOK.md`,
-prepare-only), and cutover is NOT performed and the product is NOT released
-as of 2026-09-14. Two compatibility problems motivate the
+prepare-only), and cutover is NOT performed as of 2026-09-17 (no real
+deployment yet evidenced); the product is NOT yet released — the MVP 0.1.0
+registry publication (objective 013: `ghcr.io/ulfe-lmi/slaif-local-coding`,
+pull-based installation canonical) is PENDING as of this PR's head on the
+order's R18 Gateway-peer hold (the remote Gateway `main` moved off the
+pinned peer; strategy must inspect and deliberately re-qualify); at
+publication the Git tag `v0.1.0` will target the image source commit as the
+release reference (strategic post-merge act).
+Two compatibility problems motivate the
 adapter behavior:
 
 1. Codex compacts long conversations. After compaction, a smaller local model can
@@ -1130,12 +1137,24 @@ The architecture is intentionally sliced into reviewable objectives:
 - 006: signed-request replay hardening (merged PR #8);
 - 007: current Gateway contract CI (merged PR #9);
 - 008: durable acceptance evidence (merged PR #10);
-- 009: release candidate and operational closure (open PR; the original
-  "reproducible SME package and honest release evidence" milestone name).
+- 009: release candidate and operational closure (merged PR #11; the original
+  "reproducible SME package and honest release evidence" milestone name);
+- 010: pre-cutover topology and signed-ingress correctness (merged PR #12;
+  prepare-only; cutover NOT performed);
+- 011: Docker MVP packaging and release-readiness closure (merged PR #13;
+  deployment-qualified in disposable/CI environments only);
+- 012: current Gateway peer re-pin (merged PR #14);
+- 013: MVP 0.1.0 GHCR publication, pull-based canonical installation, and
+  release provenance closure (PR #15, open as of this writing; implementation
+  complete and CI-verified; registry publication PENDING the R18 Gateway-peer
+  hold — no cutover, no real deployment yet evidenced).
 
 The original planned meanings formerly associated with numeric 006-008 are
 historical planning prose, not live objective identifiers. Cutover is NOT
-performed and the product is NOT released.
+performed; the product is NOT yet released (the objective-013 GHCR
+publication is pending the R18 Gateway-peer hold; at publication the Git tag
+`v0.1.0` will target the image source commit as the release reference,
+created by strategy post-merge, and the GitHub Release follows that tag).
 
 Each numeric objective is one PR. Follow-up letters amend the same PR until the
 strategic agent is satisfied and all required CI is green.

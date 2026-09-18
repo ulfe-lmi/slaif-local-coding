@@ -51,7 +51,7 @@ trigger.
 | Field | Class values |
 | --- | --- |
 | `gateway.route_backend` | `direct_upstream` (pre-cutover route target, captured at step 1) \| `adapter_loopback_18031` |
-| `gateway.authority_sha` | the exact Gateway authority SHA/version pinned for the cutover (current pinned peer, re-pinned by Objective 012 on 2026-09-17: `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`, gateway default-branch main at that order time; the three contract source files are byte-identical between the old and new pins) |
+| `gateway.authority_sha` | the exact Gateway authority SHA/version pinned for the cutover: the FROZEN 0.1.0 release compatibility authority `08ca421bee1ddca62078302b910e8be88cf705be` (see the "Gateway compatibility authority (frozen for 0.1.0)" section of `docs/RELEASE-ARTIFACT-POLICY.md`); history: the current pinned peer, re-pinned by Objective 013-b on 2026-09-17 (gateway default-branch main at that order time; the three contract source files are byte-identical between all pins, including the 012 pin `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`) |
 | `gateway.signed_contract` | `true` — the Codex route carries `identity_mode = "signed_identity_v1"` with the pinned replay mode (continuously tested by the `gateway-contract` CI) |
 
 The Gateway deployment requirement for the supported topology
@@ -326,5 +326,9 @@ report the exact sanitized failure class.
 No step above was executed. No protected service, Gateway deployment, Codex
 profile, firewall/VPN/network state, systemd production unit, public
 binding, or release state was mutated by Objective 010. The manifest
-records `deployment-qualified (disposable environment only)`,
-`cutover not performed`, and `not released`.
+records `deployment-qualified (disposable environment only)` and
+`cutover not performed`; the MVP 0.1.0 registry-only GHCR publication has
+since been performed (Objective 013, round 013-b; the digest and the
+image-source commit are recorded in `packaging/release_record.json`), but
+the cutover remains NOT performed and no real deployment is yet
+evidenced.

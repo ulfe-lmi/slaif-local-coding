@@ -23,12 +23,37 @@ LAN-visible installation law, and release-readiness closure** —
 deployment-qualified (disposable/CI environments only). Objective 012
 (2026-09-17) re-pinned the current Gateway peer to
 `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` (contract surface byte-identical,
-proven at the blob level), regenerated the release provenance manifest (the
-current artifact record is `packaging/release_provenance_manifest.json` —
-wheel `fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`;
-the sdist is developer-only and its hash is manifest-recorded; per
-`RELEASE-ARTIFACT-POLICY.md`), and closed the post-011 documentation
-drift. **Cutover NOT performed; NOT released.**
+proven at the blob level), regenerated the release provenance manifest
+(wheel `fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`,
+the 012 record; the sdist is developer-only and its hash is manifest-recorded;
+per `RELEASE-ARTIFACT-POLICY.md`), and closed the post-011 documentation
+drift. Objective 013 (PR #15, open as of this writing) is the MVP
+**publication closure**: the 013-a round completed the implementation
+(pull-based canonical compose, activated `workflow_dispatch`-only release
+workflow, `docker-published` CI gate, schema-v3 state-aware provenance),
+CI-verified at its head, and held publication at its R18 Gateway-peer rule
+(exact delta in the OAP report); the 013-b round re-qualified and re-pinned
+the current Gateway peer to
+`08ca421bee1ddca62078302b910e8be88cf705be` (contract surface byte-identical
+to the 012 pin, proven at the blob level — the 0.1.0 release compatibility
+authority is FROZEN at that pinned commit; see the "Gateway compatibility
+authority (frozen for 0.1.0)" section of
+[RELEASE-ARTIFACT-POLICY.md](RELEASE-ARTIFACT-POLICY.md)) and **completed
+the
+publication**: the MVP `0.1.0` image is RELEASED on
+`ghcr.io/ulfe-lmi/slaif-local-coding` with tags `0.1.0` and `sha-<S>`
+(`S` = the image source commit, the final implementation head of PR #15;
+both tags resolve to one registry digest `D`), with `D` and `S` recorded in
+`packaging/release_record.json` and the schema-v3 provenance manifest
+(current artifact record — release wheel
+`879baa3ad19e0f513090add965d267957d27f7bcd904d1e225586d76126f8b19`; the sdist is developer-only and its hash is manifest-recorded), the
+**pull-based Docker installation is the canonical operator path** (no local
+build, no Python/uv/venv on the install host), and the published image is
+CI-verified by the `docker-published` job. The Git tag `v0.1.0` targets `S`
+as the release reference (strategic post-merge act; the GitHub Release
+follows the tag). Publication is registry-only: **cutover NOT performed; no
+real deployment yet evidenced; Docker qualification remains
+deployment-qualified (disposable/CI environments only).**
 
 Identifier note: the original planned meanings of numeric objectives 006–008
 in this file (for example "SME package") are **historical planning prose, not
