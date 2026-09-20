@@ -247,6 +247,13 @@ def render_handoff(record: dict) -> str:
         "- Build environment (enforced pins): "
         + ", ".join(f"{k}=={v}" for k, v in sorted(record["build_environment"].items()))
     )
+    lines.append(
+        "- Build toolchain: "
+        + ", ".join(f"{k} `{v}`" for k, v in sorted(record["build_toolchain"].items()))
+    )
+    for stage in sorted(record["base_images"]):
+        fact = record["base_images"][stage]
+        lines.append(f"- Base image ({stage}): `{fact['name']}@{fact['digest']}`")
     lines.append(f"- Private registry auth required: `{record['private_registry_auth_required']}`")
     lines.append(
         f"- Final public release: `{record['final_public_release']}` (remains false; "
@@ -273,6 +280,14 @@ def render_handoff(record: dict) -> str:
         "`packages: read` keyword). Credentials via stdin only, never literal:"
     )
     lines.append("")
+    lines.append(
+        f"Exact-source retrieval (Compose/config): "
+        f"https://github.com/ulfe-lmi/slaif-local-coding/blob/{source}/INSTALL.md — "
+        "retrieve the Compose and configuration files it references at this SAME "
+        "literal image source commit (their hashes are the record's "
+        "`source_input_hashes`, mechanically verified)."
+    )
+    lines.append("")
     lines.append("```bash")
     lines.append(
         'echo "$SLAIF_GHCR_TOKEN" | docker login ghcr.io -u "$SLAIF_GHCR_USERNAME" --password-stdin'
@@ -291,9 +306,10 @@ def render_handoff(record: dict) -> str:
     lines.append(f'docker pull "{reference}:{tags[0]}"')
     lines.append(
         f'docker image inspect "{reference}:{tags[0]}" '
-        "--format '{{{{range .RepoDigests}}}}{{{{.}}}}{{{{end}}}}'"
+        "--format '{{range .RepoDigests}}{{.}}{{end}}'"
     )
     lines.append(f"# must contain {reference}@{digest}")
+    # f-string: doubled braces escape to the literal Go-template braces.
     lines.append(
         f"docker image inspect \"{reference}@{digest}\" --format '{{{{json .Config.Labels}}}}'"
     )

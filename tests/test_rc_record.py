@@ -268,11 +268,53 @@ def test_render_handoff_is_deterministic_and_self_contained(
         "read:packages",
     ):
         assert literal in first, f"handoff missing literal fact {literal!r}"
+    # Order 013-l, L2: the already-present record facts are rendered.
+    for literal in (
+        "Build toolchain: backend `hatchling==1.32.0`, python `3.12`, uv `0.12.5`",
+        f"- Base image (uv-provider): `{UV_IMAGE}`",
+        f"- Base image (build): `{PYTHON_IMAGE}`",
+        f"- Base image (runtime): `{PYTHON_IMAGE}`",
+        f"https://github.com/ulfe-lmi/slaif-local-coding/blob/{SOURCE}/INSTALL.md",
+    ):
+        assert literal in first, f"handoff missing literal fact {literal!r}"
     # No OAP knowledge, no benchmark procedure, no image rebuild.
     assert "OAP" not in first
     assert "objective" not in first.lower()
     assert "benchmark" in first.lower()  # only the explicit "NOT a benchmark" denial
     assert "uv build" not in first
+
+
+def test_render_handoff_emits_valid_docker_template_commands(
+    rc_mod: types.ModuleType, generator: types.ModuleType, repo: Path
+) -> None:
+    """Order 013-l, L2: the rendered retrieval commands must be LITERAL valid
+    Docker Go-template invocations (the pre-fix renderer emitted quadruple
+    braces in the plain RepoDigests format string, making the command
+    invalid)."""
+    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42)
+    rendered = rc_mod.render_handoff(record)
+    lines = rendered.splitlines()
+    expected_repodigests = (
+        'docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1" '
+        "--format '{{range .RepoDigests}}{{.}}{{end}}'"
+    )
+    assert expected_repodigests in lines, (
+        f"RepoDigests command not literally rendered; lines near match: "
+        f"{[line for line in lines if 'RepoDigests' in line and 'format' in line]}"
+    )
+    expected_labels = (
+        f"docker image inspect "
+        f'"ghcr.io/ulfe-lmi/slaif-local-coding@{DIGEST}" '
+        "--format '{{json .Config.Labels}}'"
+    )
+    assert expected_labels in lines, (
+        f"label-inspect command not literally rendered; lines near match: "
+        f"{[line for line in lines if 'Config.Labels' in line]}"
+    )
+    # No quadruple-brace artifact may survive anywhere in the handoff.
+    assert "{{{{" not in rendered
+    # Both template commands use exactly the two-brace Go form.
+    assert rendered.count("--format '{{") == 2
 
 
 def test_frozen_identity_law_record_and_handoff(rc_mod: types.ModuleType, repo: Path) -> None:

@@ -23,7 +23,7 @@ final release — a published RC must never imply final_public_release=true:
   `published: false`, `rc_published: false`, `final_public_release: false`,
   `candidate.state: pre_freeze`, reserved RC tag convention.
 - RC-published: `packaging/rc_record.json` present (schema
-  slaif-rc-record-v1, strictly validated); the recorded RC digest,
+  slaif-rc-record-v2, strictly validated); the recorded RC digest,
   `rc_published: true`, `candidate.state: rc_published`, the RC candidate
   qualification label, RC tag convention; `final_public_release` REMAINS
   false.
@@ -77,7 +77,7 @@ from source_input_map import map_from_directory, map_from_git_commit  # noqa: E4
 
 SCHEMA_NAME = "slaif-release-provenance-v5"
 SCHEMA_VERSION = 5
-OBJECTIVE = "013-k"
+OBJECTIVE = "013-l"
 RELEASE_RECORD_PATH = Path("packaging/release_record.json")
 RC_RECORD_PATH = Path("packaging/rc_record.json")
 RELEASE_RECORD_KEYS = {

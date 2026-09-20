@@ -246,9 +246,11 @@ image.
 
 ## Publication (RC candidate machinery)
 
-Registry publication is a **separate later round** (the exact reviewed
-source commit must first be reviewable; this round performs zero registry
-writes). The machinery (order 013-i; completed by order 013-j, J1) is:
+Registry publication is a **separate, explicitly authorized later round**:
+the exact reviewed source commit must first be reviewable, and a
+publication round performs registry writes only under its own explicit
+authorization — a source round performs zero registry writes by definition.
+The machinery (order 013-i; completed by order 013-j, J1) is:
 
 - The `workflow_dispatch`-only `release-image.yml` publishes the explicit
   **RC candidate identity `0.1.0-rc1`** (the EXACT expected identity; the
@@ -296,9 +298,16 @@ writes). The machinery (order 013-i; completed by order 013-j, J1) is:
   source/wheel/peer/topology labels and configuration identities, and
   exercises the existing signed-ingress / fail-closed / readiness /
   no-build / teardown assertions on the PULLED digest on disposable CI.
-  Before an RC exists it reports the explicit pre-publication NOT RUN
-  state; an invalid record or an inaccessible recorded image FAILS (it
-  never silently skips).
+  Before the prepublication gate it records a READ-ONLY authenticated
+  registry baseline with the same ephemeral `packages: read` token (the
+  existing strict resolver: `digest` / verified-`absent` /
+  `unauthorized` — inaccessible is never reported as absent) for the
+  historical `0.1.0`, the two recorded `sha-` tags, and `0.1.0-rc1`, so a
+  source round yields the before state and a published round the after
+  evidence (order 013-l, L3). Before an RC exists the qualification
+  itself reports the explicit pre-publication NOT RUN state; an invalid
+  record or an inaccessible recorded image FAILS (it never silently
+  skips).
 - No other artifact is published by this repository (no PyPI, no sdist
   publication). Publication-adjacent acts remain separate
   human-authorized/strategic acts: any final Git tag, any GitHub Release,

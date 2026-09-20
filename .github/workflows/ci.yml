@@ -138,10 +138,16 @@ jobs:
             --failclosed-port 18034
 
       # Order 013-a, workstream E: PUBLISHED-image gate, RC-adapted by order
-  # 013-i (D14/D15). The RC package is PRIVATE: the job authenticates with
-  # least-privilege packages:read (GITHUB_TOKEN), consumes the RC record
-  # (packaging/rc_record.json, schema slaif-rc-record-v1) or, later, the
-  # final release record (packaging/release_record.json), verifies the
+  # 013-i (D14/D15). Order 013-l, L3: the job FIRST records a READ-ONLY
+  # authenticated registry baseline (the ephemeral packages:read token, the
+  # existing strict resolver: digest / verified-absent / unauthorized are
+  # distinct; inaccessible is never reported as absent) for the historical
+  # 0.1.0, the two recorded sha- tags, and 0.1.0-rc1 — BEFORE the
+  # prepublication gate — so a source round yields the before state and a
+  # published round yields the after evidence. The job then authenticates
+  # with least-privilege packages:read (GITHUB_TOKEN), consumes the RC
+  # record (packaging/rc_record.json, schema slaif-rc-record-v2) or, later,
+  # the final release record (packaging/release_record.json), verifies the
   # registry digest, source/wheel/peer/topology labels and configuration
   # identities, then exercises the existing signed-ingress/fail-closed/
   # readiness/no-build/teardown assertions on the PULLED digest on
@@ -161,6 +167,76 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # Order 013-l, L3: READ-ONLY authenticated registry baseline with the
+      # job's ephemeral packages:read token, executed BEFORE the
+      # prepublication gate (the gate skips every later step while no
+      # publication record exists, so this is the only place a source round
+      # can record registry truth). Reuses the existing strict resolver
+      # (scripts/ghcr_tag_check.tag_digest_strict): digest / verified-absent
+      # / unauthorized are distinct outcomes — inaccessible is never
+      # reported as absent. No tag mutation, no credential printing, no new
+      # token, no new workflow or service.
+      - name: Read-only registry baseline (ephemeral packages:read token)
+        env:
+          SLAIF_GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 - "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.error
+          import urllib.request
+
+          sys.path.insert(0, "scripts")
+          import ghcr_tag_check as registry  # noqa: E402
+
+          out = sys.argv[1]
+          token = os.environ.get("SLAIF_GHCR_TOKEN") or None
+          repo = "ulfe-lmi/slaif-local-coding"
+          tags = (
+              "0.1.0",
+              "sha-fe334e87c9f0fc65d1826cf9af7dad7e9f70a94a",
+              "sha-be3c78b2016d5d40ce9155df8f94d14525c43d39",
+              "0.1.0-rc1",
+          )
+          lines = []
+          for tag in tags:
+              status, digest = registry.tag_digest_strict(repo, tag, token)
+              value = f"digest:{digest}" if status == "digest" else status
+              name = "tag_" + re.sub(r"[^0-9A-Za-z_-]", "_", tag)
+              lines.append(f"{name}={value}")
+              print(f"registry baseline {tag} -> {value}")
+          # Package visibility with the SAME credential, if available
+          # (packages:read grants the container-package listing API);
+          # otherwise the exact access limitation is recorded.
+          visibility = "inaccessible"
+          request = urllib.request.Request(
+              "https://api.github.com/orgs/ulfe-lmi/packages?package_type=container",
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/vnd.github+json",
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  packages = json.load(response)
+              matches = [
+                  pkg for pkg in packages if pkg.get("name") == "slaif-local-coding"
+              ]
+              if matches:
+                  visibility = str(matches[0].get("visibility"))
+              else:
+                  visibility = "package-not-listed"
+          except urllib.error.HTTPError as exc:
+              visibility = f"inaccessible (HTTP {exc.code})"
+          except Exception as exc:  # noqa: BLE001 - exact transport-failure evidence
+              visibility = f"inaccessible ({type(exc).__name__})"
+          lines.append(f"visibility={visibility}")
+          print(f"package visibility -> {visibility}")
+          with open(out, "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
       - name: Publication gate (RC record, else final record, else explicit NOT RUN)
         id: gate
         run: |
