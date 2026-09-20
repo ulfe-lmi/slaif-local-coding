@@ -207,37 +207,33 @@ jobs:
               name = "tag_" + re.sub(r"[^0-9A-Za-z_-]", "_", tag)
               lines.append(f"{name}={value}")
               print(f"registry baseline {tag} -> {value}")
-          # Package visibility with the SAME credential, if available
-          # (packages:read grants the container-package listing API);
-          # otherwise the exact access limitation is recorded.
-          visibility = "inaccessible"
+          # Package visibility via the DIRECT container-package endpoint
+          # (order 013-m, M3), with the SAME credential and an explicit
+          # supported GitHub API version: the legacy org package-list
+          # endpoint targets the legacy docker registry, not GHCR, so its
+          # empty list cannot establish GHCR package visibility. The
+          # visibility is recorded when the package object is returned;
+          # otherwise the exact nonsecret status is recorded as a
+          # limitation (a denied optional visibility query is not a repair
+          # loop).
+          visibility = "unavailable"
           request = urllib.request.Request(
-              "https://api.github.com/orgs/ulfe-lmi/packages?package_type=docker",
+              "https://api.github.com/orgs/ulfe-lmi/packages/container/slaif-local-coding",
               headers={
                   "Authorization": f"Bearer {token}",
                   "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
               },
           )
           try:
               with urllib.request.urlopen(request, timeout=60) as response:
-                  packages = json.load(response)
-              matches = [
-                  pkg
-                  for pkg in packages
-                  if pkg.get("name")
-                  in ("slaif-local-coding", "ulfe-lmi/slaif-local-coding")
-              ]
-              if matches:
-                  visibility = str(matches[0].get("visibility"))
-              else:
-                  visibility = "package-not-listed"
+                  package = json.load(response)
+              visibility = str(package.get("visibility"))
           except urllib.error.HTTPError as exc:
-              visibility = f"inaccessible (HTTP {exc.code})"
+              visibility = f"unavailable (HTTP {exc.code})"
           except Exception as exc:  # noqa: BLE001 - exact transport-failure evidence
-              visibility = f"inaccessible ({type(exc).__name__})"
-          lines.append(f"packages_listed={len(packages)}")
+              visibility = f"unavailable ({type(exc).__name__})"
           lines.append(f"visibility={visibility}")
-          print(f"packages listed (docker, org) -> {len(packages)}")
           print(f"package visibility -> {visibility}")
           with open(out, "a", encoding="utf-8") as handle:
               handle.write("\n".join(lines) + "\n")

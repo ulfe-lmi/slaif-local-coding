@@ -77,7 +77,7 @@ from source_input_map import map_from_directory, map_from_git_commit  # noqa: E4
 
 SCHEMA_NAME = "slaif-release-provenance-v5"
 SCHEMA_VERSION = 5
-OBJECTIVE = "013-l"
+OBJECTIVE = "013-m"
 RELEASE_RECORD_PATH = Path("packaging/release_record.json")
 RC_RECORD_PATH = Path("packaging/rc_record.json")
 RELEASE_RECORD_KEYS = {

@@ -4,8 +4,9 @@
 # wheel; the runtime stage contains NO repository source checkout (no src/,
 # no .git, no oap/, no tests/, no references/, no caches, no placeholder
 # files) — only the non-editable wheel install, its frozen locked
-# dependencies, the built wheel artifact (for the in-image provenance proof),
-# and the dedicated non-root runtime user.
+# dependencies, the built wheel artifact and the frozen runtime closure
+# export (both for the in-image provenance proof), and the dedicated
+# non-root runtime user.
 #
 # Every base image is pinned: the build stage by immutable version tag plus
 # digest, the runtime stage by digest (B1: no unpinned floating base tags
@@ -27,6 +28,14 @@ WORKDIR /build
 COPY pyproject.toml uv.lock LICENSE NOTICE README.md ./
 COPY src/ src/
 RUN uv build --wheel --out-dir /build/wheel
+# Order 013-m, M1: export the FROZEN runtime closure from the SAME committed
+# uv.lock (uv export reads the lock; no re-resolution). The file records the
+# exact name==version pins — plus their PEP 508 environment markers — for
+# the supported Linux amd64 / CPython 3.12 image. The in-image provenance
+# gate compares the actually installed distributions against this file;
+# missing, wrong-version, or unexpected distributions fail closed.
+RUN uv export --frozen --no-dev --no-emit-project --no-hashes \
+        --output-file /build/wheel/requirements-runtime-frozen.txt
 
 # --- Runtime stage: pinned by digest, wheel-based, non-root ---------------
 FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS runtime
@@ -59,23 +68,30 @@ LABEL org.opencontainers.image.source="https://github.com/ulfe-lmi/slaif-local-c
       slaif-local-coding.qualification="${SLAIF_QUALIFICATION_LABEL}" \
       slaif-local-coding.wheel.sha256="${SLAIF_WHEEL_SHA256}"
 
-# Runtime dependencies resolved from the committed uv.lock (frozen), then the
-# built wheel installed NON-EDITABLE from the artifact (no repository source
-# remains in this stage). The uv build cache is confined to /build and wiped
-# by the same RUN: the runtime stage contains NO caches.
+# Runtime dependencies resolved from the committed uv.lock (frozen) into the
+# EXPLICIT runtime venv /opt/slaif/venv (order 013-m, M1: `--active` syncs
+# the environment named by VIRTUAL_ENV — a plain `uv sync` would create and
+# fill the project .venv instead), then the built wheel installed
+# NON-EDITABLE from the artifact WITHOUT a second dependency resolution
+# (--no-deps: the frozen closure already installed every wheel dependency).
+# No repository source remains in this stage; the uv build cache is confined
+# to /build and wiped by the same RUN: the runtime stage contains NO caches.
 COPY --from=build /usr/local/bin/uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock /build/
 WORKDIR /build
 ENV UV_CACHE_DIR=/build/uv-cache
 RUN uv venv /opt/slaif/venv \
- && VIRTUAL_ENV=/opt/slaif/venv uv sync --frozen --no-dev --no-install-project \
+ && VIRTUAL_ENV=/opt/slaif/venv uv sync --frozen --no-dev --no-install-project --active \
  && rm -rf /build
 
 # The built wheel is retained inside the image solely for the mechanical
 # in-image provenance proof (B8: its SHA-256 must equal the provenance
-# manifest wheel hash); it is not executed from this path.
+# manifest wheel hash); it is not executed from this path. The frozen
+# runtime closure export (order 013-m, M1) is the in-image gate's expected
+# dependency set.
 COPY --from=build /build/wheel/slaif_local_coding-0.1.0-py3-none-any.whl /opt/slaif/artifacts/
-RUN uv pip install --python /opt/slaif/venv/bin/python \
+COPY --from=build /build/wheel/requirements-runtime-frozen.txt /opt/slaif/artifacts/
+RUN uv pip install --python /opt/slaif/venv/bin/python --no-deps \
         /opt/slaif/artifacts/slaif_local_coding-0.1.0-py3-none-any.whl \
  && chown -R slaif:slaif /opt/slaif \
  && rm -rf /build

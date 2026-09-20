@@ -31,9 +31,24 @@ and an sdist containing the entire working tree (including OAP transcripts).
   env/secret material, no host-specific paths, no credential values —
   mechanically asserted by the `docker` CI job image content scan, the
   local disposable run, and the `docker-published` CI job for the PULLED
-  image). The image is bound to
+  image). The runtime stage installs the frozen locked dependencies into
+  the EXPLICIT runtime venv `/opt/slaif/venv` (a `uv sync --frozen` run
+  with `--active` targeting the `VIRTUAL_ENV` environment, order 013-m,
+  M1: a plain `uv sync` would create and fill a project `.venv` instead)
+  and installs the built wheel with `--no-deps`, so no second dependency
+  resolution can drift the runtime from `uv.lock`. The image is bound to
   the committed artifact: the in-image retained wheel hash must equal the
-  provenance-manifest wheel hash (B8/C2). The publication path is
+  provenance-manifest wheel hash (B8/C2), and the in-image provenance
+  gate additionally compares the ACTUALLY installed runtime distributions
+  (observed in-image via `importlib.metadata`) against the frozen lock
+  closure exported from the committed `uv.lock` in the build stage plus
+  the product wheel — missing, wrong-version, or unexpected
+  distributions fail the gate in both the `docker` build qualification
+  and the `docker-published` pulled-digest qualification (order 013-m,
+  M1). The hardening/label phase asserts the ACTUAL image
+  `Os`/`Architecture` from `docker image inspect` (built tag or pulled
+  digest) against the supported platform in both modes (order 013-m,
+  M2). The publication path is
   ACTIVATED and adapted for the RC candidate (order 013-i): the
   `workflow_dispatch`-only `release-image.yml` publishes the explicit
   candidate identity `0.1.0-rc1` + `sha-<S>` to the **private** GHCR
@@ -304,7 +319,14 @@ The machinery (order 013-i; completed by order 013-j, J1) is:
   `unauthorized` — inaccessible is never reported as absent) for the
   historical `0.1.0`, the two recorded `sha-` tags, and `0.1.0-rc1`, so a
   source round yields the before state and a published round the after
-  evidence (order 013-l, L3). Before an RC exists the qualification
+  evidence (order 013-l, L3); the GHCR package visibility is read via
+  the DIRECT container-package endpoint with the same token and an
+  explicit supported GitHub API version (the legacy org package-list
+  endpoint targets the legacy docker registry and its empty list cannot
+  establish GHCR visibility) — the visibility is recorded when the
+  package object is returned, otherwise the exact nonsecret status is
+  recorded as a limitation (order 013-m, M3). Before an RC exists the
+  qualification
   itself reports the explicit pre-publication NOT RUN state; an invalid
   record or an inaccessible recorded image FAILS (it never silently
   skips).

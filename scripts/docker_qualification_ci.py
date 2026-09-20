@@ -20,8 +20,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.util
+import inspect
 import json
 import os
+import platform
 import re
 import secrets
 import shutil
@@ -45,6 +47,11 @@ RC_RECORD = Path("packaging") / "rc_record.json"
 TOPOLOGY_MODE_LABEL = (
     "linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress"
 )
+# The single supported image platform (order 011-a; the RC record v2
+# declares it and the strict loader enforces equality with this value).
+SUPPORTED_IMAGE_PLATFORM = "linux/amd64"
+# The build-stage frozen runtime closure export, checked in-image (M1).
+FROZEN_RUNTIME_CLOSURE_PATH = "/opt/slaif/artifacts/requirements-runtime-frozen.txt"
 RECORD_KEYS = {
     "schema",
     "version",
@@ -97,6 +104,272 @@ def _container_identity() -> tuple[int, int]:
     if uid is None or gid is None:
         raise QualificationError("container_identity", "dockerfile_arg_missing")
     return uid, gid
+
+
+def _slaif_canonical_name(name: str) -> str:
+    """PEP 503 canonical distribution name (stdlib only)."""
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _slaif_parse_frozen_pins(text: str) -> dict[str, tuple[str, str | None]]:
+    """Parse `uv export` requirements text into
+    canonical name -> (version, marker-or-None).
+
+    Fail-closed (order 013-m, M1): only blank lines, `#` comment lines, and
+    plain `name==version` lines — optionally followed by `; <PEP 508
+    environment marker>` — are accepted. Options, URLs, extras, a missing
+    version, an empty marker, a duplicate name, or an empty file raise
+    ValueError instead of being skipped or guessed.
+    """
+    pin_line = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([0-9][0-9A-Za-z.!+*-]*)$")
+    pins: dict[str, tuple[str, str | None]] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        spec, sep, marker = line.partition(";")
+        match = pin_line.fullmatch(spec.strip())
+        if match is None:
+            raise ValueError(f"malformed frozen pin line: {line!r}")
+        if sep and not marker.strip():
+            raise ValueError(f"malformed frozen pin line (empty marker): {line!r}")
+        name = _slaif_canonical_name(match.group(1))
+        if name in pins:
+            raise ValueError(f"duplicate frozen pin: {name!r}")
+        pins[name] = (match.group(2), marker.strip() if sep else None)
+    if not pins:
+        raise ValueError("frozen pin file is empty")
+    return pins
+
+
+def _slaif_marker_applies(marker: str, env: dict[str, str] | None = None) -> bool:
+    """Evaluate a PEP 508 environment marker for the running interpreter.
+
+    Closed grammar (order 013-m, M1; fail-closed): `and`-joined clauses
+    `<variable> <op> <literal>` with op in {==, !=, <, <=, >, >=}, variable
+    from a fixed set, literal a single-quoted string or dotted version.
+    Version-like variables compare as zero-padded integer version tuples
+    (a quoted version string is accepted for them, per PEP 508); anything
+    outside the closed grammar raises ValueError instead of guessing.
+    """
+    if env is None:
+        env = {
+            "sys_platform": sys.platform,
+            "os_name": os.name,
+            "platform_system": platform.system(),
+            "platform_machine": platform.machine(),
+            "platform_release": platform.release(),
+            "platform_version": platform.version(),
+            "python_version": f"{sys.version_info[0]}.{sys.version_info[1]}",
+            "python_full_version": ".".join(str(part) for part in sys.version_info[:3]),
+            "implementation_name": sys.implementation.name,
+        }
+    version_vars = {"python_version", "python_full_version"}
+
+    def _literal(token: str) -> str | tuple[int, ...]:
+        if len(token) >= 2 and token.startswith("'") and token.endswith("'"):
+            content = token[1:-1]
+            if "'" in content:
+                raise ValueError(f"unsupported marker literal: {token!r}")
+            return content
+        parts = token.split(".")
+        if parts and all(part.isdigit() for part in parts):
+            return tuple(int(part) for part in parts)
+        raise ValueError(f"unsupported marker literal: {token!r}")
+
+    def _version_tuple(value: str, var: str) -> tuple[int, ...]:
+        parts = value.split(".")
+        if not parts or not all(part.isdigit() for part in parts):
+            raise ValueError(f"version variable {var!r} requires a version literal: {value!r}")
+        return tuple(int(part) for part in parts)
+
+    def _compare(var: str, op: str, actual: str, expected: str | tuple[int, ...]) -> bool:
+        if var in version_vars:
+            right = expected if isinstance(expected, tuple) else _version_tuple(expected, var)
+            left = _version_tuple(actual, var)
+            width = max(len(left), len(right))
+            left = left + (0,) * (width - len(left))
+            right = right + (0,) * (width - len(right))
+            if op == "==":
+                return left == right
+            if op == "!=":
+                return left != right
+            if op == "<":
+                return left < right
+            if op == "<=":
+                return left <= right
+            if op == ">":
+                return left > right
+            return left >= right
+        if isinstance(expected, tuple):
+            raise ValueError(f"string variable {var!r} requires a string literal")
+        if op in {"<", "<=", ">", ">="}:
+            raise ValueError(f"ordering operator on non-version variable {var!r}")
+        if op == "==":
+            return actual == expected
+        return actual != expected
+
+    for clause in marker.split(" and "):
+        clause = clause.strip()
+        matched = False
+        for op in ("==", "!=", "<=", ">=", "<", ">"):
+            needle = f" {op} "
+            idx = clause.find(needle)
+            if idx == -1:
+                continue
+            var = clause[:idx].strip()
+            if var not in env:
+                raise ValueError(f"unsupported marker variable: {var!r}")
+            expected = _literal(clause[idx + len(needle) :].strip())
+            if not _compare(var, op, env[var], expected):
+                return False
+            matched = True
+            break
+        if not matched:
+            raise ValueError(f"unsupported marker clause: {clause!r}")
+    return True
+
+
+def _slaif_evaluate_runtime_closure(
+    pins: dict[str, tuple[str, str | None]],
+    installed: dict[str, str],
+    product_name: str,
+    product_version: str,
+) -> dict:
+    """Compare installed distributions against the frozen lock closure.
+
+    Fail-closed (order 013-m, M1): a pin applicable on this platform must be
+    installed at exactly its locked version; a pin whose marker does not
+    apply must NOT be installed; every installed distribution must be
+    explained by the closure or be the product wheel itself; the product
+    distribution must be present at the recorded version. Returns the
+    bounded facts (missing/wrong-version/unexpected maps are empty exactly
+    when the closure holds).
+    """
+    product = _slaif_canonical_name(product_name)
+    applicable: dict[str, str] = {}
+    for name in sorted(pins):
+        version, marker = pins[name]
+        if marker is None or _slaif_marker_applies(marker):
+            applicable[name] = version
+    missing = {name: version for name, version in applicable.items() if name not in installed}
+    wrong_version = {
+        name: {"installed": installed[name], "expected": version}
+        for name, version in applicable.items()
+        if name in installed and installed[name] != version
+    }
+    unexpected = {
+        name: version
+        for name, version in installed.items()
+        if name not in applicable and name != product
+    }
+    product_ok = installed.get(product) == product_version
+    return {
+        "ok": not (missing or wrong_version or unexpected) and product_ok,
+        "pinned_count": len(pins),
+        "applicable_count": len(applicable),
+        "installed_count": len(installed),
+        "installed": dict(sorted(installed.items())),
+        "missing": dict(sorted(missing.items())),
+        "wrong_version": {key: wrong_version[key] for key in sorted(wrong_version)},
+        "unexpected": dict(sorted(unexpected.items())),
+        "product_ok": product_ok,
+    }
+
+
+_RUNTIME_VENV_AUDIT_DRIVER = """
+import hashlib
+import importlib.metadata as md
+import json
+import os
+import pathlib
+import platform
+import re
+import sys
+import slaif_local_coding as m
+
+dist = md.distribution("slaif-local-coding")
+assert dist.version == "0.1.0", dist.version
+loc = m.__file__
+assert "/site-packages/slaif_local_coding/" in loc, loc
+wheel = "/opt/slaif/artifacts/slaif_local_coding-0.1.0-py3-none-any.whl"
+wheel_sha256 = hashlib.sha256(open(wheel, "rb").read()).hexdigest()
+pins_text = pathlib.Path("__FROZEN_RUNTIME_CLOSURE_PATH__").read_text(encoding="utf-8")
+pins = _slaif_parse_frozen_pins(pins_text)
+installed = {}
+for distribution in md.distributions():
+    installed[_slaif_canonical_name(distribution.metadata["Name"] or "")] = distribution.version
+closure = _slaif_evaluate_runtime_closure(pins, installed, "slaif-local-coding", "0.1.0")
+if not closure["ok"]:
+    print(json.dumps(closure, sort_keys=True))
+    raise SystemExit(1)
+print(
+    json.dumps(
+        {
+            "version": dist.version,
+            "module_path": loc,
+            "wheel_sha256": wheel_sha256,
+            "closure": closure,
+        },
+        sort_keys=True,
+    )
+)
+"""
+
+
+def _runtime_venv_audit_code() -> str:
+    """The in-image runtime provenance + frozen-lock closure audit script
+    (order 013-m, M1).
+
+    The pure closure functions are embedded from their own source, so the
+    image executes exactly the code the local tests exercise. The driver
+    keeps the existing checks (product distribution version, non-editable
+    site-packages path, retained wheel SHA-256) and adds the closure
+    inspection of the ACTUALLY installed distributions against the
+    build-stage export of the committed uv.lock.
+    """
+    functions = "\n\n".join(
+        inspect.getsource(fn)
+        for fn in (
+            _slaif_canonical_name,
+            _slaif_parse_frozen_pins,
+            _slaif_marker_applies,
+            _slaif_evaluate_runtime_closure,
+        )
+    )
+    driver = _RUNTIME_VENV_AUDIT_DRIVER.replace(
+        "__FROZEN_RUNTIME_CLOSURE_PATH__", FROZEN_RUNTIME_CLOSURE_PATH
+    )
+    return functions + driver
+
+
+def _image_os_architecture(image_ref: str, phase: str) -> str:
+    """The ACTUAL image ``Os/Architecture`` via ``docker image inspect``.
+
+    Order 013-m, M2: the order-013-l helper compared the CONTAINER inspect
+    ``Platform`` field (OS-only) to the declared platform, which can never
+    observe the architecture. The image manifest's ``.Os``/``.Architecture``
+    are the real facts and work for both the built tag and the pulled
+    digest reference (``docker image inspect`` on the image, not the
+    container).
+    """
+    proc = _run(
+        [
+            "docker",
+            "image",
+            "inspect",
+            "--format",
+            "{{.Os}}/{{.Architecture}}",
+            image_ref,
+        ],
+        timeout=120,
+    )
+    if proc.returncode != 0:
+        raise QualificationError(phase, "image_platform_inspect_failed", proc.stderr.decode()[:500])
+    observed = proc.stdout.decode().strip()
+    if "/" not in observed:
+        raise QualificationError(phase, "image_platform_unparsed", observed)
+    return observed
 
 
 def _own_for_container(path: Path) -> None:
@@ -743,19 +1016,13 @@ class Qualification:
         }
 
     def _do_in_image_provenance(self) -> dict:
-        code = "\n".join(
-            [
-                "import hashlib,importlib.metadata as md,slaif_local_coding as m",
-                "dist=md.distribution('slaif-local-coding')",
-                "assert dist.version=='0.1.0',dist.version",
-                "loc=m.__file__",
-                "assert '/site-packages/slaif_local_coding/' in loc,loc",
-                "wheel='/opt/slaif/artifacts/slaif_local_coding-0.1.0-py3-none-any.whl'",
-                "d=hashlib.sha256(open(wheel,'rb').read()).hexdigest()",
-                "import json;print(json.dumps({'version':dist.version,'module_path':loc,"
-                "'wheel_sha256':d}))",
-            ]
-        )
+        # Order 013-m, M1: the in-image audit now also inspects the ACTUALLY
+        # installed runtime distributions (importlib.metadata inside the
+        # image) against the frozen lock closure exported from the committed
+        # uv.lock in the build stage, plus the product wheel. Missing,
+        # wrong-version, or unexpected distributions fail the phase in BOTH
+        # build mode (the built tag) and published mode (the pulled digest).
+        code = _runtime_venv_audit_code()
         proc = _run(
             [
                 "docker",
@@ -772,12 +1039,18 @@ class Qualification:
             timeout=180,
         )
         if proc.returncode != 0:
-            raise QualificationError(
-                "in_image_provenance", "import_check_failed", proc.stderr.decode()[:2000]
-            )
+            detail = (proc.stderr.decode() or proc.stdout.decode()).strip()
+            raise QualificationError("in_image_provenance", "import_check_failed", detail[:2000])
         facts = json.loads(proc.stdout.decode().strip().splitlines()[-1])
         if facts["wheel_sha256"] != self.args.wheel_sha256:
             raise QualificationError("in_image_provenance", "wheel_hash_mismatch")
+        closure = facts.get("closure")
+        if not isinstance(closure, dict) or closure.get("ok") is not True:
+            raise QualificationError(
+                "in_image_provenance",
+                "runtime_lock_closure_mismatch",
+                json.dumps(closure, sort_keys=True)[:2000],
+            )
         version_proc = _run(
             [
                 "docker",
@@ -801,6 +1074,13 @@ class Qualification:
             "version": facts["version"],
             "wheel_sha256": facts["wheel_sha256"],
             "non_editable": True,
+            "runtime_lock_closure": {
+                "ok": True,
+                "pinned_count": closure["pinned_count"],
+                "applicable_count": closure["applicable_count"],
+                "installed_count": closure["installed_count"],
+                "installed": closure["installed"],
+            },
         }
 
     def _bridge_run(self, operation: str, endpoint: str) -> dict:
@@ -1167,6 +1447,10 @@ services:
         }
 
     def _do_hardening_and_labels(self) -> dict:
+        # Order 013-m, M2: read the ACTUAL image Os/Architecture (image
+        # inspect, built tag or pulled digest) in BOTH modes; the order-013-l
+        # container-Platform comparison is retired (it was OS-only).
+        image_platform = _image_os_architecture(self.image_ref, "hardening_and_labels")
         proc = _run(["docker", "inspect", _container_name()])
         if proc.returncode != 0:
             raise QualificationError("hardening_and_labels", "inspect_failed")
@@ -1210,7 +1494,6 @@ services:
             tmpfs_map.get("/dev/shm") == "size=256m" or mounts.get("/dev/shm") == "tmpfs"
         )
         labels = config.get("Labels") or {}
-        platform_checks: dict[str, bool] = {}
         if self.mode == "published":
             # Published image: exact release label set bound to the release
             # record (source commit S) and the committed manifest (peer and
@@ -1242,13 +1525,16 @@ services:
                 == expected_qualification_label,
             }
             # The record declares the supported platform (linux/amd64 for the
-            # v2 RC record); the PULLED image must match it (order 013-l, L1).
-            declared_platform = self.record.get("image_platform")
-            if declared_platform is not None:
-                platform_checks = {
-                    "image_platform": info.get("Platform") == declared_platform,
-                }
+            # v2 RC record; the strict loader enforces that value); the
+            # PULLED image must match it (order 013-l, L1, now via the real
+            # image Os/Architecture — order 013-m, M2). The final-record
+            # fallback is the supported platform constant.
+            declared_platform = self.record.get("image_platform") or SUPPORTED_IMAGE_PLATFORM
+            platform_checks = {"image_platform": image_platform == declared_platform}
         else:
+            # Ordinary build qualification asserts the supported platform on
+            # the freshly built image (order 013-m, M2).
+            platform_checks = {"image_platform": image_platform == SUPPORTED_IMAGE_PLATFORM}
             label_checks = {
                 "oci_source": labels.get("org.opencontainers.image.source")
                 == "https://github.com/ulfe-lmi/slaif-local-coding",
@@ -1280,6 +1566,8 @@ services:
                 "read_only_rootfs": host_config.get("ReadonlyRootfs"),
                 "network_mode": host_config.get("NetworkMode"),
                 "restart_policy": host_config.get("RestartPolicy"),
+                "image_platform": image_platform,
+                "image_ref": self.image_ref,
                 "tmpfs": host_config.get("Tmpfs"),
                 "binds": binds,
                 "mounts": {m.get("Destination"): m.get("Type") for m in info.get("Mounts", [])},
@@ -1287,7 +1575,13 @@ services:
             raise QualificationError(
                 "hardening_and_labels", "checks_failed", json.dumps(observed, sort_keys=True)
             )
-        return {**checks, **label_checks, **_docker_versions()}
+        return {
+            **checks,
+            **label_checks,
+            **platform_checks,
+            "image_platform": image_platform,
+            **_docker_versions(),
+        }
 
     def _do_operations_stop_start_recreate_upgrade_rollback(self) -> dict:
         config_path = self.workdir / "slaif-adapter.toml"
