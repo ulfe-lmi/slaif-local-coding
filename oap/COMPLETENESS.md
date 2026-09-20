@@ -1,13 +1,22 @@
-# OAP Completeness — 2026-09-17
+# OAP Completeness — 2026-09-20
 
 Assessment target: the accepted Local Coding implementation (objectives
-000–012, all merged) plus the Objective-013 MVP 0.1.0 publication closure
-(PR #15 open as of this writing: the pull-based canonical compose, the
-activated release workflow, the `docker-published` CI gate, and the
-schema-v3 provenance generator are committed in this PR's head; the registry
-publication is PENDING the R18 Gateway-peer hold — no release record exists
-yet; the Git tag `v0.1.0` targeting the image source commit `S` is a
-strategic post-merge act, and the GitHub Release follows that tag).
+000–012, all merged) plus the Objective-013 release-candidate stabilization
+(PR #15 open as of this writing; current disposition: RC stabilization and
+freeze, public final release DEFERRED to a later human decision). The
+historical 013 rounds (013-a through 013-h) completed the publication
+machinery (pull-based canonical compose, activated `workflow_dispatch`-only
+release workflow, `docker-published` CI gate, state-aware provenance) and
+pushed the historical private tags `0.1.0` + `sha-<S>` to the non-public
+package at one registry digest (registry-only; never published to users;
+the 013-h round ended BLOCKED at anonymous access verification). Order
+013-i freezes the final source for a benchmarkable 0.1.0 RC: documentation
+cleanup, deterministic build pinning, pre-freeze candidate provenance
+(schema v4), the RC artifact record schema/generator, and the RC-safe
+publication machinery (candidate identity `0.1.0-rc1`, private registry,
+fail-closed authenticated tag checks). The RC publication is a separate
+later round bound to the exact reviewed source commit; no Git tag and no
+GitHub Release exist.
 
 ## Merged state (verified against GitHub on 2026-09-17)
 
@@ -26,7 +35,7 @@ strategic post-merge act, and the GitHub Release follows that tag).
 | 010 pre-cutover topology and signed-ingress correctness | PR #12 | `4aa805fdd197938f1f25c9ca034c2e3c3cf2fc87` | implemented and merged; cutover prepare-only, not performed |
 | 011 Docker MVP packaging and release-readiness closure | PR #13 | `e860e0bff687afded7782fb2687b5b435792459a` | Docker-qualified, LAN-visible, documentation-reconciled MVP release candidate; deployment-qualified (disposable/CI environments only); cutover NOT performed; NOT released at that objective's acceptance |
 | 012 current Gateway peer re-pin | PR #14 | `a04693e6792df6a8ad4262acfb46336a0f662202` | implemented and merged; re-pinned the current Gateway peer to `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` at that order time (contract surface byte-identical, proven at the blob level); subsequently re-pinned by Objective 013-b |
-| 013 MVP 0.1.0 GHCR publication and release provenance closure | PR #15 (open as of this writing) | — | 013-a implementation complete and CI-verified (publication held at its R18 Gateway-peer rule); 013-b re-qualified and re-pinned the peer to `08ca421bee1ddca62078302b910e8be88cf705be` (contract surface byte-identical, blob-proven) and completed the publication: MVP 0.1.0 RELEASED on `ghcr.io/ulfe-lmi/slaif-local-coding` with tags `0.1.0` and `sha-<image-source commit>` (one registry digest, recorded in `packaging/release_record.json` and the schema-v3 manifest); pull-based installation is the canonical operator path; the Git tag `v0.1.0` targets the image-source commit as the release reference (strategy post-merge); cutover NOT performed; no real deployment yet evidenced |
+| 013 release-candidate stabilization and 0.1.0 RC freeze (MVP 0.1.0 GHCR publication and release provenance closure; public final release DEFERRED) | PR #15 (open as of this writing) | — | 013-a implementation complete and CI-verified (publication held at its R18 Gateway-peer hold); 013-b re-qualified and re-pinned the peer to `08ca421bee1ddca62078302b910e8be88cf705be` (contract surface byte-identical, blob-proven) and dispatched the publication: the historical PRIVATE tags `0.1.0` and `sha-<image-source commit>` were pushed to the NON-PUBLIC package at one registry digest (recorded in the historical OAP report evidence; `packaging/release_record.json` was never committed); the tags were never published to users and the package was never made public (013-h BLOCKED at anonymous access verification; that acceptance condition is withdrawn by the human private-RC direction). 013-i (current): RC stabilization/freeze — user-facing documentation cleanup (README/QUICKSTART/INSTALL + reconciled docs), deterministic build pinning (`hatchling==1.32.0` proven against the historical source), pre-freeze candidate provenance (schema v4) with RC artifact record schema/generator, RC-safe publication machinery (candidate identity `0.1.0-rc1`, private registry, fail-closed authenticated tag checks, private `docker-published` qualification); RC publication is a separate later round bound to the exact reviewed source commit; historical `0.1.0` tag is legacy unpublished-to-users output, NOT the RC benchmark target; pull-based installation is the canonical operator path (explicit image selection; no silent legacy default); cutover NOT performed; no real deployment yet evidenced |
 
 Identifier note: the original planned meanings formerly associated with numeric
 objectives 006–008 (for example "reproducible SME package/release") are

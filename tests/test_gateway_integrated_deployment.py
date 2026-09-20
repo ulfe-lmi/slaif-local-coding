@@ -393,11 +393,14 @@ COMPOSE_FILE = REPO_ROOT / "compose.yaml"
 DOCKER_INSTALL_DOC = REPO_ROOT / "docs" / "DOCKER-INSTALL.md"
 
 
-def test_compose_is_labeled_canonical_production_docker_path() -> None:
+def test_compose_is_labeled_canonical_operator_docker_path() -> None:
+    # Order 013-i, B7: the canonical label is the operator path (no
+    # production-equivalence claim is made from the fixture-scoped
+    # qualification evidence).
     text = COMPOSE_FILE.read_text(encoding="utf-8")
     header = text.splitlines()[:16]
     assert any("canonical" in line.lower() for line in header)
-    assert any("production" in line.lower() for line in header)
+    assert any("operator" in line.lower() for line in header)
     # host networking law (D2), no published ports, no secret interpolation.
     assert "network_mode: host" in text
     assert "ports:" not in text

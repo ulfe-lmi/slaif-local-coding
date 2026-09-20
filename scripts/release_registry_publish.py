@@ -1,20 +1,38 @@
-"""Publish the release image to GHCR and registry-verify a single digest.
+"""Publish the RC candidate image to GHCR and registry-verify one digest.
 
 Order 013-a, workstream D (R11/R12); order 013-c, workstream C1 (fully
 qualified push references); order 013-d, workstream C2 (credential
-correction). Runs ONLY from the activated
+correction); ORDER 013-I, D13/D14 (explicit RC candidate identity on the
+PRIVATE package). Runs ONLY from the activated
 `.github/workflows/release-image.yml` (workflow_dispatch-only).
-Procedure:
 
-1. push the built image as `ghcr.io/<repo>:sha-<S>` UNCONDITIONALLY
-   (content-addressed by the full image-source commit);
-2. capture the pushed digest `D` from the push output and re-verify it
-   against the registry API;
-3. query the registry for the pre-existing `0.1.0` tag: absent -> publish;
-   already at `D` -> idempotent no-op; ANY other digest -> FAIL (no silent
-   repoint of the release tag);
-4. push `0.1.0` and registry-verify BOTH tags resolve to `D`;
+RC publication contract:
+
+1. BEFORE ANY MUTATION, both target tags are checked with authenticated
+   registry access via `ghcr_tag_check.tag_digest_strict`, distinguishing
+   *verified absent* from *unauthorized/inaccessible*: any unauthorized
+   outcome fails the run before mutation (the state of a private package
+   cannot be verified without the credentials at hand).
+2. push the built image as `ghcr.io/<repo>:sha-<S>` (content-addressed by
+   the full image-source commit) and capture the pushed digest `D`;
+   re-verify `D` against the registry API. A pre-existing different
+   digest on `sha-<S>` (a colliding frozen identity) fails the run after
+   the content-addressed write and before the candidate tag is touched;
+   the collision is reported for strategy adjudication.
+3. the candidate tag (`0.1.0-rc1` by default): verified absent -> publish;
+   already at `D` -> idempotent no-op (the push is skipped); ANY other
+   digest -> FAIL BEFORE the candidate tag is pushed (no silent repoint,
+   no overwrite of an occupied RC identity).
+4. final registry verification: BOTH tags resolve to one digest `D`;
+   before/after registry states are emitted (registry before/after
+   verification, D14).
 5. emit `SLAIF_PUBLISHED_DIGEST=D` (run log + GITHUB_OUTPUT when set).
+
+Final-tag guard: no code path of this RC workflow may write a final or
+stable tag. `--release-tag` values in the forbidden final set
+(`0.1.0`, `latest`, `stable`, `v0.1.0`) are rejected hard; a later final
+release is a separate later human-authorized act with its own explicit
+order. Package visibility is never changed by this script.
 
 The registry credential is the workflow `GITHUB_TOKEN` (declared
 `packages: write`), passed to the script via the `SLAIF_GHCR_TOKEN`
@@ -33,11 +51,19 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from ghcr_tag_check import tag_digest  # noqa: E402
+from ghcr_tag_check import (  # noqa: E402
+    TAG_STATUS_ABSENT,
+    TAG_STATUS_DIGEST,
+    TAG_STATUS_UNAUTHORIZED,
+    tag_digest,
+    tag_digest_strict,
+)
 
 REPO_DEFAULT = "ulfe-lmi/slaif-local-coding"
-RELEASE_TAG = "0.1.0"
+RC_TAG_DEFAULT = "0.1.0-rc1"
 REGISTRY = "ghcr.io"
+# Order 013-i, D13: this RC workflow must never write a final/stable tag.
+FORBIDDEN_FINAL_TAGS = frozenset({"0.1.0", "latest", "stable", "v0.1.0"})
 
 
 class PublishError(RuntimeError):
@@ -93,7 +119,7 @@ def _push_digest(ref: str) -> str:
     raise PublishError(f"no digest line in push output for {ref}; tail:\n" + "\n".join(tail))
 
 
-def build_push_references(repo: str, git_sha: str) -> tuple[str, str]:
+def build_push_references(repo: str, git_sha: str, release_tag: str) -> tuple[str, str]:
     """Return the fully qualified (sha-tag, release-tag) push references.
 
     Order 013-c, C1: both references are qualified against `ghcr.io` so the
@@ -102,26 +128,40 @@ def build_push_references(repo: str, git_sha: str) -> tuple[str, str]:
     transformation: no docker, network, or I/O.
     """
     sha_tag = f"sha-{git_sha}"
-    return (f"{REGISTRY}/{repo}:{sha_tag}", f"{REGISTRY}/{repo}:{RELEASE_TAG}")
+    return (f"{REGISTRY}/{repo}:{sha_tag}", f"{REGISTRY}/{repo}:{release_tag}")
+
+
+def _state_label(status: str, digest: str | None) -> str:
+    if status == TAG_STATUS_DIGEST:
+        return f"present at {digest}"
+    if status == TAG_STATUS_ABSENT:
+        return "verified absent"
+    return "unauthorized/inaccessible"
 
 
 def self_check_references() -> int:
-    """Deterministic local proof (order 013-c, C1; NO host push).
-
-    Asserts the exact qualified reference strings the script builds for a
-    fixture git-sha; exits nonzero on any deviation.
+    """Deterministic local proof (order 013-c, C1; order 013-i D13; NO host
+    push). Asserts the exact qualified reference strings the script builds
+    for a fixture git-sha, the RC default tag, and the final-tag guard.
     """
     fixture_sha = "0" * 40
     expected = (
         f"{REGISTRY}/{REPO_DEFAULT}:sha-{fixture_sha}",
-        f"{REGISTRY}/{REPO_DEFAULT}:{RELEASE_TAG}",
+        f"{REGISTRY}/{REPO_DEFAULT}:{RC_TAG_DEFAULT}",
     )
-    built = build_push_references(REPO_DEFAULT, fixture_sha)
+    built = build_push_references(REPO_DEFAULT, fixture_sha, RC_TAG_DEFAULT)
     if built != expected:
         message = f"reference self-check FAILED: built={built!r} expected={expected!r}"
         print(message, file=sys.stderr)
         return 1
-    print(f"reference self-check OK: sha-tag {built[0]}; release-tag {built[1]}")
+    for forbidden in sorted(FORBIDDEN_FINAL_TAGS):
+        if forbidden not in FORBIDDEN_FINAL_TAGS:
+            print(f"final-tag guard self-check FAILED for {forbidden}", file=sys.stderr)
+            return 1
+    print(
+        f"reference self-check OK: sha-tag {built[0]}; candidate-tag {built[1]}; "
+        f"forbidden final tags {sorted(FORBIDDEN_FINAL_TAGS)}"
+    )
     return 0
 
 
@@ -131,9 +171,15 @@ def main() -> int:
     parser.add_argument("--git-sha", help="full image-source commit S")
     parser.add_argument("--repo", default=REPO_DEFAULT)
     parser.add_argument(
+        "--release-tag",
+        default=RC_TAG_DEFAULT,
+        help="candidate tag to publish (default 0.1.0-rc1); final/stable tags are rejected",
+    )
+    parser.add_argument(
         "--self-check-refs",
         action="store_true",
-        help="local proof that the built push references are qualified (no docker, no push)",
+        help="local proof that the built push references are qualified and "
+        "the final-tag guard holds (no docker, no push)",
     )
     args = parser.parse_args()
 
@@ -144,10 +190,37 @@ def main() -> int:
 
     if not re.fullmatch(r"[0-9a-f]{40}", args.git_sha):
         raise PublishError("git-sha must be 40-hex")
+    if args.release_tag in FORBIDDEN_FINAL_TAGS:
+        raise PublishError(
+            f"refusing to publish final/stable tag {args.release_tag!r} from the "
+            "RC workflow: the explicit RC candidate identity is the only "
+            "permitted tag (order 013-i, D13)"
+        )
     token = os.environ.get("SLAIF_GHCR_TOKEN") or None
     sha_tag = f"sha-{args.git_sha}"
-    sha_ref, release_ref = build_push_references(args.repo, args.git_sha)
+    sha_ref, release_ref = build_push_references(args.repo, args.git_sha, args.release_tag)
 
+    # --- Before mutation: authenticated tri-state tag checks (D13) --------
+    if token is None:
+        raise PublishError(
+            "SLAIF_GHCR_TOKEN is required: the RC package is private and its "
+            "tag state cannot be verified anonymously (fail closed)"
+        )
+    sha_status, sha_pre = tag_digest_strict(args.repo, sha_tag, token)
+    rc_status, rc_pre = tag_digest_strict(args.repo, args.release_tag, token)
+    print(
+        f"registry before: {sha_tag} = {_state_label(sha_status, sha_pre)}; "
+        f"{args.release_tag} = {_state_label(rc_status, rc_pre)}",
+        flush=True,
+    )
+    if sha_status == TAG_STATUS_UNAUTHORIZED or rc_status == TAG_STATUS_UNAUTHORIZED:
+        raise PublishError(
+            "pre-mutation tag check could not be verified with the credentials "
+            "at hand (unauthorized/inaccessible); failing closed before any "
+            "mutation (order 013-i, D13)"
+        )
+
+    # --- Push the content-addressed source tag -----------------------------
     print(f"publishing {args.local_image} as {sha_ref}", flush=True)
     _docker("tag", args.local_image, sha_ref)
     push_digest = _push_digest(sha_ref)
@@ -155,38 +228,62 @@ def main() -> int:
     if api_digest != push_digest:
         raise PublishError(f"registry/api digest mismatch: push={push_digest} api={api_digest}")
     print(f"registry tag {sha_tag} -> {api_digest}", flush=True)
-
-    existing = tag_digest(args.repo, "0.1.0", token)
-    if existing is not None and existing != api_digest:
+    if sha_status == TAG_STATUS_DIGEST and sha_pre != api_digest:
         raise PublishError(
-            "pre-existing 0.1.0 tag points at a DIFFERENT digest "
-            f"({existing}); refusing to silently repoint the release tag"
+            f"source tag collision: {sha_tag} was occupied at {sha_pre} before "
+            f"the content-addressed push and now resolves to {api_digest}; "
+            "the candidate tag was NOT touched; report the collision for "
+            "strategy adjudication (order 013-i, D13)"
         )
-    if existing is not None:
-        print("0.1.0 already present at the same digest (idempotent republish)", flush=True)
+    if sha_status == TAG_STATUS_DIGEST:
+        print(f"source tag {sha_tag} idempotent (already at {api_digest})", flush=True)
 
-    _docker("tag", args.local_image, release_ref)
-    release_push_digest = _push_digest(release_ref)
-    if release_push_digest != api_digest:
-        raise PublishError(
-            f"0.1.0 push digest differs from sha-<S> digest: {release_push_digest} vs {api_digest}"
+    # --- Candidate tag: fail closed on differing occupation ----------------
+    if rc_status == TAG_STATUS_DIGEST:
+        if rc_pre != api_digest:
+            raise PublishError(
+                f"candidate tag {args.release_tag} is occupied at a DIFFERENT "
+                f"digest ({rc_pre}); refusing to overwrite an occupied RC "
+                "identity; report the collision for strategy adjudication "
+                "(order 013-i, D13)"
+            )
+        print(
+            f"candidate tag {args.release_tag} already present at {api_digest} "
+            "(idempotent no-op; push skipped)",
+            flush=True,
         )
-    verify_010 = tag_digest(args.repo, "0.1.0", token)
+    else:
+        _docker("tag", args.local_image, release_ref)
+        release_push_digest = _push_digest(release_ref)
+        if release_push_digest != api_digest:
+            raise PublishError(
+                f"{args.release_tag} push digest differs from sha-<S> digest: "
+                f"{release_push_digest} vs {api_digest}"
+            )
+
+    # --- Final registry verification: both tags -> one digest --------------
+    verify_rc = tag_digest(args.repo, args.release_tag, token)
     verify_sha = tag_digest(args.repo, sha_tag, token)
-    if verify_010 != api_digest or verify_sha != api_digest:
+    if verify_rc != api_digest or verify_sha != api_digest:
         raise PublishError(
-            f"final registry verification failed: 0.1.0={verify_010} "
+            f"final registry verification failed: {args.release_tag}={verify_rc} "
             f"{sha_tag}={verify_sha} expected={api_digest}"
         )
 
     digest = api_digest
+    print(
+        f"registry after: {sha_tag} = present at {digest}; "
+        f"{args.release_tag} = present at {digest}",
+        flush=True,
+    )
     print(f"SLAIF_PUBLISHED_DIGEST={digest}", flush=True)
-    print(json.dumps({"tag": "0.1.0", "digest": digest}, sort_keys=True), flush=True)
+    print(json.dumps({"tag": args.release_tag, "digest": digest}, sort_keys=True), flush=True)
     print(json.dumps({"tag": sha_tag, "digest": digest}, sort_keys=True), flush=True)
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"published_digest={digest}\n")
+            handle.write(f"published_tag={args.release_tag}\n")
     return 0
 
 

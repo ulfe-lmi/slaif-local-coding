@@ -1,5 +1,16 @@
+# Deterministic build backend (order 013-i, C9): hatchling==1.32.0 is the
+# version proven to reproduce the objective-013 published wheel
+# 879baa3ad19e0f513090add965d267957d27f7bcd904d1e225586d76126f8b19 (and sdist
+# 5a60cd6ef41764f16871fd0134b6c234409ba2708b31e863fc84e7e520f) from the clean
+# published source tree in isolated build environments (Python 3.12.3 and
+# 3.12.14, uv 0.12.5; exact build-environment dependency set recorded in the
+# provenance manifest `build` section). The unpinned `hatchling>=1.27` form
+# resolved to hatchling 1.32.3 in CI on 2026-09-20 and changed the wheel
+# bytes (observed drift 9bf64a47d5c010d00177b31bd82e2db8ec36f505b2e10d02315789590ee2bd84),
+# so the backend is pinned exactly; uv (0.12.5) and the pinned base-image
+# identities complete the toolchain pin (see docs/RELEASE-ARTIFACT-POLICY.md).
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling==1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -83,6 +94,10 @@ exclude = [
   # and are never part of any artifact (no self-hash fixed point needed).
   "packaging/release_provenance_manifest.json",
   "packaging/release_provenance_manifest.schema.json",
+  # The post-publication RC artifact record is publication metadata written
+  # AFTER the source freeze (order 013-i, C11); it must never enter a
+  # wheel/sdist/image build input (self-reference exclusion).
+  "packaging/rc_record.json",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -98,6 +113,8 @@ include = [
   "pyproject.toml",
   "uv.lock",
   "README.md",
+  "QUICKSTART.md",
+  "INSTALL.md",
   "LICENSE",
   "NOTICE",
   "THIRD_PARTY_NOTICES.md",

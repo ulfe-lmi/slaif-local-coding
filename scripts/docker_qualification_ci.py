@@ -41,6 +41,7 @@ COMPOSE_PRIMARY = "compose.yaml"  # pull-based canonical (no build key)
 COMPOSE_BUILD_OVERRIDE = "compose.build.yaml"  # qualification/development build override
 PRE013_CANONICAL_FIXTURE = Path("tests") / "fixtures" / "compose" / "canonical_compose_pre013.yaml"
 RELEASE_RECORD = Path("packaging") / "release_record.json"
+RC_RECORD = Path("packaging") / "rc_record.json"
 PUBLISHED_QUALIFICATION_LABEL = "mvp-release-0.1.0"
 TOPOLOGY_MODE_LABEL = (
     "linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress"
@@ -56,6 +57,26 @@ RECORD_KEYS = {
     "published_at",
     "publication_workflow",
     "publication_workflow_run_id",
+}
+RC_RECORD_KEYS = {
+    "schema",
+    "rc_identifier",
+    "product_version",
+    "image_source_commit",
+    "oci_image_reference",
+    "oci_image_digest",
+    "oci_tags",
+    "published_at",
+    "publication_workflow",
+    "publication_workflow_run_id",
+    "private_registry_auth_required",
+    "final_public_release",
+    "cutover_performed",
+    "wheel_sha256",
+    "dependency_lock_sha256",
+    "gateway_authority_sha",
+    "build_toolchain",
+    "deployment_assumptions",
 }
 
 
@@ -120,31 +141,63 @@ def _own_for_container(path: Path) -> None:
         path.chmod(0o644)
 
 
-def _load_release_record() -> dict:
-    """Load and strictly validate the release record (slaif-release-record-v1).
+def _load_publication_record() -> dict:
+    """Load and strictly validate the publication record (order 013-i, D15).
 
-    Closed key set, fixed reference/workflow values, 40-hex source commit,
-    sha256:<64-hex> digest, tag pair [0.1.0, sha-<source commit>], RFC 3339 UTC
-    published_at, integer-or-null workflow run id. Any deviation is a
-    qualification failure, never a warning.
+    Two schemas are accepted, dispatched by the `schema` field:
+    - slaif-rc-record-v1 (packaging/rc_record.json): RC candidate record;
+      RC tag pair [0.1.0-rc1, sha-<source>], private_registry_auth_required
+      true, final_public_release false, cutover_performed false, pinned
+      toolchain;
+    - slaif-release-record-v1 (packaging/release_record.json): final
+      release record; tag pair [0.1.0, sha-<source>].
+    Closed key sets per schema, fixed reference/workflow values, 40-hex
+    source commit, sha256:<64-hex> digest, RFC 3339 UTC published_at,
+    integer-or-null workflow run id. Any deviation is a qualification
+    failure, never a warning. When BOTH records exist the RC record is
+    authoritative for this gate (the final record qualifies later, alone).
     """
-    path = REPO_ROOT / RELEASE_RECORD
+    path = RC_RECORD if RC_RECORD.is_file() else RELEASE_RECORD
     if not path.is_file():
         raise QualificationError("release_record", "record_missing", str(path))
     record = json.loads(path.read_text(encoding="utf-8"))
-    if set(record) != RECORD_KEYS:
-        raise QualificationError("release_record", "record_key_set", f"keys={sorted(record)}")
-    if record["schema"] != "slaif-release-record-v1":
-        raise QualificationError("release_record", "record_schema", str(record["schema"]))
-    if not re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"])):
-        raise QualificationError("release_record", "record_source_commit")
-    if record["oci_image_reference"] != "ghcr.io/ulfe-lmi/slaif-local-coding":
-        raise QualificationError("release_record", "record_image_reference")
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(record["oci_image_digest"])):
-        raise QualificationError("release_record", "record_image_digest")
-    source = str(record["image_source_commit"])
-    if record["oci_tags"] != ["0.1.0", f"sha-{source}"]:
-        raise QualificationError("release_record", "record_tags")
+    if record.get("schema") == "slaif-rc-record-v1":
+        if set(record) != RC_RECORD_KEYS:
+            raise QualificationError("release_record", "record_key_set", f"keys={sorted(record)}")
+        if not re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"])):
+            raise QualificationError("release_record", "record_source_commit")
+        if record["oci_image_reference"] != "ghcr.io/ulfe-lmi/slaif-local-coding":
+            raise QualificationError("release_record", "record_image_reference")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(record["oci_image_digest"])):
+            raise QualificationError("release_record", "record_image_digest")
+        source = str(record["image_source_commit"])
+        if record["oci_tags"] != ["0.1.0-rc1", f"sha-{source}"]:
+            raise QualificationError("release_record", "record_tags")
+        if record["private_registry_auth_required"] is not True:
+            raise QualificationError("release_record", "record_private_auth")
+        if record["final_public_release"] is not False:
+            raise QualificationError("release_record", "record_final_release")
+        if record["cutover_performed"] is not False:
+            raise QualificationError("release_record", "record_cutover")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(record["wheel_sha256"])):
+            raise QualificationError("release_record", "record_wheel")
+        toolchain = record["build_toolchain"]
+        if not isinstance(toolchain, dict) or set(toolchain) != {"backend", "uv", "python"}:
+            raise QualificationError("release_record", "record_toolchain")
+    elif record.get("schema") == "slaif-release-record-v1":
+        if set(record) != RECORD_KEYS:
+            raise QualificationError("release_record", "record_key_set", f"keys={sorted(record)}")
+        if not re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"])):
+            raise QualificationError("release_record", "record_source_commit")
+        if record["oci_image_reference"] != "ghcr.io/ulfe-lmi/slaif-local-coding":
+            raise QualificationError("release_record", "record_image_reference")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", str(record["oci_image_digest"])):
+            raise QualificationError("release_record", "record_image_digest")
+        source = str(record["image_source_commit"])
+        if record["oci_tags"] != ["0.1.0", f"sha-{source}"]:
+            raise QualificationError("release_record", "record_tags")
+    else:
+        raise QualificationError("release_record", "record_schema", str(record.get("schema")))
     if not re.fullmatch(
         r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", str(record["published_at"])
     ):
@@ -157,6 +210,10 @@ def _load_release_record() -> dict:
     ):
         raise QualificationError("release_record", "record_run_id")
     return record
+
+
+# Backward-compatible alias (historical name).
+_load_release_record = _load_publication_record
 
 
 def _run(
@@ -281,6 +338,10 @@ class Qualification:
             self.env = {
                 "SLAIF_GIT_SHA": args.tag_sha,
                 "SLAIF_WHEEL_SHA256": args.wheel_sha256,
+                # Interpolation only: compose.yaml requires the explicit
+                # image variable (order 013-i, B7); the build override's
+                # image field replaces this value for builds.
+                "SLAIF_LOCAL_CODING_IMAGE": self.image_ref,
                 "SLAIF_CONFIG_FILE": str(self.workdir / "slaif-adapter.toml"),
                 "SLAIF_ENV_FILE": str(self.workdir / "slaif-adapter.env"),
             }

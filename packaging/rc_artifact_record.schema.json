@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "slaif-rc-record-v1",
+  "title": "SLAIF Local Coding RC artifact record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "rc_identifier",
+    "product_version",
+    "image_source_commit",
+    "oci_image_reference",
+    "oci_image_digest",
+    "oci_tags",
+    "published_at",
+    "publication_workflow",
+    "publication_workflow_run_id",
+    "private_registry_auth_required",
+    "final_public_release",
+    "cutover_performed",
+    "wheel_sha256",
+    "dependency_lock_sha256",
+    "gateway_authority_sha",
+    "build_toolchain",
+    "deployment_assumptions"
+  ],
+  "properties": {
+    "schema": {
+      "const": "slaif-rc-record-v1"
+    },
+    "rc_identifier": {
+      "const": "0.1.0-rc1"
+    },
+    "product_version": {
+      "const": "0.1.0"
+    },
+    "image_source_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "oci_image_reference": {
+      "const": "ghcr.io/ulfe-lmi/slaif-local-coding"
+    },
+    "oci_image_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "oci_tags": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "published_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+    },
+    "publication_workflow": {
+      "const": "release-image.yml"
+    },
+    "publication_workflow_run_id": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "private_registry_auth_required": {
+      "const": true
+    },
+    "final_public_release": {
+      "const": false
+    },
+    "cutover_performed": {
+      "const": false
+    },
+    "wheel_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "dependency_lock_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gateway_authority_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "build_toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "uv",
+        "python"
+      ],
+      "properties": {
+        "backend": {
+          "const": "hatchling==1.32.0"
+        },
+        "uv": {
+          "const": "0.12.5"
+        },
+        "python": {
+          "const": "3.12"
+        }
+      }
+    },
+    "deployment_assumptions": {
+      "const": "linux-docker-engine-compose-v2;host-network-mode;private-same-host-upstream;separate-gateway;loopback-default-bind"
+    }
+  }
+}

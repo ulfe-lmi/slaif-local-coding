@@ -1,15 +1,35 @@
-# ACTIVE container-publication path (order 013-a, workstream D; order 013-c,
-# workstream C1 qualified push references; order 013-d, workstream C1
-# credential correction).
+# ACTIVE RC candidate-publication path (order 013-a, workstream D; order
+# 013-c, workstream C1 qualified push references; order 013-d, workstream C1
+# credential correction; ORDER 013-I, D13/D14: explicit RC candidate
+# identity on the private package).
 #
 # `workflow_dispatch` ONLY: this workflow can never run on PRs or pushes.
+#
+# RC candidate identity: the workflow publishes EXACTLY
+#   ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>   (content-addressed)
+#   ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1 (explicit candidate tag)
+# to the PRIVATE package. NO code path of this workflow may write `0.1.0`,
+# `latest`, `stable`, a final `v0.1.0`, or change package visibility (the
+# publisher refuses final/stable tags; the historical private 0.1.0 and
+# orphan tags are preserved byte-for-byte). The immutable digest is the
+# authoritative identity; tags are aliases. A later human-approved final
+# release references the SAME tested digest without rebuilding.
+#
+# Fail-closed tag law (order 013-i, D13): BEFORE ANY MUTATION both target
+# tags are checked with authenticated registry access, distinguishing
+# verified-absent from unauthorized/inaccessible (the latter fails the run
+# before mutation); a pre-existing different digest on the candidate tag
+# fails the run before the candidate tag is pushed; a colliding source tag
+# fails the run before the candidate tag is touched. Safe retries never
+# overwrite or ambiguously rebuild an already frozen identity.
+#
 # Registry credential: the workflow GITHUB_TOKEN with declared `contents:
 # read` + `packages: write` — the documented mechanism for publishing the
 # workflow repository's container package; no long-lived credential of any
 # kind is referenced or introduced. The token is scoped to the single
 # workflow run and is never printed (no echo, no unmasked environment
 # dumps); it reaches the publish script only through the SLAIF_GHCR_TOKEN
-# environment variable for the registry-API verification step.
+# environment variable for the registry-API verification steps.
 # Correction note (order 013-d): the 013-b "repository workflow-permission
 # ceiling" diagnosis is retracted on primary log evidence — the 013-b run
 # logs show the GITHUB_TOKEN was granted `Packages: write`; the 013-b
@@ -20,19 +40,21 @@
 #
 # Procedure (bound to the dispatched commit S):
 #   1. build the locked wheel and assert its SHA-256 equals the committed
-#      provenance manifest wheel hash (byte-identity law);
-#   2. build the release image via the two-file compose (canonical
+#      provenance manifest wheel hash (byte-identity law; the deterministic
+#      hatchling==1.32.0 backend pin makes the build reproducible);
+#   2. build the RC candidate image via the two-file compose (canonical
 #      pull-based compose.yaml + qualification override compose.build.yaml)
 #      with SLAIF_GIT_SHA = S, SLAIF_WHEEL_SHA256 = the manifest wheel hash,
-#      and SLAIF_QUALIFICATION_LABEL = mvp-release-0.1.0;
+#      and SLAIF_QUALIFICATION_LABEL = the RC candidate label
+#      "rc-candidate-0.1.0-rc1; private; not final release";
 #   3. authenticate to GHCR with GITHUB_TOKEN;
-#   4. push the SAME built image as ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>
-#      UNCONDITIONALLY (content-addressed) and as :0.1.0 ONLY if the registry
-#      proves the tag is absent or already points at this exact digest (a
-#      pre-existing different 0.1.0 digest fails the run — no silent
-#      repoint of the release tag);
-#   5. verify via the GHCR registry API that BOTH tags resolve to one digest
-#      D and emit D in the run log and outputs.
+#   4. before mutation: authenticated tri-state checks of sha-<S> and
+#      0.1.0-rc1 (verified absent vs unauthorized/inaccessible);
+#   5. push the SAME built image as sha-<S> (content-addressed) and
+#      0.1.0-rc1 under the fail-closed occupation law above;
+#   6. verify via the GHCR registry API that BOTH tags resolve to one
+#      digest D and emit D in the run log and outputs; the before/after
+#      registry states are emitted by the publish script.
 name: Release image (workflow_dispatch only)
 on:
   workflow_dispatch:
@@ -59,17 +81,17 @@ jobs:
           echo "manifest wheel sha256: $MANIFEST_SHA256"
           test "$WHEEL_SHA256" = "$MANIFEST_SHA256"
           echo "SLAIF_WHEEL_SHA256=$WHEEL_SHA256" >> "$GITHUB_ENV"
-      - name: Build the release image (two-file compose, release qualification label)
+      - name: Build the RC candidate image (two-file compose, RC qualification label)
         run: |
           export SLAIF_GIT_SHA="$GITHUB_SHA"
           export SLAIF_WHEEL_SHA256
           docker compose -f compose.yaml -f compose.build.yaml build \
-            --build-arg SLAIF_QUALIFICATION_LABEL=mvp-release-0.1.0
+            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc1; private; not final release"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
             --format "built image: {{.Id}} (push performed in the next steps)"
       - name: Authenticate to GHCR (GITHUB_TOKEN only)
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
-      - name: Push tags and registry-verify a single digest
+      - name: Push RC candidate tags and registry-verify a single digest
         id: publish
         env:
           SLAIF_GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -77,4 +99,5 @@ jobs:
           python3 scripts/release_registry_publish.py \
             --local-image "slaif-local-coding:0.1.0-${GITHUB_SHA}" \
             --git-sha "$GITHUB_SHA" \
-            --repo ulfe-lmi/slaif-local-coding
+            --repo ulfe-lmi/slaif-local-coding \
+            --release-tag 0.1.0-rc1

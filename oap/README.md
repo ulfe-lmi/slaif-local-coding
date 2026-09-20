@@ -50,6 +50,16 @@ the remote PR head, changes only the report, and its first parent equals the
 literal implementation SHA. Later continuation may advance head; historical
 SELF remains immutable/reachable.
 
+Field law (clarified prospectively by order 013-i A3):
+`Implementation head SHA` is the literal immediate pre-report commit
+(the last implementation commit pushed before the report), NOT the image
+source commit. The image source commit, when an image is in scope, has its
+own separate field. Where earlier Objective-013 reports recorded the
+implementation head as `W6b = S` (implementation head coinciding with the
+image source commit), the two facts happened to be equal; the field law
+removes that ambiguity prospectively without altering any historical
+report or order bytes.
+
 ## Secrets
 
 Never place credentials, bearer values, cookies, private keys/URLs, DB URLs,

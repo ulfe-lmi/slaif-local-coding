@@ -15,41 +15,45 @@ and an sdist containing the entire working tree (including OAP transcripts).
   `*.dist-info/` metadata and license files (`LICENSE`, `NOTICE` under
   `licenses/`).
 - **OCI image (publication reference
-  `ghcr.io/ulfe-lmi/slaif-local-coding` with tags `0.1.0` and `sha-<full
-  image-source SHA>` — publication PENDING as of this PR's head, order
-  013-a R18 Gateway-peer hold; local qualification/development tag
-  `slaif-local-coding:0.1.0-<sha>` via `compose.build.yaml`):** the supported distribution artifact of the
-  **Docker deployment path** (the canonical MVP installation path, order
-  011-a; pull-based canonical operator path since order 013-a). The image is
-  built **from** the supported wheel;
+  `ghcr.io/ulfe-lmi/slaif-local-coding`; RC candidate identity `0.1.0-rc1`
+  plus the content-addressed source tag `sha-<full image-source SHA>`;
+  local qualification/development tag `slaif-local-coding:0.1.0-<sha>` via
+  `compose.build.yaml`):** the supported distribution artifact of the
+  **Docker deployment path** (the canonical installation path, order
+  011-a; pull-based canonical operator path since order 013-a). The image
+  is built **from** the supported wheel;
   the runtime stage installs the built wheel non-editable on top of the
   frozen locked dependencies, so the image content law mirrors this
-  artifact policy's exclusions (no `oap/`, no `tests/`, no `references/`, no
-  `scripts/`, no `.git`, no caches, no placeholder files, no env/secret
-  material, no host-specific paths, no credential values — mechanically
-  asserted by the `docker` CI job image content scan, the local disposable
-  run, and the `docker-published` CI job for the PULLED image). The image is
-  bound to the committed artifact: the in-image retained wheel hash must
-  equal the provenance-manifest wheel hash (B8/C2). The publication path is
-  ACTIVATED (`workflow_dispatch`-only `release-image.yml`; registry
-  credential is the workflow `GITHUB_TOKEN` with declared `contents: read`
-  + `packages: write` — the documented mechanism for publishing the
-  workflow repository's container package per the current GitHub
-  Container-registry authentication guidance; no long-lived credential of
-  any kind is referenced or introduced) and is executed at the final
-  implementation head of this PR (order 013-d); the 013-a round had ended
-  on the order's R18 hold (the remote Gateway `main` moved off the pinned
-  peer; strategy must inspect and deliberately re-qualify; exact delta in
-  the OAP report), resolved by the 013-b re-qualification and the 013-d
-  frozen 0.1.0 release compatibility authority (see the "Gateway
-  compatibility authority (frozen for 0.1.0)" section below). At
-  publication:
-  tags `0.1.0` + `sha-<S>` will resolve to one registry digest `D` recorded
-  in `packaging/release_record.json` and the schema-v3 manifest (image
-  source commit `S`); the Git tag `v0.1.0` will target `S` as the release
-  reference (a strategic post-merge act). Publication will be
-  registry-only: no protected-host cutover, no real deployment yet
-  evidenced.
+  artifact policy's exclusions (no `oap/`, no `tests/`, no `references/`,
+  no `scripts/`, no `.git`, no caches, no placeholder files, no
+  env/secret material, no host-specific paths, no credential values —
+  mechanically asserted by the `docker` CI job image content scan, the
+  local disposable run, and the `docker-published` CI job for the PULLED
+  image). The image is bound to
+  the committed artifact: the in-image retained wheel hash must equal the
+  provenance-manifest wheel hash (B8/C2). The publication path is
+  ACTIVATED and adapted for the RC candidate (order 013-i): the
+  `workflow_dispatch`-only `release-image.yml` publishes the explicit
+  candidate identity `0.1.0-rc1` + `sha-<S>` to the **private** GHCR
+  package; no code path of the RC workflow may write `0.1.0`, `latest`,
+  `stable`, a final `v0.1.0`, or change package visibility (the historical
+  private `0.1.0` tag and its orphan `sha-` tag are preserved
+  byte-for-byte). Registry credential: the workflow `GITHUB_TOKEN` with
+  declared `contents: read` + `packages: write` for publication (the
+  documented mechanism for publishing the workflow repository's container
+  package; no long-lived credential of any kind is referenced or
+  introduced) and least-privilege `packages: read` for the
+  published-image qualification job. At RC publication: the tags
+  `0.1.0-rc1` + `sha-<S>` resolve to one registry digest `D` recorded in
+  `packaging/rc_record.json` (schema `slaif-rc-record-v1`) and the
+  provenance manifest (image source commit `S`); the digest is the
+  authoritative identity, the tags are aliases; the RC record keeps
+  `final_public_release: false` and `cutover_performed: false`. The
+  historical Objective-013 private `0.1.0` tag was written to a
+  non-public package and was never published to users; it is legacy
+  output, NOT the RC benchmark target, and is not a default anywhere in
+  the current documentation. Publication is registry-only: no
+  protected-host cutover, no real deployment yet evidenced.
 - **sdist** (`slaif-local-coding-<version>.tar.gz`): the developer-only
   source archive; not a supported release artifact and never treated as one.
   It carries a deliberate whitelist (code, tests, fixtures, config and
@@ -71,14 +75,24 @@ runbook's preconditions. From schema v2 (order 011-a) the manifest covers
 **wheel + sdist + OCI build inputs**: the `oci` section records the image
 reference, tag convention, base-image name + digest, Dockerfile/compose/
 .dockerignore hashes, the cross-referenced wheel hash, the `image_digest`,
-the `published` flag, and the image label set. From schema v3 (order 013-a)
-the manifest is state-aware: without the release record it records the
-not-yet-published state (null digest, `published: false`,
-`released: false`, reserved-reference tag convention); with
-`packaging/release_record.json` present it records the published state
-(digest `D`, `published: true`, `released: true`, the published
-qualification label, the published tag convention) plus a closed top-level
-`release` section binding the record's identity facts.
+the `published` flag, and the image label set. From schema v4 (order 013-i) the manifest is
+state-aware over three states: **pre-freeze candidate** (no record: null
+digest, `published: false`, `rc_published: false`,
+`final_public_release: false`, plus an explicit `candidate` section
+recording the RC identity and the recorded build toolchain, and a `build`
+section recording the pinned backend and resolved build-environment
+dependencies); **RC-published** (with `packaging/rc_record.json` present:
+the recorded RC digest `D`, `rc_published: true`, `final_public_release`
+REMAINS `false`, the RC qualification label, and the RC tag convention);
+and **final-published** (with `packaging/release_record.json` present:
+digest `D`, `published: true`, `final_public_release: true`, the
+published qualification label, and a closed top-level `release` section
+binding the record's identity facts). The post-publication RC record is
+excluded from every wheel/sdist/image build input (self-reference
+exclusion, order 013-i C11): the manifest records exactly which source
+tree was built, and a pre-freeze manifest may reference a verified
+ancestor only while the regeneration gate mechanically proves
+artifact-input equality.
 
 ## What no artifact may contain
 
@@ -194,52 +208,83 @@ Objective-012-a-state record (wheel `fceadc37...` / sdist
 `SLAIF_GATEWAY_PEER_SHA` label input; the regenerated Objective-012
 manifest (producing round recorded in the manifest itself) is the **only**
 future cutover authority, and the Objective-011-a artifact record remains
-the accepted Objective-011 record only. Objective 013 (PR #15) changes
-no runtime package bytes and no OCI build input semantics: the wheel
-remains `fceadc37...` (byte-identical), and the only OCI build-input deltas
-are the parameterized qualification label ARG in the Dockerfile (default
-byte-identical to the pre-013 label) and the compose split (pull-based
-canonical `compose.yaml` + qualification override `compose.build.yaml`,
-mechanically proven equivalent for the closed field set). The MVP 0.1.0
-image publication is the `workflow_dispatch`-only release workflow
-executed at the final implementation head of this PR (order 013-d), to
-`ghcr.io/ulfe-lmi/slaif-local-coding` (human-authorized, registry-only,
-order 013-a) with tags `0.1.0` and `sha-<S>` resolving to one digest `D`
-recorded in `packaging/release_record.json` (present from the
-release-record commit onward) and the schema-v3 manifest (image source
-commit `S`). Any future objective that changes runtime package bytes or OCI
-build inputs must repeat this gate: cleared rebuild, hash comparison, and
-manifest regeneration in the same PR, and a fresh publication round for any
-new image.
+the accepted Objective-011 record only. Objective 013 (historical, PR #15) split
+the pull-based canonical `compose.yaml` from the qualification override
+`compose.build.yaml` (mechanically proven equivalent for the closed field
+set) and parameterized the Dockerfile qualification label ARG (default
+byte-identical to the pre-013 label); its round 013-b README status-row
+change legitimately changed the wheel METADATA only (wheel
+`fceadc37...` -> `879baa3ad19e0f513090add965d267957d27f7bcd904d1e225586d76126f8b19`),
+and its publication pushed the historical private tags `0.1.0` and
+`sha-<S>` to the non-public package at one digest (registry-only; the
+tags were never published to users and the package was never made public —
+the round ended BLOCKED at anonymous access verification). Objective 013-i
+(THIS round) changes the wheel and sdist identity AGAIN, on explicitly
+authorized inputs only: the README cleanup (the README is the wheel
+METADATA long description) and the deterministic build-backend pin
+(`hatchling==1.32.0`, proven to reproduce the historical wheel from the
+clean historical source); the old wheel and old digest are therefore NOT
+reused for the RC, and the cleaned README intentionally produces a new
+final wheel hash (the RC candidate source records the new hashes in the
+regenerated manifest). Any future objective that changes runtime package
+bytes or OCI build inputs must repeat this gate: cleared rebuild (twice,
+from clean equivalent trees, with isolated output/cache paths), hash
+comparison, and manifest regeneration in the same PR, and a fresh
+publication round for any new image.
 
-## Publication
+## Publication (RC candidate machinery)
 
-The only registry publication of this PR is the MVP 0.1.0 **OCI image**
-publication to GHCR (`ghcr.io/ulfe-lmi/slaif-local-coding`, tags `0.1.0` +
-`sha-<S>`, registry-verified single digest), a human-authorized act
-executed by the `workflow_dispatch`-only `release-image.yml` at the final
-implementation head of this PR (order 013-d); the registry credential is
-the workflow `GITHUB_TOKEN` with declared `contents: read` + `packages:
-write` — the documented mechanism for publishing the workflow repository's
-container package per the current GitHub Container-registry
-authentication guidance; no long-lived credential of any kind is
-referenced or introduced (the token is scoped to the single workflow run,
-loaded only on manual dispatch, never on PR/push/branch events, and never
-printed). Correction record (order 013-d): the 013-b "repository
-workflow-permission ceiling clamps declared permissions" diagnosis was
-wrong — the 013-b run logs show the `GITHUB_TOKEN` was granted `Packages:
-write`; the 013-b failure was the unqualified push reference (fixed in
-013-c); no repository security setting was ever changed; and the 013-c
-repository-secret workaround is withdrawn (its broad PAT secret removed).
-For human/CLI (non-workflow) publication, the documented option is a
-classic PAT with at least the `write:packages` scope — explicitly NOT the
-broad `repo` scope (enable org SSO for the PAT if the org requires it);
-fine-grained PATs are not a supported GHCR credential type. No other
-artifact is published by this repository (no PyPI, no sdist publication). Further publication-adjacent acts remain
-separate human-authorized/strategic acts: the Git tag `v0.1.0` (targets the
-image source commit `S`; strategic post-merge act), the GitHub Release
-(follows that tag), and the protected-host cutover
-(see [the cutover/runbook boundary](RELEASE-CUTOVER-RUNBOOK.md)).
+Registry publication is a **separate later round** (the exact reviewed
+source commit must first be reviewable; this documentation round performs
+zero registry writes). The machinery (order 013-i) is:
+
+- The `workflow_dispatch`-only `release-image.yml` publishes the explicit
+  **RC candidate identity `0.1.0-rc1`** plus the content-addressed
+  `sha-<S>` tag to the **private** GHCR package, building the locked wheel
+  (bound to the committed manifest), building the image from the exact
+  dispatched source commit with the RC candidate qualification label, and
+  registry-verifying before and after the mutation.
+- **Fail-closed tag law:** before ANY push, both target tags are checked
+  with authenticated registry access, distinguishing *verified absent*
+  from *unauthorized/inaccessible* (the latter fails the run); a
+  pre-existing different digest on either RC or source tag fails the run
+  (report the collision; never overwrite, never silently repoint); the
+  same-digest case is an idempotent no-op. Safe retries never overwrite or
+  ambiguously rebuild an already frozen identity.
+- **No final-tag path:** no code path of the RC workflow may write
+  `0.1.0`, `latest`, `stable`, a final `v0.1.0`, or change package
+  visibility; the historical private `0.1.0` and orphan `sha-` tags are
+  preserved byte-for-byte.
+- **Credentials:** publication uses the ephemeral workflow
+  `GITHUB_TOKEN` (`contents: read` + `packages: write`); the
+  published-image qualification job uses least-privilege
+  `packages: read`. No long-lived write credentials, no repository
+  secrets, no visibility changes, no token logging. (Historical record,
+  order 013-d: the 013-b "workflow-permission ceiling" diagnosis was wrong
+  — the 013-b run logs show the `GITHUB_TOKEN` was granted `Packages:
+  write`; the 013-b failure was the unqualified push reference, fixed in
+  013-c; no repository security setting was ever changed; the 013-c
+  repository-secret workaround was withdrawn and its broad PAT secret
+  removed.)
+- **Publication record:** the run populates
+  `packaging/rc_record.json` (schema `slaif-rc-record-v1`) from verified
+  facts only; the record and the regenerated provenance manifest commit
+  afterward. A later human-approved final release can reference the SAME
+  tested digest without rebuilding or changing embedded labels; promotion
+  is a separate later act and is NOT authorized by this machinery.
+- **Qualification:** the `docker-published` CI job consumes the RC
+  record, authenticates privately, verifies the registry digest, the
+  source/wheel/peer/topology labels and configuration identities, and
+  exercises the existing signed-ingress / fail-closed / readiness /
+  no-build / teardown assertions on the PULLED digest on disposable CI.
+  Before an RC exists it reports the explicit pre-publication NOT RUN
+  state; an invalid record or an inaccessible recorded image FAILS (it
+  never silently skips).
+- No other artifact is published by this repository (no PyPI, no sdist
+  publication). Publication-adjacent acts remain separate
+  human-authorized/strategic acts: any final Git tag, any GitHub Release,
+  package visibility, and the protected-host cutover
+  (see [the cutover/runbook boundary](RELEASE-CUTOVER-RUNBOOK.md)).
 
 ## Gateway compatibility authority (frozen for 0.1.0)
 
@@ -266,5 +311,10 @@ re-release or re-publication of 0.1.0, and no 013-d work re-pins it to
 `2b61312e0eb569aa7c6f953f52e35b44e84b91c1` (or any other Gateway `main`
 revision). The frozen value is bound in the Dockerfile
 `SLAIF_GATEWAY_PEER_SHA` ARG default, the in-image
-`slaif-local-coding.gateway.peer.sha` label, and the schema-v3 manifest
-`gateway_peer.commit` in every 013-d manifest state.
+`slaif-local-coding.gateway.peer.sha` label, and the provenance manifest
+`gateway_peer.commit` in every manifest state. Order 013-i re-confirms
+this pin for the RC candidate: Gateway `main` has moved past the frozen
+commit, but the CURRENT `main` is NOT the frozen compatibility
+authority; the RC is contract-tested against the pinned peer, and
+support beyond that pin is not claimed until a separate deliberate
+re-qualification occurs. No 013-i work re-pins the fixture.

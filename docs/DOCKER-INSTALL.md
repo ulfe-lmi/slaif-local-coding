@@ -52,23 +52,23 @@ deployment is yet evidenced.
 
 ## Image identity
 
-- Published reference: `ghcr.io/ulfe-lmi/slaif-local-coding` with tags
-  `0.1.0` and `sha-<full image-source SHA>` (one registry digest `D`,
-  recorded in `packaging/release_record.json`; the pull-based canonical
-  default is the `0.1.0` tag).
-- Exact-reproduction option: the digest-pinned form
-  `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>` (see "Digest pinning").
+- Explicit selection: `SLAIF_LOCAL_CODING_IMAGE` (REQUIRED by
+  `compose.yaml`) set to `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1`
+  (RC candidate tag alias) or the authoritative digest form
+  `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>` once the RC record
+  exists (see "Digest pinning"). The historical private `0.1.0` tag is
+  never selected by any documented path.
 - Local qualification/development tag convention (NOT the released-user
   path, `compose.build.yaml` only): `slaif-local-coding:0.1.0-<sha>` where
   `<sha>` is the short or full reviewed Git SHA.
 - The image carries OCI labels (`org.opencontainers.image.source`,
   `.revision`, `.version`, `.created`) and project labels (package version,
-  pinned Gateway peer SHA, supported topology mode, qualification status
-  `mvp-release-0.1.0` for the published release image,
+  pinned Gateway peer SHA, supported topology mode, qualification status —
+  the RC candidate label for the RC image,
   `disposable-qualification-only; not released` for local qualification
   builds, and the bound wheel SHA-256). Both base images are pinned by
   immutable digest. The published image's label set is mechanically
-  verified by the `docker-published` CI job.
+  verified by the `docker-published` CI job (private, authenticated).
 
 ## 1. Obtain the release file set
 
@@ -77,12 +77,15 @@ The pull path needs only `compose.yaml` (the build override
 qualification/development build path) and the config template:
 
 ```bash
-git clone --depth 1 --branch <reviewed-tag-or-commit> \
-    https://github.com/ulfe-lmi/slaif-local-coding.git
+git clone https://github.com/ulfe-lmi/slaif-local-coding.git
 cd slaif-local-coding
+git fetch --depth 1 origin <IMAGE_SOURCE_COMMIT>
+git checkout --detach FETCH_HEAD
 ```
 
-An equivalent documented file set (just `compose.yaml` plus
+`<IMAGE_SOURCE_COMMIT>` is the exact image source commit recorded in the
+RC artifact record (see [RC-HANDOFF.md](RC-HANDOFF.md)). An equivalent
+documented file set (just `compose.yaml` plus
 `config/adapter.gateway-integrated.template.toml`) is equally valid. The
 plain `docker compose` command below loads `compose.yaml` only.
 
@@ -126,19 +129,19 @@ chmod 0600 /opt/slaif/adapter.toml
 chown 10001:10001 /opt/slaif/adapter.toml
 ```
 
-## 3. Pull the published image
-
-Pulls the published release image:
+## 3. Pull the selected image
 
 ```bash
+export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>
 SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
 SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose pull
 ```
 
-This pulls `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0` (the canonical
-default reference in `compose.yaml`; no local build occurs — the file
-carries no build key).
+This pulls the EXPLICITLY selected reference (digest preferred; tag form
+accepted — see "Image identity"); no local build occurs (the file carries
+no build key). The private package requires registry login first
+(QUICKSTART.md step 3; stdin credentials only).
 
 ## 4. Start
 
@@ -243,8 +246,8 @@ Nothing is persistent by design:
 
 ```bash
 docker compose down --remove-orphans
-# Remove the pulled release image(s) from the local registry cache:
-docker image rm ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0 2>/dev/null || true
+# Remove the pulled image(s) from the local registry cache:
+docker image rm "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>" 2>/dev/null || true
 rm /opt/slaif/adapter.toml /opt/slaif/adapter.env   # only if not explicitly retained
 ```
 
@@ -261,16 +264,18 @@ export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>
 docker compose pull && docker compose up -d --force-recreate
 ```
 
-`<D>` is the published registry digest recorded in
-`packaging/release_record.json` (`oci_image_digest`) and the schema-v3
-provenance manifest (`oci.image_digest`). A digest-pinned
-pull can never silently move to different image content.
+`<D>` is the authoritative registry digest recorded in
+`packaging/rc_record.json` (`oci_image_digest`) and the provenance
+manifest (`oci.image_digest`) for the RC, or in
+`packaging/release_record.json` for a later final release. A
+digest-pinned pull can never silently move to different image content.
 
 ## Build-from-source (QUALIFICATION/DEVELOPMENT path — NOT the released-user path)
 
 Building the image locally (Dockerfile, `uv`-locked wheel) is the
 **qualification/development** path used by CI (`docker` job), the release
-workflow (which built and published the reviewed `0.1.0` image), and local
+workflow (which builds and publishes the reviewed RC candidate image; its
+historical Objective-013 round built the private `0.1.0` image), and local
 development. It is clearly **NOT** the released-user path and requires the
 build chain (Docker build, `uv` in the build stage only). With the two-file
 compose:
@@ -327,38 +332,44 @@ production**: it is never labeled production, it must not be exposed beyond
 loopback, and it carries no Gateway signed identity. The canonical compose
 path always uses the final Gateway-integrated (signed) configuration.
 
-## Publication and provenance (registry-only)
+## Publication and provenance (registry-only, RC candidate)
 
-- The release image is published exclusively by the activated
+- The RC image is published exclusively by the activated
   `.github/workflows/release-image.yml` (`workflow_dispatch`-only; registry
   credential is the workflow `GITHUB_TOKEN` with declared `contents: read`
   + `packages: write` — the documented mechanism for publishing the
   workflow repository's container package; no long-lived credential of any
-  kind is referenced or introduced) — executed at the final implementation
-  head of this PR (order 013-d): it builds the locked wheel,
-  binds its SHA-256 to the committed manifest, builds the image from the
-  dispatched commit `S` via the two-file compose with the
-  `mvp-release-0.1.0` qualification label, pushes
-  `ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>` unconditionally (content-
-  addressed), pushes `:0.1.0` only if the registry proves the tag absent or
-  already at the same digest (a pre-existing different digest fails the
-  run), and registry-verifies that both tags resolve to one digest `D`.
-- At publication, the release record (`packaging/release_record.json`,
-  schema `slaif-release-record-v1`; not present in this PR's tree) and the
-  schema-v3 provenance manifest bind `S` (image source commit, git-tag
-  target, OCI revision label), `D` (OCI digest), the release tags, the
-  byte-identical wheel
-  (`fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`), and
-  the pinned Gateway peer.
-- The Git tag `v0.1.0` targets `S` as the release reference (created by
-  strategy post-merge — it does not exist at the time this document is
-  written); the GitHub Release follows that tag.
+  kind is referenced or introduced). The publication round builds the
+  locked wheel, binds its SHA-256 to the committed manifest, builds the
+  image from the exact dispatched source commit `S` via the two-file
+  compose with the RC candidate qualification label, and pushes the
+  explicit candidate identity:
+  `ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>` (content-addressed) and
+  `:0.1.0-rc1`. Before ANY push both target tags are checked with
+  authenticated registry access (verified-absent vs unauthorized/
+  inaccessible distinguished); a pre-existing different digest on either
+  tag fails the run, the same digest is an idempotent no-op, and no code
+  path may write `0.1.0`, `latest`, `stable`, a final `v0.1.0`, or change
+  package visibility. The historical private `0.1.0` and orphan `sha-`
+  tags are preserved byte-for-byte.
+- At publication, the RC record (`packaging/rc_record.json`, schema
+  `slaif-rc-record-v1`) and the provenance manifest bind `S` (image source
+  commit, OCI revision label), `D` (OCI digest, authoritative identity),
+  the RC tag pair, the wheel SHA-256, the dependency-lock hash, the frozen
+  Gateway authority, and the pinned toolchain; the record keeps
+  `final_public_release: false` and `cutover_performed: false`.
+- A later human-approved final release references the SAME tested digest
+  without rebuilding or changing embedded labels; any final Git tag and
+  GitHub Release are separate later acts.
 - Publication is **registry-only**: no protected-host cutover, no real
-  deployment yet evidenced. Once published, the image is continuously
-  CI-verified by the `docker-published` job (pull by digest and by both
-  tags, exact OCI label set, full signed-ingress contract against a
-  disposable fake upstream, no-build proof, teardown absence proof); the
-  job is gated on the release record and skips with an explicit line until
-  publication.
-- The repository is public, so once the package is published, anonymous
-  GHCR pull is available to released users and to CI.
+  deployment yet evidenced. Once the RC exists, the image is continuously
+  CI-verified by the `docker-published` job (private authenticated pull by
+  digest and by both tags, exact OCI label set, full signed-ingress
+  contract against a disposable fake upstream, no-build proof, teardown
+  absence proof); the job reports the explicit pre-publication NOT RUN
+  state until the RC record exists, and an invalid record or inaccessible
+  image FAILS.
+- The package is **private**: pull requires bounded read-only registry
+  credentials (the `docker-published` CI job uses least-privilege
+  `packages: read`); anonymous pull is not a prerequisite and no
+  visibility change is requested.

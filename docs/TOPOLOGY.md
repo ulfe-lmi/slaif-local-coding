@@ -231,18 +231,20 @@ qualification decision table with the signed-contract dimension (workstream
 G2). It changed no live state: no deployment was created or mutated, no
 Gateway deployment, Codex profile, firewall/VPN/network state, or protected
 service state was changed, and no image was published by objective 011.
-Objective 013 (PR #15, open as of this writing) implemented the publication
-closure (pull-based canonical operator path, activated
+Objective 013 (historical, PR #15) implemented the publication
+machinery (pull-based canonical operator path,
 `workflow_dispatch`-only release workflow, `docker-published` CI gate,
-schema-v3 provenance) and changed no live state either; its registry
-publication of the MVP 0.1.0 image to `ghcr.io/ulfe-lmi/slaif-local-coding`
-(registry-only; tags `0.1.0` + `sha-<S>`, image source commit `S`, digest
-recorded in `packaging/release_record.json`) is PENDING — the 013-a round
-ended before publication on the order's R18 hold (the remote Gateway `main`
-moved off the pinned peer; strategy must inspect and deliberately
-re-qualify; exact delta in the OAP report). The cutover is still not
-performed and no real deployment is yet evidenced; the product is NOT yet
-released (the registry reference does not exist as of this PR's head). This
-document remains the prepare-only topology authority for the next
-human-authorized cutover order; the D1 binding law, the loopback default,
-and the topology are unchanged.
+state-aware provenance) and changed no live state; its rounds pushed the
+historical private tags `0.1.0` and `sha-<S>` to the non-public package
+(registry-only; the tags were never published to users and the package was
+never made public — the 013-h round ended BLOCKED at anonymous access
+verification). Objective 013-i adapted the machinery to the RC candidate:
+explicit candidate identity `0.1.0-rc1` + content-addressed source tag,
+private registry with fail-closed authenticated tag checks, RC artifact
+record, and the pre-freeze candidate provenance state; the RC publication
+itself is a separate later round bound to the exact reviewed source
+commit. The cutover is still not performed and no real deployment is yet
+evidenced; the product is NOT yet released and no final public release is
+claimed. This document remains the prepare-only topology authority for the
+next human-authorized cutover order; the D1 binding law, the loopback
+default, and the topology are unchanged.

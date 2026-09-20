@@ -16,8 +16,14 @@
 - PR number/URL/state:
 - Base/head:
 - Starting remote SHA:
-- Implementation head SHA: `<literal 40-hex>`
+- Implementation head SHA: `<literal 40-hex>` (field law, order 013-i A3:
+  this is the literal immediate pre-report commit — the last
+  implementation commit pushed before the report — and is NOT the image
+  source commit; when the two happen to coincide, state that explicitly
+  instead of conflating the fields)
 - Report publication commit: `SELF`
+- Candidate image source commit (separate field, when an image is in
+  scope): `<literal 40-hex or NONE>`
 - Implementation commits pushed:
 - New PR this round: `YES|NO`
 - Amended existing PR: `YES|NO`

@@ -1,4 +1,5 @@
-"""Digest-capture unit tests for scripts/release_registry_publish.py (order 013-e, D1).
+"""Digest-capture and RC-tag-law unit tests for
+scripts/release_registry_publish.py (order 013-e, D1; order 013-i, D13/D14).
 
 The 013-d C6 dispatch proved the GITHUB_TOKEN push is registry-accepted, but
 the script's `_push_digest()` scanned captured stdout only while the docker
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess
+import sys
 import types
 from pathlib import Path
 
@@ -167,9 +169,96 @@ def test_failure_path_without_token_env_keeps_tail(
     assert "deprecated: progress line" in message
 
 
+def test_build_push_references_are_qualified_for_rc_default(
+    mod: types.ModuleType,
+) -> None:
+    fixture_sha = "0" * 40
+    sha_ref, candidate_ref = mod.build_push_references(mod.REPO_DEFAULT, fixture_sha, "0.1.0-rc1")
+    assert sha_ref == f"ghcr.io/ulfe-lmi/slaif-local-coding:sha-{fixture_sha}"
+    assert candidate_ref == "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1"
+
+
+def test_build_push_references_take_explicit_candidate_tag(
+    mod: types.ModuleType,
+) -> None:
+    fixture_sha = "1" * 40
+    sha_ref, candidate_ref = mod.build_push_references(
+        "ulfe-lmi/slaif-local-coding", fixture_sha, "0.1.0-rc2"
+    )
+    assert sha_ref == f"ghcr.io/ulfe-lmi/slaif-local-coding:sha-{fixture_sha}"
+    assert candidate_ref == "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2"
+
+
+def test_forbidden_final_tags_are_closed_set(mod: types.ModuleType) -> None:
+    # Order 013-i, D13: no code path of the RC workflow may write a final
+    # or stable tag; the guard set is closed and complete.
+    assert mod.FORBIDDEN_FINAL_TAGS == frozenset({"0.1.0", "latest", "stable", "v0.1.0"})
+    assert "0.1.0-rc1" not in mod.FORBIDDEN_FINAL_TAGS
+
+
+def _run_main(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, *argv: str) -> int:
+    monkeypatch.setattr(sys, "argv", ["release_registry_publish.py", *argv])
+    return int(mod.main())
+
+
+@pytest.mark.parametrize("final_tag", ["0.1.0", "latest", "stable", "v0.1.0"])
+def test_main_rejects_final_release_tag(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, final_tag: str
+) -> None:
+    # The rejection happens BEFORE any credential or registry access.
+    monkeypatch.delenv("SLAIF_GHCR_TOKEN", raising=False)
+    with pytest.raises(mod.PublishError, match="final/stable tag"):
+        _run_main(
+            mod,
+            monkeypatch,
+            "--local-image",
+            "slaif-local-coding:local",
+            "--git-sha",
+            "0" * 40,
+            "--release-tag",
+            final_tag,
+        )
+
+
+def test_main_rejects_bad_git_sha(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SLAIF_GHCR_TOKEN", raising=False)
+    with pytest.raises(mod.PublishError, match="40-hex"):
+        _run_main(
+            mod,
+            monkeypatch,
+            "--local-image",
+            "slaif-local-coding:local",
+            "--git-sha",
+            "short",
+            "--release-tag",
+            "0.1.0-rc1",
+        )
+
+
+def test_main_requires_token_for_private_package(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Order 013-i, D13: the private package's tag state cannot be verified
+    # anonymously, so a missing token fails closed before any mutation.
+    monkeypatch.delenv("SLAIF_GHCR_TOKEN", raising=False)
+    with pytest.raises(mod.PublishError, match="SLAIF_GHCR_TOKEN"):
+        _run_main(
+            mod,
+            monkeypatch,
+            "--local-image",
+            "slaif-local-coding:local",
+            "--git-sha",
+            "0" * 40,
+            "--release-tag",
+            "0.1.0-rc1",
+        )
+
+
 def test_self_check_references_still_returns_zero(
     mod: types.ModuleType, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert mod.self_check_references() == 0
     out = capsys.readouterr().out
     assert "reference self-check OK" in out
+    assert "0.1.0-rc1" in out
+    assert "forbidden final tags" in out
