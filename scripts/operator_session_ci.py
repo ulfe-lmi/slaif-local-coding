@@ -126,6 +126,23 @@ def _root(cmd: list[str], **kwargs) -> subprocess.CompletedProcess[bytes]:
     return _run(["sudo", "-n", *cmd], **kwargs)
 
 
+def _stat_mode_uid(path: Path) -> tuple[int, int]:
+    """``(mode & 0o7777, uid)`` for a protected site path.
+
+    The site directory and files are root-managed (0700/0600) and
+    deliberately unreadable by a non-root caller, so when we are not root
+    the verification goes through the same admin channel that created
+    them (``sudo stat``); a direct stat would EACCES by design, not due
+    to a defect.
+    """
+    if os.geteuid() == 0:
+        st = path.stat()
+        return st.st_mode & 0o7777, st.st_uid
+    out = _root(["stat", "-c", "%a %u", str(path)], timeout=60)
+    mode_s, uid_s = out.stdout.decode(errors="replace").split()
+    return int(mode_s, 8), int(uid_s)
+
+
 def _port_free(port: int) -> bool:
     import socket
 
@@ -385,12 +402,27 @@ def main() -> int:
 
         # --- protected site directory (documented step; host admin) ---------
         site = args.site_dir
-        if site.is_dir() and any(site.iterdir()):
-            raise SessionError(f"site directory {site} already exists and is not empty")
+        if site.is_dir():
+            # A pre-existing 0700 root-managed directory is only observable
+            # through the admin channel (fail closed: any entry at all
+            # means the site is not fresh).
+            if os.geteuid() == 0:
+                nonempty = any(site.iterdir())
+            else:
+                nonempty = bool(
+                    _root(
+                        ["find", str(site), "-mindepth", "1", "-maxdepth", "1", "-print", "-quit"],
+                        timeout=60,
+                    )
+                    .stdout.decode(errors="replace")
+                    .strip()
+                )
+            if nonempty:
+                raise SessionError(f"site directory {site} already exists and is not empty")
         _root(["install", "-d", "-m", "0700", str(site)], timeout=60)
-        mode = site.stat().st_mode & 0o7777
-        if mode != 0o700:
-            raise SessionError(f"site directory mode is {oct(mode)}, not 0700")
+        site_mode, _site_uid = _stat_mode_uid(site)
+        if site_mode != 0o700:
+            raise SessionError(f"site directory mode is {oct(site_mode)}, not 0700")
         env_file = site / "adapter.env"
         toml_file = site / "adapter.toml"
         # The files live under the root-managed site directory: compose
@@ -412,10 +444,11 @@ def main() -> int:
             _write_private(env_file, env_content)
             _write_private(toml_file, toml_content)
             os.chown(toml_file, 10001, 10001)
-        if (env_file.stat().st_mode & 0o7777) != 0o600:
+        env_mode, _env_uid = _stat_mode_uid(env_file)
+        if env_mode != 0o600:
             raise SessionError("env file mode is not 0600")
-        toml_stat = toml_file.stat()
-        if (toml_stat.st_mode & 0o7777) != 0o600 or toml_stat.st_uid != 10001:
+        toml_mode, toml_uid = _stat_mode_uid(toml_file)
+        if toml_mode != 0o600 or toml_uid != 10001:
             raise SessionError("config file must be mode 0600 owned by uid 10001")
         note("site-files", "PASSED", f"{site} 0700; env 0600; toml 0600 owned 10001:10001")
 
