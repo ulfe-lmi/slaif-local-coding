@@ -71,13 +71,24 @@ path and must NOT be part of the operator project.
   output that was never published to users and is NOT the RC benchmark
   target.
 
-## 3. Prepare protected config/env files (host admin)
+## 3. Prepare protected config/env files
 
-Creating files under `/opt` requires the host admin account (root or
-sudo-authorized). Run this section as the admin or prefix with `sudo`:
+Directory creation and the two file-ownership steps require the host
+admin account (root or sudo-authorized); everything else in this section
+runs as your normal account.
 
 ```bash
-install -d -m 0700 /opt/slaif
+# Host admin: create the protected site directory (0700) and hand its
+# ownership to the operator account that runs Compose. The Compose client
+# reads the env file on the HOST side and resolves the config path, so the
+# operator must be able to traverse the directory and read the env file:
+sudo install -d -m 0700 /opt/slaif
+sudo chown "$USER" /opt/slaif
+```
+
+Then, as your normal account:
+
+```bash
 umask 077
 
 # Fail clearly when a required secret is unset or empty in this shell
@@ -107,7 +118,7 @@ chmod 0600 /opt/slaif/adapter.toml
 # readable by that user: hand the file to 10001:10001 (mode 0600 is
 # preserved; only the owner changes). chown requires the host admin (the
 # same account that manages Docker):
-chown 10001:10001 /opt/slaif/adapter.toml
+sudo chown 10001:10001 /opt/slaif/adapter.toml
 ```
 
 `__LISTEN_HOST__` is `127.0.0.1` for the default loopback bind; set an

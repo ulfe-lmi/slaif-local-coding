@@ -73,14 +73,24 @@ file:
 echo "$SLAIF_GHCR_TOKEN" | docker login ghcr.io -u "$SLAIF_GHCR_USERNAME" --password-stdin
 ```
 
-## 4. Prepare the protected configuration (host admin)
+## 4. Prepare the protected configuration
 
-This section creates files under `/opt`, which requires the host admin
-account (root or sudo-authorized). Run it as the admin or prefix with
-`sudo`:
+Directory creation and the two file-ownership steps require the host
+admin account (root or sudo-authorized); everything else in this section
+runs as your normal account.
 
 ```bash
-install -d -m 0700 /opt/slaif
+# Host admin: create the protected site directory (0700) and hand its
+# ownership to the operator account that runs Compose. The Compose client
+# reads the env file on the HOST side and resolves the config path, so the
+# operator must be able to traverse the directory and read the env file:
+sudo install -d -m 0700 /opt/slaif
+sudo chown "$USER" /opt/slaif
+```
+
+Then, as your normal account (the same shell as section 2):
+
+```bash
 umask 077
 
 # Fail clearly when a required secret is unset or empty in this shell
@@ -90,7 +100,8 @@ umask 077
 : "${SLAIF_ADAPTER_SERVICE_TOKEN:?set SLAIF_ADAPTER_SERVICE_TOKEN in this shell from your protected store before creating the env file}"
 : "${SLAIF_ADAPTER_SIGNING_SECRET:?set SLAIF_ADAPTER_SIGNING_SECRET in this shell from your protected store before creating the env file}"
 
-# Mode-0600 environment file: the THREE DISTINCT secret roles by env name:
+# Mode-0600 environment file, owned by the operator (the Compose client
+# reads it; the THREE DISTINCT secret roles by env name):
 printf 'QWEN3090_API_KEY=%s\nSLAIF_ADAPTER_SERVICE_TOKEN=%s\nSLAIF_ADAPTER_SIGNING_SECRET=%s\n' \
   "$QWEN3090_API_KEY" "$SLAIF_ADAPTER_SERVICE_TOKEN" "$SLAIF_ADAPTER_SIGNING_SECRET" \
   > /opt/slaif/adapter.env
@@ -108,7 +119,7 @@ chmod 0600 /opt/slaif/adapter.toml
 # The container runs as the fixed non-root user 10001:10001; the read-only
 # mounted configuration must be readable by that user (mode 0600 preserved;
 # only the owner changes; chown requires the host admin):
-chown 10001:10001 /opt/slaif/adapter.toml
+sudo chown 10001:10001 /opt/slaif/adapter.toml
 ```
 
 `__LISTEN_HOST__` stays `127.0.0.1` for the default loopback bind. A

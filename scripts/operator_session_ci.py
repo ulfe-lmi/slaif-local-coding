@@ -11,13 +11,16 @@ never leave this process), and the fake loopback upstream
 The executed session mirrors the docs line-for-line in the normative
 parts:
 
-- protected-site directory ``/opt/slaif`` created ``0700`` (host admin);
-- mode-0600 env file with the THREE DISTINCT secret roles;
+- protected-site directory ``/opt/slaif`` created ``0700`` (host admin)
+  and handed to the operator account (the Compose client reads the env
+  file on the host side);
+- mode-0600 env file owned by the operator, with the THREE DISTINCT
+  secret roles;
 - mode-0600 configuration rendered from
   ``config/adapter.gateway-integrated.template.toml`` (the documented
   placeholder substitutions only);
 - ``chown 10001:10001`` of the mounted configuration (the fixed
-  non-root container user);
+  non-root container user; host admin);
 - ONE exported session: ``SLAIF_LOCAL_CODING_IMAGE`` (digest form),
   ``SLAIF_CONFIG_FILE``, ``SLAIF_ENV_FILE`` — every ``docker compose``
   command runs in that same session;
@@ -429,37 +432,51 @@ def main() -> int:
             if nonempty:
                 raise SessionError(f"site directory {site} already exists and is not empty")
         _root(["install", "-d", "-m", "0700", str(site)], timeout=60)
-        site_mode, _site_uid = _stat_mode_uid(site)
-        if site_mode != 0o700:
-            raise SessionError(f"site directory mode is {oct(site_mode)}, not 0700")
+        # Documented flow: the operator account that runs Compose owns the
+        # site directory — the Compose client reads the env file on the
+        # host side and resolves the config path, so the admin hands the
+        # directory to the operator (root execution keeps it root-owned).
+        if os.geteuid() != 0:
+            _root(["chown", f"{os.getuid()}:{os.getgid()}", str(site)], timeout=60)
+        site_mode, site_uid = _stat_mode_uid(site)
+        operator_uid = 0 if os.geteuid() == 0 else os.getuid()
+        if site_mode != 0o700 or site_uid != operator_uid:
+            raise SessionError(
+                f"site directory must be 0700 owned by the operator "
+                f"(mode {oct(site_mode)}, uid {site_uid})"
+            )
         env_file = site / "adapter.env"
         toml_file = site / "adapter.toml"
-        # The files live under the root-managed site directory: compose
-        # (daemon-side) reads the env file, and the config is mounted
-        # read-only into the container, so root-owned 0600 files are the
-        # documented state (the container user 10001 owns the toml).
         env_content = (
             f"QWEN3090_API_KEY={fake_key}\n"
             f"SLAIF_ADAPTER_SERVICE_TOKEN={service_token}\n"
             f"SLAIF_ADAPTER_SIGNING_SECRET={signing_secret}\n"
         )
         toml_content = _render_gateway_template(f"http://127.0.0.1:{args.fake_port}/v1")
-        if os.geteuid() != 0 and shutil.which("sudo") is not None:
-            _root(["tee", str(env_file)], input_bytes=env_content.encode(), timeout=60)
-            _root(["tee", str(toml_file)], input_bytes=toml_content.encode(), timeout=60)
-            _root(["chmod", "0600", str(env_file), str(toml_file)], timeout=60)
-            _root(["chown", "10001:10001", str(toml_file)], timeout=60)
-        else:
-            _write_private(env_file, env_content)
-            _write_private(toml_file, toml_content)
+        # The operator owns the site directory: the files are written
+        # directly by the caller (mode 0600, owner = operator — the
+        # Compose client reads the env file). Only the config's ownership
+        # changes (container user 10001), which needs the host admin.
+        _write_private(env_file, env_content)
+        _write_private(toml_file, toml_content)
+        if os.geteuid() == 0:
             os.chown(toml_file, 10001, 10001)
-        env_mode, _env_uid = _stat_mode_uid(env_file)
-        if env_mode != 0o600:
-            raise SessionError("env file mode is not 0600")
+        else:
+            _root(["chown", "10001:10001", str(toml_file)], timeout=60)
+        env_mode, env_uid = _stat_mode_uid(env_file)
+        if env_mode != 0o600 or env_uid != os.getuid():
+            raise SessionError(
+                f"env file must be mode 0600 owned by the operator "
+                f"(mode {oct(env_mode)}, uid {env_uid})"
+            )
         toml_mode, toml_uid = _stat_mode_uid(toml_file)
         if toml_mode != 0o600 or toml_uid != 10001:
             raise SessionError("config file must be mode 0600 owned by uid 10001")
-        note("site-files", "PASSED", f"{site} 0700; env 0600; toml 0600 owned 10001:10001")
+        note(
+            "site-files",
+            "PASSED",
+            f"{site} 0700 (operator-owned); env 0600 (operator); toml 0600 owned 10001:10001",
+        )
 
         # --- fake upstream (disposable, loopback) ---------------------------
         fake_proc = subprocess.Popen(
