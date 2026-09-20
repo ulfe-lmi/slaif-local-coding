@@ -15,7 +15,12 @@
 #
 # Usage (qualification/development only):
 #   SLAIF_GIT_SHA=<reviewed-sha> SLAIF_WHEEL_SHA256=<manifest wheel sha256> \
+#   SLAIF_LOCAL_CODING_IMAGE=slaif-local-coding:0.1.0-<reviewed-sha> \
 #     docker compose -f compose.yaml -f compose.build.yaml build
+# (Order 013-k, K1: compose.yaml requires SLAIF_LOCAL_CODING_IMAGE at
+# per-file interpolation, before the merge, so every two-file build must
+# supply it; the build override's image field above is what is actually
+# built and tagged. Nonsecret build selection.)
 services:
   adapter:
     image: slaif-local-coding:0.1.0-${SLAIF_GIT_SHA:-local}

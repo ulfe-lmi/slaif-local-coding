@@ -24,10 +24,11 @@ Codex / OpenAI client
   streaming, cancellation, and disconnect behavior are preserved; responses
   are never buffered whole.
 - **Route-scoped image policy.** The designated Qwen Codex vision route
-  accepts exactly one image per request and retains the newest image content
-  item from multi-image history (full-image-then-crop); other routes
-  explicitly reject or pass through. Unknown capabilities fail closed;
-  explicit multi-image comparison is not claimed.
+  accepts at most one image per request (zero-image requests are supported)
+  and retains the newest image content item from multi-image history
+  (full-image-then-crop); other routes explicitly reject or pass through.
+  Unknown capabilities fail closed; explicit multi-image comparison is not
+  claimed.
 - **Governance observation.** Effective `AGENTS.md` content in model-bound
   traffic is detected from Codex envelope/path evidence only; referenced
   repository paths are enumerated deterministically before any model
@@ -49,14 +50,7 @@ Codex / OpenAI client
   logged or persisted.
 
 This repository owns the adapter, route capability policies, packaging,
-tests, and diagnostics. The Gateway remains a separate service, and the
-cutover between them is a separate human-authorized act that has NOT been
-performed; no production deployment is claimed. Release-candidate and
-publication history (including the historical private `0.1.0` tag that was
-never published to users) is recorded in the OAP transcript
-([oap/README.md](oap/README.md), [oap/COMPLETENESS.md](oap/COMPLETENESS.md))
-and in [docs/RELEASE-ARTIFACT-POLICY.md](docs/RELEASE-ARTIFACT-POLICY.md);
-the landing page deliberately carries no release-state claims.
+tests, and diagnostics. The Gateway remains a separate service.
 
 ## Supported runtime and deployment assumptions
 
@@ -70,10 +64,12 @@ the landing page deliberately carries no release-state claims.
 - A **separate SLAIF API Gateway** in front of public traffic. The adapter
   binds loopback by default; a non-loopback bind is accepted only under the
   full signed-ingress contract.
-- **Private registry access** for container images: images are pulled from
-  a private GHCR package with bounded read-only registry credentials;
-  the immutable image digest is the authoritative identity and tags are
-  aliases; anonymous pull is not a prerequisite.
+- **Registry access** for container images: images are pulled from a GHCR
+  package; while the package is private, bounded read-only registry
+  credentials are required and anonymous pull is not a prerequisite; if the
+  package is ever made public, the same pull commands work without
+  credentials. The immutable image digest is the authoritative identity and
+  tags are aliases.
 - **Evidence scope:** local-model behavior was qualified against a single
   RTX 3090 Qwen/vLLM fixture and a pinned Gateway compatibility authority.
   That is fixture-scoped evidence, not a generic or production-equivalence

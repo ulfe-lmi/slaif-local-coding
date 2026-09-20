@@ -4,16 +4,18 @@ Executes the publisher control flow (``main``) with the registry boundary
 (``tag_digest_strict``) and the Docker boundary (``_docker``) mocked, and
 asserts ZERO tag/push mutations for every stop case: occupied source,
 occupied RC (different and same digest), partial prior publication,
-unauthorized/inaccessible, malformed digest, unresolved registry error,
-forbidden final tag, wrong RC identity, and wrong repository. The
+unauthorized/inaccessible, unknown registry status (order 013-k, K3 —
+passed through the mocked boundary unchanged, one case per target),
+malformed digest, unresolved registry error, forbidden final tag,
+wrong RC identity, and wrong repository. The
 successful verified-absent path is proven on the exact call sequence
 (tag -> push -> recheck -> tag -> push, registry API verification,
 GITHUB_OUTPUT + SLAIF_PUBLISHED_DIGEST), including the pre-write recheck
 race and the candidate-tag recheck after the source push.
 
 The pure decision function ``plan_pre_write`` is covered on its full
-tri-state matrix. Deterministic: no docker, no network, no registry, no
-host state.
+state matrix (tri-state plus unknown statuses). Deterministic: no docker,
+no network, no registry, no host state.
 """
 
 from __future__ import annotations
@@ -32,6 +34,10 @@ SCRIPT = REPO_ROOT / "scripts" / "release_registry_publish.py"
 ABSENT = "absent"
 DIGEST = "digest"
 UNAUTHORIZED = "unauthorized"
+# Order 013-k, K3: a registry status outside the known tri-state. The mock
+# boundary passes it through UNCHANGED (it no longer converts every
+# non-absent/non-unauthorized state into DIGEST).
+UNKNOWN = "unknown-registry-status"
 
 D1 = "sha256:" + "a" * 64
 D2 = "sha256:" + "b" * 64
@@ -72,6 +78,10 @@ def mod() -> types.ModuleType:
         ((DIGEST, MALFORMED), (ABSENT, None), "malformed"),
         ((ABSENT, None), (DIGEST, MALFORMED), "malformed"),
         ((UNAUTHORIZED, None), (UNAUTHORIZED, None), "could not be verified"),
+        # Order 013-k, K3: unknown registry statuses are never proceed.
+        ((UNKNOWN, None), (ABSENT, None), "EXPLICIT verified-absent"),
+        ((ABSENT, None), (UNKNOWN, None), "EXPLICIT verified-absent"),
+        ((UNKNOWN, None), (UNKNOWN, None), "EXPLICIT verified-absent"),
     ],
 )
 def test_plan_pre_write_matrix(
@@ -121,7 +131,11 @@ class MockBoundaries:
             return (self.mod.TAG_STATUS_ABSENT, None)
         if status == UNAUTHORIZED:
             return (self.mod.TAG_STATUS_UNAUTHORIZED, None)
-        return (self.mod.TAG_STATUS_DIGEST, digest)
+        if status == DIGEST:
+            return (self.mod.TAG_STATUS_DIGEST, digest)
+        # Order 013-k, K3: unknown statuses pass through UNCHANGED (the
+        # mocked boundary no longer converts them into DIGEST).
+        return (status, digest)
 
     def _docker(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[bytes]:
         self.docker_calls.append(args)
@@ -262,6 +276,41 @@ def test_malformed_digest_zero_mutations(
     )
     assert isinstance(rc, str) and rc.startswith("PublishError")
     assert "malformed" in str(rc)
+    assert bounds.docker_calls == []
+
+
+def test_unknown_status_source_tag_zero_mutations(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Order 013-k, K3: an UNKNOWN registry status on the source tag (passed
+    # through the mocked boundary unchanged) must stop main() with ZERO
+    # docker mutations.
+    rc, _out, bounds = run_main(
+        mod,
+        monkeypatch,
+        tmp_path,
+        {sha_tag(): [(UNKNOWN, None)], rc_tag(): [(ABSENT, None)]},
+    )
+    assert isinstance(rc, str) and rc.startswith("PublishError")
+    assert "EXPLICIT verified-absent" in str(rc)
+    assert "never treated as absent" in str(rc)
+    assert bounds.docker_calls == []
+
+
+def test_unknown_status_rc_tag_zero_mutations(
+    mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Order 013-k, K3: an UNKNOWN registry status on the candidate tag must
+    # stop main() with ZERO docker mutations.
+    rc, _out, bounds = run_main(
+        mod,
+        monkeypatch,
+        tmp_path,
+        {sha_tag(): [(ABSENT, None)], rc_tag(): [(UNKNOWN, None)]},
+    )
+    assert isinstance(rc, str) and rc.startswith("PublishError")
+    assert "EXPLICIT verified-absent" in str(rc)
+    assert "never treated as absent" in str(rc)
     assert bounds.docker_calls == []
 
 

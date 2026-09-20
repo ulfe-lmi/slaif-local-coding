@@ -24,7 +24,9 @@ Checks:
    direct-host section marker (the Docker primary path stays
    Python/uv/build-free);
 8. order 013-j, J2: README.md is release-state-free (no '## Release status'
-   heading, no 'being prepared and frozen', no Objective-013 history);
+   heading, no 'being prepared and frozen', no Objective-013 history, and no
+   transient cutover-not-performed current-deployment paragraph — order
+   013-k, K2);
 9. order 013-j, J2: QUICKSTART.md and INSTALL.md are coherent operator
    sessions — the three ``export SLAIF_...`` session variables are present,
    and no command-local ``SLAIF_CONFIG_FILE=``/``SLAIF_ENV_FILE=``
@@ -144,6 +146,18 @@ README_RELEASE_STATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(r"being prepared and frozen", re.IGNORECASE),
     ),
     ("README Objective-013 history on the landing page", re.compile(r"Objective 013")),
+    # Order 013-k, K2: the transient history/current-deployment paragraph
+    # (cutover-not-performed claim + the no-release-claims meta sentence)
+    # must not return to the landing page; specialist history stays in the
+    # OAP transcript and the scoped documents.
+    (
+        "README transient cutover-not-performed paragraph",
+        re.compile(
+            r"cutover between them is a separate human-authorized act"
+            r"|deliberately carries no release-state claims",
+            re.IGNORECASE,
+        ),
+    ),
 )
 # Order 013-j, J2: the coherent operator session (QUICKSTART.md, INSTALL.md).
 SESSION_EXPORTS: tuple[str, ...] = (

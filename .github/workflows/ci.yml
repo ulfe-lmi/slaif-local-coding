@@ -98,6 +98,35 @@ jobs:
           echo "manifest wheel sha256: $MANIFEST_SHA256"
           test "$WHEEL_SHA256" = "$MANIFEST_SHA256"
           echo "SLAIF_WHEEL_SHA256=$WHEEL_SHA256" >> "$GITHUB_ENV"
+      # Order 013-k, K1: prove the EXACT release-workflow build command and
+      # environment succeed from this fresh disposable CI checkout, with the
+      # nonsecret temporary Compose inputs the invocation actually needs
+      # (compose.yaml requires SLAIF_LOCAL_CODING_IMAGE at per-file
+      # interpolation, before the merge; the env file must exist to load the
+      # project). The built image must retain the source/wheel/RC labels.
+      # The canonical pull-only compose and its explicit-image requirement
+      # are unchanged.
+      - name: Prove the release workflow build command (fresh disposable CI checkout)
+        run: |
+          export SLAIF_GIT_SHA="$GITHUB_SHA"
+          export SLAIF_WHEEL_SHA256
+          export SLAIF_LOCAL_CODING_IMAGE="slaif-local-coding:0.1.0-${GITHUB_SHA}"
+          mkdir -p .ci-build-inputs
+          : > .ci-build-inputs/adapter.env
+          printf '# build-only placeholder (site config is mounted at runtime)\n' > .ci-build-inputs/adapter.toml
+          export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
+          export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
+          docker compose -f compose.yaml -f compose.build.yaml build \
+            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc1; private; not final release"
+          docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
+            --format "built image: {{.Id}} (push performed in the next steps)"
+          REV="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+          WHEEL_LABEL="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "slaif-local-coding.wheel.sha256"}}')"
+          QUAL_LABEL="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "slaif-local-coding.qualification"}}')"
+          test "$REV" = "$GITHUB_SHA"
+          test "$WHEEL_LABEL" = "$SLAIF_WHEEL_SHA256"
+          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc1; private; not final release"
+
       - name: Docker qualification (C2-C9)
         run: |
           uv run --frozen python scripts/docker_qualification_ci.py \

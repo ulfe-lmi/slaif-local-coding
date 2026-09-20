@@ -60,8 +60,13 @@
 #   2. build the RC candidate image via the two-file compose (canonical
 #      pull-based compose.yaml + qualification override compose.build.yaml)
 #      with SLAIF_GIT_SHA = S, SLAIF_WHEEL_SHA256 = the manifest wheel hash,
-#      and SLAIF_QUALIFICATION_LABEL = the RC candidate label
-#      "rc-candidate-0.1.0-rc1; private; not final release";
+#      SLAIF_LOCAL_CODING_IMAGE = the nonsecret build selection
+#      slaif-local-coding:0.1.0-<S> (compose.yaml requires the variable at
+#      per-file interpolation, before the merge; the build override's image
+#      field is what is built and tagged), plus nonsecret temporary
+#      SLAIF_CONFIG_FILE/SLAIF_ENV_FILE inputs the build invocation actually
+#      needs to load the project, and SLAIF_QUALIFICATION_LABEL = the RC
+#      candidate label "rc-candidate-0.1.0-rc1; private; not final release";
 #   3. authenticate to GHCR with GITHUB_TOKEN;
 #   4. before mutation: authenticated strict checks of sha-<S> and
 #      0.1.0-rc1; verified-absent-for-both is the only write precondition
@@ -107,6 +112,21 @@ jobs:
         run: |
           export SLAIF_GIT_SHA="$GITHUB_SHA"
           export SLAIF_WHEEL_SHA256
+          # Order 013-k, K1: compose interpolates each file BEFORE merging,
+          # so the canonical compose.yaml's required explicit-image variable
+          # must be supplied for the build invocation even though the build
+          # override's image field is what is built and tagged. Nonsecret
+          # build selection; the canonical pull-only requirement is unchanged.
+          export SLAIF_LOCAL_CODING_IMAGE="slaif-local-coding:0.1.0-${GITHUB_SHA}"
+          # Nonsecret temporary Compose inputs the build invocation actually
+          # needs to load the project: the env file must exist (its contents
+          # are irrelevant to the build — site values are mounted at
+          # runtime); the config file is a placeholder for the same reason.
+          mkdir -p .ci-build-inputs
+          : > .ci-build-inputs/adapter.env
+          printf '# build-only placeholder (site config is mounted at runtime)\n' > .ci-build-inputs/adapter.toml
+          export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
+          export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
           docker compose -f compose.yaml -f compose.build.yaml build \
             --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc1; private; not final release"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \

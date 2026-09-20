@@ -168,14 +168,16 @@ def plan_pre_write(
     rc_tag: str,
     rc_state: tuple[str, str | None],
 ) -> str:
-    """Order 013-j, J1: the verified-absent-for-both write precondition.
+    """Order 013-j, J1 (strengthened by order 013-k, K3): the
+    verified-absent-for-both write precondition.
 
     Pure decision over the two authenticated strict tag states. Returns
-    ``"proceed"`` ONLY when both tags are authenticated verified-absent.
-    Any other combination raises PublishError with the existing digests
-    reported for strategy adjudication — the caller must then perform NO
-    registry mutation at all (occupied, unauthorized/inaccessible,
-    malformed, or unresolved identities are never written over).
+    ``"proceed"`` ONLY when both tags report the EXPLICIT status
+    ``absent`` (authenticated verified-absent). Any other combination —
+    occupied, unauthorized/inaccessible, malformed, or an unknown/unresolved
+    registry status — raises PublishError with the observed states reported
+    for strategy adjudication; the caller must then perform NO registry
+    mutation at all. Unknown statuses are never treated as absent.
     """
     sha_status, sha_pre = sha_state
     rc_status, rc_pre = rc_state
@@ -233,6 +235,18 @@ def plan_pre_write(
             f"{rc_tag}={rc_pre}. Possible partial prior publication; this "
             "publisher never overwrites an occupied RC identity "
             "(order 013-j, J1)"
+        )
+    # Order 013-k, K3: EXPLICIT verified-absent for both target tags is the
+    # only proceeding state. Anything that is not the explicit ``absent``
+    # status (an unknown or future registry status) is unresolved and fails
+    # closed; it is never treated as absent.
+    if sha_status != TAG_STATUS_ABSENT or rc_status != TAG_STATUS_ABSENT:
+        raise PublishError(
+            "write precondition requires EXPLICIT verified-absent for both "
+            f"target tags; observed unresolved state: {sha_tag}={sha_status!r} "
+            f"(digest {sha_pre!r}), {rc_tag}={rc_status!r} (digest {rc_pre!r}); "
+            "an unknown registry status is never treated as absent; STOPPING "
+            "BEFORE ANY registry mutation (order 013-k, K3)"
         )
     return "proceed"
 

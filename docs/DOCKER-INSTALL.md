@@ -324,6 +324,7 @@ compose:
 ```bash
 export SLAIF_GIT_SHA=<short-sha-of-reviewed-commit>
 export SLAIF_WHEEL_SHA256=<wheel sha256 from packaging/release_provenance_manifest.json>
+export SLAIF_LOCAL_CODING_IMAGE=slaif-local-coding:0.1.0-"$SLAIF_GIT_SHA"
 docker compose -f compose.yaml -f compose.build.yaml build
 SLAIF_GIT_SHA="$SLAIF_GIT_SHA" \
 SLAIF_WHEEL_SHA256="$SLAIF_WHEEL_SHA256" \
@@ -331,6 +332,11 @@ SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
 SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose -f compose.yaml -f compose.build.yaml up -d
 ```
+
+Compose interpolates each file before merging, so `compose.yaml` requires
+`SLAIF_LOCAL_CODING_IMAGE` on this two-file path too (it fails closed when
+absent): the export above supplies the nonsecret build selection, and the
+build override's image field is what is actually built and tagged.
 
 The build override does NOT set the `SLAIF_QUALIFICATION_LABEL` ARG, so
 every local qualification build carries the label

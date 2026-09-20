@@ -9,7 +9,8 @@ section, a missing session export, a command-local env assignment, a
 readyz-wait helper reference, a 'stop whatever' instruction, a missing
 operator fact (platform/reader scope/RepoDigests), a missing secret guard,
 the 'content-addressed source tag' terminology, an ARCHITECTURE.md R18
-publication state, and a runbook 013-b attribution each fail the gate.
+publication state, a runbook 013-b attribution, and (order 013-k, K2) the
+transient README cutover-not-performed paragraph each fail the gate.
 Stdlib only; no network, no host state.
 """
 
@@ -373,6 +374,25 @@ def test_runbook_013b_attribution_fails(checker: types.ModuleType, tmp_path: Pat
     violations = checker.check_repo(tmp_path)
     assert any("file-stale-claim" in v and "013-b" in v for v in violations)
     assert any("file-stale-claim" in v and "release_record.json" in v for v in violations)
+
+
+def test_readme_transient_cutover_paragraph_fails(
+    checker: types.ModuleType, tmp_path: Path
+) -> None:
+    # Order 013-k, K2: the removed transient README paragraph (cutover
+    # current-deployment claim + the no-release-claims meta sentence) must
+    # not return to the landing page.
+    _make_docs_tree(tmp_path)
+    (tmp_path / "README.md").write_text(
+        "# Product\n\n"
+        "See [QUICKSTART.md](QUICKSTART.md) and [INSTALL.md](INSTALL.md).\n\n"
+        "The Gateway remains a separate service, and the cutover between them\n"
+        "is a separate human-authorized act that has NOT been performed; the\n"
+        "landing page deliberately carries no release-state claims.\n",
+        encoding="utf-8",
+    )
+    violations = checker.check_repo(tmp_path)
+    assert any("readme-release-state" in v and "transient cutover" in v for v in violations)
 
 
 def test_historical_runbook_block_is_allowed(checker: types.ModuleType, tmp_path: Path) -> None:

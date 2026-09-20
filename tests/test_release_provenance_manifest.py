@@ -44,12 +44,13 @@ SCHEMA = REPO_ROOT / "packaging" / "release_provenance_manifest.schema.json"
 RECORD = REPO_ROOT / "packaging" / "release_record.json"
 RC_RECORD = REPO_ROOT / "packaging" / "rc_record.json"
 
-# Order 013-i, C10 + order 013-j, J3: the 013-j input set (RC source-review
-# documentation, hermetic six-pin build environment, rendered handoff
-# exclusion) is an explicitly authorized input change, so the accepted
-# wheel hash moves to the new identity. The historical wheel 879baa3a... is
-# NOT reused for the RC.
-ACCEPTED_WHEEL_SHA256 = "3c4c36e666fb67f6a8ed0bbf1a60962e187e46ba1183f314eba03100ce2006af"
+# Order 013-i, C10 + order 013-j, J3 + order 013-k, K2: the input set
+# (RC source-review documentation, hermetic six-pin build environment,
+# rendered handoff exclusion, and the 013-k K1-K3 source corrections whose
+# README change moves the wheel METADATA) is an explicitly authorized input
+# change, so the accepted wheel hash moves to the 013-k identity. The
+# historical wheel 879baa3a... is NOT reused for the RC.
+ACCEPTED_WHEEL_SHA256 = "ad6be6d2e8ad0f99eafb4be7b1c78efbcffe6de16e39106182d85db03933ce1e"
 
 RELEASE_RECORD_KEYS = {
     "schema",
@@ -438,7 +439,7 @@ def _dockerfile_from_lines() -> dict[str, tuple[str, str]]:
 def test_objective_field_records_producing_objective() -> None:
     # In ALL states the objective constant records the producing round.
     committed = _committed()
-    assert committed["objective"] == "013-j"
+    assert committed["objective"] == "013-k"
 
 
 def test_status_fields_state_conditional() -> None:
