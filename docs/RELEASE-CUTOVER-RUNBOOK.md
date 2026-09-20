@@ -327,8 +327,14 @@ No step above was executed. No protected service, Gateway deployment, Codex
 profile, firewall/VPN/network state, systemd production unit, public
 binding, or release state was mutated by Objective 010. The manifest
 records `deployment-qualified (disposable environment only)` and
-`cutover not performed`; the MVP 0.1.0 registry-only GHCR publication has
-since been performed (Objective 013, round 013-b; the digest and the
-image-source commit are recorded in `packaging/release_record.json`), but
-the cutover remains NOT performed and no real deployment is yet
-evidenced.
+`cutover not performed`.
+
+Historical (unmistakably historical, not a current release claim): during
+Objective 013, rounds 013-b..013-g performed a registry-only publication to
+the **non-public** GHCR package (the private tags `0.1.0` and `sha-<S>` at
+one digest; that output was never published to users and is legacy, NOT the
+RC target). As of the RC framing (rounds 013-i/013-j), the RC itself is
+NOT published, the final-release record `packaging/release_record.json`
+does not exist, the RC publication is a separate later round bound to the
+exact reviewed source commit, and the cutover remains NOT performed with no
+real deployment yet evidenced.

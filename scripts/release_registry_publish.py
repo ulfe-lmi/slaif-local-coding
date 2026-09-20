@@ -3,36 +3,50 @@
 Order 013-a, workstream D (R11/R12); order 013-c, workstream C1 (fully
 qualified push references); order 013-d, workstream C2 (credential
 correction); ORDER 013-I, D13/D14 (explicit RC candidate identity on the
-PRIVATE package). Runs ONLY from the activated
-`.github/workflows/release-image.yml` (workflow_dispatch-only).
+PRIVATE package); ORDER 013-J, J1 (verified-absent-for-both write
+precondition: no occupied/unresolved identity is ever written over).
 
-RC publication contract:
+Runs ONLY from the activated `.github/workflows/release-image.yml`
+(workflow_dispatch-only).
 
-1. BEFORE ANY MUTATION, both target tags are checked with authenticated
+RC publication contract (order 013-j, J1 — simple safe RC policy):
+
+1. EXPLICIT IDENTITY BEFORE ANY DOCKER OR REGISTRY MUTATION: the release
+   tag must be EXACTLY the expected RC identity `0.1.0-rc1` (no silently
+   allocated new RC number), the repository must be the expected
+   `ulfe-lmi/slaif-local-coding`, the git sha must be 40-hex, and any
+   final/stable tag (`0.1.0`, `latest`, `stable`, `v0.1.0`) is rejected
+   hard. A later final release is a separate later human-authorized act
+   with its own explicit order.
+2. BEFORE ANY MUTATION, both target tags are checked with authenticated
    registry access via `ghcr_tag_check.tag_digest_strict`, distinguishing
-   *verified absent* from *unauthorized/inaccessible*: any unauthorized
-   outcome fails the run before mutation (the state of a private package
-   cannot be verified without the credentials at hand).
-2. push the built image as `ghcr.io/<repo>:sha-<S>` (content-addressed by
-   the full image-source commit) and capture the pushed digest `D`;
-   re-verify `D` against the registry API. A pre-existing different
-   digest on `sha-<S>` (a colliding frozen identity) fails the run after
-   the content-addressed write and before the candidate tag is touched;
-   the collision is reported for strategy adjudication.
-3. the candidate tag (`0.1.0-rc1` by default): verified absent -> publish;
-   already at `D` -> idempotent no-op (the push is skipped); ANY other
-   digest -> FAIL BEFORE the candidate tag is pushed (no silent repoint,
-   no overwrite of an occupied RC identity).
-4. final registry verification: BOTH tags resolve to one digest `D`;
-   before/after registry states are emitted (registry before/after
-   verification, D14).
-5. emit `SLAIF_PUBLISHED_DIGEST=D` (run log + GITHUB_OUTPUT when set).
+   verified-absent from unauthorized/inaccessible, and any digest the
+   registry reports must be well-formed (`sha256:<64-hex>`).
+3. THE WRITE PRECONDITION: authenticated verified-absent for BOTH tags is
+   the ONLY write precondition. If EITHER the source-SHA tag or the
+   candidate tag is occupied, unauthorized/inaccessible, malformed, or
+   unresolved, the run STOPS BEFORE ANY registry mutation (no `docker
+   tag`, no push). The existing digests are reported for strategy
+   adjudication; the publisher never repushes, rebuilds, or re-points an
+   already frozen identity. A crash between the two pushes leaves a
+   partial state (source tag present, candidate absent) that is REPORTED,
+   never silently completed.
+4. The target state is RECHECKED (authenticated) immediately before each
+   write: once before the source-tag push (both tags) and once before the
+   candidate-tag push (the candidate tag). A race-induced occupation fails
+   the run with zero further mutation.
+5. `sha-<S>` is the SOURCE ALIAS TAG naming the full image-source commit S:
+   it is a MUTABLE tag, not a content-addressed identity. The
+   content-addressed identity is the immutable registry digest `D`. After
+   each push the registry API digest is verified to equal the pushed
+   digest; the final verification requires BOTH tags to resolve to the ONE
+   digest `D`. Before/after registry states are emitted (D14).
+6. emit `SLAIF_PUBLISHED_DIGEST=D` (run log + GITHUB_OUTPUT when set).
 
-Final-tag guard: no code path of this RC workflow may write a final or
-stable tag. `--release-tag` values in the forbidden final set
-(`0.1.0`, `latest`, `stable`, `v0.1.0`) are rejected hard; a later final
-release is a separate later human-authorized act with its own explicit
-order. Package visibility is never changed by this script.
+Publication runs are serialized by the workflow's `concurrency` group
+(`cancel-in-progress: false`: an in-progress publisher is never cancelled),
+so the immediate pre-write recheck closes the remaining in-repository race
+window. Package visibility is never changed by this script.
 
 The registry credential is the workflow `GITHUB_TOKEN` (declared
 `packages: write`), passed to the script via the `SLAIF_GHCR_TOKEN`
@@ -55,15 +69,17 @@ from ghcr_tag_check import (  # noqa: E402
     TAG_STATUS_ABSENT,
     TAG_STATUS_DIGEST,
     TAG_STATUS_UNAUTHORIZED,
-    tag_digest,
     tag_digest_strict,
 )
 
 REPO_DEFAULT = "ulfe-lmi/slaif-local-coding"
 RC_TAG_DEFAULT = "0.1.0-rc1"
 REGISTRY = "ghcr.io"
-# Order 013-i, D13: this RC workflow must never write a final/stable tag.
+# Order 013-i, D13 + order 013-j, J1: this RC workflow must never write a
+# final/stable tag, and it publishes EXACTLY the expected RC identity —
+# a different tag is not a silent new RC number.
 FORBIDDEN_FINAL_TAGS = frozenset({"0.1.0", "latest", "stable", "v0.1.0"})
+DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class PublishError(RuntimeError):
@@ -120,7 +136,8 @@ def _push_digest(ref: str) -> str:
 
 
 def build_push_references(repo: str, git_sha: str, release_tag: str) -> tuple[str, str]:
-    """Return the fully qualified (sha-tag, release-tag) push references.
+    """Return the fully qualified (source-alias-tag, candidate-tag) push
+    references.
 
     Order 013-c, C1: both references are qualified against `ghcr.io` so the
     docker CLI resolves them against the GHCR registry instead of letting
@@ -139,11 +156,109 @@ def _state_label(status: str, digest: str | None) -> str:
     return "unauthorized/inaccessible"
 
 
-def self_check_references() -> int:
-    """Deterministic local proof (order 013-c, C1; order 013-i D13; NO host
-    push). Asserts the exact qualified reference strings the script builds
-    for a fixture git-sha, the RC default tag, and the final-tag guard.
+def is_well_formed_digest(digest: str | None) -> bool:
+    """Order 013-j, J1: a registry-reported digest must be well-formed;
+    anything else is an unresolved identity and fails closed."""
+    return digest is not None and DIGEST_PATTERN.fullmatch(digest) is not None
+
+
+def plan_pre_write(
+    sha_tag: str,
+    sha_state: tuple[str, str | None],
+    rc_tag: str,
+    rc_state: tuple[str, str | None],
+) -> str:
+    """Order 013-j, J1: the verified-absent-for-both write precondition.
+
+    Pure decision over the two authenticated strict tag states. Returns
+    ``"proceed"`` ONLY when both tags are authenticated verified-absent.
+    Any other combination raises PublishError with the existing digests
+    reported for strategy adjudication — the caller must then perform NO
+    registry mutation at all (occupied, unauthorized/inaccessible,
+    malformed, or unresolved identities are never written over).
     """
+    sha_status, sha_pre = sha_state
+    rc_status, rc_pre = rc_state
+
+    unverifiable = []
+    if sha_status == TAG_STATUS_UNAUTHORIZED:
+        unverifiable.append(f"source tag {sha_tag}")
+    if rc_status == TAG_STATUS_UNAUTHORIZED:
+        unverifiable.append(f"candidate tag {rc_tag}")
+    if unverifiable:
+        raise PublishError(
+            "pre-write tag check could not be verified with the credentials "
+            f"at hand ({'; '.join(unverifiable)}); failing closed BEFORE any "
+            "registry mutation (order 013-j, J1)"
+        )
+    malformed = []
+    if sha_status == TAG_STATUS_DIGEST and not is_well_formed_digest(sha_pre):
+        malformed.append(f"{sha_tag}={sha_pre!r}")
+    if rc_status == TAG_STATUS_DIGEST and not is_well_formed_digest(rc_pre):
+        malformed.append(f"{rc_tag}={rc_pre!r}")
+    if malformed:
+        raise PublishError(
+            "registry reported a malformed digest for "
+            f"{'; '.join(malformed)}; the identity is unresolved, failing "
+            "closed BEFORE any registry mutation (order 013-j, J1)"
+        )
+    if sha_status == TAG_STATUS_DIGEST:
+        hint = ""
+        if rc_status == TAG_STATUS_DIGEST and rc_pre == sha_pre:
+            hint = (
+                " The candidate tag is at the SAME digest: the state "
+                "indicates a prior completed publication of this identity."
+            )
+        elif rc_status == TAG_STATUS_ABSENT:
+            hint = (
+                " The candidate tag is verified absent: this is a PARTIAL "
+                "prior publication state (source pushed, candidate not "
+                "pushed). No registry mutation was performed; recovery "
+                "requires an explicit strategy decision — this publisher "
+                "never re-pushes or auto-completes."
+            )
+        raise PublishError(
+            f"source tag {sha_tag} is OCCUPIED at {sha_pre}; STOPPING BEFORE "
+            "ANY registry mutation. Existing digests for strategy "
+            f"adjudication: {sha_tag}={sha_pre}, {rc_tag}="
+            f"{rc_pre if rc_status == TAG_STATUS_DIGEST else 'verified absent'}. "
+            "An already frozen identity is never repushed or rebuilt."
+            f"{hint} (order 013-j, J1)"
+        )
+    if rc_status == TAG_STATUS_DIGEST:
+        raise PublishError(
+            f"candidate tag {rc_tag} is OCCUPIED at {rc_pre} (source tag "
+            f"{sha_tag} verified absent); STOPPING BEFORE ANY registry "
+            "mutation. Existing digests for strategy adjudication: "
+            f"{rc_tag}={rc_pre}. Possible partial prior publication; this "
+            "publisher never overwrites an occupied RC identity "
+            "(order 013-j, J1)"
+        )
+    return "proceed"
+
+
+def _strict_both(
+    repo: str, sha_tag: str, rc_tag: str, token: str
+) -> tuple[tuple[str, str | None], tuple[str, str | None]]:
+    """Authenticated strict checks of both target tags; an unresolved
+    registry/transport error fails closed (never treated as absent)."""
+    try:
+        sha_state = tag_digest_strict(repo, sha_tag, token)
+        rc_state = tag_digest_strict(repo, rc_tag, token)
+    except Exception as exc:  # noqa: BLE001 - fail-closed law at the boundary
+        raise PublishError(
+            f"pre-write tag check unresolved (registry/transport error: "
+            f"{exc.__class__.__name__}); failing closed BEFORE any registry "
+            "mutation (order 013-j, J1)"
+        ) from None
+    return sha_state, rc_state
+
+
+def self_check_references() -> int:
+    """Deterministic local proof (order 013-c, C1; order 013-i D13; order
+    013-j J1; NO host push). Asserts the exact qualified reference strings
+    the script builds for a fixture git-sha, the RC default tag, and the
+    final-tag guard."""
     fixture_sha = "0" * 40
     expected = (
         f"{REGISTRY}/{REPO_DEFAULT}:sha-{fixture_sha}",
@@ -159,7 +274,7 @@ def self_check_references() -> int:
             print(f"final-tag guard self-check FAILED for {forbidden}", file=sys.stderr)
             return 1
     print(
-        f"reference self-check OK: sha-tag {built[0]}; candidate-tag {built[1]}; "
+        f"reference self-check OK: source-alias {built[0]}; candidate-tag {built[1]}; "
         f"forbidden final tags {sorted(FORBIDDEN_FINAL_TAGS)}"
     )
     return 0
@@ -173,7 +288,8 @@ def main() -> int:
     parser.add_argument(
         "--release-tag",
         default=RC_TAG_DEFAULT,
-        help="candidate tag to publish (default 0.1.0-rc1); final/stable tags are rejected",
+        help="candidate tag to publish; EXACTLY 0.1.0-rc1 is the only "
+        "accepted value for this RC publisher (default)",
     )
     parser.add_argument(
         "--self-check-refs",
@@ -188,86 +304,99 @@ def main() -> int:
     if not args.local_image or not args.git_sha:
         parser.error("--local-image and --git-sha are required for publication")
 
-    if not re.fullmatch(r"[0-9a-f]{40}", args.git_sha):
-        raise PublishError("git-sha must be 40-hex")
+    # --- Explicit expected identity BEFORE any docker/registry access ----
     if args.release_tag in FORBIDDEN_FINAL_TAGS:
         raise PublishError(
-            f"refusing to publish final/stable tag {args.release_tag!r} from the "
-            "RC workflow: the explicit RC candidate identity is the only "
-            "permitted tag (order 013-i, D13)"
+            f"refusing to publish final/stable tag {args.release_tag!r} from "
+            "the RC workflow: a later final release is a separate later "
+            "human-authorized act (order 013-i, D13)"
         )
-    token = os.environ.get("SLAIF_GHCR_TOKEN") or None
-    sha_tag = f"sha-{args.git_sha}"
-    sha_ref, release_ref = build_push_references(args.repo, args.git_sha, args.release_tag)
+    if args.release_tag != RC_TAG_DEFAULT:
+        raise PublishError(
+            f"release tag {args.release_tag!r} is not the expected RC "
+            f"identity {RC_TAG_DEFAULT!r}: this RC publisher publishes "
+            "exactly the explicit RC1 identity and never silently "
+            "allocates a new RC number (order 013-j, J1)"
+        )
+    if args.repo != REPO_DEFAULT:
+        raise PublishError(
+            f"repository {args.repo!r} is not the expected "
+            f"{REPO_DEFAULT!r}; the expected repository is validated before "
+            "any Docker mutation (order 013-j, J1)"
+        )
+    if not re.fullmatch(r"[0-9a-f]{40}", args.git_sha):
+        raise PublishError("git-sha must be 40-hex")
 
-    # --- Before mutation: authenticated tri-state tag checks (D13) --------
+    token = os.environ.get("SLAIF_GHCR_TOKEN") or None
     if token is None:
         raise PublishError(
             "SLAIF_GHCR_TOKEN is required: the RC package is private and its "
             "tag state cannot be verified anonymously (fail closed)"
         )
-    sha_status, sha_pre = tag_digest_strict(args.repo, sha_tag, token)
-    rc_status, rc_pre = tag_digest_strict(args.repo, args.release_tag, token)
+    sha_tag = f"sha-{args.git_sha}"
+    sha_ref, release_ref = build_push_references(args.repo, args.git_sha, args.release_tag)
+
+    # --- Pre-mutation: authenticated tri-state checks (D13/J1) ------------
+    sha_state, rc_state = _strict_both(args.repo, sha_tag, args.release_tag, token)
     print(
-        f"registry before: {sha_tag} = {_state_label(sha_status, sha_pre)}; "
-        f"{args.release_tag} = {_state_label(rc_status, rc_pre)}",
+        f"registry before: {sha_tag} = {_state_label(sha_state[0], sha_state[1])}; "
+        f"{args.release_tag} = {_state_label(rc_state[0], rc_state[1])}",
         flush=True,
     )
-    if sha_status == TAG_STATUS_UNAUTHORIZED or rc_status == TAG_STATUS_UNAUTHORIZED:
-        raise PublishError(
-            "pre-mutation tag check could not be verified with the credentials "
-            "at hand (unauthorized/inaccessible); failing closed before any "
-            "mutation (order 013-i, D13)"
-        )
+    plan_pre_write(sha_tag, sha_state, args.release_tag, rc_state)
 
-    # --- Push the content-addressed source tag -----------------------------
-    print(f"publishing {args.local_image} as {sha_ref}", flush=True)
+    # --- Immediate pre-write recheck (J1: recheck before the write) -------
+    sha_state2, rc_state2 = _strict_both(args.repo, sha_tag, args.release_tag, token)
+    plan_pre_write(sha_tag, sha_state2, args.release_tag, rc_state2)
+
+    # --- Push the source-alias tag sha-<S> (mutable alias, not a digest) --
+    print(f"publishing {args.local_image} as source alias {sha_ref}", flush=True)
     _docker("tag", args.local_image, sha_ref)
     push_digest = _push_digest(sha_ref)
-    api_digest = tag_digest(args.repo, sha_tag, token)
+    if not is_well_formed_digest(push_digest):
+        raise PublishError(f"push digest malformed: {push_digest!r}")
+    api_status, api_digest = tag_digest_strict(args.repo, sha_tag, token)
+    if api_status != TAG_STATUS_DIGEST or not is_well_formed_digest(api_digest):
+        raise PublishError(
+            f"post-push registry state unresolved for {sha_tag}: "
+            f"{_state_label(api_status, api_digest)}; failing closed"
+        )
     if api_digest != push_digest:
         raise PublishError(f"registry/api digest mismatch: push={push_digest} api={api_digest}")
-    print(f"registry tag {sha_tag} -> {api_digest}", flush=True)
-    if sha_status == TAG_STATUS_DIGEST and sha_pre != api_digest:
-        raise PublishError(
-            f"source tag collision: {sha_tag} was occupied at {sha_pre} before "
-            f"the content-addressed push and now resolves to {api_digest}; "
-            "the candidate tag was NOT touched; report the collision for "
-            "strategy adjudication (order 013-i, D13)"
-        )
-    if sha_status == TAG_STATUS_DIGEST:
-        print(f"source tag {sha_tag} idempotent (already at {api_digest})", flush=True)
+    print(f"registry source alias {sha_tag} -> {api_digest}", flush=True)
 
-    # --- Candidate tag: fail closed on differing occupation ----------------
-    if rc_status == TAG_STATUS_DIGEST:
-        if rc_pre != api_digest:
-            raise PublishError(
-                f"candidate tag {args.release_tag} is occupied at a DIFFERENT "
-                f"digest ({rc_pre}); refusing to overwrite an occupied RC "
-                "identity; report the collision for strategy adjudication "
-                "(order 013-i, D13)"
-            )
-        print(
-            f"candidate tag {args.release_tag} already present at {api_digest} "
-            "(idempotent no-op; push skipped)",
-            flush=True,
-        )
-    else:
-        _docker("tag", args.local_image, release_ref)
-        release_push_digest = _push_digest(release_ref)
-        if release_push_digest != api_digest:
-            raise PublishError(
-                f"{args.release_tag} push digest differs from sha-<S> digest: "
-                f"{release_push_digest} vs {api_digest}"
-            )
-
-    # --- Final registry verification: both tags -> one digest --------------
-    verify_rc = tag_digest(args.repo, args.release_tag, token)
-    verify_sha = tag_digest(args.repo, sha_tag, token)
-    if verify_rc != api_digest or verify_sha != api_digest:
+    # --- Candidate tag: recheck immediately before its write (J1) ---------
+    rc_status3, rc_pre3 = tag_digest_strict(args.repo, args.release_tag, token)
+    if rc_status3 != TAG_STATUS_ABSENT:
         raise PublishError(
-            f"final registry verification failed: {args.release_tag}={verify_rc} "
-            f"{sha_tag}={verify_sha} expected={api_digest}"
+            f"candidate tag {args.release_tag} recheck immediately before its "
+            f"write reports {_state_label(rc_status3, rc_pre3)} (source alias "
+            f"{sha_tag} was just written at {api_digest}); PARTIAL prior "
+            "publication state — NO further registry mutation performed; "
+            "report for strategy adjudication (order 013-j, J1)"
+        )
+
+    _docker("tag", args.local_image, release_ref)
+    release_push_digest = _push_digest(release_ref)
+    if release_push_digest != api_digest:
+        raise PublishError(
+            f"{args.release_tag} push digest differs from source-alias "
+            f"digest: {release_push_digest} vs {api_digest}"
+        )
+
+    # --- Final registry verification: both tags -> one digest -------------
+    verify_rc_status, verify_rc = tag_digest_strict(args.repo, args.release_tag, token)
+    verify_sha_status, verify_sha = tag_digest_strict(args.repo, sha_tag, token)
+    if (
+        verify_rc_status != TAG_STATUS_DIGEST
+        or verify_sha_status != TAG_STATUS_DIGEST
+        or verify_rc != api_digest
+        or verify_sha != api_digest
+    ):
+        raise PublishError(
+            f"final registry verification failed: {args.release_tag}="
+            f"{_state_label(verify_rc_status, verify_rc)} {sha_tag}="
+            f"{_state_label(verify_sha_status, verify_sha)} expected={api_digest}"
         )
 
     digest = api_digest

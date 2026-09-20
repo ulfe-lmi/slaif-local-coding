@@ -14,21 +14,26 @@ Gateway-integrated (signed) configuration; the development variant below is
 development-only and is **not production**.
 
 **The released-user path is PULL-BASED**. The canonical pull-based compose
-is the canonical operator installation path: the reference
-`ghcr.io/ulfe-lmi/slaif-local-coding` carries tags `0.1.0` and `sha-<S>`
-(both resolving to one registry digest `D`; `S` is the image source commit,
-the commit that the Git tag `v0.1.0` targets as the release reference), and
-`D` and `S` are recorded in `packaging/release_record.json` and the
-schema-v3 provenance manifest (`oci.image_digest`, `release` section). The
-publication (Objective 013, round 013-b) was executed from the final
-implementation head of PR #15 after the Gateway peer was re-qualified;
-that re-qualified pin, `08ca421…`, is the FROZEN 0.1.0 release
-compatibility authority (see the "Gateway compatibility authority (frozen
-for 0.1.0)" section of
-[RELEASE-ARTIFACT-POLICY.md](RELEASE-ARTIFACT-POLICY.md)). The Git tag `v0.1.0` is a strategic post-merge act; the
-GitHub Release follows that tag. Publication is registry-only: the
-protected-host cutover is NOT performed by publication and no real
-deployment is yet evidenced.
+is the canonical operator installation path for the reference
+`ghcr.io/ulfe-lmi/slaif-local-coding`: the image source commit `S` and the
+authoritative registry digest `D` are recorded in the RC artifact record
+(`packaging/rc_record.json`, schema `slaif-rc-record-v2`) and the
+provenance manifest once the RC is published; the RC tag pair is
+`0.1.0-rc1` (explicit candidate) + `sha-<S>` (source alias tag — a mutable
+tag naming the image source commit, not a content-addressed identity).
+The frozen Gateway compatibility authority is the peer
+`08ca421bee1ddca62078302b910e8be88cf705be` (see the "Gateway compatibility
+authority (frozen for 0.1.0)" section of
+[RELEASE-ARTIFACT-POLICY.md](RELEASE-ARTIFACT-POLICY.md)). Historical
+(unmistakably historical, not a current release claim): rounds
+013-b..013-g of Objective 013 pushed the private tags `0.1.0` and
+`sha-<S>` to the **non-public** package at one digest; that output was
+never published to users, is legacy, is NOT the RC benchmark target, and
+must not be pulled or reused. The RC publication is a separate later round
+bound to the exact reviewed source commit; a final public release (Git tag
+`v0.1.0`, GitHub Release) is a separate later human-authorized act.
+Publication is registry-only: the protected-host cutover is NOT performed
+by publication and no real deployment is yet evidenced.
 
 ## Prerequisites
 
@@ -43,6 +48,11 @@ deployment is yet evidenced.
   appliance: `http://127.0.0.1:18020/v1`; for evaluation: a disposable fake
   upstream, e.g. `scripts/fake_upstream_server.py`). The host-loopback Qwen
   hop is the reason the container uses `network_mode: host`.
+- **Bounded read-only GHCR credentials** for the private image package:
+  the EXTERNAL reader scope is `read:packages` (a classic PAT with package
+  read access for this package — distinct from the Actions YAML
+  `packages: read` keyword); password-stdin, bounded read-only access, no
+  request to make the package public.
 - Outbound connectivity to the registry **at pull time only**. The runtime
   performs no package downloads.
 - The supported bind law (D1): loopback is the default; a non-loopback bind
@@ -69,6 +79,32 @@ deployment is yet evidenced.
   builds, and the bound wheel SHA-256). Both base images are pinned by
   immutable digest. The published image's label set is mechanically
   verified by the `docker-published` CI job (private, authenticated).
+- **Digest verification (when pulling by tag):** inspecting the image
+  `.Id` alone is NOT proof of the manifest digest. Verify the actual
+  registry/OCI digest via `RepoDigests` (the registry manifest digest
+  recorded by the pull) — it must contain
+  `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>`:
+
+  ```bash
+  docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1" \
+    --format '{{range .RepoDigests}}{{.}}{{end}}'
+  ```
+- **Supported image OS/architecture:** the image is a Linux multi-stage
+  Docker build; the digest-pinned base images carry a multi-architecture
+  OCI index, but the RC candidate image is built and qualified on
+  `linux/amd64` only — other architectures are not qualified for this
+  release.
+
+## Supported platforms (repeated for clarity)
+
+- **Linux host** (`linux/amd64` is the qualified architecture) with
+  Docker Engine and the **Compose v2 plugin** (`docker compose version`);
+- **Bounded read-only GHCR credentials**: the EXTERNAL reader scope is
+  `read:packages` (a classic PAT with package read access for this
+  package — distinct from the Actions YAML `packages: read` keyword used
+  by this repository's CI); credentials are supplied by password-stdin and
+  the access is bounded and read-only (no request to make the package
+  public).
 
 ## 1. Obtain the release file set
 
@@ -129,12 +165,26 @@ chmod 0600 /opt/slaif/adapter.toml
 chown 10001:10001 /opt/slaif/adapter.toml
 ```
 
-## 3. Pull the selected image
+## 3. Set the operator session variables (once)
+
+Every Compose command in this procedure — `pull`, `up`, `ps`, `logs`,
+`stop`, `start`, `restart`, `down`, upgrade, rollback — runs in this same
+shell with the SAME three exported variables, so no later command ever
+resolves a missing or wrong default:
 
 ```bash
 export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>
-SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
-SLAIF_ENV_FILE=/opt/slaif/adapter.env \
+export SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml
+export SLAIF_ENV_FILE=/opt/slaif/adapter.env
+```
+
+(`SLAIF_LOCAL_CODING_IMAGE` digest form preferred; the tag form is
+accepted — see "Image identity". The compose file fails closed when any of
+the required variables is absent.)
+
+## 4. Pull the selected image
+
+```bash
 docker compose pull
 ```
 
@@ -143,18 +193,16 @@ accepted — see "Image identity"); no local build occurs (the file carries
 no build key). The private package requires registry login first
 (QUICKSTART.md step 3; stdin credentials only).
 
-## 4. Start
+## 5. Start
 
 ```bash
-SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
-SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose up -d
 ```
 
 The service uses `network_mode: host`, so the adapter binds directly on the
 host's port `18031` at the `__LISTEN_HOST__` address; no ports are published.
 
-## 5. Verify readiness (bounded, fail-closed)
+## 6. Verify readiness (bounded, fail-closed)
 
 The compose healthcheck probes `/readyz` inside the container
 (`SLAIF_HEALTH_ENDPOINT`, default `127.0.0.1:18031`): 10 s interval, 5 s
@@ -165,12 +213,19 @@ docker compose ps                                   # expect health: healthy
 docker inspect --format '{{.State.Health.Status}}' slaif-local-coding-adapter-1
 ```
 
-Because host networking makes the container loopback the host loopback, the
-loopback readiness poll also works from the host (equivalent of
-`packaging/readyz-wait.sh` for the Docker path):
+The minimal compose+config retrieval path is self-contained: the bounded
+wait below uses only Docker (the compose healthcheck already probes
+`/readyz` inside the container), so no extra repository file or `curl`
+prerequisite is required:
 
 ```bash
-packaging/readyz-wait.sh
+STATE=""
+for i in $(seq 1 36); do
+  STATE="$(docker inspect --format '{{.State.Health.Status}}' slaif-local-coding-adapter-1 2>/dev/null || true)"
+  [ "$STATE" = "healthy" ] && break
+  sleep 5
+done
+[ "$STATE" = "healthy" ] || { echo "readyz: not healthy within the bounded wait — fail closed" >&2; exit 1; }
 ```
 
 Fail-closed: if the bounded wait elapses, do **not** send traffic. A missing
@@ -178,7 +233,7 @@ signing secret yields `/readyz` 503 with `gateway_ingress: "unavailable"`
 and an unhealthy container; inspect `docker compose logs adapter` for the
 sanitized reason.
 
-## 6. Stop / restart / status
+## 7. Stop / restart / status
 
 ```bash
 docker compose stop      # stop
@@ -188,7 +243,7 @@ docker compose ps        # status
 docker compose logs --tail 100 adapter   # bounded sanitized logs
 ```
 
-## 7. Upgrade
+## 8. Upgrade
 
 Pin the NEXT published image tag/digest and recreate — no build on the host:
 
@@ -196,13 +251,7 @@ Pin the NEXT published image tag/digest and recreate — no build on the host:
 export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding:<next-tag>
 # or the exact-reproduction digest form:
 # export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<next-D>
-SLAIF_LOCAL_CODING_IMAGE="$SLAIF_LOCAL_CODING_IMAGE" \
-SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
-SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose pull
-SLAIF_LOCAL_CODING_IMAGE="$SLAIF_LOCAL_CODING_IMAGE" \
-SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
-SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose up -d --force-recreate
 docker compose ps       # re-verify readiness: health: healthy
 ```
@@ -211,36 +260,28 @@ The mounted configuration file is byte-unchanged by an upgrade; the tmpfs
 derived cache is intentionally wiped on recreate (the cache is disposable by
 construction; no persistent cache state is claimed).
 
-## 8. Rollback
+## 9. Rollback
 
 Same mechanics with the PREVIOUS image tag/digest:
 
 ```bash
 export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding:<previous-tag-or-digest>
-SLAIF_LOCAL_CODING_IMAGE="$SLAIF_LOCAL_CODING_IMAGE" \
-SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
-SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose pull
-SLAIF_LOCAL_CODING_IMAGE="$SLAIF_LOCAL_CODING_IMAGE" \
-SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
-SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose up -d --force-recreate
 docker compose ps       # re-verify readiness: health: healthy
 ```
 
-## 9. Cache purge
+## 10. Cache purge
 
 The derived cache lives on the bounded `/dev/shm` tmpfs; purging is a
 container recreate (no persistent cache state exists to purge on disk):
 
 ```bash
 docker compose down
-SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml \
-SLAIF_ENV_FILE=/opt/slaif/adapter.env \
 docker compose up -d
 ```
 
-## 10. Uninstall
+## 11. Uninstall
 
 Nothing is persistent by design:
 
@@ -344,20 +385,37 @@ path always uses the final Gateway-integrated (signed) configuration.
   image from the exact dispatched source commit `S` via the two-file
   compose with the RC candidate qualification label, and pushes the
   explicit candidate identity:
-  `ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>` (content-addressed) and
-  `:0.1.0-rc1`. Before ANY push both target tags are checked with
-  authenticated registry access (verified-absent vs unauthorized/
-  inaccessible distinguished); a pre-existing different digest on either
-  tag fails the run, the same digest is an idempotent no-op, and no code
-  path may write `0.1.0`, `latest`, `stable`, a final `v0.1.0`, or change
-  package visibility. The historical private `0.1.0` and orphan `sha-`
-  tags are preserved byte-for-byte.
+  `ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>` (source ALIAS tag naming
+  the full image-source commit — mutable; the content-addressed identity
+  is the immutable digest `D`) and `:0.1.0-rc1` (the EXACT expected RC
+  identity; the publisher never silently allocates a new RC number).
+  Before ANY mutation both target tags are checked with authenticated
+  registry access (verified-absent vs unauthorized/inaccessible
+  distinguished; any reported digest must be well-formed), and
+  VERIFIED-ABSENT-FOR-BOTH is the ONLY write precondition: if EITHER tag
+  is occupied, unauthorized/inaccessible, malformed, or unresolved, the
+  run stops BEFORE ANY registry mutation, reports the existing digests
+  for strategy adjudication, and never repushes or rebuilds an already
+  frozen identity (a crash between the two pushes leaves a partial state
+  that is reported, never silently completed). The target state is
+  rechecked immediately before each write, and publication runs are
+  serialized by the workflow concurrency group (an in-progress publisher
+  is never cancelled). No code path may write `0.1.0`, `latest`,
+  `stable`, a final `v0.1.0`, or change package visibility. The
+  historical private `0.1.0` and orphan `sha-` tags are preserved
+  byte-for-byte.
 - At publication, the RC record (`packaging/rc_record.json`, schema
-  `slaif-rc-record-v1`) and the provenance manifest bind `S` (image source
-  commit, OCI revision label), `D` (OCI digest, authoritative identity),
-  the RC tag pair, the wheel SHA-256, the dependency-lock hash, the frozen
-  Gateway authority, and the pinned toolchain; the record keeps
-  `final_public_release: false` and `cutover_performed: false`.
+  `slaif-rc-record-v2`) and the provenance manifest bind `S` (image source
+  commit, OCI revision label), `D` (authenticated registry digest,
+  authoritative identity), the publishing run head SHA, the RC tag pair,
+  the wheel SHA-256, the dependency-lock hash, the frozen Gateway
+  authority, the full pinned build environment and toolchain, the
+  digest-pinned base images, the supported image platform, and the DIRECT
+  path->hash source-input map (config templates, compose identity,
+  packaging inputs); the deterministically rendered human-readable
+  handoff (`packaging/rc_handoff.md`) is generated from that same machine
+  record. The record keeps `final_public_release: false` and
+  `cutover_performed: false`.
 - A later human-approved final release references the SAME tested digest
   without rebuilding or changing embedded labels; any final Git tag and
   GitHub Release are separate later acts.

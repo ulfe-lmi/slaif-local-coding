@@ -1,8 +1,10 @@
-"""Documentation consistency gate (order 013-i, B8).
+"""Documentation consistency gate (order 013-i, B8; extended by order 013-j, J2).
 
 Scoped, mechanical checks over the CURRENT user-facing docs only. This is a
 small gate, not a style linter, and it deliberately does not touch the
 immutable OAP transcripts (``oap/``) or the historical objective ledgers.
+Truthful prose stating that Docker users need no Python/uv is NOT banned;
+required build-tool COMMANDS are.
 
 Checks:
 
@@ -20,7 +22,32 @@ Checks:
    build instructions;
 7. INSTALL.md contains those build instructions only after the advanced
    direct-host section marker (the Docker primary path stays
-   Python/uv/build-free).
+   Python/uv/build-free);
+8. order 013-j, J2: README.md is release-state-free (no '## Release status'
+   heading, no 'being prepared and frozen', no Objective-013 history);
+9. order 013-j, J2: QUICKSTART.md and INSTALL.md are coherent operator
+   sessions — the three ``export SLAIF_...`` session variables are present,
+   and no command-local ``SLAIF_CONFIG_FILE=``/``SLAIF_ENV_FILE=``
+   assignments survive;
+10. order 013-j, J2: the minimal Docker path is self-contained — no
+    ``readyz-wait`` helper reference in QUICKSTART.md or in INSTALL.md
+    before the advanced marker;
+11. order 013-j, J2: no "stop whatever owns the port"-style instruction in
+    the scoped docs;
+12. order 013-j, J2: QUICKSTART.md and INSTALL.md document the actual
+    qualified platform (``linux/amd64``), the external GHCR reader scope
+    (``read:packages``), and registry-manifest-digest verification
+    (``RepoDigests``);
+13. order 013-j, J2: the three secret roles are guarded fail-closed with
+    ``${VAR:?...}`` in the QUICKSTART.md and INSTALL.md env-file creation;
+14. order 013-j, J1: the "content-addressed source tag" terminology does
+    not survive in current docs, the compose file, or the release workflow
+    (``sha-<S>`` is a MUTABLE source alias; the digest is
+    content-addressed);
+15. order 013-j, J2: file-specific stale current-claim patterns for
+    ARCHITECTURE.md (the R18 Gateway-peer-hold / 'PENDING as of this PR'
+    publication state) and docs/RELEASE-CUTOVER-RUNBOOK.md (the 013-b
+    publication attribution and the release_record.json current claim).
 
 Usage:
 
@@ -52,6 +79,13 @@ SCOPED_DOCS: tuple[str, ...] = (
     "docs/DOCKER-SECURITY-DELTA.md",
     "docs/RELEASE-ARTIFACT-POLICY.md",
 )
+# Order 013-j, J2: the stale-claim wording check additionally covers the
+# current architecture sections and the cutover runbook (both carry
+# historical blocks that must stay unmistakably historical).
+CLAIM_DOCS: tuple[str, ...] = SCOPED_DOCS + (
+    "ARCHITECTURE.md",
+    "docs/RELEASE-CUTOVER-RUNBOOK.md",
+)
 REQUIRED_ROOT_FILES: tuple[str, ...] = (
     "README.md",
     "QUICKSTART.md",
@@ -61,9 +95,12 @@ REQUIRED_ROOT_FILES: tuple[str, ...] = (
     "docs/README.md",
 )
 COMPOSE_FILE = "compose.yaml"
+RELEASE_WORKFLOW = ".github/workflows/release-image.yml"
 # INSTALL.md: Python/uv build tokens are allowed only at or after this line.
 ADVANCED_MARKER = "## Advanced: direct-host (systemd) installation"
 # Build-toolchain tokens that must not appear on the primary operator path.
+# These are required build-tool COMMANDS; truthful prose such as "no Python,
+# no uv, and no local build on this path" does not contain them.
 BUILD_TOKENS: tuple[str, ...] = (
     "uv build",
     "uv venv",
@@ -95,6 +132,63 @@ STALE_CLAIM_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
             r"(?:available|ready|done|final|shipped|complete)\b",
             re.IGNORECASE,
         ),
+    ),
+)
+# Order 013-j, J2: README is the stable landing page — no release-state
+# section, no transient freeze prose, no Objective-013 history (that history
+# lives in the OAP transcript and docs/RELEASE-ARTIFACT-POLICY.md).
+README_RELEASE_STATE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("README '## Release status' section", re.compile(r"^##\s+Release status\s*$", re.MULTILINE)),
+    (
+        "README transient 'being prepared and frozen' prose",
+        re.compile(r"being prepared and frozen", re.IGNORECASE),
+    ),
+    ("README Objective-013 history on the landing page", re.compile(r"Objective 013")),
+)
+# Order 013-j, J2: the coherent operator session (QUICKSTART.md, INSTALL.md).
+SESSION_EXPORTS: tuple[str, ...] = (
+    "export SLAIF_LOCAL_CODING_IMAGE=",
+    "export SLAIF_CONFIG_FILE=",
+    "export SLAIF_ENV_FILE=",
+)
+COMMAND_LOCAL_ENV_RE = re.compile(r"^\s*SLAIF_(?:CONFIG_FILE|ENV_FILE)=")
+# Order 013-j, J2: fail-closed guards for the three secret roles.
+SECRET_GUARDS: tuple[str, ...] = (
+    "${QWEN3090_API_KEY:?",
+    "${SLAIF_ADAPTER_SERVICE_TOKEN:?",
+    "${SLAIF_ADAPTER_SIGNING_SECRET:?",
+)
+# Order 013-j, J2: facts the minimal Docker path must document.
+OPERATOR_FACTS: tuple[tuple[str, str], ...] = (
+    ("linux/amd64", "supported image platform"),
+    ("read:packages", "external GHCR reader scope"),
+    ("RepoDigests", "registry-manifest-digest verification"),
+)
+# Order 013-j, J1: the sha-<S> tag is a MUTABLE source alias, never a
+# "content-addressed source tag"; the digest is the content-addressed
+# identity.
+CONTENT_ADDRESSED_SOURCE_TAG_RE = re.compile(r"content-addressed source tag", re.IGNORECASE)
+# Order 013-j, J2: "stop whatever owns the port" style instructions.
+STOP_WHOEVER_RE = re.compile(r"stop\s+whatever", re.IGNORECASE)
+# Order 013-j, J2: file-specific stale current-claim patterns.
+ARCHITECTURE_STALE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "ARCHITECTURE.md R18 Gateway-peer-hold publication state",
+        re.compile(r"\bR18\b"),
+    ),
+    (
+        "ARCHITECTURE.md 'PENDING as of this PR' publication state",
+        re.compile(r"PENDING as of this PR", re.IGNORECASE),
+    ),
+)
+RUNBOOK_STALE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "RELEASE-CUTOVER-RUNBOOK.md 013-b current publication attribution",
+        re.compile(r"publication has since been performed", re.IGNORECASE),
+    ),
+    (
+        "RELEASE-CUTOVER-RUNBOOK.md release_record.json current-claim",
+        re.compile(r"recorded in (?:`|)packaging/release_record\.json"),
     ),
 )
 
@@ -183,7 +277,7 @@ def _check_links(root: Path, violations: list[str]) -> None:
 
 
 def _check_stale_claims(root: Path, violations: list[str]) -> None:
-    for rel in SCOPED_DOCS:
+    for rel in CLAIM_DOCS:
         path = root / rel
         if not path.is_file():
             continue
@@ -191,6 +285,17 @@ def _check_stale_claims(root: Path, violations: list[str]) -> None:
             for label, pattern in STALE_CLAIM_PATTERNS:
                 if pattern.search(line):
                     violations.append(f"{rel}:{line_no}: stale-claim: {label}")
+
+
+def _check_readme_release_state(root: Path, violations: list[str]) -> None:
+    readme = root / "README.md"
+    if not readme.is_file():
+        return
+    text = readme.read_text(encoding="utf-8")
+    for label, pattern in README_RELEASE_STATE_PATTERNS:
+        for match in pattern.finditer(text):
+            line_no = text.count("\n", 0, match.start()) + 1
+            violations.append(f"README.md:{line_no}: readme-release-state: {label}")
 
 
 def _check_compose_pull_only(root: Path, violations: list[str]) -> None:
@@ -232,15 +337,8 @@ def _check_install_marker_gating(root: Path, violations: list[str]) -> None:
     if not install.is_file():
         return
     lines = install.read_text(encoding="utf-8").splitlines()
-    marker_index: int | None = None
-    for index, line in enumerate(lines):
-        if line.strip() == ADVANCED_MARKER:
-            marker_index = index
-            break
+    marker_index = _advanced_marker_index(lines, violations)
     if marker_index is None:
-        violations.append(
-            f"INSTALL.md: install-marker: missing advanced marker line {ADVANCED_MARKER!r}"
-        )
         return
     for line_no in range(marker_index):
         token = _find_build_token(lines[line_no])
@@ -252,6 +350,89 @@ def _check_install_marker_gating(root: Path, violations: list[str]) -> None:
             )
 
 
+def _advanced_marker_index(lines: list[str], violations: list[str]) -> int | None:
+    for index, line in enumerate(lines):
+        if line.strip() == ADVANCED_MARKER:
+            return index
+    violations.append(
+        f"INSTALL.md: install-marker: missing advanced marker line {ADVANCED_MARKER!r}"
+    )
+    return None
+
+
+def _check_operator_session(root: Path, rel: str, violations: list[str]) -> None:
+    """Order 013-j, J2: one coherent exported session per operator doc."""
+    path = root / rel
+    if not path.is_file():
+        return
+    lines = path.read_text(encoding="utf-8").splitlines()
+    joined = "\n".join(lines)
+    for export in SESSION_EXPORTS:
+        if not any(line.lstrip().startswith(export) for line in lines):
+            violations.append(
+                f"{rel}: session-export: missing session variable "
+                f"export {export!r} (every compose command must run in the "
+                "same exported session)"
+            )
+    for line_no, line in enumerate(lines, start=1):
+        if COMMAND_LOCAL_ENV_RE.match(line):
+            violations.append(
+                f"{rel}:{line_no}: command-local-env: command-local "
+                "SLAIF_CONFIG_FILE/SLAIF_ENV_FILE assignment; export the "
+                "session variables once instead"
+            )
+        if "readyz-wait" in line:
+            violations.append(
+                f"{rel}:{line_no}: readyz-wait-helper: the minimal Docker "
+                "path must wait on the compose healthcheck directly (no "
+                "packaging/readyz-wait.sh prerequisite)"
+            )
+        if STOP_WHOEVER_RE.search(line):
+            violations.append(
+                f"{rel}:{line_no}: stop-whatever: never instruct stopping a "
+                "service the operator does not own"
+            )
+    for token, label in OPERATOR_FACTS:
+        if token not in joined:
+            violations.append(f"{rel}: operator-fact: missing {label} fact {token!r}")
+    for guard in SECRET_GUARDS:
+        if guard not in joined:
+            violations.append(
+                f"{rel}: secret-guard: missing fail-closed guard {guard!r} "
+                "for the required secret input"
+            )
+
+
+def _check_content_addressed_terminology(root: Path, violations: list[str]) -> None:
+    """Order 013-j, J1: no 'content-addressed source tag' in current prose."""
+    for rel in CLAIM_DOCS + (COMPOSE_FILE, RELEASE_WORKFLOW):
+        path = root / rel
+        if not path.is_file():
+            continue
+        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if CONTENT_ADDRESSED_SOURCE_TAG_RE.search(line):
+                violations.append(
+                    f"{rel}:{line_no}: content-addressed-source-tag: sha-<S> "
+                    "is a MUTABLE source alias tag; the digest is the "
+                    "content-addressed identity"
+                )
+
+
+def _check_file_specific_stale(root: Path, violations: list[str]) -> None:
+    """Order 013-j, J2: the specific corrected claims must not return."""
+    for rel, patterns in (
+        ("ARCHITECTURE.md", ARCHITECTURE_STALE_PATTERNS),
+        ("docs/RELEASE-CUTOVER-RUNBOOK.md", RUNBOOK_STALE_PATTERNS),
+    ):
+        path = root / rel
+        if not path.is_file():
+            continue
+        for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            for label, pattern in patterns:
+                if pattern.search(line):
+                    violations.append(f"{rel}:{line_no}: file-stale-claim: {label}")
+
+
 def check_repo(root: Path) -> list[str]:
     """Run every scoped check; return the violation list (empty = pass)."""
     violations: list[str] = []
@@ -259,9 +440,14 @@ def check_repo(root: Path) -> list[str]:
     _check_readme_links(root, violations)
     _check_links(root, violations)
     _check_stale_claims(root, violations)
+    _check_readme_release_state(root, violations)
     _check_compose_pull_only(root, violations)
     _check_quickstart_no_build(root, violations)
     _check_install_marker_gating(root, violations)
+    _check_operator_session(root, "QUICKSTART.md", violations)
+    _check_operator_session(root, "INSTALL.md", violations)
+    _check_content_addressed_terminology(root, violations)
+    _check_file_specific_stale(root, violations)
     return violations
 
 
@@ -280,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"VIOLATION: {violation}")
         print(f"docs consistency: FAILED ({len(violations)} violation(s))")
         return 1
-    print(f"docs consistency: OK ({len(SCOPED_DOCS)} scoped docs checked)")
+    print(f"docs consistency: OK ({len(CLAIM_DOCS)} claim docs checked)")
     return 0
 
 

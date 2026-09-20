@@ -1,16 +1,31 @@
-# Deterministic build backend (order 013-i, C9): hatchling==1.32.0 is the
-# version proven to reproduce the objective-013 published wheel
+# Deterministic HERMETIC build environment (order 013-i, C9; completed by
+# order 013-j, J3): EVERY build dependency — the backend and its resolved
+# dependency set — is pinned exactly. hatchling==1.32.0 is the version proven
+# to reproduce the objective-013 published wheel
 # 879baa3ad19e0f513090add965d267957d27f7bcd904d1e225586d76126f8b19 (and sdist
-# 5a60cd6ef41764f16871fd0134b6c234409ba2708b31e863fc84e7e520f) from the clean
-# published source tree in isolated build environments (Python 3.12.3 and
-# 3.12.14, uv 0.12.5; exact build-environment dependency set recorded in the
-# provenance manifest `build` section). The unpinned `hatchling>=1.27` form
-# resolved to hatchling 1.32.3 in CI on 2026-09-20 and changed the wheel
-# bytes (observed drift 9bf64a47d5c010d00177b31bd82e2db8ec36f505b2e10d02315789590ee2bd84),
-# so the backend is pinned exactly; uv (0.12.5) and the pinned base-image
-# identities complete the toolchain pin (see docs/RELEASE-ARTIFACT-POLICY.md).
+# 5a60cd6ef41764f16871fd0134b6c234409ba2708b3159bdc0863fc84e7e520f; the
+# 013-i report's shortened transcription of that sdist hash is corrected
+# here, order 013-j, J6) from the clean published source tree in isolated
+# build environments (Python 3.12.3 and 3.12.14, uv 0.12.5). The unpinned
+# `hatchling>=1.27` form resolved to hatchling 1.32.3 in CI on 2026-09-20
+# and changed the wheel bytes (observed drift
+# 9bf64a47d5c010d00177b31bd82e2db8ec36f505b2e10d02315789590ee2bd84), so the
+# backend is pinned exactly. The recorded build environment in the provenance
+# manifest `build` section is asserted to equal these exact pins on every
+# generation (mechanical binding; drift fails), and the pinned set equals the
+# observed isolated-build resolution. uv (0.12.5) and the pinned base-image
+# identities complete the toolchain pin (see
+# docs/RELEASE-ARTIFACT-POLICY.md). These are BUILD-time dependencies only;
+# they do not change runtime dependencies or uv.lock.
 [build-system]
-requires = ["hatchling==1.32.0"]
+requires = [
+  "hatchling==1.32.0",
+  "packaging==26.3",
+  "pathspec==1.1.1",
+  "pluggy==1.6.0",
+  "tomlkit==0.15.1",
+  "trove-classifiers==2026.6.1.19",
+]
 build-backend = "hatchling.build"
 
 [project]
@@ -98,6 +113,11 @@ exclude = [
   # AFTER the source freeze (order 013-i, C11); it must never enter a
   # wheel/sdist/image build input (self-reference exclusion).
   "packaging/rc_record.json",
+  # The deterministically rendered human-readable RC handoff is generated at
+  # publication from the RC record (order 013-j, J5); it is post-publication
+  # metadata and must never be an artifact input (recording a digest must
+  # not require another image).
+  "packaging/rc_handoff.md",
 ]
 
 [tool.hatch.build.targets.wheel]

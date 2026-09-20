@@ -6,22 +6,37 @@
 # `workflow_dispatch` ONLY: this workflow can never run on PRs or pushes.
 #
 # RC candidate identity: the workflow publishes EXACTLY
-#   ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>   (content-addressed)
+#   ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>   (source ALIAS tag naming
+#                                                 the full image-source commit;
+#                                                 a MUTABLE tag, not a
+#                                                 content-addressed identity)
 #   ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1 (explicit candidate tag)
 # to the PRIVATE package. NO code path of this workflow may write `0.1.0`,
 # `latest`, `stable`, a final `v0.1.0`, or change package visibility (the
-# publisher refuses final/stable tags; the historical private 0.1.0 and
-# orphan tags are preserved byte-for-byte). The immutable digest is the
-# authoritative identity; tags are aliases. A later human-approved final
-# release references the SAME tested digest without rebuilding.
+# publisher refuses final/stable tags and publishes exactly the expected
+# RC1 identity — no silently allocated new RC number; the historical private
+# 0.1.0 and orphan tags are preserved byte-for-byte). The immutable digest
+# D is the content-addressed, authoritative identity; tags are aliases. A
+# later human-approved final release references the SAME tested digest
+# without rebuilding.
 #
-# Fail-closed tag law (order 013-i, D13): BEFORE ANY MUTATION both target
-# tags are checked with authenticated registry access, distinguishing
-# verified-absent from unauthorized/inaccessible (the latter fails the run
-# before mutation); a pre-existing different digest on the candidate tag
-# fails the run before the candidate tag is pushed; a colliding source tag
-# fails the run before the candidate tag is touched. Safe retries never
-# overwrite or ambiguously rebuild an already frozen identity.
+# Fail-closed tag law (order 013-i, D13; completed by order 013-j, J1):
+# BEFORE ANY MUTATION both target tags are checked with authenticated
+# registry access, distinguishing verified-absent from
+# unauthorized/inaccessible, and any reported digest must be well-formed.
+# VERIFIED-ABSENT-FOR-BOTH is the ONLY write precondition: if EITHER tag is
+# occupied, unauthorized/inaccessible, malformed, or unresolved, the run
+# STOPS BEFORE ANY registry mutation (no tag, no push), reports the
+# existing digests for strategy adjudication, and never repushes/rebuilds
+# an already frozen identity. The target state is rechecked (authenticated)
+# immediately before each write. A crash between the two pushes leaves a
+# PARTIAL state (source tag present, candidate absent) that is reported,
+# never silently completed.
+#
+# Serialization (order 013-j, J1): the workflow-level concurrency group
+# `slaif-rc-publisher` serializes publication runs and NEVER cancels an
+# in-progress publisher (`cancel-in-progress: false`), so the immediate
+# pre-write recheck closes the in-repository race window.
 #
 # Registry credential: the workflow GITHUB_TOKEN with declared `contents:
 # read` + `packages: write` — the documented mechanism for publishing the
@@ -48,16 +63,23 @@
 #      and SLAIF_QUALIFICATION_LABEL = the RC candidate label
 #      "rc-candidate-0.1.0-rc1; private; not final release";
 #   3. authenticate to GHCR with GITHUB_TOKEN;
-#   4. before mutation: authenticated tri-state checks of sha-<S> and
-#      0.1.0-rc1 (verified absent vs unauthorized/inaccessible);
-#   5. push the SAME built image as sha-<S> (content-addressed) and
-#      0.1.0-rc1 under the fail-closed occupation law above;
-#   6. verify via the GHCR registry API that BOTH tags resolve to one
+#   4. before mutation: authenticated strict checks of sha-<S> and
+#      0.1.0-rc1; verified-absent-for-both is the only write precondition
+#      (any other state stops the run before ANY registry mutation);
+#   5. recheck immediately before the writes, then push the SAME built
+#      image under the source alias sha-<S> and the candidate tag
+#      0.1.0-rc1 under the fail-closed law above;
+#   6. verify via the GHCR registry API that BOTH tags resolve to the ONE
 #      digest D and emit D in the run log and outputs; the before/after
 #      registry states are emitted by the publish script.
 name: Release image (workflow_dispatch only)
 on:
   workflow_dispatch:
+# Order 013-j, J1: serialize publication runs; never cancel an in-progress
+# publisher.
+concurrency:
+  group: slaif-rc-publisher
+  cancel-in-progress: false
 permissions:
   contents: read
   packages: write

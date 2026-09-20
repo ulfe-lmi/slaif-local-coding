@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "slaif-rc-record-v1",
-  "title": "SLAIF Local Coding RC artifact record",
+  "$id": "slaif-rc-record-v2",
+  "title": "SLAIF Local Coding RC artifact record (self-contained, order 013-j, J5)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,18 +15,23 @@
     "published_at",
     "publication_workflow",
     "publication_workflow_run_id",
+    "workflow_head_sha",
     "private_registry_auth_required",
     "final_public_release",
     "cutover_performed",
     "wheel_sha256",
     "dependency_lock_sha256",
     "gateway_authority_sha",
+    "build_environment",
     "build_toolchain",
+    "base_images",
+    "image_platform",
+    "source_input_hashes",
     "deployment_assumptions"
   ],
   "properties": {
     "schema": {
-      "const": "slaif-rc-record-v1"
+      "const": "slaif-rc-record-v2"
     },
     "rc_identifier": {
       "const": "0.1.0-rc1"
@@ -68,6 +73,11 @@
       ],
       "minimum": 1
     },
+    "workflow_head_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "The publishing workflow run's exact head SHA (GITHUB_SHA); the publication is bound to the run's head, not an unrecorded checkout"
+    },
     "private_registry_auth_required": {
       "const": true
     },
@@ -89,6 +99,26 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
+    "build_environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hatchling",
+        "packaging",
+        "pathspec",
+        "pluggy",
+        "tomlkit",
+        "trove-classifiers"
+      ],
+      "properties": {
+        "hatchling": { "const": "1.32.0" },
+        "packaging": { "type": "string", "minLength": 1 },
+        "pathspec": { "type": "string", "minLength": 1 },
+        "pluggy": { "type": "string", "minLength": 1 },
+        "tomlkit": { "type": "string", "minLength": 1 },
+        "trove-classifiers": { "type": "string", "minLength": 1 }
+      }
+    },
     "build_toolchain": {
       "type": "object",
       "additionalProperties": false,
@@ -109,8 +139,46 @@
         }
       }
     },
+    "base_images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "uv-provider",
+        "build",
+        "runtime"
+      ],
+      "properties": {
+        "uv-provider": { "$ref": "#/$defs/base_image" },
+        "build": { "$ref": "#/$defs/base_image" },
+        "runtime": { "$ref": "#/$defs/base_image" }
+      }
+    },
+    "image_platform": {
+      "const": "linux/amd64",
+      "description": "The supported image platform: the RC candidate is built and qualified on linux/amd64 only"
+    },
+    "source_input_hashes": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "description": "Direct path->sha256 map of the exact configuration/compose/packaging/build inputs (includes the config templates and compose identity); must equal the provenance manifest source_inputs section"
+    },
     "deployment_assumptions": {
       "const": "linux-docker-engine-compose-v2;host-network-mode;private-same-host-upstream;separate-gateway;loopback-default-bind"
+    }
+  },
+  "$defs": {
+    "base_image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "digest"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
     }
   }
 }

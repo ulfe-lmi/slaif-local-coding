@@ -16,7 +16,9 @@ and an sdist containing the entire working tree (including OAP transcripts).
   `licenses/`).
 - **OCI image (publication reference
   `ghcr.io/ulfe-lmi/slaif-local-coding`; RC candidate identity `0.1.0-rc1`
-  plus the content-addressed source tag `sha-<full image-source SHA>`;
+  plus the source ALIAS tag `sha-<full image-source SHA>` (a mutable tag
+  naming the image source commit — the content-addressed identity is the
+  immutable registry digest);
   local qualification/development tag `slaif-local-coding:0.1.0-<sha>` via
   `compose.build.yaml`):** the supported distribution artifact of the
   **Docker deployment path** (the canonical installation path, order
@@ -45,7 +47,7 @@ and an sdist containing the entire working tree (including OAP transcripts).
   introduced) and least-privilege `packages: read` for the
   published-image qualification job. At RC publication: the tags
   `0.1.0-rc1` + `sha-<S>` resolve to one registry digest `D` recorded in
-  `packaging/rc_record.json` (schema `slaif-rc-record-v1`) and the
+  `packaging/rc_record.json` (schema `slaif-rc-record-v2`) and the
   provenance manifest (image source commit `S`); the digest is the
   authoritative identity, the tags are aliases; the RC record keeps
   `final_public_release: false` and `cutover_performed: false`. The
@@ -218,39 +220,56 @@ change legitimately changed the wheel METADATA only (wheel
 and its publication pushed the historical private tags `0.1.0` and
 `sha-<S>` to the non-public package at one digest (registry-only; the
 tags were never published to users and the package was never made public —
-the round ended BLOCKED at anonymous access verification). Objective 013-i
-(THIS round) changes the wheel and sdist identity AGAIN, on explicitly
-authorized inputs only: the README cleanup (the README is the wheel
-METADATA long description) and the deterministic build-backend pin
-(`hatchling==1.32.0`, proven to reproduce the historical wheel from the
-clean historical source); the old wheel and old digest are therefore NOT
-reused for the RC, and the cleaned README intentionally produces a new
-final wheel hash (the RC candidate source records the new hashes in the
-regenerated manifest). Any future objective that changes runtime package
-bytes or OCI build inputs must repeat this gate: cleared rebuild (twice,
-from clean equivalent trees, with isolated output/cache paths), hash
-comparison, and manifest regeneration in the same PR, and a fresh
-publication round for any new image.
+the round ended BLOCKED at anonymous access verification). Objective
+013-i changed the wheel and sdist identity again, on explicitly authorized
+inputs only: the README cleanup (the README is the wheel METADATA long
+description) and the deterministic build-backend pin (`hatchling==1.32.0`,
+proven to reproduce the historical wheel from the clean historical
+source); the old wheel and old digest are therefore NOT reused for the RC,
+and the cleaned README intentionally produces a new final wheel hash (the
+RC candidate source records the new hashes in the regenerated manifest).
+Objective 013-j (THIS round) changes the wheel and sdist identity again,
+on explicitly authorized inputs only: the hermetic build environment (the
+ENTIRE `[build-system].requires` set pinned and recorded from the enforced
+resolution — J3), the mechanically verified source-input map and the
+truthful A/B source binding (provenance manifest schema v5 — J4), the
+self-contained RC record (schema `slaif-rc-record-v2`) with the direct
+path->hash source-input map, base-image identities, supported platform,
+and publishing-run head SHA (J5), and the RC-safe publisher
+verified-absent-for-both write precondition (J1); the recorded artifacts
+of the final source input tree are re-frozen in the same round. Any future
+objective that changes runtime package bytes or OCI build inputs must
+repeat this gate: cleared rebuild (twice, from clean equivalent trees,
+with isolated output/cache paths), hash comparison, and manifest
+regeneration in the same PR, and a fresh publication round for any new
+image.
 
 ## Publication (RC candidate machinery)
 
 Registry publication is a **separate later round** (the exact reviewed
-source commit must first be reviewable; this documentation round performs
-zero registry writes). The machinery (order 013-i) is:
+source commit must first be reviewable; this round performs zero registry
+writes). The machinery (order 013-i; completed by order 013-j, J1) is:
 
 - The `workflow_dispatch`-only `release-image.yml` publishes the explicit
-  **RC candidate identity `0.1.0-rc1`** plus the content-addressed
-  `sha-<S>` tag to the **private** GHCR package, building the locked wheel
-  (bound to the committed manifest), building the image from the exact
-  dispatched source commit with the RC candidate qualification label, and
-  registry-verifying before and after the mutation.
-- **Fail-closed tag law:** before ANY push, both target tags are checked
-  with authenticated registry access, distinguishing *verified absent*
-  from *unauthorized/inaccessible* (the latter fails the run); a
-  pre-existing different digest on either RC or source tag fails the run
-  (report the collision; never overwrite, never silently repoint); the
-  same-digest case is an idempotent no-op. Safe retries never overwrite or
-  ambiguously rebuild an already frozen identity.
+  **RC candidate identity `0.1.0-rc1`** (the EXACT expected identity; the
+  publisher never silently allocates a new RC number) plus the source
+  ALIAS `sha-<S>` tag to the **private** GHCR package, building the locked
+  wheel (bound to the committed manifest), building the image from the
+  exact dispatched source commit with the RC candidate qualification
+  label, and registry-verifying before and after the mutation.
+- **Fail-closed tag law (verified-absent-for-both):** before ANY mutation,
+  both target tags are checked with authenticated registry access,
+  distinguishing *verified absent* from *unauthorized/inaccessible*, and
+  any reported digest must be well-formed. **Verified-absent-for-both is
+  the ONLY write precondition:** if EITHER tag is occupied,
+  unauthorized/inaccessible, malformed, or unresolved, the run stops
+  BEFORE ANY registry mutation (no tag, no push), reports the existing
+  digests for strategy adjudication, and never repushes or rebuilds an
+  already frozen identity; a crash between the two pushes leaves a
+  PARTIAL state that is reported, never silently completed. The target
+  state is rechecked immediately before each write, and publication runs
+  are serialized by the workflow concurrency group (an in-progress
+  publisher is never cancelled).
 - **No final-tag path:** no code path of the RC workflow may write
   `0.1.0`, `latest`, `stable`, a final `v0.1.0`, or change package
   visibility; the historical private `0.1.0` and orphan `sha-` tags are
@@ -267,7 +286,7 @@ zero registry writes). The machinery (order 013-i) is:
   repository-secret workaround was withdrawn and its broad PAT secret
   removed.)
 - **Publication record:** the run populates
-  `packaging/rc_record.json` (schema `slaif-rc-record-v1`) from verified
+  `packaging/rc_record.json` (schema `slaif-rc-record-v2`) from verified
   facts only; the record and the regenerated provenance manifest commit
   afterward. A later human-approved final release can reference the SAME
   tested digest without rebuilding or changing embedded labels; promotion

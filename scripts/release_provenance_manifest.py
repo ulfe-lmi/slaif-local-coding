@@ -1,6 +1,8 @@
 """Release/RC provenance manifest generator (order 009-a, workstream E;
 order 013-a, workstream A: state-aware schema v3; order 013-i: schema v4
-pre-freeze candidate state + recorded build toolchain).
+pre-freeze candidate state + recorded build toolchain; order 013-j: schema
+v5 — hermetic build-environment binding, exact Python identity scope, and
+the mechanically verified source-input map).
 
 Produces a content-free, machine-readable, schema-versioned provenance
 manifest. "Content-free" means the manifest carries only hashes, versions,
@@ -31,16 +33,29 @@ final release — a published RC must never imply final_public_release=true:
   closed top-level `release` section bound to the record.
 
 Self-reference exclusion: the manifest (and its schema) and the
-post-publication RC record are excluded from every wheel/sdist/image build
-input (pyproject top-level exclusions). `generated_from.git_commit` records
-the source tree the artifacts were built from; the E3 gate mechanically
-proves artifact-input equality by regeneration and requires the recorded
-commit to be an ancestor of HEAD, so a pre-freeze manifest may reference a
-verified ancestor only when that equality is proven.
+post-publication RC record / rendered handoff are excluded from every
+wheel/sdist/image build input (pyproject top-level exclusions).
+
+Order 013-j, J3/J4: `generated_from.git_commit` is the EXACT source commit
+A the artifacts were cleanly built from (the truthful A/B sequence: source
+inputs committed as A, clean build of A, manifest generated from A, only
+the derived metadata committed as B). The `source_inputs` section is the
+mechanical path->sha256 map of every wheel/sdist/OCI/configuration input at
+A (derived from the pyproject build policy and the Dockerfile); the E3 gate
+rebuilds A from `git archive` and regenerates the manifest, so any input
+drift — even at a valid ancestor — fails. The recorded build environment
+must equal the `[build-system].requires` pins (fully pinned; enforcement is
+mechanical on every generation). The recorded Python identity is the exact
+interpreter scope the artifacts were observed on (patch-independence only
+when observed on two or more distinct patch versions), never a bare
+"3.12" presented as an exact runtime version.
 
 Usage:
 
-    python scripts/release_provenance_manifest.py --emit packaging/release_provenance_manifest.json
+    python scripts/release_provenance_manifest.py \
+        --emit packaging/release_provenance_manifest.json \
+        --source-commit <40-hex A> \
+        --observed-build-python 3.12.14 [--observed-build-python 3.12.3]
 """
 
 from __future__ import annotations
@@ -48,6 +63,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import platform
 import re
 import subprocess
@@ -55,9 +71,13 @@ import sys
 import tomllib
 from pathlib import Path
 
-SCHEMA_NAME = "slaif-release-provenance-v4"
-SCHEMA_VERSION = 4
-OBJECTIVE = "013-i"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from source_input_map import map_from_directory, map_from_git_commit  # noqa: E402
+
+SCHEMA_NAME = "slaif-release-provenance-v5"
+SCHEMA_VERSION = 5
+OBJECTIVE = "013-j"
 RELEASE_RECORD_PATH = Path("packaging/release_record.json")
 RC_RECORD_PATH = Path("packaging/rc_record.json")
 RELEASE_RECORD_KEYS = {
@@ -83,26 +103,34 @@ RC_RECORD_KEYS = {
     "published_at",
     "publication_workflow",
     "publication_workflow_run_id",
+    "workflow_head_sha",
     "private_registry_auth_required",
     "final_public_release",
     "cutover_performed",
     "wheel_sha256",
     "dependency_lock_sha256",
     "gateway_authority_sha",
+    "build_environment",
     "build_toolchain",
+    "base_images",
+    "image_platform",
+    "source_input_hashes",
     "deployment_assumptions",
 }
+RC_RECORD_SCHEMA = "slaif-rc-record-v2"
+IMAGE_PLATFORM = "linux/amd64"
 REPOSITORY = "ulfe-lmi/slaif-local-coding"
 GATEWAY_PEER_FIXTURE = Path("tests/fixtures/gateway/current_peer_authority.json")
 PACKAGE_NAME = "slaif-local-coding"
 CODIX_CLIENT_VERSION = "0.149.0"
 CODIX_WIRE_FIXTURE_DIR = "tests/fixtures/codex/0.149.0"
 
-# Order 013-i, C9: deterministic build toolchain identity. The backend pin is
-# asserted against pyproject [build-system].requires on every generation;
-# the recorded build-environment set is the resolved dependency set of that
-# pinned backend (hatchling 1.32.0) in the isolated build environment
-# (Python 3.12, uv 0.12.5).
+# Order 013-i, C9 + order 013-j, J3: deterministic build toolchain identity.
+# EVERY build dependency is pinned in pyproject [build-system].requires
+# (hermetic build environment); the recorded set is asserted to equal those
+# pins on every generation (mechanical binding; drift fails generation).
+# The recorded set was observed as the resolved build environment on
+# isolated clean builds (uv 0.12.5).
 BUILD_BACKEND_NAME = "hatchling"
 BUILD_BACKEND_VERSION = "1.32.0"
 BUILD_ENVIRONMENT = {
@@ -114,6 +142,7 @@ BUILD_ENVIRONMENT = {
     "trove-classifiers": "2026.6.1.19",
 }
 UV_VERSION = "0.12.5"
+PYTHON_RUNTIME_REQUIREMENT = ">=3.12"
 
 # Order 013-i, C12/D13: explicit RC candidate identity.
 RC_IDENTIFIER = "0.1.0-rc1"
@@ -153,11 +182,13 @@ LIMITATIONS: list[str] = [
     "sdist is a developer-only source archive, not a supported release artifact",
     "no multi-user, production-certification, compliance, or frontier-equivalence claim",
     "single RTX 3090 fixture evidence is fixture-scoped, not generic production equivalence",
-    "artifacts regenerated by objective 013-i on explicitly authorized "
-    "inputs only (README cleanup embedded in wheel METADATA; deterministic "
-    "hatchling==1.32.0 build-backend pin proven to reproduce the "
-    "historical wheel from the clean historical source); the historical "
-    "wheel 879baa3ad19e0f513090add965d267957d27f7bcd904d1e225586d76126f8b19 "
+    "artifacts regenerated by objective 013-j on explicitly authorized "
+    "inputs only (RC source-review corrections; README cleanup remains "
+    "embedded in wheel METADATA; fully pinned hermetic build environment "
+    "enforced by [build-system].requires; deterministic hatchling==1.32.0 "
+    "backend proven to reproduce the historical wheel from the clean "
+    "historical source); the historical wheel "
+    "879baa3ad19e0f513090add965d267957d27f7bcd904d1e225586d76126f8b19 "
     "and the historical private 0.1.0 registry digest are NOT reused for "
     "the RC; objective-010-a wheel hash "
     "8678e16b41bd9d73849a956c9d1f25235532eaf52c772fc695718b2063b54472 "
@@ -230,12 +261,15 @@ def load_release_record(repo: Path) -> dict | None:
 def load_rc_record(repo: Path) -> dict | None:
     """Load and strictly validate the RC artifact record, if present.
 
-    Closed key set (slaif-rc-record-v1). The RC record is post-publication
-    metadata: it is excluded from every artifact input, keeps
-    final_public_release/cutover_performed false by construction, and binds
-    the wheel, dependency lock, frozen Gateway authority, and the pinned
-    build toolchain. Any deviation is a generation failure, never a
-    warning.
+    Closed key set (slaif-rc-record-v2, order 013-j, J5). The RC record is
+    self-contained post-publication metadata: it is excluded from every
+    artifact input, keeps final_public_release/cutover_performed false by
+    construction, and carries the exact path->hash source-input map
+    DIRECTLY (config templates, compose files, packaging inputs — not
+    cross-bound by unrelated wheel/lock/peer facts), the full pinned build
+    environment, the digest-pinned base images, the supported image
+    platform, and the publishing workflow run's head SHA. Any deviation is
+    a generation failure, never a warning.
     """
     path = repo / RC_RECORD_PATH
     if not path.is_file():
@@ -243,7 +277,7 @@ def load_rc_record(repo: Path) -> dict | None:
     record = json.loads(path.read_text(encoding="utf-8"))
     if set(record) != RC_RECORD_KEYS:
         raise RuntimeError(f"rc record key set drift: {sorted(record)}")
-    if record["schema"] != "slaif-rc-record-v1":
+    if record["schema"] != RC_RECORD_SCHEMA:
         raise RuntimeError("rc record schema drift")
     if record["rc_identifier"] != RC_IDENTIFIER:
         raise RuntimeError("rc record rc_identifier drift")
@@ -257,7 +291,7 @@ def load_rc_record(repo: Path) -> dict | None:
         raise RuntimeError("rc record oci_image_digest is not sha256:<64-hex>")
     source = str(record["image_source_commit"])
     if record["oci_tags"] != [RC_IDENTIFIER, f"sha-{source}"]:
-        raise RuntimeError(f"rc record oci_tags must be [{RC_IDENTIFIER}, sha-<source>]")
+        raise RuntimeError(f"rc record oci_tags must be [{RC_IDENTIFIER}, sha-{source}]")
     if not PUBLISHED_AT_PATTERN.fullmatch(str(record["published_at"])):
         raise RuntimeError("rc record published_at is not RFC 3339 UTC")
     if record["publication_workflow"] != PUBLICATION_WORKFLOW:
@@ -267,6 +301,8 @@ def load_rc_record(repo: Path) -> dict | None:
         isinstance(run_id, int) and not isinstance(run_id, bool) and run_id > 0
     ):
         raise RuntimeError("rc record publication_workflow_run_id invalid")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(record["workflow_head_sha"])):
+        raise RuntimeError("rc record workflow_head_sha is not 40-hex")
     if record["private_registry_auth_required"] is not True:
         raise RuntimeError("rc record private_registry_auth_required must be true")
     if record["final_public_release"] is not False:
@@ -279,6 +315,9 @@ def load_rc_record(repo: Path) -> dict | None:
         raise RuntimeError("rc record dependency_lock_sha256 is not 64-hex")
     if not re.fullmatch(r"[0-9a-f]{40}", str(record["gateway_authority_sha"])):
         raise RuntimeError("rc record gateway_authority_sha is not 40-hex")
+    environment = record["build_environment"]
+    if not isinstance(environment, dict) or environment != dict(BUILD_ENVIRONMENT):
+        raise RuntimeError("rc record build_environment drift vs enforced pins")
     toolchain = record["build_toolchain"]
     if not isinstance(toolchain, dict) or set(toolchain) != {"backend", "uv", "python"}:
         raise RuntimeError("rc record build_toolchain key set drift")
@@ -286,6 +325,21 @@ def load_rc_record(repo: Path) -> dict | None:
         raise RuntimeError("rc record build_toolchain backend drift")
     if toolchain["uv"] != UV_VERSION or toolchain["python"] != "3.12":
         raise RuntimeError("rc record build_toolchain uv/python drift")
+    base_images = record["base_images"]
+    expected_bases = {
+        stage: {"name": fact["name"], "digest": fact["digest"]}
+        for stage, fact in _dockerfile_base_images(repo).items()
+    }
+    if not isinstance(base_images, dict) or base_images != expected_bases:
+        raise RuntimeError("rc record base_images drift vs Dockerfile")
+    if record["image_platform"] != IMAGE_PLATFORM:
+        raise RuntimeError("rc record image_platform drift")
+    inputs = record["source_input_hashes"]
+    if not isinstance(inputs, dict) or not inputs:
+        raise RuntimeError("rc record source_input_hashes must be a non-empty map")
+    for value in inputs.values():
+        if not re.fullmatch(r"[0-9a-f]{64}", str(value)):
+            raise RuntimeError("rc record source_input_hashes value not sha256")
     if record["deployment_assumptions"] != RC_DEPLOYMENT_ASSUMPTIONS:
         raise RuntimeError("rc record deployment_assumptions drift")
     return record
@@ -357,11 +411,13 @@ def _artifact_facts(path: Path, kind: str) -> dict:
     }
 
 
-def _dockerfile_base_images(root: Path) -> tuple[dict, dict]:
-    """Return (build_base_image, base_image) parsed from the Dockerfile.
+def _dockerfile_base_images(root: Path) -> dict[str, dict[str, str]]:
+    """Return the stage-keyed base-image map parsed from the Dockerfile.
 
-    All three FROM lines must be digest-pinned (B1); any unpinned base is
-    a generation failure, never a warning.
+    Stages: ``uv-provider``, ``build``, ``runtime`` — each with
+    ``name`` and ``digest`` (``sha256:<64-hex>``). All three FROM lines
+    must be digest-pinned (B1); any unpinned base is a generation
+    failure, never a warning.
     """
     dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
     found: dict[str, dict] = {}
@@ -377,7 +433,7 @@ def _dockerfile_base_images(root: Path) -> tuple[dict, dict]:
             "Dockerfile must pin exactly the uv-provider, build, and runtime "
             f"images by digest; found: {sorted(found)}"
         )
-    return found["uv-provider"], found["build"], found["runtime"]
+    return found
 
 
 def _git_commit(root: Path) -> str:
@@ -396,30 +452,109 @@ def _git_commit(root: Path) -> str:
     return out
 
 
-def _assert_build_backend_pin(repo: Path) -> None:
-    """Order 013-i, C9: the deterministic build-backend pin must hold.
+def _assert_build_environment_pins(repo: Path) -> None:
+    """Order 013-i, C9 + order 013-j, J3: the hermetic build-environment pin
+    set must hold.
 
-    The pinned backend is part of the recorded toolchain identity; a drift
-    here changes the recorded identity and is a generation failure, never a
-    warning.
+    Every ``[build-system].requires`` entry must be an exact ``name==version``
+    pin (no ranges), and the pinned set must EXACTLY equal the recorded
+    ``BUILD_ENVIRONMENT`` — the dependency set observed on the isolated
+    clean builds. Any drift changes the recorded toolchain identity and is
+    a generation failure, never a warning.
     """
     with (repo / "pyproject.toml").open("rb") as stream:
         pyproject = tomllib.load(stream)
     requires = pyproject["build-system"]["requires"]
-    if requires != [f"{BUILD_BACKEND_NAME}=={BUILD_BACKEND_VERSION}"]:
+    if not isinstance(requires, list) or not requires:
+        raise RuntimeError("build-system requires must be a non-empty pin list")
+    pinned: dict[str, str] = {}
+    for entry in requires:
+        match = re.fullmatch(r"([A-Za-z0-9][A-Za-z0-9._-]*)==([0-9][0-9a-zA-Z.]*)", str(entry))
+        if match is None:
+            raise RuntimeError(
+                f"build-system requires entry is not an exact name==version pin: {entry!r}"
+            )
+        name = re.sub(r"[-_.]+", "-", match.group(1)).lower()
+        pinned[name] = match.group(2)
+    expected = {
+        re.sub(r"[-_.]+", "-", name).lower(): version for name, version in BUILD_ENVIRONMENT.items()
+    }
+    if pinned != expected:
         raise RuntimeError(
-            "build-system requires drift: expected "
-            f"[{BUILD_BACKEND_NAME}=={BUILD_BACKEND_VERSION}], got {requires!r}"
+            "build-environment pin drift: [build-system].requires "
+            f"{dict(sorted(pinned.items()))} != recorded {dict(sorted(expected.items()))}"
         )
     if pyproject["build-system"]["build-backend"] != f"{BUILD_BACKEND_NAME}.build":
         raise RuntimeError("build-backend drift")
+    if pinned[BUILD_BACKEND_NAME] != BUILD_BACKEND_VERSION:
+        raise RuntimeError(f"build-backend pin drift: expected {BUILD_BACKEND_VERSION}")
 
 
-def build_manifest(repo: Path, dist_dir: Path) -> dict:
-    with (repo / "pyproject.toml").open("rb") as stream:
+def build_manifest(
+    repo: Path,
+    dist_dir: Path,
+    source_commit: str | None = None,
+    tree: Path | None = None,
+    observed_build_pythons: list[str] | None = None,
+) -> dict:
+    """Build the manifest from verified facts.
+
+    Order 013-j, J3/J4: ``source_commit`` is the EXACT source commit A the
+    artifacts were cleanly built from (defaults to HEAD for legacy calls).
+    ``tree`` is the directory whose files provide the policy, templates,
+    Dockerfile, and lock facts (defaults to ``repo``); its input files must
+    be byte-identical to commit A's input files, so a changed source staged
+    under an old HEAD fails generation. ``observed_build_pythons`` are the
+    exact CPython interpreter versions on which the recorded artifacts were
+    observed built (patch-independence is recorded only when two or more
+    distinct patch versions are listed).
+    """
+    if tree is None:
+        tree = repo
+    if source_commit is None:
+        source_commit = _git_commit(repo)
+    if not re.fullmatch(r"[0-9a-f]{40}", source_commit):
+        raise RuntimeError("source_commit must be 40-hex")
+    head = _git_commit(repo)
+    if source_commit != head:
+        proc = subprocess.run(
+            ["git", "-C", str(repo), "merge-base", "--is-ancestor", source_commit, head],
+            capture_output=True,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "source_commit is not an ancestor of HEAD; the manifest must "
+                "reference the exact committed source tree it was built from"
+            )
+    if observed_build_pythons is None:
+        observed_build_pythons = []
+    observed = sorted({v for v in observed_build_pythons})
+    for value in observed:
+        if not re.fullmatch(r"\d+\.\d+\.\d+", value):
+            raise RuntimeError(f"observed build python must be exact X.Y.Z: {value!r}")
+
+    # Order 013-j, J4: mechanical input-map binding to the exact source A.
+    recorded_inputs = map_from_git_commit(repo, source_commit)
+    tree_inputs = map_from_directory(tree)
+    if tree_inputs != recorded_inputs:
+        missing = sorted(set(recorded_inputs) - set(tree_inputs))
+        extra = sorted(set(tree_inputs) - set(recorded_inputs))
+        altered = sorted(
+            path
+            for path in set(recorded_inputs) & set(tree_inputs)
+            if recorded_inputs[path] != tree_inputs[path]
+        )
+        raise RuntimeError(
+            "source input drift: the build tree differs from source commit "
+            f"{source_commit[:12]} (missing={missing[:5]} extra={extra[:5]} "
+            f"altered={altered[:5]}); never stage changed source under an "
+            "old HEAD and present that commit as the built tree"
+        )
+
+    with (tree / "pyproject.toml").open("rb") as stream:
         pyproject = tomllib.load(stream)
     package_version = pyproject["project"]["version"]
-    _assert_build_backend_pin(repo)
+    _assert_build_environment_pins(tree)
 
     rc_record = load_rc_record(repo)
     release_record = load_release_record(repo)
@@ -437,7 +572,7 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
         digest = ""
         source = ""
 
-    peer = json.loads((repo / GATEWAY_PEER_FIXTURE).read_text(encoding="utf-8"))
+    peer = json.loads((tree / GATEWAY_PEER_FIXTURE).read_text(encoding="utf-8"))
 
     wheels = sorted(
         set(dist_dir.glob(f"{PACKAGE_NAME.replace('-', '_')}-*.whl"))
@@ -466,7 +601,7 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
         "objective": OBJECTIVE,
         "generated_from": {
             "repository": REPOSITORY,
-            "git_commit": _git_commit(repo),
+            "git_commit": source_commit,
         },
         "gateway_peer": {
             "repository": peer["repository"],
@@ -485,8 +620,8 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
             "python": major_minor,
             "package_name": PACKAGE_NAME,
             "package_version": package_version,
-            "uv_lock_sha256": _sha256_file(repo / "uv.lock"),
-            "pyproject_sha256": _sha256_file(repo / "pyproject.toml"),
+            "uv_lock_sha256": _sha256_file(tree / "uv.lock"),
+            "pyproject_sha256": _sha256_file(tree / "pyproject.toml"),
         },
         "artifacts": {
             "wheel": _artifact_facts(wheels[0], "wheel"),
@@ -499,8 +634,13 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
             },
             "build_environment": dict(BUILD_ENVIRONMENT),
             "uv_version": UV_VERSION,
-            "python": major_minor,
+            "python": {
+                "runtime_requirement": PYTHON_RUNTIME_REQUIREMENT,
+                "observed_exact": observed,
+                "wheel_patch_independent": len(observed) >= 2,
+            },
         },
+        "source_inputs": recorded_inputs,
         "candidate": {
             "rc_identifier": RC_IDENTIFIER,
             "state": "rc_published" if rc_published else "pre_freeze",
@@ -509,18 +649,18 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
             "cutover_performed": False,
         },
         "templates": {
-            "config_example_sha256": _sha256_file(repo / "config/adapter.example.toml"),
+            "config_example_sha256": _sha256_file(tree / "config/adapter.example.toml"),
             "deployment_config_template_sha256": _sha256_file(
-                repo / "config/adapter.deployment.template.toml"
+                tree / "config/adapter.deployment.template.toml"
             ),
             "gateway_integrated_config_template_sha256": _sha256_file(
-                repo / "config/adapter.gateway-integrated.template.toml"
+                tree / "config/adapter.gateway-integrated.template.toml"
             ),
-            "service_unit_sha256": _sha256_file(repo / "packaging/slaif-local-coding.service"),
+            "service_unit_sha256": _sha256_file(tree / "packaging/slaif-local-coding.service"),
             "service_unit_example_sha256": _sha256_file(
-                repo / "packaging/slaif-local-coding.service.example"
+                tree / "packaging/slaif-local-coding.service.example"
             ),
-            "readyz_wait_sha256": _sha256_file(repo / "packaging/readyz-wait.sh"),
+            "readyz_wait_sha256": _sha256_file(tree / "packaging/readyz-wait.sh"),
         },
         "reference_compatibility": {
             "model_name": "qwen3.8-27b",
@@ -555,7 +695,10 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
             "publication_workflow_run_id": release_record["publication_workflow_run_id"],
         }
 
-    build_tool_image, build_base_image, base_image = _dockerfile_base_images(repo)
+    base_images_by_stage = _dockerfile_base_images(tree)
+    build_tool_image = base_images_by_stage["uv-provider"]
+    build_base_image = base_images_by_stage["build"]
+    base_image = base_images_by_stage["runtime"]
     if rc_published:
         tag_convention = (
             f"published RC reference {IMAGE_REFERENCE} tags {RC_IDENTIFIER} + "
@@ -581,9 +724,9 @@ def build_manifest(repo: Path, dist_dir: Path) -> dict:
         "base_image": base_image,
         "build_base_image": build_base_image,
         "build_tool_image": build_tool_image,
-        "dockerfile_sha256": _sha256_file(repo / "Dockerfile"),
-        "compose_sha256": _sha256_file(repo / "compose.yaml"),
-        "dockerignore_sha256": _sha256_file(repo / ".dockerignore"),
+        "dockerfile_sha256": _sha256_file(tree / "Dockerfile"),
+        "compose_sha256": _sha256_file(tree / "compose.yaml"),
+        "dockerignore_sha256": _sha256_file(tree / ".dockerignore"),
         "wheel_sha256": manifest["artifacts"]["wheel"]["sha256"],
         "image_digest": digest if (rc_published or final_published) else None,
         "published": rc_published or final_published,
@@ -608,10 +751,34 @@ def main() -> int:
         default=Path("packaging/release_provenance_manifest.json"),
     )
     parser.add_argument("--dist", type=Path, default=Path("dist"))
+    parser.add_argument(
+        "--source-commit",
+        required=True,
+        help="exact 40-hex source commit A the artifacts were cleanly built from",
+    )
+    parser.add_argument(
+        "--tree",
+        type=Path,
+        default=None,
+        help="directory holding the source files (default: the repository checkout)",
+    )
+    parser.add_argument(
+        "--observed-build-python",
+        action="append",
+        default=[],
+        help="exact CPython X.Y.Z on which the recorded artifacts were observed "
+        "built (repeatable; >=2 distinct patch versions => wheel_patch_independent)",
+    )
     args = parser.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
-    manifest = build_manifest(repo, args.dist.resolve())
+    manifest = build_manifest(
+        repo,
+        args.dist.resolve(),
+        source_commit=args.source_commit,
+        tree=(args.tree.resolve() if args.tree else repo),
+        observed_build_pythons=args.observed_build_python,
+    )
     payload = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     args.emit.parent.mkdir(parents=True, exist_ok=True)
     args.emit.write_text(payload, encoding="utf-8")

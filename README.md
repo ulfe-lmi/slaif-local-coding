@@ -50,7 +50,13 @@ Codex / OpenAI client
 
 This repository owns the adapter, route capability policies, packaging,
 tests, and diagnostics. The Gateway remains a separate service, and the
-cutover between them is a separate human-authorized act.
+cutover between them is a separate human-authorized act that has NOT been
+performed; no production deployment is claimed. Release-candidate and
+publication history (including the historical private `0.1.0` tag that was
+never published to users) is recorded in the OAP transcript
+([oap/README.md](oap/README.md), [oap/COMPLETENESS.md](oap/COMPLETENESS.md))
+and in [docs/RELEASE-ARTIFACT-POLICY.md](docs/RELEASE-ARTIFACT-POLICY.md);
+the landing page deliberately carries no release-state claims.
 
 ## Supported runtime and deployment assumptions
 
@@ -64,9 +70,10 @@ cutover between them is a separate human-authorized act.
 - A **separate SLAIF API Gateway** in front of public traffic. The adapter
   binds loopback by default; a non-loopback bind is accepted only under the
   full signed-ingress contract.
-- **Private registry access** for container images: RC images are pulled
-  from a private GHCR package with bounded read-only registry credentials;
-  anonymous pull is not a prerequisite.
+- **Private registry access** for container images: images are pulled from
+  a private GHCR package with bounded read-only registry credentials;
+  the immutable image digest is the authoritative identity and tags are
+  aliases; anonymous pull is not a prerequisite.
 - **Evidence scope:** local-model behavior was qualified against a single
   RTX 3090 Qwen/vLLM fixture and a pinned Gateway compatibility authority.
   That is fixture-scoped evidence, not a generic or production-equivalence
@@ -104,21 +111,6 @@ cutover between them is a separate human-authorized act.
 | Documentation index | [docs/README.md](docs/README.md) |
 | Development contribution | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | OAP orchestration transcript (history) | [oap/README.md](oap/README.md) |
-
-## Release status
-
-SLAIF Local Coding 0.1.0 is being prepared and frozen as a release
-candidate (RC). The RC is published to a **private** GHCR package under an
-explicit candidate identity; the immutable image **digest** is the
-authoritative identity and tags are aliases. A final public release is a
-separate later decision; no timing is promised, and nothing in this
-repository implies that the final release has happened.
-
-The historical private `0.1.0` tag pushed during Objective 013 was written
-to a non-public package and was never published to users. It is legacy
-output, **not** the RC benchmark target, and must not be pulled or reused
-for the RC. The cutover to the adapter has NOT been performed, and no
-production deployment is claimed.
 
 ## Important limitations
 

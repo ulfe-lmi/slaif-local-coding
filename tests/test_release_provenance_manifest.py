@@ -1,18 +1,25 @@
 """Regeneration/drift gate for the release provenance manifest (order 009-a,
 E3; order 013-a, workstream A: state-aware schema v3; order 013-i: schema
-v4 pre-freeze candidate state + recorded build toolchain).
+v4 pre-freeze candidate state + recorded build toolchain; order 013-j:
+schema v5 — exact source-commit binding with the mechanical source-input
+map, hermetic build-environment pins, and exact Python identity scope).
 
-Rebuilds the artifacts, regenerates the manifest from the actual build inputs,
-and fails on any drift against the committed manifest or on forbidden content.
-Only `generated_from.git_commit` may legitimately differ: the committed value
-must be an ancestor of (or equal to) the current HEAD, so report-only child
-commits do not invalidate the manifest while any build-input change does.
+Rebuilds the CLEAN RECORDED SOURCE COMMIT A (`git archive A`), regenerates
+the manifest from those inputs, and fails on any drift against the committed
+manifest or on forbidden content. `generated_from.git_commit` is the exact
+source commit A the artifacts were built from (order 013-j, J4): the
+regeneration proves the committed manifest is a fixed point of the recorded
+source, and `source_inputs` binds the wheel/sdist/OCI/configuration inputs
+mechanically. The recorded `build.python` observed scope (exact
+interpreters the artifacts were observed on) is a generation-time fact and
+is normalized away from the equality check, like `generated_from.git_commit`.
 
-Order 013-i, C11: the gates are STATE-CONDITIONAL on the publication
-records: pre-freeze (neither record) vs RC-published (packaging/
-rc_record.json, schema slaif-rc-record-v1) vs final-published (packaging/
-release_record.json, schema slaif-release-record-v1). A published RC must
-never imply final_public_release=true.
+Order 013-i, C11 (state law retained): the gates are STATE-CONDITIONAL on
+the publication records: pre-freeze (neither record) vs RC-published
+(packaging/rc_record.json, schema slaif-rc-record-v2 — order 013-j, J5) vs
+final-published (packaging/release_record.json, schema
+slaif-release-record-v1). A published RC must never imply
+final_public_release=true.
 """
 
 from __future__ import annotations
@@ -36,11 +43,12 @@ SCHEMA = REPO_ROOT / "packaging" / "release_provenance_manifest.schema.json"
 RECORD = REPO_ROOT / "packaging" / "release_record.json"
 RC_RECORD = REPO_ROOT / "packaging" / "rc_record.json"
 
-# Order 013-i, C10: the cleaned README (embedded in wheel METADATA) and the
-# deterministic hatchling==1.32.0 pin are explicitly authorized input
-# changes, so the accepted release wheel hash moves to the new identity.
-# The historical wheel 879baa3a... is NOT reused for the RC.
-ACCEPTED_WHEEL_SHA256 = "5f1bcf7b35b96b3369c5c9e8e015f4254c7904ebe40f617f6d2e7835a5aed849"
+# Order 013-i, C10 + order 013-j, J3: the 013-j input set (RC source-review
+# documentation, hermetic six-pin build environment, rendered handoff
+# exclusion) is an explicitly authorized input change, so the accepted
+# wheel hash moves to the new identity. The historical wheel 879baa3a... is
+# NOT reused for the RC.
+ACCEPTED_WHEEL_SHA256 = "3c4c36e666fb67f6a8ed0bbf1a60962e187e46ba1183f314eba03100ce2006af"
 
 RELEASE_RECORD_KEYS = {
     "schema",
@@ -65,13 +73,18 @@ RC_RECORD_KEYS = {
     "published_at",
     "publication_workflow",
     "publication_workflow_run_id",
+    "workflow_head_sha",
     "private_registry_auth_required",
     "final_public_release",
     "cutover_performed",
     "wheel_sha256",
     "dependency_lock_sha256",
     "gateway_authority_sha",
+    "build_environment",
     "build_toolchain",
+    "base_images",
+    "image_platform",
+    "source_input_hashes",
     "deployment_assumptions",
 }
 RELEASE_SECTION_KEYS = {
@@ -113,19 +126,49 @@ def checker() -> types.ModuleType:
 
 
 @pytest.fixture(scope="module")
-def regenerated(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
+def source_commit_a() -> str:
+    """The EXACT recorded source commit A (order 013-j, J4)."""
+    committed = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    return str(committed["generated_from"]["git_commit"])
+
+
+@pytest.fixture(scope="module")
+def regenerated(
+    tmp_path_factory: pytest.TempPathFactory, source_commit_a: str
+) -> dict[str, object]:
     if shutil.which("uv") is None:
         pytest.fail("uv is required to build artifacts for the manifest gate")
+    # Order 013-j, J4: rebuild the CLEAN RECORDED SOURCE COMMIT A, not the
+    # working tree: git archive A -> extract -> uv build -> regenerate.
+    work = tmp_path_factory.mktemp("clean-A")
+    tree = work / "tree"
+    tree.mkdir()
+    archive_path = work / "archive.tar"
+    archive = subprocess.run(
+        ["git", "archive", "--output", str(archive_path), source_commit_a],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        timeout=300,
+    )
+    assert archive.returncode == 0, archive.stderr.decode()
+    tarfile = subprocess.run(
+        ["tar", "-x", "-f", str(archive_path), "-C", str(tree)],
+        capture_output=True,
+        timeout=300,
+    )
+    assert tarfile.returncode == 0, tarfile.stderr.decode()
     dist = tmp_path_factory.mktemp("dist")
     result = subprocess.run(
         ["uv", "build", "--out-dir", str(dist)],
-        cwd=REPO_ROOT,
+        cwd=tree,
         capture_output=True,
         timeout=600,
     )
     assert result.returncode == 0, result.stderr.decode()
     module = _load_generator()
-    built: dict[str, object] = module.build_manifest(REPO_ROOT, dist)
+    built: dict[str, object] = module.build_manifest(
+        REPO_ROOT, dist, source_commit=source_commit_a, tree=tree
+    )
     return built
 
 
@@ -165,9 +208,22 @@ def _git(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 def _strip_git(data: dict[str, object]) -> dict[str, object]:
+    """Normalize the generation-time facts away from the equality check.
+
+    `generated_from.git_commit` is the recorded source A (exact by
+    construction; the regeneration rebuilds from it). The
+    `build.python` OBSERVED SCOPE (exact interpreters the recorded
+    artifacts were observed on) is likewise a generation-time fact, not a
+    build-input fact: the regenerated artifacts are compared on every
+    input-derived value, and the wheel bytes themselves (the
+    patch-independence claim) are proven by the clean-build equality.
+    """
     data = json.loads(json.dumps(data))
     generated = cast("dict[str, object]", data["generated_from"])
     generated["git_commit"] = None
+    python = cast("dict[str, object]", cast("dict[str, object]", data["build"])["python"])
+    python["observed_exact"] = None
+    python["wheel_patch_independent"] = None
     return data
 
 
@@ -175,10 +231,10 @@ def test_manifest_and_schema_exist() -> None:
     assert MANIFEST.is_file()
     assert SCHEMA.is_file()
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
-    assert schema["$id"] == "slaif-release-provenance-v4"
+    assert schema["$id"] == "slaif-release-provenance-v5"
     committed = _committed()
-    assert committed["schema"] == "slaif-release-provenance-v4"
-    assert committed["schema_version"] == 4
+    assert committed["schema"] == "slaif-release-provenance-v5"
+    assert committed["schema_version"] == 5
 
 
 def test_committed_manifest_matches_regenerated(regenerated: dict[str, object]) -> None:
@@ -237,6 +293,7 @@ def test_regenerated_manifest_matches_schema_shape(regenerated: dict[str, object
         "runtime",
         "artifacts",
         "build",
+        "source_inputs",
         "candidate",
         "templates",
         "oci",
@@ -266,7 +323,18 @@ def test_regenerated_manifest_matches_schema_shape(regenerated: dict[str, object
         "trove-classifiers",
     }
     assert build["uv_version"] == "0.12.5"
-    assert build["python"] == "3.12"
+    # Order 013-j, J3: exact Python identity scope (never a bare "3.12").
+    python = cast("dict[str, object]", build["python"])
+    assert set(python) == {"runtime_requirement", "observed_exact", "wheel_patch_independent"}
+    assert python["runtime_requirement"] == ">=3.12"
+    observed = cast("list[str]", python["observed_exact"])
+    assert observed and all(re.fullmatch(r"\d+\.\d+\.\d+", v) for v in observed)
+    assert python["wheel_patch_independent"] is (len(set(observed)) >= 2)
+    # Order 013-j, J4: the mechanical source-input map is present.
+    source_inputs = cast("dict[str, object]", regenerated["source_inputs"])
+    assert source_inputs
+    for value in source_inputs.values():
+        assert re.fullmatch(r"[0-9a-f]{64}", str(value))
     # Order 013-i, C11/D13: explicit RC candidate identity, separate from
     # the final release.
     candidate = cast("dict[str, object]", regenerated["candidate"])
@@ -362,7 +430,7 @@ def _dockerfile_from_lines() -> dict[str, tuple[str, str]]:
 def test_objective_field_records_producing_objective() -> None:
     # In ALL states the objective constant records the producing round.
     committed = _committed()
-    assert committed["objective"] == "013-i"
+    assert committed["objective"] == "013-j"
 
 
 def test_status_fields_state_conditional() -> None:
@@ -428,12 +496,12 @@ def test_oci_hash_cross_checks_against_committed_files() -> None:
     assert labels["slaif-local-coding.qualification"] == expected_qualification
 
 
-def test_committed_manifest_conforms_to_schema_v4_structure() -> None:
-    # Structural v4 conformance without a new dependency (dependency freeze):
+def test_committed_manifest_conforms_to_schema_v5_structure() -> None:
+    # Structural v5 conformance without a new dependency (dependency freeze):
     # closed key sets and fixed constants, mirroring the schema's
     # additionalProperties=false and const/enum entries.
     schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
-    assert schema["$id"] == "slaif-release-provenance-v4"
+    assert schema["$id"] == "slaif-release-provenance-v5"
     committed = _committed()
     expected_top = set(schema["required"])
     if _final_record_present():
@@ -456,6 +524,10 @@ def test_committed_manifest_conforms_to_schema_v4_structure() -> None:
         schema["properties"]["build"]["properties"]["backend"]["properties"]["version"]["const"]
         == "1.32.0"
     )
+    assert "source_inputs" in schema["required"]
+    python_def = schema["properties"]["build"]["properties"]["python"]
+    assert python_def["type"] == "object"
+    assert python_def["properties"]["runtime_requirement"]["const"] == ">=3.12"
     labels = cast("dict[str, object]", oci["labels"])
     # labels are defined in $defs.oci_labels (referenced from oci.labels).
     labels_def = schema["$defs"]["oci_labels"]
@@ -677,13 +749,36 @@ def test_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: Path
 # ---------------------------------------------------------------------------
 
 
+FIXTURE_DOCKERFILE = (
+    "FROM ghcr.io/astral-sh/uv:0.12.5@sha256:"
+    "e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1 AS uv-provider\n"
+    "FROM python:3.12-slim-bookworm@sha256:"
+    "782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS build\n"
+    "FROM python:3.12-slim-bookworm@sha256:"
+    "782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS runtime\n"
+)
+
+
+def _fixture_base_images() -> dict[str, dict[str, str]]:
+    import tempfile
+    from pathlib import Path as _Path
+
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = _Path(tmp)
+        (repo / "Dockerfile").write_text(FIXTURE_DOCKERFILE, encoding="utf-8")
+        return {
+            stage: {"name": fact["name"], "digest": fact["digest"]}
+            for stage, fact in _load_generator()._dockerfile_base_images(repo).items()
+        }
+
+
 def _valid_rc_record_template() -> dict[str, object]:
     if RC_RECORD.is_file():
         data: dict[str, object] = json.loads(json.dumps(_rc_record()))
         return data
     source = "a" * 40
     return {
-        "schema": "slaif-rc-record-v1",
+        "schema": "slaif-rc-record-v2",
         "rc_identifier": "0.1.0-rc1",
         "product_version": "0.1.0",
         "image_source_commit": source,
@@ -693,17 +788,29 @@ def _valid_rc_record_template() -> dict[str, object]:
         "published_at": "2026-09-20T00:00:00Z",
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": 1,
+        "workflow_head_sha": "e" * 40,
         "private_registry_auth_required": True,
         "final_public_release": False,
         "cutover_performed": False,
         "wheel_sha256": "d" * 64,
         "dependency_lock_sha256": "e" * 64,
         "gateway_authority_sha": "f" * 40,
+        "build_environment": {
+            "hatchling": "1.32.0",
+            "packaging": "26.3",
+            "pathspec": "1.1.1",
+            "pluggy": "1.6.0",
+            "tomlkit": "0.15.1",
+            "trove-classifiers": "2026.6.1.19",
+        },
         "build_toolchain": {
             "backend": "hatchling==1.32.0",
             "uv": "0.12.5",
             "python": "3.12",
         },
+        "base_images": _fixture_base_images(),
+        "image_platform": "linux/amd64",
+        "source_input_hashes": {"README.md": "1" * 64},
         "deployment_assumptions": (
             "linux-docker-engine-compose-v2;host-network-mode;"
             "private-same-host-upstream;separate-gateway;loopback-default-bind"
@@ -716,7 +823,7 @@ def test_rc_record_closed_key_set_and_value_classes() -> None:
         return  # pre-RC state: the RC record is absent by design
     record = _rc_record()
     assert set(record) == RC_RECORD_KEYS
-    assert record["schema"] == "slaif-rc-record-v1"
+    assert record["schema"] == "slaif-rc-record-v2"
     assert record["rc_identifier"] == "0.1.0-rc1"
     assert record["product_version"] == "0.1.0"
     assert re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"]))
@@ -744,6 +851,19 @@ def test_rc_record_closed_key_set_and_value_classes() -> None:
         "uv": "0.12.5",
         "python": "3.12",
     }
+    assert re.fullmatch(r"[0-9a-f]{40}", str(record["workflow_head_sha"]))
+    assert record["build_environment"] == {
+        "hatchling": "1.32.0",
+        "packaging": "26.3",
+        "pathspec": "1.1.1",
+        "pluggy": "1.6.0",
+        "tomlkit": "0.15.1",
+        "trove-classifiers": "2026.6.1.19",
+    }
+    assert record["image_platform"] == "linux/amd64"
+    assert record["source_input_hashes"]
+    for value in cast("dict[str, object]", record["source_input_hashes"]).values():
+        assert re.fullmatch(r"[0-9a-f]{64}", str(value))
 
 
 def test_rc_state_source_commit_binding() -> None:
@@ -784,6 +904,7 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
     def expect_error(mutate: Callable[[dict[str, object]], None], index: int) -> None:
         fake = tmp_path / f"rc-repo-{index}"
         (fake / "packaging").mkdir(parents=True)
+        (fake / "Dockerfile").write_text(FIXTURE_DOCKERFILE, encoding="utf-8")
         record = json.loads(json.dumps(base))
         mutate(record)
         (fake / "packaging" / "rc_record.json").write_text(json.dumps(record), encoding="utf-8")
@@ -822,6 +943,24 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
         toolchain = cast(dict[str, object], record["build_toolchain"])
         toolchain["backend"] = "hatchling==1.99.9"
 
+    def bad_head_sha(record: dict[str, object]) -> None:
+        record["workflow_head_sha"] = "e" * 39
+
+    def bad_build_environment(record: dict[str, object]) -> None:
+        environment = cast(dict[str, object], record["build_environment"])
+        environment["hatchling"] = "1.99.9"
+
+    def bad_base_images(record: dict[str, object]) -> None:
+        bases = cast(dict[str, object], record["base_images"])
+        runtime = cast(dict[str, object], bases["runtime"])
+        runtime["digest"] = "sha256:" + "0" * 64
+
+    def bad_platform(record: dict[str, object]) -> None:
+        record["image_platform"] = "linux/arm64"
+
+    def bad_input_hashes(record: dict[str, object]) -> None:
+        record["source_input_hashes"] = {"README.md": "g" * 64}
+
     def bad_published_at(record: dict[str, object]) -> None:
         record["published_at"] = "20/09/2026 12:00"
 
@@ -843,6 +982,11 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
             private_auth_false,
             bad_wheel,
             bad_toolchain,
+            bad_head_sha,
+            bad_build_environment,
+            bad_base_images,
+            bad_platform,
+            bad_input_hashes,
             bad_published_at,
             bad_workflow,
             bool_run_id,
@@ -852,6 +996,7 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
     # The unmutated template must load cleanly.
     fake = tmp_path / "rc-repo-ok"
     (fake / "packaging").mkdir(parents=True)
+    (fake / "Dockerfile").write_text(FIXTURE_DOCKERFILE, encoding="utf-8")
     (fake / "packaging" / "rc_record.json").write_text(json.dumps(base), encoding="utf-8")
     loaded = generator.load_rc_record(fake)
     assert loaded == base

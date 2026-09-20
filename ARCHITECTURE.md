@@ -19,14 +19,17 @@ configuration uses 150000 context and accepts zero images. The repository accept
 implemented and merged (objective 005, PR #7, merge commit
 `e3f10e93c1ea84bf4021fd15d566bf577d5a9dcf`); the live cutover itself remains
 a separate human-authorized act (runbook: `docs/RELEASE-CUTOVER-RUNBOOK.md`,
-prepare-only), and cutover is NOT performed as of 2026-09-17 (no real
-deployment yet evidenced); the product is NOT yet released — the MVP 0.1.0
-registry publication (objective 013: `ghcr.io/ulfe-lmi/slaif-local-coding`,
-pull-based installation canonical) is PENDING as of this PR's head on the
-order's R18 Gateway-peer hold (the remote Gateway `main` moved off the
-pinned peer; strategy must inspect and deliberately re-qualify); at
-publication the Git tag `v0.1.0` will target the image source commit as the
-release reference (strategic post-merge act).
+prepare-only), and cutover is NOT performed as of 2026-09-20 (no real
+deployment yet evidenced). The product is NOT finally released: objective
+013 (PR #15, open) is stabilizing and freezing the 0.1.0 release candidate
+(RC stabilization, documentation freeze, and RC-safe publication machinery
+on the private GHCR package `ghcr.io/ulfe-lmi/slaif-local-coding`, with
+pull-based installation canonical); the Gateway compatibility authority is
+the FROZEN peer `08ca421bee1ddca62078302b910e8be88cf705be` (continuously
+tested by the `gateway-contract` CI); the RC registry publication is a
+separate later round bound to the exact reviewed source commit; and a final
+public release (including any `v0.1.0` Git tag or GitHub Release) is a
+separate later human-authorized act.
 Two compatibility problems motivate the
 adapter behavior:
 
@@ -1144,17 +1147,21 @@ The architecture is intentionally sliced into reviewable objectives:
 - 011: Docker MVP packaging and release-readiness closure (merged PR #13;
   deployment-qualified in disposable/CI environments only);
 - 012: current Gateway peer re-pin (merged PR #14);
-- 013: MVP 0.1.0 GHCR publication, pull-based canonical installation, and
-  release provenance closure (PR #15, open as of this writing; implementation
-  complete and CI-verified; registry publication PENDING the R18 Gateway-peer
-  hold — no cutover, no real deployment yet evidenced).
+- 013: 0.1.0 RC stabilization, documentation freeze, and RC-safe
+  publication machinery (PR #15, open as of this writing; the historical
+  private publication of rounds 013-b..013-g was registry-only on the
+  non-public package and was never published to users — that output is
+  legacy, NOT the RC target; the RC registry publication is a separate
+  later round bound to the exact reviewed source commit; no cutover, no
+  real deployment yet evidenced).
 
 The original planned meanings formerly associated with numeric 006-008 are
 historical planning prose, not live objective identifiers. Cutover is NOT
-performed; the product is NOT yet released (the objective-013 GHCR
-publication is pending the R18 Gateway-peer hold; at publication the Git tag
-`v0.1.0` will target the image source commit as the release reference,
-created by strategy post-merge, and the GitHub Release follows that tag).
+performed; the product is NOT finally released (the objective-013 RC
+publication is a separate later round bound to the exact reviewed source
+commit; a final public release — including the Git tag `v0.1.0` targeting
+the image source commit and the GitHub Release that follows that tag — is
+a separate later human-authorized act).
 
 Each numeric objective is one PR. Follow-up letters amend the same PR until the
 strategic agent is satisfied and all required CI is green.

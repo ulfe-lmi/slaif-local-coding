@@ -239,7 +239,8 @@ historical private tags `0.1.0` and `sha-<S>` to the non-public package
 (registry-only; the tags were never published to users and the package was
 never made public — the 013-h round ended BLOCKED at anonymous access
 verification). Objective 013-i adapted the machinery to the RC candidate:
-explicit candidate identity `0.1.0-rc1` + content-addressed source tag,
+explicit candidate identity `0.1.0-rc1` + mutable `sha-<S>` source alias
+commit tag (the registry digest is the content-addressed identity),
 private registry with fail-closed authenticated tag checks, RC artifact
 record, and the pre-freeze candidate provenance state; the RC publication
 itself is a separate later round bound to the exact reviewed source
