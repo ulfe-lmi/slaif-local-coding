@@ -1,11 +1,39 @@
+<div align="center">
+  <a href="https://www.slaif.si">
+    <img src="https://www.slaif.si/assets/slaif-logo.svg" width="320" alt="SLAIF">
+  </a>
+</div>
+
 # SLAIF Local Coding
+
+<div align="center">
+
+[![CI](https://github.com/ulfe-lmi/slaif-local-coding/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ulfe-lmi/slaif-local-coding/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/ulfe-lmi/slaif-local-coding/actions/workflows/github-code-scanning/codeql/badge.svg?branch=main)](https://github.com/ulfe-lmi/slaif-local-coding/actions/workflows/github-code-scanning/codeql)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+
+**A self-hosted model-compatibility and context-virtualization layer for constrained local hardware.**
+
+</div>
 
 SLAIF Local Coding is a self-hosted model-compatibility and context-
 virtualization layer for constrained local hardware. It lets ordinary Codex
 and OpenAI-compatible clients work reliably with local models that do not
 support the full OpenAI feature surface — without modifying the clients.
 
-## What it does
+## Get started
+
+- **[QUICKSTART.md](QUICKSTART.md)** — the essential Docker path in
+  roughly 5–10 minutes, assuming the upstream model server and the separate
+  Gateway already exist.
+- **[INSTALL.md](INSTALL.md)** — the full operator installation: supported
+  platforms and prerequisites, image selection (digest preferred), private
+  registry login, protected configuration, readiness, stop/restart,
+  upgrade, digest-based rollback, uninstall, and the advanced direct-host
+  path.
+
+## How it works
 
 The adapter sits invisibly between the SLAIF API Gateway (a separate
 repository) and a private local model server such as Qwen3.8-27B on vLLM:
@@ -18,39 +46,19 @@ Codex / OpenAI client
       -> private Qwen/vLLM         (OpenAI-compatible, host loopback)
 ```
 
-- **Faithful OpenAI-compatible proxying** of `/health`, `/v1/models`,
-  `/v1/responses`, and `/v1/chat/completions`: status codes, safe error
-  envelopes, usage, ordinary function tools, SSE event order, incremental
-  streaming, cancellation, and disconnect behavior are preserved; responses
-  are never buffered whole.
-- **Route-scoped image policy.** The designated Qwen Codex vision route
-  accepts at most one image per request (zero-image requests are supported)
-  and retains the newest image content item from multi-image history
-  (full-image-then-crop); other routes explicitly reject or pass through.
-  Unknown capabilities fail closed; explicit multi-image comparison is not
-  claimed.
-- **Governance observation.** Effective `AGENTS.md` content in model-bound
-  traffic is detected from Codex envelope/path evidence only; referenced
-  repository paths are enumerated deterministically before any model
-  involvement.
-- **Constitutional compilation and bounded derived cache.** One bounded,
-  non-recursive internal model call compiles observed governance into a
-  strict, validated index; a bounded, disposable, content-addressed cache
-  keyed by principal, session/repository discriminator, and source hash
-  stores validated indexes only; a stable bounded working set is injected
-  idempotently on governance-bearing requests. Compiler or cache failure
-  never silently deletes governance.
-- **Gateway-ready signed ingress.** Service-Bearer plus signed-identity v1
-  (HMAC over method/path/query/body-hash and opaque identity fields) with
-  bounded process-local replay protection; public client keys terminate at
-  the separate Gateway and never reach this adapter.
-- **Private observability and privacy.** `/healthz`, `/readyz`, and a
-  private `/metrics` (counts/timings/states only). Raw prompts, source,
-  images, tool output, request/response bodies, and credentials are never
-  logged or persisted.
-
 This repository owns the adapter, route capability policies, packaging,
 tests, and diagnostics. The Gateway remains a separate service.
+
+## Why SLAIF Local Coding
+
+| Capability | What it does |
+| --- | --- |
+| Faithful OpenAI-compatible proxying | Proxies `/health`, `/v1/models`, `/v1/responses`, and `/v1/chat/completions`: status codes, safe error envelopes, usage, ordinary function tools, SSE event order, incremental streaming, cancellation, and disconnect behavior are preserved; responses are never buffered whole. |
+| Route-scoped image policy | The designated Qwen Codex vision route accepts at most one image per request (zero-image requests are supported) and retains the newest image content item from multi-image history (full-image-then-crop); other routes explicitly reject or pass through. Unknown capabilities fail closed; explicit multi-image comparison is not claimed. |
+| Governance observation | Effective `AGENTS.md` content in model-bound traffic is detected from Codex envelope/path evidence only; referenced repository paths are enumerated deterministically before any model involvement. |
+| Constitutional compilation and bounded derived cache | One bounded, non-recursive internal model call compiles observed governance into a strict, validated index; a bounded, disposable, content-addressed cache keyed by principal, session/repository discriminator, and source hash stores validated indexes only; a stable bounded working set is injected idempotently on governance-bearing requests. Compiler or cache failure never silently deletes governance. |
+| Gateway-ready signed ingress | Service-Bearer plus signed-identity v1 (HMAC over method/path/query/body-hash and opaque identity fields) with bounded process-local replay protection; public client keys terminate at the separate Gateway and never reach this adapter. |
+| Private observability and privacy | `/healthz`, `/readyz`, and a private `/metrics` (counts/timings/states only). Raw prompts, source, images, tool output, request/response bodies, and credentials are never logged or persisted. |
 
 ## Supported runtime and deployment assumptions
 
@@ -75,18 +83,7 @@ tests, and diagnostics. The Gateway remains a separate service.
   That is fixture-scoped evidence, not a generic or production-equivalence
   claim.
 
-## Getting started
-
-- **[QUICKSTART.md](QUICKSTART.md)** — the essential Docker path in
-  roughly 5–10 minutes, assuming the upstream model server and the separate
-  Gateway already exist.
-- **[INSTALL.md](INSTALL.md)** — the full operator installation: supported
-  platforms and prerequisites, image selection (digest preferred), private
-  registry login, protected configuration, readiness, stop/restart,
-  upgrade, digest-based rollback, uninstall, and the advanced direct-host
-  path.
-
-## Documentation
+## Task navigation
 
 | Topic | Document |
 | --- | --- |
@@ -123,15 +120,6 @@ tests, and diagnostics. The Gateway remains a separate service.
 - Single-fixture evidence is fixture-scoped; one RTX 3090 qualification
   does not establish generic production readiness.
 
-## License and credits
-
-Licensed under Apache-2.0 — see [LICENSE](LICENSE), [NOTICE](NOTICE), and
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
-
-The reference RTX 3090 serving work for Qwen3.8-27B is credited to
-[syv-ai/qwen38-27b-rtx3090](https://huggingface.co/syv-ai/qwen38-27b-rtx3090)
-(Apache-2.0). Model weights are never committed to this repository.
-
 ## Developers
 
 The locked gate (Python 3.12, uv) is documented in [TESTING.md](TESTING.md)
@@ -155,3 +143,12 @@ cache law, working-set selection and injection) are specified in
 [ARCHITECTURE-for-agents.md](ARCHITECTURE-for-agents.md); historical
 objective/round state is recorded in the OAP transcript
 ([oap/README.md](oap/README.md)) and is not a product document.
+
+## License and credits
+
+Licensed under Apache-2.0 — see [LICENSE](LICENSE), [NOTICE](NOTICE), and
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+The reference RTX 3090 serving work for Qwen3.8-27B is credited to
+[syv-ai/qwen38-27b-rtx3090](https://huggingface.co/syv-ai/qwen38-27b-rtx3090)
+(Apache-2.0). Model weights are never committed to this repository.
