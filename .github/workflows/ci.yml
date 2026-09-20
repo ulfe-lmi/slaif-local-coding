@@ -222,7 +222,10 @@ jobs:
               with urllib.request.urlopen(request, timeout=60) as response:
                   packages = json.load(response)
               matches = [
-                  pkg for pkg in packages if pkg.get("name") == "slaif-local-coding"
+                  pkg
+                  for pkg in packages
+                  if pkg.get("name")
+                  in ("slaif-local-coding", "ulfe-lmi/slaif-local-coding")
               ]
               if matches:
                   visibility = str(matches[0].get("visibility"))
@@ -232,7 +235,9 @@ jobs:
               visibility = f"inaccessible (HTTP {exc.code})"
           except Exception as exc:  # noqa: BLE001 - exact transport-failure evidence
               visibility = f"inaccessible ({type(exc).__name__})"
+          lines.append(f"packages_listed={len(packages)}")
           lines.append(f"visibility={visibility}")
+          print(f"packages listed (docker, org) -> {len(packages)}")
           print(f"package visibility -> {visibility}")
           with open(out, "a", encoding="utf-8") as handle:
               handle.write("\n".join(lines) + "\n")
