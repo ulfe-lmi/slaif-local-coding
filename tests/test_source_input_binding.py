@@ -253,3 +253,22 @@ def test_real_repo_source_inputs_bound_to_committed_source(
         assert path in sim.DERIVED_METADATA_PATHS or path.startswith("oap/"), (
             f"A..HEAD diff touches a non-derived path: {path}"
         )
+
+
+def test_rc1_archive_is_immutable_and_excluded_from_artifact_inputs(
+    sim: types.ModuleType,
+) -> None:
+    import hashlib
+
+    archived = REPO_ROOT / "packaging/releases/0.1.0-rc1"
+    expected = {
+        "rc_record.json": "342ebbe122febfbc9122e7ffa90d436758ded1ce59a071312f57d8b0bce9e844",
+        "rc_handoff.md": "01a8fe2ea058621ef7c949d4ed2b516596120eca29e3d08b3fdad22dc09a5553",
+        "release_provenance_manifest.json": (
+            "91934fdde7549775c806501a77538b8d17e8189d0b5d0583a6748cf20936003d"
+        ),
+    }
+    for name, digest in expected.items():
+        assert hashlib.sha256((archived / name).read_bytes()).hexdigest() == digest
+    inputs = sim.map_from_directory(REPO_ROOT)
+    assert not any(path.startswith("packaging/releases/") for path in inputs)

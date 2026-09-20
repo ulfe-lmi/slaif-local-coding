@@ -12,7 +12,7 @@ it authorizes no production cutover or final release.
   separate later human decision.
 - The RC is published to the **private** GHCR package
   `ghcr.io/ulfe-lmi/slaif-local-coding` under the explicit candidate
-  identity `0.1.0-rc1` plus the source ALIAS tag
+  identity `0.1.0-rc2` plus the source ALIAS tag
   `sha-<image source commit>` (a mutable tag naming the image source
   commit — NOT a content-addressed identity).
 - **The immutable image digest is the content-addressed, authoritative
@@ -22,11 +22,11 @@ it authorizes no production cutover or final release.
 - The machine-readable record is `packaging/rc_record.json`
   (schema `slaif-rc-record-v2`), populated from verified facts during the
   publication round and SELF-CONTAINED. Required facts it carries:
-  - product version `0.1.0` and RC identifier `0.1.0-rc1`;
+  - product version `0.1.0` and RC identifier `0.1.0-rc2`;
   - the exact **image source commit** (40-hex) the image was built from;
   - the OCI image reference and the **authenticated registry digest**
     (`sha256:<64-hex>`);
-  - the OCI tag pair `[0.1.0-rc1, sha-<source commit>]`;
+  - the OCI tag pair `[0.1.0-rc2, sha-<source commit>]`;
   - the **publishing workflow run head SHA** (the publication is bound to
     the run's exact head, not an unrecorded checkout);
   - the **wheel SHA-256** bound to the image
@@ -71,8 +71,8 @@ docker pull "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<OCI_IMAGE_DIGEST>"
 # The tag aliases must resolve to the same registry digest (verify, do not
 # trust). Inspecting the image .Id alone is NOT proof of the manifest
 # digest — check RepoDigests / the registry manifest digest:
-docker pull "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1"
-docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1" \
+docker pull "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2"
+docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2" \
   --format '{{range .RepoDigests}}{{.}}{{end}}'
 # must contain ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<OCI_IMAGE_DIGEST>
 ```
@@ -131,9 +131,19 @@ After pulling, verify the frozen identity mechanically:
 
 ## Build-time candidate identity vs later human approval
 
-The candidate identity (`0.1.0-rc1`, its labels, and the recorded digest)
+The candidate identity (`0.1.0-rc2`, its labels, and the recorded digest)
 is fixed at build time from the exact recorded source commit. Later human
 approval (final release) does not rebuild or relabel the tested image:
 promotion references the **same** digest. The record fields
 `final_public_release` and `cutover_performed` stay `false` in the RC
 record and change only in later, separately authorized records.
+
+## Previous candidates
+
+The [RC1 record](../packaging/releases/0.1.0-rc1/rc_record.json),
+[handoff](../packaging/releases/0.1.0-rc1/rc_handoff.md), and
+[provenance](../packaging/releases/0.1.0-rc1/release_provenance_manifest.json)
+are preserved byte-for-byte for traceability. RC1 predates the governance
+parser security correction; select RC2 for evaluation of the corrected product.
+RC1 registry tags and digest remain unchanged. Each candidate has its own
+source commit, wheel hash, and digest; candidates are never overwritten.

@@ -172,7 +172,7 @@ def test_record_missing_when_no_publication_record(
         lambda rec: rec.update(cutover_performed=True),
         lambda rec: rec.update(private_registry_auth_required=False),
         lambda rec: rec.update(oci_image_digest="sha256:" + "b" * 63),
-        lambda rec: rec.update(oci_tags=["0.1.0-rc1", "wrong-tag"]),
+        lambda rec: rec.update(oci_tags=["0.1.0-rc2", "wrong-tag"]),
         lambda rec: rec.update(image_source_commit="a" * 39),
         lambda rec: rec.update(workflow_head_sha="g" * 40),
         lambda rec: rec.update(wheel_sha256="d" * 64 + "d"),
@@ -213,12 +213,12 @@ def test_superseded_v1_rc_record_rejected(dqc: types.ModuleType, repo: Path, wir
     (the generator emits v2; the strict v2 loader is the only RC schema)."""
     v1: dict[str, object] = {
         "schema": "slaif-rc-record-v1",
-        "rc_identifier": "0.1.0-rc1",
+        "rc_identifier": "0.1.0-rc2",
         "product_version": "0.1.0",
         "image_source_commit": SOURCE,
         "oci_image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
         "oci_image_digest": DIGEST,
-        "oci_tags": ["0.1.0-rc1", f"sha-{SOURCE}"],
+        "oci_tags": ["0.1.0-rc2", f"sha-{SOURCE}"],
         "published_at": PUBLISHED_AT,
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": None,

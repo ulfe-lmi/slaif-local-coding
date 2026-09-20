@@ -150,12 +150,12 @@ def test_build_rc_record_happy_path(
     record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
     assert set(record) == V2_KEYS
     assert record["schema"] == "slaif-rc-record-v2"
-    assert record["rc_identifier"] == "0.1.0-rc1"
+    assert record["rc_identifier"] == "0.1.0-rc2"
     assert record["product_version"] == "0.1.0"
     assert record["image_source_commit"] == SOURCE
     assert record["oci_image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
     assert record["oci_image_digest"] == DIGEST
-    assert record["oci_tags"] == ["0.1.0-rc1", f"sha-{SOURCE}"]
+    assert record["oci_tags"] == ["0.1.0-rc2", f"sha-{SOURCE}"]
     assert record["published_at"] == PUBLISHED_AT
     assert record["publication_workflow"] == "release-image.yml"
     assert record["publication_workflow_run_id"] is None
@@ -261,7 +261,7 @@ def test_render_handoff_is_deterministic_and_self_contained(
         SOURCE,
         DIGEST,
         HEAD_SHA,
-        "0.1.0-rc1",
+        "0.1.0-rc2",
         "linux/amd64",
         WHEEL_SHA,
         "RepoDigests",
@@ -295,7 +295,7 @@ def test_render_handoff_emits_valid_docker_template_commands(
     rendered = rc_mod.render_handoff(record)
     lines = rendered.splitlines()
     expected_repodigests = (
-        'docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1" '
+        'docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2" '
         "--format '{{range .RepoDigests}}{{.}}{{end}}'"
     )
     assert expected_repodigests in lines, (

@@ -354,7 +354,7 @@ def test_regenerated_manifest_matches_schema_shape(regenerated: dict[str, object
         "final_public_release",
         "cutover_performed",
     }
-    assert candidate["rc_identifier"] == "0.1.0-rc1"
+    assert candidate["rc_identifier"] == "0.1.0-rc2"
     assert candidate["private_registry_auth_required"] is True
     assert candidate["final_public_release"] is False
     assert candidate["cutover_performed"] is False
@@ -385,7 +385,7 @@ def test_regenerated_manifest_matches_schema_shape(regenerated: dict[str, object
         "labels",
     }
     assert oci["image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
-    assert oci["candidate_tag"] == "0.1.0-rc1"
+    assert oci["candidate_tag"] == "0.1.0-rc2"
     if _rc_record_present():
         rc = _rc_record()
         assert re.fullmatch(r"sha256:[0-9a-f]{64}", str(oci["image_digest"]))
@@ -497,7 +497,7 @@ def test_oci_hash_cross_checks_against_committed_files() -> None:
     assert labels["slaif-local-coding.gateway.peer.sha"] == peer["commit"]
     state = _state()
     if state == "rc":
-        expected_qualification = "rc-candidate-0.1.0-rc1; private; not final release"
+        expected_qualification = "rc-candidate-0.1.0-rc2; private; not final release"
     elif state == "final":
         expected_qualification = "mvp-release-0.1.0"
     else:
@@ -521,7 +521,7 @@ def test_committed_manifest_conforms_to_schema_v5_structure() -> None:
     assert schema["properties"]["oci"]["properties"]["image_reference"]["const"] == (
         "ghcr.io/ulfe-lmi/slaif-local-coding"
     )
-    assert schema["properties"]["oci"]["properties"]["candidate_tag"]["const"] == "0.1.0-rc1"
+    assert schema["properties"]["oci"]["properties"]["candidate_tag"]["const"] == "0.1.0-rc2"
     assert schema["properties"]["oci"]["properties"]["published"]["enum"] == [False, True]
     assert schema["properties"]["status"]["properties"]["rc_published"]["enum"] == [False, True]
     assert schema["properties"]["status"]["properties"]["final_public_release"]["enum"] == [
@@ -788,12 +788,12 @@ def _valid_rc_record_template() -> dict[str, object]:
     source = "a" * 40
     return {
         "schema": "slaif-rc-record-v2",
-        "rc_identifier": "0.1.0-rc1",
+        "rc_identifier": "0.1.0-rc2",
         "product_version": "0.1.0",
         "image_source_commit": source,
         "oci_image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
         "oci_image_digest": "sha256:" + "c" * 64,
-        "oci_tags": ["0.1.0-rc1", f"sha-{source}"],
+        "oci_tags": ["0.1.0-rc2", f"sha-{source}"],
         "published_at": "2026-09-20T00:00:00Z",
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": 1,
@@ -833,13 +833,13 @@ def test_rc_record_closed_key_set_and_value_classes() -> None:
     record = _rc_record()
     assert set(record) == RC_RECORD_KEYS
     assert record["schema"] == "slaif-rc-record-v2"
-    assert record["rc_identifier"] == "0.1.0-rc1"
+    assert record["rc_identifier"] == "0.1.0-rc2"
     assert record["product_version"] == "0.1.0"
     assert re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"]))
     assert record["oci_image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", str(record["oci_image_digest"]))
     source = str(record["image_source_commit"])
-    assert record["oci_tags"] == ["0.1.0-rc1", f"sha-{source}"]
+    assert record["oci_tags"] == ["0.1.0-rc2", f"sha-{source}"]
     assert re.fullmatch(
         r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", str(record["published_at"])
     )

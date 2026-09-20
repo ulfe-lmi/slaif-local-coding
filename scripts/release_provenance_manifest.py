@@ -145,8 +145,8 @@ UV_VERSION = "0.12.5"
 PYTHON_RUNTIME_REQUIREMENT = ">=3.12"
 
 # Order 013-i, C12/D13: explicit RC candidate identity.
-RC_IDENTIFIER = "0.1.0-rc1"
-RC_QUALIFICATION_LABEL = "rc-candidate-0.1.0-rc1; private; not final release"
+RC_IDENTIFIER = "0.1.0-rc2"
+RC_QUALIFICATION_LABEL = "rc-candidate-0.1.0-rc2; private; not final release"
 RC_DEPLOYMENT_ASSUMPTIONS = (
     "linux-docker-engine-compose-v2;host-network-mode;"
     "private-same-host-upstream;separate-gateway;loopback-default-bind"
@@ -200,7 +200,7 @@ LIMITATIONS: list[str] = [
 
 TAG_CONVENTION = (
     "0.1.0-<short-sha> (and full-sha form) locally; reserved RC publication "
-    "reference ghcr.io/ulfe-lmi/slaif-local-coding with tags 0.1.0-rc1 + "
+    "reference ghcr.io/ulfe-lmi/slaif-local-coding with tags 0.1.0-rc2 + "
     "sha-<full-sha> (private registry; the immutable digest is the "
     "authoritative identity, tags are aliases) after the RC publication "
     "round; the historical private 0.1.0 tag is legacy unpublished-to-users "

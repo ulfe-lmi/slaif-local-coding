@@ -15,7 +15,7 @@ and an sdist containing the entire working tree (including OAP transcripts).
   `*.dist-info/` metadata and license files (`LICENSE`, `NOTICE` under
   `licenses/`).
 - **OCI image (publication reference
-  `ghcr.io/ulfe-lmi/slaif-local-coding`; RC candidate identity `0.1.0-rc1`
+  `ghcr.io/ulfe-lmi/slaif-local-coding`; RC candidate identity `0.1.0-rc2`
   plus the source ALIAS tag `sha-<full image-source SHA>` (a mutable tag
   naming the image source commit — the content-addressed identity is the
   immutable registry digest);
@@ -51,7 +51,7 @@ and an sdist containing the entire working tree (including OAP transcripts).
   M2). The publication path is
   ACTIVATED and adapted for the RC candidate (order 013-i): the
   `workflow_dispatch`-only `release-image.yml` publishes the explicit
-  candidate identity `0.1.0-rc1` + `sha-<S>` to the **private** GHCR
+  candidate identity `0.1.0-rc2` + `sha-<S>` to the **private** GHCR
   package; no code path of the RC workflow may write `0.1.0`, `latest`,
   `stable`, a final `v0.1.0`, or change package visibility (the historical
   private `0.1.0` tag and its orphan `sha-` tag are preserved
@@ -61,7 +61,7 @@ and an sdist containing the entire working tree (including OAP transcripts).
   package; no long-lived credential of any kind is referenced or
   introduced) and least-privilege `packages: read` for the
   published-image qualification job. At RC publication: the tags
-  `0.1.0-rc1` + `sha-<S>` resolve to one registry digest `D` recorded in
+  `0.1.0-rc2` + `sha-<S>` resolve to one registry digest `D` recorded in
   `packaging/rc_record.json` (schema `slaif-rc-record-v2`) and the
   provenance manifest (image source commit `S`); the digest is the
   authoritative identity, the tags are aliases; the RC record keeps
@@ -268,7 +268,7 @@ authorization — a source round performs zero registry writes by definition.
 The machinery (order 013-i; completed by order 013-j, J1) is:
 
 - The `workflow_dispatch`-only `release-image.yml` publishes the explicit
-  **RC candidate identity `0.1.0-rc1`** (the EXACT expected identity; the
+  **RC candidate identity `0.1.0-rc2`** (the EXACT expected identity; the
   publisher never silently allocates a new RC number) plus the source
   ALIAS `sha-<S>` tag to the **private** GHCR package, building the locked
   wheel (bound to the committed manifest), building the image from the
@@ -317,7 +317,7 @@ The machinery (order 013-i; completed by order 013-j, J1) is:
   registry baseline with the same ephemeral `packages: read` token (the
   existing strict resolver: `digest` / verified-`absent` /
   `unauthorized` — inaccessible is never reported as absent) for the
-  historical `0.1.0`, the two recorded `sha-` tags, and `0.1.0-rc1`, so a
+  historical `0.1.0`, the two recorded `sha-` tags, and `0.1.0-rc2`, so a
   source round yields the before state and a published round the after
   evidence (order 013-l, L3); the GHCR package visibility is read via
   the DIRECT container-package endpoint with the same token and an

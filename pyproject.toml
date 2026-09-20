@@ -118,6 +118,8 @@ exclude = [
   # metadata and must never be an artifact input (recording a digest must
   # not require another image).
   "packaging/rc_handoff.md",
+  # Immutable records of superseded candidates are metadata, not build inputs.
+  "packaging/releases",
 ]
 
 [tool.hatch.build.targets.wheel]

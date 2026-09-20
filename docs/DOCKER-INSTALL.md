@@ -19,7 +19,7 @@ is the canonical operator installation path for the reference
 authoritative registry digest `D` are recorded in the RC artifact record
 (`packaging/rc_record.json`, schema `slaif-rc-record-v2`) and the
 provenance manifest once the RC is published; the RC tag pair is
-`0.1.0-rc1` (explicit candidate) + `sha-<S>` (source alias tag — a mutable
+`0.1.0-rc2` (explicit candidate) + `sha-<S>` (source alias tag — a mutable
 tag naming the image source commit, not a content-addressed identity).
 The frozen Gateway compatibility authority is the peer
 `08ca421bee1ddca62078302b910e8be88cf705be` (see the "Gateway compatibility
@@ -63,7 +63,7 @@ by publication and no real deployment is yet evidenced.
 ## Image identity
 
 - Explicit selection: `SLAIF_LOCAL_CODING_IMAGE` (REQUIRED by
-  `compose.yaml`) set to `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1`
+  `compose.yaml`) set to `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2`
   (RC candidate tag alias) or the authoritative digest form
   `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>` once the RC record
   exists (see "Digest pinning"). The historical private `0.1.0` tag is
@@ -86,7 +86,7 @@ by publication and no real deployment is yet evidenced.
   `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D>`:
 
   ```bash
-  docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1" \
+  docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2" \
     --format '{{range .RepoDigests}}{{.}}{{end}}'
   ```
 - **Supported image OS/architecture:** the image is a Linux multi-stage
@@ -393,7 +393,7 @@ path always uses the final Gateway-integrated (signed) configuration.
   explicit candidate identity:
   `ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>` (source ALIAS tag naming
   the full image-source commit — mutable; the content-addressed identity
-  is the immutable digest `D`) and `:0.1.0-rc1` (the EXACT expected RC
+  is the immutable digest `D`) and `:0.1.0-rc2` (the EXACT expected RC
   identity; the publisher never silently allocates a new RC number).
   Before ANY mutation both target tags are checked with authenticated
   registry access (verified-absent vs unauthorized/inaccessible

@@ -55,7 +55,7 @@ digest-pinned reference from the RC record:
 ```bash
 export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<OCI_IMAGE_DIGEST>
 # tag form (less exact; verify in section 5 after the pull):
-# export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1
+# export SLAIF_LOCAL_CODING_IMAGE=ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2
 export SLAIF_CONFIG_FILE=/opt/slaif/adapter.toml
 export SLAIF_ENV_FILE=/opt/slaif/adapter.env
 ```
@@ -138,7 +138,7 @@ digest — inspecting the image `.Id` alone is NOT proof of the manifest
 digest; check `RepoDigests` (the registry manifest digest):
 
 ```bash
-docker image inspect ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1 \
+docker image inspect ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2 \
   --format '{{range .RepoDigests}}{{.}}{{end}}'
 # must contain ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<OCI_IMAGE_DIGEST>
 ```

@@ -77,7 +77,7 @@ def test_unset_variable_fails_closed_with_no_default() -> None:
 
 def test_image_override_renders_verbatim_including_digest_pin() -> None:
     value = _image_field_value()
-    plain = "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1"
+    plain = "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2"
     assert _interpolate_image(value, {"SLAIF_LOCAL_CODING_IMAGE": plain}) == plain
     digest_pin = "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:" + "0" * 64
     assert _interpolate_image(value, {"SLAIF_LOCAL_CODING_IMAGE": digest_pin}) == digest_pin

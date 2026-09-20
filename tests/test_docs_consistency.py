@@ -185,7 +185,7 @@ def test_rc_wording_is_not_a_false_positive(checker: types.ModuleType, tmp_path:
         "# Product\n\nSee [QUICKSTART.md](QUICKSTART.md) and "
         "[INSTALL.md](INSTALL.md).\n\n"
         "The historical private 0.1.0 tag was never published to users and is\n"
-        "not the RC benchmark target; 0.1.0-rc1 is prepared as a candidate.\n",
+        "not the RC benchmark target; 0.1.0-rc2 is prepared as a candidate.\n",
         encoding="utf-8",
     )
     assert checker.check_repo(tmp_path) == []
@@ -195,7 +195,7 @@ def test_compose_build_key_fails(checker: types.ModuleType, tmp_path: Path) -> N
     _make_docs_tree(tmp_path)
     (tmp_path / "compose.yaml").write_text(
         "name: x\n\nservices:\n  adapter:\n"
-        "    image: ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1\n"
+        "    image: ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2\n"
         "    build:\n      context: .\n",
         encoding="utf-8",
     )
@@ -237,7 +237,7 @@ def test_readme_release_status_section_fails(checker: types.ModuleType, tmp_path
         "# Product\n\n"
         "See [QUICKSTART.md](QUICKSTART.md) and [INSTALL.md](INSTALL.md).\n\n"
         "## Release status\n\n"
-        "0.1.0-rc1 is being prepared and frozen.\n",
+        "0.1.0-rc2 is being prepared and frozen.\n",
         encoding="utf-8",
     )
     violations = checker.check_repo(tmp_path)
@@ -344,7 +344,7 @@ def test_missing_secret_guard_fails(checker: types.ModuleType, tmp_path: Path, g
 def test_content_addressed_source_tag_fails(checker: types.ModuleType, tmp_path: Path) -> None:
     _make_docs_tree(tmp_path)
     (tmp_path / "docs" / "TOPOLOGY.md").write_text(
-        "# Topology\n\nThe publish uses tag 0.1.0-rc1 + content-addressed source tag.\n",
+        "# Topology\n\nThe publish uses tag 0.1.0-rc2 + content-addressed source tag.\n",
         encoding="utf-8",
     )
     violations = checker.check_repo(tmp_path)

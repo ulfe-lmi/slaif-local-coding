@@ -173,9 +173,9 @@ def test_build_push_references_are_qualified_for_rc_default(
     mod: types.ModuleType,
 ) -> None:
     fixture_sha = "0" * 40
-    sha_ref, candidate_ref = mod.build_push_references(mod.REPO_DEFAULT, fixture_sha, "0.1.0-rc1")
+    sha_ref, candidate_ref = mod.build_push_references(mod.REPO_DEFAULT, fixture_sha, "0.1.0-rc2")
     assert sha_ref == f"ghcr.io/ulfe-lmi/slaif-local-coding:sha-{fixture_sha}"
-    assert candidate_ref == "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1"
+    assert candidate_ref == "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2"
 
 
 def test_build_push_references_take_explicit_candidate_tag(
@@ -183,17 +183,17 @@ def test_build_push_references_take_explicit_candidate_tag(
 ) -> None:
     fixture_sha = "1" * 40
     sha_ref, candidate_ref = mod.build_push_references(
-        "ulfe-lmi/slaif-local-coding", fixture_sha, "0.1.0-rc2"
+        "ulfe-lmi/slaif-local-coding", fixture_sha, "0.1.0-rc1"
     )
     assert sha_ref == f"ghcr.io/ulfe-lmi/slaif-local-coding:sha-{fixture_sha}"
-    assert candidate_ref == "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2"
+    assert candidate_ref == "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1"
 
 
 def test_forbidden_final_tags_are_closed_set(mod: types.ModuleType) -> None:
     # Order 013-i, D13: no code path of the RC workflow may write a final
     # or stable tag; the guard set is closed and complete.
     assert mod.FORBIDDEN_FINAL_TAGS == frozenset({"0.1.0", "latest", "stable", "v0.1.0"})
-    assert "0.1.0-rc1" not in mod.FORBIDDEN_FINAL_TAGS
+    assert "0.1.0-rc2" not in mod.FORBIDDEN_FINAL_TAGS
 
 
 def _run_main(mod: types.ModuleType, monkeypatch: pytest.MonkeyPatch, *argv: str) -> int:
@@ -231,7 +231,7 @@ def test_main_rejects_bad_git_sha(mod: types.ModuleType, monkeypatch: pytest.Mon
             "--git-sha",
             "short",
             "--release-tag",
-            "0.1.0-rc1",
+            "0.1.0-rc2",
         )
 
 
@@ -250,7 +250,7 @@ def test_main_requires_token_for_private_package(
             "--git-sha",
             "0" * 40,
             "--release-tag",
-            "0.1.0-rc1",
+            "0.1.0-rc2",
         )
 
 
@@ -260,5 +260,5 @@ def test_self_check_references_still_returns_zero(
     assert mod.self_check_references() == 0
     out = capsys.readouterr().out
     assert "reference self-check OK" in out
-    assert "0.1.0-rc1" in out
+    assert "0.1.0-rc2" in out
     assert "forbidden final tags" in out
