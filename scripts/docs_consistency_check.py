@@ -70,6 +70,14 @@ from pathlib import Path
 # and historical ledgers are intentionally excluded.
 SCOPED_DOCS: tuple[str, ...] = (
     "README.md",
+    "ARCHITECTURE.md",
+    "SECURITY.md",
+    "TESTING.md",
+    "CONTRIBUTING.md",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/SLAIF-GATEWAY-INTEGRATION.md",
+    "docs/GATEWAY-CONTRACT-CI.md",
+    "docs/RELEASE-CUTOVER-RUNBOOK.md",
     "QUICKSTART.md",
     "INSTALL.md",
     "docs/README.md",
@@ -84,10 +92,7 @@ SCOPED_DOCS: tuple[str, ...] = (
 # Order 013-j, J2: the stale-claim wording check additionally covers the
 # current architecture sections and the cutover runbook (both carry
 # historical blocks that must stay unmistakably historical).
-CLAIM_DOCS: tuple[str, ...] = SCOPED_DOCS + (
-    "ARCHITECTURE.md",
-    "docs/RELEASE-CUTOVER-RUNBOOK.md",
-)
+CLAIM_DOCS: tuple[str, ...] = SCOPED_DOCS
 REQUIRED_ROOT_FILES: tuple[str, ...] = (
     "README.md",
     "QUICKSTART.md",
@@ -115,6 +120,10 @@ URL_SCHEME_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 MARKDOWN_LINK_RE = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 COMPOSE_BUILD_KEY_RE = re.compile(r"^[ \t]+build:")
 STALE_CLAIM_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "internal round chronology in current user documentation",
+        re.compile(r"\b(?:Objective \d{3}|order `?\d{3}-[a-z]+|THIS round)\b"),
+    ),
     ("current-prose 'this PR'", re.compile(r"\bthis PR\b")),
     ("current-prose 'pre-merge'", re.compile(r"\bpre-merge\b", re.IGNORECASE)),
     ("stale 'benchmark pending'", re.compile(r"benchmark\s+pending", re.IGNORECASE)),
@@ -270,14 +279,10 @@ def _check_links(root: Path, violations: list[str]) -> None:
         if not path.is_file():
             continue  # missing files are reported separately (or out of scope)
         for line_no, target in _link_targets(path.read_text(encoding="utf-8")):
-            if target.startswith("#"):
-                continue  # pure in-document anchor
             if URL_SCHEME_RE.match(target):
                 continue  # http/https/mailto/... absolute link
-            base = target.split("#", 1)[0]
-            if not base:
-                continue
-            resolved = (path.parent / base).resolve()
+            base, _, anchor = target.partition("#")
+            resolved = (path.parent / base).resolve() if base else path.resolve()
             try:
                 resolved.relative_to(root.resolve())
             except ValueError:
@@ -288,6 +293,22 @@ def _check_links(root: Path, violations: list[str]) -> None:
                 continue
             if not resolved.exists():
                 violations.append(f"{rel}:{line_no}: broken-link: {target!r}")
+            elif anchor and resolved.is_file() and resolved.suffix == ".md":
+                # Ordinary GitHub heading anchors; HTML anchors are accepted too.
+                anchors: set[str] = set()
+                counts: dict[str, int] = {}
+                target_text = resolved.read_text(encoding="utf-8")
+                for heading in _strip_code_fences(target_text.splitlines()):
+                    if heading is None or not re.match(r"^#{1,6}\s", heading):
+                        continue
+                    label = re.sub(r"^#{1,6}\s+", "", heading).strip().lower()
+                    slug = re.sub(r"[^\w\- ]", "", label).replace(" ", "-")
+                    count = counts.get(slug, 0)
+                    counts[slug] = count + 1
+                    anchors.add(f"{slug}-{count}" if count else slug)
+                anchors.update(re.findall(r'(?:id|name)="([^"]+)"', target_text))
+                if anchor not in anchors:
+                    violations.append(f"{rel}:{line_no}: broken-anchor: {target!r}")
 
 
 def _check_stale_claims(root: Path, violations: list[str]) -> None:

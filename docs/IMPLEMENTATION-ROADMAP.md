@@ -1,9 +1,14 @@
-# Implementation roadmap
+# Historical implementation roadmap
+
+> Historical planning snapshot. Its PR states and release plans describe their
+> recorded dates and are superseded by GitHub and the exact RC artifact record.
+> For current product behavior and installation, use [README.md](README.md).
+
 
 This roadmap is strategic context, not an activated order. Live GitHub/host
 state and review outcomes control actual sequencing.
 
-## Current state (2026-09-20, verified against GitHub)
+## Recorded state (2026-09-20, verified against GitHub)
 
 Objectives 000–010 are **implemented and merged** (PR #1–#12; merge commits
 `91463ae3`, `176bf4db`, `867e55e4`, `68f212b5` + `7a2c36a0`, `570bd2b2`,

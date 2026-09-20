@@ -82,7 +82,7 @@ MANIFEST_PATH = Path("packaging/release_provenance_manifest.json")
 UV_LOCK_PATH = Path("uv.lock")
 HANDOFF_PATH = Path("packaging/rc_handoff.md")
 
-RC_IDENTIFIER = "0.1.0-rc1"
+RC_IDENTIFIER = "0.1.0-rc2"
 PRODUCT_VERSION = "0.1.0"
 IMAGE_REFERENCE = "ghcr.io/ulfe-lmi/slaif-local-coding"
 PUBLICATION_WORKFLOW = "release-image.yml"
@@ -333,7 +333,7 @@ def render_handoff(record: dict) -> str:
         "`linux-docker-host-network;loopback-default;"
         "lan-visible-only-with-full-signed-ingress`; "
         "`slaif-local-coding.qualification` == "
-        "`rc-candidate-0.1.0-rc1; private; not final release`."
+        "`rc-candidate-0.1.0-rc2; private; not final release`."
     )
     lines.append(
         "3. The in-image retained wheel artifact "

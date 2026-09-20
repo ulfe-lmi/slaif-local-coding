@@ -430,7 +430,7 @@ def _load_publication_record() -> dict:
     Dispatched by record presence, RC record authoritative when both exist:
     - slaif-rc-record-v2 (packaging/rc_record.json): RC candidate record,
       validated by the provenance generator's closed-key strict loader (23
-      keys; RC tag pair [0.1.0-rc1, sha-<source>],
+      keys; RC tag pair [0.1.0-rc2, sha-<source>],
       private_registry_auth_required true, final_public_release false,
       cutover_performed false, enforced build environment, base images,
       declared image platform, direct source-input map, publishing-run head

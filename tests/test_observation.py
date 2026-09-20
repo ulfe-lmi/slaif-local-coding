@@ -587,3 +587,44 @@ def test_each_structured_invalid_candidate_has_exact_fixed_reason(
     result = extract_references(source, ObservationPolicy())
     assert result.candidates == () and result.rejected == 1
     assert [(item.reason, item.count) for item in result.rejection_counts] == [(reason, 1)]
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+@pytest.mark.parametrize("content", ["", "rules", "rules\r\n", "unicode ž\n"])
+@pytest.mark.parametrize("environment", [False, True])
+def test_project_linear_parser_preserves_delimiters(
+    newline: str, content: str, environment: bool
+) -> None:
+    text = (
+        f"# AGENTS.md instructions for repo{newline}{newline}<INSTRUCTIONS>{newline}"
+        + content
+        + newline
+        + "</INSTRUCTIONS>"
+    )
+    if environment:
+        text += f"{newline}<environment_context>{newline}fixture{newline}</environment_context>"
+    result = observe_request(project_payload(text), context(), ObservationPolicy())
+    assert result.roots[0].content_sha256 == hashlib.sha256(content.encode()).hexdigest()
+
+
+@pytest.mark.parametrize("corroboration", [False, True])
+def test_repeated_instruction_terminators_cannot_exhaust_parser(corroboration: bool) -> None:
+    # Run the adversarial regression in a killable child: a future quadratic
+    # regression must fail promptly rather than hang the complete test suite.
+    import subprocess
+    import sys
+
+    code = """
+from slaif_local_coding.config import ObservationPolicy
+from slaif_local_coding.constitution.detector import _project_sources
+prefix = '# AGENTS.md instructions for repo\\n\\n<INSTRUCTIONS>\\n'
+valid = prefix + 'rules\\n</INSTRUCTIONS>'
+attack = prefix + ('\\n</INSTRUCTIONS>\\n<environment_context>\\n' * 12000)
+item = {'type': 'input_text', 'text': valid if CORROBORATION else attack}
+payload = {'input': [{'role': 'user', 'content': [item]}]}
+if CORROBORATION:
+    payload['instructions'] = attack
+found, invalid, malformed = _project_sources(payload, ObservationPolicy())
+assert not found and not invalid and malformed
+""".replace("CORROBORATION", repr(corroboration))
+    subprocess.run([sys.executable, "-c", code], check=True, timeout=5, capture_output=True)

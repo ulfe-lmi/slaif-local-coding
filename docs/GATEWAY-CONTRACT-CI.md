@@ -16,9 +16,10 @@ The update sequence is:
 Run the optional focused gate with a freshly obtained checkout at the fixture
 commit:
 
-```text
-SLAIF_GATEWAY_ROOT=/path/to/fresh/gateway/checkout \
-  uv run --frozen python scripts/gateway_contract.py \
+```bash
+uv sync --frozen --extra dev --group gateway-contract
+export SLAIF_GATEWAY_ROOT=/path/to/fresh/gateway/checkout
+uv run --frozen python scripts/gateway_contract.py \
   --gateway-root "$SLAIF_GATEWAY_ROOT" --run-tests
 ```
 
@@ -36,6 +37,6 @@ is needed for pure Gateway module imports. The current strict selection is
 never packaged into the Local wheel. Checkout and package installation are the
 only network-enabled setup steps.
 
-This current peer authority is separate from immutable Objective-005 acceptance
+This development peer authority is separate from immutable historical acceptance
 pins and their historical evidence. It does not claim Gateway deployment,
 provider, Qwen/vLLM, service, cutover, production, or release readiness.

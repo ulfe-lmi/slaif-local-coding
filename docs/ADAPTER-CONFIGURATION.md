@@ -1,6 +1,7 @@
 # Adapter configuration and operations
 
-`config/adapter.example.toml` is the objective-000 contract. Unknown fields,
+Start with `config/adapter.gateway-integrated.template.toml` for signed Gateway
+ingress, or `config/adapter.example.toml` for loopback development. Unknown fields,
 policies, duplicate route names, duplicate `(model, endpoint)` matches,
 non-loopback listeners without the full signed ingress contract, invalid
 bounds, and routes that do not uniquely match a request fail closed at
@@ -8,10 +9,9 @@ settings validation/startup. Application code has
 no hard-coded upstream address. The example address is host-specific candidate
 configuration, not a public endpoint.
 
-## Bind law (`[server].listen_host`, objective 011-a D1)
+## Listener address (`[server].listen_host`)
 
-The adapter bind address is governed by the D1 binding law (human-mandated,
-recorded in order `011-a`):
+The listener is validated according to ingress mode:
 
 - **Always accepted (every ingress mode):** the loopback literals
   `127.0.0.1`, `::1`, and `localhost`. Loopback `127.0.0.1` remains the
@@ -29,8 +29,8 @@ recorded in order `011-a`):
 The authentication/integrity contract is unchanged and remains mandatory in
 every non-loopback configuration; the Qwen hop remains true host loopback.
 The configuration matrix is mechanically tested in
-`tests/test_config.py` (workstream A2) and
-`tests/test_gateway_integrated_deployment.py` (A4).
+`tests/test_config.py` and
+`tests/test_gateway_integrated_deployment.py`.
 
 ## Metrics host policy (`[observability].metrics_host`)
 
@@ -39,10 +39,10 @@ second network binding: `/healthz`, `/readyz`, and `/metrics` are all served
 on the single adapter socket (one uvicorn process) at `listen_host`.
 `metrics_host` is constrained to loopback literals by the validators and
 documents that the metrics surface never gains an independent bind. On a
-LAN-visible adapter bind (D1), `/metrics` is reachable from the same trusted
+LAN-visible adapter bind, `/metrics` is reachable from the same trusted
 surface as the rest of the socket and exposes state/counts only (no raw
 content); this is accepted and documented in
-[DOCKER-SECURITY-DELTA.md](DOCKER-SECURITY-DELTA.md) (strategic decision D4).
+[DOCKER-SECURITY-DELTA.md](DOCKER-SECURITY-DELTA.md).
 
 The deployment templates are explicitly labeled:
 `config/adapter.deployment.template.toml` is the **development/local
@@ -59,9 +59,11 @@ at least one route with `observation_enabled` and `constitution_enabled`.
 The three Local-side secret roles (`upstream.api_key_env`,
 `gateway_ingress.service_token_env`, `gateway_ingress.signing_secret_env`)
 must use **three distinct environment names**; any shared name fails closed
-at settings validation (order 010-a C2). With signed ingress, `/readyz`
+at settings validation. With signed ingress, `/readyz`
 reports `gateway_ingress = "ready"` only when both ingress credentials are
 available (fail closed).
+
+## Credentials and request bounds
 
 The upstream credential is read from the environment variable named by
 `api_key_env`. Optional `[gateway_ingress]` service authentication is disabled
@@ -75,7 +77,7 @@ fixed 401/403 errors; an unavailable configured secret is a fixed 503. The
 service credential is never forwarded upstream. This mode requires the complete
 enabled static `principal`/`session`/`repository` constitution identity and is
 explicitly a single-user local-appliance contract, not per-gateway-key or
-multi-user isolation. `/healthz`, `/readyz`, and loopback-only `/metrics` remain
+multi-user isolation. `/healthz`, `/readyz`, and private `/metrics` remain
 operator endpoints; readiness exposes only the fixed `gateway_ingress` state.
 
 Configured and supplied service tokens share one validator: nonempty visible
@@ -120,7 +122,7 @@ remain spoofable and are stripped. The service-Bearer gate authenticates the
 single configured appliance identity; signed mode instead accepts only the
 versioned, replay-protected adapter-side contract described below.
 
-### Signed gateway identity v1 — adapter-side preparation
+## Signed Gateway identity v1
 
 `service_bearer_signed_identity_v1` requires both `service_token_env` and a
 separate `signing_secret_env`. The signing secret uses visible ASCII bytes,
@@ -185,16 +187,13 @@ The digest store is process-local, bounded, digest-only, and single-worker;
 restart clears replay history and no cross-process or durable protection is
 claimed.
 
-The canonical conformance fixture is
-`tests/fixtures/gateway/signed_identity_v1_vectors.json`. It uses only a
-fixture-only synthetic secret and content-free request facts. The reviewed
-Gateway162 implementation (historical Objective-005 acceptance pin, immutable
-evidence) emitted these headers for its reviewed Codex route; the objective-007
-`gateway-contract` CI is the current continuous contract test against the
-pinned peer in `tests/fixtures/gateway/current_peer_authority.json`.
-Installed-service binding, production cutover (NOT performed), and any broader
-gateway support remain separate acceptance decisions and are not authorized by
-this adapter configuration document.
+The canonical synthetic conformance fixture is
+`tests/fixtures/gateway/signed_identity_v1_vectors.json`. The
+[Gateway contract gate](GATEWAY-CONTRACT-CI.md) tests the exact peer in
+`tests/fixtures/gateway/current_peer_authority.json`. Configuration and contract
+checks do not authorize service changes or protected-host cutover.
+
+## Governance observation
 
 The bounded compiler prompt requires exact case-sensitive literals in normative
 binding statements and evidence to survive derived indexing. This matters for
@@ -226,6 +225,8 @@ parent/role/type, and unsafe labels do not detect. An exact
 client-supplied supported envelope intentionally crosses the effective-governance
 trust boundary; arbitrary mentions and examples do not.
 
+## Forwarding, errors and metrics
+
 The adapter preserves the complete opaque query string upstream
 without exposing query values in logs, errors, or metrics. It removes standard
 hop-by-hop headers plus every header nominated by `Connection` in each direction,
@@ -247,6 +248,8 @@ total downstream stream lifetime through completion or disconnect. Request/statu
 counters include bounded local rejects and upstream results; `slaif_readiness_state`
 reports the most recently observed ready (`1`) or not-ready (`0`) result. These
 metrics do not claim request-body or query-value observability.
+
+## Image and tool policies
 
 `retain_newest` recursively walks dictionaries and lists in deterministic order,
 recognizes list content items whose type is `input_image` or `image_url`, and
@@ -271,7 +274,7 @@ work. Malformed, oversized, or non-list top-level tool structures return fixed
 HTTP 422 responses_tool_policy_invalid. Chat never applies this policy, and
 compiler calls remain direct/bypassed.
 
-### Objective-003-b through 003-e optional one-root pipeline
+## Optional governance pipeline
 
 Integration remains disabled by every default. Enabling it requires all of:
 `compiler.enabled = true`; `constitution.enabled = true`; either complete
@@ -319,8 +322,7 @@ and total-byte limits. Expired, invalid, oversized, or missing state is a safe
 miss that preserves the post-image-policy request. Multiple/incomplete roots and
 disabled/spoofed-header requests retain their existing semantics. This simulates
 new-context/compacted request behavior at the adapter boundary; a native Codex
-compaction trigger is not claimed or required by the accepted Objective-004
-evidence.
+compaction trigger is not claimed by the fixture acceptance evidence.
 
 `[constitution.rehydration].enabled` defaults to `true`. Set it to `false` for a
 shared service-Bearer deployment when the unchanged gateway supplies no trusted
@@ -341,12 +343,12 @@ populated, hit, stale/expired, isolated miss, injected, skipped, and failure.
 Acquisition instructions name unavailable files but do not fetch them. Arbitrary
 tool-output ingestion and recursive fetching remain excluded. Gateway emission
 of signed identity, gateway quotas/accounting, generic production readiness, and
-cutover remain outside this repository's production boundary. Repository-only
-Objective-004 support and accepted evidence cover governed real-Codex E2E and
-fixture-scoped vision acceptance; see the [criterion ledger](OBJECTIVE-004-LEDGER.md)
-and [OAP completeness record](../oap/COMPLETENESS.md).
+cutover remain outside this repository's production boundary. Fixture-specific acceptance is recorded in the
+[historical ledger](OBJECTIVE-004-LEDGER.md).
 
-There are two supported deployment paths (order 011-a, D3): the Docker
+## Running the adapter
+
+There are two supported deployment paths: the Docker
 container, the canonical MVP installation path
 ([DOCKER-INSTALL.md](DOCKER-INSTALL.md)), and the systemd user service in
 `packaging/slaif-local-coding.service`, the secondary direct-host path
@@ -363,11 +365,13 @@ does not load model weights or replace that service. Validate the unit with
 `systemd-run --user --collect --unit=...` transient unit for testing. Never put
 the credential in `Environment=`, `ExecStart`, or this repository.
 
-For a simple foreground candidate test, use the README command on
-`127.0.0.1:18031` and stop it with Ctrl-C. If an operator separately installs
-the unit, stop and remove only that candidate unit and its repo-owned state
-(DEPLOYMENT.md uninstall section). No Qwen/vLLM rollback is required because
-this candidate neither changes nor replaces the protected service. The
-deployment mechanics are qualified in a disposable environment against fake
-loopback upstreams only; the live cutover itself is the separate
-human-authorized act in [RELEASE-CUTOVER-RUNBOOK.md](RELEASE-CUTOVER-RUNBOOK.md).
+For a foreground development test, use an explicitly prepared loopback-only
+configuration and run `slaif-local-coding --config /path/to/adapter.toml` from
+the installed environment. Stop it with Ctrl-C. Do not select an occupied port
+or change an existing service to run the test.
+
+Use [INSTALL.md](../INSTALL.md) for Docker operations and
+[DEPLOYMENT.md](DEPLOYMENT.md) for the systemd service. The model server remains
+separate. Deployment qualification uses disposable environments and fake
+upstreams; protected-host cutover follows the
+[separate runbook](RELEASE-CUTOVER-RUNBOOK.md).

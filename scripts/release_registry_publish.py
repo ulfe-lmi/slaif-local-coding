@@ -12,7 +12,7 @@ Runs ONLY from the activated `.github/workflows/release-image.yml`
 RC publication contract (order 013-j, J1 — simple safe RC policy):
 
 1. EXPLICIT IDENTITY BEFORE ANY DOCKER OR REGISTRY MUTATION: the release
-   tag must be EXACTLY the expected RC identity `0.1.0-rc1` (no silently
+   tag must be EXACTLY the expected RC identity `0.1.0-rc2` (no silently
    allocated new RC number), the repository must be the expected
    `ulfe-lmi/slaif-local-coding`, the git sha must be 40-hex, and any
    final/stable tag (`0.1.0`, `latest`, `stable`, `v0.1.0`) is rejected
@@ -73,7 +73,7 @@ from ghcr_tag_check import (  # noqa: E402
 )
 
 REPO_DEFAULT = "ulfe-lmi/slaif-local-coding"
-RC_TAG_DEFAULT = "0.1.0-rc1"
+RC_TAG_DEFAULT = "0.1.0-rc2"
 REGISTRY = "ghcr.io"
 # Order 013-i, D13 + order 013-j, J1: this RC workflow must never write a
 # final/stable tag, and it publishes EXACTLY the expected RC identity —
@@ -302,7 +302,7 @@ def main() -> int:
     parser.add_argument(
         "--release-tag",
         default=RC_TAG_DEFAULT,
-        help="candidate tag to publish; EXACTLY 0.1.0-rc1 is the only "
+        help="candidate tag to publish; EXACTLY 0.1.0-rc2 is the only "
         "accepted value for this RC publisher (default)",
     )
     parser.add_argument(
@@ -329,7 +329,7 @@ def main() -> int:
         raise PublishError(
             f"release tag {args.release_tag!r} is not the expected RC "
             f"identity {RC_TAG_DEFAULT!r}: this RC publisher publishes "
-            "exactly the explicit RC1 identity and never silently "
+            "exactly the explicit RC2 identity and never silently "
             "allocates a new RC number (order 013-j, J1)"
         )
     if args.repo != REPO_DEFAULT:

@@ -6,7 +6,7 @@
 # PULL-BASED: this file carries NO build key. EXPLICIT image selection is
 # required: SLAIF_LOCAL_CODING_IMAGE must be set (compose fails closed when
 # it is absent) to the reviewed image reference — the RC candidate tag
-# (ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1 once the RC record exists)
+# (ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2 once the RC record exists)
 # or, preferred, the immutable digest form
 # ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<D> recorded in
 # packaging/rc_record.json and the provenance manifest after publication.

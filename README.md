@@ -38,12 +38,13 @@ support the full OpenAI feature surface — without modifying the clients.
 The adapter sits invisibly between the SLAIF API Gateway (a separate
 repository) and a private local model server such as Qwen3.8-27B on vLLM:
 
-```text
-Codex / OpenAI client
-      -> SLAIF API Gateway        (separate repository: public keys,
-      ->                           permissions, quotas, accounting, TLS)
-      -> SLAIF Local Coding adapter (this repository)
-      -> private Qwen/vLLM         (OpenAI-compatible, host loopback)
+```mermaid
+flowchart TD
+    client["Codex / OpenAI client"]
+    gateway["SLAIF API Gateway<br/>Separate repository: public keys, permissions,<br/>quotas, accounting and TLS"]
+    adapter["SLAIF Local Coding adapter<br/>This repository"]
+    model["Private Qwen / vLLM<br/>OpenAI-compatible, host loopback"]
+    client --> gateway --> adapter --> model
 ```
 
 This repository owns the adapter, route capability policies, packaging,

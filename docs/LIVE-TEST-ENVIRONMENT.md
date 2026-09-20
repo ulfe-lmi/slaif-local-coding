@@ -1,4 +1,9 @@
-# Live development/test environment
+# Historical live-test environment
+
+> Historical fixture snapshot, not deployment defaults or verified current host
+> state. Rediscover services, endpoints and profiles before authorized live work.
+> Use [TOPOLOGY.md](TOPOLOGY.md) and [INSTALL.md](../INSTALL.md) for deployment.
+
 
 This file records the accepted human-gated vision fixture and the mutually
 exclusive text configuration. It is a verification target, not permission to
@@ -13,7 +18,7 @@ Strategic workspace: /synology/homes/janezp/codex-supervision/slaif-local-coding
 Qwen runtime: /synology/homes/janezp/qwen-serving
 ```
 
-## Current host and endpoint contract
+## Recorded host and endpoint contract
 
 ```text
 Current host: hinton1
@@ -46,7 +51,7 @@ vision readiness. Any launch command, multimodal flag, catalog, service state,
 API shape, or port ownership claim still requires fresh read-only
 reconnaissance.
 
-## Current compatibility path
+## Recorded compatibility path
 
 The supplied workaround prototype listened on `127.0.0.1:18021` in its original
 environment. It is **reference code only** for this project; no such service is

@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""Local Responses-API proxy that forwards at most one image per request."""
+"""Local Responses-API proxy that forwards at most one image per request.
+
+Modified 2026-09-20: validate upstream response headers before forwarding.
+Reference only; this is not the product runtime or a deployment instruction.
+"""
 
 import http.client
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 LISTEN_HOST = "127.0.0.1"
@@ -58,10 +63,24 @@ class Proxy(BaseHTTPRequestHandler):
         try:
             connection.request(self.command, self.path, body=body, headers=headers)
             response = connection.getresponse()
-            self.send_response(response.status, response.reason)
+            response_headers = []
+            # Validate before starting a downstream response. http.client can
+            # retain folded CR/LF in values; BaseHTTPRequestHandler does not
+            # sanitize send_header inputs. Never forward an upstream reason.
             for key, value in response.getheaders():
+                if ("\r" in key or "\n" in key or "\r" in value or "\n" in value
+                        or re.fullmatch(r"[!#$%&'*+.^_`|~0-9A-Za-z-]+", key) is None):
+                    raise http.client.HTTPException("invalid upstream response header")
                 if key.lower() not in HOP_BY_HOP:
-                    self.send_header(key, value)
+                    response_headers.append((key, value))
+            self.send_response(response.status)
+            for key, value in response_headers:
+                # Defense at the serialization boundary as well as the
+                # fail-closed validation above: never emit CR/LF as data.
+                self.send_header(
+                    key.replace("\r", "").replace("\n", ""),
+                    value.replace("\r", "").replace("\n", ""),
+                )
             if removed:
                 self.send_header("X-Qwen-Vision-Images-Removed", str(removed))
             self.send_header("Connection", "close")

@@ -95,14 +95,14 @@ def test_plan_pre_write_matrix(
     if match == "proceed":
         assert (
             mod.plan_pre_write(
-                "sha-x", (sha_status, sha_digest), "0.1.0-rc1", (rc_status, rc_digest)
+                "sha-x", (sha_status, sha_digest), "0.1.0-rc2", (rc_status, rc_digest)
             )
             == "proceed"
         )
     else:
         with pytest.raises(mod.PublishError, match=match):
             mod.plan_pre_write(
-                "sha-x", (sha_status, sha_digest), "0.1.0-rc1", (rc_status, rc_digest)
+                "sha-x", (sha_status, sha_digest), "0.1.0-rc2", (rc_status, rc_digest)
             )
 
 
@@ -190,7 +190,7 @@ def sha_tag() -> str:
 
 
 def rc_tag() -> str:
-    return "0.1.0-rc1"
+    return "0.1.0-rc2"
 
 
 def test_occupied_source_tag_zero_mutations(
@@ -379,7 +379,7 @@ def test_wrong_rc_identity_zero_touch(
             "--git-sha",
             SHA40,
             "--release-tag",
-            "0.1.0-rc2",
+            "0.1.0-rc1",
         ],
     )
     with pytest.raises(mod.PublishError, match="not the expected RC identity"):

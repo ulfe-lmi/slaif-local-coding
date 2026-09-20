@@ -1,13 +1,9 @@
-# Final live-cutover and rollback runbook — explicit state-transition machine (prepare-only)
+# Protected-host cutover and rollback runbook
 
-Order 010-a, workstream D. This runbook **supersedes the Objective-009
-runbook content** in-repo (the Objective-009 record — its PR, report, and
-manifest — remains immutable git history; the runbook is a prepare-only
-planning document, not accepted release evidence). **No step is executed by
-this objective**, and nothing in this repository authorizes executing any
-step. It exists so that, once the pre-cutover correctness work is accepted,
-the remaining work toward production is the real protected cutover/release
-act itself, under a separate human-authorized order.
+This is an operator plan for a separately authorized protected-host cutover.
+Reading it, publishing an RC or passing CI does not authorize execution. Capture
+live facts, name the exact artifacts and changes, and establish a rollback
+window before proceeding. Final public release is a separate decision.
 
 The state machine below is mechanically modeled and tested in
 [`scripts/cutover_state_machine.py`](../scripts/cutover_state_machine.py)
@@ -37,7 +33,7 @@ it mutates; verification transitions mutate nothing.
 | --- | --- |
 | `local.artifact_sha256` | `previous` (step-1 value) \| `release_candidate` (the exact cutover-authority wheel SHA from the current release provenance manifest) |
 | `local.config_label` | `previous` \| `gateway_integrated` |
-| `local.binding_class` | `loopback_18031` (loopback bind, the only class legal without the full signed ingress contract) \| `lan_18031_signed` (LAN-visible bind, legal only under `service_bearer_signed_identity_v1` — D1 binding law, order 011-a) |
+| `local.binding_class` | `loopback_18031` (loopback bind, the only class legal without the full signed ingress contract) \| `lan_18031_signed` (LAN-visible bind, legal only under `service_bearer_signed_identity_v1`) |
 | `local.service_state` | `stopped` \| `ready` (ready = `/readyz` 200 on the candidate bind) |
 | `local.listener` | `none` \| `loopback_18031` \| `lan_18031_signed` |
 
@@ -51,23 +47,23 @@ trigger.
 | Field | Class values |
 | --- | --- |
 | `gateway.route_backend` | `direct_upstream` (pre-cutover route target, captured at step 1) \| `adapter_loopback_18031` |
-| `gateway.authority_sha` | the exact Gateway authority SHA/version pinned for the cutover: the FROZEN 0.1.0 release compatibility authority `08ca421bee1ddca62078302b910e8be88cf705be` (see the "Gateway compatibility authority (frozen for 0.1.0)" section of `docs/RELEASE-ARTIFACT-POLICY.md`); history: the current pinned peer, re-pinned by Objective 013-b on 2026-09-17 (gateway default-branch main at that order time; the three contract source files are byte-identical between all pins, including the 012 pin `1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb`) |
+| `gateway.authority_sha` | Exact Gateway revision compatible with the chosen artifact; the frozen 0.1.0 authority is `08ca421bee1ddca62078302b910e8be88cf705be`. See [artifact policy](RELEASE-ARTIFACT-POLICY.md). |
 | `gateway.signed_contract` | `true` — the Codex route carries `identity_mode = "signed_identity_v1"` with the pinned replay mode (continuously tested by the `gateway-contract` CI) |
 
 The Gateway deployment requirement for the supported topology
-(`docs/TOPOLOGY.md` §4): the Gateway `api` runtime must run in the **host
+([topology guide](TOPOLOGY.md)): the Gateway `api` runtime must run in the **host
 network namespace** (deployment-level configuration of the separately owned
 Gateway — compose per-service host networking for the `api` runtime, or an
 equivalent single-host shared-namespace runtime deployment). The route
 backend URL is per-provider configuration (`ProviderConfig.base_url`) with
 server-side secret env lookup; pointing it at `http://127.0.0.1:18031/v1`
 is Gateway configuration, not Gateway source change. **Bridge-container
-variant (order 011-a, TOPOLOGY.md §4):** when the Gateway `api` runtime
+variant (see [topology guide](TOPOLOGY.md)):** when the Gateway `api` runtime
 keeps the pinned deployment's bridge networking instead, the config-only
 route backend is the **host bridge interface IP** at port `18031` (e.g.
 `http://172.17.0.1:18031/v1`) — still Gateway configuration only, and
 still legal only because the adapter bind then carries the full signed
-ingress contract (D1).
+ingress contract .
 
 ### CODEX state (active client profile)
 
@@ -78,22 +74,16 @@ ingress contract (D1).
 
 ## Preconditions (all must be true before step 1)
 
-1. The pre-cutover objectives (010, 011, and 012) are accepted and
-   merged; CI is green at the merged head.
-2. The deployed adapter artifact is the current cutover-authority wheel with
-   the SHA-256 recorded in `packaging/release_provenance_manifest.json`
-   (the current `packaging/release_provenance_manifest.json` — schema v2
-   `slaif-release-provenance-v2`, produced by Objective 012, with runtime
-   source proven byte-identical to the Objective-011-a set (artifact bytes
-   differ only via the embedded README METADATA and the sdist-carried
-   in-scope text files; see RELEASE-ARTIFACT-POLICY.md) — is the cutover
-   authority; for the Docker path the
-   manifest's `oci` build inputs are part of the authority; the
-   Objective-011-a, Objective-010-a, and Objective-009 wheel hashes remain
-   the accepted 011/010/009 records only); the local artifact policy check
-   passes on it.
-3. `cutover_performed` is still `false` and `released` is still `false` in
-   the manifest; this runbook has not been started before.
+1. The candidate is accepted, its exact source is merged, and fresh required
+   checks are green.
+2. The wheel SHA-256 and, for Docker, the exact published OCI digest match the
+   RC artifact record and `packaging/release_provenance_manifest.json`
+   (`slaif-release-provenance-v5`). Verify the matching configuration hashes
+   and installed artifact; do not substitute a historical wheel or mutable tag.
+3. Capture the actual current deployment state. The RC records
+   `cutover_performed: false`; this plan does not grant final release approval.
+   Do not infer current live state from an old record.
+
 4. The protected upstream (vision service, port 18020) is running and its
    baseline (unit state, main PID, listener, health 200) is captured in step
    1.
@@ -121,40 +111,40 @@ Capture, into a mode-0600 backup directory, the complete `S0` snapshot:
 - CODEX: the active client profile file (byte-exact copy, mode 0600) and the
   exact pre-cutover provider/base URL values (names and address class only —
   credential values are referenced by environment name and never recorded),
-  including the `maelstrom1 -> vLLM` mapping as an operator fact.
+  including any existing proxy-to-model mapping as an operator fact.
 - Host user-manager linger state for the appliance user (baseline for the
-  boot contract, `docs/DEPLOYMENT.md` §13).
+  boot contract, [deployment boot contract](DEPLOYMENT.md#boot-and-user-manager-linger)).
 
 Inverse: none (capture only). This is the rollback baseline.
 
 ### T2 — Step 2 — Install the exact Local artifact
 `HUMAN-AUTHORIZED (protected/live/release)`
 
-Install the cutover-authority wheel into the repository venv on the
-production host, exactly as in [DEPLOYMENT.md §9](DEPLOYMENT.md#9-upgrade-procedure-supported),
-creating the timestamped backup directory (previous config + previous
+For systemd, follow the [deployment upgrade procedure](DEPLOYMENT.md#upgrade-procedure)
+to install the recorded wheel into the repository environment.
+For Docker, pull the recorded digest and matching files per [INSTALL.md](../INSTALL.md).
+In either path, create the timestamped backup directory (previous config + previous
 artifact + inventory) first. Replace the configuration with the
 Gateway-integrated template (substituting only the documented placeholders,
-`docs/DEPLOYMENT.md` §12) and extend the mode-0600 `adapter.env` with the
+[signed configuration procedure](DEPLOYMENT.md#gateway-integrated-configuration)) and extend the mode-0600 `adapter.env` with the
 three distinct Local-side secret roles (upstream credential, Gateway service
 credential, Gateway signing secret). Verify the installed entry point and
 module path match the manifest facts.
 
 Mutates LOCAL: `artifact_sha256 := release_candidate`, `config_label :=
 gateway_integrated`. Inverse: restore previous artifact + config from the
-step-2 backup (DEPLOYMENT.md §10).
+step-2 backup ([rollback procedure](DEPLOYMENT.md#rollback-procedure)).
 
 ### T3 — Step 3 — Start candidate privately on 18031
 `HUMAN-AUTHORIZED (protected/live/release)`
 
 Start the candidate (systemd user service on loopback `127.0.0.1:18031`,
-or the Docker container per [DEPLOYMENT.md §15](DEPLOYMENT.md#15-docker-path-procedures-exact-link)
+or the Docker container per [INSTALL.md](../INSTALL.md)
 with the site `__LISTEN_HOST__`) with the installed configuration and poll
 readiness with `packaging/readyz-wait.sh` (systemd) or the compose healthcheck
-(Docker). Precondition: the candidate bind address is free (any pre-existing
-listener is stopped and recorded first — no forgotten listener is left
-behind). The protected upstream on 18020 remains the active path for all
-clients at this point; nothing is re-pointed yet. The D1 binding law applies:
+(Docker). Precondition: the candidate bind address is free. Identify an occupied port
+and stop here unless the authorization explicitly covers its owning service. The protected upstream on 18020 remains the active path for all
+clients at this point; nothing is re-pointed yet. The listener policy applies:
 a non-loopback candidate bind is legal only under the full signed ingress
 contract; the state machine rejects a `lan_18031_signed` candidate without
 the signed contract.
@@ -187,12 +177,12 @@ Mutates nothing (verification gate). Inverse: none.
 
 In the separate Gateway deployment: (a) ensure the Gateway `api` runtime
 runs in the host network namespace (deployment-level configuration per
-`docs/TOPOLOGY.md` §4); (b) configure the Codex route to the adapter
+[topology guide](TOPOLOGY.md)); (b) configure the Codex route to the adapter
 candidate endpoint (`127.0.0.1:18031/v1` — reachable from the Gateway
 **runtime** namespace, not merely its host shell) with the service
 credential and the signed-identity contract as continuously tested by the
 Gateway contract CI (`tests/fixtures/gateway/current_peer_authority.json`
-pin). No Gateway code change is part of this objective; this is
+pin). No Gateway code change is part of this procedure; this is
 configuration of the separately owned Gateway.
 
 Mutates GATEWAY: `route_backend := adapter_loopback_18031`. Inverse:
@@ -236,8 +226,7 @@ transition's gate):
 - No client profile or route reaches vLLM directly: the only route to 18020
   is the Gateway → adapter path; the active Codex profile points at the
   Gateway.
-- The candidate's process/listener facts match the manifest (loopback 18031
-  only, single process, no extra listeners).
+- The candidate's process/listener facts match the manifest (the authorized bind on port 18031, single process, no extra listeners).
 - No new public binding, firewall/VPN change, or direct public vLLM route
   was introduced (read-only comparison against the step-1 capture).
 - Protected-fixture invariance facts unchanged (unit state, main PID,
@@ -321,20 +310,10 @@ verify the restored state equals `S0` (byte-identical profile file,
 pre-cutover target), run readiness and one smoke on the restored path, and
 report the exact sanitized failure class.
 
-## What this objective did NOT do
+## Execution boundary
 
-No step above was executed. No protected service, Gateway deployment, Codex
-profile, firewall/VPN/network state, systemd production unit, public
-binding, or release state was mutated by Objective 010. The manifest
-records `deployment-qualified (disposable environment only)` and
-`cutover not performed`.
-
-Historical (unmistakably historical, not a current release claim): during
-Objective 013, rounds 013-b..013-g performed a registry-only publication to
-the **non-public** GHCR package (the private tags `0.1.0` and `sha-<S>` at
-one digest; that output was never published to users and is legacy, NOT the
-RC target). As of the RC framing (rounds 013-i/013-j), the RC itself is
-NOT published, the final-release record `packaging/release_record.json`
-does not exist, the RC publication is a separate later round bound to the
-exact reviewed source commit, and the cutover remains NOT performed with no
-real deployment yet evidenced.
+No step above was executed by this documentation refresh: cutover not performed.
+The RC handoff records artifact qualification, not a production deployment.
+Final public release and protected-host changes remain separately authorized.
+Historical cutover planning and publication records are indexed in
+[HISTORY.md](HISTORY.md).

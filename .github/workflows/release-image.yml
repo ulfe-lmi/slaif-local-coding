@@ -10,11 +10,11 @@
 #                                                 the full image-source commit;
 #                                                 a MUTABLE tag, not a
 #                                                 content-addressed identity)
-#   ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1 (explicit candidate tag)
+#   ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2 (explicit candidate tag)
 # to the PRIVATE package. NO code path of this workflow may write `0.1.0`,
 # `latest`, `stable`, a final `v0.1.0`, or change package visibility (the
 # publisher refuses final/stable tags and publishes exactly the expected
-# RC1 identity — no silently allocated new RC number; the historical private
+# RC2 identity — no silently allocated new RC number; the historical private
 # 0.1.0 and orphan tags are preserved byte-for-byte). The immutable digest
 # D is the content-addressed, authoritative identity; tags are aliases. A
 # later human-approved final release references the SAME tested digest
@@ -66,14 +66,14 @@
 #      field is what is built and tagged), plus nonsecret temporary
 #      SLAIF_CONFIG_FILE/SLAIF_ENV_FILE inputs the build invocation actually
 #      needs to load the project, and SLAIF_QUALIFICATION_LABEL = the RC
-#      candidate label "rc-candidate-0.1.0-rc1; private; not final release";
+#      candidate label "rc-candidate-0.1.0-rc2; private; not final release";
 #   3. authenticate to GHCR with GITHUB_TOKEN;
 #   4. before mutation: authenticated strict checks of sha-<S> and
-#      0.1.0-rc1; verified-absent-for-both is the only write precondition
+#      0.1.0-rc2; verified-absent-for-both is the only write precondition
 #      (any other state stops the run before ANY registry mutation);
 #   5. recheck immediately before the writes, then push the SAME built
 #      image under the source alias sha-<S> and the candidate tag
-#      0.1.0-rc1 under the fail-closed law above;
+#      0.1.0-rc2 under the fail-closed law above;
 #   6. verify via the GHCR registry API that BOTH tags resolve to the ONE
 #      digest D and emit D in the run log and outputs; the before/after
 #      registry states are emitted by the publish script.
@@ -128,7 +128,7 @@ jobs:
           export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
           export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
           docker compose -f compose.yaml -f compose.build.yaml build \
-            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc1; private; not final release"
+            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc2; private; not final release"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
             --format "built image: {{.Id}} (push performed in the next steps)"
       - name: Authenticate to GHCR (GITHUB_TOKEN only)
@@ -142,4 +142,4 @@ jobs:
             --local-image "slaif-local-coding:0.1.0-${GITHUB_SHA}" \
             --git-sha "$GITHUB_SHA" \
             --repo ulfe-lmi/slaif-local-coding \
-            --release-tag 0.1.0-rc1
+            --release-tag 0.1.0-rc2

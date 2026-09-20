@@ -1,72 +1,40 @@
-# Documentation index
+# Documentation
 
-The documents are grouped by audience. Current user-facing operator
-documents are kept free of objective/round chronology; OAP and objective
-history is retained explicitly as history.
+## Start here
 
-## Operator
+- [Quickstart](../QUICKSTART.md): launch the Docker deployment.
+- [Installation](../INSTALL.md): prerequisites, private registry access, image
+  selection, protected configuration, readiness, upgrade, rollback and uninstall.
+- [Architecture](../ARCHITECTURE.md): components, request flow, diagrams and limits.
 
-- [../QUICKSTART.md](../QUICKSTART.md) — the 5–10 minute Docker path.
-- [../INSTALL.md](../INSTALL.md) — full operator installation (Docker
-  primary; direct-host secondary/advanced), upgrade, digest-based
-  rollback, uninstall.
-- [DOCKER-INSTALL.md](DOCKER-INSTALL.md) — the detailed canonical Docker
-  procedure (operator reference).
-- [DEPLOYMENT.md](DEPLOYMENT.md) — the complete operator contract for both
-  supported deployment paths.
-- [ADAPTER-CONFIGURATION.md](ADAPTER-CONFIGURATION.md) — adapter
-  configuration reference (templates, placeholders, route policy).
-- [RELEASE-CUTOVER-RUNBOOK.md](RELEASE-CUTOVER-RUNBOOK.md) — the
-  prepare-only live cutover/rollback runbook (the cutover itself is a
-  separate human-authorized act).
-- [RC-HANDOFF.md](RC-HANDOFF.md) — release-candidate artifact retrieval
-  and identity verification (handoff; not an experimental procedure).
+## Operators
 
-## Architecture and security
+- [Docker reference](DOCKER-INSTALL.md): Compose behavior and troubleshooting.
+- [Deployment and operations](DEPLOYMENT.md): shared rules and advanced systemd path.
+- [Configuration reference](ADAPTER-CONFIGURATION.md): settings and validation.
+- [Runtime topology](TOPOLOGY.md): addresses, namespaces and supported transports.
+- [Gateway integration](SLAIF-GATEWAY-INTEGRATION.md): authentication and identity contract.
+- [RC handoff](RC-HANDOFF.md): retrieve and verify the immutable artifact.
+- [Cutover and rollback plan](RELEASE-CUTOVER-RUNBOOK.md): separately authorized live changes.
 
-- [../ARCHITECTURE.md](../ARCHITECTURE.md) — human-facing architecture.
-- [../ARCHITECTURE-for-agents.md](../ARCHITECTURE-for-agents.md) — compact
-  normative agent architecture.
-- [TOPOLOGY.md](TOPOLOGY.md) — runtime topology, hosts, transports,
-  per-hop boundaries, and the supported LAN-visible signed variant.
-- [../SECURITY.md](../SECURITY.md) — security policy and protected-host
-  boundary.
-- [DOCKER-SECURITY-DELTA.md](DOCKER-SECURITY-DELTA.md) — Docker vs systemd
-  containment review (isolation lost, invariants kept, compensating
-  controls, accepted threats).
-- [SLAIF-GATEWAY-INTEGRATION.md](SLAIF-GATEWAY-INTEGRATION.md) — the
-  adapter-side Gateway ingress contracts.
-- [GATEWAY-CONTRACT-CI.md](GATEWAY-CONTRACT-CI.md) — the continuous
-  Gateway-contract test against the pinned peer.
-- [GATEWAY-ROUTE-SCOPED-CODEX-TOOL-FILTER-PROPOSAL.md](GATEWAY-ROUTE-SCOPED-CODEX-TOOL-FILTER-PROPOSAL.md) —
-  scoped proposal (not implemented product behavior).
+## Security and engineering
 
-## Developer and testing
+- [Security policy](../SECURITY.md): sensitive data, credentials and reporting.
+- [Docker/systemd security comparison](DOCKER-SECURITY-DELTA.md): containment tradeoffs.
+- [Contributing](../CONTRIBUTING.md): development setup and pull requests.
+- [Testing](../TESTING.md): local checks, CI and fixture-dependent verification.
+- [Gateway contract CI](GATEWAY-CONTRACT-CI.md): exact peer compatibility checks.
+- [Artifact policy](RELEASE-ARTIFACT-POLICY.md): reproducibility, provenance and publication.
+- [License](../LICENSE), [notice](../NOTICE) and [third-party attribution](../THIRD_PARTY_NOTICES.md).
 
-- [../TESTING.md](../TESTING.md) — the verification contract (required
-  test layers, exact status labels).
-- [../CONTRIBUTING.md](../CONTRIBUTING.md) — contribution and locked gate.
-- [RELEASE-ARTIFACT-POLICY.md](RELEASE-ARTIFACT-POLICY.md) —
-  supported-artifact policy, provenance model, and the RC publication
-  machinery.
+## Agent instructions and engineering history
 
-## OAP and history
+These are specialist materials, not installation instructions:
 
-- [../oap/README.md](../oap/README.md) — the versioned OAP transcript
-  contract (orders, reports, active selection).
-- [OAP-RUNBOOK.md](OAP-RUNBOOK.md) — two-Codex OAP startup/activation/
-  recovery.
-- [IMPLEMENTATION-ROADMAP.md](IMPLEMENTATION-ROADMAP.md) — roadmap state
-  and objective history (strategic context; historical entries are
-  explicitly dated).
-- [OBJECTIVE-004-LEDGER.md](OBJECTIVE-004-LEDGER.md) — Objective-004
-  criterion ledger (accepted evidence).
-- [OBJECTIVE-005D-SECURITY-CONTAINMENT.md](OBJECTIVE-005D-SECURITY-CONTAINMENT.md) —
-  Objective-005-d security containment record (historical).
-- [VISION-ACCEPTANCE.md](VISION-ACCEPTANCE.md) — fixture-scoped vision
-  acceptance record (historical).
-- [LIVE-TEST-ENVIRONMENT.md](LIVE-TEST-ENVIRONMENT.md) — live-test
-  environment facts (historical, protected-fixture descriptions).
-
-Objective/round chronology, PR/merge ledgers, and acceptance dumps live
-in the OAP transcript (`oap/`), not in the operator documents above.
+- [Agent constitution](../AGENTS.md), [coding protocol](../OAP-COMMUNICATION-coding-agent.md)
+  and [normative architecture](../ARCHITECTURE-for-agents.md).
+- [OAP runbook](OAP-RUNBOOK.md) and [immutable orchestration transcript](../oap/README.md).
+- [Engineering history index](HISTORY.md): acceptance records and exact prior documentation.
+- [Historical roadmap](IMPLEMENTATION-ROADMAP.md) and
+  [historical host snapshot](LIVE-TEST-ENVIRONMENT.md).
+- [Historical tool-filter proposal](GATEWAY-ROUTE-SCOPED-CODEX-TOOL-FILTER-PROPOSAL.md).

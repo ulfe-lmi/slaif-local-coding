@@ -403,8 +403,8 @@ def main() -> int:
         )
 
         # --- push built image; the push digest is the authoritative D ------
-        _run(["docker", "tag", built_tag, f"{local_repo}:0.1.0-rc1"], timeout=120)
-        push = _run(["docker", "push", f"{local_repo}:0.1.0-rc1"], timeout=1800)
+        _run(["docker", "tag", built_tag, f"{local_repo}:0.1.0-rc2"], timeout=120)
+        push = _run(["docker", "push", f"{local_repo}:0.1.0-rc2"], timeout=1800)
         digest = _extract_push_digest(
             push.stdout.decode(errors="replace") + push.stderr.decode(errors="replace")
         )
@@ -520,7 +520,7 @@ def main() -> int:
         # Documented RepoDigests verification for the tag form.
         _run(
             compose_cmd("pull"),
-            env={**session_env, "SLAIF_LOCAL_CODING_IMAGE": f"{local_repo}:0.1.0-rc1"},
+            env={**session_env, "SLAIF_LOCAL_CODING_IMAGE": f"{local_repo}:0.1.0-rc2"},
             workdir=REPO_ROOT,
             timeout=1800,
         )
@@ -530,7 +530,7 @@ def main() -> int:
                     "docker",
                     "image",
                     "inspect",
-                    f"{local_repo}:0.1.0-rc1",
+                    f"{local_repo}:0.1.0-rc2",
                     "--format",
                     "{{range .RepoDigests}}{{.}}{{end}}",
                 ],
@@ -668,7 +668,7 @@ def main() -> int:
                 fake_proc.kill()
         if registry_running:
             _run(["docker", "rm", "-f", REGISTRY_NAME], timeout=120)
-        for ref in (built_tag, f"{local_repo}:0.1.0-rc1", f"{local_repo}@{digest}"):
+        for ref in (built_tag, f"{local_repo}:0.1.0-rc2", f"{local_repo}@{digest}"):
             _run(["docker", "rmi", ref], timeout=120, check=False)
         _root(["rm", "-rf", str(site)], timeout=120)
         if (
@@ -703,7 +703,7 @@ def main() -> int:
             _run(["docker", "rm", "-f", REGISTRY_NAME], timeout=60, check=False)
         for ref in (
             f"slaif-local-coding:0.1.0-{args.full_sha[:12]}",
-            f"127.0.0.1:{args.registry_port}/{IMAGE_REPO}:0.1.0-rc1",
+            f"127.0.0.1:{args.registry_port}/{IMAGE_REPO}:0.1.0-rc2",
         ):
             _run(["docker", "rmi", ref], timeout=60, check=False)
 
