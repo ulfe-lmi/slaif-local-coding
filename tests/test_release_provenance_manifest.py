@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import platform
 import re
 import shutil
 import subprocess
@@ -166,8 +167,15 @@ def regenerated(
     )
     assert result.returncode == 0, result.stderr.decode()
     module = _load_generator()
+    # The regeneration is observed on the exact running interpreter: the
+    # recorded observed scope is a generation-time fact (normalized away by
+    # _strip_git for the equality gate) and must be non-empty per schema v5.
     built: dict[str, object] = module.build_manifest(
-        REPO_ROOT, dist, source_commit=source_commit_a, tree=tree
+        REPO_ROOT,
+        dist,
+        source_commit=source_commit_a,
+        tree=tree,
+        observed_build_pythons=[platform.python_version()],
     )
     return built
 
