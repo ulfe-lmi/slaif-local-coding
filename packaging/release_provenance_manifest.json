@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 117,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "f071276a865dd3a15f52c4b35f17ea6046ca965513beaed56b73c5a8fbff4a3a",
-      "size_bytes": 453664
+      "sha256": "ba6e889a4159fb0474bebe9f0f2e79414c9c170a9c2493d5d7464ad25bd2f75c",
+      "size_bytes": 453755
     },
     "wheel": {
       "entry_count": 26,
@@ -57,7 +57,7 @@
     }
   },
   "generated_from": {
-    "git_commit": "641baa24ae812747fd29a04bd9ad036168a78f3a",
+    "git_commit": "e30f1b0d5a4255909ecf69262825586be7196a6a",
     "repository": "ulfe-lmi/slaif-local-coding"
   },
   "limitations": [
@@ -231,7 +231,7 @@
     "tests/test_pipeline.py": "5ac65c3252583cf3eb47610ec4034c3a42673672ef2ae8666747b7b8320e62ee",
     "tests/test_rc_record.py": "33a044bc8c568057eb046e758f6c1c589f986a0c1f766130b74eb925b6b01d41",
     "tests/test_rehydration.py": "da759af26560ecb3c2bc9855f654152a0521add0aa6de1d8751fb661bda49b59",
-    "tests/test_release_provenance_manifest.py": "a16b0bbee2b39a470b3d3d16cbd48987403ad58a03f46d62c320bbc17fda8a02",
+    "tests/test_release_provenance_manifest.py": "83fae69d49c81b116e2ceee0b4170ac7d335f432b159f13d350424d900dfba18",
     "tests/test_release_registry_publish_digest.py": "02b6e869019287b3a061ec413c0631e9c7a318b7a4d34fa1f4d52430884739af",
     "tests/test_release_registry_publish_gate.py": "7704aab428d97c610f664be6fb8b022cb3a073c9968e871aefa55e269324f0d1",
     "tests/test_safe_evidence_export.py": "2bf1f53f34bacb007f0e2b4aff5854c4e234f0ce0731837cee343c8cf38ef5e0",
