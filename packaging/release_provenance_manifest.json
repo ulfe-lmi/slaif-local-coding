@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 120,
+      "entry_count": 121,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "feb889a2f7c45bbf8c5a26492b19bf49b0bafcffec2cb1a081bf37afe2f7cf16",
-      "size_bytes": 466597
+      "sha256": "bae011bdbf82f5928ebf87c82f34e9d883bbae0d2c75c4915b6fc79e25ccd22b",
+      "size_bytes": 444691
     },
     "wheel": {
       "entry_count": 26,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "2f1b7fa1afb7845059e150b6400977df2e957506da4228dbaa6454dff97db935",
-      "size_bytes": 76290
+      "sha256": "04d1a87cb44f22dad3a7022f63a54f651eca74ed364394aaec85957bbeb8aeda",
+      "size_bytes": 76337
     }
   },
   "build": {
@@ -57,7 +57,7 @@
     }
   },
   "generated_from": {
-    "git_commit": "ee77505a89b0715e0e3f15c651dc934f2b2dc61d",
+    "git_commit": "d6ef59a16ffebc066352b943f0b5d37eee3ce2b6",
     "repository": "ulfe-lmi/slaif-local-coding"
   },
   "limitations": [
@@ -99,11 +99,11 @@
       "slaif-local-coding.package.version": "0.1.0",
       "slaif-local-coding.qualification": "disposable-qualification-only; not released",
       "slaif-local-coding.topology.mode": "linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress",
-      "slaif-local-coding.wheel.sha256": "2f1b7fa1afb7845059e150b6400977df2e957506da4228dbaa6454dff97db935"
+      "slaif-local-coding.wheel.sha256": "04d1a87cb44f22dad3a7022f63a54f651eca74ed364394aaec85957bbeb8aeda"
     },
     "published": false,
     "tag_convention": "0.1.0-<short-sha> (and full-sha form) locally; reserved RC publication reference ghcr.io/ulfe-lmi/slaif-local-coding with tags 0.1.0-rc2 + sha-<full-sha> (private registry; the immutable digest is the authoritative identity, tags are aliases) after the RC publication round; the historical private 0.1.0 tag is legacy unpublished-to-users output and is never a default",
-    "wheel_sha256": "2f1b7fa1afb7845059e150b6400977df2e957506da4228dbaa6454dff97db935"
+    "wheel_sha256": "04d1a87cb44f22dad3a7022f63a54f651eca74ed364394aaec85957bbeb8aeda"
   },
   "reference_compatibility": {
     "codex_client": {
@@ -125,33 +125,34 @@
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "0ba90b781ef639d198ee637e68ad218881825c3de74b76752cdd1114a6a38573",
-    "CONTRIBUTING.md": "912350cc06e97d38ea252b9588b50402b7a82f4a1bc6798317bf89967bf00d13",
+    "CONTRIBUTING.md": "ef3a21206d990fcf8b586f65080a63640c2c77333a09aa152248c46a713310e6",
     "Dockerfile": "a89d6a924f119cf0a9dd6124afe47eee60fb008cbd0d2e482de9b186f2974c22",
-    "INSTALL.md": "e9bc104b9db0536583d2bff9a1fcf70fb4f6b18194543e95abb5aabda64f20d6",
+    "INSTALL.md": "d39750954355ce0c98237e1b8fa9f854c5a4a3cf27255eedd49de579a9cb71bc",
     "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "NOTICE": "95034243e7bde9fa107444a2c49d29966d989410498cff304cd867caf2879c3b",
-    "QUICKSTART.md": "9451b2c8614eec35308b5a38e33b54e04592fd6acb2d234fec14a873bb25c82f",
-    "README.md": "9d363a09d0977686b0f5c0b0fbf9d6c192b414c3c1082a3a1b599c103638ae81",
-    "THIRD_PARTY_NOTICES.md": "9a61ab9a2fdd12c33697adb6b26e1f839f52fbeed7675b3351b26897d052aa80",
+    "QUICKSTART.md": "5744c36ecff7b330a4007e3fbd08a410f9c107792390e33fca40b71cada1e43d",
+    "README.md": "c7f87fb920cd6f0f24ad5cf6574c35441e44a6ce7538c2f93fd9a60ec3d87585",
+    "THIRD_PARTY_NOTICES.md": "dfcf961bd169c5b6c3d977c912c063286728e0007481a27e18c492d3508dfc24",
     "compose.build.yaml": "954138d4831bd8abbba7100ca3364fb3180d7f39b6d309bed23e727b51359adb",
     "compose.yaml": "51fcbcd3c02634a760f3b859fe646c1572512d2e502c370b32f6c3132bd34ce7",
     "config/adapter.deployment.template.toml": "fad125733e5dc956ef39bf76124ee4a8562d94f7320344e76aa2ee7bfb7004c7",
     "config/adapter.example.toml": "92050fceec9511a0a1470d2de20b9788b41f84321925de38e228cd0879097d86",
     "config/adapter.gateway-integrated.template.toml": "58ff541b520e18145400018de6cfec666e86314701f585e8f672931544ed7090",
-    "docs/ADAPTER-CONFIGURATION.md": "85729121fff712d518af347027adf3fccf6cab9da70979d251cd999c1d285cf9",
-    "docs/DEPLOYMENT.md": "0f4d1a02b99e592a8f552adf1a6fddf4e961bda452f39a73ce338ffe70d49b72",
-    "docs/DOCKER-INSTALL.md": "981eade94ba6de4ff5a3c8a7678e68fe4d098b7522d23dfad009e32198495f85",
-    "docs/DOCKER-SECURITY-DELTA.md": "5e705ade0c56e5a064cd781f7fc7a9a5eff037e4fb62e049afdf5bdc5890a345",
-    "docs/GATEWAY-CONTRACT-CI.md": "403ccc04835572fe6546be813bf4f0f084124bd4c28127a39643a50f6ae9132f",
-    "docs/GATEWAY-ROUTE-SCOPED-CODEX-TOOL-FILTER-PROPOSAL.md": "d09c16c220ee4991e2d9aafe767a48eee1b0001ddc76e39bea811ae29d85566e",
-    "docs/IMPLEMENTATION-ROADMAP.md": "3aed10c6043718c58ca94f7eaa3619e4e10b0cd8581e72d2e2875171a1222c27",
+    "docs/ADAPTER-CONFIGURATION.md": "601e6122327d773806371da05bc2652c0a49690e2b3e011102fd6070379a5016",
+    "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
+    "docs/DOCKER-INSTALL.md": "cc34ac5f4a1b18b35378bc63e899dde9c0fa792a85fd00506a39bf1d2c4fbcc8",
+    "docs/DOCKER-SECURITY-DELTA.md": "c2d723ded9ba1a6282b63844f2a3794b4477122a1fc71f32fb240f9845f2fba9",
+    "docs/GATEWAY-CONTRACT-CI.md": "b9c1294d88f2bd8e8902213fa82c6710c7e15fb3c8c249ade34ae3db984c4a47",
+    "docs/GATEWAY-ROUTE-SCOPED-CODEX-TOOL-FILTER-PROPOSAL.md": "bc1e112b1b4ca884f406ac93c6dde5e0c71dd96e01415f5d79709556fa21cb97",
+    "docs/HISTORY.md": "6d7f8ba3f4d2a01e4eb7a3f72d8121f64be324bc4388b063cfa2488910e1ec32",
+    "docs/IMPLEMENTATION-ROADMAP.md": "9fe6c267afef7126d8a41a471f5320bb2d9bfcb20afbebb4f8f236b78ef06a7d",
     "docs/OBJECTIVE-004-LEDGER.md": "258e40a951672fb499f3a15e37e711e8dbc6eceab7d2ff4c2225cd0ab65df13b",
     "docs/OBJECTIVE-005D-SECURITY-CONTAINMENT.md": "602be9a7fab0b19f2713fa197117952885d38a48bcfa991597d32e749bed2d24",
-    "docs/RC-HANDOFF.md": "1eb4076e60cfd4c9850785de2ab72b250d727d584855e07a45b4a4b52b4e34e3",
-    "docs/README.md": "7003f8a23a007ac132e14f8cdbb54fdd9a4dd2cc875b486982f57c5937f092e1",
-    "docs/RELEASE-ARTIFACT-POLICY.md": "ce46c8bdaedb72f658b25df84a018908437ce1bc654286447b964f6d38f6d3b2",
-    "docs/RELEASE-CUTOVER-RUNBOOK.md": "c958b09b579717f5eea3b02addfadb5322b78ef5ae760478979a0f7aca83762a",
-    "docs/TOPOLOGY.md": "275b014abbabb8c5cbea1d89f6c5678e93c871beeb3890a73b9f1c136c799486",
+    "docs/RC-HANDOFF.md": "2c70fedf65d968452cfbae337330d6cd27c417cb02837f55a4ad8f4222b9dabc",
+    "docs/README.md": "4ece071fb1bb2361456dae07cc7cbf164213c9041a7d5ad563debfbc882d0f0f",
+    "docs/RELEASE-ARTIFACT-POLICY.md": "03cbd140c4ade98afc1426ac7b1573f3d1cc245dfb5ccad70f23f2118f0322ee",
+    "docs/RELEASE-CUTOVER-RUNBOOK.md": "e5f321463838daadc0e9754c217cfb122f228bc250d1a52bc313df36192100bc",
+    "docs/TOPOLOGY.md": "7fa102ea62581692820c9cf47a3f02e1e6881dab301fa6978315550f8765b96e",
     "docs/VISION-ACCEPTANCE.md": "62b5c413d0dda505a8cd1a8a3cfbc2695582b7d8a8de29a1bb7f3c42dfa28be7",
     "docs/topology.manifest.json": "408f488f30902adbc7d88a4ef4ef4542b0a56ad1a7191856a72931dc53c27b15",
     "packaging/rc_artifact_record.schema.json": "d4e9d4b27c9be85a45d32b21459430a699f207d5ba246bd3613d47d995e4f787",
@@ -215,7 +216,7 @@
     "tests/test_cutover_state_machine.py": "d8825a83af141324674474ff65f6745396baf1b5c6567dd1a041f44de09ccca8",
     "tests/test_dependency_acquisition.py": "7a1c52040d52d8b723c7a4e2a3f5205b1abf9165b0e7689dafcfcaf5b082ceb2",
     "tests/test_docker_qualification_record_gate.py": "b8340e0baf32c8b9c7a3cc9ce6e8cfc9c6383a86444d1f47345568a85a5e52a5",
-    "tests/test_docs_consistency.py": "68e8453beb40c4e4db225bd58f64526a7dbc96b1c27d15cb90ad56c71ab6448b",
+    "tests/test_docs_consistency.py": "f93c231c0024e62d4a686e5837caede51ee5913e749e532ade1c9cd6b9cd247b",
     "tests/test_e2e.py": "e59f22df2e2dd93bde4b2869f829d95ad8fc098ff0913a461fd5795ce29085ac",
     "tests/test_gateway162_validator_factory.py": "e0f942e86931bfde3a9f8027e96137f50272e457fa91370f7ac3cd5bc12fa637",
     "tests/test_gateway_contract_runner.py": "72c87fbc698ad4e9ca07fc440d31462b7ac6f5bf5170327381a053678755989c",
@@ -233,7 +234,7 @@
     "tests/test_rc_record.py": "d510342a2b2aa56820f77cbbc920c2a4a4d7ca806f32acc9116b0cf052cf8131",
     "tests/test_reference_proxy_headers.py": "9a6aaf9af01a7c1a0c7514ff1274a48fd85bc57ff8562251b0acaa9253f1e2b9",
     "tests/test_rehydration.py": "da759af26560ecb3c2bc9855f654152a0521add0aa6de1d8751fb661bda49b59",
-    "tests/test_release_provenance_manifest.py": "293264a700e0e9d9613ff5bc8a704fa17315ccf8ab8418b93a797322881cf4e4",
+    "tests/test_release_provenance_manifest.py": "709f45b8ce989b013c0b5b65be142177a04d3c7c6a1c4fccd420b3942a4ebc88",
     "tests/test_release_registry_publish_digest.py": "cc092bd2ff96615bacd885da50fa188d59e819d2f7439340757ec813bfc9fa46",
     "tests/test_release_registry_publish_gate.py": "3a861ee7c803c510e16fe3141a4dcf1b6890d532a3fed875eb0716efaabbe0ac",
     "tests/test_runtime_lock_ci.py": "917a5fc2e32292cb31e114ba31708d9a817b43dcdb79a1e15df55383a2cfc1f5",
