@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 117,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "ba6e889a4159fb0474bebe9f0f2e79414c9c170a9c2493d5d7464ad25bd2f75c",
-      "size_bytes": 453755
+      "sha256": "036fe275ae50a32cb45355d184033c4df6cd29cc3682c99c61aa584dc53c226a",
+      "size_bytes": 453899
     },
     "wheel": {
       "entry_count": 26,
@@ -57,7 +57,7 @@
     }
   },
   "generated_from": {
-    "git_commit": "cfa979e72628326b059b556e613bb3318e43fa71",
+    "git_commit": "5ba727988783cdedde774a64e012ed9f2e3fd6c5",
     "repository": "ulfe-lmi/slaif-local-coding"
   },
   "limitations": [
@@ -127,10 +127,10 @@
     ".github/workflows/ci.yml": "a1e9310135acf2b036d221926118ea949dfaf44c5613d4e836345f9e572928b4",
     "CONTRIBUTING.md": "912350cc06e97d38ea252b9588b50402b7a82f4a1bc6798317bf89967bf00d13",
     "Dockerfile": "030c9aa467aa4f3a5ef379f35fef6acc27620988a7fe8c362ef40205bb29aa0e",
-    "INSTALL.md": "49746eda5597bb95b87d22a733bc326acdfcb1b380923056e2150f6ebbd6d22a",
+    "INSTALL.md": "0dcfb07e4038b7cbbc679008f0259453210f9307505abf0a11957d4b9b69c812",
     "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "NOTICE": "95034243e7bde9fa107444a2c49d29966d989410498cff304cd867caf2879c3b",
-    "QUICKSTART.md": "139b611eef4cecb23cb4d8907f9f14dfc76757eee2eb33b953eb3db7e6713c8b",
+    "QUICKSTART.md": "3f7bbf1094306e7e1faf93c62695fbe542a81c5c16ab09619841b5f87078103d",
     "README.md": "8b88a07dcf06fb735d240242a400d2d8b40f118f25b8488086d527d64cb18df2",
     "THIRD_PARTY_NOTICES.md": "9a61ab9a2fdd12c33697adb6b26e1f839f52fbeed7675b3351b26897d052aa80",
     "compose.build.yaml": "bae4de90ef7098f4ebb77115296c9d82cee7b375073f29d738985e30ff437ceb",
