@@ -3,10 +3,10 @@
 This roadmap is strategic context, not an activated order. Live GitHub/host
 state and review outcomes control actual sequencing.
 
-## Current state (2026-09-17, verified against GitHub)
+## Current state (2026-09-20, verified against GitHub)
 
 Objectives 000–010 are **implemented and merged** (PR #1–#12; merge commits
-`91463ae3`, `176bf4d8`, `867ed55e`, `68f212b5` + `7a2c36a0`, `570bd2b2`,
+`91463ae3`, `176bf4db`, `867e55e4`, `68f212b5` + `7a2c36a0`, `570bd2b2`,
 `e3f10e93`, `efc4dbcd`, `2041bddc`, `1a913bf3`,
 `4fd4502deda23ef8815740f4db0c1e615a5a1936` (009),
 `4aa805fdd197938f1f25c9ca034c2e3c3cf2fc87` (010) — see
@@ -16,27 +16,49 @@ Gateway-contract tested** (objective 007); durable acceptance evidence is
 accepted (objective 008). Objective 009 is the accepted release candidate
 (reproducible package, deployment-qualified in a disposable environment
 only). Objective 010 closed the pre-cutover topology and signed-ingress
-correctness work (prepare-only; the cutover was NOT performed). Objective 011
-(PR #13, merged 2026-09-17 as `e860e0bff687afded7782fb2687b5b435792459a`) is
-the Docker MVP release candidate: **Docker MVP packaging,
-LAN-visible installation law, and release-readiness closure** —
-deployment-qualified (disposable/CI environments only). Objective 012
-(2026-09-17) re-pinned the current Gateway peer to
-`1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` (contract surface byte-identical,
-proven at the blob level), regenerated the release provenance manifest (the
-current artifact record is `packaging/release_provenance_manifest.json` —
-wheel `fceadc378130dd4ffcc3f75d17b5e098577652914f541245d31247911be23aeb`;
-the sdist is developer-only and its hash is manifest-recorded; per
-`RELEASE-ARTIFACT-POLICY.md`), and closed the post-011 documentation
-drift. **Cutover NOT performed; NOT released.**
+correctness work (prepare-only; the cutover was NOT performed). Objective
+011 (PR #13, merged 2026-09-17 as
+`e860e0bff687afded7782fb2687b5b435792459a`) is the Docker MVP release
+candidate: **Docker packaging, LAN-visible installation law, and
+release-readiness closure** — deployment-qualified (disposable/CI
+environments only). Objective 012 (2026-09-17) re-pinned the current
+Gateway peer to
+`1fccaa746df6cd44f1ddf8c2ec5cf6ea9f18b1cb` (contract surface
+byte-identical, proven at the blob level), regenerated the release
+provenance manifest, and closed the post-011 documentation drift.
 
-Identifier note: the original planned meanings of numeric objectives 006–008
-in this file (for example "SME package") are **historical planning prose, not
-live objective identifiers**. The live numeric identifiers 006/007/008 were
-signed-request replay hardening, current Gateway contract CI, and durable
-acceptance evidence respectively. The original milestone "reproducible SME
-package and honest release evidence" is implemented under the Objective-009
-milestone name.
+Objective 013 (PR #15, open) is now the **release-candidate stabilization
+and freeze** objective, with the public final release **deferred** to a
+later human decision. Its historical rounds (013-a through 013-h) built
+the publication machinery (pull-based canonical compose,
+`workflow_dispatch`-only release workflow, `docker-published` CI gate,
+state-aware provenance), re-qualified and froze the 0.1.0-line Gateway
+compatibility authority at
+`08ca421bee1ddca62078302b910e8be88cf705be` (contract surface
+byte-identical to the 012 pin, blob-proven), and pushed the historical
+private tags `0.1.0` + `sha-<S>` to the non-public package at one registry
+digest (registry-only; the tags were never published to users and the
+package was never made public — the 013-h round ended BLOCKED at
+anonymous access verification). Order 013-i stabilizes and freezes the
+final source for a benchmarkable 0.1.0 RC: user-facing documentation
+cleanup (README/QUICKSTART/INSTALL + reconciled docs), deterministic build
+pinning (`hatchling==1.32.0`, proven to reproduce the historical wheel
+from the clean historical source), the pre-freeze candidate provenance
+state (schema v4) with the RC artifact record schema/generator, and the
+RC-safe publication machinery (explicit candidate identity `0.1.0-rc1`,
+private registry, fail-closed authenticated tag checks, private
+published-image qualification). The RC publication itself is a separate
+later round bound to the exact reviewed source commit. The cutover remains
+NOT performed; no real deployment is yet evidenced; Docker qualification
+remains deployment-qualified (disposable/CI environments only).
+
+Identifier note: the original planned meanings of numeric objectives
+006–008 in this file (for example "SME package") are **historical
+planning prose, not live objective identifiers**. The live numeric
+identifiers 006/007/008 were signed-request replay hardening, current
+Gateway contract CI, and durable acceptance evidence respectively. The
+original milestone "reproducible SME package and honest release evidence"
+is implemented under the Objective-009 milestone name.
 
 ## Objective 000 — live contract and adapter foundation
 

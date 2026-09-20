@@ -1,56 +1,145 @@
-# Inert container-publication path (order 011-a, E5) — REVIEWED DESIGN ONLY.
+# ACTIVE RC candidate-publication path (order 013-a, workstream D; order
+# 013-c, workstream C1 qualified push references; order 013-d, workstream C1
+# credential correction; ORDER 013-I, D13/D14: explicit RC candidate
+# identity on the private package).
 #
-# This workflow is committed as the documented, inert publication path for
-# the future human-authorized OCI publication of
-# ghcr.io/ulfe-lmi/slaif-local-coding. It is:
+# `workflow_dispatch` ONLY: this workflow can never run on PRs or pushes.
 #
-# - gated to `workflow_dispatch` only: it CANNOT run on PRs or pushes;
-# - declared with `packages: write` for the future publication step;
-# - configured with NO secrets: no registry credential is wired up, and the
-#   publication step intentionally performs NO push.
+# RC candidate identity: the workflow publishes EXACTLY
+#   ghcr.io/ulfe-lmi/slaif-local-coding:sha-<S>   (source ALIAS tag naming
+#                                                 the full image-source commit;
+#                                                 a MUTABLE tag, not a
+#                                                 content-addressed identity)
+#   ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc1 (explicit candidate tag)
+# to the PRIVATE package. NO code path of this workflow may write `0.1.0`,
+# `latest`, `stable`, a final `v0.1.0`, or change package visibility (the
+# publisher refuses final/stable tags and publishes exactly the expected
+# RC1 identity — no silently allocated new RC number; the historical private
+# 0.1.0 and orphan tags are preserved byte-for-byte). The immutable digest
+# D is the content-addressed, authoritative identity; tags are aliases. A
+# later human-approved final release references the SAME tested digest
+# without rebuilding.
 #
-# This objective does not publish any image. A future human-authorized
-# release order wires the credential and implements the push step per the
-# procedure in docs/DOCKER-INSTALL.md ("Container publication"), captures
-# the image digest, and updates the provenance manifest (oci.image_digest,
-# oci.published) under the regeneration discipline of objectives 009/010/011.
-name: Release image (inert, workflow_dispatch only)
+# Fail-closed tag law (order 013-i, D13; completed by order 013-j, J1):
+# BEFORE ANY MUTATION both target tags are checked with authenticated
+# registry access, distinguishing verified-absent from
+# unauthorized/inaccessible, and any reported digest must be well-formed.
+# VERIFIED-ABSENT-FOR-BOTH is the ONLY write precondition: if EITHER tag is
+# occupied, unauthorized/inaccessible, malformed, or unresolved, the run
+# STOPS BEFORE ANY registry mutation (no tag, no push), reports the
+# existing digests for strategy adjudication, and never repushes/rebuilds
+# an already frozen identity. The target state is rechecked (authenticated)
+# immediately before each write. A crash between the two pushes leaves a
+# PARTIAL state (source tag present, candidate absent) that is reported,
+# never silently completed.
+#
+# Serialization (order 013-j, J1): the workflow-level concurrency group
+# `slaif-rc-publisher` serializes publication runs and NEVER cancels an
+# in-progress publisher (`cancel-in-progress: false`), so the immediate
+# pre-write recheck closes the in-repository race window.
+#
+# Registry credential: the workflow GITHUB_TOKEN with declared `contents:
+# read` + `packages: write` — the documented mechanism for publishing the
+# workflow repository's container package; no long-lived credential of any
+# kind is referenced or introduced. The token is scoped to the single
+# workflow run and is never printed (no echo, no unmasked environment
+# dumps); it reaches the publish script only through the SLAIF_GHCR_TOKEN
+# environment variable for the registry-API verification steps.
+# Correction note (order 013-d): the 013-b "repository workflow-permission
+# ceiling" diagnosis is retracted on primary log evidence — the 013-b run
+# logs show the GITHUB_TOKEN was granted `Packages: write`; the 013-b
+# failure was the unqualified push reference (fixed in 013-c, workstream
+# C1). The 013-c repository-secret workaround is withdrawn and its broad
+# PAT secret removed as release-security cleanup (order 013-d, workstream
+# C3).
+#
+# Procedure (bound to the dispatched commit S):
+#   1. build the locked wheel and assert its SHA-256 equals the committed
+#      provenance manifest wheel hash (byte-identity law; the deterministic
+#      hatchling==1.32.0 backend pin makes the build reproducible);
+#   2. build the RC candidate image via the two-file compose (canonical
+#      pull-based compose.yaml + qualification override compose.build.yaml)
+#      with SLAIF_GIT_SHA = S, SLAIF_WHEEL_SHA256 = the manifest wheel hash,
+#      SLAIF_LOCAL_CODING_IMAGE = the nonsecret build selection
+#      slaif-local-coding:0.1.0-<S> (compose.yaml requires the variable at
+#      per-file interpolation, before the merge; the build override's image
+#      field is what is built and tagged), plus nonsecret temporary
+#      SLAIF_CONFIG_FILE/SLAIF_ENV_FILE inputs the build invocation actually
+#      needs to load the project, and SLAIF_QUALIFICATION_LABEL = the RC
+#      candidate label "rc-candidate-0.1.0-rc1; private; not final release";
+#   3. authenticate to GHCR with GITHUB_TOKEN;
+#   4. before mutation: authenticated strict checks of sha-<S> and
+#      0.1.0-rc1; verified-absent-for-both is the only write precondition
+#      (any other state stops the run before ANY registry mutation);
+#   5. recheck immediately before the writes, then push the SAME built
+#      image under the source alias sha-<S> and the candidate tag
+#      0.1.0-rc1 under the fail-closed law above;
+#   6. verify via the GHCR registry API that BOTH tags resolve to the ONE
+#      digest D and emit D in the run log and outputs; the before/after
+#      registry states are emitted by the publish script.
+name: Release image (workflow_dispatch only)
 on:
   workflow_dispatch:
+# Order 013-j, J1: serialize publication runs; never cancel an in-progress
+# publisher.
+concurrency:
+  group: slaif-rc-publisher
+  cancel-in-progress: false
 permissions:
   contents: read
   packages: write
 jobs:
-  build-and-document-publication-path:
+  build-and-publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build the reviewed image (no push)
+      - name: Build the locked wheel and bind it to the committed manifest
+        run: |
+          uv build --wheel --out-dir dist
+          WHEEL_SHA256="$(sha256sum dist/slaif_local_coding-0.1.0-py3-none-any.whl | cut -d' ' -f1)"
+          MANIFEST_SHA256="$(python3 -c 'import json; print(json.load(open("packaging/release_provenance_manifest.json"))["artifacts"]["wheel"]["sha256"])')"
+          echo "fresh wheel sha256:    $WHEEL_SHA256"
+          echo "manifest wheel sha256: $MANIFEST_SHA256"
+          test "$WHEEL_SHA256" = "$MANIFEST_SHA256"
+          echo "SLAIF_WHEEL_SHA256=$WHEEL_SHA256" >> "$GITHUB_ENV"
+      - name: Build the RC candidate image (two-file compose, RC qualification label)
         run: |
           export SLAIF_GIT_SHA="$GITHUB_SHA"
-          export SLAIF_WHEEL_SHA256="$(
-            python -c 'import json; print(json.load(open("packaging/release_provenance_manifest.json"))["artifacts"]["wheel"]["sha256"])'
-          )"
-          docker compose build
+          export SLAIF_WHEEL_SHA256
+          # Order 013-k, K1: compose interpolates each file BEFORE merging,
+          # so the canonical compose.yaml's required explicit-image variable
+          # must be supplied for the build invocation even though the build
+          # override's image field is what is built and tagged. Nonsecret
+          # build selection; the canonical pull-only requirement is unchanged.
+          export SLAIF_LOCAL_CODING_IMAGE="slaif-local-coding:0.1.0-${GITHUB_SHA}"
+          # Nonsecret temporary Compose inputs the build invocation actually
+          # needs to load the project: the env file must exist (its contents
+          # are irrelevant to the build — site values are mounted at
+          # runtime); the config file is a placeholder for the same reason.
+          mkdir -p .ci-build-inputs
+          : > .ci-build-inputs/adapter.env
+          printf '# build-only placeholder (site config is mounted at runtime)\n' > .ci-build-inputs/adapter.toml
+          export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
+          export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
+          docker compose -f compose.yaml -f compose.build.yaml build \
+            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc1; private; not final release"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
-            --format "built image: {{.Id}} (no push performed)"
-      - name: Publication path (documented, not executed)
+            --format "built image: {{.Id}} (push performed in the next steps)"
+      - name: Authenticate to GHCR (GITHUB_TOKEN only)
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+      - name: Push RC candidate tags and registry-verify a single digest
+        id: publish
+        env:
+          SLAIF_GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cat <<'DOC'
-          No image is pushed by this workflow: no registry credential is
-          configured (no secrets). The future human-authorized publication is:
-            1. docker tag slaif-local-coding:0.1.0-<sha> \
-                 ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0
-            2. docker tag slaif-local-coding:0.1.0-<sha> \
-                 ghcr.io/ulfe-lmi/slaif-local-coding:sha-<full-sha>
-            3. docker login ghcr.io   (credential supplied by the release order)
-            4. docker push ghcr.io/ulfe-lmi/slaif-local-coding:<tags>
-            5. capture the pushed image digest
-            6. update packaging/release_provenance_manifest.json
-               (oci.image_digest, oci.published) via the regeneration
-               discipline, in the release order's PR
-          See docs/DOCKER-INSTALL.md, "Container publication".
-          DOC
+          python3 scripts/release_registry_publish.py \
+            --local-image "slaif-local-coding:0.1.0-${GITHUB_SHA}" \
+            --git-sha "$GITHUB_SHA" \
+            --repo ulfe-lmi/slaif-local-coding \
+            --release-tag 0.1.0-rc1

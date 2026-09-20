@@ -1,0 +1,31 @@
+# SLAIF Local Coding — QUALIFICATION/DEVELOPMENT build override
+# (order 013-a, workstream C).
+#
+# Label: NOT the released-user path. This override is used ONLY by the
+# qualification/development flow (the CI `docker` job, the development
+# build-from-source path documented in docs/DOCKER-INSTALL.md, and the
+# release workflow's release-image build, which additionally sets the
+# SLAIF_QUALIFICATION_LABEL build ARG to the published release label).
+# Merged with the canonical pull-based compose.yaml it reproduces the
+# pre-013 single-file effective adapter spec for the closed field set
+# (mechanically asserted in the CI `docker` job, phase
+# compose_merge_equivalence). It does NOT set the
+# SLAIF_QUALIFICATION_LABEL ARG, so every qualification build keeps the
+# Dockerfile default "disposable-qualification-only; not released".
+#
+# Usage (qualification/development only):
+#   SLAIF_GIT_SHA=<reviewed-sha> SLAIF_WHEEL_SHA256=<manifest wheel sha256> \
+#   SLAIF_LOCAL_CODING_IMAGE=slaif-local-coding:0.1.0-<reviewed-sha> \
+#     docker compose -f compose.yaml -f compose.build.yaml build
+# (Order 013-k, K1: compose.yaml requires SLAIF_LOCAL_CODING_IMAGE at
+# per-file interpolation, before the merge, so every two-file build must
+# supply it; the build override's image field above is what is actually
+# built and tagged. Nonsecret build selection.)
+services:
+  adapter:
+    image: slaif-local-coding:0.1.0-${SLAIF_GIT_SHA:-local}
+    build:
+      context: .
+      args:
+        SLAIF_GIT_SHA: ${SLAIF_GIT_SHA:-local}
+        SLAIF_WHEEL_SHA256: ${SLAIF_WHEEL_SHA256:-}

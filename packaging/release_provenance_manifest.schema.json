@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "slaif-release-provenance-v2",
-  "title": "SLAIF Local Coding release/deployment provenance manifest",
+  "$id": "slaif-release-provenance-v5",
+  "title": "SLAIF Local Coding release/RC provenance manifest",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,6 +12,9 @@
     "gateway_peer",
     "runtime",
     "artifacts",
+    "build",
+    "source_inputs",
+    "candidate",
     "templates",
     "oci",
     "reference_compatibility",
@@ -20,10 +23,10 @@
   ],
   "properties": {
     "schema": {
-      "const": "slaif-release-provenance-v2"
+      "const": "slaif-release-provenance-v5"
     },
     "schema_version": {
-      "const": 2
+      "const": 5
     },
     "objective": {
       "type": "string",
@@ -119,7 +122,7 @@
       "properties": {
         "python": {
           "type": "string",
-          "pattern": "^3\\.(1[2-9]|[2-9][0-9])(\\.[0-9]+)?$"
+          "minLength": 1
         },
         "package_name": {
           "const": "slaif-local-coding"
@@ -149,6 +152,135 @@
         },
         "sdist": {
           "$ref": "#/$defs/artifact"
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "build_environment",
+        "uv_version",
+        "python"
+      ],
+      "properties": {
+        "backend": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "version"
+          ],
+          "properties": {
+            "name": {
+              "const": "hatchling"
+            },
+            "version": {
+              "const": "1.32.0"
+            }
+          }
+        },
+        "build_environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "hatchling",
+            "packaging",
+            "pathspec",
+            "pluggy",
+            "tomlkit",
+            "trove-classifiers"
+          ],
+          "properties": {
+            "hatchling": {
+              "type": "string",
+              "pattern": "^[0-9][0-9a-z.]*$"
+            },
+            "packaging": {
+              "type": "string",
+              "pattern": "^[0-9][0-9a-z.]*$"
+            },
+            "pathspec": {
+              "type": "string",
+              "pattern": "^[0-9][0-9a-z.]*$"
+            },
+            "pluggy": {
+              "type": "string",
+              "pattern": "^[0-9][0-9a-z.]*$"
+            },
+            "tomlkit": {
+              "type": "string",
+              "pattern": "^[0-9][0-9a-z.]*$"
+            },
+            "trove-classifiers": {
+              "type": "string",
+              "pattern": "^[0-9][0-9a-z.]*$"
+            }
+          }
+        },
+        "uv_version": {
+          "const": "0.12.5"
+        },
+        "python": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "runtime_requirement",
+            "observed_exact",
+            "wheel_patch_independent"
+          ],
+          "properties": {
+            "runtime_requirement": {
+              "const": ">=3.12",
+              "description": "requires-python runtime scope; NOT an exact runtime version"
+            },
+            "observed_exact": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^\\d+\\.\\d+\\.\\d+$"
+              },
+              "description": "Exact CPython interpreter versions on which the recorded artifacts were observed built"
+            },
+            "wheel_patch_independent": {
+              "type": "boolean",
+              "description": "true only when the wheel bytes were observed identical on two or more distinct patch versions"
+            }
+          }
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rc_identifier",
+        "state",
+        "private_registry_auth_required",
+        "final_public_release",
+        "cutover_performed"
+      ],
+      "properties": {
+        "rc_identifier": {
+          "const": "0.1.0-rc1"
+        },
+        "state": {
+          "enum": [
+            "pre_freeze",
+            "rc_published"
+          ]
+        },
+        "private_registry_auth_required": {
+          "const": true
+        },
+        "final_public_release": {
+          "const": false
+        },
+        "cutover_performed": {
+          "const": false
         }
       }
     },
@@ -190,6 +322,7 @@
       "required": [
         "image_reference",
         "tag_convention",
+        "candidate_tag",
         "base_image",
         "build_base_image",
         "dockerfile_sha256",
@@ -208,6 +341,9 @@
         "tag_convention": {
           "type": "string",
           "minLength": 1
+        },
+        "candidate_tag": {
+          "const": "0.1.0-rc1"
         },
         "base_image": {
           "$ref": "#/$defs/base_image"
@@ -239,7 +375,10 @@
           ]
         },
         "published": {
-          "const": false
+          "enum": [
+            false,
+            true
+          ]
         },
         "labels": {
           "$ref": "#/$defs/oci_labels"
@@ -289,7 +428,8 @@
       "required": [
         "deployment_qualified",
         "cutover_performed",
-        "released"
+        "rc_published",
+        "final_public_release"
       ],
       "properties": {
         "deployment_qualified": {
@@ -298,8 +438,17 @@
         "cutover_performed": {
           "const": false
         },
-        "released": {
-          "const": false
+        "rc_published": {
+          "enum": [
+            false,
+            true
+          ]
+        },
+        "final_public_release": {
+          "enum": [
+            false,
+            true
+          ]
         }
       }
     },
@@ -311,6 +460,68 @@
         "minLength": 1
       },
       "uniqueItems": true
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "git_tag",
+        "git_tag_target",
+        "image_source_commit",
+        "oci_image_digest",
+        "oci_tags",
+        "published_at",
+        "publication_workflow_run_id"
+      ],
+      "properties": {
+        "version": {
+          "const": "0.1.0"
+        },
+        "git_tag": {
+          "const": "v0.1.0"
+        },
+        "git_tag_target": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "image_source_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "oci_image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "oci_tags": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "published_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"
+        },
+        "publication_workflow_run_id": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    },
+    "source_inputs": {
+      "type": "object",
+      "description": "Mechanically verified path->sha256 map of every wheel/sdist/OCI/configuration input at generated_from.git_commit (order 013-j, J4). Excludes the manifest, its schema, post-publication records, the rendered handoff, and the OAP transcript (self-reference).",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/sha256"
+      }
     }
   },
   "$defs": {
