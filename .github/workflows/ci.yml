@@ -212,7 +212,7 @@ jobs:
           # otherwise the exact access limitation is recorded.
           visibility = "inaccessible"
           request = urllib.request.Request(
-              "https://api.github.com/orgs/ulfe-lmi/packages?package_type=container",
+              "https://api.github.com/orgs/ulfe-lmi/packages?package_type=docker",
               headers={
                   "Authorization": f"Bearer {token}",
                   "Accept": "application/vnd.github+json",
