@@ -10,14 +10,14 @@ prerequisites already exist on one Linux host:
    path — the runtime is the pulled wheel-based container image.
 2. A **private OpenAI-compatible model server** (Qwen/vLLM) running on this
    host, reachable at its documented loopback address
-   (MVP appliance default: `http://127.0.0.1:18020/v1`, model `qwen3.8-27b`).
+   (reference default: `http://127.0.0.1:18020/v1`, model `qwen3.8-27b`).
 3. The **separate SLAIF API Gateway** already deployed for public access
    (this product does not install or configure it).
 4. **Bounded read-only GHCR credentials** for the private image package:
-   the EXTERNAL reader scope is `read:packages` (a classic PAT with package
+   the reader scope is `read:packages` (a classic PAT with package
    read access for this package) — distinct from the Actions YAML
    `packages: read` keyword. Credentials are supplied via stdin only, and
-   no request to make the package public is required or made.
+   the package can remain private.
 5. A **host admin account** (root or a sudo-authorized admin) for the two
    `/opt/slaif` file-ownership steps in section 4; the rest of the path
    runs as your normal account.
@@ -47,7 +47,7 @@ file set; no other repository file or extra `curl` prerequisite is needed.
 ## 2. Set the operator session variables (once)
 
 Every Compose command in this quickstart — `pull`, `up`, `ps`, `logs` —
-runs in this same shell with the SAME three exported variables, so no
+runs in this same shell with the same three exported variables, so no
 later command ever resolves a missing or wrong default. Tags are aliases;
 the immutable digest is the authoritative identity — prefer the
 digest-pinned reference from the RC record:
@@ -101,7 +101,7 @@ umask 077
 : "${SLAIF_ADAPTER_SIGNING_SECRET:?set SLAIF_ADAPTER_SIGNING_SECRET in this shell from your protected store before creating the env file}"
 
 # Mode-0600 environment file, owned by the operator (the Compose client
-# reads it; the THREE DISTINCT secret roles by env name):
+# reads it; the three distinct secret roles by env name):
 printf 'QWEN3090_API_KEY=%s\nSLAIF_ADAPTER_SERVICE_TOKEN=%s\nSLAIF_ADAPTER_SIGNING_SECRET=%s\n' \
   "$QWEN3090_API_KEY" "$SLAIF_ADAPTER_SERVICE_TOKEN" "$SLAIF_ADAPTER_SIGNING_SECRET" \
   > /opt/slaif/adapter.env

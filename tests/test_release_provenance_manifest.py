@@ -44,13 +44,9 @@ SCHEMA = REPO_ROOT / "packaging" / "release_provenance_manifest.schema.json"
 RECORD = REPO_ROOT / "packaging" / "release_record.json"
 RC_RECORD = REPO_ROOT / "packaging" / "rc_record.json"
 
-# Order 013-i, C10 + order 013-j, J3 + order 013-k, K2: the input set
-# (RC source-review documentation, hermetic six-pin build environment,
-# rendered handoff exclusion, and the 013-k K1-K3 source corrections whose
-# README change moves the wheel METADATA) is an explicitly authorized input
-# change, so the accepted wheel hash moves to the 013-k identity. The
-# historical wheel 879baa3a... is NOT reused for the RC.
-ACCEPTED_WHEEL_SHA256 = "2f1b7fa1afb7845059e150b6400977df2e957506da4228dbaa6454dff97db935"
+# RC2 includes the reviewed README and security corrections. This wheel
+# identity is independently checked by isolated clean builds before freezing.
+ACCEPTED_WHEEL_SHA256 = "04d1a87cb44f22dad3a7022f63a54f651eca74ed364394aaec85957bbeb8aeda"
 
 RELEASE_RECORD_KEYS = {
     "schema",

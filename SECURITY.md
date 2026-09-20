@@ -1,4 +1,4 @@
-# Security policy and implementation law
+# Security policy
 
 ## Trust boundary
 
@@ -47,13 +47,10 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
     keys or unsigned caller identity headers. Service and signed-auth failures
     occur before image, constitution, compiler, cache, rehydration, or upstream
     work.
-    The exact pinned Gateway main used by the Objective-005 acceptance harness
-    (historical, immutable evidence) emitted the signed contract for its
-    reviewed Codex route; the objective-007 `gateway-contract` CI continuously
-    tests the adapter-side contracts against the current pinned peer
-    (`tests/fixtures/gateway/current_peer_authority.json`). Adapter and
-    cross-repository qualification evidence is not production cutover: cutover
-    is NOT performed and the product is NOT released as of 2026-09-14.
+    The Gateway contract is continuously checked against the exact peer in
+    `tests/fixtures/gateway/current_peer_authority.json`. See
+    [the integration contract](docs/SLAIF-GATEWAY-INTEGRATION.md).
+    Qualification does not authorize a production deployment or cutover.
 
 ## Protected live-host resources
 

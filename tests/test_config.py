@@ -331,8 +331,9 @@ def test_current_host_capability_records_fixture_scoped_vision_acceptance() -> N
     assert "Accepted image capacity: one image per request" in live_document
     assert "text-only" in live_document.lower()
     assert "vision-enabled human-gated fixture" in live_document
-    assert "accepted 004-al human-gated vision fixture" in architecture
-    assert "selected protected Qwen/vLLM fixture" in architecture
+    assert "Vision acceptance" in architecture
+    assert "docs/VISION-ACCEPTANCE.md" in architecture
+    assert "Qwen3.8-27B/vLLM on one RTX 3090" in architecture
     assert "Qwen/vLLM text-only service" not in architecture
     assert "http://10.8.132.75:18020/v1" in live_document
     assert "10.8.132.76" in live_document

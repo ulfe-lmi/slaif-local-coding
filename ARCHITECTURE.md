@@ -1,1212 +1,363 @@
-# SLAIF Local Coding Architecture
+# SLAIF Local Coding architecture
 
-**Status:** Initial architecture for OAP implementation  
-**Repository:** `ulfe-lmi/slaif-local-coding`  
-**Primary reference deployment:** Qwen3.8-27B on vLLM, one RTX 3090 24 GB  
-**Public control plane:** separate `ulfe-lmi/slaif-api-gateway` repository
+SLAIF Local Coding sits immediately before a private model server. It adapts
+requests from ordinary Codex and OpenAI-compatible clients to the capabilities
+of a constrained local model, while preserving streaming, function tools and
+ordinary API behavior.
 
-## 1. Executive summary
+Two problems drive the design: a local coding model needs project rules to
+remain available after conversation history is compacted, and a one-image
+vision model needs an explicit policy for requests containing earlier images
+alongside a new crop. Both can be handled where the complete model-bound
+request is available, without changing the client.
 
-SLAIF Local Coding is a private model-compatibility and context-virtualization
-layer for running useful “mini ChatGPT” and “mini Codex” services on constrained
-local hardware.
+This guide explains the components, data flow and design limits. For deployment,
+start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact
+configuration is described in [the configuration reference](docs/ADAPTER-CONFIGURATION.md);
+implementation constraints are collected in
+[the normative agent architecture](ARCHITECTURE-for-agents.md).
 
-The immediate reference deployment family is Qwen3.8-27B served by vLLM on a
-single RTX 3090. The accepted 004-al human-gated vision fixture provides a
-100000-token context window, OpenAI-compatible Responses traffic, ordinary
-function tools, streaming, and one-image vision. The mutually exclusive text
-configuration uses 150000 context and accepts zero images. The repository acceptance is fixture-scoped. Gateway integration is
-implemented and merged (objective 005, PR #7, merge commit
-`e3f10e93c1ea84bf4021fd15d566bf577d5a9dcf`); the live cutover itself remains
-a separate human-authorized act (runbook: `docs/RELEASE-CUTOVER-RUNBOOK.md`,
-prepare-only), and cutover is NOT performed as of 2026-09-20 (no real
-deployment yet evidenced). The product is NOT finally released: objective
-013 (PR #15, open) is stabilizing and freezing the 0.1.0 release candidate
-(RC stabilization, documentation freeze, and RC-safe publication machinery
-on the private GHCR package `ghcr.io/ulfe-lmi/slaif-local-coding`, with
-pull-based installation canonical); the Gateway compatibility authority is
-the FROZEN peer `08ca421bee1ddca62078302b910e8be88cf705be` (continuously
-tested by the `gateway-contract` CI); the RC registry publication is a
-separate later round bound to the exact reviewed source commit; and a final
-public release (including any `v0.1.0` Git tag or GitHub Release) is a
-separate later human-authorized act.
-Two compatibility problems motivate the
-adapter behavior:
+## System overview
 
-1. Codex compacts long conversations. After compaction, a smaller local model can
-   temporarily lose project/governance orientation and spend substantial context
-   reconstructing it.
-2. The prior vision configuration processed at most one image in a request. Codex
-   retains prior “Viewed Image” entries in live conversation history and sends
-   an old image again when it later sends a crop, causing the upstream model
-   server to receive two images.
-
-Both problems are solved at the same architectural point: immediately before the
-request reaches vLLM. The adapter transparently transforms the model-bound
-conversation according to the selected route's capabilities.
-
-For governance, it recognizes effective `AGENTS.md` content, finds explicitly
-referenced files, asks the model in a separate internal call to compile and rank
-constitutional material, caches bounded derived indexes, and reinjects the
-result into later requests. For an explicitly configured one-image route, it
-enforces the physical limit and retains only the newest image for the designated
-Codex workflow. The accepted fixture-scoped image behavior is documented in
-`docs/VISION-ACCEPTANCE.md`; changing protected fixtures still requires an
-explicitly ordered human-controlled operation.
-
-The client remains ordinary Codex or another OpenAI-compatible application. The
-client does not install or manage pseudo-context software. The SLAIF API Gateway
-remains the only public endpoint and continues to own access keys, quotas,
-accounting, and route permissions.
-
-```text
-Ordinary Codex/OpenAI client
-            |
-            | OpenAI-compatible HTTPS + sk-slaif key
-            v
-SLAIF API Gateway                    [separate repository]
-            |
-            | authenticated internal request + opaque identity
-            v
-SLAIF Local Coding Adapter           [this repository]
-  - route capability policy
-  - image-window adaptation
-  - constitutional compiler/cache
-  - bounded context injection
-  - safe metrics/diagnostics
-            |
-            | private OpenAI-compatible request
-            v
-Qwen/vLLM on local GPU
+```mermaid
+flowchart TD
+    subgraph workstation["Client workstation"]
+        client["Codex / OpenAI-compatible client"]
+        tools["Local file, shell and Git tools"]
+        repo["Project repository<br/>Authoritative source files"]
+        client <--> tools
+        tools <--> repo
+    end
+    subgraph server["Supported colocated server deployment"]
+        gateway["SLAIF API Gateway<br/>Public access and accounting"]
+        adapter["SLAIF Local Coding<br/>Private request adaptation"]
+        cache[("Bounded derived cache")]
+        model["Qwen / vLLM<br/>Private GPU inference"]
+        gateway -->|"Service Bearer + signed identity"| adapter
+        adapter -->|"Adapted request"| model
+        adapter <-->|"Validated indexes"| cache
+        adapter -.->|"Direct, tool-free compiler call"| model
+    end
+    client <-->|"OpenAI-compatible HTTPS"| gateway
 ```
 
-The adapter is not a second public gateway. It is a private semantic/model
-frontend packaged with the local inference appliance.
+The diagram shows logical ownership. In the canonical colocated deployment,
+the Gateway runtime, adapter and model endpoint share the host network
+namespace so both internal hops can use true loopback. The client repository
+stays on the client workstation; the adapter has no mount or direct access to it.
 
-## 2. Product proposition
+| Component | Responsibility |
+| --- | --- |
+| Client | Conversation history and local tool execution, including reading repository files. |
+| Separate [SLAIF API Gateway](https://github.com/ulfe-lmi/slaif-api-gateway) | Public keys, authentication, permissions, quotas, accounting, route administration and TLS. |
+| Local Coding adapter | Private API forwarding, route policies, image adaptation, governance observation, compilation, cache and injection. |
+| Qwen/vLLM | Model inference through its private OpenAI-compatible API. |
+| Operator | Deployment, protected credentials, explicit policies, resource limits and recovery. |
 
-An SME should be able to deploy a private coding/chat service with:
+The adapter is CPU-only. It does not load model weights, import a model runtime,
+reserve GPU memory, decode images or start another vLLM process. Compiler calls
+use the existing upstream model and therefore still consume inference capacity.
 
-- familiar OpenAI-compatible client configuration;
-- gateway-issued user keys rather than upstream model keys;
-- local model inference on affordable hardware;
-- ordinary Codex file/shell/Git tools executed on the developer workstation;
-- long repository governance that remains operational after context compaction;
-- working image inspection when an explicitly configured route has a one-image
-  physical model limit;
-- explicit quotas/accounting through SLAIF API Gateway;
-- no silent dependency on a hosted AI control plane;
-- reproducible installation, verification, observability, and rollback.
+## Deployment and trust boundaries
 
-The product does not claim that a 27B local model is equivalent to a frontier
-hosted model. It makes the local model substantially more usable and predictable
-by compensating for known interface and memory constraints outside the model.
+The primary distribution is a pull-based Docker image for Linux `amd64`, with
+Compose v2. The adapter container uses `network_mode: host`: its
+`127.0.0.1:18020` upstream is the host's loopback, and its default listener is
+`127.0.0.1:18031`. A direct-host systemd user service is the secondary path.
+Docker installation needs no host Python, uv or local image build.
 
-## 3. Scope
+A Gateway in a bridge container or on another host cannot reach the adapter
+through that Gateway's own `127.0.0.1`. The supported alternative uses an
+explicit host-interface address on a declared trusted private LAN, with the
+full signed ingress contract. A non-loopback adapter bind without that contract
+is rejected. The adapter and vLLM remain private; only the Gateway is the public
+entry point.
 
-### 3.1 In scope
+Signed requests authenticate identity and integrity; they do not encrypt
+traffic. A private IP address alone provides no confidentiality. Broader
+multi-host deployments require a separate transport decision. The supported
+variants and namespace requirements are detailed in
+[TOPOLOGY.md](docs/TOPOLOGY.md), with container isolation tradeoffs in
+[DOCKER-SECURITY-DELTA.md](docs/DOCKER-SECURITY-DELTA.md).
 
-- private OpenAI-compatible adapter in front of vLLM;
-- faithful pass-through for `/v1/responses` and `/v1/chat/completions`;
-- SSE streaming, ordinary function tools, errors, timeouts, and cancellation;
-- model/route-specific request transformation policies;
-- newest-image-only enforcement for a route that supports one image;
-- detection of effective `AGENTS.md` material in provider-bound traffic;
-- deterministic extraction of candidate repository references;
-- separate internal model call to compile constitutional rules and rank files;
-- bounded disposable cache with content-hash invalidation;
-- reinjection of a stable compiled constitution into later requests;
-- incremental acquisition/indexing when referenced file content appears in tool
-  outputs;
-- tenant/session isolation suitable for gateway integration;
-- internal health/readiness/metrics and sanitized operational logs;
-- systemd and later OCI/Compose packaging;
-- live tests against the already-running local vLLM service;
-- component/release provenance and upstream attribution.
+### Authentication and identity
 
-### 3.2 Explicit non-goals
+Public client keys terminate at the Gateway. On the Gateway-to-adapter hop,
+production ingress requires a service Bearer credential and a separate HMAC
+signature binding the method, path, raw query hash, exact body hash, opaque
+principal, session, repository, route, timestamp and nonce.
 
-- replacing SLAIF API Gateway authentication, quota, accounting, admin, or route
-  management;
-- modifying Codex or requiring a Codex plugin, MCP server, hook, or local proxy;
-- direct access from the GPU service to customer repository files;
-- uploading or cloning customer repositories into the GPU service by default;
-- treating cached summaries as authoritative project truth;
-- hiding intentional multi-image comparison semantics without a route policy;
-- provider-native hosted tools, web search, computer use, or code interpreter;
-- general semantic memory for all conversation content in the first release;
-- distributed cache or hostile multi-tenant SaaS claims in the MVP;
-- modifying vLLM/model weights/quantization/launch flags as part of ordinary
-  adapter development;
-- bundling model weights;
-- production/compliance/certification claims based only on a successful demo.
+Verification precedes image transformation, compiler/cache access and upstream
+work. The signed route must match the selected route. Caller-supplied internal
+headers cannot establish identity, and the adapter strips service credentials
+and identity headers before forwarding with the private upstream credential.
+Signed mode never falls back to a static identity.
 
-## 4. Architectural principles
+Replay protection stores nonce digests in bounded process-local state. It keeps
+a nonce through the inclusive signed timestamp horizon and configured retention
+period. Capacity exhaustion and unsafe clock rollback fail closed rather than
+evicting protected entries. This is a **single-worker contract**: replay state
+is neither durable across restart nor shared across processes.
 
-### 4.1 Client transparency
+The exact wire contract is in
+[SLAIF-GATEWAY-INTEGRATION.md](docs/SLAIF-GATEWAY-INTEGRATION.md). The frozen
+Gateway compatibility authority belongs to the artifact's provenance record;
+continuous contract testing does not silently change that release authority.
 
-The ordinary client sends an ordinary OpenAI-compatible request. No client-side
-sidecar is required. The only visible endpoint is SLAIF API Gateway in the
-packaged deployment.
+## Request lifecycle
 
-### 4.2 Semantic preservation before optimization
-
-A transform must preserve the intended request semantics within the declared
-route contract. Constitutional optimization must not silently remove governance
-when compilation fails. Unsupported image multiplicity is handled according to
-an explicit route policy, not an accidental global rewrite.
-
-### 4.3 Git/repository remains authoritative
-
-A compiled constitution is disposable derived state. It helps the model retain
-orientation; it never overrides the original `AGENTS.md`, delegated documents,
-repository, Git history, pull request, CI, or human/strategic decisions.
-
-### 4.4 Software manages mechanics; the model supplies semantic compression
-
-Deterministic software owns detection, candidate enumeration, hashing, cache
-identity, bounds, TTL/LRU, invalidation, request injection, and image limits. A
-separate model call supplies semantic classification and compression because
-middleware alone cannot reliably decide which instruction or exception is
-important.
-
-### 4.5 Model-specific behavior is route policy
-
-The adapter is extensible beyond Qwen. Every capability and transformation is
-selected from explicit route/model policy. A future model that supports eight
-images must not inherit a one-image rewrite.
-
-### 4.6 Private, bounded, observable
-
-The adapter sees highly sensitive data. Raw content is not logged. Caches are
-bounded and isolated. Operators receive metrics and safe metadata sufficient to
-diagnose behavior without storing customer prompts, code, or images.
-
-### 4.7 Development must not destroy its own control path
-
-No pre-existing image-cap proxy is assumed on the reference host. Both OAP
-agents normally use the default Codex provider. The strategic agent independently
-discovers the live Qwen/vLLM service under test. New adapter code runs on
-development port 18031 so implementation and live tests cannot disturb the
-protected model service.
-
-## 5. Deployment topologies
-
-### 5.1 Reference development topology
-
-All development occurs on the machine that currently hosts Qwen/vLLM.
-
-```text
-/synology/homes/janezp/
-├── qwen-serving/                         protected live runtime
-├── codex-work/slaif-local-coding/        coding-agent repository
-└── codex-supervision/slaif-local-coding/ strategic-agent workspace
-
-OAP control plane:
-  Strategic Codex -> default Codex provider
-  Coding Codex    -> default Codex provider
-
-Protected live system under test:
-  selected protected Qwen/vLLM fixture
-    -> discover live; currently hinton1 127.0.0.1:18020
-    -> vision fixture for 004-al; text configuration is mutually exclusive
-
-New adapter development path:
-  tests/curl
-    -> 127.0.0.1:18031 development adapter
-    -> live Qwen/vLLM service
-
-Internal compiler path:
-  development adapter
-    -> 127.0.0.1:18020 directly
+```mermaid
+flowchart TD
+    ingress["Bounded incoming request"] --> auth["Verify service auth, signed identity and replay state"]
+    auth --> policy["Validate JSON and select explicit route policy"]
+    policy --> image["Apply image policy"]
+    image --> tool["Apply configured Responses tool policy"]
+    tool --> observe["Observe governance and paired file content"]
+    observe --> compile["Load or compile validated indexes"]
+    compile --> select["Select bounded working constitution"]
+    select --> inject["Inject in the endpoint's stable location"]
+    inject --> forward["Forward privately to vLLM"]
+    forward --> stream["Relay response incrementally"]
 ```
 
-After the host migration, the same-host loopback is the preferred operational
-path on `hinton1`. The optional LAN endpoint is `http://10.8.132.75:18020/v1`;
-`http://10.8.132.76:18020/v1` is historical provenance, not a current default.
+This is the transformation path for supported model requests. Governance stages
+run only when explicitly enabled. Health/model discovery and other accepted
+passthrough requests do not undergo constitutional rewriting. Internal compiler
+calls go directly upstream and never enter this pipeline again.
 
-This topology enables real live-model tests while keeping both OAP Codex agents
-independent of the constrained local model under test. Objective 000 must verify
-the actual current service/process/model facts; historical paths and ports are
-not accepted without inspection.
+The API layer owns `/healthz`, `/readyz` and private `/metrics`. It proxies
+`/health`, `/v1/models`, `/v1/responses` and `/v1/chat/completions`. It preserves
+ordinary function-tool envelopes, supported reasoning settings, usage, status
+codes and SSE event order, subject to documented header filtering and safe error
+handling. It does not assemble an entire streaming response before forwarding;
+a downstream disconnect closes upstream work.
 
-### 5.2 SME packaged topology
+Route configuration chooses supported model/endpoints and transformation
+policies. Unknown or contradictory policies fail validation rather than being
+guessed from request content. A configured Responses tool policy can remove
+unsupported `tool_search` and `web_search` declarations; an explicit tool choice
+that depends on a removed tool is rejected. Ordinary function tools remain
+intact. This does not provide hosted tool execution or full OpenAI API parity.
 
-A small deployment may colocate all server components on one host or private
-network:
+## Keeping project rules available
 
-```text
-Internet/VPN
-    |
-    v
-NGINX/TLS -> SLAIF API Gateway -> Local Coding Adapter -> vLLM/GPU
-                 |                       |
-              PostgreSQL             cache/metrics
+A *constitution* is the effective project guidance rooted in `AGENTS.md`, plus
+its binding referenced documents. The adapter compiles this guidance into a
+small, validated representation and supplies it to subsequent applicable model
+requests. Source files, Git, GitHub and human decisions remain authoritative.
+
+Governance observation, compilation and injection are opt-in. The active
+pipeline handles one complete root per request. Multiple or incomplete roots
+preserve the request after image policy instead of choosing an arbitrary root.
+A request with no root can reuse valid process-local context only when
+rehydration is enabled and its complete identity matches.
+
+### Observe first, then interpret
+
+Detection requires envelope or path evidence: a supported Codex project
+instruction envelope, an `AGENTS.md` input-file item, or a tool result paired
+with a supported file-read operation. Merely mentioning `AGENTS.md` is not
+enough. Only bytes actually received across the API boundary are available.
+
+Before involving the model, deterministic code enumerates candidate repository
+references and their evidence from links, quoted/backtick paths and supported
+path-like text. It normalizes relative paths and rejects unsafe paths, traversal
+and URLs. The model may classify and rank the candidates; it cannot silently
+remove them from the manifest.
+
+### Compile with a bounded internal call
+
+On a cache miss, the compiler sends source text and the enumerated candidates
+directly to the private upstream. The call is text-only, tool-free,
+non-recursive, size-limited, time-limited and output-limited. Concurrent identical
+misses are deduplicated; compiler concurrency defaults to one.
+
+The result must pass a strict schema before entering the cache. It includes
+binding rules and evidence, authority boundaries, exceptions, ordering
+constraints, dependencies and conditions requiring a full-source reread. Two
+separate scores prevent a common ambiguity:
+
+| Field | Meaning |
+| --- | --- |
+| `reference_confidence` | How confidently the reference identifies a repository file. |
+| `constitutional_priority` | How authoritative or important that file is if it exists. |
+
+A clearly referenced example may have low authority; a less clearly formatted
+security instruction can have high importance. Priority classes distinguish P0
+root guidance, P1 delegated binding law/security, P2 procedures, P3 architecture
+and contracts, and P4 background/examples.
+
+The compiler treats the input as data. It cannot execute instructions, fetch a
+URL, read the client filesystem or invoke client tools. Schema validation and
+bounds constrain its output; they do not prove perfect semantic interpretation.
+
+### Acquire dependencies through ordinary client tools
+
+```mermaid
+sequenceDiagram
+    participant C as Client and local tools
+    participant A as Adapter
+    participant M as Qwen / vLLM
+    C->>A: Request containing effective AGENTS.md
+    A->>A: Detect, hash and enumerate references
+    opt Valid index absent from cache
+        A->>M: Bounded tool-free compiler request
+        M-->>A: Structured index
+        A->>A: Validate and cache
+    end
+    A->>M: Main request with compact rules and missing-file guidance
+    M-->>C: Ordinary file-read tool call, relayed through adapter and Gateway
+    C->>C: Read referenced file locally
+    C->>A: Later request containing paired path and file content
+    A->>A: Validate observation and compile declared dependency within budget
+    A->>M: Main request with updated working constitution
 ```
 
-Only the gateway is public. The adapter binds loopback or a private service
-interface. vLLM accepts traffic only from the adapter/controlled operations.
+Missing binding dependencies produce guidance to read the exact files before
+substantive mutation. Acquisition depends on the client's ordinary tools and
+supported path/content pairing; the adapter does not independently fetch files
+or ingest unrelated tool output. The dependency acquisition budget is finite.
 
-### 5.3 Separate gateway host
+### Select and inject
 
-When the gateway is on another host, the adapter may bind a private VPN/service
-address. Firewall rules allow only the gateway and controlled operator sources.
-The internal request is authenticated and signed. This remains “invisible” to
-external clients: there is still one public endpoint and one gateway key.
+The working set uses a deterministic order: root P0, acquired P1, missing P1
+acquisition guidance, then relevant acquired P2/P3 entries within the remaining
+budget. P4 is omitted. Optional entries are omitted whole; essential rules are
+never silently truncated to fit.
 
-## 6. Actors and trust boundaries
+Injection uses Responses `instructions` or the earliest appropriate Chat system
+location. The marker identifies reconstructed context and makes clear that
+source documents override it. Identical version/content is idempotent;
+unexpected marker collisions or unsafe request shapes fail closed. Tools,
+continuation identifiers and other unrelated fields are preserved.
 
-### 6.1 External user/client
+After successful injection, bounded process-local state retains validated
+indexes and inclusion metadata. A later request with reduced history can
+reselect and inject them without another compiler call. This state expires and
+is lost on restart. It restores available guidance at the model boundary; it
+does not guarantee that a client will compact less often or that a model will
+follow every rule.
 
-Uses an ordinary OpenAI-compatible SDK or Codex profile. It may send prompts,
-tool definitions/results, source fragments, images, and repository governance.
-It is not trusted to set internal principal/route headers.
+## Cache and state lifetime
 
-### 6.2 SLAIF API Gateway
+| State | Contents and lifetime |
+| --- | --- |
+| Request memory | Observed source and request data needed for that request; no raw-payload persistence. |
+| Compiled-index cache | Validated derived indexes; bounded filesystem storage with TTL, LRU and a separate bounded P0/P1 budget. |
+| Rehydration map | Validated indexes and selection metadata for matching later requests; process-local, TTL/LRU/byte bounded. |
+| Client repository | Full authoritative documents and history; never replaced by adapter state. |
 
-Trusted public control plane. It authenticates external keys, resolves allowed
-route/model, reserves/finalizes quota, and sends opaque signed identity to the
-adapter. It does not understand constitutional semantics or Qwen image-history
-quirks.
+Cache identity incorporates principal, session/repository, source hash and
+compiler/schema/model/policy versions. Rehydration also binds selection/render
+policies and bounds. A changed source or incompatible version cannot silently
+reuse an old index. Missing, expired or evicted state is a cache miss.
 
-### 6.3 SLAIF Local Coding Adapter
+The default cache location is `/dev/shm/slaif-local-coding`, with a protected
+XDG filesystem fallback. Directories use `0700`, files `0600`, and writes are
+atomic. Per-entry, total and pinned budgets are enforced. Derived text is still
+sensitive even though raw prompts, images, source and tool output are not
+persisted. Cache deletion must never destroy authoritative information.
 
-High-trust private component. It receives the complete model-bound request,
-selects route policy, performs transformations, schedules compiler calls, and
-streams the upstream response. It must not expose raw content through logs,
-metrics, cache names, exceptions, or debug headers.
+## Image adaptation
 
-### 6.4 vLLM/Qwen
+Image policy is explicit per route: `retain_newest`, `reject` or `passthrough`.
+The designated one-image Codex route uses `retain_newest`. It keeps the newest
+supported image content item by request traversal order and leaves non-image
+content and its relative order intact.
 
-Private inference provider. It receives only the transformed request. It does
-not know or manage cache mechanics. Internal compiler calls use the same model
-but a separate, non-recursive direct channel.
-
-### 6.5 Codex tools and repository
-
-Codex executes file/shell/Git tools on its client workstation. The adapter does
-not directly mount or read that filesystem. Referenced constitutional documents
-become available only when their content crosses the API boundary in project
-instructions, input items, or tool outputs.
-
-### 6.6 Operator
-
-Configures routes, service credentials, cache bounds, and deployments; can view
-safe metrics and purge derived cache. Operators should not need to inspect raw
-customer payloads for routine diagnosis.
-
-## 7. Component model
-
-### 7.1 ASGI API frontend
-
-Recommended implementation: Python 3.12, FastAPI/Starlette, Uvicorn, HTTPX
-async streaming, Pydantic settings/models. The adapter owns:
-
-- `/healthz` — process liveness;
-- `/readyz` — configuration/cache/upstream readiness with no secret disclosure;
-- `/metrics` — private Prometheus metrics;
-- transparent forwarding of `/health`, `/v1/models`, `/v1/responses`,
-  `/v1/chat/completions`, and conservatively other configured paths.
-
-The ASGI frontend must stream upstream bytes/events without assembling the full
-response. It handles downstream disconnect and cancels/closes upstream work.
-
-### 7.2 Request context builder
-
-Builds immutable metadata for one request:
-
-```text
-request ID
-endpoint and method
-resolved route/model policy
-authenticated opaque principal
-session/thread discriminator when available
-request/body hash
-content type and streaming mode
-compiler-bypass flag for internal calls
+```mermaid
+flowchart LR
+    history["Request history<br/>Earlier full image + text/tools + new crop"]
+    policy["One-image route<br/>retain_newest"]
+    output["Model request<br/>Text/tools + new crop"]
+    history --> policy --> output
 ```
 
-Untrusted external headers cannot set compiler bypass or internal identity.
-
-### 7.3 Transformation pipeline
-
-The model-bound JSON pipeline is ordered:
-
-1. parse and validate bounded JSON for transformable endpoints;
-2. normalize only enough to locate supported content items;
-3. apply route image policy;
-4. observe constitutional roots/dependency content and update derived state;
-5. obtain/validate cached compiled constitution, synchronously compiling on
-   allowed cache miss;
-6. inject bounded constitution in the route/API-specific stable location;
-7. serialize and forward;
-8. stream response unchanged except hop-by-hop transport handling;
-9. emit safe metrics.
-
-Transforms return structured internal evidence so tests can assert exact action
-without logging payloads.
-
-### 7.4 Route policy registry
-
-A route policy declares physical/semantic capabilities:
-
-```text
-route name and model selector
-allowed endpoint(s)
-max images per request
-image overflow policy: retain_newest | reject | passthrough
-constitution enabled/disabled
-maximum injected bytes
-compiler/cache policy
-request-body and timeout limits
-```
-
-Policy is configuration, validated at startup. Unknown or contradictory policy
-fails readiness.
-
-### 7.5 Image-window adapter
-
-The first algorithm is based on the proven compatibility prototype:
-recursively collect list elements whose object type is `input_image` or
-`image_url`, then remove all but the newest.
-
-The production module must improve the prototype by:
-
-- using a pure deterministic function with exhaustive tests;
-- preserving non-image content and relative order;
-- supporting Responses and Chat content structures;
-- returning counts/locations as internal metadata;
-- applying only on a selected route;
-- rejecting unsafe/unknown over-limit shapes rather than forwarding a known
-  invalid request;
-- avoiding an externally visible debug header by default;
-- streaming the response through the shared adapter rather than a second proxy.
-
-For the designated Codex workflow, “newest” matches user intent: Codex first
-sends a full image and later sends a crop while retaining the prior image in
-history. The crop is the current observation. The route documentation must state
-that explicit two-image comparison is unsupported on this physical model; a
-route intended for comparison should use `reject`, not silent pruning.
-
-### 7.6 Constitution detector
-
-Detection is evidence-based and supports multiple forms:
-
-- Codex-generated project-instruction blocks that identify `AGENTS.md` or an
-  effective instruction directory;
-- uploaded/input-file items with filename `AGENTS.md`;
-- tool results clearly paired with a command/path reading `AGENTS.md`;
-- captured version-specific Codex envelopes;
-- conservative pattern fallback with confidence and provenance.
-
-It must not classify arbitrary prose mentioning “agents.md” as a root without
-sufficient envelope/path evidence. Every detected root records source content
-hash and evidence type.
-
-Codex may truncate or combine project instructions before sending them. The
-adapter can compile only bytes it receives. If a root identifies missing
-constitutional dependencies or likely incomplete content, the injected state
-instructs the coding model to acquire the complete files through ordinary local
-repository tools before substantive work.
-
-### 7.7 Deterministic reference extractor
-
-Before any model ranking, software enumerates candidate references from the root:
-
-- Markdown links and reference definitions;
-- backtick/quoted path-like strings;
-- normalized relative paths with known text/config extensions;
-- filename references near normative language;
-- exact duplicates collapsed while retaining all evidence spans.
-
-It rejects absolute host paths, URLs, traversal outside repository context, and
-obvious examples when policy says they are not retrievable repository files.
-Candidates are never silently discarded by the model. The compiler may classify
-them as low priority/background, but the deterministic manifest preserves that
-they were seen.
-
-### 7.8 Constitutional compiler
-
-On a source/compiler cache miss, the adapter sends a separate internal request
-directly to vLLM. The compiler receives:
-
-- source type/path label;
-- source text within a hard input bound;
-- deterministic candidate list and evidence snippets;
-- strict task instructions treating content as data;
-- strict output schema and output-token limit.
-
-It returns:
-
-```text
-source hash and schema/compiler version
-bounded constitutional summary
-normative rules with strength and evidence
-role/authority/source-of-truth boundaries
-important exceptions and ordering constraints
-candidate dependencies with:
-  path
-  reference confidence
-  constitutional priority
-  relationship/class
-  evidence
-  acquisition urgency
-conditions requiring full-source reread
-```
-
-Two scores are mandatory:
-
-- `reference_confidence`: likelihood that the text identifies a real repository
-  file;
-- `constitutional_priority`: authority/importance if it is a file.
-
-A single “constitutionness” score is forbidden because a definitely referenced
-example can have low authority, while an ambiguously formatted security policy
-can have high potential authority.
-
-Suggested classes:
-
-```text
-P0 root constitution
-P1 delegated binding constitution/security/protocol
-P2 binding procedure/testing/release/operations
-P3 architecture/contracts relevant on demand
-P4 background/examples
-```
-
-The compiler has no tools, network, filesystem, external gateway key, or ability
-to mutate cache directly. Its call uses a dedicated HTTPX client to upstream,
-not the public adapter URL, preventing recursive transformation.
-
-### 7.9 Compiler scheduler
-
-The reference GPU is memory-constrained. Compiler work is bounded:
-
-- default one concurrent compiler call;
-- source-hash deduplication so simultaneous identical misses share one result;
-- no compiler call for every normal turn;
-- compiler disabled or deferred when upstream health/capacity policy requires;
-- short reasoning/output budget;
-- text-only compiler input even when the user request contains images;
-- explicit timeout and safe fallback.
-
-Initial compilation is synchronous because the first model request needs useful
-orientation. Later low-priority dependency compilation may be incremental.
-
-### 7.10 Pseudo-context cache
-
-The cache is semantic virtual memory, not authoritative storage.
-
-Conceptual hierarchy:
-
-```text
-L0: tiny injected constitutional manifest, always present
-L1: compiled source indexes, selected by priority/task/session
-L2: original source text received in request/tool output
-L3: repository/Git/GitHub, authoritative and client-side
-```
-
-Initial backend:
-
-- bounded filesystem cache under `/dev/shm/slaif-local-coding`;
-- permission `0700` directory and `0600` files;
-- fallback to protected XDG cache when tmpfs unavailable;
-- atomic writes/renames;
-- content-addressed entries;
-- total and per-entry byte limits;
-- TTL plus LRU for unpinned entries;
-- P0/P1 entries pinned within a separate bounded budget;
-- cache schema/compiler/model/policy version in identity;
-- safe purge and complete reconstruction.
-
-No customer raw source text needs long-term cache persistence after compilation.
-If retained temporarily for deduplication/debugging, it uses a separate short TTL
-and is disabled by default. Derived indexes remain sensitive and are tenant-
-isolated.
-
-### 7.11 Session/repository identity
-
-A compiled root must be associated with the correct future requests. Preferred
-identity from the gateway:
-
-```text
-opaque principal UUID
-opaque session/thread ID
-resolved route ID
-```
-
-Additional discriminators may include Codex `prompt_cache_key`,
-`previous_response_id`, conversation identifier, or a root constitution hash.
-
-MVP single-user fallback may use:
-
-```text
-principal + route + best available session key + root hash
-```
-
-The fallback must never share indexes across different principals. When no
-reliable session identity exists, the adapter can inject only content-addressed
-root indexes explicitly observed in the current request or require the client to
-re-present the root. Production multi-user release requires the signed gateway
-identity contract.
-
-### 7.12 Constitution working-set selector
-
-The selector builds a deterministic bounded injection:
-
-1. root P0 index;
-2. acquired P1 binding indexes;
-3. missing P1 dependencies and acquisition instruction;
-4. P2 items relevant to current request keywords/tool paths when space permits;
-5. never exceed configured bytes;
-6. stable ordering for prefix-cache reuse;
-7. include source hash/version and “authoritative source overrides this index”;
-8. omit cache mechanics, LRU timestamps, or internal secrets from model-visible
-   text.
-
-The model need not know how the cache works. It sees a concise reconstructed
-project context marker and the actual rules it needs.
-
-### 7.13 Injection adapter
-
-Responses and Chat Completions have different envelopes. Injection logic is
-versioned and contract-tested against captured Codex requests.
-
-Preferred behavior:
-
-- preserve the client's system/developer ordering requirements;
-- add one stable private developer/system instruction block in the earliest
-  API-valid location;
-- do not duplicate the compiled block if already present;
-- replace a large observed `AGENTS.md` block only after the compiled output is
-  valid and semantic fallback is available;
-- otherwise supplement rather than delete original governance;
-- preserve tool definitions, `previous_response_id`, metadata, reasoning, and
-  streaming fields unless route policy explicitly changes them.
-
-### 7.14 Objective-003-b through 003-e explicit one-root boundary
-
-The selector and endpoint transforms are wired only when global/compiler/route/
-observation policy and complete static local-appliance identity are explicitly
-configured; defaults remain unchanged. For one complete root the tested request
-ordering is image policy; observation with exact in-memory source handoff; direct
-nonrecursive compiler/cache; working-set selection; injection; deterministic
-serialization. Zero/multiple/incomplete roots preserve the post-image body, as do
-compiler/cache/selection/essential-overflow failures. Marker/shape failures fail
-closed before forwarding.
-
-After successful injection, objective 003-e retains validated root/dependency
-indexes and inclusion metadata in a process-local map keyed by complete static
-identity/model/source/version/policy/bound data. On a later zero-root request
-with the exact same key, it reruns deterministic selection and endpoint-specific
-idempotent injection with no compiler call. The map is TTL/LRU/byte bounded,
-isolated by every key dimension, lost on restart, and never stores raw prompts,
-source, images, tool output, request bodies, credentials, or cache keys.
-Expired/corrupt/oversized/missing state safely preserves the original body.
-This implements adapter-boundary new-context rehydration, not real Codex
-compaction E2E.
-
-The pipeline still does not acquire missing files by fetching them, ingest
-additional unpaired tool outputs, expose admin/cache endpoints, introduce signed
-multi-user identity, or change traffic cutover. Its selection ordering is root P0;
-acquired P1 by path/source hash; missing-P1 acquisition by urgency/path; then
-acquired P2/P3 by independent constitutional priority descending, path, and
-source hash while finite UTF-8/entry budgets permit. P4 is omitted. Optional
-entries are omitted whole; essential overflow fails typed rather than truncating
-law. Injection is idempotent only for identical version/content at the stable
-Responses `instructions` field or earliest Chat system location, and any other
-marker collision fails closed.
-
-A marker/version enables idempotence and debugging without exposing cache IDs.
-
-### 7.14 Observability
-
-Private metrics should include:
-
-```text
-requests by endpoint/route/status/streaming
-upstream latency and time to first byte
-active upstream/compiler requests
-images observed/forwarded/removed/rejected
-constitution roots detected by evidence type
-compiler cache hits/misses/failures/timeouts/latency/tokens
-references discovered by class/priority (counts only)
-injected bytes and entries
-cache bytes/entries/evictions/expirations
-fallback and fail-closed events
-```
-
-Logs contain request ID, route, status, counts, durations, hashes truncated or
-HMACed where needed, and error class. They do not contain raw bodies, prompts,
-source, filenames from private repos unless explicitly safe, images, tool output,
-or credentials.
-
-## 8. Request flows
-
-### 8.1 Ordinary text request, cache hit
-
-```text
-1. Gateway authenticates and resolves local-Qwen route.
-2. Adapter validates internal identity and route.
-3. Request contains no images; image transform is a no-op.
-4. Session/root maps to a valid compiled working set.
-5. Adapter injects stable bounded constitution.
-6. Adapter forwards to vLLM.
-7. vLLM response/SSE streams through unchanged.
-8. Safe metrics record hit, injected bytes, upstream usage/latency.
-```
-
-### 8.2 First `AGENTS.md` encounter
-
-```text
-1. Detector finds an effective AGENTS.md block and hashes it.
-2. Deterministic extractor enumerates all candidate referenced files.
-3. Cache miss starts one direct internal compiler call.
-4. Compiler returns strict validated rules/dependency ranking.
-5. Adapter stores derived index atomically.
-6. It injects root rules plus missing high-priority dependencies.
-7. Main coding request proceeds to vLLM.
-```
-
-If compilation fails, the original governance-bearing request is preserved and
-forwarded when upstream limits permit. The optimization may fail; governance
-must not disappear.
-
-### 8.3 Referenced file acquisition
-
-```text
-AGENTS.md says SECURITY.md is binding.
-Compiler marks SECURITY.md P1 required, content missing.
-Injected state tells model to read it before substantive mutation.
-Qwen emits ordinary shell/file tool call.
-Codex reads SECURITY.md locally and returns tool output.
-Adapter observes path/content pairing, hashes, compiles, and stores P1 index.
-Future requests receive both root and security index.
-```
-
-The adapter does not execute the file read itself.
-
-### 8.4 Post-compaction request
-
-Codex may replace detailed conversation history with a compacted summary. The
-adapter injects the stable constitutional working set into every model request,
-so the next Qwen call receives the critical rules independently of what the
-client summary retained.
-
-If Codex computes compaction from its own local estimate, the adapter may not
-reduce how often the UI compacts. It still removes the post-compaction blindness.
-If Codex uses provider-reported usage, reduced upstream input may additionally
-delay compaction. This is an empirical acceptance-test question, not an assumed
-claim.
-
-### 8.5 Full image followed by crop
-
-```text
-Turn N request contains full image A.
-Turn N+1 history contains old A plus new crop B.
-Route says max_images=1, retain_newest.
-Adapter removes A and forwards B with all text/tool context preserved.
-vLLM never receives two images and avoids the hard one-image error.
-```
-
-### 8.6 Explicit multi-image comparison
-
-If the selected route cannot support it and policy is `reject`, the adapter
-returns a documented error explaining the route limit. The system must not claim
-that newest-image-only preserves a true comparison request.
-
-### 8.7 Streaming tool call
-
-The adapter transforms only the request. It then relays SSE event bytes/order,
-including reasoning/text/function-call deltas and completed usage. It must not
-parse/reconstruct the stream unless a later explicit compatibility policy
-requires it. Disconnect closes upstream promptly.
-
-## 9. Data contracts
-
-The implementation should define typed internal models equivalent to the
-following.
-
-### 9.1 `RoutePolicy`
-
-```text
-name
-model selectors
-endpoint selectors
-max_images_per_request
-image_overflow_policy
-constitution_enabled
-max_injected_bytes
-compiler policy
-cache policy
-timeouts/body limits
-```
-
-### 9.2 `ConstitutionSource`
-
-```text
-source kind: AGENTS_ROOT | DELEGATED_FILE | OTHER
-logical path/label
-content hash
-observed content length
-observation evidence and confidence
-principal/session/route context
-created/last-seen timestamps
-```
-
-### 9.3 `CandidateReference`
-
-```text
-normalized relative path
-all deterministic evidence spans/types
-reference confidence
-constitutional priority
-relationship/class
-acquisition urgency
-compiler evidence/reason
-state: missing | observed | compiled | stale | invalid
-```
-
-### 9.4 `ConstitutionIndex`
-
-```text
-schema/compiler/model/policy versions
-source identity/hash
-purpose
-normative rules with strength/evidence
-role and source-of-truth boundaries
-important exceptions/order constraints
-dependencies
-full-source reread triggers
-bounded rendered form
-```
-
-### 9.5 `TransformationResult`
-
-```text
-transformed body
-images seen/forwarded/removed
-constitution detection/cache/compile status
-injected bytes/entry counts
-fallback/rejection reason
-safe metric labels
-```
-
-## 10. Cache correctness and invalidation
-
-A source index is valid only when all identity inputs match:
-
-```text
-principal isolation key
-source content hash
-compiler prompt/schema version
-compiler model/revision identifier
-route/policy version
-render format version
-```
-
-A changed source hash creates a new entry. The old entry is never silently
-attached to the new root. Source mtime is not authoritative because the adapter
-normally does not see the client filesystem.
-
-Staleness states:
-
-- `VALID`: all identities match;
-- `MISSING`: dependency named, content not yet observed;
-- `STALE`: source observed with a different hash;
-- `INVALID`: compiler/schema validation failed;
-- `EXPIRED`: TTL elapsed;
-- `EVICTED`: derived entry removed for budget.
-
-A missing or evicted index is a cache miss, not data loss.
-
-## 11. Image adaptation correctness
-
-The pruning algorithm must define “newest” by traversal order of actual content
-items as serialized in the request, with tests for supported envelopes. It must
-not use dictionary key order as semantic chronology across unrelated fields
-without an endpoint-specific rule.
-
-For Responses, chronology normally follows the ordered input/item arrays. For
-Chat Completions, chronology follows messages and each message's ordered content.
-The implementation should use explicit endpoint walkers rather than an
-unbounded generic recursive delete for production, while retaining a generic
-fallback only when proven safe.
-
-Before forwarding, the adapter verifies the resulting image count does not
-exceed policy. It does not decode/re-encode image payloads in the MVP; it only
-retains/removes complete content items, minimizing CPU/RAM and fidelity risk.
-
-## 12. Resource management on a 24 GB GPU host
-
-The model consumes nearly all GPU memory. The adapter is CPU/network middleware
-and must not import torch, load the model, decode images, or reserve GPU memory.
-
-Constraints:
-
-- one compiler call at a time by default;
-- bounded request bodies and source/compiler outputs;
-- streaming instead of response buffering;
-- no copying large image/base64 bodies more than necessary;
-- incremental/streaming JSON optimization may be considered after correctness;
-- cache tens of megabytes, not gigabytes;
-- low-concurrency live tests;
-- avoid launching duplicate vLLM servers;
-- do not modify the running model service during ordinary tests;
-- timeout/backpressure when upstream saturated.
-
-The adapter must remain usable when `/dev/shm` is small or unavailable; the
-protected filesystem fallback is required.
-
-## 13. API compatibility
-
-### 13.1 Responses API
-
-The reference Codex path uses `/v1/responses`. The adapter must preserve at least:
-
-- `model`, `input`, `instructions`, `tools`, `tool_choice`;
-- function call and `function_call_output` continuation;
-- reasoning settings supported by upstream;
-- `stream`, SSE typed events, final usage;
-- metadata/identifiers needed for session correlation;
-- upstream errors and status codes.
-
-The adapter does not claim full OpenAI Responses parity beyond what the selected
-vLLM/gateway route supports.
-
-### 13.2 Chat Completions
-
-Support is included because chat clients may use the same appliance and the
-existing image prototype covers both endpoint shapes. Transformations remain
-route-capability gated.
-
-### 13.3 Other paths
-
-Unknown/configured passthrough paths should be forwarded without JSON
-transformation where safe. Internal health/metrics paths are adapter-owned and
-must not collide with upstream semantics.
-
-## 14. Failure semantics
-
-### 14.1 Upstream unavailable
-
-Return a sanitized 502/503 according to failure type. Do not expose upstream key,
-private address beyond configured operator policy, stack trace, or raw body.
-Readiness fails.
-
-### 14.2 Malformed JSON on transformable endpoint
-
-Return an explicit client error; do not silently bypass image limits or attempt
-constitutional rewriting on unknown bytes.
-
-### 14.3 Compiler timeout/error/schema failure
-
-Record safe failure metadata. Preserve/forward original governance-bearing
-request when within safe limits. Do not cache invalid output as valid. Apply
-bounded retry policy only; no recursive or unbounded calls.
-
-### 14.4 Cache unavailable
-
-Operate without optimization using original request semantics. Readiness may be
-degraded but not necessarily failed if cache is optional. Image enforcement
-continues because it does not depend on cache.
-
-### 14.5 Image over limit
-
-- `retain_newest`: transform, verify count, forward;
-- `reject`: return deterministic documented error;
-- `passthrough`: allowed only when upstream capability supports the observed
-  count; otherwise configuration error/fail closed.
-
-### 14.6 Missing session identity
-
-Never reuse another principal's cache. Use current-request observed content and
-content-addressed entries only, or run without cross-turn rehydration. Multi-user
-production readiness requires reliable internal identity.
-
-### 14.7 Downstream disconnect
-
-Cancel/close upstream response stream and release concurrency slots. Do not let
-orphan compiler/main requests consume the constrained GPU indefinitely.
-
-## 15. Security and privacy architecture
-
-### 15.1 Data minimization
-
-No raw payload logging. Metrics are aggregate counts/timings. Cache stores the
-minimum derived text needed for rehydration. Raw source retention is off by
-default.
-
-### 15.2 Internal authentication
-
-Production gateway-to-adapter traffic uses a service credential plus signed
-opaque principal/session/route metadata. The adapter strips any external attempt
-to inject these headers.
-
-### 15.3 Compiler prompt injection boundary
-
-Repository governance may contain adversarial text. The compiler prompt:
-
-- labels the content as data;
-- grants no tools;
-- asks only for classification/extraction;
-- requires strict schema;
-- limits output and candidates;
-- validates paths/strings after generation;
-- never executes or fetches a referenced path.
-
-The main coding model may still be instructed by the repository's genuine
-`AGENTS.md`; that is expected. The compiler itself must not perform side effects.
-
-### 15.4 Cache confidentiality
-
-Per-principal namespaces, restricted permissions, unguessable/HMACed identifiers
-where exposed to filesystem names, TTL, purge, and no public cache endpoint.
-
-### 15.5 Host protection during development
-
-The current model installation is a protected fixture, not a disposable VM.
-Passwordless sudo may be used for safe repository-local dependencies and test
-services but not for unrequested changes to qwen-serving, systemd units,
-network/firewall/VPN, model files, API keys, or the live Codex endpoint.
-
-## 16. Observability and operator experience
-
-Operator commands should eventually provide:
-
-```text
-slaif-local-coding doctor
-slaif-local-coding cache status
-slaif-local-coding cache purge --principal/--all
-slaif-local-coding config check
-slaif-local-coding live-test --profile qwen38-vision
-```
-
-The first implementation may expose equivalent Python/HTTP commands before a
-stable CLI. Diagnostics must show counts, hashes/versions, and failure classes,
-not raw governance or prompts.
-
-Example safe event:
-
-```json
-{
-  "event": "request_transformed",
-  "request_id": "...",
-  "route": "qwen38-vision-codex",
-  "images_seen": 2,
-  "images_forwarded": 1,
-  "constitution": "cache_hit",
-  "injected_bytes": 9120,
-  "status": 200,
-  "upstream_ms": 1840
-}
-```
-
-## 17. Packaging and configuration
-
-### 17.1 Python package
-
-Expected structure after implementation:
-
-```text
-src/slaif_local_coding/
-├── app.py
-├── config.py
-├── proxy.py
-├── routing.py
-├── transforms/
-│   ├── images.py
-│   └── constitution.py
-├── constitution/
-│   ├── detect.py
-│   ├── references.py
-│   ├── compiler.py
-│   ├── schema.py
-│   ├── cache.py
-│   ├── select.py
-│   └── inject.py
-├── security.py
-├── telemetry.py
-└── cli.py
-```
-
-Tests mirror these boundaries and include fake/live/end-to-end layers.
-
-### 17.2 Configuration
-
-Configuration is validated TOML/environment. Secrets come only from protected
-environment/service credential files, never committed TOML. Route policy is
-explicit and versioned.
-
-### 17.3 systemd
-
-Development service binds `127.0.0.1:18031`. Unit uses a separate repository
-venv, protected environment file, restart/backoff, and logs safe metadata only.
-It does not replace or reconfigure the existing Qwen/vLLM service or active Codex profile in objective 000.
-
-### 17.4 OCI/Compose
-
-Later packaging can colocate gateway, adapter, and vLLM on a private Compose
-network, while retaining separate source repositories/images. Deployment pins
-component versions in a manifest.
-
-## 18. SLAIF API Gateway integration
-
-The gateway route resolves user/model permissions before the adapter. The
-adapter should receive the resolved route rather than independently guessing
-from model strings where possible.
-
-Important accounting consequence: constitutional replacement and image pruning
-change what vLLM tokenizes. Gateway pre-reservation remains conservative; final
-provider usage is authoritative when available. Internal compiler overhead is a
-separate capacity metric and an explicit pricing-policy decision.
-
-Cross-repository changes use coordinated but separate PRs. The adapter can be
-built/tested standalone against vLLM first. Gateway integration begins only when
-the adapter contract is stable.
-
-## 19. Verification architecture
-
-### 19.1 Unit tests
-
-Pure transforms, schemas, extraction, cache identity/invalidation, budget,
-selector, header policy, and fail modes.
-
-### 19.2 Fake-upstream contract tests
-
-An ASGI/mock upstream returns JSON, errors, delayed streams, function-call SSE,
-and disconnect scenarios. Tests prove faithful forwarding and no response
-buffering.
-
-### 19.3 Live vLLM tests
-
-Use current authenticated private endpoint without changing the service. Verify
-text, tools, streaming, vision, image cap, compiler call, cache hit, and sentinel
-constitution behavior.
-
-### 19.4 Actual Codex tests
-
-Use a disposable Git repository and the installed Codex profile. Verify local
-file/shell tools, long `AGENTS.md`, delegated documents, full image then crop,
-compaction/history reduction, and immediate continued compliance.
-
-### 19.5 Security tests
-
-Header spoofing, principal isolation, no raw logs, malformed payloads,
-compiler-schema injection, path traversal, cache permissions/limits, secret scan,
-and upstream error sanitization.
-
-## 20. Controlled cutover
-
-The accepted development adapter must not automatically replace the current
-Codex-to-Qwen/vLLM path.
-
-A separate cutover objective must (see the exact prepare-only runbook in
-`docs/RELEASE-CUTOVER-RUNBOOK.md`):
-
-1. verify accepted/merged adapter version and clean CI;
-2. capture the current Codex profile/provider endpoint and relevant service config/backup;
-3. install adapter on a non-conflicting port first;
-4. rerun real Codex text/tool/vision/compaction tests;
-5. update gateway/profile to adapter deliberately;
-6. verify no direct external vLLM route remains;
-7. prove rollback to the prior endpoint;
-8. avoid cutting off the active coding agent mid-turn;
-9. report exact final service/port/firewall state;
-10. require strategic/human acceptance before retiring any superseded compatibility path.
-
-## 21. Licensing and provenance
-
-The project should use Apache-2.0 unless the repository owner decides otherwise.
-It must prominently acknowledge `syv-ai/qwen38-27b-rtx3090` and retain upstream
-notices for reused code. Prefer pinned upstream checkout/patch integration over
-copying the whole repository.
-
-Model/checkpoint terms are independent. The installer records exact model
-repository, revision, checksums, and license. No model weights enter Git.
-
-## 22. OAP implementation sequence
-
-The architecture is intentionally sliced into reviewable objectives:
-
-- 000: live contract, pass-through foundation, image policy;
-- 001: AGENTS detection and deterministic reference manifest;
-- 002: internal compiler and validated cache;
-- 003: injection, dependency acquisition, compaction rehydration;
-- 004: actual Codex E2E, security/operations hardening (merged PR #6;
-  real-E2E accepted, fixture-scoped);
-- 005: gateway integration and controlled cutover contract (merged PR #7;
-  the live cutover itself remains the separate human-authorized final act);
-- 006: signed-request replay hardening (merged PR #8);
-- 007: current Gateway contract CI (merged PR #9);
-- 008: durable acceptance evidence (merged PR #10);
-- 009: release candidate and operational closure (merged PR #11; the original
-  "reproducible SME package and honest release evidence" milestone name);
-- 010: pre-cutover topology and signed-ingress correctness (merged PR #12;
-  prepare-only; cutover NOT performed);
-- 011: Docker MVP packaging and release-readiness closure (merged PR #13;
-  deployment-qualified in disposable/CI environments only);
-- 012: current Gateway peer re-pin (merged PR #14);
-- 013: 0.1.0 RC stabilization, documentation freeze, and RC-safe
-  publication machinery (PR #15, open as of this writing; the historical
-  private publication of rounds 013-b..013-g was registry-only on the
-  non-public package and was never published to users — that output is
-  legacy, NOT the RC target; the RC registry publication is a separate
-  later round bound to the exact reviewed source commit; no cutover, no
-  real deployment yet evidenced).
-
-The original planned meanings formerly associated with numeric 006-008 are
-historical planning prose, not live objective identifiers. Cutover is NOT
-performed; the product is NOT finally released (the objective-013 RC
-publication is a separate later round bound to the exact reviewed source
-commit; a final public release — including the Git tag `v0.1.0` targeting
-the image source commit and the GitHub Release that follows that tag — is
-a separate later human-authorized act).
-
-Each numeric objective is one PR. Follow-up letters amend the same PR until the
-strategic agent is satisfied and all required CI is green.
-
-## 23. Acceptance definition for the product MVP
-
-The MVP is credible when all of the following are demonstrated on the reference
-host without client modification:
-
-1. Codex reaches the adapter through an ordinary OpenAI-compatible profile.
-2. Text Responses, ordinary tools, multi-turn continuation, and SSE still work.
-3. Full image followed by crop succeeds although upstream accepts one image.
-4. A long effective `AGENTS.md` is detected and compiled on first hash.
-5. Delegated files are enumerated and ranked with evidence.
-6. Repeated requests hit bounded content-addressed cache.
-7. A distinctive binding rule remains available after simulated/actual
-   compaction.
-8. Changed governance content invalidates the old index.
-9. Cache state cannot cross test principals/sessions.
-10. No raw prompt/code/image/secret appears in logs or metrics.
-11. vLLM, firewall, VPN, and current coding endpoint were not unintentionally
-    modified.
-12. The gateway integration path is implemented, merged, and continuously
-    Gateway-contract tested (objectives 005/007); the live cutover itself
-    remains the separate human-authorized final act.
-
-This is an SME-oriented engineering MVP, not a claim of general semantic memory,
-perfect instruction interpretation, unlimited multimodality, or production
-certification.
-
-## 24. Open questions to answer empirically
-
-- Exact current Codex request markers for effective `AGENTS.md` and tool-output
-  file/path pairing.
-- Best stable session discriminator available through current Codex and gateway.
-- Whether Codex compaction frequency uses local estimates or provider-reported
-  usage after transformation.
-- Whether vLLM structured output is reliable enough for the compiler schema or
-  requires tolerant parse/retry.
-- Appropriate maximum source/injected sizes for latency and rule fidelity.
-- Whether the compiler should use the same Qwen route or a smaller dedicated
-  local model in larger deployments.
-- Current verified zero-image launch/capacity fact and any future vision-mode
-  configuration decision remain separate from the route-gated adapter design.
-- How compiler GPU overhead should be represented in gateway capacity/pricing.
-
-These are first-class test questions. The implementation must record evidence,
-not turn assumptions into architecture claims.
+Responses `input_image` and Chat `image_url` shapes are supported. Zero- and
+one-image requests remain unchanged by image adaptation. For multiple images,
+the result is checked against the route limit; unsafe over-limit shapes fail
+closed. Images are neither decoded nor re-encoded.
+
+Retaining a crop makes the full-image-then-crop workflow usable on a one-image
+model. It does **not** preserve an intentional two-image comparison. Such a
+workflow needs a capable route or an explicit rejection policy.
+
+## Failure behavior and observability
+
+| Condition | Behavior |
+| --- | --- |
+| Invalid authentication, identity, route signature or replay | Reject before transformation or upstream work. |
+| Malformed or oversized transformable request | Return a bounded client error; no unsafe bypass. |
+| Compiler timeout, invalid output or cache failure | Preserve original governance when safe; never cache invalid output as valid. Image enforcement remains independent. |
+| Ambiguous/incomplete root or essential working-set overflow | Preserve the post-image request instead of deleting or truncating governance. |
+| Missing or expired rehydration state | Preserve the request; no invented context or cross-principal reuse. |
+| Unsafe image shape or marker collision | Reject explicitly. |
+| Upstream unavailable | Return a sanitized gateway error; readiness fails. |
+| Downstream disconnect | Close upstream work and release resources. |
+
+Resource bounds cover request bytes, JSON structure, source size, compiler
+output/time/concurrency, injection size, cache occupancy and replay state.
+Streaming reduces response memory pressure; compiler overhead remains a separate
+capacity cost. Gateway reservation/final accounting stays with the Gateway,
+using provider usage where available.
+
+Operators use process liveness, readiness and private Prometheus-compatible
+metrics. Metrics report fixed states, counts and timings for requests,
+transforms, compiler/cache outcomes and failures. Raw prompts, repository text,
+images, tool output, bodies, credentials and compiled content are excluded from
+logs and metrics. See [SECURITY.md](SECURITY.md) for the privacy and protected-host
+rules, and [DEPLOYMENT.md](docs/DEPLOYMENT.md) for operational procedures.
+
+## Implementation map
+
+The implementation uses Python 3.12, FastAPI/Starlette, HTTPX, Pydantic and
+Uvicorn, with locked dependencies managed by uv.
+
+| Area | Source |
+| --- | --- |
+| API, ordered pipeline and streaming | [app.py](src/slaif_local_coding/app.py) |
+| Validated runtime and route configuration | [config.py](src/slaif_local_coding/config.py) |
+| Signed identity and replay protection | [gateway_identity.py](src/slaif_local_coding/gateway_identity.py) |
+| Image and Responses tool policies | [image_policy.py](src/slaif_local_coding/image_policy.py), [tool_policy.py](src/slaif_local_coding/tool_policy.py) |
+| Evidence-based observation and candidate enumeration | [detector.py](src/slaif_local_coding/constitution/detector.py), [references.py](src/slaif_local_coding/constitution/references.py) |
+| Compilation and strict index contracts | [compiler.py](src/slaif_local_coding/constitution/compiler.py), [compiler_models.py](src/slaif_local_coding/constitution/compiler_models.py) |
+| Derived cache | [cache.py](src/slaif_local_coding/constitution/cache.py) |
+| Dependency acquisition and rehydration | [pipeline.py](src/slaif_local_coding/constitution/pipeline.py) |
+| Working-set selection and endpoint injection | [working_set.py](src/slaif_local_coding/constitution/working_set.py), [injection.py](src/slaif_local_coding/constitution/injection.py) |
+| Service entry point | [cli.py](src/slaif_local_coding/cli.py) |
+
+## Verification, artifacts and limits
+
+Verification combines pure unit tests, fake-upstream API/SSE/tool/disconnect
+tests, security and isolation tests, pinned Gateway contract tests, and
+reproducible artifact and disposable Docker qualification. Bounded live vLLM
+and actual Codex tests supply separate fixture-specific evidence; a fake test
+cannot substitute for either. Exact commands and status meanings are in
+[TESTING.md](TESTING.md).
+
+The reference evidence is Qwen3.8-27B/vLLM on one RTX 3090 with 24 GB VRAM.
+[Vision acceptance](docs/VISION-ACCEPTANCE.md) records the qualified fixture;
+this is not generic hardware support, hostile multi-tenant certification,
+frontier-model equivalence or a guarantee of instruction fidelity. Model context
+and image limits depend on the selected serving configuration.
+
+The wheel is the supported native distributable; the sdist is a developer
+archive. Docker packages the wheel and locked runtime dependencies. Exact
+source, wheel hash, toolchain, Gateway authority, configuration hashes and OCI
+digest are recorded together. A mutable tag is an alias; the OCI digest is the
+artifact identity. See [release-artifact policy](docs/RELEASE-ARTIFACT-POLICY.md)
+and [RC handoff](docs/RC-HANDOFF.md). An RC record does not confer final public
+release approval.
+
+Installing or qualifying a candidate does not authorize replacing an existing
+model service or changing Gateway routing. Protected-host cutover requires its
+own authorization, baseline and rollback proof, as described in the
+[cutover runbook](docs/RELEASE-CUTOVER-RUNBOOK.md).
+
+The project is Apache-2.0. Reference RTX 3090 serving work is credited to
+[syv-ai/qwen38-27b-rtx3090](https://huggingface.co/syv-ai/qwen38-27b-rtx3090);
+[NOTICE](NOTICE) and [third-party notices](THIRD_PARTY_NOTICES.md) preserve
+attribution. Model licensing is separate and model weights are not bundled.
+Implementation history and acceptance transcripts live in
+[the OAP archive](oap/README.md) and
+[the historical roadmap](docs/IMPLEMENTATION-ROADMAP.md).

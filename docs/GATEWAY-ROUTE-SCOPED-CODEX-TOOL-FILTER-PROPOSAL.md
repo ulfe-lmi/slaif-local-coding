@@ -1,12 +1,10 @@
-# Gateway route-scoped Codex tool-filter proposal
+# Historical Gateway tool-filter proposal
 
-NOT IMPLEMENTED · NOT AUTHORIZED · proposal only
-
-This document is the smallest gateway-side contract that could authorize the
-Local Coding adapter-side compatibility policy after gateway PR #287 is
-resolved. It is not current gateway behavior. The gateway currently rejects
-the affected Codex envelope with responses_hosted_tool_not_supported, and this
-repository does not modify or vendor gateway code.
+This is a superseded design proposal. Its implementation-status statements
+below describe the proposal's original time, not the current product.
+Current route policy is documented in [ADAPTER-CONFIGURATION.md](ADAPTER-CONFIGURATION.md)
+and the accepted Gateway interface in [SLAIF-GATEWAY-INTEGRATION.md](SLAIF-GATEWAY-INTEGRATION.md).
+The original proposal is retained as engineering history.
 
 ## Proposed precondition
 

@@ -23,18 +23,17 @@ referenced by name.
   qualified image architecture; no other platform or architecture is
   claimed.
 - A **private OpenAI-compatible model server** (Qwen/vLLM) running on this
-  host at its documented loopback address (MVP appliance default:
+  host at its documented loopback address (reference default:
   `http://127.0.0.1:18020/v1`, model `qwen3.8-27b`). The container uses
   `network_mode: host` so this hop stays true host loopback.
 - The **separate SLAIF API Gateway** deployed for public access. The
   Compose project installs **only the adapter container**: it does not
   install model weights and it does not install or configure the Gateway.
 - **Bounded read-only GHCR credentials** for the private image package:
-  the EXTERNAL reader scope is `read:packages` (a classic PAT with package
+  the reader scope is `read:packages` (a classic PAT with package
   read access for this package — distinct from the Actions YAML
   `packages: read` keyword), supplied via password-stdin with bounded
-  read-only access. No request to make the package public is required or
-  made.
+  read-only access. The package can remain private.
 - A **host admin account** (root or sudo-authorized) for the two
   `/opt/slaif` file-ownership steps in section 3.
 - Outbound connectivity to the registry **at pull time only**; the runtime
@@ -67,9 +66,8 @@ path and must NOT be part of the operator project.
 - **Tag (alias):** `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2` —
   convenient, but tags are mutable aliases; verify after the pull that the
   tag resolves to the recorded registry digest (section 4).
-- **Never** the historical private `0.1.0` tag: it is legacy Objective-013
-  output that was never published to users and is NOT the RC benchmark
-  target.
+- **Never** the historical private `0.1.0` tag: it is legacy private registry
+  output that was never published to users and is not a supported candidate identity.
 
 ## 3. Prepare protected config/env files
 
@@ -98,7 +96,7 @@ umask 077
 : "${SLAIF_ADAPTER_SERVICE_TOKEN:?set SLAIF_ADAPTER_SERVICE_TOKEN in this shell from your protected store before creating the env file}"
 : "${SLAIF_ADAPTER_SIGNING_SECRET:?set SLAIF_ADAPTER_SIGNING_SECRET in this shell from your protected store before creating the env file}"
 
-# Mode-0600 environment file: the THREE DISTINCT secret roles by env name:
+# Mode-0600 environment file: the three distinct secret roles by env name:
 printf 'QWEN3090_API_KEY=%s\nSLAIF_ADAPTER_SERVICE_TOKEN=%s\nSLAIF_ADAPTER_SIGNING_SECRET=%s\n' \
   "$QWEN3090_API_KEY" "$SLAIF_ADAPTER_SERVICE_TOKEN" "$SLAIF_ADAPTER_SIGNING_SECRET" \
   > /opt/slaif/adapter.env
@@ -131,7 +129,7 @@ first).
 
 Every Compose command in this document — `pull`, `up`, `ps`, `logs`,
 `stop`, `start`, `restart`, `down`, upgrade, rollback — runs in this same
-shell with the SAME three exported variables, so no later command ever
+shell with the same three exported variables, so no later command ever
 resolves a missing or wrong default:
 
 ```bash
@@ -285,13 +283,9 @@ local host from the repository virtual environment. It is advanced,
 requires a full Python 3.12 toolchain on the host, and is the path used
 for the protected-host cutover. It is **not** the canonical operator path.
 
-The supported installation procedure is the EXACT recipe in
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — section 4 (install mechanics)
-and section 12 (Gateway-integrated deployment configuration: the **signed
-variant**, `config/adapter.gateway-integrated.template.toml`, which is the
-only supported configuration for the Gateway-integrated cutover). This
-section states the path-specific preconditions; follow those sections for
-the exact commands.
+Follow [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the wheel installation,
+signed Gateway configuration, unit setup, readiness and lifecycle procedures.
+Use its non-editable install commands and verify the recorded wheel hash.
 
 Prerequisites (this path only — the Docker path above needs none of them):
 
@@ -310,13 +304,13 @@ Prerequisites (this path only — the Docker path above needs none of them):
   `ReadWritePaths=/dev/shm/slaif-local-coding` (the default protected
   cache). If the configuration instead uses the XDG cache fallback, the
   resolved path must be added to the unit's `ReadWritePaths` before start
-  (docs/DEPLOYMENT.md section 6);
+  (see the deployment cache-path prerequisites);
 - Python 3.12 and `uv` (the locked toolchain);
 - the same model server, Gateway, and credential-law prerequisites as the
   Docker path.
 
 The supported configuration is the **signed Gateway-integrated** variant
-(docs/DEPLOYMENT.md section 12): three DISTINCT secret roles
+(see the deployment configuration section): three DISTINCT secret roles
 (`QWEN3090_API_KEY`, `SLAIF_ADAPTER_SERVICE_TOKEN`,
 `SLAIF_ADAPTER_SIGNING_SECRET`) in the mode-0600 environment file, and the
 configuration instantiated from
@@ -329,9 +323,9 @@ never be labeled or presented as the production Gateway-integrated
 configuration (the distinction is mechanically checked by
 `tests/test_gateway_integrated_deployment.py`).
 
-Upgrade/rollback on this path: rebuild or reinstall the wheel from the
-recorded source, then restart the unit and re-verify readiness
-(docs/DEPLOYMENT.md sections 9 and 10). See also
+Upgrade/rollback on this path: restore the matching source and dependency lock,
+install the exact recorded wheel, then restart and re-verify readiness
+(see the deployment upgrade and rollback sections). See also
 [docs/RELEASE-CUTOVER-RUNBOOK.md](docs/RELEASE-CUTOVER-RUNBOOK.md) for the
 prepare-only cutover/rollback procedure.
 
