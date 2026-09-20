@@ -25,12 +25,9 @@ from .models import (
 )
 from .references import extract_references, validate_exact_repository_path
 
-_PROJECT = re.compile(
+_PROJECT_HEADER = re.compile(
     r"^# AGENTS\.md instructions for (?P<directory>[^\r\n]+)\r?\n\r?\n"
-    r"<INSTRUCTIONS>\r?\n(?P<content>.*?)\r?\n</INSTRUCTIONS>"
-    r"(?P<tail>(?:\r?\n)?(?:<environment_context>\r?\n.*\r?\n"
-    r"</environment_context>\r?\n?)?)$",
-    re.DOTALL,
+    r"<INSTRUCTIONS>\r?\n"
 )
 _PROJECT_MARKER = "# AGENTS.md instructions for "
 _READ = re.compile(
@@ -46,6 +43,55 @@ class _Found:
     content: str
     evidence_type: EvidenceType
     location: str
+
+
+@dataclass(frozen=True)
+class _ProjectEnvelope:
+    directory: str
+    content: str
+    tail: str
+
+
+def _parse_project_envelope(text: str) -> _ProjectEnvelope | None:
+    """Parse delimiters in linear time, preserving exact governance bytes.
+
+    Never retry a later instruction terminator: an earlier literal closing
+    tag inside the content is ambiguous and has always been rejected. Check
+    the environment trailer once, rather than backtracking across both bodies.
+    """
+    header = _PROJECT_HEADER.match(text)
+    if header is None:
+        return None
+    start = header.end()
+    end = text.find("</INSTRUCTIONS>", start)
+    if end <= start or text[end - 1] != "\n":
+        return None
+    content_end = end - 1
+    if content_end > start and text[content_end - 1] == "\r":
+        content_end -= 1
+    tail = text[end + len("</INSTRUCTIONS>") :]
+    if tail not in ("", "\n", "\r\n"):
+        environment = tail
+        if environment.startswith("\r\n"):
+            environment = environment[2:]
+        elif environment.startswith("\n"):
+            environment = environment[1:]
+        # The existing environment trailer accepts optional CR and LF.
+        environment = environment.removesuffix("\n").removesuffix("\r")
+        prefix = "<environment_context>"
+        suffix = "</environment_context>"
+        if not environment.startswith(prefix) or not environment.endswith(suffix):
+            return None
+        body = environment[len(prefix) : -len(suffix)]
+        if body.startswith("\r\n"):
+            body = body[2:]
+        elif body.startswith("\n"):
+            body = body[1:]
+        else:
+            return None
+        if not body.endswith("\n"):
+            return None
+    return _ProjectEnvelope(header.group("directory"), text[start:content_end], tail)
 
 
 def _logical_agents_path(
@@ -99,7 +145,7 @@ def _project_sources(
 ) -> tuple[list[_Found], bool, bool]:
     invalid_path = False
     malformed = False
-    supported: list[tuple[re.Match[str], str]] = []
+    supported: list[tuple[_ProjectEnvelope, str]] = []
     inputs = payload.get("input")
     if isinstance(inputs, list):
         for input_index, parent in enumerate(inputs):
@@ -114,8 +160,8 @@ def _project_sources(
                 text = item.get("text")
                 if not isinstance(text, str) or _PROJECT_MARKER not in text:
                     continue
-                match = _PROJECT.fullmatch(text)
-                if match is None or "</INSTRUCTIONS>" in match.group("content"):
+                match = _parse_project_envelope(text)
+                if match is None:
                     malformed = True
                     continue
                 supported.append((match, f"$.input[{input_index}].content[{content_index}]"))
@@ -124,30 +170,26 @@ def _project_sources(
 
     match, location = supported[0]
     logical = _logical_agents_path(
-        match.group("directory").strip(), policy.max_path_bytes, project_directory=True
+        match.directory.strip(), policy.max_path_bytes, project_directory=True
     )
     if logical is None:
         return [], True, malformed
-    content = match.group("content")
+    content = match.content
     result = [_Found(logical, content, EvidenceType.PROJECT_INSTRUCTIONS, location)]
 
     instructions = payload.get("instructions")
     if isinstance(instructions, str) and instructions.startswith(_PROJECT_MARKER):
-        corroboration = _PROJECT.fullmatch(instructions)
-        if (
-            corroboration is None
-            or corroboration.group("tail") not in ("", "\n", "\r\n")
-            or "</INSTRUCTIONS>" in corroboration.group("content")
-        ):
+        corroboration = _parse_project_envelope(instructions)
+        if corroboration is None or corroboration.tail not in ("", "\n", "\r\n"):
             return [], invalid_path, True
         corroborating_logical = _logical_agents_path(
-            corroboration.group("directory").strip(),
+            corroboration.directory.strip(),
             policy.max_path_bytes,
             project_directory=True,
         )
         if corroborating_logical is None:
             return [], True, malformed
-        if corroborating_logical != logical or corroboration.group("content") != content:
+        if corroborating_logical != logical or corroboration.content != content:
             return [], invalid_path, True
         result.append(_Found(logical, content, EvidenceType.PROJECT_INSTRUCTIONS, "$.instructions"))
     return result, invalid_path, malformed
