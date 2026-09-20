@@ -75,7 +75,12 @@ class Proxy(BaseHTTPRequestHandler):
                     response_headers.append((key, value))
             self.send_response(response.status)
             for key, value in response_headers:
-                self.send_header(key, value)
+                # Defense at the serialization boundary as well as the
+                # fail-closed validation above: never emit CR/LF as data.
+                self.send_header(
+                    key.replace("\r", "").replace("\n", ""),
+                    value.replace("\r", "").replace("\n", ""),
+                )
             if removed:
                 self.send_header("X-Qwen-Vision-Images-Removed", str(removed))
             self.send_header("Connection", "close")
