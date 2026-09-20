@@ -50,7 +50,7 @@ RC_RECORD = REPO_ROOT / "packaging" / "rc_record.json"
 # README change moves the wheel METADATA) is an explicitly authorized input
 # change, so the accepted wheel hash moves to the 013-k identity. The
 # historical wheel 879baa3a... is NOT reused for the RC.
-ACCEPTED_WHEEL_SHA256 = "ad6be6d2e8ad0f99eafb4be7b1c78efbcffe6de16e39106182d85db03933ce1e"
+ACCEPTED_WHEEL_SHA256 = "2f1b7fa1afb7845059e150b6400977df2e957506da4228dbaa6454dff97db935"
 
 RELEASE_RECORD_KEYS = {
     "schema",
