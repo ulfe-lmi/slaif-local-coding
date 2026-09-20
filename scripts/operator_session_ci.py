@@ -156,6 +156,13 @@ def _port_free(port: int) -> bool:
 
 
 def _http_get(url: str, timeout: float = 4.0) -> tuple[int, bytes]:
+    """Readiness probe GET: ``(status, body)``.
+
+    A connection-level failure (refused/timeout — the target is still
+    starting up) returns ``(0, b"")`` so bounded wait loops retry instead
+    of crashing on the first refused probe; terminal checks fail closed on
+    0 (they expect a positive status).
+    """
     parts = url.split("://", 1)
     host_port = parts[1].split("/", 1)[0]
     host, _, port_s = host_port.partition(":")
@@ -165,6 +172,8 @@ def _http_get(url: str, timeout: float = 4.0) -> tuple[int, bytes]:
         conn.request("GET", path)
         resp = conn.getresponse()
         return resp.status, resp.read()
+    except OSError:
+        return 0, b""
     finally:
         conn.close()
 
