@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 119,
+      "entry_count": 120,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "4fc43041cc6c5f1fd92590cb24fa260d8ce2dbd8d599393fdad10eaff8a58659",
-      "size_bytes": 463718
+      "sha256": "feb889a2f7c45bbf8c5a26492b19bf49b0bafcffec2cb1a081bf37afe2f7cf16",
+      "size_bytes": 466597
     },
     "wheel": {
       "entry_count": 26,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "ad6be6d2e8ad0f99eafb4be7b1c78efbcffe6de16e39106182d85db03933ce1e",
-      "size_bytes": 75554
+      "sha256": "2f1b7fa1afb7845059e150b6400977df2e957506da4228dbaa6454dff97db935",
+      "size_bytes": 76290
     }
   },
   "build": {
@@ -40,8 +40,8 @@
     "cutover_performed": false,
     "final_public_release": false,
     "private_registry_auth_required": true,
-    "rc_identifier": "0.1.0-rc1",
-    "state": "rc_published"
+    "rc_identifier": "0.1.0-rc2",
+    "state": "pre_freeze"
   },
   "gateway_peer": {
     "client_module": {
@@ -57,7 +57,7 @@
     }
   },
   "generated_from": {
-    "git_commit": "4d096e404e14badb78b4f99142bf08ef17f0f8a7",
+    "git_commit": "ee77505a89b0715e0e3f15c651dc934f2b2dc61d",
     "repository": "ulfe-lmi/slaif-local-coding"
   },
   "limitations": [
@@ -65,8 +65,8 @@
     "Docker qualified in CI and disposable environments only; deployment-qualified (disposable/CI environments only), not release-qualified",
     "LAN-visible binding law in force (D1): a non-loopback adapter bind is legal only under the full signed ingress contract (service_bearer_signed_identity_v1); loopback remains the default",
     "cutover not performed",
-    "RC 0.1.0-rc1 (product 0.1.0) published to ghcr.io/ulfe-lmi/slaif-local-coding (PRIVATE registry; private-auth required) at digest sha256:2dd889c2841d80651eceebb0bd22397f0b9d36c5be41ed476fa2db70510d3361 with tags 0.1.0-rc1 and sha-4d096e404e14badb78b4f99142bf08ef17f0f8a7; image source commit 4d096e404e14badb78b4f99142bf08ef17f0f8a7; the digest is the authoritative identity and tags are aliases; final_public_release remains false \u2014 a final public release is a separate later decision",
-    "publication is registry-only: no protected-host cutover, no real deployment yet evidenced; the protected-host cutover remains a separate human-authorized act",
+    "not released: RC candidate state (pre-freeze) \u2014 no final public release; the historical private 0.1.0 tag is legacy unpublished-to-users output and is NOT the RC benchmark target",
+    "OCI RC image not published yet (oci.image_digest null, oci.published false, status.rc_published false); the RC container publication path is documented (workflow_dispatch-only, inert this round) and will be executed from the exact reviewed source commit in a separate later round",
     "sdist is a developer-only source archive, not a supported release artifact",
     "no multi-user, production-certification, compliance, or frontier-equivalence claim",
     "single RTX 3090 fixture evidence is fixture-scoped, not generic production equivalence",
@@ -86,24 +86,24 @@
       "digest": "sha256:e85be844203885286c60ffad8a858d48afb6c5a5c237ca0e67f12e74b8f174b1",
       "name": "ghcr.io/astral-sh/uv:0.12.5"
     },
-    "candidate_tag": "0.1.0-rc1",
-    "compose_sha256": "5fd41c6a47dde7332f20ca25f16cf938ef2dc9abbfb44c0b28a732de747a3cf6",
+    "candidate_tag": "0.1.0-rc2",
+    "compose_sha256": "51fcbcd3c02634a760f3b859fe646c1572512d2e502c370b32f6c3132bd34ce7",
     "dockerfile_sha256": "a89d6a924f119cf0a9dd6124afe47eee60fb008cbd0d2e482de9b186f2974c22",
     "dockerignore_sha256": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
-    "image_digest": "sha256:2dd889c2841d80651eceebb0bd22397f0b9d36c5be41ed476fa2db70510d3361",
+    "image_digest": null,
     "image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
     "labels": {
       "org.opencontainers.image.source": "https://github.com/ulfe-lmi/slaif-local-coding",
       "org.opencontainers.image.version": "0.1.0",
       "slaif-local-coding.gateway.peer.sha": "08ca421bee1ddca62078302b910e8be88cf705be",
       "slaif-local-coding.package.version": "0.1.0",
-      "slaif-local-coding.qualification": "rc-candidate-0.1.0-rc1; private; not final release",
+      "slaif-local-coding.qualification": "disposable-qualification-only; not released",
       "slaif-local-coding.topology.mode": "linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress",
-      "slaif-local-coding.wheel.sha256": "ad6be6d2e8ad0f99eafb4be7b1c78efbcffe6de16e39106182d85db03933ce1e"
+      "slaif-local-coding.wheel.sha256": "2f1b7fa1afb7845059e150b6400977df2e957506da4228dbaa6454dff97db935"
     },
-    "published": true,
-    "tag_convention": "published RC reference ghcr.io/ulfe-lmi/slaif-local-coding tags 0.1.0-rc1 + sha-<full image-source SHA> (private registry; digest sha256:2dd889c2841d80651eceebb0bd22397f0b9d36c5be41ed476fa2db70510d3361 recorded in packaging/rc_record.json and this manifest; the digest is the authoritative identity, tags are aliases); local qualification tags slaif-local-coding:0.1.0-<sha> via compose.build.yaml",
-    "wheel_sha256": "ad6be6d2e8ad0f99eafb4be7b1c78efbcffe6de16e39106182d85db03933ce1e"
+    "published": false,
+    "tag_convention": "0.1.0-<short-sha> (and full-sha form) locally; reserved RC publication reference ghcr.io/ulfe-lmi/slaif-local-coding with tags 0.1.0-rc2 + sha-<full-sha> (private registry; the immutable digest is the authoritative identity, tags are aliases) after the RC publication round; the historical private 0.1.0 tag is legacy unpublished-to-users output and is never a default",
+    "wheel_sha256": "2f1b7fa1afb7845059e150b6400977df2e957506da4228dbaa6454dff97db935"
   },
   "reference_compatibility": {
     "codex_client": {
@@ -116,7 +116,7 @@
   "runtime": {
     "package_name": "slaif-local-coding",
     "package_version": "0.1.0",
-    "pyproject_sha256": "ebfd63ce72e083c2b35cff4455d4bb0afa900fdad720fc8b763e35123d103476",
+    "pyproject_sha256": "2a078535af87cf9433cfb9d6b913697931e1946ade71f3d6ead0e4617add88b3",
     "python": "3.12",
     "uv_lock_sha256": "1237cbd179f71b99984c80f927529549f5e61eb705585ef9cf2ab0fa9e26764a"
   },
@@ -124,41 +124,41 @@
   "schema_version": 5,
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
-    ".github/workflows/ci.yml": "750130c563647328939064cdbfe069bb17b6a0b8b9b514b86d42cf42833d3370",
+    ".github/workflows/ci.yml": "0ba90b781ef639d198ee637e68ad218881825c3de74b76752cdd1114a6a38573",
     "CONTRIBUTING.md": "912350cc06e97d38ea252b9588b50402b7a82f4a1bc6798317bf89967bf00d13",
     "Dockerfile": "a89d6a924f119cf0a9dd6124afe47eee60fb008cbd0d2e482de9b186f2974c22",
-    "INSTALL.md": "0dcfb07e4038b7cbbc679008f0259453210f9307505abf0a11957d4b9b69c812",
+    "INSTALL.md": "e9bc104b9db0536583d2bff9a1fcf70fb4f6b18194543e95abb5aabda64f20d6",
     "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "NOTICE": "95034243e7bde9fa107444a2c49d29966d989410498cff304cd867caf2879c3b",
-    "QUICKSTART.md": "3f7bbf1094306e7e1faf93c62695fbe542a81c5c16ab09619841b5f87078103d",
-    "README.md": "dd9afdafec1fb97e946d9b82524f9539fcba0c07e2120d53851d89e5e8ac8d00",
+    "QUICKSTART.md": "9451b2c8614eec35308b5a38e33b54e04592fd6acb2d234fec14a873bb25c82f",
+    "README.md": "9d363a09d0977686b0f5c0b0fbf9d6c192b414c3c1082a3a1b599c103638ae81",
     "THIRD_PARTY_NOTICES.md": "9a61ab9a2fdd12c33697adb6b26e1f839f52fbeed7675b3351b26897d052aa80",
     "compose.build.yaml": "954138d4831bd8abbba7100ca3364fb3180d7f39b6d309bed23e727b51359adb",
-    "compose.yaml": "5fd41c6a47dde7332f20ca25f16cf938ef2dc9abbfb44c0b28a732de747a3cf6",
+    "compose.yaml": "51fcbcd3c02634a760f3b859fe646c1572512d2e502c370b32f6c3132bd34ce7",
     "config/adapter.deployment.template.toml": "fad125733e5dc956ef39bf76124ee4a8562d94f7320344e76aa2ee7bfb7004c7",
     "config/adapter.example.toml": "92050fceec9511a0a1470d2de20b9788b41f84321925de38e228cd0879097d86",
     "config/adapter.gateway-integrated.template.toml": "58ff541b520e18145400018de6cfec666e86314701f585e8f672931544ed7090",
     "docs/ADAPTER-CONFIGURATION.md": "85729121fff712d518af347027adf3fccf6cab9da70979d251cd999c1d285cf9",
     "docs/DEPLOYMENT.md": "0f4d1a02b99e592a8f552adf1a6fddf4e961bda452f39a73ce338ffe70d49b72",
-    "docs/DOCKER-INSTALL.md": "cbc837927ce4ec0741d16e1ee766d572faf392c16380d52fcf1647ee33fbcab9",
+    "docs/DOCKER-INSTALL.md": "981eade94ba6de4ff5a3c8a7678e68fe4d098b7522d23dfad009e32198495f85",
     "docs/DOCKER-SECURITY-DELTA.md": "5e705ade0c56e5a064cd781f7fc7a9a5eff037e4fb62e049afdf5bdc5890a345",
     "docs/GATEWAY-CONTRACT-CI.md": "403ccc04835572fe6546be813bf4f0f084124bd4c28127a39643a50f6ae9132f",
     "docs/GATEWAY-ROUTE-SCOPED-CODEX-TOOL-FILTER-PROPOSAL.md": "d09c16c220ee4991e2d9aafe767a48eee1b0001ddc76e39bea811ae29d85566e",
     "docs/IMPLEMENTATION-ROADMAP.md": "3aed10c6043718c58ca94f7eaa3619e4e10b0cd8581e72d2e2875171a1222c27",
     "docs/OBJECTIVE-004-LEDGER.md": "258e40a951672fb499f3a15e37e711e8dbc6eceab7d2ff4c2225cd0ab65df13b",
     "docs/OBJECTIVE-005D-SECURITY-CONTAINMENT.md": "602be9a7fab0b19f2713fa197117952885d38a48bcfa991597d32e749bed2d24",
-    "docs/RC-HANDOFF.md": "287acd08d7185248b9d82ec2799d9d71ef500f0170d8b2dabdfeecb875d26012",
+    "docs/RC-HANDOFF.md": "1eb4076e60cfd4c9850785de2ab72b250d727d584855e07a45b4a4b52b4e34e3",
     "docs/README.md": "7003f8a23a007ac132e14f8cdbb54fdd9a4dd2cc875b486982f57c5937f092e1",
-    "docs/RELEASE-ARTIFACT-POLICY.md": "6af5b253f1622aa51d09aa5ac62d35b2e4d753ef539980afb121d31e32628142",
+    "docs/RELEASE-ARTIFACT-POLICY.md": "ce46c8bdaedb72f658b25df84a018908437ce1bc654286447b964f6d38f6d3b2",
     "docs/RELEASE-CUTOVER-RUNBOOK.md": "c958b09b579717f5eea3b02addfadb5322b78ef5ae760478979a0f7aca83762a",
-    "docs/TOPOLOGY.md": "9b3fc4f042c50e82292bb2984c6b252b1ddecfdf3dba9859bd25e8c7c7d2b05e",
+    "docs/TOPOLOGY.md": "275b014abbabb8c5cbea1d89f6c5678e93c871beeb3890a73b9f1c136c799486",
     "docs/VISION-ACCEPTANCE.md": "62b5c413d0dda505a8cd1a8a3cfbc2695582b7d8a8de29a1bb7f3c42dfa28be7",
     "docs/topology.manifest.json": "408f488f30902adbc7d88a4ef4ef4542b0a56ad1a7191856a72931dc53c27b15",
-    "packaging/rc_artifact_record.schema.json": "f9b526ad2d9bed14553a1a6f54085865f49810294810cbe8ca4db1f6d69cb02e",
+    "packaging/rc_artifact_record.schema.json": "d4e9d4b27c9be85a45d32b21459430a699f207d5ba246bd3613d47d995e4f787",
     "packaging/readyz-wait.sh": "a667934433c32b3cb3724cf8667c9ec64f08d984a43656dd699cc46bd1f4075b",
     "packaging/slaif-local-coding.service": "b859eca1e80a373422e41327b2cdbe975d1e92fa3265b0afd0eb2c7c94373c4a",
     "packaging/slaif-local-coding.service.example": "8afbc2a9c57bde8aa4d6121cb5c383707cb848c19d0d90843b217af9bfb97eaa",
-    "pyproject.toml": "ebfd63ce72e083c2b35cff4455d4bb0afa900fdad720fc8b763e35123d103476",
+    "pyproject.toml": "2a078535af87cf9433cfb9d6b913697931e1946ade71f3d6ead0e4617add88b3",
     "src/slaif_local_coding/__init__.py": "79562ee8efeb0ee91c24475d76e8a351734d6ff2e88288c1b952cbe4a508e517",
     "src/slaif_local_coding/__main__.py": "6d8b7d7846a845059d7a3107143f11131f63c5511d669b44085b15ec5e3d2279",
     "src/slaif_local_coding/app.py": "473c212e97b8f76afc4e6c412e90820b1d570d1ac1e57acdfce0fe3acea20c2a",
@@ -168,7 +168,7 @@
     "src/slaif_local_coding/constitution/cache.py": "41eb171dea737b743a83a72036b097113f82e317db4a21c45d3135ac9287e104",
     "src/slaif_local_coding/constitution/compiler.py": "7dfd09c0b92f8dbea7a802b6b2fbaaa1c9c5352ef223d75e2c979b660baad87d",
     "src/slaif_local_coding/constitution/compiler_models.py": "5413545b9c44612a20c6894b71149e1532e739d856dd760964bcfa3955e7bc5d",
-    "src/slaif_local_coding/constitution/detector.py": "33f94c4cc50cf95d96e680f9a6d09df2227fc911d8f729bb0f4d7c695f07b410",
+    "src/slaif_local_coding/constitution/detector.py": "bc8ea20f06da82e3dee63a0c52d3bdd185798489d184b7ebf8736c9cd4c528b8",
     "src/slaif_local_coding/constitution/injection.py": "bf99442cceacc06f835ebd3742fb49738b223aeb0251908e4b4c242febdac066",
     "src/slaif_local_coding/constitution/models.py": "b1b82c1e99194ba3710baa1a5dd88ca9ff9a5740aa8083724412407a070a02df",
     "src/slaif_local_coding/constitution/pipeline.py": "50e284e409415ddc42190871a641fa910e48c906f0ed9a67e44fffdd586fb33f",
@@ -210,12 +210,12 @@
     "tests/test_capture_helper.py": "92222840bc226051bfe8aa1f07eff422e86a99c4540c67f2428ce00e75472f91",
     "tests/test_capture_tool_types.py": "716ba13b6cffe27f27a69e3c7734ae619e55f37f7730859f9b657a35d98162d9",
     "tests/test_compiler.py": "972ef007a9f1dd3e7a2c79d8f2fa2b83ce9a42618058f1ed9b2d111fbd365227",
-    "tests/test_compose_pull_canonical.py": "70bb89168b66f8d5b47c74609c8ce70f6158dfa0366374932b3c649f3d5f1624",
+    "tests/test_compose_pull_canonical.py": "96e00ab2903272f9d2e8694727515d71f591165f2e00fa6da4ee35d47d73ab85",
     "tests/test_current_gateway_contract.py": "ba9a741da0a41d6532887670c335af141879f6775366c1403f41737c281266f0",
     "tests/test_cutover_state_machine.py": "d8825a83af141324674474ff65f6745396baf1b5c6567dd1a041f44de09ccca8",
     "tests/test_dependency_acquisition.py": "7a1c52040d52d8b723c7a4e2a3f5205b1abf9165b0e7689dafcfcaf5b082ceb2",
-    "tests/test_docker_qualification_record_gate.py": "f9b702f7ac061a57d665901a8ba49b119c3b77ebff994ba47a24ef62ed75ebd9",
-    "tests/test_docs_consistency.py": "8decabf794c123597e36c90fe4b3c908a52bc14883139fd3e6b5ee187baad85d",
+    "tests/test_docker_qualification_record_gate.py": "b8340e0baf32c8b9c7a3cc9ce6e8cfc9c6383a86444d1f47345568a85a5e52a5",
+    "tests/test_docs_consistency.py": "68e8453beb40c4e4db225bd58f64526a7dbc96b1c27d15cb90ad56c71ab6448b",
     "tests/test_e2e.py": "e59f22df2e2dd93bde4b2869f829d95ad8fc098ff0913a461fd5795ce29085ac",
     "tests/test_gateway162_validator_factory.py": "e0f942e86931bfde3a9f8027e96137f50272e457fa91370f7ac3cd5bc12fa637",
     "tests/test_gateway_contract_runner.py": "72c87fbc698ad4e9ca07fc440d31462b7ac6f5bf5170327381a053678755989c",
@@ -227,17 +227,18 @@
     "tests/test_json_structure.py": "91a788b99dd7d8bc0bb633410bc9b93b79a8a54bb173eca87264c0a456dbd53d",
     "tests/test_live.py": "85e03986dc45370e59b473b3571e54a80f80ac60480ff5f7973db2a87242e7bf",
     "tests/test_local_qwen_provider_differential.py": "117e4f74fd377abdd3088d4a137c35c0e2d14a6fac48fb5b98f1095108f0f76c",
-    "tests/test_observation.py": "1fdb21ff205013c6ba75180421a4634cbf8d3297fcd87a0e50d346eda695c127",
+    "tests/test_observation.py": "6a77f3d92ceb142ed0b365c72b0bd90ddb7616751ce5d2d0c60f745e03dd26d7",
     "tests/test_path_safety.py": "8df836d3e0bfdd843968908b6da35bfef45f7adc5fe91e67474d21f69e1995fd",
     "tests/test_pipeline.py": "5ac65c3252583cf3eb47610ec4034c3a42673672ef2ae8666747b7b8320e62ee",
-    "tests/test_rc_record.py": "52a2febcfbd97fb759e063d639fb22ce1623bb875afbd049f15509345e629602",
+    "tests/test_rc_record.py": "d510342a2b2aa56820f77cbbc920c2a4a4d7ca806f32acc9116b0cf052cf8131",
+    "tests/test_reference_proxy_headers.py": "9a6aaf9af01a7c1a0c7514ff1274a48fd85bc57ff8562251b0acaa9253f1e2b9",
     "tests/test_rehydration.py": "da759af26560ecb3c2bc9855f654152a0521add0aa6de1d8751fb661bda49b59",
-    "tests/test_release_provenance_manifest.py": "f853a009530bdf571320d412a8f30c631702d55c2b73485e34d515c908c72f54",
-    "tests/test_release_registry_publish_digest.py": "02b6e869019287b3a061ec413c0631e9c7a318b7a4d34fa1f4d52430884739af",
-    "tests/test_release_registry_publish_gate.py": "1bc967b53308e541edaf0d3a7e3f553da065c52e7721c3b258124939d46f5590",
+    "tests/test_release_provenance_manifest.py": "293264a700e0e9d9613ff5bc8a704fa17315ccf8ab8418b93a797322881cf4e4",
+    "tests/test_release_registry_publish_digest.py": "cc092bd2ff96615bacd885da50fa188d59e819d2f7439340757ec813bfc9fa46",
+    "tests/test_release_registry_publish_gate.py": "3a861ee7c803c510e16fe3141a4dcf1b6890d532a3fed875eb0716efaabbe0ac",
     "tests/test_runtime_lock_ci.py": "917a5fc2e32292cb31e114ba31708d9a817b43dcdb79a1e15df55383a2cfc1f5",
     "tests/test_safe_evidence_export.py": "2bf1f53f34bacb007f0e2b4aff5854c4e234f0ce0731837cee343c8cf38ef5e0",
-    "tests/test_source_input_binding.py": "c8261f8e4270a77cbc18591f72c3e2eebe635489428b0f08914031f74a519b86",
+    "tests/test_source_input_binding.py": "1b7d66fa71509b318a8445fec5562a17f11b581369209ea16074be4866e12cd4",
     "tests/test_tool_policy.py": "82a283ebe46bbe95d6a63fdacadb03c8ff2288f8d8f00ceee0786d3e71cc1aaf",
     "tests/test_topology_qualification.py": "1ac4f8b0ba978d87f1142aaa69baf7608a80f547ffbfff3a2c9c4f8a30e6d993",
     "tests/test_transport_observer.py": "b14b16cf85e73d5c9587615d0ebef860c3235c688df73df4b432d3dbc25781e3",
@@ -249,7 +250,7 @@
     "cutover_performed": false,
     "deployment_qualified": "disposable-environment-only",
     "final_public_release": false,
-    "rc_published": true
+    "rc_published": false
   },
   "templates": {
     "config_example_sha256": "92050fceec9511a0a1470d2de20b9788b41f84321925de38e228cd0879097d86",
