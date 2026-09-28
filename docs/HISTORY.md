@@ -39,11 +39,27 @@ the recorded time; they are not current operating instructions.
   the record, handoff, and provenance manifest are archived
   byte-identical under `packaging/releases/0.1.0-rc3/`. This is not a
   claim that ledger 002's recorded model/tool interactions failed.
-- **RC4** (order 014-b): the collision-safe successor candidate carrying
-  the repaired qualification harness, the corrected
-  `slaif-rc-record-v3` companion schema, and the evidence-bound RC
-  record; qualified and published only after every prepublication gate
-  succeeds. See the [RC handoff](RC-HANDOFF.md).
+- **RC4** (order 014-b): the successor candidate carrying the repaired
+  qualification harness, the corrected `slaif-rc-record-v3` companion
+  schema, and the evidence-bound RC record. Its genuine Codex 0.149.0
+  qualification (immutable [testing ledger
+  003](../oap/evidence/testing-ledger/003/)) and its actual pulled-image
+  Docker qualification passed in scope, but the candidate was **not
+  accepted overall**: after publication, the record-present suite exposed
+  a stale RC3 identity residue in the test source; the repair was
+  committed as a post-publication SOURCE change (an altered mapped test
+  after the image source freeze); and the post-publication provenance
+  rebind then recorded that later source-input map while the record's
+  `image_source_commit` and `workflow_head_sha` still named the earlier
+  immutable image source — the committed handoff falsely bound a later
+  source-input map to the earlier immutable image source. The record
+  builder's source-reference binding was closed fail-closed in the
+  successor candidate (order 014-c, workstream B). The RC4 aliases
+  (`0.1.0-rc4`, `sha-601a7f9f...`) remain occupied and immutable; the
+  record, handoff, and published provenance are archived byte-identical
+  under `packaging/releases/0.1.0-rc4/`. This is not a claim that ledger
+  003's recorded model/tool interactions failed — that scoped PASS
+  remains truthful in its scope.
 
 ## Source-pinned documentation snapshots
 

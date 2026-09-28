@@ -272,3 +272,26 @@ def test_rc1_archive_is_immutable_and_excluded_from_artifact_inputs(
         assert hashlib.sha256((archived / name).read_bytes()).hexdigest() == digest
     inputs = sim.map_from_directory(REPO_ROOT)
     assert not any(path.startswith("packaging/releases/") for path in inputs)
+
+
+def test_rc4_archive_is_immutable_and_excluded_from_artifact_inputs(
+    sim: types.ModuleType,
+) -> None:
+    """Order 014-c, workstream A: the rejected RC4 record set is archived
+    byte-identical (the record, handoff, and the published rc-published
+    provenance exactly as they stood at publication) and, like RC1-RC3,
+    is excluded from every artifact input."""
+    import hashlib
+
+    archived = REPO_ROOT / "packaging/releases/0.1.0-rc4"
+    expected = {
+        "rc_record.json": ("8255d6d79827bcb8f17004c261b387ba27838a47ffd4463413638ce7ba4b8e86"),
+        "rc_handoff.md": ("ea02cd2161902c0ade85a86747669ef562d10179bdbfc22a149f598008db2917"),
+        "release_provenance_manifest.json": (
+            "b659586beff9c91fd73cf1ff2da0b0973a151d07b821209148259783fdd43c69"
+        ),
+    }
+    for name, digest in expected.items():
+        assert hashlib.sha256((archived / name).read_bytes()).hexdigest() == digest
+    inputs = sim.map_from_directory(REPO_ROOT)
+    assert not any(path.startswith("packaging/releases/") for path in inputs)
