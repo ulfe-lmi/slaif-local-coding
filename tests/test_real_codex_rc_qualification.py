@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tomllib
 from collections.abc import Callable
@@ -212,6 +213,44 @@ def test_diff_protected_detects_change() -> None:
         "units_changed": 1,
         "ports_changed": 1,
     }
+
+
+def _fake_run(state: str, returncode: int) -> Callable[..., subprocess.CompletedProcess[bytes]]:
+    def run(
+        *a: str | bytes, **k: object
+    ) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            args=list(a), returncode=returncode, stdout=state.encode(), stderr=b""
+        )
+
+    return run
+
+
+@pytest.mark.parametrize(
+    ("state", "returncode"),
+    [
+        ("active", 0),
+        ("inactive", 3),  # legitimate protected state (qwen-serving.service)
+        ("inactive", 4),  # unit not present still prints its state
+        ("failed", 3),
+    ],
+    ids=["active", "inactive", "not-present", "failed"],
+)
+def test_read_unit_state_accepts_printed_states(
+    monkeypatch: pytest.MonkeyPatch, state: str, returncode: int
+) -> None:
+    # is-active exits non-zero for legitimate non-active states; the
+    # printed state is the readability criterion, never the exit code.
+    monkeypatch.setattr(gate.subprocess, "run", _fake_run(state, returncode))
+    assert gate.read_unit_state("some-unit.service") == state
+
+
+def test_read_unit_state_fails_closed_when_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(gate.subprocess, "run", _fake_run("", 1))
+    with pytest.raises(gate.QualificationError, match="unreadable"):
+        gate.read_unit_state("some-unit.service")
 
 
 def test_sentinel_constants_are_bounded() -> None:

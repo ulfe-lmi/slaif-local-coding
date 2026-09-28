@@ -390,15 +390,7 @@ def snapshot_protected(args: argparse.Namespace) -> ProtectedSnapshot:
             raise QualificationError("protected file is missing (fail closed)")
         snap.files[raw] = sha256_file(path)
     for unit in args.protect_unit:
-        proc = subprocess.run(
-            ["systemctl", "--user", "is-active", unit],
-            capture_output=True,
-            timeout=30,
-        )
-        state = proc.stdout.decode().strip()
-        if proc.returncode > 1 or not state:
-            raise QualificationError(f"protected unit state unreadable: {unit}")
-        snap.units[unit] = state
+        snap.units[unit] = read_unit_state(unit)
     for port in args.protect_port:
         snap.ports[int(port)] = count_listeners(int(port))
     return snap
@@ -413,6 +405,25 @@ def diff_protected(before: ProtectedSnapshot, after: ProtectedSnapshot) -> dict[
         "units_changed": units_changed,
         "ports_changed": ports_changed,
     }
+
+
+def read_unit_state(unit: str) -> str:
+    """Return the exact ``systemctl --user is-active`` state string.
+
+    ``is-active`` exits non-zero for LEGITIMATE non-active states (3 =
+    inactive/failed, 4 = unit not present — both still print their
+    state), so the non-empty state string is the readability criterion;
+    empty output (missing user bus, malformed query) fails closed.
+    """
+    proc = subprocess.run(
+        ["systemctl", "--user", "is-active", unit],
+        capture_output=True,
+        timeout=30,
+    )
+    state = proc.stdout.decode().strip()
+    if not state:
+        raise QualificationError(f"protected unit state unreadable: {unit}")
+    return state
 
 
 def check_port_free(port: int) -> None:
