@@ -464,7 +464,9 @@ def test_status_fields_state_conditional() -> None:
         assert oci["image_digest"] is None
 
 
-def test_oci_hash_cross_checks_against_committed_files() -> None:
+def test_oci_hash_cross_checks_against_committed_files(
+    generator: types.ModuleType,
+) -> None:
     committed = _committed()
     oci = cast("dict[str, object]", committed["oci"])
     artifacts = cast("dict[str, dict[str, object]]", committed["artifacts"])
@@ -494,13 +496,17 @@ def test_oci_hash_cross_checks_against_committed_files() -> None:
     assert labels["org.opencontainers.image.version"] == runtime["package_version"]
     peer = cast("dict[str, object]", committed["gateway_peer"])
     assert labels["slaif-local-coding.gateway.peer.sha"] == peer["commit"]
+    # Order 014-b, workstream C.1: the expected qualification label is the
+    # generator's own state constant (single source of truth) — the stale
+    # hardcoded RC3 label was an RC3->RC4 identity residue that surfaced
+    # only once the rc4 record existed (record-present state).
     state = _state()
     if state == "rc":
-        expected_qualification = "rc-candidate-0.1.0-rc3; private; not final release"
+        expected_qualification = generator.RC_QUALIFICATION_LABEL
     elif state == "final":
-        expected_qualification = "mvp-release-0.1.0"
+        expected_qualification = generator.PUBLISHED_QUALIFICATION_LABEL
     else:
-        expected_qualification = "disposable-qualification-only; not released"
+        expected_qualification = generator.QUALIFICATION_LABEL
     assert labels["slaif-local-coding.qualification"] == expected_qualification
 
 
