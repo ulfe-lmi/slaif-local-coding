@@ -71,7 +71,7 @@ REHEARSAL_FACTS_CREATED_AT = "2026-01-01T00:00:00Z"
 
 # Real, committed qualification ledgers usable as stale prior-RC evidence
 # targets (the rehearsal repo always carries them).
-REAL_LEDGER_NUMBERS = ("003", "002", "001")
+REAL_LEDGER_NUMBERS = ("004", "003", "002", "001")
 
 # The focused record-present gate set (the strict record/provenance/schema/
 # docs/Docker-record gates; no Docker, no network, no registry).
@@ -440,19 +440,57 @@ def _assert_candidate_branch(clone: Path, source: str) -> None:
     record = json.loads((clone / "packaging" / "rc_record.json").read_text())
     if record["rc_identifier"] != rc_id:
         raise RehearsalError("record rc_identifier is not the candidate identity")
-    if record["image_source_commit"] != source:
-        raise RehearsalError("record image_source_commit is not the candidate source")
-    if record["workflow_head_sha"] != source:
-        raise RehearsalError("record workflow_head_sha is not the candidate source")
-    if record["oci_tags"] != [rc_id, f"sha-{source}"]:
+    source_commit = record["image_source_commit"]
+    # One qualified source boundary (order 014-c, WS-B.5): the record's
+    # image source and workflow head must name the SAME commit.
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", str(source_commit))
+        or record["workflow_head_sha"] != source_commit
+    ):
+        raise RehearsalError(
+            "record image_source_commit/workflow_head_sha do not name one qualified source boundary"
+        )
+    # PRE mode synthesizes the record AT the candidate source; POST mode
+    # runs at a later derived-metadata head, so the qualified boundary
+    # must be the candidate source itself or an ancestor of it (a record
+    # naming an unrelated or later commit fails closed).
+    if source_commit != source:
+        if (
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(clone),
+                    "merge-base",
+                    "--is-ancestor",
+                    source_commit,
+                    source,
+                ],
+                capture_output=True,
+            ).returncode
+            != 0
+        ):
+            raise RehearsalError(
+                "record image_source_commit is not reachable from the candidate source"
+            )
+    if record["oci_tags"] != [rc_id, f"sha-{source_commit}"]:
         raise RehearsalError("record oci_tags are not [RC, sha-<source>]")
     if record["oci_image_digest"] != manifest["oci"]["image_digest"]:
         raise RehearsalError("record digest is not the manifest digest")
-    source_ref_map = map_from_git_commit(clone, source)
+    source_ref_map = map_from_git_commit(clone, source_commit)
     if record["source_input_hashes"] != source_ref_map:
         raise RehearsalError("record source_input_hashes is not the source-ref map")
     if manifest["source_inputs"] != source_ref_map:
         raise RehearsalError("manifest source_inputs is not the source-ref map")
+    # No mapped input may change after the source freeze: the candidate
+    # source's own map must equal the qualified boundary's map (only
+    # explicitly excluded derived-metadata/OAP differences are permitted
+    # by the map policy).
+    if map_from_git_commit(clone, source) != source_ref_map:
+        raise RehearsalError(
+            "candidate source map differs from the qualified source "
+            "boundary map (post-freeze mapped change)"
+        )
 
 
 def _expect_rejection(mutate: Any, label: str) -> None:
