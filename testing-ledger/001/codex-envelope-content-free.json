@@ -1,0 +1,58 @@
+{
+  "attempt_id": "codex-envelope-capture-no-model-08",
+  "codex_exit_status": 1,
+  "created_at": "2026-09-28T03:30:39.685983+00:00",
+  "dict_valued_type_paths": [
+    {
+      "path": [
+        "tools",
+        5,
+        "tools",
+        2,
+        "parameters",
+        "properties",
+        "items",
+        "items",
+        "properties",
+        "type"
+      ],
+      "value_keys": [
+        "description",
+        "type"
+      ]
+    },
+    {
+      "path": [
+        "tools",
+        5,
+        "tools",
+        3,
+        "parameters",
+        "properties",
+        "items",
+        "items",
+        "properties",
+        "type"
+      ],
+      "value_keys": [
+        "description",
+        "type"
+      ]
+    }
+  ],
+  "model_calls": 0,
+  "request_received": true,
+  "schema": "slaif-codex-envelope-content-free-v1",
+  "tool_count": 9,
+  "top_level_tool_types": [
+    "function",
+    "function",
+    "function",
+    "function",
+    "function",
+    "namespace",
+    "function",
+    "function",
+    "function"
+  ]
+}

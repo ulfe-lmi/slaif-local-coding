@@ -1,0 +1,47 @@
+{
+  "schema": "slaif-product-compatibility-blocker-v1",
+  "recorded_at": "2026-09-28T03:26:51+00:00",
+  "product_image": "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:2349400a0dd5dbcec560f6c164283f24e5a55c5f474114416af21d6f3b2cb100",
+  "source_commit": "0a2f34b6d6fc17b732a1e7570f751776dce1ae01",
+  "subject_codex": "0.149.0",
+  "served_model": "qwen3.8-27b",
+  "symptom": "Real Codex requests through adapter arms return an internal-server envelope before any upstream backend tokens are recorded.",
+  "reproduction": {
+    "exception": "TypeError: unhashable type: 'dict'",
+    "frame": "slaif_local_coding/image_policy.py:35 in walk",
+    "source_expression": "node.get(\"type\") in IMAGE_TYPES",
+    "trigger": "Codex tool-schema envelope contains a dictionary-valued type field during recursive image counting."
+  },
+  "content_free_capture": {
+    "artifact": "codex-envelope-content-free.json",
+    "model_calls": 0,
+    "dict_valued_type_paths": 2,
+    "trigger_context": "Nested namespace-tool parameter JSON schema"
+  },
+  "minimal_offline_reproducer": {
+    "artifact": "rc2-image-policy-minimal-reproducer.json",
+    "network": "none",
+    "model_calls": 0,
+    "result": "TypeError: unhashable type: 'dict'"
+  },
+  "controls": {
+    "direct_backend_codex": "reached the model and completed a tool loop",
+    "vm_to_adapter_responses": "passed",
+    "worker_container_to_adapter_responses": "passed",
+    "real_codex_to_adapter": "failed reproducibly"
+  },
+  "affected_conditions": [
+    "VISION",
+    "BOTH",
+    "CACHE"
+  ],
+  "excluded_private_evidence": [
+    "raw Codex events",
+    "adapter logs",
+    "subject workspaces",
+    "credentials and authentication files"
+  ],
+  "required_resolution": "Produce a new immutable candidate that safely type-checks image markers against real Codex envelopes, add regression coverage, and repeat qualification. Do not rewrite RC2 in place.",
+  "qualification_blocked": true,
+  "formal_benchmark_attempts": 0
+}
