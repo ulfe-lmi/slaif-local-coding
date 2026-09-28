@@ -15,7 +15,7 @@ The record includes:
 
 | Identity | Recorded facts |
 | --- | --- |
-| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc4`. |
+| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc5`. |
 | Source | Exact 40-hex image source commit and publication-run head SHA. |
 | Image | Full OCI reference, authenticated `sha256` digest and tag aliases. |
 | Package | Exact wheel SHA-256 and dependency-lock hash. |
@@ -96,7 +96,12 @@ record](../packaging/releases/0.1.0-rc3/rc_record.json),
 also remain byte-identical; RC3's scoped real-Codex smoke passed (immutable
 testing ledger 002) but the candidate was not accepted: its publication
 preceded a successful aggregate security gate, and later review found the
-record-schema and qualification-harness defects repaired in RC4. The
-current candidate is RC4, which contains the qualification-harness repair
-and the evidence-bound RC record. Each candidate has a separate source,
-wheel and digest. Legacy private `0.1.0` tags are not handoff targets.
+record-schema and qualification-harness defects repaired in RC4. RC4
+(`0.1.0-rc4`) qualified in scope (immutable testing ledger 003) but was
+not accepted: the committed provenance bound a later source-input map to
+the earlier immutable image source; its record set is archived
+byte-identical under `packaging/releases/0.1.0-rc4/`. The current
+candidate is RC5, which adds the fail-closed source-reference binding
+and the prepublication record-present rehearsal to the
+qualification-harness repair and the evidence-bound RC record. Each
+candidate has a separate source, wheel and digest. Legacy private `0.1.0` tags are not handoff targets.

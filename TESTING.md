@@ -152,7 +152,22 @@ deterministic handoff, and the ledger evidence. A green deterministic
 fixture is never real-client evidence, and a missing, unavailable,
 skipped, or blocked real-client arm is a blocker, never a pass. No
 benchmark ran; the final public release remains false; the package
-remains private; the protected cutover remains false.
+remains private; the protected cutover remains false. RC4
+(`0.1.0-rc4`) qualified in scope (immutable [testing ledger
+003](oap/evidence/testing-ledger/003/README.md)) but was rejected
+overall: after publication, the record-present suite exposed a stale
+RC3 identity residue, the repair committed a post-publication SOURCE
+change, and the post-publication provenance rebind recorded that later
+source-input map while the record still named the earlier immutable
+image source; its record set is archived byte-identical under
+`packaging/releases/0.1.0-rc4/`. RC5 (`0.1.0-rc5`) is the successor
+candidate: the record builder binds the record's source identity to the
+literal supplied source commit fail-closed (any altered mapped input
+after the source freeze rejects the builder), ordinary CI runs the
+deterministic prepublication record-present rehearsal
+(`scripts/rc_record_present_rehearsal.py`) at the candidate source,
+and the corrected harness reruns for the next immutable testing ledger
+(expected number 004).
 
 ## Evidence and review
 

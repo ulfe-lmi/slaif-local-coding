@@ -265,7 +265,7 @@
       ],
       "properties": {
         "rc_identifier": {
-          "const": "0.1.0-rc3"
+          "const": "0.1.0-rc5"
         },
         "state": {
           "enum": [
@@ -343,7 +343,7 @@
           "minLength": 1
         },
         "candidate_tag": {
-          "const": "0.1.0-rc4"
+          "const": "0.1.0-rc5"
         },
         "base_image": {
           "$ref": "#/$defs/base_image"

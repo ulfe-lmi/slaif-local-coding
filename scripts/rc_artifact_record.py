@@ -90,7 +90,7 @@ Usage (publication round only):
         --head-sha <40-hex workflow run head SHA> \\
         --published-at 2026-01-01T00:00:00Z \\
         --qualification-facts \
-            oap/evidence/testing-ledger/NNN/real-codex-rc4-qualification.json \
+            oap/evidence/testing-ledger/NNN/real-codex-rc5-qualification.json \
         [--run-id <int>] \\
         [--emit packaging/rc_record.json] \\
         [--emit-handoff packaging/rc_handoff.md]
@@ -117,12 +117,12 @@ from source_input_map import map_from_directory, map_from_git_commit  # noqa: E4
 MANIFEST_PATH = Path("packaging/release_provenance_manifest.json")
 HANDOFF_PATH = Path("packaging/rc_handoff.md")
 
-# Order 014-b, workstream C: RC4 supersedes the rejected RC3 (RC3's scoped
-# real-Codex smoke passed per immutable ledger 002, but publication preceded
-# a successful aggregate security gate and later review found the
-# record-schema and qualification-harness defects; the RC3 identity is
-# occupied and immutable, archived under packaging/releases/0.1.0-rc3/).
-RC_IDENTIFIER = "0.1.0-rc4"
+# Order 014-c, workstream D: RC5 supersedes the rejected RC4 (RC4's scoped
+# real-Codex smoke passed per immutable ledger 003, but the committed
+# provenance bound a later source-input map to the earlier immutable image
+# source; the RC4 identity is occupied and immutable, archived under
+# packaging/releases/0.1.0-rc4/).
+RC_IDENTIFIER = "0.1.0-rc5"
 PRODUCT_VERSION = "0.1.0"
 IMAGE_REFERENCE = "ghcr.io/ulfe-lmi/slaif-local-coding"
 PUBLICATION_WORKFLOW = "release-image.yml"
@@ -142,9 +142,9 @@ CLIENT_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 EVIDENCE_PATH_PATTERN = re.compile(r"^oap/evidence/testing-ledger/[0-9]{3}$")
 # Order 014-b, workstream B.3: the single manifest-verified facts file the
 # compatibility section is DERIVED from (exact closed path: a three-digit
-# ledger number, the RC4 gate output name).
+# ledger number, the RC5 gate output name).
 QUALIFICATION_FACTS_PATTERN = re.compile(
-    r"^oap/evidence/testing-ledger/[0-9]{3}/real-codex-rc4-qualification\.json$"
+    r"^oap/evidence/testing-ledger/[0-9]{3}/real-codex-rc5-qualification\.json$"
 )
 # sha256sum-format ledger manifest line: 64-hex digest, two spaces, path.
 LEDGER_MANIFEST_LINE = re.compile(r"^([0-9a-f]{64})  (\S.*)$")
@@ -404,7 +404,7 @@ def derive_compatibility(repo: Path, facts_rel: str) -> dict[str, object]:
     if not isinstance(facts_rel, str) or QUALIFICATION_FACTS_PATTERN.fullmatch(facts_rel) is None:
         raise RCRecordError(
             "qualification facts path must match "
-            "oap/evidence/testing-ledger/NNN/real-codex-rc4-qualification.json"
+            "oap/evidence/testing-ledger/NNN/real-codex-rc5-qualification.json"
         )
     ledger_dir = repo / Path(facts_rel).parent
     if not ledger_dir.is_dir():

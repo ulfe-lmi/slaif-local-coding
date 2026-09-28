@@ -1,5 +1,5 @@
 """Bounded standalone real-Codex RC qualification (order 014-a; order 014-b
-workstream A: qualification-harness gap closure for RC4).
+workstream A: qualification-harness gap closure for RC5).
 
 Runs a GENUINE Codex CLI (exact pinned version/hash) against the candidate
 adapter built from the exact pinned wheel, in the EXACT supported standalone
@@ -102,12 +102,12 @@ SCHEMA = "slaif-real-codex-rc-qualification-v2"
 MODEL = "qwen3.8-27b"
 PRODUCT_ARMS: tuple[str, ...] = ("VISION", "CACHE", "BOTH")
 PROMPT = (
-    "Use your shell tool to create a file named rc4-smoke.txt in the current "
+    "Use your shell tool to create a file named rc5-smoke.txt in the current "
     "directory. The file must contain exactly the two characters ok followed "
     "by a single newline. After creating the file, reply with exactly the "
     "single word DONE."
 )
-SENTINEL_NAME = "rc4-smoke.txt"
+SENTINEL_NAME = "rc5-smoke.txt"
 SENTINEL_SIZE = len("ok\n")
 # Synthetic governance content for the disposable smoke workspace. It is the
 # minimal request-side trigger for the deterministic AGENTS.md observation:
@@ -115,15 +115,15 @@ SENTINEL_SIZE = len("ok\n")
 # quotes/backticks, so the deterministic extraction yields zero dependency
 # candidates while a genuine root still crosses the API boundary.
 SMOKE_AGENTS_MD = (
-    "# Synthetic RC4 smoke governance\n"
+    "# Synthetic RC5 smoke governance\n"
     "\n"
-    "This file is synthetic governance content created only for the RC4\n"
+    "This file is synthetic governance content created only for the RC5\n"
     "real-Codex qualification smoke run. It carries no repository\n"
     "instructions, no credentials, no real project policy, and no file\n"
     "references. Keep all replies bounded and change nothing except the\n"
     "explicitly requested sentinel file.\n"
 )
-CLIENT_ENV_KEY = "SLAIF_RC4_QUALIFICATION_KEY"
+CLIENT_ENV_KEY = "SLAIF_RC5_QUALIFICATION_KEY"
 # Codex ``--json`` item types that represent one genuine model/tool
 # interaction (content-free classification: only the item type is read).
 TOOL_ITEM_TYPES: frozenset[str] = frozenset(
@@ -304,7 +304,7 @@ def render_codex_home_config(*, provider: str, base_url: str, catalog: Path, mod
         f'model_catalog_json = "{catalog}"\n'
         "\n"
         f"[model_providers.{provider}]\n"
-        f'name = "SLAIF RC4 smoke"\n'
+        f'name = "SLAIF RC5 smoke"\n'
         f'base_url = "{base_url}"\n'
         f'env_key = "{CLIENT_ENV_KEY}"\n'
         'wire_api = "responses"\n'
@@ -356,9 +356,9 @@ def render_adapter_config(
     )
     identity = (
         'identity_source = "static"\n'
-        'principal = "rc4-smoke-principal"\n'
-        'session = "rc4-smoke-session"\n'
-        'repository = "rc4-smoke-repository"\n'
+        'principal = "rc5-smoke-principal"\n'
+        'session = "rc5-smoke-session"\n'
+        'repository = "rc5-smoke-repository"\n'
         if constitution
         else ""
     )
@@ -411,7 +411,7 @@ schema_version = "observation-v1"
 policy_version = "references-v1"
 
 [[routes]]
-name = "rc4-smoke-{arm.lower()}"
+name = "rc5-smoke-{arm.lower()}"
 model = "{MODEL}"
 {image_block}{route_flags}enable_responses = true
 enable_chat_completions = true
@@ -770,7 +770,7 @@ def build_model_catalog(codex_bin: str, home: Path, out: Path) -> None:
         template = models[0]
     template["slug"] = MODEL
     template["display_name"] = MODEL
-    template["description"] = "RC4 smoke qualification model"
+    template["description"] = "RC5 smoke qualification model"
     out.write_text(json.dumps({"models": [template]}))
     out.chmod(0o600)
 
@@ -1031,7 +1031,7 @@ class ArmFacts:
 
 def _prepare_workspace(root: Path, workspace: Path) -> None:
     workspace.mkdir(parents=True, mode=0o700)
-    (workspace / "README.md").write_text("rc4 smoke workspace\n")
+    (workspace / "README.md").write_text("rc5 smoke workspace\n")
     (workspace / "AGENTS.md").write_text(SMOKE_AGENTS_MD)
     subprocess.run(["git", "init", "-q", str(workspace)], check=True, capture_output=True)
     subprocess.run(
@@ -1040,9 +1040,9 @@ def _prepare_workspace(root: Path, workspace: Path) -> None:
             "-C",
             str(workspace),
             "-c",
-            "user.name=RC4 Smoke",
+            "user.name=RC5 Smoke",
             "-c",
-            "user.email=rc4-smoke@example.invalid",
+            "user.email=rc5-smoke@example.invalid",
             "add",
             "README.md",
             "AGENTS.md",
@@ -1056,9 +1056,9 @@ def _prepare_workspace(root: Path, workspace: Path) -> None:
             "-C",
             str(workspace),
             "-c",
-            "user.name=RC4 Smoke",
+            "user.name=RC5 Smoke",
             "-c",
-            "user.email=rc4-smoke@example.invalid",
+            "user.email=rc5-smoke@example.invalid",
             "commit",
             "-q",
             "-m",
@@ -1130,7 +1130,7 @@ def run_arm(
     limits: Limits,
     facts_out: ArmFacts,
 ) -> None:
-    provider = f"slaif_rc4_{arm.lower()}"
+    provider = f"slaif_rc5_{arm.lower()}"
     base_url = (
         f"http://127.0.0.1:{args.adapter_port}/v1" if arm in PRODUCT_ARMS else upstream_base_url
     )
@@ -1229,7 +1229,7 @@ def run_arm(
             if facts_out.sentinel_present and facts_out.sentinel_size_bytes != SENTINEL_SIZE:
                 facts_out.sentinel_present = False
 
-            route = f"rc4-smoke-{arm.lower()}"
+            route = f"rc5-smoke-{arm.lower()}"
             if arm in PRODUCT_ARMS and adapter is not None:
                 metrics = http_get(f"http://127.0.0.1:{args.adapter_port}/metrics").decode()
                 counts = request_status_counts(metrics, "/v1/responses", route)

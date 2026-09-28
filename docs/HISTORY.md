@@ -60,6 +60,19 @@ the recorded time; they are not current operating instructions.
   under `packaging/releases/0.1.0-rc4/`. This is not a claim that ledger
   003's recorded model/tool interactions failed — that scoped PASS
   remains truthful in its scope.
+- **RC5** (order 014-c): the successor candidate after the RC4
+  rejection. This round closed the RC record builder's source-reference
+  binding fail-closed (the record's `source_input_hashes` are the input
+  map of the literal supplied source commit, proven against the
+  committed provenance manifest and the checkout before anything is
+  written), added the deterministic prepublication record-present
+  rehearsal to ordinary CI, reconciled every candidate constant,
+  schema, publisher/workflow label, gate, test, and current doc from
+  RC4 to exactly `0.1.0-rc5`, and froze a new image source for the
+  private `0.1.0-rc5` publication. The RC5 wheel, digest, publication
+  run, and genuine Codex 0.149.0 qualification are recorded in the RC5
+  artifact record, its deterministic handoff, the provenance manifest,
+  and the next immutable testing ledger (expected number 004).
 
 ## Source-pinned documentation snapshots
 

@@ -31,6 +31,7 @@ import platform
 import re
 import shutil
 import subprocess
+import tempfile
 import types
 from collections.abc import Callable
 from pathlib import Path
@@ -134,13 +135,16 @@ def source_commit_a() -> str:
 
 
 @pytest.fixture(scope="module")
-def regenerated(
+def clean_bundle(
     tmp_path_factory: pytest.TempPathFactory, source_commit_a: str
-) -> dict[str, object]:
+) -> tuple[Path, Path]:
+    """The clean recorded source tree and its uv-built wheel/sdist (shared
+    by the regeneration gate and the explicit state-branch fixtures,
+    order 014-c, workstream C.4)."""
     if shutil.which("uv") is None:
         pytest.fail("uv is required to build artifacts for the manifest gate")
     # Order 013-j, J4: rebuild the CLEAN RECORDED SOURCE COMMIT A, not the
-    # working tree: git archive A -> extract -> uv build -> regenerate.
+    # working tree: git archive A -> extract -> uv build.
     work = tmp_path_factory.mktemp("clean-A")
     tree = work / "tree"
     tree.mkdir()
@@ -166,6 +170,12 @@ def regenerated(
         timeout=600,
     )
     assert result.returncode == 0, result.stderr.decode()
+    return tree, dist
+
+
+@pytest.fixture(scope="module")
+def regenerated(clean_bundle: tuple[Path, Path], source_commit_a: str) -> dict[str, object]:
+    tree, dist = clean_bundle
     module = _load_generator()
     # The regeneration is observed on the exact running interpreter: the
     # recorded observed scope is a generation-time fact (normalized away by
@@ -353,7 +363,7 @@ def test_regenerated_manifest_matches_schema_shape(regenerated: dict[str, object
         "final_public_release",
         "cutover_performed",
     }
-    assert candidate["rc_identifier"] == "0.1.0-rc4"
+    assert candidate["rc_identifier"] == "0.1.0-rc5"
     assert candidate["private_registry_auth_required"] is True
     assert candidate["final_public_release"] is False
     assert candidate["cutover_performed"] is False
@@ -384,7 +394,7 @@ def test_regenerated_manifest_matches_schema_shape(regenerated: dict[str, object
         "labels",
     }
     assert oci["image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
-    assert oci["candidate_tag"] == "0.1.0-rc4"
+    assert oci["candidate_tag"] == "0.1.0-rc5"
     if _rc_record_present():
         rc = _rc_record()
         assert re.fullmatch(r"sha256:[0-9a-f]{64}", str(oci["image_digest"]))
@@ -438,7 +448,7 @@ def _dockerfile_from_lines() -> dict[str, tuple[str, str]]:
 def test_objective_field_records_producing_objective() -> None:
     # In ALL states the objective constant records the producing round.
     committed = _committed()
-    assert committed["objective"] == "014-b"
+    assert committed["objective"] == "014-c"
 
 
 def test_status_fields_state_conditional() -> None:
@@ -526,7 +536,7 @@ def test_committed_manifest_conforms_to_schema_v5_structure() -> None:
     assert schema["properties"]["oci"]["properties"]["image_reference"]["const"] == (
         "ghcr.io/ulfe-lmi/slaif-local-coding"
     )
-    assert schema["properties"]["oci"]["properties"]["candidate_tag"]["const"] == "0.1.0-rc4"
+    assert schema["properties"]["oci"]["properties"]["candidate_tag"]["const"] == "0.1.0-rc5"
     assert schema["properties"]["oci"]["properties"]["published"]["enum"] == [False, True]
     assert schema["properties"]["status"]["properties"]["rc_published"]["enum"] == [False, True]
     assert schema["properties"]["status"]["properties"]["final_public_release"]["enum"] == [
@@ -809,12 +819,12 @@ def _valid_rc_record_template() -> dict[str, object]:
     source = "a" * 40
     return {
         "schema": "slaif-rc-record-v3",
-        "rc_identifier": "0.1.0-rc4",
+        "rc_identifier": "0.1.0-rc5",
         "product_version": "0.1.0",
         "image_source_commit": source,
         "oci_image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
         "oci_image_digest": "sha256:" + "c" * 64,
-        "oci_tags": ["0.1.0-rc4", f"sha-{source}"],
+        "oci_tags": ["0.1.0-rc5", f"sha-{source}"],
         "published_at": "2026-09-20T00:00:00Z",
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": 1,
@@ -864,13 +874,13 @@ def test_rc_record_closed_key_set_and_value_classes() -> None:
     record = _rc_record()
     assert set(record) == RC_RECORD_KEYS
     assert record["schema"] == "slaif-rc-record-v3"
-    assert record["rc_identifier"] == "0.1.0-rc4"
+    assert record["rc_identifier"] == "0.1.0-rc5"
     assert record["product_version"] == "0.1.0"
     assert re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"]))
     assert record["oci_image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", str(record["oci_image_digest"]))
     source = str(record["image_source_commit"])
-    assert record["oci_tags"] == ["0.1.0-rc4", f"sha-{source}"]
+    assert record["oci_tags"] == ["0.1.0-rc5", f"sha-{source}"]
     assert re.fullmatch(
         r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", str(record["published_at"])
     )
@@ -1066,3 +1076,202 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
     (fake / "packaging" / "rc_record.json").write_text(json.dumps(base), encoding="utf-8")
     loaded = generator.load_rc_record(fake)
     assert loaded == base
+
+
+# ---------------------------------------------------------------------------
+# Order 014-c, workstream C.4: state-dependent branches from explicit
+# fixtures/constants (not whichever top-level record happens to exist).
+# ---------------------------------------------------------------------------
+
+
+def _valid_rc_state_fixture(generator: types.ModuleType, source_commit: str) -> dict[str, object]:
+    """An explicit closed v3 RC record derived from the generator's own
+    constants (valid for the current candidate identity). The strict
+    loader must accept it — a fixture the law rejects would make the
+    state-branch assertions vacuous."""
+    record = {
+        "schema": generator.RC_RECORD_SCHEMA,
+        "rc_identifier": generator.RC_IDENTIFIER,
+        "product_version": generator.PUBLISHED_VERSION,
+        "image_source_commit": source_commit,
+        "oci_image_reference": generator.IMAGE_REFERENCE,
+        "oci_image_digest": "sha256:" + "c" * 64,
+        "oci_tags": [generator.RC_IDENTIFIER, f"sha-{source_commit}"],
+        "published_at": "2026-09-20T00:00:00Z",
+        "publication_workflow": generator.PUBLICATION_WORKFLOW,
+        "publication_workflow_run_id": 1,
+        # Order 014-c, workstream B.5: one qualified source boundary.
+        "workflow_head_sha": source_commit,
+        "private_registry_auth_required": True,
+        "final_public_release": False,
+        "cutover_performed": False,
+        "wheel_sha256": "d" * 64,
+        "dependency_lock_sha256": "e" * 64,
+        "gateway_authority_sha": "f" * 40,
+        "build_environment": dict(generator.BUILD_ENVIRONMENT),
+        "build_toolchain": {
+            "backend": (f"{generator.BUILD_BACKEND_NAME}=={generator.BUILD_BACKEND_VERSION}"),
+            "uv": generator.UV_VERSION,
+            "python": "3.12",
+        },
+        "base_images": _fixture_base_images(),
+        "image_platform": generator.IMAGE_PLATFORM,
+        "source_input_hashes": {"README.md": "1" * 64},
+        "deployment_assumptions": generator.RC_DEPLOYMENT_ASSUMPTIONS,
+        "compatibility": {
+            "client_version": "0.149.0",
+            "client_sha256": "3" * 64,
+            "topology": generator.RC_COMPAT_TOPOLOGY,
+            "arm_verdicts": {
+                "vision": "pass",
+                "cache": "pass",
+                "both": "pass",
+            },
+            "direct_control": "pass",
+            "evidence_path": "oap/evidence/testing-ledger/002",
+        },
+    }
+    fake = Path(tempfile.mkdtemp(prefix="slaif-rc-state-"))
+    (fake / "packaging").mkdir(parents=True)
+    (fake / "Dockerfile").write_text(FIXTURE_DOCKERFILE, encoding="utf-8")
+    (fake / "packaging" / "rc_record.json").write_text(json.dumps(record), encoding="utf-8")
+    assert generator.load_rc_record(fake) == record
+    return record
+
+
+def _valid_release_state_fixture(
+    generator: types.ModuleType, source_commit: str
+) -> dict[str, object]:
+    """An explicit closed v1 final-release record derived from the
+    generator's own constants; the strict loader must accept it."""
+    record = {
+        "schema": "slaif-release-record-v1",
+        "version": generator.PUBLISHED_VERSION,
+        "git_tag": generator.PUBLISHED_GIT_TAG,
+        "image_source_commit": source_commit,
+        "oci_image_reference": generator.IMAGE_REFERENCE,
+        "oci_image_digest": "sha256:" + "b" * 64,
+        "oci_tags": [generator.PUBLISHED_VERSION, f"sha-{source_commit}"],
+        "published_at": "2026-09-21T00:00:00Z",
+        "publication_workflow": generator.PUBLICATION_WORKFLOW,
+        "publication_workflow_run_id": 2,
+    }
+    fake = Path(tempfile.mkdtemp(prefix="slaif-release-state-"))
+    (fake / "packaging").mkdir(parents=True)
+    (fake / "packaging" / "release_record.json").write_text(json.dumps(record), encoding="utf-8")
+    assert generator.load_release_record(fake) == record
+    return record
+
+
+def _build_state_manifest(
+    generator: types.ModuleType,
+    clean_bundle: tuple[Path, Path],
+    source_commit_a: str,
+    rc_record: object,
+    release_record: object,
+) -> dict[str, object]:
+    tree, dist = clean_bundle
+    manifest: dict[str, object] = generator.build_manifest(
+        REPO_ROOT,
+        dist,
+        source_commit=source_commit_a,
+        tree=tree,
+        observed_build_pythons=[platform.python_version()],
+        rc_record=rc_record,
+        release_record=release_record,
+    )
+    return manifest
+
+
+def test_state_branch_pre_freeze_explicit_fixtures(
+    generator: types.ModuleType,
+    clean_bundle: tuple[Path, Path],
+    source_commit_a: str,
+) -> None:
+    """pre-freeze branch (neither publication record), explicit None
+    fixtures — independent of the top-level record state."""
+    manifest = _build_state_manifest(
+        generator, clean_bundle, source_commit_a, rc_record=None, release_record=None
+    )
+    status = cast("dict[str, object]", manifest["status"])
+    candidate = cast("dict[str, object]", manifest["candidate"])
+    oci = cast("dict[str, object]", manifest["oci"])
+    assert status["rc_published"] is False
+    assert status["final_public_release"] is False
+    assert candidate["state"] == "pre_freeze"
+    assert candidate["rc_identifier"] == generator.RC_IDENTIFIER
+    assert oci["published"] is False
+    assert oci["image_digest"] is None
+    assert "release" not in manifest
+    labels = cast("dict[str, object]", oci["labels"])
+    assert labels["slaif-local-coding.qualification"] == generator.QUALIFICATION_LABEL
+    assert manifest["limitations"] == generator.LIMITATIONS
+
+
+def test_state_branch_rc_published_explicit_fixtures(
+    generator: types.ModuleType,
+    clean_bundle: tuple[Path, Path],
+    source_commit_a: str,
+) -> None:
+    """RC-published branch from an EXPLICIT fixture record — an RC record
+    must never imply final_public_release=true."""
+    fixture = _valid_rc_state_fixture(generator, source_commit_a)
+    manifest = _build_state_manifest(
+        generator, clean_bundle, source_commit_a, rc_record=fixture, release_record=None
+    )
+    status = cast("dict[str, object]", manifest["status"])
+    candidate = cast("dict[str, object]", manifest["candidate"])
+    oci = cast("dict[str, object]", manifest["oci"])
+    assert status["rc_published"] is True
+    assert status["final_public_release"] is False
+    assert candidate["state"] == "rc_published"
+    assert candidate["final_public_release"] is False
+    assert candidate["cutover_performed"] is False
+    assert oci["published"] is True
+    assert oci["image_digest"] == fixture["oci_image_digest"]
+    assert oci["candidate_tag"] == generator.RC_IDENTIFIER
+    assert "release" not in manifest
+    labels = cast("dict[str, object]", oci["labels"])
+    assert labels["slaif-local-coding.qualification"] == generator.RC_QUALIFICATION_LABEL
+    assert any(
+        str(fixture["oci_image_digest"]) in bullet
+        for bullet in cast("list[str]", manifest["limitations"])
+    )
+
+
+def test_state_branch_final_published_explicit_fixtures(
+    generator: types.ModuleType,
+    clean_bundle: tuple[Path, Path],
+    source_commit_a: str,
+) -> None:
+    """Final-published branch from an EXPLICIT fixture record."""
+    fixture = _valid_release_state_fixture(generator, source_commit_a)
+    manifest = _build_state_manifest(
+        generator,
+        clean_bundle,
+        source_commit_a,
+        rc_record=None,
+        release_record=fixture,
+    )
+    status = cast("dict[str, object]", manifest["status"])
+    candidate = cast("dict[str, object]", manifest["candidate"])
+    oci = cast("dict[str, object]", manifest["oci"])
+    release = cast("dict[str, object]", manifest["release"])
+    assert status["final_public_release"] is True
+    assert status["rc_published"] is False
+    # The candidate enum is unchanged (pre_freeze|rc_published); finality
+    # is recorded in status and the release section.
+    assert candidate["state"] == "pre_freeze"
+    assert candidate["final_public_release"] is False
+    assert oci["published"] is True
+    assert oci["image_digest"] == fixture["oci_image_digest"]
+    assert release["version"] == generator.PUBLISHED_VERSION
+    assert release["git_tag"] == generator.PUBLISHED_GIT_TAG
+    assert release["git_tag_target"] == source_commit_a
+    assert release["image_source_commit"] == source_commit_a
+    assert release["oci_image_digest"] == fixture["oci_image_digest"]
+    assert release["oci_tags"] == fixture["oci_tags"]
+    assert release["published_at"] == fixture["published_at"]
+    assert release["publication_workflow_run_id"] == fixture["publication_workflow_run_id"]
+    labels = cast("dict[str, object]", oci["labels"])
+    assert labels["slaif-local-coding.qualification"] == generator.PUBLISHED_QUALIFICATION_LABEL
