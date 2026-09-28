@@ -589,6 +589,10 @@ def _prepare_workspace(root: Path, workspace: Path) -> None:
             "git",
             "-C",
             str(workspace),
+            "-c",
+            "user.name=RC3 Smoke",
+            "-c",
+            "user.email=rc3-smoke@example.invalid",
             "commit",
             "-q",
             "-m",
@@ -597,6 +601,30 @@ def _prepare_workspace(root: Path, workspace: Path) -> None:
         check=True,
         capture_output=True,
     )
+
+
+def _run_arms(
+    args: argparse.Namespace,
+    required: tuple[str, ...],
+    api_key: str,
+    facts: dict[str, Any],
+) -> None:
+    """Serial arm runner with the fail-closed crash boundary.
+
+    An unexpected tooling failure inside an arm is recorded as a sanitized
+    exception class (privacy law: never raw output) and stops the serial
+    sequence at the first failed required product arm; the closed-schema
+    facts dictionary stays the single evidence channel."""
+    for arm in required:
+        arm_facts = ArmFacts(arm=arm)
+        try:
+            run_arm(args, arm, api_key, arm_facts)
+        except Exception as exc:  # noqa: BLE001 - fail-closed gate boundary
+            arm_facts.verdict = "FAIL"
+            arm_facts.failure_class = f"gate-crash ({type(exc).__name__})"
+        facts["arms"][arm] = arm_facts.as_dict()
+        if arm in PRODUCT_ARMS and arm_facts.verdict != "PASS":
+            break
 
 
 def run_arm(args: argparse.Namespace, arm: str, api_key: str, facts_out: ArmFacts) -> None:
@@ -829,12 +857,7 @@ def main() -> int:
         facts["protected_state"]["ports"] = {str(key): value for key, value in before.ports.items()}
 
         # --- Arms (serial) ------------------------------------------------
-        for arm in required:
-            arm_facts = ArmFacts(arm=arm)
-            run_arm(args, arm, api_key, arm_facts)
-            facts["arms"][arm] = arm_facts.as_dict()
-            if arm in PRODUCT_ARMS and arm_facts.verdict != "PASS":
-                break
+        _run_arms(args, required, api_key, facts)
 
         # --- Protected state after ----------------------------------------
         after = snapshot_protected(args)

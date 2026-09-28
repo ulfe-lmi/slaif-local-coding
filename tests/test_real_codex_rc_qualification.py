@@ -6,12 +6,13 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -249,6 +250,53 @@ def test_read_unit_state_fails_closed_when_unreadable(
     monkeypatch.setattr(gate.subprocess, "run", _fake_run("", 1))
     with pytest.raises(gate.QualificationError, match="unreadable"):
         gate.read_unit_state("some-unit.service")
+
+
+def test_workspace_commit_is_independent_of_host_git_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The disposable smoke workspace must commit with its OWN synthetic
+    # identity; a host without any git identity (or with one) must not
+    # change the gate's behavior.
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    (tmp_path / "home").mkdir()
+    root = tmp_path / "root"
+    workspace = root / "vision" / "workspace"
+    root.mkdir()
+    gate._prepare_workspace(root, workspace)
+    assert (workspace / "README.md").is_file()
+    log = subprocess.run(
+        ["git", "-C", str(workspace), "log", "--format=%an <%ae> %s"],
+        capture_output=True,
+        check=True,
+    )
+    assert "RC3 Smoke <rc3-smoke@example.invalid> Synthetic smoke workspace" in (
+        log.stdout.decode()
+    )
+
+
+def test_arm_crash_yields_sanitized_failed_arm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An unexpected crash inside an arm must be recorded as a sanitized
+    # exception class on the closed-schema arm facts (never raw output)
+    # and stop the serial sequence at the first failed product arm.
+    calls: list[str] = []
+
+    def fake_run_arm(args: object, arm: str, api_key: str, facts_out: object) -> None:
+        calls.append(arm)
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(gate, "run_arm", fake_run_arm)
+    facts: dict[str, object] = {"arms": {}}
+    gate._run_arms(None, ("VISION", "CACHE", "BOTH"), "key", facts)
+    assert calls == ["VISION"], "serial sequence must stop at the first failed arm"
+    arm = cast(dict[str, object], cast(dict[str, object], facts["arms"])["VISION"])
+    assert arm["verdict"] == "FAIL"
+    assert arm["failure_class"] == "gate-crash (RuntimeError)"
+    assert "boom" not in json.dumps(facts, sort_keys=True)
 
 
 def test_sentinel_constants_are_bounded() -> None:
