@@ -271,6 +271,9 @@ def test_workspace_commit_is_independent_of_host_git_identity(
     root.mkdir()
     gate._prepare_workspace(root, workspace)
     assert (workspace / "README.md").is_file()
+    agents = workspace / "AGENTS.md"
+    assert agents.is_file()
+    assert agents.read_text() == gate.SMOKE_AGENTS_MD
     log = subprocess.run(
         ["git", "-C", str(workspace), "log", "--format=%an <%ae> %s"],
         capture_output=True,
@@ -279,6 +282,23 @@ def test_workspace_commit_is_independent_of_host_git_identity(
     assert "RC3 Smoke <rc3-smoke@example.invalid> Synthetic smoke workspace" in (
         log.stdout.decode()
     )
+    committed = subprocess.run(
+        ["git", "-C", str(workspace), "show", "--name-only", "--format=", "HEAD"],
+        capture_output=True,
+        check=True,
+    )
+    assert "AGENTS.md" in committed.stdout.decode().splitlines()
+
+
+def test_smoke_agents_md_yields_zero_dependency_candidates() -> None:
+    # The synthetic governance content must be a genuine root trigger but
+    # must never declare dependency candidates (no path-like tokens, no
+    # quotes or backticks): the compiler compiles the root only.
+    from slaif_local_coding.config import ObservationPolicy
+    from slaif_local_coding.constitution.references import extract_references
+
+    extraction = extract_references(gate.SMOKE_AGENTS_MD, ObservationPolicy())
+    assert extraction.candidates == ()
 
 
 def test_arm_crash_yields_sanitized_failed_arm(

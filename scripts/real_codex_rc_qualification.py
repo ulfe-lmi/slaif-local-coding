@@ -25,7 +25,11 @@ Arms (serial, bounded, fail-closed):
 Each required arm requires a fresh genuine tool-bearing Codex session that
 reaches the model, completes at least one ordinary local tool interaction
 (create a sentinel file through the shell tool), and exits with a bounded
-expected completion.
+expected completion. The disposable workspace carries a fixed synthetic
+AGENTS.md so that a genuine project-governance envelope crosses the API
+boundary; for the constitution-enabled arms this is the deterministic
+trigger for the compiler/derived-cache path that must leave measurable
+evidence.
 
 Privacy law: only fixed categories, counts, statuses, version/hash, timings,
 and boolean verdicts are captured. No prompt, source, tool arguments/output,
@@ -74,6 +78,20 @@ PROMPT = (
 )
 SENTINEL_NAME = "rc3-smoke.txt"
 SENTINEL_SIZE = len("ok\n")
+# Synthetic governance content for the disposable smoke workspace. It is the
+# minimal request-side trigger for the deterministic AGENTS.md observation:
+# plain prose, no credentials, no real policy, no path-like tokens, no
+# quotes/backticks, so the deterministic extraction yields zero dependency
+# candidates while a genuine root still crosses the API boundary.
+SMOKE_AGENTS_MD = (
+    "# Synthetic RC3 smoke governance\n"
+    "\n"
+    "This file is synthetic governance content created only for the RC3\n"
+    "real-Codex qualification smoke run. It carries no repository\n"
+    "instructions, no credentials, no real project policy, and no file\n"
+    "references. Keep all replies bounded and change nothing except the\n"
+    "explicitly requested sentinel file.\n"
+)
 CLIENT_ENV_KEY = "SLAIF_RC3_QUALIFICATION_KEY"
 OUTPUT_CAPTURE_CAP = 1_048_576
 REQUESTS_METRIC = "slaif_requests_total"
@@ -579,6 +597,7 @@ class ArmFacts:
 def _prepare_workspace(root: Path, workspace: Path) -> None:
     workspace.mkdir(parents=True, mode=0o700)
     (workspace / "README.md").write_text("rc3 smoke workspace\n")
+    (workspace / "AGENTS.md").write_text(SMOKE_AGENTS_MD)
     subprocess.run(["git", "init", "-q", str(workspace)], check=True, capture_output=True)
     subprocess.run(
         [
@@ -591,6 +610,7 @@ def _prepare_workspace(root: Path, workspace: Path) -> None:
             "user.email=rc3-smoke@example.invalid",
             "add",
             "README.md",
+            "AGENTS.md",
         ],
         check=True,
         capture_output=True,
