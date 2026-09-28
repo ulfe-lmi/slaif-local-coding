@@ -1,0 +1,118 @@
+{
+  "arms": {
+    "BOTH": {
+      "adapter_requests_422": 0,
+      "adapter_requests_500": 0,
+      "adapter_requests_ok": 2,
+      "adapter_requests_total": 2,
+      "attempts": 1,
+      "compiler_cache_entries": 1,
+      "compiler_calls": 1,
+      "duration_seconds": 31,
+      "exit_status": 0,
+      "failure_class": "none",
+      "sentinel_present": true,
+      "sentinel_size_bytes": 3,
+      "stderr_bytes": 232,
+      "stdout_bytes": 837,
+      "tool_interactions": 1,
+      "upstream_failures": 0,
+      "verdict": "PASS"
+    },
+    "CACHE": {
+      "adapter_requests_422": 0,
+      "adapter_requests_500": 0,
+      "adapter_requests_ok": 2,
+      "adapter_requests_total": 2,
+      "attempts": 1,
+      "compiler_cache_entries": 1,
+      "compiler_calls": 1,
+      "duration_seconds": 31,
+      "exit_status": 0,
+      "failure_class": "none",
+      "sentinel_present": true,
+      "sentinel_size_bytes": 3,
+      "stderr_bytes": 233,
+      "stdout_bytes": 998,
+      "tool_interactions": 1,
+      "upstream_failures": 0,
+      "verdict": "PASS"
+    },
+    "DIRECT": {
+      "adapter_requests_422": 0,
+      "adapter_requests_500": 0,
+      "adapter_requests_ok": 0,
+      "adapter_requests_total": 0,
+      "attempts": 1,
+      "compiler_cache_entries": 0,
+      "compiler_calls": 0,
+      "duration_seconds": 6,
+      "exit_status": 0,
+      "failure_class": "none",
+      "sentinel_present": true,
+      "sentinel_size_bytes": 3,
+      "stderr_bytes": 234,
+      "stdout_bytes": 972,
+      "tool_interactions": 1,
+      "upstream_failures": 0,
+      "verdict": "PASS"
+    },
+    "VISION": {
+      "adapter_requests_422": 0,
+      "adapter_requests_500": 0,
+      "adapter_requests_ok": 2,
+      "adapter_requests_total": 2,
+      "attempts": 1,
+      "compiler_cache_entries": 0,
+      "compiler_calls": 0,
+      "duration_seconds": 8,
+      "exit_status": 0,
+      "failure_class": "none",
+      "sentinel_present": true,
+      "sentinel_size_bytes": 3,
+      "stderr_bytes": 234,
+      "stdout_bytes": 1161,
+      "tool_interactions": 1,
+      "upstream_failures": 0,
+      "verdict": "PASS"
+    }
+  },
+  "client": {
+    "binary_class": "standalone-release",
+    "sha256": "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827",
+    "version": "0.149.0"
+  },
+  "created_at": "2026-09-28T08:07:11Z",
+  "disposable_state_removed": true,
+  "limits": {
+    "arm_count": 4,
+    "attempt_timeout_seconds": 600,
+    "max_adapter_requests": 64,
+    "max_attempts": 2,
+    "max_compiler_calls": 4,
+    "max_tool_interactions": 8,
+    "output_cap_bytes": 1048576,
+    "total_timeout_seconds": 5400
+  },
+  "protected_state": {
+    "files_changed": 0,
+    "files_checked": 13,
+    "ports": {
+      "18020": 1,
+      "18031": 0
+    },
+    "units": {
+      "qwen-serving-vision.service": "active",
+      "qwen-serving.service": "inactive"
+    }
+  },
+  "protected_state_unchanged": true,
+  "schema": "slaif-real-codex-rc-qualification-v2",
+  "topology": "disposable-codex-home;loopback-adapter;port-18031;existing-backend;gateway-ingress-disabled",
+  "verdict": "PASS",
+  "wheel": {
+    "binding": "equal",
+    "expected_sha256": "897ef60568e9521dbb4ea563f297608e4409e02d54109471e789d43ff57dd10d",
+    "sha256": "897ef60568e9521dbb4ea563f297608e4409e02d54109471e789d43ff57dd10d"
+  }
+}
