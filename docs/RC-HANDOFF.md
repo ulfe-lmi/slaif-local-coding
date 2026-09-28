@@ -9,13 +9,13 @@ This guide covers retrieval and identity verification only.
 After publication, `packaging/rc_record.json` is the machine-readable record and
 `packaging/rc_handoff.md` is its deterministic human-readable view. Both contain
 the actual values; a candidate without these records and a verified digest is
-not ready for handoff. Their schema is `slaif-rc-record-v2`.
+not ready for handoff. Their schema is `slaif-rc-record-v3`.
 
 The record includes:
 
 | Identity | Recorded facts |
 | --- | --- |
-| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc2`. |
+| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc7`. |
 | Source | Exact 40-hex image source commit and publication-run head SHA. |
 | Image | Full OCI reference, authenticated `sha256` digest and tag aliases. |
 | Package | Exact wheel SHA-256 and dependency-lock hash. |
@@ -82,6 +82,36 @@ digest** without rebuilding; the original RC record remains immutable.
 The [RC1 record](../packaging/releases/0.1.0-rc1/rc_record.json),
 [handoff](../packaging/releases/0.1.0-rc1/rc_handoff.md) and
 [provenance](../packaging/releases/0.1.0-rc1/release_provenance_manifest.json)
-remain byte-identical. RC1 predates the governance parser security correction;
-select the corrected RC2 record when available. Each candidate has a separate
-source, wheel and digest. Legacy private `0.1.0` tags are not handoff targets.
+remain byte-identical. RC1 predates the governance parser security
+correction and is not a handoff target. The archived [RC2
+record](../packaging/releases/0.1.0-rc2/rc_record.json),
+[handoff](../packaging/releases/0.1.0-rc2/rc_handoff.md) and
+[provenance](../packaging/releases/0.1.0-rc2/release_provenance_manifest.json)
+also remain byte-identical; RC2 failed external real-Codex 0.149.0
+qualification (immutable testing ledger 001) and is not a handoff target
+either. The archived [RC3
+record](../packaging/releases/0.1.0-rc3/rc_record.json),
+[handoff](../packaging/releases/0.1.0-rc3/rc_handoff.md) and
+[provenance](../packaging/releases/0.1.0-rc3/release_provenance_manifest.json)
+also remain byte-identical; RC3's scoped real-Codex smoke passed (immutable
+testing ledger 002) but the candidate was not accepted: its publication
+preceded a successful aggregate security gate, and later review found the
+record-schema and qualification-harness defects repaired in RC4. RC4
+(`0.1.0-rc4`) qualified in scope (immutable testing ledger 003) but was
+not accepted: the committed provenance bound a later source-input map to
+the earlier immutable image source; its record set is archived
+byte-identical under `packaging/releases/0.1.0-rc4/`. RC5
+(`0.1.0-rc5`) passed its product repair, its scoped genuine-Codex
+qualification (immutable testing ledger 004), and its pulled-image
+qualification, but was not accepted: a mandatory record-present gate
+required a tracked source correction after the immutable candidate
+freeze; its record set is archived byte-identical under
+`packaging/releases/0.1.0-rc5/`. The 014-d RC6 attempt was abandoned
+before any push, tag, or publication, so no RC6 identity exists. The
+current candidate is RC7 (`0.1.0-rc7`), which freezes the corrected
+record-present rehearsal (the single qualified source boundary with an
+identical source-input map and only permitted post-freeze paths) on top
+of the fail-closed source-reference binding and the evidence-bound RC
+record, and carries the two pre-freeze test corrections the abandoned
+RC6 suite exposed. Each candidate has a separate source, wheel and
+digest. Legacy private `0.1.0` tags are not handoff targets.

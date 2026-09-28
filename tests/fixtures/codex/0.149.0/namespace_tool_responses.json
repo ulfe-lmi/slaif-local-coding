@@ -1,0 +1,216 @@
+{
+  "model": "synthetic-namespace-model",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "input_text", "text": "t"}
+      ]
+    },
+    {
+      "type": "function_call",
+      "call_id": "c1",
+      "name": "synthetic-fn-a",
+      "arguments": "{}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "c1",
+      "output": "ok"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "name": "synthetic-fn-a",
+      "description": "First synthetic tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "flag": {"type": "boolean", "default": false}
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "synthetic-fn-b",
+      "description": "Second synthetic tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "count": {"type": "integer", "minimum": 0, "maximum": 100, "default": 3}
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "synthetic-fn-c",
+      "description": "Third synthetic tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ratio": {"type": "number", "exclusiveMinimum": 0},
+          "note": {"type": ["string", "null"]}
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "synthetic-fn-d",
+      "description": "Fourth synthetic tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "state": {"type": "string", "enum": ["off", "on"]}
+        },
+        "required": ["state"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "synthetic-fn-e",
+      "description": "Fifth synthetic tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "namespace",
+      "name": "synthetic-ns",
+      "description": "Synthetic namespace tool group.",
+      "tools": [
+        {
+          "type": "function",
+          "name": "ns-fn-a",
+          "description": "First synthetic namespace tool.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "label": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "type": "function",
+          "name": "ns-fn-b",
+          "description": "Second synthetic namespace tool.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "label": {"type": "string"},
+              "extra": {"type": ["string", "null"]}
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "type": "function",
+          "name": "ns-fn-c",
+          "description": "Third synthetic namespace tool.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "description": "entry classification marker",
+                      "type": "string"
+                    },
+                    "id": {"type": "string"}
+                  },
+                  "required": ["id", "type"]
+                }
+              }
+            },
+            "required": ["items"],
+            "additionalProperties": false
+          }
+        },
+        {
+          "type": "function",
+          "name": "ns-fn-d",
+          "description": "Fourth synthetic namespace tool.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "description": "entry kind"
+                    },
+                    "count": {"type": "integer", "minimum": 0, "maximum": 100, "default": 3},
+                    "ratio": {"type": "number", "exclusiveMinimum": 0},
+                    "active": {"type": "boolean", "default": true}
+                  }
+                }
+              },
+              "allOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "mode": {"type": "string"}
+                  }
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "detail": {"type": ["string", "null"]}
+                  }
+                }
+              ]
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "synthetic-fn-f",
+      "description": "Sixth synthetic tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "synthetic-fn-g",
+      "description": "Seventh synthetic tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "flag": {"type": "boolean", "default": false}
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "type": "function",
+      "name": "synthetic-fn-h",
+      "description": "Eighth synthetic tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "count": {"type": "integer", "minimum": 0, "maximum": 100, "default": 3}
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

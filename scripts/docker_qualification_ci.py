@@ -394,7 +394,7 @@ def _own_for_container(path: Path) -> None:
 
 
 def _load_strict_rc_record() -> dict:
-    """The strict slaif-rc-record-v2 loader (order 013-l, L1).
+    """The strict slaif-rc-record-v3 loader (order 013-l, L1).
 
     Reuses the provenance generator's closed-key strict loader
     (``release_provenance_manifest.load_rc_record``) — the same strict
@@ -428,9 +428,9 @@ def _load_publication_record() -> dict:
     order 013-l, L1).
 
     Dispatched by record presence, RC record authoritative when both exist:
-    - slaif-rc-record-v2 (packaging/rc_record.json): RC candidate record,
-      validated by the provenance generator's closed-key strict loader (23
-      keys; RC tag pair [0.1.0-rc2, sha-<source>],
+    - slaif-rc-record-v3 (packaging/rc_record.json): RC candidate record,
+      validated by the provenance generator's closed-key strict loader (24
+      keys; RC tag pair [0.1.0-rc7, sha-<source>],
       private_registry_auth_required true, final_public_release false,
       cutover_performed false, enforced build environment, base images,
       declared image platform, direct source-input map, publishing-run head

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "slaif-rc-record-v2",
-  "title": "SLAIF Local Coding RC artifact record (self-contained, order 013-j, J5)",
+  "$id": "slaif-rc-record-v3",
+  "title": "SLAIF Local Coding RC artifact record (self-contained, order 013-j, J5; compatibility facts derived per orders 014-a/014-b)",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,14 +27,15 @@
     "base_images",
     "image_platform",
     "source_input_hashes",
-    "deployment_assumptions"
+    "deployment_assumptions",
+    "compatibility"
   ],
   "properties": {
     "schema": {
-      "const": "slaif-rc-record-v2"
+      "const": "slaif-rc-record-v3"
     },
     "rc_identifier": {
-      "const": "0.1.0-rc2"
+      "const": "0.1.0-rc7"
     },
     "product_version": {
       "const": "0.1.0"
@@ -168,6 +169,49 @@
     },
     "deployment_assumptions": {
       "const": "linux-docker-engine-compose-v2;host-network-mode;private-same-host-upstream;separate-gateway;loopback-default-bind"
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "client_version",
+        "client_sha256",
+        "topology",
+        "arm_verdicts",
+        "direct_control",
+        "evidence_path"
+      ],
+      "properties": {
+        "client_version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Exact qualified Codex CLI version (no fallback mislabeling)"
+        },
+        "client_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the exact qualified Codex CLI binary"
+        },
+        "topology": {
+          "const": "standalone-loopback-no-gateway"
+        },
+        "arm_verdicts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["vision", "cache", "both"],
+          "properties": {
+            "vision": { "enum": ["pass", "blocked"] },
+            "cache": { "enum": ["pass", "blocked"] },
+            "both": { "enum": ["pass", "blocked"] }
+          }
+        },
+        "direct_control": { "enum": ["pass", "blocked", "not_run"] },
+        "evidence_path": {
+          "type": "string",
+          "pattern": "^oap/evidence/testing-ledger/[0-9]{3}$",
+          "description": "Sanitized append-only testing-ledger directory (content-free)"
+        }
+      }
     }
   },
   "$defs": {

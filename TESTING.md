@@ -104,6 +104,86 @@ The repository-only rehearsal and Codex helpers are not runtime product code.
 Their detailed safety contracts and prior runs are preserved in
 [HISTORY.md](docs/HISTORY.md) and the immutable OAP evidence.
 
+## Release-candidate qualification: fixture CI vs real client
+
+Two distinct mechanisms, never interchangeable:
+
+- **Deterministic fixture CI (every round).** Ordinary CI runs the
+  sanitized Codex-envelope fixtures and the full-application
+  fake-upstream regressions, including the namespace-tool envelope that
+  reproduces the RC2 `TypeError: unhashable type: 'dict'` image-policy
+  crash. No secret endpoint, no model, and no real Codex binary are
+  required or used.
+- **Opt-in real-client RC qualification (only when the designated client
+  and backend are available).**
+  [real_codex_rc_qualification.py](scripts/real_codex_rc_qualification.py)
+  runs bounded, fail-closed, privacy-bounded arms of genuine Codex CLI
+  sessions over the supported standalone loopback topology: disposable
+  Codex home/repository → `127.0.0.1:18031` Local Coding → the tested
+  Qwen/vLLM endpoint. Standalone loopback Local Coding qualification
+  requires **no SLAIF API Gateway** (gateway ingress disabled; no signed
+  Gateway headers invented). The required arms are VISION (one-image
+  retain-newest, constitution/compiler disabled), CACHE (image
+  passthrough plus enabled constitution/compiler with a static
+  single-user identity), and BOTH (both mechanisms, same identity); a
+  contextual DIRECT control may be recorded when safe but never
+  substitutes for a product arm. Only fixed categories, counts, statuses,
+  version/hash, timings, and boolean verdicts are captured; disposable raw
+  state is deleted after sanitized facts are extracted into an
+  append-only, content-free testing-ledger directory. The client is
+  invoked with the client-side sandbox set to `danger-full-access`
+  because the protected host forbids the unprivileged user-namespace
+  network setup that bubblewrap requires (a protected host state the
+  gate never changes); the effective controls are the disposable
+  workspace and Codex home, the loopback-only adapter, the fixed
+  synthetic prompt, no credentials in argv, and bounded attempts and
+  timeouts.
+
+RC history: RC2 (`0.1.0-rc2`) failed external real-Codex 0.149.0
+qualification; the immutable [testing ledger
+001](oap/evidence/testing-ledger/001/README.md) records the exact
+pre-inference `TypeError` on the VISION/CACHE/BOTH arms. RC3
+(`0.1.0-rc3`) contains the image-policy compatibility repair; its
+real-client qualification facts (the exact qualified client version and
+binary SHA-256, the VISION/CACHE/BOTH verdicts, and the sanitized
+evidence path) are recorded in the RC3 artifact record
+(`slaif-rc-record-v3` compatibility facts, closed-schema), the
+deterministic handoff, and the ledger evidence. A green deterministic
+fixture is never real-client evidence, and a missing, unavailable,
+skipped, or blocked real-client arm is a blocker, never a pass. No
+benchmark ran; the final public release remains false; the package
+remains private; the protected cutover remains false. RC4
+(`0.1.0-rc4`) qualified in scope (immutable [testing ledger
+003](oap/evidence/testing-ledger/003/README.md)) but was rejected
+overall: after publication, the record-present suite exposed a stale
+RC3 identity residue, the repair committed a post-publication SOURCE
+change, and the post-publication provenance rebind recorded that later
+source-input map while the record still named the earlier immutable
+image source; its record set is archived byte-identical under
+`packaging/releases/0.1.0-rc4/`. RC5 (`0.1.0-rc5`) passed its
+product repair, its scoped genuine-Codex qualification (immutable
+[testing ledger 004](oap/evidence/testing-ledger/004/README.md)), and
+its pulled-image qualification, but was rejected overall: the first
+post-publication record-present validation failed a mandatory gate, and
+the repair was a tracked source correction committed after the
+immutable candidate freeze; its record set is archived byte-identical
+under `packaging/releases/0.1.0-rc5/`. The 014-d successor round was
+abandoned before any push, tag, or publication: its first post-freeze
+full suite required tracked test corrections, triggering the round's
+literal fail-closed rule, and its re-freeze attempt was stopped; no RC6
+remote commit, release workflow, tag, registry mutation, or testing
+ledger exists, and none is claimed. RC7 (`0.1.0-rc7`) is the
+successor candidate: the record builder binds the record's source
+identity to the literal supplied source commit fail-closed (any altered
+mapped input after the source freeze rejects the builder), ordinary CI
+runs the deterministic prepublication record-present rehearsal
+(`scripts/rc_record_present_rehearsal.py`) at the candidate source —
+whose corrected POST mode proves the single qualified source boundary
+(record image source = publication workflow head, an ancestor of the
+candidate source, with an identical source-input map and only
+permitted post-freeze paths) — and the corrected harness reruns for the
+next immutable testing ledger (expected number 005).
+
 ## Evidence and review
 
 Sanitized evidence export uses [safe_evidence_export.py](scripts/safe_evidence_export.py).
