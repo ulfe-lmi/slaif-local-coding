@@ -818,7 +818,9 @@ def _valid_rc_record_template() -> dict[str, object]:
         "published_at": "2026-09-20T00:00:00Z",
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": 1,
-        "workflow_head_sha": "e" * 40,
+        # Order 014-c, workstream B.5: the workflow head IS the image
+        # source commit (one qualified source boundary).
+        "workflow_head_sha": source,
         "private_registry_auth_required": True,
         "final_public_release": False,
         "cutover_performed": False,
@@ -984,6 +986,11 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
     def bad_head_sha(record: dict[str, object]) -> None:
         record["workflow_head_sha"] = "e" * 39
 
+    def head_source_mismatch(record: dict[str, object]) -> None:
+        # Order 014-c, workstream B.5: a valid-shaped head naming a
+        # different commit than the image source is a rejected drift.
+        record["workflow_head_sha"] = "f" * 40
+
     def bad_build_environment(record: dict[str, object]) -> None:
         environment = cast(dict[str, object], record["build_environment"])
         environment["hatchling"] = "1.99.9"
@@ -1037,6 +1044,7 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
             bad_wheel,
             bad_toolchain,
             bad_head_sha,
+            head_source_mismatch,
             bad_build_environment,
             bad_base_images,
             bad_platform,

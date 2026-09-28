@@ -24,17 +24,19 @@ import pytest
 
 from tests.test_rc_record import (
     DIGEST,
-    FIXTURE_DOCKERFILE,
-    FIXTURE_PYPROJECT,
-    GATEWAY_SHA,
-    HEAD_SHA,
-    LOCK_CONTENT,
     PUBLISHED_AT,
     QUALIFICATION_FACTS,
-    SOURCE,
     WHEEL_SHA,
+    _commit,
+    _git,
+    _source_sha,
+    _write_manifest,
     _write_qualification_ledger,
 )
+
+# Synthetic 40-hex source for the FINAL release record fixtures (the final
+# record loader is syntactic; no git binding applies to it).
+FINAL_SOURCE = "a" * 40
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 QUAL_SCRIPT = REPO_ROOT / "scripts" / "docker_qualification_ci.py"
@@ -68,26 +70,28 @@ def generator() -> types.ModuleType:
 
 @pytest.fixture()
 def repo(rc_mod: types.ModuleType, generator: types.ModuleType, tmp_path: Path) -> Path:
-    """Temporary repository with a valid committed v5 manifest (reuses the
-    test_rc_record fixture layout; no packaging/rc_record.json yet)."""
-    (tmp_path / "packaging").mkdir()
+    """Fixture git repository with a valid committed v5 manifest (order
+    014-c, workstream B: the record builder binds the literal source ref,
+    so the fixture is a git repository with the truthful C0/S/B sequence;
+    no packaging/rc_record.json yet)."""
+    from tests.test_rc_record import FIXTURE_DOCKERFILE, FIXTURE_PYPROJECT, LOCK_CONTENT
+
+    (tmp_path / "LICENSE").write_text("Apache-2.0\n", encoding="utf-8")
+    _git(tmp_path, "init", "-q")
+    _commit(tmp_path, "C0: license only")
     (tmp_path / "pyproject.toml").write_text(FIXTURE_PYPROJECT, encoding="utf-8")
     (tmp_path / "README.md").write_text("# fixture\n", encoding="utf-8")
-    (tmp_path / "LICENSE").write_text("Apache-2.0\n", encoding="utf-8")
     (tmp_path / "uv.lock").write_bytes(LOCK_CONTENT)
     (tmp_path / "Dockerfile").write_text(FIXTURE_DOCKERFILE, encoding="utf-8")
-    input_map = rc_mod.map_from_directory(tmp_path)
-    manifest = {
-        "schema": "slaif-release-provenance-v5",
-        "artifacts": {"wheel": {"sha256": WHEEL_SHA}},
-        "gateway_peer": {"commit": GATEWAY_SHA},
-        "build": {"build_environment": dict(generator.BUILD_ENVIRONMENT)},
-        "source_inputs": dict(input_map),
-    }
-    (tmp_path / "packaging" / "release_provenance_manifest.json").write_text(
-        json.dumps(manifest), encoding="utf-8"
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_fixture.py").write_text(
+        "def test_fixture():\n    assert True\n", encoding="utf-8"
     )
+    _commit(tmp_path, "S: source inputs")
+    _git(tmp_path, "tag", "fixture-source")
+    _write_manifest(rc_mod, generator, tmp_path)
     _write_qualification_ledger(tmp_path)
+    _commit(tmp_path, "B: derived metadata (manifest + ledger)")
     return tmp_path
 
 
@@ -108,10 +112,10 @@ def _final_record() -> dict[str, object]:
         "schema": "slaif-release-record-v1",
         "version": "0.1.0",
         "git_tag": "v0.1.0",
-        "image_source_commit": SOURCE,
+        "image_source_commit": FINAL_SOURCE,
         "oci_image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
         "oci_image_digest": DIGEST,
-        "oci_tags": ["0.1.0", f"sha-{SOURCE}"],
+        "oci_tags": ["0.1.0", f"sha-{FINAL_SOURCE}"],
         "published_at": PUBLISHED_AT,
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": 7,
@@ -127,8 +131,9 @@ def test_generated_v3_record_accepted_by_real_published_mode_loader(
     """A generated v3 temporary fixture is accepted by the real published-mode
     loader (the existing strict v3 loader — not a second schema
     implementation)."""
+    source = _source_sha(repo)
     record = rc_mod.build_rc_record(
-        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42, QUALIFICATION_FACTS
+        repo, source, DIGEST, source, PUBLISHED_AT, 42, QUALIFICATION_FACTS
     )
     _write_record(repo / "packaging" / "rc_record.json", record)
     assert dqc._load_publication_record() == record
@@ -142,8 +147,9 @@ def test_published_mode_constructor_consumes_v3_record(
 ) -> None:
     """The real published-mode constructor binds the pulled image reference
     and source commit from the generated v3 record."""
+    source = _source_sha(repo)
     record = rc_mod.build_rc_record(
-        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, QUALIFICATION_FACTS
+        repo, source, DIGEST, source, PUBLISHED_AT, None, QUALIFICATION_FACTS
     )
     _write_record(repo / "packaging" / "rc_record.json", record)
     args = argparse.Namespace(
@@ -159,7 +165,7 @@ def test_published_mode_constructor_consumes_v3_record(
     qual = dqc.Qualification(args)
     assert qual.mode == "published"
     assert qual.record == record
-    assert qual.source_commit == SOURCE
+    assert qual.source_commit == source
     assert qual.image_ref == f"{record['oci_image_reference']}@{record['oci_image_digest']}"
     assert qual.compose_files == (dqc.COMPOSE_PRIMARY,)
 
@@ -211,8 +217,9 @@ def test_malformed_v3_record_rejected(
     mutate: Callable[[dict[str, object]], None],
 ) -> None:
     """Malformed v3 data is a qualification failure, never a warning."""
+    source = _source_sha(repo)
     record = rc_mod.build_rc_record(
-        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, QUALIFICATION_FACTS
+        repo, source, DIGEST, source, PUBLISHED_AT, None, QUALIFICATION_FACTS
     )
     mutate(record)
     _write_record(repo / "packaging" / "rc_record.json", record)
@@ -228,10 +235,10 @@ def test_superseded_v1_rc_record_rejected(dqc: types.ModuleType, repo: Path, wir
         "schema": "slaif-rc-record-v1",
         "rc_identifier": "0.1.0-rc3",
         "product_version": "0.1.0",
-        "image_source_commit": SOURCE,
+        "image_source_commit": FINAL_SOURCE,
         "oci_image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
         "oci_image_digest": DIGEST,
-        "oci_tags": ["0.1.0-rc3", f"sha-{SOURCE}"],
+        "oci_tags": ["0.1.0-rc3", f"sha-{FINAL_SOURCE}"],
         "published_at": PUBLISHED_AT,
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": None,
@@ -254,8 +261,9 @@ def test_rc_record_authoritative_when_both_exist(
     repo: Path,
     wired: None,
 ) -> None:
+    source = _source_sha(repo)
     record = rc_mod.build_rc_record(
-        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, QUALIFICATION_FACTS
+        repo, source, DIGEST, source, PUBLISHED_AT, None, QUALIFICATION_FACTS
     )
     _write_record(repo / "packaging" / "rc_record.json", record)
     _write_record(repo / "packaging" / "release_record.json", _final_record())

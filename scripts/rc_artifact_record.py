@@ -56,6 +56,27 @@ publication it contains the literal verified values and the
 retrieval/verification commands a separate consumer can follow, without
 OAP knowledge or an image rebuild.
 
+SOURCE-REF BINDING (order 014-c, workstream B — the RC4 defect, closed):
+the record's source identity is bound to the LITERAL supplied 40-hex
+``source`` commit, which must be the exact publication workflow head,
+before anything is written. The builder computes the input map of that
+commit with the repository's ref-based map implementation and requires,
+fail-closed with sanitized exact classes:
+
+- the source ref exists and is reachable from the current checkout;
+- the source-ref map equals the committed provenance manifest map;
+- the current checkout map equals that same map (the input map policy
+  already excludes derived metadata and the OAP transcript);
+- ``source_input_hashes`` is exactly the source-ref map;
+- the dependency-lock and base-image facts are read FROM the source ref
+  (``git show <source>:uv.lock`` / ``<source>:Dockerfile``), never from a
+  later working tree.
+
+A valid ancestor or a byte-identical wheel is insufficient: any altered
+test, doc, schema, config, workflow, packaging, or sdist input after the
+source freeze fails the builder. ``workflow_head_sha`` must equal
+``image_source_commit`` (one qualified source boundary).
+
 Safety law: an existing ``packaging/rc_record.json`` (or
 ``packaging/rc_handoff.md``) is a frozen identity — the generator refuses
 to overwrite it unless the freshly built content is byte-identical. No
@@ -82,6 +103,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -89,11 +111,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from real_codex_rc_qualification import validate_facts_record  # noqa: E402
-from release_provenance_manifest import _dockerfile_base_images  # noqa: E402
-from source_input_map import map_from_directory  # noqa: E402
+from release_provenance_manifest import _dockerfile_base_images_text  # noqa: E402
+from source_input_map import map_from_directory, map_from_git_commit  # noqa: E402
 
 MANIFEST_PATH = Path("packaging/release_provenance_manifest.json")
-UV_LOCK_PATH = Path("uv.lock")
 HANDOFF_PATH = Path("packaging/rc_handoff.md")
 
 # Order 014-b, workstream C: RC4 supersedes the rejected RC3 (RC3's scoped
@@ -152,6 +173,121 @@ def _sha256_file(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _git(repo: Path, *args: str) -> str:
+    """Run a read-only git command; sanitized exact-class failure (no
+    stderr content in the message)."""
+    proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True)
+    if proc.returncode != 0:
+        raise RCRecordError(f"git read-only command failed: {' '.join(args[:3])} (fail closed)")
+    return proc.stdout.decode().strip()
+
+
+def _git_blob(repo: Path, commit: str, path: str) -> bytes:
+    """Read one blob at a literal commit (source-ref fact binding,
+    order 014-c, workstream B.3). Missing/unreadable fails closed."""
+    proc = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:{path}"], capture_output=True)
+    if proc.returncode != 0:
+        raise RCRecordError(f"source ref does not carry readable blob {path!r} (fail closed)")
+    return proc.stdout
+
+
+def verify_source_ref_binding(
+    repo: Path,
+    source: str,
+    head_sha: str,
+    recorded_inputs: dict[str, str],
+) -> dict[str, str]:
+    """Order 014-c, workstream B: fail-closed source-ref binding.
+
+    The literal supplied 40-hex ``source`` commit is the record's only
+    source identity. BEFORE anything is written, the builder proves:
+
+    1. the publication workflow head IS the exact source ref
+       (``head_sha == source``) — ``image_source_commit`` and
+       ``workflow_head_sha`` name one qualified source boundary;
+    2. the source ref exists in this repository;
+    3. the source ref is reachable from the current checkout (the
+       publication head is never on a lost branch);
+    4. the source-ref input map (computed with the repository's
+       ref-based map implementation) equals the committed provenance
+       manifest's recorded map;
+    5. the current checkout's input map equals that same map — the
+       input-map policy already excludes derived metadata
+       (record/handoff/manifest) and the OAP transcript, so only
+       ALLOWED derived differences can exist in the tree.
+
+    A valid ancestor or a byte-identical wheel is insufficient: any
+    altered test, doc, schema, config, workflow, packaging input, sdist
+    input, or other mapped path after the source freeze fails the
+    builder with a sanitized exact class. Returns the proven source-ref
+    map (which the record carries as ``source_input_hashes``).
+    """
+    if not re.fullmatch(r"[0-9a-f]{40}", source):
+        raise RCRecordError("source ref must be 40-hex (fail closed)")
+    if source != head_sha:
+        raise RCRecordError(
+            "workflow head is not the exact supplied source ref (fail closed): "
+            "image_source_commit and workflow_head_sha must identify the same "
+            "qualified source boundary"
+        )
+    if (
+        subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "-e", source], capture_output=True
+        ).returncode
+        != 0
+    ):
+        raise RCRecordError("supplied source ref does not exist (fail closed)")
+    head = _git(repo, "rev-parse", "HEAD")
+    if head != source:
+        if (
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "merge-base",
+                    "--is-ancestor",
+                    source,
+                    head,
+                ],
+                capture_output=True,
+            ).returncode
+            != 0
+        ):
+            raise RCRecordError(
+                "source ref is not reachable from the current checkout (fail "
+                "closed): the publication head must be an ancestor of HEAD"
+            )
+    source_ref_map = map_from_git_commit(repo, source)
+    if source_ref_map != recorded_inputs:
+        missing = sorted(set(recorded_inputs) - set(source_ref_map))[:5]
+        extra = sorted(set(source_ref_map) - set(recorded_inputs))[:5]
+        altered = sorted(
+            p
+            for p in set(recorded_inputs) & set(source_ref_map)
+            if recorded_inputs[p] != source_ref_map[p]
+        )[:5]
+        raise RCRecordError(
+            "source-ref input map differs from the committed manifest map "
+            f"(missing={missing} extra={extra} altered={altered}); the record's "
+            "named image source does not carry the recorded source inputs "
+            "(fail closed)"
+        )
+    working_map = map_from_directory(repo)
+    if working_map != source_ref_map:
+        missing = sorted(set(source_ref_map) - set(working_map))[:5]
+        extra = sorted(set(working_map) - set(source_ref_map))[:5]
+        altered = sorted(
+            p for p in set(source_ref_map) & set(working_map) if source_ref_map[p] != working_map[p]
+        )[:5]
+        raise RCRecordError(
+            "current checkout input map differs from the source-ref map "
+            f"(missing={missing} extra={extra} altered={altered}); a mapped "
+            "input changed after the source freeze (fail closed)"
+        )
+    return source_ref_map
 
 
 def _validate_compatibility(compatibility: object) -> dict[str, object]:
@@ -387,27 +523,40 @@ def build_rc_record(
         raise RCRecordError("manifest gateway peer commit is not 40-hex")
     build_environment = dict(manifest["build"]["build_environment"])
     recorded_inputs = {str(k): str(v) for k, v in manifest["source_inputs"].items()}
-    # The record must be built from a checkout whose inputs equal the
-    # recorded input map (i.e. at S with inputs identical to the qualified
-    # source; an ancestor relationship is not sufficient — order 013-j, J4).
-    working_inputs = map_from_directory(repo)
-    if working_inputs != recorded_inputs:
-        missing = sorted(set(recorded_inputs) - set(working_inputs))[:5]
-        extra = sorted(set(working_inputs) - set(recorded_inputs))[:5]
-        altered = sorted(
-            p
-            for p in set(recorded_inputs) & set(working_inputs)
-            if recorded_inputs[p] != working_inputs[p]
-        )[:5]
+    # Order 014-c, workstream B: bind the record's source identity to the
+    # LITERAL supplied source commit (the exact publication workflow head)
+    # BEFORE anything is written. An ancestor relationship or a
+    # byte-identical wheel is not sufficient — the RC4 defect.
+    source_ref_map = verify_source_ref_binding(repo, source, head_sha, recorded_inputs)
+    # The manifest's claimed source A must exist and honestly carry the
+    # recorded map (the truthful A/B sequence: the manifest describes the
+    # exact commit its input map was computed from). A descendant A with
+    # an identical map is possible (derived-only child); a drifted A is
+    # not — the RC4 rebind is caught by the source-ref map equality above.
+    manifest_source = str(manifest.get("generated_from", {}).get("git_commit", ""))
+    if not re.fullmatch(r"[0-9a-f]{40}", manifest_source):
+        raise RCRecordError("manifest generated_from.git_commit is not 40-hex (fail closed)")
+    if (
+        subprocess.run(
+            ["git", "-C", str(repo), "cat-file", "-e", manifest_source],
+            capture_output=True,
+        ).returncode
+        != 0
+    ):
+        raise RCRecordError("manifest generated_from.git_commit does not exist (fail closed)")
+    if map_from_git_commit(repo, manifest_source) != recorded_inputs:
         raise RCRecordError(
-            "working-tree source inputs differ from the manifest's recorded "
-            f"input map (missing={missing} extra={extra} altered={altered}); "
-            "the record must be built at the qualified source"
+            "manifest generated_from.git_commit does not carry the recorded "
+            "input map (fail closed): the manifest must describe the exact "
+            "source commit it was generated from"
         )
-    dependency_lock_sha256 = _sha256_file(repo / UV_LOCK_PATH)
+    # Dependency-lock and base-image facts are read FROM the source ref,
+    # never from a later working tree (order 014-c, workstream B.3).
+    dependency_lock_sha256 = hashlib.sha256(_git_blob(repo, source, "uv.lock")).hexdigest()
+    dockerfile_text = _git_blob(repo, source, "Dockerfile").decode("utf-8")
     base_images = {
         stage: {"name": fact["name"], "digest": fact["digest"]}
-        for stage, fact in _dockerfile_base_images(repo).items()
+        for stage, fact in _dockerfile_base_images_text(dockerfile_text).items()
     }
 
     return {
@@ -436,7 +585,7 @@ def build_rc_record(
         },
         "base_images": base_images,
         "image_platform": IMAGE_PLATFORM,
-        "source_input_hashes": recorded_inputs,
+        "source_input_hashes": source_ref_map,
         "deployment_assumptions": DEPLOYMENT_ASSUMPTIONS,
         "compatibility": compatibility_facts,
     }

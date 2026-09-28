@@ -329,6 +329,16 @@ def load_rc_record(repo: Path) -> dict | None:
         raise RuntimeError("rc record publication_workflow_run_id invalid")
     if not re.fullmatch(r"[0-9a-f]{40}", str(record["workflow_head_sha"])):
         raise RuntimeError("rc record workflow_head_sha is not 40-hex")
+    # Order 014-c, workstream B.5: the publishing run head and the image
+    # source commit identify the SAME qualified source boundary (the OCI
+    # revision label and the sha-<source> alias tag bind to it in the
+    # published-image gate; the manifest/record input maps bind to it in
+    # the record builder).
+    if record["workflow_head_sha"] != record["image_source_commit"]:
+        raise RuntimeError(
+            "rc record workflow_head_sha must equal image_source_commit (one "
+            "qualified source boundary)"
+        )
     if record["private_registry_auth_required"] is not True:
         raise RuntimeError("rc record private_registry_auth_required must be true")
     if record["final_public_release"] is not False:
@@ -467,15 +477,16 @@ def _artifact_facts(path: Path, kind: str) -> dict:
     }
 
 
-def _dockerfile_base_images(root: Path) -> dict[str, dict[str, str]]:
-    """Return the stage-keyed base-image map parsed from the Dockerfile.
+def _dockerfile_base_images_text(dockerfile: str) -> dict[str, dict[str, str]]:
+    """Return the stage-keyed base-image map parsed from Dockerfile TEXT.
 
     Stages: ``uv-provider``, ``build``, ``runtime`` — each with
     ``name`` and ``digest`` (``sha256:<64-hex>``). All three FROM lines
     must be digest-pinned (B1); any unpinned base is a generation
-    failure, never a warning.
+    failure, never a warning. (Order 014-c, workstream B.3: the RC
+    record builder parses the SOURCE-REF Dockerfile bytes through this
+    same closed function — one parser, two read surfaces.)
     """
-    dockerfile = (root / "Dockerfile").read_text(encoding="utf-8")
     found: dict[str, dict] = {}
     for line in dockerfile.splitlines():
         m = re.match(r"^FROM\s+(\S+?)@sha256:([0-9a-f]{64})\s+AS\s+([A-Za-z0-9_-]+)\s*$", line)
@@ -490,6 +501,11 @@ def _dockerfile_base_images(root: Path) -> dict[str, dict[str, str]]:
             f"images by digest; found: {sorted(found)}"
         )
     return found
+
+
+def _dockerfile_base_images(root: Path) -> dict[str, dict[str, str]]:
+    """Path variant: parse the Dockerfile of a checkout/directory tree."""
+    return _dockerfile_base_images_text((root / "Dockerfile").read_text(encoding="utf-8"))
 
 
 def _git_commit(root: Path) -> str:
