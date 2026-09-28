@@ -216,9 +216,7 @@ def test_diff_protected_detects_change() -> None:
 
 
 def _fake_run(state: str, returncode: int) -> Callable[..., subprocess.CompletedProcess[bytes]]:
-    def run(
-        *a: str | bytes, **k: object
-    ) -> subprocess.CompletedProcess[bytes]:
+    def run(*a: str | bytes, **k: object) -> subprocess.CompletedProcess[bytes]:
         return subprocess.CompletedProcess(
             args=list(a), returncode=returncode, stdout=state.encode(), stderr=b""
         )
