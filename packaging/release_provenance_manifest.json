@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 124,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "bfd7c7cee52ac447640a0371dc4d45ac460dde8fec3b44e4487fc393f7576545",
-      "size_bytes": 455560
+      "sha256": "15bd0a3b665193930da629626df98cbbeef7cf8fd3bc96fd901f22d5f2ec3a2f",
+      "size_bytes": 455773
     },
     "wheel": {
       "entry_count": 26,
@@ -57,7 +57,7 @@
     }
   },
   "generated_from": {
-    "git_commit": "8ba26b70de31e74aa45611b9ab157dd770e53439",
+    "git_commit": "21ae15a813e7be31472725a2bdd824f4b88971c0",
     "repository": "ulfe-lmi/slaif-local-coding"
   },
   "limitations": [
@@ -234,7 +234,7 @@
     "tests/test_path_safety.py": "8df836d3e0bfdd843968908b6da35bfef45f7adc5fe91e67474d21f69e1995fd",
     "tests/test_pipeline.py": "5ac65c3252583cf3eb47610ec4034c3a42673672ef2ae8666747b7b8320e62ee",
     "tests/test_rc_record.py": "f0ced423016a92029e44f356786c4963e2d903623f88e915196b19a71de9e951",
-    "tests/test_real_codex_rc_qualification.py": "164b89c6288b2e81d67a6ac93ee2a7969c065521c7dbfd7793c4beefe0a9e18a",
+    "tests/test_real_codex_rc_qualification.py": "3eba598736fe5fce223eae1af1686bb209ae65b02a4b15b61c5296dbcf713195",
     "tests/test_reference_proxy_headers.py": "9a6aaf9af01a7c1a0c7514ff1274a48fd85bc57ff8562251b0acaa9253f1e2b9",
     "tests/test_rehydration.py": "da759af26560ecb3c2bc9855f654152a0521add0aa6de1d8751fb661bda49b59",
     "tests/test_release_provenance_manifest.py": "0a56752f5e5e2dace06b0950ad3f7ef204789a0919bcca56290aabae2eeae0bb",
