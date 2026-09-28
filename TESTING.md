@@ -130,7 +130,14 @@ Two distinct mechanisms, never interchangeable:
   substitutes for a product arm. Only fixed categories, counts, statuses,
   version/hash, timings, and boolean verdicts are captured; disposable raw
   state is deleted after sanitized facts are extracted into an
-  append-only, content-free testing-ledger directory.
+  append-only, content-free testing-ledger directory. The client is
+  invoked with the client-side sandbox set to `danger-full-access`
+  because the protected host forbids the unprivileged user-namespace
+  network setup that bubblewrap requires (a protected host state the
+  gate never changes); the effective controls are the disposable
+  workspace and Codex home, the loopback-only adapter, the fixed
+  synthetic prompt, no credentials in argv, and bounded attempts and
+  timeouts.
 
 RC history: RC2 (`0.1.0-rc2`) failed external real-Codex 0.149.0
 qualification; the immutable [testing ledger

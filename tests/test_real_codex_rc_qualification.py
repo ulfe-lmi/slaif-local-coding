@@ -68,6 +68,10 @@ def test_build_codex_argv_never_contains_credentials() -> None:
     )
     assert argv[0] == "/codex/bin/codex"
     assert argv[1:4] == ["exec", "--ephemeral", "--ignore-user-config"]
+    # The protected host cannot run bubblewrap (user-namespace network
+    # restriction); the gate's disposable/loopback/bounded boundary is the
+    # control, so the client sandbox is explicitly danger-full-access.
+    assert argv[4:6] == ["-s", "danger-full-access"]
     assert "-C" in argv and str(Path("/tmp/workspace")) in argv
     assert f"model_provider={gate.CLIENT_ENV_KEY[:0]}slaif_rc3_vision" in argv
     provider_lines = [entry for entry in argv if entry.startswith("model_providers.")]

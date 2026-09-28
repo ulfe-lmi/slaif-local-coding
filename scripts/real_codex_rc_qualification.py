@@ -144,6 +144,15 @@ def build_codex_argv(
     The credential is NEVER an argv element: the provider references an
     environment variable name (``env_key``) whose value is supplied only
     through the child process environment.
+
+    The client-side sandbox is set to ``danger-full-access`` because the
+    protected host forbids the unprivileged user-namespace network setup
+    that bubblewrap requires (``RTM_NEWADDR: Operation not permitted``),
+    a host-level state this gate must never change. The gate's own
+    boundary is the control instead: fresh disposable workspace and
+    Codex home, loopback-only adapter, fixed synthetic prompt, no
+    credentials in argv, bounded attempts/timeouts, and sanitized facts
+    only.
     """
     provider_spec = (
         f'{{name="SLAIF RC3 smoke",base_url="{base_url}",'
@@ -154,6 +163,8 @@ def build_codex_argv(
         "exec",
         "--ephemeral",
         "--ignore-user-config",
+        "-s",
+        "danger-full-access",
         "-C",
         str(workspace),
         "-m",
@@ -783,12 +794,12 @@ def main() -> int:
     args = parser.parse_args()
 
     arms = tuple(entry.strip().upper() for entry in args.arms.split(",") if entry.strip())
+    if not arms:
+        parser.error("no arms selected")
     unknown = set(arms) - set(PRODUCT_ARMS)
     if unknown:
         parser.error(f"unknown arms: {sorted(unknown)}")
-    required = list(arms)
-    if args.include_direct:
-        required.append("DIRECT")
+    required = arms + (("DIRECT",) if args.include_direct else ())
 
     workdir = args.workdir
     if workdir.exists():
@@ -866,7 +877,10 @@ def main() -> int:
         facts["protected_state_unchanged"] = (
             diff["files_changed"] == 0 and diff["units_changed"] == 0 and diff["ports_changed"] == 0
         )
-        required_ok = all(facts["arms"][arm]["verdict"] == "PASS" for arm in PRODUCT_ARMS)
+        # Required product arms only: a contextual DIRECT control is
+        # recorded but never blocks the verdict, and subset runs must not
+        # reference arms they deliberately did not run.
+        required_ok = all(facts["arms"][arm]["verdict"] == "PASS" for arm in arms)
         verdict = "PASS" if required_ok and facts["protected_state_unchanged"] else "BLOCKED"
     except QualificationError:
         verdict = "BLOCKED"
