@@ -75,7 +75,7 @@ These checks do not replace the two-clean-build comparison.
 input hashes, OCI inputs and the frozen Gateway authority. Its states distinguish
 an unfrozen candidate, a published RC and a separately approved final release.
 
-After publication, `packaging/rc_record.json` (`slaif-rc-record-v2`) and its human
+After publication, `packaging/rc_record.json` (`slaif-rc-record-v3`) and its human
 view `packaging/rc_handoff.md` record the actual source, digest, wheel, toolchain,
 lock and template hashes, platform, registry access and publication run.
 Prior candidate records are retained under `packaging/releases/`.
@@ -88,7 +88,7 @@ A record with no digest is not evidence of publication.
 ## Private RC publication
 
 The manually dispatched [release workflow](../.github/workflows/release-image.yml)
-publishes the explicitly selected candidate `0.1.0-rc3` and a
+publishes the explicitly selected candidate `0.1.0-rc4` and a
 `sha-<full-source-commit>` alias. Both must resolve to one recorded OCI digest.
 Tags are mutable aliases; `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<digest>`
 is the immutable consumer identity.

@@ -95,14 +95,14 @@ def test_plan_pre_write_matrix(
     if match == "proceed":
         assert (
             mod.plan_pre_write(
-                "sha-x", (sha_status, sha_digest), "0.1.0-rc3", (rc_status, rc_digest)
+                "sha-x", (sha_status, sha_digest), "0.1.0-rc4", (rc_status, rc_digest)
             )
             == "proceed"
         )
     else:
         with pytest.raises(mod.PublishError, match=match):
             mod.plan_pre_write(
-                "sha-x", (sha_status, sha_digest), "0.1.0-rc3", (rc_status, rc_digest)
+                "sha-x", (sha_status, sha_digest), "0.1.0-rc4", (rc_status, rc_digest)
             )
 
 
@@ -190,7 +190,7 @@ def sha_tag() -> str:
 
 
 def rc_tag() -> str:
-    return "0.1.0-rc3"
+    return "0.1.0-rc4"
 
 
 def test_occupied_source_tag_zero_mutations(

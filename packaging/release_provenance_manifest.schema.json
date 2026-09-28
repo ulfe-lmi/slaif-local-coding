@@ -343,7 +343,7 @@
           "minLength": 1
         },
         "candidate_tag": {
-          "const": "0.1.0-rc3"
+          "const": "0.1.0-rc4"
         },
         "base_image": {
           "$ref": "#/$defs/base_image"

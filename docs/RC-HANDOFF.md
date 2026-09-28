@@ -9,13 +9,13 @@ This guide covers retrieval and identity verification only.
 After publication, `packaging/rc_record.json` is the machine-readable record and
 `packaging/rc_handoff.md` is its deterministic human-readable view. Both contain
 the actual values; a candidate without these records and a verified digest is
-not ready for handoff. Their schema is `slaif-rc-record-v2`.
+not ready for handoff. Their schema is `slaif-rc-record-v3`.
 
 The record includes:
 
 | Identity | Recorded facts |
 | --- | --- |
-| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc3`. |
+| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc4`. |
 | Source | Exact 40-hex image source commit and publication-run head SHA. |
 | Image | Full OCI reference, authenticated `sha256` digest and tag aliases. |
 | Package | Exact wheel SHA-256 and dependency-lock hash. |
@@ -89,6 +89,14 @@ record](../packaging/releases/0.1.0-rc2/rc_record.json),
 [provenance](../packaging/releases/0.1.0-rc2/release_provenance_manifest.json)
 also remain byte-identical; RC2 failed external real-Codex 0.149.0
 qualification (immutable testing ledger 001) and is not a handoff target
-either. The current candidate is RC3, which contains the image-policy
-compatibility repair. Each candidate has a separate source, wheel and
-digest. Legacy private `0.1.0` tags are not handoff targets.
+either. The archived [RC3
+record](../packaging/releases/0.1.0-rc3/rc_record.json),
+[handoff](../packaging/releases/0.1.0-rc3/rc_handoff.md) and
+[provenance](../packaging/releases/0.1.0-rc3/release_provenance_manifest.json)
+also remain byte-identical; RC3's scoped real-Codex smoke passed (immutable
+testing ledger 002) but the candidate was not accepted: its publication
+preceded a successful aggregate security gate, and later review found the
+record-schema and qualification-harness defects repaired in RC4. The
+current candidate is RC4, which contains the qualification-harness repair
+and the evidence-bound RC record. Each candidate has a separate source,
+wheel and digest. Legacy private `0.1.0` tags are not handoff targets.

@@ -23,7 +23,6 @@ from pathlib import Path
 import pytest
 
 from tests.test_rc_record import (
-    COMPATIBILITY,
     DIGEST,
     FIXTURE_DOCKERFILE,
     FIXTURE_PYPROJECT,
@@ -31,8 +30,10 @@ from tests.test_rc_record import (
     HEAD_SHA,
     LOCK_CONTENT,
     PUBLISHED_AT,
+    QUALIFICATION_FACTS,
     SOURCE,
     WHEEL_SHA,
+    _write_qualification_ledger,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +87,7 @@ def repo(rc_mod: types.ModuleType, generator: types.ModuleType, tmp_path: Path) 
     (tmp_path / "packaging" / "release_provenance_manifest.json").write_text(
         json.dumps(manifest), encoding="utf-8"
     )
+    _write_qualification_ledger(tmp_path)
     return tmp_path
 
 
@@ -125,7 +127,9 @@ def test_generated_v3_record_accepted_by_real_published_mode_loader(
     """A generated v3 temporary fixture is accepted by the real published-mode
     loader (the existing strict v3 loader — not a second schema
     implementation)."""
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42, COMPATIBILITY)
+    record = rc_mod.build_rc_record(
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42, QUALIFICATION_FACTS
+    )
     _write_record(repo / "packaging" / "rc_record.json", record)
     assert dqc._load_publication_record() == record
 
@@ -139,7 +143,7 @@ def test_published_mode_constructor_consumes_v3_record(
     """The real published-mode constructor binds the pulled image reference
     and source commit from the generated v3 record."""
     record = rc_mod.build_rc_record(
-        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, QUALIFICATION_FACTS
     )
     _write_record(repo / "packaging" / "rc_record.json", record)
     args = argparse.Namespace(
@@ -175,7 +179,7 @@ def test_record_missing_when_no_publication_record(
         lambda rec: rec.update(cutover_performed=True),
         lambda rec: rec.update(private_registry_auth_required=False),
         lambda rec: rec.update(oci_image_digest="sha256:" + "b" * 63),
-        lambda rec: rec.update(oci_tags=["0.1.0-rc3", "wrong-tag"]),
+        lambda rec: rec.update(oci_tags=["0.1.0-rc4", "wrong-tag"]),
         lambda rec: rec.update(image_source_commit="a" * 39),
         lambda rec: rec.update(workflow_head_sha="g" * 40),
         lambda rec: rec.update(wheel_sha256="d" * 64 + "d"),
@@ -208,7 +212,7 @@ def test_malformed_v3_record_rejected(
 ) -> None:
     """Malformed v3 data is a qualification failure, never a warning."""
     record = rc_mod.build_rc_record(
-        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, QUALIFICATION_FACTS
     )
     mutate(record)
     _write_record(repo / "packaging" / "rc_record.json", record)
@@ -251,7 +255,7 @@ def test_rc_record_authoritative_when_both_exist(
     wired: None,
 ) -> None:
     record = rc_mod.build_rc_record(
-        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, QUALIFICATION_FACTS
     )
     _write_record(repo / "packaging" / "rc_record.json", record)
     _write_record(repo / "packaging" / "release_record.json", _final_record())
