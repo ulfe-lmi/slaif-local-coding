@@ -357,8 +357,11 @@ def _run_gate_suite(clone: Path) -> None:
     clone (the clone's own tests, bound to the clone root)."""
     pytest = _run([sys.executable, "-m", "pytest", "-q", *REHEARSAL_TEST_FILES], clone)
     if pytest.returncode != 0:
-        tail = (pytest.stdout.decode() or "")[-4000:]
-        raise RehearsalError("rehearsal gate suite failed:\n" + tail)
+        tail = (pytest.stdout.decode() or "")[-2000:]
+        err = (pytest.stderr.decode() or "")[-2000:]
+        raise RehearsalError(
+            f"rehearsal gate suite failed:\n--- stdout ---\n{tail}\n--- stderr ---\n{err}"
+        )
 
 
 def _assert_record_evidence_binding(clone: Path) -> None:
@@ -527,7 +530,8 @@ def _run_tamper_cases(clone: Path, source: str) -> None:
                 clone,
             )
             if proc.returncode == 0:
-                raise SystemExit("tamper undetected: mapped input drift passed")
+                return  # gate passed: drift undetected (expect_rejection raises)
+            raise SystemExit("mapped input drift correctly rejected by the gate")
 
         _expect_rejection(changed_mapped_test_input, "changed mapped test input")
         _git(clone, "checkout", "--quiet", "--", "tests/test_rc_record.py")
@@ -577,7 +581,8 @@ def _run_tamper_cases(clone: Path, source: str) -> None:
                 clone,
             )
             if proc.returncode == 0:
-                raise SystemExit("tamper undetected: later-tree map passed")
+                return  # gate passed: later-tree map undetected (raises below)
+            raise SystemExit("later-tree map correctly rejected by the gate")
 
         _expect_rejection(later_tree_map, "later-tree map")
     finally:
