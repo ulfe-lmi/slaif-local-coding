@@ -117,7 +117,7 @@ jobs:
           export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
           export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
           docker compose -f compose.yaml -f compose.build.yaml build \
-            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc5; private; not final release"
+            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc7; private; not final release"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
             --format "built image: {{.Id}} (push performed in the next steps)"
           REV="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
@@ -125,7 +125,7 @@ jobs:
           QUAL_LABEL="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "slaif-local-coding.qualification"}}')"
           test "$REV" = "$GITHUB_SHA"
           test "$WHEEL_LABEL" = "$SLAIF_WHEEL_SHA256"
-          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc5; private; not final release"
+          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc7; private; not final release"
 
       - name: Docker qualification (C2-C9)
         run: |
@@ -142,9 +142,10 @@ jobs:
   # authenticated registry baseline (the ephemeral packages:read token, the
   # existing strict resolver: digest / verified-absent / unauthorized are
   # distinct; inaccessible is never reported as absent) for the historical
-  # 0.1.0, the two recorded sha- tags, 0.1.0-rc1/0.1.0-rc2, and — when the
+  # 0.1.0, the two recorded sha- tags, 0.1.0-rc1/0.1.0-rc2, and the
+  # rejected RC3/RC4/RC5 pairs (all occupied and immutable), and — when the
   # RC record (packaging/rc_record.json) exists — its current RC tag pair
-  # (order 014-c, D.5: 0.1.0-rc5 + sha-<S>) — BEFORE the prepublication
+  # (order 014-e, C.2: 0.1.0-rc7 + sha-<S>) — BEFORE the prepublication
   # gate — so a source round yields the before state and a published round
   # yields the after evidence. The job then authenticates
   # with least-privilege packages:read (GITHUB_TOKEN), consumes the RC
@@ -204,13 +205,19 @@ jobs:
               "sha-4d096e404e14badb78b4f99142bf08ef17f0f8a7",
               "0.1.0-rc2",
               # Order 014-c, D.5: the rejected RC3/RC4 tag pairs are part of
-              # the immutable historical set (the RC4 record is archived at
-              # the A5 reconciliation, so its pair is no longer picked up
-              # from packaging/rc_record.json).
+              # the immutable historical set (their records are archived,
+              # so the pairs are no longer picked up from
+              # packaging/rc_record.json).
               "0.1.0-rc3",
               "sha-307a929ffb30f4ea41c8be4e8a5ea25802e25142",
               "0.1.0-rc4",
               "sha-601a7f9fae19869ad8e09f10fa994550368fd87c",
+              # Order 014-e, workstream C.2: the rejected RC5 tag pair is part of the
+              # immutable historical set (the RC5 record is archived under
+              # packaging/releases/0.1.0-rc5/, so its pair is no longer
+              # picked up from packaging/rc_record.json).
+              "0.1.0-rc5",
+              "sha-e04b4a99afa6268c98f28ed7abfc1db506107523",
           )
           # Order 014-a, D.2: when the RC record exists (post-publication
           # rounds), the baseline also records the CURRENT RC tag pair so

@@ -88,7 +88,7 @@ A record with no digest is not evidence of publication.
 ## Private RC publication
 
 The manually dispatched [release workflow](../.github/workflows/release-image.yml)
-publishes the explicitly selected candidate `0.1.0-rc5` and a
+publishes the explicitly selected candidate `0.1.0-rc7` and a
 `sha-<full-source-commit>` alias. Both must resolve to one recorded OCI digest.
 Tags are mutable aliases; `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<digest>`
 is the immutable consumer identity.

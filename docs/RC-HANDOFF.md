@@ -15,7 +15,7 @@ The record includes:
 
 | Identity | Recorded facts |
 | --- | --- |
-| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc5`. |
+| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc7`. |
 | Source | Exact 40-hex image source commit and publication-run head SHA. |
 | Image | Full OCI reference, authenticated `sha256` digest and tag aliases. |
 | Package | Exact wheel SHA-256 and dependency-lock hash. |
@@ -100,8 +100,18 @@ record-schema and qualification-harness defects repaired in RC4. RC4
 (`0.1.0-rc4`) qualified in scope (immutable testing ledger 003) but was
 not accepted: the committed provenance bound a later source-input map to
 the earlier immutable image source; its record set is archived
-byte-identical under `packaging/releases/0.1.0-rc4/`. The current
-candidate is RC5, which adds the fail-closed source-reference binding
-and the prepublication record-present rehearsal to the
-qualification-harness repair and the evidence-bound RC record. Each
-candidate has a separate source, wheel and digest. Legacy private `0.1.0` tags are not handoff targets.
+byte-identical under `packaging/releases/0.1.0-rc4/`. RC5
+(`0.1.0-rc5`) passed its product repair, its scoped genuine-Codex
+qualification (immutable testing ledger 004), and its pulled-image
+qualification, but was not accepted: a mandatory record-present gate
+required a tracked source correction after the immutable candidate
+freeze; its record set is archived byte-identical under
+`packaging/releases/0.1.0-rc5/`. The 014-d RC6 attempt was abandoned
+before any push, tag, or publication, so no RC6 identity exists. The
+current candidate is RC7 (`0.1.0-rc7`), which freezes the corrected
+record-present rehearsal (the single qualified source boundary with an
+identical source-input map and only permitted post-freeze paths) on top
+of the fail-closed source-reference binding and the evidence-bound RC
+record, and carries the two pre-freeze test corrections the abandoned
+RC6 suite exposed. Each candidate has a separate source, wheel and
+digest. Legacy private `0.1.0` tags are not handoff targets.

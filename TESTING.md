@@ -160,14 +160,29 @@ RC3 identity residue, the repair committed a post-publication SOURCE
 change, and the post-publication provenance rebind recorded that later
 source-input map while the record still named the earlier immutable
 image source; its record set is archived byte-identical under
-`packaging/releases/0.1.0-rc4/`. RC5 (`0.1.0-rc5`) is the successor
-candidate: the record builder binds the record's source identity to the
-literal supplied source commit fail-closed (any altered mapped input
-after the source freeze rejects the builder), ordinary CI runs the
-deterministic prepublication record-present rehearsal
-(`scripts/rc_record_present_rehearsal.py`) at the candidate source,
-and the corrected harness reruns for the next immutable testing ledger
-(expected number 004).
+`packaging/releases/0.1.0-rc4/`. RC5 (`0.1.0-rc5`) passed its
+product repair, its scoped genuine-Codex qualification (immutable
+[testing ledger 004](oap/evidence/testing-ledger/004/README.md)), and
+its pulled-image qualification, but was rejected overall: the first
+post-publication record-present validation failed a mandatory gate, and
+the repair was a tracked source correction committed after the
+immutable candidate freeze; its record set is archived byte-identical
+under `packaging/releases/0.1.0-rc5/`. The 014-d successor round was
+abandoned before any push, tag, or publication: its first post-freeze
+full suite required tracked test corrections, triggering the round's
+literal fail-closed rule, and its re-freeze attempt was stopped; no RC6
+remote commit, release workflow, tag, registry mutation, or testing
+ledger exists, and none is claimed. RC7 (`0.1.0-rc7`) is the
+successor candidate: the record builder binds the record's source
+identity to the literal supplied source commit fail-closed (any altered
+mapped input after the source freeze rejects the builder), ordinary CI
+runs the deterministic prepublication record-present rehearsal
+(`scripts/rc_record_present_rehearsal.py`) at the candidate source —
+whose corrected POST mode proves the single qualified source boundary
+(record image source = publication workflow head, an ancestor of the
+candidate source, with an identical source-input map and only
+permitted post-freeze paths) — and the corrected harness reruns for the
+next immutable testing ledger (expected number 005).
 
 ## Evidence and review
 

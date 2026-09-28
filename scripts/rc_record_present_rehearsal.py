@@ -71,7 +71,7 @@ REHEARSAL_FACTS_CREATED_AT = "2026-01-01T00:00:00Z"
 
 # Real, committed qualification ledgers usable as stale prior-RC evidence
 # targets (the rehearsal repo always carries them).
-REAL_LEDGER_NUMBERS = ("004", "003", "002", "001")
+REAL_LEDGER_NUMBERS = ("005", "004", "003", "002", "001")
 
 # The focused record-present gate set (the strict record/provenance/schema/
 # docs/Docker-record gates; no Docker, no network, no registry).
@@ -514,7 +514,7 @@ def _run_tamper_cases(clone: Path, source: str) -> None:
         # 1) stale prior-RC identifier/tag in the record.
         def stale_prior_rc_tag() -> None:
             record = json.loads(original_record)
-            prior = "0.1.0-rc4" if rc_id != "0.1.0-rc4" else "0.1.0-rc3"
+            prior = "0.1.0-rc5" if rc_id != "0.1.0-rc5" else "0.1.0-rc4"
             record["rc_identifier"] = prior
             record_path.write_text(json.dumps(record), encoding="utf-8")
             generator.load_rc_record(clone)
