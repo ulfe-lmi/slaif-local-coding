@@ -104,6 +104,49 @@ The repository-only rehearsal and Codex helpers are not runtime product code.
 Their detailed safety contracts and prior runs are preserved in
 [HISTORY.md](docs/HISTORY.md) and the immutable OAP evidence.
 
+## Release-candidate qualification: fixture CI vs real client
+
+Two distinct mechanisms, never interchangeable:
+
+- **Deterministic fixture CI (every round).** Ordinary CI runs the
+  sanitized Codex-envelope fixtures and the full-application
+  fake-upstream regressions, including the namespace-tool envelope that
+  reproduces the RC2 `TypeError: unhashable type: 'dict'` image-policy
+  crash. No secret endpoint, no model, and no real Codex binary are
+  required or used.
+- **Opt-in real-client RC qualification (only when the designated client
+  and backend are available).**
+  [real_codex_rc_qualification.py](scripts/real_codex_rc_qualification.py)
+  runs bounded, fail-closed, privacy-bounded arms of genuine Codex CLI
+  sessions over the supported standalone loopback topology: disposable
+  Codex home/repository → `127.0.0.1:18031` Local Coding → the tested
+  Qwen/vLLM endpoint. Standalone loopback Local Coding qualification
+  requires **no SLAIF API Gateway** (gateway ingress disabled; no signed
+  Gateway headers invented). The required arms are VISION (one-image
+  retain-newest, constitution/compiler disabled), CACHE (image
+  passthrough plus enabled constitution/compiler with a static
+  single-user identity), and BOTH (both mechanisms, same identity); a
+  contextual DIRECT control may be recorded when safe but never
+  substitutes for a product arm. Only fixed categories, counts, statuses,
+  version/hash, timings, and boolean verdicts are captured; disposable raw
+  state is deleted after sanitized facts are extracted into an
+  append-only, content-free testing-ledger directory.
+
+RC history: RC2 (`0.1.0-rc2`) failed external real-Codex 0.149.0
+qualification; the immutable [testing ledger
+001](oap/evidence/testing-ledger/001/README.md) records the exact
+pre-inference `TypeError` on the VISION/CACHE/BOTH arms. RC3
+(`0.1.0-rc3`) contains the image-policy compatibility repair; its
+real-client qualification facts (the exact qualified client version and
+binary SHA-256, the VISION/CACHE/BOTH verdicts, and the sanitized
+evidence path) are recorded in the RC3 artifact record
+(`slaif-rc-record-v3` compatibility facts, closed-schema), the
+deterministic handoff, and the ledger evidence. A green deterministic
+fixture is never real-client evidence, and a missing, unavailable,
+skipped, or blocked real-client arm is a blocker, never a pass. No
+benchmark ran; the final public release remains false; the package
+remains private; the protected cutover remains false.
+
 ## Evidence and review
 
 Sanitized evidence export uses [safe_evidence_export.py](scripts/safe_evidence_export.py).

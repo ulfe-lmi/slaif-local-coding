@@ -1,12 +1,12 @@
 """Order 013-l, L1: consumer-integration coverage for the pulled-image
 publication record gate (scripts/docker_qualification_ci.py).
 
-The generator emits schema slaif-rc-record-v2; the published-mode loader and
+The generator emits schema slaif-rc-record-v3; the published-mode loader and
 the published-mode constructor of the real qualification orchestrator must
-accept a GENERATED v2 record (a temporary fixture, never a fake record in
-packaging/) through the existing strict v2 loader, and malformed data —
-including the superseded slaif-rc-record-v1 key set — must be rejected. No
-Docker, no network, no registry: loader/constructor only.
+accept a GENERATED v3 record (a temporary fixture, never a fake record in
+packaging/) through the existing strict v3 loader, and malformed data —
+including the superseded slaif-rc-record-v1/v2 key sets — must be rejected.
+No Docker, no network, no registry: loader/constructor only.
 
 Fixtures and constants are reused from tests/test_rc_record.py.
 """
@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_rc_record import (
+    COMPATIBILITY,
     DIGEST,
     FIXTURE_DOCKERFILE,
     FIXTURE_PYPROJECT,
@@ -115,29 +116,31 @@ def _final_record() -> dict[str, object]:
     }
 
 
-def test_generated_v2_record_accepted_by_real_published_mode_loader(
+def test_generated_v3_record_accepted_by_real_published_mode_loader(
     dqc: types.ModuleType,
     rc_mod: types.ModuleType,
     repo: Path,
     wired: None,
 ) -> None:
-    """A generated v2 temporary fixture is accepted by the real published-mode
-    loader (the existing strict v2 loader — not a second schema
+    """A generated v3 temporary fixture is accepted by the real published-mode
+    loader (the existing strict v3 loader — not a second schema
     implementation)."""
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42)
+    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42, COMPATIBILITY)
     _write_record(repo / "packaging" / "rc_record.json", record)
     assert dqc._load_publication_record() == record
 
 
-def test_published_mode_constructor_consumes_v2_record(
+def test_published_mode_constructor_consumes_v3_record(
     dqc: types.ModuleType,
     rc_mod: types.ModuleType,
     repo: Path,
     wired: None,
 ) -> None:
     """The real published-mode constructor binds the pulled image reference
-    and source commit from the generated v2 record."""
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
+    and source commit from the generated v3 record."""
+    record = rc_mod.build_rc_record(
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+    )
     _write_record(repo / "packaging" / "rc_record.json", record)
     args = argparse.Namespace(
         published=True,
@@ -172,12 +175,15 @@ def test_record_missing_when_no_publication_record(
         lambda rec: rec.update(cutover_performed=True),
         lambda rec: rec.update(private_registry_auth_required=False),
         lambda rec: rec.update(oci_image_digest="sha256:" + "b" * 63),
-        lambda rec: rec.update(oci_tags=["0.1.0-rc2", "wrong-tag"]),
+        lambda rec: rec.update(oci_tags=["0.1.0-rc3", "wrong-tag"]),
         lambda rec: rec.update(image_source_commit="a" * 39),
         lambda rec: rec.update(workflow_head_sha="g" * 40),
         lambda rec: rec.update(wheel_sha256="d" * 64 + "d"),
         lambda rec: rec.__setitem__("extra_key", "drift"),
-        lambda rec: rec.update(schema="slaif-rc-record-v3"),
+        lambda rec: rec.pop("compatibility"),
+        # slaif-rc-record-v2 is superseded by the order 014-a compatibility
+        # extension; it must now be rejected exactly like v1.
+        lambda rec: rec.update(schema="slaif-rc-record-v2"),
     ],
     ids=[
         "final_release_true",
@@ -189,18 +195,21 @@ def test_record_missing_when_no_publication_record(
         "bad_head_sha",
         "long_wheel",
         "extra_key",
+        "missing_compatibility",
         "wrong_schema",
     ],
 )
-def test_malformed_v2_record_rejected(
+def test_malformed_v3_record_rejected(
     dqc: types.ModuleType,
     rc_mod: types.ModuleType,
     repo: Path,
     wired: None,
     mutate: Callable[[dict[str, object]], None],
 ) -> None:
-    """Malformed v2 data is a qualification failure, never a warning."""
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
+    """Malformed v3 data is a qualification failure, never a warning."""
+    record = rc_mod.build_rc_record(
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+    )
     mutate(record)
     _write_record(repo / "packaging" / "rc_record.json", record)
     with pytest.raises(dqc.QualificationError) as exc:
@@ -210,15 +219,15 @@ def test_malformed_v2_record_rejected(
 
 def test_superseded_v1_rc_record_rejected(dqc: types.ModuleType, repo: Path, wired: None) -> None:
     """The superseded slaif-rc-record-v1 key set is malformed for the gate
-    (the generator emits v2; the strict v2 loader is the only RC schema)."""
+    (the generator emits v3; the strict v3 loader is the only RC schema)."""
     v1: dict[str, object] = {
         "schema": "slaif-rc-record-v1",
-        "rc_identifier": "0.1.0-rc2",
+        "rc_identifier": "0.1.0-rc3",
         "product_version": "0.1.0",
         "image_source_commit": SOURCE,
         "oci_image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
         "oci_image_digest": DIGEST,
-        "oci_tags": ["0.1.0-rc2", f"sha-{SOURCE}"],
+        "oci_tags": ["0.1.0-rc3", f"sha-{SOURCE}"],
         "published_at": PUBLISHED_AT,
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": None,
@@ -241,7 +250,9 @@ def test_rc_record_authoritative_when_both_exist(
     repo: Path,
     wired: None,
 ) -> None:
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
+    record = rc_mod.build_rc_record(
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+    )
     _write_record(repo / "packaging" / "rc_record.json", record)
     _write_record(repo / "packaging" / "release_record.json", _final_record())
     assert dqc._load_publication_record() == record

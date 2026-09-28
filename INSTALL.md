@@ -63,7 +63,7 @@ path and must NOT be part of the operator project.
   `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<OCI_IMAGE_DIGEST>` — the
   authoritative identity from the RC artifact record; a digest-pinned pull
   can never silently move to different image content.
-- **Tag (alias):** `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2` —
+- **Tag (alias):** `ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc3` —
   convenient, but tags are mutable aliases; verify after the pull that the
   tag resolves to the recorded registry digest (section 4).
 - **Never** the historical private `0.1.0` tag: it is legacy private registry
@@ -160,7 +160,7 @@ tag form, the output MUST contain the recorded digest:
 docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<OCI_IMAGE_DIGEST>" \
   --format '{{range .RepoDigests}}{{.}}{{end}}'
 # tag form (mutable alias — verify, do not trust):
-docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2" \
+docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc3" \
   --format '{{range .RepoDigests}}{{.}}{{end}}'
 # must contain ghcr.io/ulfe-lmi/slaif-local-coding@sha256:<OCI_IMAGE_DIGEST>
 ```

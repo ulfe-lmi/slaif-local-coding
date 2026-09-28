@@ -15,7 +15,7 @@ The record includes:
 
 | Identity | Recorded facts |
 | --- | --- |
-| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc2`. |
+| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc3`. |
 | Source | Exact 40-hex image source commit and publication-run head SHA. |
 | Image | Full OCI reference, authenticated `sha256` digest and tag aliases. |
 | Package | Exact wheel SHA-256 and dependency-lock hash. |
@@ -82,6 +82,13 @@ digest** without rebuilding; the original RC record remains immutable.
 The [RC1 record](../packaging/releases/0.1.0-rc1/rc_record.json),
 [handoff](../packaging/releases/0.1.0-rc1/rc_handoff.md) and
 [provenance](../packaging/releases/0.1.0-rc1/release_provenance_manifest.json)
-remain byte-identical. RC1 predates the governance parser security correction;
-select the corrected RC2 record when available. Each candidate has a separate
-source, wheel and digest. Legacy private `0.1.0` tags are not handoff targets.
+remain byte-identical. RC1 predates the governance parser security
+correction and is not a handoff target. The archived [RC2
+record](../packaging/releases/0.1.0-rc2/rc_record.json),
+[handoff](../packaging/releases/0.1.0-rc2/rc_handoff.md) and
+[provenance](../packaging/releases/0.1.0-rc2/release_provenance_manifest.json)
+also remain byte-identical; RC2 failed external real-Codex 0.149.0
+qualification (immutable testing ledger 001) and is not a handoff target
+either. The current candidate is RC3, which contains the image-policy
+compatibility repair. Each candidate has a separate source, wheel and
+digest. Legacy private `0.1.0` tags are not handoff targets.

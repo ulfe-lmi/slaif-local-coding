@@ -2,9 +2,10 @@
 generator, handoff renderer, and strict loader tests.
 
 Covers the strict builder (``scripts/rc_artifact_record.build_rc_record`` —
-slaif-rc-record-v2: the direct source-input hash map, build-environment
-pins, base-image identities, supported platform, and the publishing
-workflow run's head SHA), the deterministic handoff renderer
+slaif-rc-record-v3: the direct source-input hash map, build-environment
+pins, base-image identities, supported platform, the publishing
+workflow run's head SHA, and the closed real-Codex compatibility
+qualification facts), the deterministic handoff renderer
 (``render_handoff``), the frozen-identity emitters
 (``_emit_frozen``), and the round-trip through the provenance generator's
 closed-key strict loader (``release_provenance_manifest.load_rc_record``).
@@ -19,6 +20,7 @@ import importlib.util
 import inspect
 import json
 import types
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -34,6 +36,18 @@ HEAD_SHA = "e" * 40
 DIGEST = "sha256:" + "b" * 64
 PUBLISHED_AT = "2026-09-20T00:00:00Z"
 LOCK_CONTENT = b"version = 1\n# fixture lock\n"
+# Closed compatibility qualification facts (order 014-a, workstream D).
+CLIENT_VERSION = "0.149.0"
+CLIENT_SHA = "3" * 64
+EVIDENCE_PATH = "oap/evidence/testing-ledger/002"
+COMPATIBILITY: dict[str, object] = {
+    "client_version": CLIENT_VERSION,
+    "client_sha256": CLIENT_SHA,
+    "topology": "standalone-loopback-no-gateway",
+    "arm_verdicts": {"vision": "pass", "cache": "pass", "both": "pass"},
+    "direct_control": "pass",
+    "evidence_path": EVIDENCE_PATH,
+}
 # The fixture Dockerfile carries the same digest-pinned bases as the
 # repository Dockerfile (non-secret build facts, committed).
 UV_IMAGE = (
@@ -63,7 +77,7 @@ FIXTURE_PYPROJECT = (
     'include = ["pyproject.toml", "README.md", "LICENSE", "uv.lock", "Dockerfile"]\n'
 )
 
-V2_KEYS = {
+V3_KEYS = {
     "schema",
     "rc_identifier",
     "product_version",
@@ -87,6 +101,7 @@ V2_KEYS = {
     "image_platform",
     "source_input_hashes",
     "deployment_assumptions",
+    "compatibility",
 }
 
 
@@ -147,20 +162,31 @@ def _fixture_base_images(generator: types.ModuleType, repo: Path) -> dict[str, d
 def test_build_rc_record_happy_path(
     rc_mod: types.ModuleType, generator: types.ModuleType, repo: Path
 ) -> None:
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
-    assert set(record) == V2_KEYS
-    assert record["schema"] == "slaif-rc-record-v2"
-    assert record["rc_identifier"] == "0.1.0-rc2"
+    record = rc_mod.build_rc_record(
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+    )
+    assert set(record) == V3_KEYS
+    assert record["schema"] == "slaif-rc-record-v3"
+    assert record["rc_identifier"] == "0.1.0-rc3"
     assert record["product_version"] == "0.1.0"
     assert record["image_source_commit"] == SOURCE
     assert record["oci_image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
     assert record["oci_image_digest"] == DIGEST
-    assert record["oci_tags"] == ["0.1.0-rc2", f"sha-{SOURCE}"]
+    assert record["oci_tags"] == ["0.1.0-rc3", f"sha-{SOURCE}"]
     assert record["published_at"] == PUBLISHED_AT
     assert record["publication_workflow"] == "release-image.yml"
     assert record["publication_workflow_run_id"] is None
     # Order 013-j, J5: the publication is bound to the workflow run's head.
     assert record["workflow_head_sha"] == HEAD_SHA
+    # Order 014-a, workstream D: closed compatibility facts are carried.
+    assert record["compatibility"] == {
+        "client_version": CLIENT_VERSION,
+        "client_sha256": CLIENT_SHA,
+        "topology": "standalone-loopback-no-gateway",
+        "arm_verdicts": {"vision": "pass", "cache": "pass", "both": "pass"},
+        "direct_control": "pass",
+        "evidence_path": EVIDENCE_PATH,
+    }
     # A published RC must never imply a final release or a cutover.
     assert record["private_registry_auth_required"] is True
     assert record["final_public_release"] is False
@@ -180,7 +206,7 @@ def test_build_rc_record_happy_path(
 def test_build_rc_record_binds_manifest_lock_and_input_facts(
     rc_mod: types.ModuleType, repo: Path
 ) -> None:
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42)
+    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42, COMPATIBILITY)
     assert record["wheel_sha256"] == WHEEL_SHA
     assert record["dependency_lock_sha256"] == _lock_sha()
     assert record["gateway_authority_sha"] == GATEWAY_SHA
@@ -195,7 +221,7 @@ def test_build_rc_record_refuses_drifted_working_tree(rc_mod: types.ModuleType, 
     # inputs must equal the recorded map. Alter one input.
     (repo / "README.md").write_text("# altered\n", encoding="utf-8")
     with pytest.raises(rc_mod.RCRecordError, match="source inputs differ"):
-        rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
+        rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY)
 
 
 @pytest.mark.parametrize("bad_source", ["a" * 39, "a" * 41, "g" * 40, "ABCDEF" * 7 + "ab"])
@@ -203,7 +229,9 @@ def test_build_rc_record_rejects_bad_source(
     rc_mod: types.ModuleType, repo: Path, bad_source: str
 ) -> None:
     with pytest.raises(rc_mod.RCRecordError, match="40-hex"):
-        rc_mod.build_rc_record(repo, bad_source, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
+        rc_mod.build_rc_record(
+            repo, bad_source, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+        )
 
 
 @pytest.mark.parametrize("bad_head", ["e" * 39, "e" * 41, "g" * 40, ""])
@@ -211,7 +239,7 @@ def test_build_rc_record_rejects_bad_head_sha(
     rc_mod: types.ModuleType, repo: Path, bad_head: str
 ) -> None:
     with pytest.raises(rc_mod.RCRecordError, match="head_sha"):
-        rc_mod.build_rc_record(repo, SOURCE, DIGEST, bad_head, PUBLISHED_AT, None)
+        rc_mod.build_rc_record(repo, SOURCE, DIGEST, bad_head, PUBLISHED_AT, None, COMPATIBILITY)
 
 
 @pytest.mark.parametrize(
@@ -227,7 +255,9 @@ def test_build_rc_record_rejects_bad_digest(
     rc_mod: types.ModuleType, repo: Path, bad_digest: str
 ) -> None:
     with pytest.raises(rc_mod.RCRecordError, match="sha256"):
-        rc_mod.build_rc_record(repo, SOURCE, bad_digest, HEAD_SHA, PUBLISHED_AT, None)
+        rc_mod.build_rc_record(
+            repo, SOURCE, bad_digest, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+        )
 
 
 @pytest.mark.parametrize(
@@ -238,7 +268,7 @@ def test_build_rc_record_rejects_bad_published_at(
     rc_mod: types.ModuleType, repo: Path, bad_at: str
 ) -> None:
     with pytest.raises(rc_mod.RCRecordError, match="RFC 3339"):
-        rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, bad_at, None)
+        rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, bad_at, None, COMPATIBILITY)
 
 
 @pytest.mark.parametrize("bad_run_id", [0, -1, True])
@@ -246,13 +276,15 @@ def test_build_rc_record_rejects_bad_run_id(
     rc_mod: types.ModuleType, repo: Path, bad_run_id: object
 ) -> None:
     with pytest.raises(rc_mod.RCRecordError, match="run_id"):
-        rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, bad_run_id)
+        rc_mod.build_rc_record(
+            repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, bad_run_id, COMPATIBILITY
+        )
 
 
 def test_render_handoff_is_deterministic_and_self_contained(
     rc_mod: types.ModuleType, generator: types.ModuleType, repo: Path
 ) -> None:
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42)
+    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42, COMPATIBILITY)
     first = rc_mod.render_handoff(record)
     second = rc_mod.render_handoff(record)
     assert first == second, "handoff rendering must be a pure function of the record"
@@ -261,11 +293,15 @@ def test_render_handoff_is_deterministic_and_self_contained(
         SOURCE,
         DIGEST,
         HEAD_SHA,
-        "0.1.0-rc2",
+        "0.1.0-rc3",
         "linux/amd64",
         WHEEL_SHA,
         "RepoDigests",
         "read:packages",
+        CLIENT_VERSION,
+        CLIENT_SHA,
+        "standalone-loopback-no-gateway",
+        EVIDENCE_PATH,
     ):
         assert literal in first, f"handoff missing literal fact {literal!r}"
     # Order 013-l, L2: the already-present record facts are rendered.
@@ -291,11 +327,11 @@ def test_render_handoff_emits_valid_docker_template_commands(
     Docker Go-template invocations (the pre-fix renderer emitted quadruple
     braces in the plain RepoDigests format string, making the command
     invalid)."""
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42)
+    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 42, COMPATIBILITY)
     rendered = rc_mod.render_handoff(record)
     lines = rendered.splitlines()
     expected_repodigests = (
-        'docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc2" '
+        'docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc3" '
         "--format '{{range .RepoDigests}}{{.}}{{end}}'"
     )
     assert expected_repodigests in lines, (
@@ -318,7 +354,9 @@ def test_render_handoff_emits_valid_docker_template_commands(
 
 
 def test_frozen_identity_law_record_and_handoff(rc_mod: types.ModuleType, repo: Path) -> None:
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
+    record = rc_mod.build_rc_record(
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+    )
     emit = repo / "packaging" / "rc_record.json"
     handoff = repo / "packaging" / "rc_handoff.md"
     payload = json.dumps(record, indent=2, sort_keys=True) + "\n"
@@ -331,7 +369,9 @@ def test_frozen_identity_law_record_and_handoff(rc_mod: types.ModuleType, repo: 
     assert rc_mod._emit_frozen(emit, payload, "RC record") == "unchanged"
     assert rc_mod._emit_frozen(handoff, rendered, "RC handoff") == "unchanged"
     # A different frozen identity is refused, and the file stays intact.
-    other = rc_mod.build_rc_record(repo, "1" * 40, DIGEST, HEAD_SHA, PUBLISHED_AT, None)
+    other = rc_mod.build_rc_record(
+        repo, "1" * 40, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+    )
     with pytest.raises(rc_mod.RCRecordError, match="frozen RC record"):
         rc_mod._emit_frozen(emit, json.dumps(other, indent=2, sort_keys=True) + "\n", "RC record")
     with pytest.raises(rc_mod.RCRecordError, match="frozen RC handoff"):
@@ -343,11 +383,11 @@ def test_frozen_identity_law_record_and_handoff(rc_mod: types.ModuleType, repo: 
 def test_roundtrips_through_strict_loader(
     rc_mod: types.ModuleType, generator: types.ModuleType, repo: Path
 ) -> None:
-    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 7)
+    record = rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, 7, COMPATIBILITY)
     emit = repo / "packaging" / "rc_record.json"
     rc_mod._emit_frozen(emit, json.dumps(record, indent=2, sort_keys=True) + "\n", "RC record")
     # The frozen record must satisfy the provenance generator's closed-key
-    # strict loader (23-key v2).
+    # strict loader (24-key v3).
     assert generator.load_rc_record(repo) == record
 
 
@@ -356,4 +396,79 @@ def test_no_fake_digest_mode(rc_mod: types.ModuleType) -> None:
     # unpublished image as published; the builder requires a well-formed
     # verified digest AND the workflow run's head SHA.
     params = inspect.signature(rc_mod.build_rc_record).parameters
-    assert set(params) == {"repo", "source", "digest", "head_sha", "published_at", "run_id"}
+    assert set(params) == {
+        "repo",
+        "source",
+        "digest",
+        "head_sha",
+        "published_at",
+        "run_id",
+        "compatibility",
+    }
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda c: c.pop("client_version"),
+        lambda c: c.__setitem__("extra", "x"),
+        lambda c: c.__setitem__("client_version", "  "),
+        lambda c: c.__setitem__("client_sha256", "3" * 63),
+        lambda c: c.__setitem__("client_sha256", "g" * 64),
+        lambda c: c.__setitem__("topology", "gateway-signed"),
+        lambda c: c["arm_verdicts"].__setitem__("vision2", "pass"),
+        lambda c: c["arm_verdicts"].pop("both"),
+        lambda c: c["arm_verdicts"].__setitem__("cache", "not_run"),
+        lambda c: c.__setitem__("direct_control", "maybe"),
+        lambda c: c.__setitem__("evidence_path", "oap/evidence/other/002"),
+        lambda c: c.__setitem__("evidence_path", "oap/evidence/testing-ledger/02"),
+        lambda c: c.__setitem__("client_sha256", "3" * 65),
+    ],
+    ids=[
+        "missing_key",
+        "extra_key",
+        "empty_client_version",
+        "short_client_sha",
+        "nonhex_client_sha",
+        "topology_drift",
+        "extra_arm",
+        "missing_arm",
+        "bad_arm_verdict",
+        "bad_direct_control",
+        "bad_evidence_path",
+        "short_evidence_number",
+        "long_client_sha",
+    ],
+)
+def test_build_rc_record_rejects_bad_compatibility(
+    rc_mod: types.ModuleType, repo: Path, mutate: Callable[[dict[str, object]], None]
+) -> None:
+    # Order 014-a, workstream D: the closed compatibility facts are
+    # validated fail-closed; no partially-qualified record is written.
+    copy = json.loads(json.dumps(COMPATIBILITY))
+    mutate(copy)
+    with pytest.raises(rc_mod.RCRecordError, match="compatibility"):
+        rc_mod.build_rc_record(repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, copy)
+
+
+def test_render_handoff_renders_compatibility_facts(rc_mod: types.ModuleType, repo: Path) -> None:
+    # Order 014-a: the deterministic handoff carries the literal qualified
+    # client identity, the no-Gateway topology, closed arm verdicts, the
+    # contextual DIRECT control, and the sanitized evidence path.
+    record = rc_mod.build_rc_record(
+        repo, SOURCE, DIGEST, HEAD_SHA, PUBLISHED_AT, None, COMPATIBILITY
+    )
+    rendered = rc_mod.render_handoff(record)
+    for literal in (
+        f"Codex CLI `{CLIENT_VERSION}`",
+        f"binary SHA-256 `{CLIENT_SHA}`",
+        "standalone-loopback-no-gateway",
+        "NO SLAIF API Gateway",
+        "VISION `pass`",
+        "CACHE `pass`",
+        "BOTH `pass`",
+        "DIRECT control: `pass`",
+        f"`{EVIDENCE_PATH}`",
+        "No benchmark ran",
+    ):
+        assert literal in rendered, f"handoff missing compatibility literal {literal!r}"

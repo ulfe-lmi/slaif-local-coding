@@ -117,7 +117,7 @@ jobs:
           export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
           export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
           docker compose -f compose.yaml -f compose.build.yaml build \
-            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc2; private; not final release"
+            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc3; private; not final release"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
             --format "built image: {{.Id}} (push performed in the next steps)"
           REV="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
@@ -125,7 +125,7 @@ jobs:
           QUAL_LABEL="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "slaif-local-coding.qualification"}}')"
           test "$REV" = "$GITHUB_SHA"
           test "$WHEEL_LABEL" = "$SLAIF_WHEEL_SHA256"
-          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc2; private; not final release"
+          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc3; private; not final release"
 
       - name: Docker qualification (C2-C9)
         run: |
@@ -142,11 +142,13 @@ jobs:
   # authenticated registry baseline (the ephemeral packages:read token, the
   # existing strict resolver: digest / verified-absent / unauthorized are
   # distinct; inaccessible is never reported as absent) for the historical
-  # 0.1.0, the two recorded sha- tags, and 0.1.0-rc2 — BEFORE the
-  # prepublication gate — so a source round yields the before state and a
-  # published round yields the after evidence. The job then authenticates
+  # 0.1.0, the two recorded sha- tags, 0.1.0-rc1/0.1.0-rc2, and — when the
+  # RC record (packaging/rc_record.json) exists — its current RC tag pair
+  # (order 014-a, D.2: 0.1.0-rc3 + sha-<S>) — BEFORE the prepublication
+  # gate — so a source round yields the before state and a published round
+  # yields the after evidence. The job then authenticates
   # with least-privilege packages:read (GITHUB_TOKEN), consumes the RC
-  # record (packaging/rc_record.json, schema slaif-rc-record-v2) or, later,
+  # record (packaging/rc_record.json, schema slaif-rc-record-v3) or, later,
   # the final release record (packaging/release_record.json), verifies the
   # registry digest, source/wheel/peer/topology labels and configuration
   # identities, then exercises the existing signed-ingress/fail-closed/
@@ -202,6 +204,20 @@ jobs:
               "sha-4d096e404e14badb78b4f99142bf08ef17f0f8a7",
               "0.1.0-rc2",
           )
+          # Order 014-a, D.2: when the RC record exists (post-publication
+          # rounds), the baseline also records the CURRENT RC tag pair so
+          # the pre-gate before-state covers the aliases the gate will
+          # qualify. The tuple is otherwise the immutable historical set;
+          # old tags are asserted unchanged, never rewritten.
+          try:
+              _rc = json.loads(
+                  open("packaging/rc_record.json", encoding="utf-8").read()
+              )
+              for _tag in _rc["oci_tags"]:
+                  if _tag not in tags:
+                      tags = tags + (_tag,)
+          except (OSError, ValueError, KeyError, TypeError):
+              pass  # pre-publication round: no RC record by design
           lines = []
           for tag in tags:
               status, digest = registry.tag_digest_strict(repo, tag, token)

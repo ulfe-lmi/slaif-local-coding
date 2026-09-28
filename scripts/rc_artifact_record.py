@@ -5,7 +5,7 @@ supported platform, publishing-run head SHA, and the rendered
 human-readable handoff).
 
 Prepares the machine-readable RC artifact record
-(``packaging/rc_record.json``, schema ``slaif-rc-record-v2``) and the
+(``packaging/rc_record.json``, schema ``slaif-rc-record-v3``) and the
 deterministic human-readable handoff (``packaging/rc_handoff.md``). Both
 are populated from VERIFIED FACTS during the publication round only:
 
@@ -22,6 +22,11 @@ are populated from VERIFIED FACTS during the publication round only:
   supported image platform, and the DIRECT path->sha256 source-input map
   (config templates, compose files, packaging inputs — carried in the
   record itself, not cross-bound by unrelated wheel/lock/peer facts);
+- the explicit real-Codex compatibility qualification facts (order 014-a,
+  workstream D): exact client version + binary SHA-256, the closed
+  ``standalone-loopback-no-gateway`` topology, the closed VISION/CACHE/
+  BOTH arm verdicts, the contextual DIRECT control, and the sanitized
+  testing-ledger evidence path (all closed-schema, no prose);
 - ``private_registry_auth_required: true``, ``final_public_release:
   false``, ``cutover_performed: false`` (const-pinned in the schema).
 
@@ -82,11 +87,22 @@ MANIFEST_PATH = Path("packaging/release_provenance_manifest.json")
 UV_LOCK_PATH = Path("uv.lock")
 HANDOFF_PATH = Path("packaging/rc_handoff.md")
 
-RC_IDENTIFIER = "0.1.0-rc2"
+RC_IDENTIFIER = "0.1.0-rc3"
 PRODUCT_VERSION = "0.1.0"
 IMAGE_REFERENCE = "ghcr.io/ulfe-lmi/slaif-local-coding"
 PUBLICATION_WORKFLOW = "release-image.yml"
-RC_RECORD_SCHEMA = "slaif-rc-record-v2"
+RC_RECORD_SCHEMA = "slaif-rc-record-v3"
+# Order 014-a, workstream D: the machine record must carry the real-Codex
+# compatibility qualification facts with strict closed-schema validation
+# (no unvalidated prose). Topology is the supported standalone loopback
+# path: disposable Codex home/repository -> 127.0.0.1:18031 Local Coding
+# -> tested Qwen/vLLM endpoint; NO SLAIF API Gateway is in the path.
+COMPATIBILITY_TOPOLOGY = "standalone-loopback-no-gateway"
+COMPATIBILITY_ARM_NAMES = ("vision", "cache", "both")
+COMPATIBILITY_ARM_VERDICTS = ("pass", "blocked")
+DIRECT_CONTROL_VERDICTS = ("pass", "not_run")
+CLIENT_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+EVIDENCE_PATH_PATTERN = re.compile(r"^oap/evidence/testing-ledger/[0-9]{3}$")
 IMAGE_PLATFORM = "linux/amd64"
 DEPLOYMENT_ASSUMPTIONS = (
     "linux-docker-engine-compose-v2;host-network-mode;"
@@ -107,6 +123,57 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _validate_compatibility(compatibility: object) -> dict[str, object]:
+    """Strict closed validation of the compatibility qualification facts
+    (order 014-a, workstream D). Every key is required; the arm set is
+    exactly the three product arms; verdicts are closed enums; the
+    evidence path must be a sanitized testing-ledger directory."""
+    expected = {
+        "client_version",
+        "client_sha256",
+        "topology",
+        "arm_verdicts",
+        "direct_control",
+        "evidence_path",
+    }
+    if not isinstance(compatibility, dict) or set(compatibility) != expected:
+        raise RCRecordError(f"compatibility key set drift: expected {sorted(expected)}")
+    client_version = compatibility["client_version"]
+    if not isinstance(client_version, str) or not client_version.strip():
+        raise RCRecordError("compatibility client_version must be a non-empty string")
+    client_sha256 = compatibility["client_sha256"]
+    if not isinstance(client_sha256, str) or not CLIENT_SHA256_PATTERN.fullmatch(client_sha256):
+        raise RCRecordError("compatibility client_sha256 must be 64-hex")
+    if compatibility["topology"] != COMPATIBILITY_TOPOLOGY:
+        raise RCRecordError("compatibility topology drift (standalone loopback, no Gateway)")
+    arms = compatibility["arm_verdicts"]
+    if not isinstance(arms, dict) or set(arms) != set(COMPATIBILITY_ARM_NAMES):
+        raise RCRecordError(
+            "compatibility arm_verdicts must name exactly " + "/".join(COMPATIBILITY_ARM_NAMES)
+        )
+    for name in COMPATIBILITY_ARM_NAMES:
+        if arms[name] not in COMPATIBILITY_ARM_VERDICTS:
+            raise RCRecordError(
+                f"compatibility arm {name!r} verdict must be one of "
+                + "/".join(COMPATIBILITY_ARM_VERDICTS)
+            )
+    if compatibility["direct_control"] not in DIRECT_CONTROL_VERDICTS:
+        raise RCRecordError(
+            "compatibility direct_control must be one of " + "/".join(DIRECT_CONTROL_VERDICTS)
+        )
+    evidence_path = compatibility["evidence_path"]
+    if not isinstance(evidence_path, str) or not EVIDENCE_PATH_PATTERN.fullmatch(evidence_path):
+        raise RCRecordError("compatibility evidence_path must be oap/evidence/testing-ledger/NNN")
+    return {
+        "client_version": client_version,
+        "client_sha256": client_sha256,
+        "topology": COMPATIBILITY_TOPOLOGY,
+        "arm_verdicts": {name: arms[name] for name in COMPATIBILITY_ARM_NAMES},
+        "direct_control": compatibility["direct_control"],
+        "evidence_path": evidence_path,
+    }
+
+
 def build_rc_record(
     repo: Path,
     source: str,
@@ -114,11 +181,14 @@ def build_rc_record(
     head_sha: str,
     published_at: str,
     run_id: int | None,
+    compatibility: object,
 ) -> dict:
     """Build the RC record from verified facts. Pure transformation: no
     network, no registry access, no docker; the caller must supply the
-    AUTHENTICATED registry digest of the pushed image and the publishing
-    workflow run's head SHA (see the module trust-boundary note)."""
+    AUTHENTICATED registry digest of the pushed image, the publishing
+    workflow run's head SHA (see the module trust-boundary note), and the
+    explicitly qualified real-Codex compatibility facts (order 014-a)."""
+    compatibility_facts = _validate_compatibility(compatibility)
     if not re.fullmatch(r"[0-9a-f]{40}", source):
         raise RCRecordError("source commit must be 40-hex")
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
@@ -194,6 +264,7 @@ def build_rc_record(
         "image_platform": IMAGE_PLATFORM,
         "source_input_hashes": recorded_inputs,
         "deployment_assumptions": DEPLOYMENT_ASSUMPTIONS,
+        "compatibility": compatibility_facts,
     }
 
 
@@ -260,6 +331,36 @@ def render_handoff(record: dict) -> str:
         "a final release is a separate later decision)"
     )
     lines.append(f"- Cutover performed: `{record['cutover_performed']}` (remains false)")
+    lines.append("")
+    compat = record["compatibility"]
+    arms = compat["arm_verdicts"]
+    lines.append("## Real-Codex compatibility qualification (literal verified values)")
+    lines.append("")
+    lines.append(
+        f"- Qualified client: Codex CLI `{compat['client_version']}` "
+        f"(binary SHA-256 `{compat['client_sha256']}`)"
+    )
+    lines.append(
+        f"- Topology: `{compat['topology']}` — standalone loopback Local "
+        "Coding qualification requires NO SLAIF API Gateway (gateway "
+        "ingress disabled; no signed Gateway headers invented)"
+    )
+    lines.append(
+        f"- Product arms: VISION `{arms['vision']}`, CACHE `{arms['cache']}`, "
+        f"BOTH `{arms['both']}` (bounded genuine Codex sessions with local "
+        "tool interaction against the repaired artifact-bound adapter and "
+        "the designated backend; a `blocked` arm is a truthfully recorded "
+        "blocker, never a pass)"
+    )
+    lines.append(f"- DIRECT control: `{compat['direct_control']}` (contextual, never a substitute)")
+    lines.append(
+        f"- Sanitized evidence: `{compat['evidence_path']}` (append-only, "
+        "content-free, manifest-bound)"
+    )
+    lines.append(
+        "- No benchmark ran; final public release remains false; the package "
+        "remains private; protected cutover remains false."
+    )
     lines.append("")
     lines.append("## Source input hashes (path -> sha256)")
     lines.append("")
@@ -333,7 +434,7 @@ def render_handoff(record: dict) -> str:
         "`linux-docker-host-network;loopback-default;"
         "lan-visible-only-with-full-signed-ingress`; "
         "`slaif-local-coding.qualification` == "
-        "`rc-candidate-0.1.0-rc2; private; not final release`."
+        "`rc-candidate-0.1.0-rc3; private; not final release`."
     )
     lines.append(
         "3. The in-image retained wheel artifact "
@@ -411,13 +512,81 @@ def main() -> int:
     parser.add_argument("--head-sha", required=True, help="40-hex publishing workflow run head SHA")
     parser.add_argument("--published-at", required=True, help="RFC 3339 UTC timestamp")
     parser.add_argument("--run-id", type=int, default=None, help="workflow run id (optional)")
+    parser.add_argument(
+        "--client-version",
+        required=True,
+        help="exact qualified Codex CLI version (e.g. 0.149.0)",
+    )
+    parser.add_argument(
+        "--client-sha256",
+        required=True,
+        help="SHA-256 (64-hex) of the exact qualified Codex CLI binary",
+    )
+    parser.add_argument(
+        "--arm-verdict",
+        dest="arm_verdicts",
+        action="append",
+        required=True,
+        metavar="NAME=VERDICT",
+        help=(
+            "required-arm verdict; repeat exactly once for each of "
+            "vision/cache/both; VERDICT is pass or blocked"
+        ),
+    )
+    parser.add_argument(
+        "--direct-control",
+        required=True,
+        choices=sorted(DIRECT_CONTROL_VERDICTS),
+        help="contextual DIRECT control result (pass or not_run)",
+    )
+    parser.add_argument(
+        "--evidence-path",
+        required=True,
+        help="sanitized testing-ledger directory, e.g. oap/evidence/testing-ledger/002",
+    )
     parser.add_argument("--emit", type=Path, default=Path("packaging/rc_record.json"))
     parser.add_argument("--emit-handoff", type=Path, default=HANDOFF_PATH)
     args = parser.parse_args()
 
+    arms: dict[str, str] = {}
+    for entry in args.arm_verdicts:
+        name, sep, verdict = entry.partition("=")
+        if (
+            not sep
+            or name not in COMPATIBILITY_ARM_NAMES
+            or verdict not in COMPATIBILITY_ARM_VERDICTS
+        ):
+            parser.error(
+                f"invalid --arm-verdict {entry!r}: expected NAME=VERDICT with NAME in "
+                + "/".join(COMPATIBILITY_ARM_NAMES)
+                + " and VERDICT in "
+                + "/".join(COMPATIBILITY_ARM_VERDICTS)
+            )
+        if name in arms:
+            parser.error(f"duplicate --arm-verdict for {name!r}")
+        arms[name] = verdict
+    if set(arms) != set(COMPATIBILITY_ARM_NAMES):
+        missing = sorted(set(COMPATIBILITY_ARM_NAMES) - set(arms))
+        parser.error("missing required --arm-verdict for: " + ", ".join(missing))
+
+    compatibility = {
+        "client_version": args.client_version,
+        "client_sha256": args.client_sha256,
+        "topology": COMPATIBILITY_TOPOLOGY,
+        "arm_verdicts": arms,
+        "direct_control": args.direct_control,
+        "evidence_path": args.evidence_path,
+    }
+
     repo = Path(__file__).resolve().parents[1]
     record = build_rc_record(
-        repo, args.source, args.digest, args.head_sha, args.published_at, args.run_id
+        repo,
+        args.source,
+        args.digest,
+        args.head_sha,
+        args.published_at,
+        args.run_id,
+        compatibility,
     )
     state = _emit_frozen(
         args.emit.resolve(), json.dumps(record, indent=2, sort_keys=True) + "\n", "RC record"

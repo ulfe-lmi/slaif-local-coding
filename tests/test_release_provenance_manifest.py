@@ -16,7 +16,8 @@ is normalized away from the equality check, like `generated_from.git_commit`.
 
 Order 013-i, C11 (state law retained): the gates are STATE-CONDITIONAL on
 the publication records: pre-freeze (neither record) vs RC-published
-(packaging/rc_record.json, schema slaif-rc-record-v2 — order 013-j, J5) vs
+(packaging/rc_record.json, schema slaif-rc-record-v3 — order 013-j, J5;
+order 014-a compatibility facts) vs
 final-published (packaging/release_record.json, schema
 slaif-release-record-v1). A published RC must never imply
 final_public_release=true.
@@ -44,9 +45,10 @@ SCHEMA = REPO_ROOT / "packaging" / "release_provenance_manifest.schema.json"
 RECORD = REPO_ROOT / "packaging" / "release_record.json"
 RC_RECORD = REPO_ROOT / "packaging" / "rc_record.json"
 
-# RC2 includes the reviewed README and security corrections. This wheel
-# identity is independently checked by isolated clean builds before freezing.
-ACCEPTED_WHEEL_SHA256 = "04d1a87cb44f22dad3a7022f63a54f651eca74ed364394aaec85957bbeb8aeda"
+# RC3 includes the real-Codex image-policy compatibility repair. This
+# wheel identity is independently checked by isolated clean builds before
+# freezing (order 014-a, workstream D.4).
+ACCEPTED_WHEEL_SHA256 = "897ef60568e9521dbb4ea563f297608e4409e02d54109471e789d43ff57dd10d"
 
 RELEASE_RECORD_KEYS = {
     "schema",
@@ -84,6 +86,7 @@ RC_RECORD_KEYS = {
     "image_platform",
     "source_input_hashes",
     "deployment_assumptions",
+    "compatibility",
 }
 RELEASE_SECTION_KEYS = {
     "version",
@@ -350,7 +353,7 @@ def test_regenerated_manifest_matches_schema_shape(regenerated: dict[str, object
         "final_public_release",
         "cutover_performed",
     }
-    assert candidate["rc_identifier"] == "0.1.0-rc2"
+    assert candidate["rc_identifier"] == "0.1.0-rc3"
     assert candidate["private_registry_auth_required"] is True
     assert candidate["final_public_release"] is False
     assert candidate["cutover_performed"] is False
@@ -381,7 +384,7 @@ def test_regenerated_manifest_matches_schema_shape(regenerated: dict[str, object
         "labels",
     }
     assert oci["image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
-    assert oci["candidate_tag"] == "0.1.0-rc2"
+    assert oci["candidate_tag"] == "0.1.0-rc3"
     if _rc_record_present():
         rc = _rc_record()
         assert re.fullmatch(r"sha256:[0-9a-f]{64}", str(oci["image_digest"]))
@@ -435,7 +438,7 @@ def _dockerfile_from_lines() -> dict[str, tuple[str, str]]:
 def test_objective_field_records_producing_objective() -> None:
     # In ALL states the objective constant records the producing round.
     committed = _committed()
-    assert committed["objective"] == "013-m"
+    assert committed["objective"] == "014-a"
 
 
 def test_status_fields_state_conditional() -> None:
@@ -493,7 +496,7 @@ def test_oci_hash_cross_checks_against_committed_files() -> None:
     assert labels["slaif-local-coding.gateway.peer.sha"] == peer["commit"]
     state = _state()
     if state == "rc":
-        expected_qualification = "rc-candidate-0.1.0-rc2; private; not final release"
+        expected_qualification = "rc-candidate-0.1.0-rc3; private; not final release"
     elif state == "final":
         expected_qualification = "mvp-release-0.1.0"
     else:
@@ -517,7 +520,7 @@ def test_committed_manifest_conforms_to_schema_v5_structure() -> None:
     assert schema["properties"]["oci"]["properties"]["image_reference"]["const"] == (
         "ghcr.io/ulfe-lmi/slaif-local-coding"
     )
-    assert schema["properties"]["oci"]["properties"]["candidate_tag"]["const"] == "0.1.0-rc2"
+    assert schema["properties"]["oci"]["properties"]["candidate_tag"]["const"] == "0.1.0-rc3"
     assert schema["properties"]["oci"]["properties"]["published"]["enum"] == [False, True]
     assert schema["properties"]["status"]["properties"]["rc_published"]["enum"] == [False, True]
     assert schema["properties"]["status"]["properties"]["final_public_release"]["enum"] == [
@@ -728,6 +731,22 @@ def test_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: Path
     def bool_run_id(record: dict[str, object]) -> None:
         record["publication_workflow_run_id"] = True
 
+    def missing_compatibility(record: dict[str, object]) -> None:
+        del record["compatibility"]
+
+    def bad_compatibility_topology(record: dict[str, object]) -> None:
+        compatibility = cast(dict[str, object], record["compatibility"])
+        compatibility["topology"] = "gateway-signed"
+
+    def bad_compatibility_arm(record: dict[str, object]) -> None:
+        compatibility = cast(dict[str, object], record["compatibility"])
+        arms = cast(dict[str, object], compatibility["arm_verdicts"])
+        arms["both"] = "not_run"
+
+    def bad_compatibility_evidence(record: dict[str, object]) -> None:
+        compatibility = cast(dict[str, object], record["compatibility"])
+        compatibility["evidence_path"] = "oap/evidence/other/002"
+
     for index, mutate in enumerate(
         (
             add_key,
@@ -783,13 +802,13 @@ def _valid_rc_record_template() -> dict[str, object]:
         return data
     source = "a" * 40
     return {
-        "schema": "slaif-rc-record-v2",
-        "rc_identifier": "0.1.0-rc2",
+        "schema": "slaif-rc-record-v3",
+        "rc_identifier": "0.1.0-rc3",
         "product_version": "0.1.0",
         "image_source_commit": source,
         "oci_image_reference": "ghcr.io/ulfe-lmi/slaif-local-coding",
         "oci_image_digest": "sha256:" + "c" * 64,
-        "oci_tags": ["0.1.0-rc2", f"sha-{source}"],
+        "oci_tags": ["0.1.0-rc3", f"sha-{source}"],
         "published_at": "2026-09-20T00:00:00Z",
         "publication_workflow": "release-image.yml",
         "publication_workflow_run_id": 1,
@@ -820,6 +839,14 @@ def _valid_rc_record_template() -> dict[str, object]:
             "linux-docker-engine-compose-v2;host-network-mode;"
             "private-same-host-upstream;separate-gateway;loopback-default-bind"
         ),
+        "compatibility": {
+            "client_version": "0.149.0",
+            "client_sha256": "3" * 64,
+            "topology": "standalone-loopback-no-gateway",
+            "arm_verdicts": {"vision": "pass", "cache": "pass", "both": "pass"},
+            "direct_control": "pass",
+            "evidence_path": "oap/evidence/testing-ledger/002",
+        },
     }
 
 
@@ -828,14 +855,14 @@ def test_rc_record_closed_key_set_and_value_classes() -> None:
         return  # pre-RC state: the RC record is absent by design
     record = _rc_record()
     assert set(record) == RC_RECORD_KEYS
-    assert record["schema"] == "slaif-rc-record-v2"
-    assert record["rc_identifier"] == "0.1.0-rc2"
+    assert record["schema"] == "slaif-rc-record-v3"
+    assert record["rc_identifier"] == "0.1.0-rc3"
     assert record["product_version"] == "0.1.0"
     assert re.fullmatch(r"[0-9a-f]{40}", str(record["image_source_commit"]))
     assert record["oci_image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
     assert re.fullmatch(r"sha256:[0-9a-f]{64}", str(record["oci_image_digest"]))
     source = str(record["image_source_commit"])
-    assert record["oci_tags"] == ["0.1.0-rc2", f"sha-{source}"]
+    assert record["oci_tags"] == ["0.1.0-rc3", f"sha-{source}"]
     assert re.fullmatch(
         r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", str(record["published_at"])
     )
@@ -975,6 +1002,22 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
     def bool_run_id(record: dict[str, object]) -> None:
         record["publication_workflow_run_id"] = True
 
+    def missing_compatibility(record: dict[str, object]) -> None:
+        del record["compatibility"]
+
+    def bad_compatibility_topology(record: dict[str, object]) -> None:
+        compatibility = cast(dict[str, object], record["compatibility"])
+        compatibility["topology"] = "gateway-signed"
+
+    def bad_compatibility_arm(record: dict[str, object]) -> None:
+        compatibility = cast(dict[str, object], record["compatibility"])
+        arms = cast(dict[str, object], compatibility["arm_verdicts"])
+        arms["both"] = "not_run"
+
+    def bad_compatibility_evidence(record: dict[str, object]) -> None:
+        compatibility = cast(dict[str, object], record["compatibility"])
+        compatibility["evidence_path"] = "oap/evidence/other/002"
+
     for index, mutate in enumerate(
         (
             add_key,
@@ -995,6 +1038,10 @@ def test_rc_record_loader_rejects_drift(generator: types.ModuleType, tmp_path: P
             bad_published_at,
             bad_workflow,
             bool_run_id,
+            missing_compatibility,
+            bad_compatibility_topology,
+            bad_compatibility_arm,
+            bad_compatibility_evidence,
         )
     ):
         expect_error(mutate, index)
