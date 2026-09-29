@@ -1,0 +1,27 @@
+model = "qwen3.8-27b"
+model_provider = "qwen-LSI-A100"
+
+# Custom metadata for Qwen.
+model_catalog_json = "~/.codex/qwen-neumann-models.json"
+
+# Physical vLLM context window.
+model_context_window = 262144
+
+# Compact with ~40k tokens physical headroom remaining.
+model_auto_compact_token_limit = 222000
+
+# Default reasoning intensity.
+# /model should now offer: low / medium / xhigh
+model_reasoning_effort = "xhigh"
+
+[model_providers.qwen-LSI-A100]
+name = "Qwen 3.8 27B benchmark measured lane"
+base_url = "http://192.0.2.195:18043/v1"
+wire_api = "responses"
+env_key = "BENCH_API_KEY"
+requires_openai_auth = false
+
+[features]
+apps = false
+enable_mcp_apps = false
+plugins = false
