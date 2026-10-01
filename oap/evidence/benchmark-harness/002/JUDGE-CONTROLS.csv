@@ -1,0 +1,7 @@
+"task","control","expected_success","actual_success","control_passed","functional_passed","functional_total"
+"web","correct",true,true,true,8,8
+"web","defective",false,false,true,6,8
+"terminal","correct",true,true,true,5,5
+"terminal","defective",false,false,true,4,5
+"context","correct",true,true,true,16,16
+"context","defective",false,false,true,15,16
