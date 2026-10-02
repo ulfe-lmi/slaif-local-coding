@@ -494,7 +494,7 @@ def _write_cache_entry(
     source_hash = hashlib.sha256(source).hexdigest()
     payload = {
         "schema_version": "constitution-index-v1",
-        "compiler_version": "compiler-v2",
+        "compiler_version": "compiler-v3",
         "prompt_policy_version": "constitutional-rank-v2",
         "model": "sanitized-model",
         "source_logical_path": logical_path,

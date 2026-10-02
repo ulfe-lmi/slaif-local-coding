@@ -1,20 +1,20 @@
-# SLAIF Local Coding 0.1.0 — 0.1.0-rc7 RC handoff
+# SLAIF Local Coding 0.1.0 — 0.1.0-rc10 RC handoff
 
 Rendered deterministically from `packaging/rc_record.json` (schema `slaif-rc-record-v3`). Every value below is a literal verified value from that machine record. This document covers artifact retrieval and identity verification only: it is not an experimental or benchmark procedure, and it authorizes no production cutover or final release.
 
 ## Identity (literal verified values)
 
 - Product version: `0.1.0`
-- RC identifier: `0.1.0-rc7`
-- Image source commit: `ae6271318627703785f42de57d893c9be3b980c9`
+- RC identifier: `0.1.0-rc10`
+- Image source commit: `1a04528223445e4249fad6d24a71151fd1dc1a09`
 - OCI reference: `ghcr.io/ulfe-lmi/slaif-local-coding`
-- OCI digest (authoritative identity): `sha256:a3782915da58a403fd0f7991c57f9954b07bfb9377e4730715c0fb7398f901db`
-- Tag aliases: `0.1.0-rc7` and `sha-ae6271318627703785f42de57d893c9be3b980c9` (mutable; the digest is authoritative)
+- OCI digest (authoritative identity): `sha256:5a02e0043fcc65e5dc5a78f3e2a8648a16c93620255e904e394c926b18c92960`
+- Tag aliases: `0.1.0-rc10` and `sha-1a04528223445e4249fad6d24a71151fd1dc1a09` (mutable; the digest is authoritative)
 - Supported image platform: `linux/amd64` (built and qualified; other architectures are not qualified)
-- Published at (UTC): `2026-09-28T20:01:19Z`
-- Publication workflow: `release-image.yml` (run id: 36476185309)
-- Publishing run head SHA: `ae6271318627703785f42de57d893c9be3b980c9`
-- Wheel SHA-256 bound to the image: `897ef60568e9521dbb4ea563f297608e4409e02d54109471e789d43ff57dd10d`
+- Published at (UTC): `2026-10-02T04:46:33Z`
+- Publication workflow: `release-image.yml` (run id: 36965969078)
+- Publishing run head SHA: `1a04528223445e4249fad6d24a71151fd1dc1a09`
+- Wheel SHA-256 bound to the image: `eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9`
 - Dependency lock (uv.lock) SHA-256: `1237cbd179f71b99984c80f927529549f5e61eb705585ef9cf2ab0fa9e26764a`
 - Frozen Gateway compatibility authority: `08ca421bee1ddca62078302b910e8be88cf705be`
 - Build environment (enforced pins): hatchling==1.32.0, packaging==26.3, pathspec==1.1.1, pluggy==1.6.0, tomlkit==0.15.1, trove-classifiers==2026.6.1.19
@@ -32,7 +32,7 @@ Rendered deterministically from `packaging/rc_record.json` (schema `slaif-rc-rec
 - Topology: `standalone-loopback-no-gateway` — standalone loopback Local Coding qualification requires NO SLAIF API Gateway (gateway ingress disabled; no signed Gateway headers invented)
 - Product arms: VISION `pass`, CACHE `pass`, BOTH `pass` (derived from the manifest-verified closed-schema gate facts; bounded genuine Codex sessions with local tool interaction against the artifact-bound loopback adapter and the designated backend; this record exists only when all three PASS — a `blocked` arm would have prevented it)
 - DIRECT control: `pass` (contextual, derived from the same facts; never a substitute)
-- Sanitized evidence: `oap/evidence/testing-ledger/005` (append-only, content-free, MANIFEST.sha256-bound)
+- Sanitized evidence: `oap/evidence/testing-ledger/008` (append-only, content-free, MANIFEST.sha256-bound)
 - No benchmark ran; final public release remains false; the package remains private; protected cutover remains false.
 
 ## Source input hashes (path -> sha256)
@@ -41,7 +41,7 @@ The exact configuration/compose/packaging/build inputs the record was validated 
 
 ```text
 b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482  .dockerignore
-62f3e4003a23fc03042542d9836cfd2773c27cfa91344482a90fc11985c20c0c  .github/workflows/ci.yml
+4348699f4a300b8f693dde8387f981592b62f3c9c9e7b73465d68bcb3e41dc75  .github/workflows/ci.yml
 ef3a21206d990fcf8b586f65080a63640c2c77333a09aa152248c46a713310e6  CONTRIBUTING.md
 a89d6a924f119cf0a9dd6124afe47eee60fb008cbd0d2e482de9b186f2974c22  Dockerfile
 4b4ceb5159d3fa6c1d35e6aea22235d37624fdfe811e40894954d1fa35d54514  INSTALL.md
@@ -52,44 +52,44 @@ c7f87fb920cd6f0f24ad5cf6574c35441e44a6ce7538c2f93fd9a60ec3d87585  README.md
 dfcf961bd169c5b6c3d977c912c063286728e0007481a27e18c492d3508dfc24  THIRD_PARTY_NOTICES.md
 954138d4831bd8abbba7100ca3364fb3180d7f39b6d309bed23e727b51359adb  compose.build.yaml
 0928c9a66e808bb7d13118dffc22e61ce338157260b43b195ba0e7295f6332f3  compose.yaml
-fad125733e5dc956ef39bf76124ee4a8562d94f7320344e76aa2ee7bfb7004c7  config/adapter.deployment.template.toml
-92050fceec9511a0a1470d2de20b9788b41f84321925de38e228cd0879097d86  config/adapter.example.toml
-58ff541b520e18145400018de6cfec666e86314701f585e8f672931544ed7090  config/adapter.gateway-integrated.template.toml
-601e6122327d773806371da05bc2652c0a49690e2b3e011102fd6070379a5016  docs/ADAPTER-CONFIGURATION.md
+e4838be16ed1c5fc3f698a6e10246be61148a498ade61d0a8c11986cf42ed565  config/adapter.deployment.template.toml
+a06e6aae12af6df571faaa383e40118ffa4d8f4f273310721381de2a17122fc0  config/adapter.example.toml
+14357037ab96029ed510d0d491f10a9e7b51586d0f7b9b4842ac3d9937e74afb  config/adapter.gateway-integrated.template.toml
+11f5ecc6b2d794347c57c7e1ae4a85bb03bcf386b13f496f12e38d0dc2075f37  docs/ADAPTER-CONFIGURATION.md
 1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de  docs/DEPLOYMENT.md
 cc34ac5f4a1b18b35378bc63e899dde9c0fa792a85fd00506a39bf1d2c4fbcc8  docs/DOCKER-INSTALL.md
 c2d723ded9ba1a6282b63844f2a3794b4477122a1fc71f32fb240f9845f2fba9  docs/DOCKER-SECURITY-DELTA.md
 b9c1294d88f2bd8e8902213fa82c6710c7e15fb3c8c249ade34ae3db984c4a47  docs/GATEWAY-CONTRACT-CI.md
 bc1e112b1b4ca884f406ac93c6dde5e0c71dd96e01415f5d79709556fa21cb97  docs/GATEWAY-ROUTE-SCOPED-CODEX-TOOL-FILTER-PROPOSAL.md
-803b2c78f6299bb88a87310a28365b1573779acae8f897e1b90dc2bd0066cb78  docs/HISTORY.md
+02728528ebbca985c98bf1306d18b8b5bcc87e9640bd4d954f80b6a558f6b81f  docs/HISTORY.md
 9fe6c267afef7126d8a41a471f5320bb2d9bfcb20afbebb4f8f236b78ef06a7d  docs/IMPLEMENTATION-ROADMAP.md
 258e40a951672fb499f3a15e37e711e8dbc6eceab7d2ff4c2225cd0ab65df13b  docs/OBJECTIVE-004-LEDGER.md
 602be9a7fab0b19f2713fa197117952885d38a48bcfa991597d32e749bed2d24  docs/OBJECTIVE-005D-SECURITY-CONTAINMENT.md
-a28ec5249e5c725fbdd62803eb8aca5453f9e8f9a5ad758373130523e689d2cf  docs/RC-HANDOFF.md
+63ab1599668e46ec2423db8e8d6f79164655abb82b1901e4a4226b71d0e35dca  docs/RC-HANDOFF.md
 4ece071fb1bb2361456dae07cc7cbf164213c9041a7d5ad563debfbc882d0f0f  docs/README.md
-eadba8a9d215410d2fe73b52cad86cb964a15c8ea360c8cfb33df11b0c0f67c0  docs/RELEASE-ARTIFACT-POLICY.md
+6af08fee48cf9fc0b6ccec56cb65a84e3dc47b799ff845e801a19fc144d8a963  docs/RELEASE-ARTIFACT-POLICY.md
 e5f321463838daadc0e9754c217cfb122f228bc250d1a52bc313df36192100bc  docs/RELEASE-CUTOVER-RUNBOOK.md
 7fa102ea62581692820c9cf47a3f02e1e6881dab301fa6978315550f8765b96e  docs/TOPOLOGY.md
 62b5c413d0dda505a8cd1a8a3cfbc2695582b7d8a8de29a1bb7f3c42dfa28be7  docs/VISION-ACCEPTANCE.md
 408f488f30902adbc7d88a4ef4ef4542b0a56ad1a7191856a72931dc53c27b15  docs/topology.manifest.json
-aa3dbe045368784e650ddf792cf014b73aed3b01d078106a3895782bc2f05eac  packaging/rc_artifact_record.schema.json
+d8333478c5715511cb6fc0fd675da335198aa8e010cc9bf5959fd6bce22a0b84  packaging/rc_artifact_record.schema.json
 a667934433c32b3cb3724cf8667c9ec64f08d984a43656dd699cc46bd1f4075b  packaging/readyz-wait.sh
 b859eca1e80a373422e41327b2cdbe975d1e92fa3265b0afd0eb2c7c94373c4a  packaging/slaif-local-coding.service
 8afbc2a9c57bde8aa4d6121cb5c383707cb848c19d0d90843b217af9bfb97eaa  packaging/slaif-local-coding.service.example
 2a078535af87cf9433cfb9d6b913697931e1946ade71f3d6ead0e4617add88b3  pyproject.toml
 79562ee8efeb0ee91c24475d76e8a351734d6ff2e88288c1b952cbe4a508e517  src/slaif_local_coding/__init__.py
 6d8b7d7846a845059d7a3107143f11131f63c5511d669b44085b15ec5e3d2279  src/slaif_local_coding/__main__.py
-473c212e97b8f76afc4e6c412e90820b1d570d1ac1e57acdfce0fe3acea20c2a  src/slaif_local_coding/app.py
+28cbff58cedce083a5aa64d663272fdb7583a7d03cfb12169384176e4b2e67f1  src/slaif_local_coding/app.py
 b301a5971e36b3bbe0627a4114e8515fdf23dac821f12e5d84bd94ad91d36335  src/slaif_local_coding/cli.py
-a0937c5a4c3a61133e7d66c8d13c29591508602cad3c44ba8b6e2e795924dbdc  src/slaif_local_coding/config.py
+a20a089c2fe56f496425b27485be82e38935cde3bcedb3ae750aa1d5af551913  src/slaif_local_coding/config.py
 9731277b8a4c7552a0457efd7d09f0a117e24fcad3b0df0782259363c4d0e867  src/slaif_local_coding/constitution/__init__.py
-41eb171dea737b743a83a72036b097113f82e317db4a21c45d3135ac9287e104  src/slaif_local_coding/constitution/cache.py
-7dfd09c0b92f8dbea7a802b6b2fbaaa1c9c5352ef223d75e2c979b660baad87d  src/slaif_local_coding/constitution/compiler.py
-5413545b9c44612a20c6894b71149e1532e739d856dd760964bcfa3955e7bc5d  src/slaif_local_coding/constitution/compiler_models.py
+3836255390244ef1bd9a223319216ddbb34e87ba447600eb0da546a7fbec09cc  src/slaif_local_coding/constitution/cache.py
+d278f89adc7d2a91f0193614c30c47080f2bdd4fded7b001ba57e8c99e10ad2e  src/slaif_local_coding/constitution/compiler.py
+468e389d8359c912ce6bf760116ad7cb10055fe12997c5bfa59b738088a04246  src/slaif_local_coding/constitution/compiler_models.py
 bc8ea20f06da82e3dee63a0c52d3bdd185798489d184b7ebf8736c9cd4c528b8  src/slaif_local_coding/constitution/detector.py
 bf99442cceacc06f835ebd3742fb49738b223aeb0251908e4b4c242febdac066  src/slaif_local_coding/constitution/injection.py
 b1b82c1e99194ba3710baa1a5dd88ca9ff9a5740aa8083724412407a070a02df  src/slaif_local_coding/constitution/models.py
-50e284e409415ddc42190871a641fa910e48c906f0ed9a67e44fffdd586fb33f  src/slaif_local_coding/constitution/pipeline.py
+933f8050bf859a3315b36891931bdef753f43cd4bb732efa30e8dbaf42570b77  src/slaif_local_coding/constitution/pipeline.py
 ba4c4b688d7d74d6f3f888f5d09c75067229e76fb1f369b56f5b30e7f6f57835  src/slaif_local_coding/constitution/references.py
 8256e7dcf895fc2b6a5784121adaf82d10308a523d48cf614d81b15c1c529ef9  src/slaif_local_coding/constitution/working_set.py
 8ea6e63920d3a3e4db6d80c1bed7300cacf21e74a7e3d359583dad5694cdd4b5  src/slaif_local_coding/gateway_identity.py
@@ -97,6 +97,7 @@ ba4c4b688d7d74d6f3f888f5d09c75067229e76fb1f369b56f5b30e7f6f57835  src/slaif_loca
 e8d57b3994cffe360d45377235163eb728042bd82124e6dad6fb8c3dc23ac5d2  src/slaif_local_coding/json_structure.py
 6e0af5d87c83515710f0096c1a5dabb80bacef31e37cff9815eb6f68534cf08b  src/slaif_local_coding/py.typed
 cab512aad84d73c8cd43357af6de11e6ae2993543fc8d27fb9beb59065758c6b  src/slaif_local_coding/tool_policy.py
+1f122a3e7925b51ec51b2fd4f5fa235c18237cce1ccbfe439dbf36c8eb651f94  src/slaif_local_coding/upstream_diagnostics.py
 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  tests/__init__.py
 b449e6582265b3fda2f1982821d08e4e2ff05bda6101aedc9bd211c8d9677a4d  tests/fixtures/codex/0.149.0/README.md
 c384f7feab0fb798bfed100a2b8b26e692e9dab9321dc38a725a1ebed8be284e  tests/fixtures/codex/0.149.0/input_file_responses.json
@@ -120,23 +121,24 @@ ce4c2c7c6f1a2a4daafb4e05aa1fc66233f823fcb3adfffcec557c5f18319c30  tests/helpers/
 bd9a9f6da880d2f5c4c265d60ddce3584b8eb6e8afe898b88a6aad4b42cc4a33  tests/helpers/safe_evidence.py
 af480924343585ac8635fb993c5d0893556cc92a6903f43ec528908cb13654aa  tests/helpers/safe_evidence_contracts.py
 ff78d4ff715e534f33e6e6997365791c86141d1c8ec787c110b2092e9facebb2  tests/helpers/sandbox_runtime.py
-5a441b04093de791e548010a400cd878e6deb22a6d5995f6323e2048df33e3e2  tests/helpers/transport_observer.py
+5cf3bd88845a6598a773593136a144f62dd93b890a697b3702181db134e3fa4f  tests/helpers/transport_observer.py
 fc8dda69925151c634bbbd87860a8310dc8f737f186792bc42284e4c5e06fc32  tests/helpers/vision_e2e_support.py
 eb19dc893b15288aa8fcb5d61bf685b280a04ff14a8043742368e12f9adf7e8b  tests/test_acceptance_harness.py
 7165fdd1ba4c22a707d5536d30593ad496ab8cec41932269c7171700bcbadb32  tests/test_app.py
 df2add7e565981c2ab7937209b1ce7954aec5f787974faad5bd8ff43f70240b6  tests/test_boot_contract.py
-9172c4b8c7316bcefb43612544e659e0c0a84ea5b97a49f9570844bbdb6e2038  tests/test_cache.py
+a64ab61bceda3c4a81945080c53c5bbe9769711dba572dcd3e2894628c544ee7  tests/test_cache.py
 92222840bc226051bfe8aa1f07eff422e86a99c4540c67f2428ce00e75472f91  tests/test_capture_helper.py
 716ba13b6cffe27f27a69e3c7734ae619e55f37f7730859f9b657a35d98162d9  tests/test_capture_tool_types.py
-bcb10ed898ba272d5bfe9a94352a3caeb19fa7e2e1528a007886a7001c031dd9  tests/test_codex_namespace_tool_envelope.py
-972ef007a9f1dd3e7a2c79d8f2fa2b83ce9a42618058f1ed9b2d111fbd365227  tests/test_compiler.py
-0723945a5dc4fb655370264b91c2d39d19134bd2fbaf6efea7ee509bcc6e0827  tests/test_compose_pull_canonical.py
+4a1b42f8ecc2117017ce66a9707fc2429c2113a86203f42176d6aa6d6fb917fb  tests/test_codex_namespace_tool_envelope.py
+db8bf97de206b0510cb9524c79f588805ae5a6c6f21fc048fce0de015e008ab2  tests/test_compiler.py
+8925461d9cac2dcec481788cb3daf3e460fae16f08a6b2a24f4c554c361406fa  tests/test_compiler_truncation.py
+6b9fc4df713719dc523d66f929ffef0fe7eadbbc6a62ac2117724fe92cbbffe8  tests/test_compose_pull_canonical.py
 ba9a741da0a41d6532887670c335af141879f6775366c1403f41737c281266f0  tests/test_current_gateway_contract.py
 d8825a83af141324674474ff65f6745396baf1b5c6567dd1a041f44de09ccca8  tests/test_cutover_state_machine.py
-7a1c52040d52d8b723c7a4e2a3f5205b1abf9165b0e7689dafcfcaf5b082ceb2  tests/test_dependency_acquisition.py
-3059ceb41c22a8929fa5c3caa5e28957a23e31ebf205f92ef900d356566e2b94  tests/test_docker_qualification_record_gate.py
+0f2e04205bdc1f8d6b3d993b365a9594411afa59c9608f9f5dd44c65bf3e2998  tests/test_dependency_acquisition.py
+df7e6407a7c8234edf1c0944d37b24de6057dcc9d5bcc8539034f737c8ee0ab3  tests/test_docker_qualification_record_gate.py
 f93c231c0024e62d4a686e5837caede51ee5913e749e532ade1c9cd6b9cd247b  tests/test_docs_consistency.py
-e59f22df2e2dd93bde4b2869f829d95ad8fc098ff0913a461fd5795ce29085ac  tests/test_e2e.py
+bc82dfb3c08c0a3f47fc92245a092a2c42a42ad213c5ad25ed64d011f6884393  tests/test_e2e.py
 e0f942e86931bfde3a9f8027e96137f50272e457fa91370f7ac3cd5bc12fa637  tests/test_gateway162_validator_factory.py
 72c87fbc698ad4e9ca07fc440d31462b7ac6f5bf5170327381a053678755989c  tests/test_gateway_contract_runner.py
 65cffde131a9d994203ddf1623b8fa8e5b84e31820fb9da244c44cc40e2bae15  tests/test_gateway_identity.py
@@ -149,21 +151,23 @@ b523c7eaf9857b8f5d2f4ff0b92a6fbbf35574447015ade0d87a29e67cdc174a  tests/test_ima
 117e4f74fd377abdd3088d4a137c35c0e2d14a6fac48fb5b98f1095108f0f76c  tests/test_local_qwen_provider_differential.py
 6a77f3d92ceb142ed0b365c72b0bd90ddb7616751ce5d2d0c60f745e03dd26d7  tests/test_observation.py
 8df836d3e0bfdd843968908b6da35bfef45f7adc5fe91e67474d21f69e1995fd  tests/test_path_safety.py
-5ac65c3252583cf3eb47610ec4034c3a42673672ef2ae8666747b7b8320e62ee  tests/test_pipeline.py
-89fb57107022d85fd4b22a65a26f8b4d8fa1b3cbd705ba06acc8344a6434f10e  tests/test_rc_record.py
-d94b02bf33a3fce3ef476c44835d76ea718a82bb3d00fd31087a44d3bd0b0b3a  tests/test_rc_record_present_rehearsal.py
-01018f06f3fb0338b6cb6e086b7d78e7dbb18afce1a6c623e1edb5433002a93d  tests/test_real_codex_rc_qualification.py
+6458dfaa37d590b654f3668cd5c8676302d29b19c839c12dd54023c19ccb0f1a  tests/test_pipeline.py
+fc68492f2ee2f59a0347aa11205094c498df1628bd6fc941bb576739d9c07589  tests/test_rc_record.py
+07d23eeb611f71ffbb479a39319becf65709881bbfadfd40d5946745eec87997  tests/test_rc_record_present_rehearsal.py
+2f2cac64cbe0b96dfdb35d336e4b146182e0bb75562333d2fb4ceb2c14cde21e  tests/test_real_codex_rc_qualification.py
 9a6aaf9af01a7c1a0c7514ff1274a48fd85bc57ff8562251b0acaa9253f1e2b9  tests/test_reference_proxy_headers.py
-da759af26560ecb3c2bc9855f654152a0521add0aa6de1d8751fb661bda49b59  tests/test_rehydration.py
-a2160999ed6d88fc29069a452dc7da98fdffdd124d6f125d1d581e6e0a92d480  tests/test_release_provenance_manifest.py
-7b171ccb6d0046b974410ec866c966380208079e6a68f82b87761cb29886f44e  tests/test_release_registry_publish_digest.py
-9c8ee1f4ef5ddaae7a4e49782a4b4480dcb5a8a29afd36e1c3025cb32825e80a  tests/test_release_registry_publish_gate.py
+5a2872e7e971968a101d406bd6c361ad70b81fbcb612a01fbc951519b95f6209  tests/test_registry_history_baseline.py
+8441c6675225d71d1d55447fad2f5a460e5b0d19bce747e3d47361fe144b010d  tests/test_rehydration.py
+59607cc9d12d84924a9ce4fd0b065db90a0083f2e2c2c71fff176e5df8da09a6  tests/test_release_provenance_manifest.py
+988b9186f8fd1fc853d4215a605fc621804ba1d9bcd9cc75082ac47bf3564f10  tests/test_release_registry_publish_digest.py
+3d831b05e62d3829820f63e1816aafc39b5f088eb68bb235beeafc4c45c47a4b  tests/test_release_registry_publish_gate.py
 917a5fc2e32292cb31e114ba31708d9a817b43dcdb79a1e15df55383a2cfc1f5  tests/test_runtime_lock_ci.py
 2bf1f53f34bacb007f0e2b4aff5854c4e234f0ce0731837cee343c8cf38ef5e0  tests/test_safe_evidence_export.py
-a64d3981cf91a15fbb77f46e5fb4ce22d8e404525a8554233fa618d54e46dd7e  tests/test_source_input_binding.py
+fc631cbbefb04eb60b1af73021ed1f9e8080e1d182aaedd3e0836f82967ebfbd  tests/test_source_input_binding.py
 82a283ebe46bbe95d6a63fdacadb03c8ff2288f8d8f00ceee0786d3e71cc1aaf  tests/test_tool_policy.py
 1ac4f8b0ba978d87f1142aaa69baf7608a80f547ffbfff3a2c9c4f8a30e6d993  tests/test_topology_qualification.py
 b14b16cf85e73d5c9587615d0ebef860c3235c688df73df4b432d3dbc25781e3  tests/test_transport_observer.py
+70de08255fee023e6df47327a5a7ef32f23383483ca9f6150975c7b105719476  tests/test_upstream_diagnostics.py
 d014caa2e45e9064553d7bf12bb9af9a93c00216f5750e108a80ca2b2a9652db  tests/test_vision_e2e.py
 f08206df303343d9f4ee969eb6bca85baacbbbdcceac213c43d471962e2fec22  tests/test_working_set.py
 1237cbd179f71b99984c80f927529549f5e61eb705585ef9cf2ab0fa9e26764a  uv.lock
@@ -173,27 +177,27 @@ f08206df303343d9f4ee969eb6bca85baacbbbdcceac213c43d471962e2fec22  tests/test_wor
 
 External GHCR reader scope: `read:packages` (a classic PAT with package read access for this package — distinct from the Actions YAML `packages: read` keyword). Credentials via stdin only, never literal:
 
-Exact-source retrieval (Compose/config): https://github.com/ulfe-lmi/slaif-local-coding/blob/ae6271318627703785f42de57d893c9be3b980c9/INSTALL.md — retrieve the Compose and configuration files it references at this SAME literal image source commit (their hashes are the record's `source_input_hashes`, mechanically verified).
+Exact-source retrieval (Compose/config): https://github.com/ulfe-lmi/slaif-local-coding/blob/1a04528223445e4249fad6d24a71151fd1dc1a09/INSTALL.md — retrieve the Compose and configuration files it references at this SAME literal image source commit (their hashes are the record's `source_input_hashes`, mechanically verified).
 
 ```bash
 echo "$SLAIF_GHCR_TOKEN" | docker login ghcr.io -u "$SLAIF_GHCR_USERNAME" --password-stdin
-docker pull "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:a3782915da58a403fd0f7991c57f9954b07bfb9377e4730715c0fb7398f901db"
+docker pull "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:5a02e0043fcc65e5dc5a78f3e2a8648a16c93620255e904e394c926b18c92960"
 ```
 
 The tag aliases must resolve to the SAME registry digest (verify, do not trust; inspecting the image `.Id` alone is NOT proof of the manifest digest — check `RepoDigests` / the registry manifest digest):
 
 ```bash
-docker pull "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc7"
-docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc7" --format '{{range .RepoDigests}}{{.}}{{end}}'
-# must contain ghcr.io/ulfe-lmi/slaif-local-coding@sha256:a3782915da58a403fd0f7991c57f9954b07bfb9377e4730715c0fb7398f901db
-docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:a3782915da58a403fd0f7991c57f9954b07bfb9377e4730715c0fb7398f901db" --format '{{json .Config.Labels}}'
+docker pull "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc10"
+docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc10" --format '{{range .RepoDigests}}{{.}}{{end}}'
+# must contain ghcr.io/ulfe-lmi/slaif-local-coding@sha256:5a02e0043fcc65e5dc5a78f3e2a8648a16c93620255e904e394c926b18c92960
+docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding@sha256:5a02e0043fcc65e5dc5a78f3e2a8648a16c93620255e904e394c926b18c92960" --format '{{json .Config.Labels}}'
 ```
 
 ## Identity verification
 
-1. `RepoDigests` of each tag pull contains `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:a3782915da58a403fd0f7991c57f9954b07bfb9377e4730715c0fb7398f901db` (the registry manifest digest, not just the image `.Id`).
-2. OCI labels on `sha256:a3782915da58a403fd0f7991c57f9954b07bfb9377e4730715c0fb7398f901db`: `org.opencontainers.image.revision` == `ae6271318627703785f42de57d893c9be3b980c9`; `org.opencontainers.image.version` and `slaif-local-coding.package.version` == `0.1.0`; `slaif-local-coding.wheel.sha256` == `897ef60568e9521dbb4ea563f297608e4409e02d54109471e789d43ff57dd10d`; `slaif-local-coding.gateway.peer.sha` == `08ca421bee1ddca62078302b910e8be88cf705be`; `slaif-local-coding.topology.mode` == `linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress`; `slaif-local-coding.qualification` == `rc-candidate-0.1.0-rc7; private; not final release`.
-3. The in-image retained wheel artifact (`/opt/slaif/artifacts/slaif_local_coding-0.1.0-py3-none-any.whl`) hashes to `897ef60568e9521dbb4ea563f297608e4409e02d54109471e789d43ff57dd10d`.
+1. `RepoDigests` of each tag pull contains `ghcr.io/ulfe-lmi/slaif-local-coding@sha256:5a02e0043fcc65e5dc5a78f3e2a8648a16c93620255e904e394c926b18c92960` (the registry manifest digest, not just the image `.Id`).
+2. OCI labels on `sha256:5a02e0043fcc65e5dc5a78f3e2a8648a16c93620255e904e394c926b18c92960`: `org.opencontainers.image.revision` == `1a04528223445e4249fad6d24a71151fd1dc1a09`; `org.opencontainers.image.version` and `slaif-local-coding.package.version` == `0.1.0`; `slaif-local-coding.wheel.sha256` == `eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9`; `slaif-local-coding.gateway.peer.sha` == `08ca421bee1ddca62078302b910e8be88cf705be`; `slaif-local-coding.topology.mode` == `linux-docker-host-network;loopback-default;lan-visible-only-with-full-signed-ingress`; `slaif-local-coding.qualification` == `rc-candidate-0.1.0-rc10; private; not final release`.
+3. The in-image retained wheel artifact (`/opt/slaif/artifacts/slaif_local_coding-0.1.0-py3-none-any.whl`) hashes to `eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9`.
 4. Every fact above matches `packaging/rc_record.json`; the source input hashes in that record equal the qualified source tree (mechanically verified by `scripts/source_input_map.py --ref <S> --manifest packaging/release_provenance_manifest.json`).
 
 ## What this handoff is NOT

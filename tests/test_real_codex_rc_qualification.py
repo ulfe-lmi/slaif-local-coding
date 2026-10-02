@@ -45,20 +45,20 @@ SECRET = "must-never-appear-anywhere-in-argv"
 
 def test_parse_counter_lines_and_request_status_counts() -> None:
     vision_200 = (
-        'slaif_requests_total{endpoint="/v1/responses",route="rc7-smoke-vision",'
+        'slaif_requests_total{endpoint="/v1/responses",route="rc10-smoke-vision",'
         'status="200",stream="false"} 2.0'
     )
     vision_500 = (
-        'slaif_requests_total{endpoint="/v1/responses",route="rc7-smoke-vision",'
+        'slaif_requests_total{endpoint="/v1/responses",route="rc10-smoke-vision",'
         'status="500",stream="false"} 1.0'
     )
     vision_422 = (
-        'slaif_requests_total{endpoint="/v1/responses",route="rc7-smoke-vision",'
+        'slaif_requests_total{endpoint="/v1/responses",route="rc10-smoke-vision",'
         'status="422",stream="false"} 1.0'
     )
     chat_200 = (
         'slaif_requests_total{endpoint="/v1/chat/completions",'
-        'route="rc7-smoke-cache",status="200",stream="true"} 3.0'
+        'route="rc10-smoke-cache",status="200",stream="true"} 3.0'
     )
     compiler = "slaif_constitution_compiler_attempts_total 2.0"
     text = "\n".join(
@@ -74,7 +74,7 @@ def test_parse_counter_lines_and_request_status_counts() -> None:
             "slaif_readiness 1.0",
         ]
     )
-    counts = gate.request_status_counts(text, "/v1/responses", "rc7-smoke-vision")
+    counts = gate.request_status_counts(text, "/v1/responses", "rc10-smoke-vision")
     assert counts == {"200": 2, "500": 1, "422": 1}
     assert gate.request_total(counts) == 4
     assert gate.request_status_counts(text, "/v1/responses", "other-route") == {}
@@ -108,16 +108,16 @@ def test_build_codex_argv_is_secret_free_and_prompt_free() -> None:
 def test_render_codex_home_config_is_env_name_only() -> None:
     catalog = Path("/tmp/catalog.json")
     text = gate.render_codex_home_config(
-        provider="slaif_rc7_vision",
+        provider="slaif_rc10_vision",
         base_url="http://127.0.0.1:18031/v1",
         catalog=catalog,
         model=gate.MODEL,
     )
     config = tomllib.loads(text)
     assert config["model"] == gate.MODEL
-    assert config["model_provider"] == "slaif_rc7_vision"
+    assert config["model_provider"] == "slaif_rc10_vision"
     assert config["model_catalog_json"] == str(catalog)
-    provider = config["model_providers"]["slaif_rc7_vision"]
+    provider = config["model_providers"]["slaif_rc10_vision"]
     assert provider["base_url"] == "http://127.0.0.1:18031/v1"
     # The credential is referenced ONLY by the environment variable name.
     assert provider["env_key"] == gate.CLIENT_ENV_KEY
@@ -162,7 +162,7 @@ def test_render_adapter_config_arm_contracts(arm: str, tmp_path: Path) -> None:
     text = gate.render_adapter_config(
         arm=arm,
         upstream_base_url=UPSTREAM_URL,
-        credential_env_name="SLAIF_RC7_QUALIFICATION_KEY",
+        credential_env_name="SLAIF_RC10_QUALIFICATION_KEY",
         adapter_port=18031,
         cache_root=tmp_path / "cache",
     )
@@ -173,11 +173,11 @@ def test_render_adapter_config_arm_contracts(arm: str, tmp_path: Path) -> None:
     assert config["upstream"]["base_url"] == UPSTREAM_URL
     assert config["upstream"]["model"] == "qwen3.8-27b"
     # The adapter config carries only the environment variable NAME.
-    assert config["upstream"]["api_key_env"] == "SLAIF_RC7_QUALIFICATION_KEY"
-    assert config["compiler"]["api_key_env"] == "SLAIF_RC7_QUALIFICATION_KEY"
+    assert config["upstream"]["api_key_env"] == "SLAIF_RC10_QUALIFICATION_KEY"
+    assert config["compiler"]["api_key_env"] == "SLAIF_RC10_QUALIFICATION_KEY"
     assert SECRET not in text
     route = config["routes"][0]
-    assert route["name"] == f"rc7-smoke-{arm.lower()}"
+    assert route["name"] == f"rc10-smoke-{arm.lower()}"
     assert route["model"] == "qwen3.8-27b"
     if arm in ("VISION", "BOTH"):
         assert route["max_images_per_request"] == 1
@@ -191,9 +191,9 @@ def test_render_adapter_config_arm_contracts(arm: str, tmp_path: Path) -> None:
     assert config["constitution"]["enabled"] is constitution
     if constitution:
         assert config["constitution"]["identity_source"] == "static"
-        assert config["constitution"]["principal"] == "rc7-smoke-principal"
-        assert config["constitution"]["session"] == "rc7-smoke-session"
-        assert config["constitution"]["repository"] == "rc7-smoke-repository"
+        assert config["constitution"]["principal"] == "rc10-smoke-principal"
+        assert config["constitution"]["session"] == "rc10-smoke-session"
+        assert config["constitution"]["repository"] == "rc10-smoke-repository"
         assert config["compiler"]["enabled"] is True
     else:
         assert config["compiler"]["enabled"] is False
@@ -740,7 +740,7 @@ def test_workspace_commit_is_independent_of_host_git_identity(
         capture_output=True,
         check=True,
     )
-    assert "RC7 Smoke <rc7-smoke@example.invalid> Synthetic smoke workspace" in (
+    assert "RC10 Smoke <rc10-smoke@example.invalid> Synthetic smoke workspace" in (
         log.stdout.decode()
     )
     committed = subprocess.run(
@@ -829,7 +829,7 @@ def test_run_arms_total_timeout_fails_remaining_arms_closed(
 
 def test_sentinel_constants_are_bounded() -> None:
     assert gate.SENTINEL_SIZE == 3
-    assert gate.SENTINEL_NAME == "rc7-smoke.txt"
+    assert gate.SENTINEL_NAME == "rc10-smoke.txt"
     assert gate.OUTPUT_CAPTURE_CAP_DEFAULT <= 1_048_576
     assert gate.PRODUCT_ARMS == ("VISION", "CACHE", "BOTH")
     assert gate.MAX_EVENT_LINE_BYTES == 8 * 1024 * 1024

@@ -31,7 +31,11 @@ Own `/healthz`, `/readyz`, private `/metrics`. Faithfully proxy at least
 `/health`, `/v1/models`, `/v1/responses`, `/v1/chat/completions`. Preserve
 status/errors/ordinary function tools/usage/SSE order/disconnect; no response
 buffering. Parse bounded JSON only where transformation applies. Remove
-hop-by-hop and spoofed internal headers. No raw payload logging.
+hop-by-hop and spoofed internal headers. No raw payload logging. Upstream
+HTTP-error causes are classified privately before close: bounded byte/time
+diagnostic read, closed reason enum, status-derived categories without body
+read, dedicated low-cardinality counter; the public status, generic body, and
+safe headers never change and provider text never crosses the boundary.
 
 ## Ordered request pipeline
 
@@ -89,7 +93,13 @@ full-source reread triggers
 
 Never use one ambiguous score. Compiler has no tools/network/filesystem/gateway
 key; treats source as data; max one concurrent call; strict size/time/output;
-invalid output never cached valid.
+invalid output never cached valid. Explicit `finish_reason="length"` is a typed
+truncation decided before content validation (never invalid-JSON); the next
+attempt uses `min(prev*2, ceiling)` with a validated ceiling, never repeating a
+known-insufficient allowance, and stops truncated at ceiling/attempt bound;
+initial allowance and ceiling bind the fingerprint, cache key, and rehydration
+identity (compiler-v3); truncated/partial output is never validated, cached,
+or injected.
 
 Referenced content is unavailable until it crosses API boundary. Missing P0/P1
 causes injected instruction to read exact file with ordinary Codex local tools

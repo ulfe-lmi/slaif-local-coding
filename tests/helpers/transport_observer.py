@@ -1163,6 +1163,8 @@ class _ObservedStream(httpx.AsyncByteStream):
         self._state = state
         self._headers = headers
         self._observation_finished = False
+        self._capture_in_progress = False
+        self._provider_prefix: bytearray = bytearray()
         self._delegate_close_task: asyncio.Task[None] | None = None
 
     async def _capture_provider_error(self) -> str:
@@ -1183,14 +1185,18 @@ class _ObservedStream(httpx.AsyncByteStream):
             self._state.provider_error = classify_provider_error(
                 status,
                 body_class="oversized",
-                received_bytes=0,
-                accepted_bytes=0,
+                received_bytes=self._state.received_byte_count,
+                accepted_bytes=self._state.accepted_byte_count,
             )
             self._owner._latch_state_failure(self._state)
             return "oversized"
 
-        body = bytearray()
-        body_size = 0
+        # Order 015-a: when the adapter consumed a bounded diagnostic slice
+        # before close, the observed prefix is already retained (and already
+        # counted in the state byte counters); continue from where the
+        # consumer stopped instead of re-reading the stream from its start.
+        body = bytearray(self._provider_prefix)
+        body_size = len(body)
         try:
             async for chunk in self._stream:
                 size = len(chunk)
@@ -1259,6 +1265,62 @@ class _ObservedStream(httpx.AsyncByteStream):
         )
         return "complete"
 
+    def _retain_provider_error_prefix(self, chunk: bytes) -> None:
+        """Retain the bounded observed slice of an HTTP-error body.
+
+        Order 015-a: the adapter reads a bounded diagnostic slice before
+        closing an upstream error response, so the transport-boundary
+        observation of the original provider error completes during
+        iteration. At most MAX_PROVIDER_ERROR_BYTES are retained, never
+        more, and only while the body has not already overflowed the
+        stream cap.
+        """
+        status = self._record.response_status_code
+        if (
+            status is None
+            or status < 400
+            or self._state.provider_error is not None
+            or self._state.overflow
+        ):
+            return
+        remaining = MAX_PROVIDER_ERROR_BYTES - len(self._provider_prefix)
+        if remaining > 0:
+            self._provider_prefix.extend(chunk[:remaining])
+
+    def _capture_provider_error_from_observed(self) -> None:
+        """Classify the original provider error from the observed bytes.
+
+        Order 015-a: when the stream was consumed to completion (the
+        adapter's bounded diagnostic read finished reading it), classify
+        exactly as the direct-close capture path does; an overflowed or
+        retention-truncated body is classified as oversized, never parsed.
+        """
+        status = self._record.response_status_code
+        if status is None or status < 400 or self._state.provider_error is not None:
+            return
+        received = self._state.received_byte_count
+        accepted = self._state.accepted_byte_count
+        rejected = self._state.rejected_byte_count
+        rejected_chunks = self._state.rejected_chunk_count
+        if self._state.overflow or len(self._provider_prefix) < received:
+            self._state.provider_error = classify_provider_error(
+                status,
+                body_class="oversized",
+                received_bytes=received,
+                accepted_bytes=accepted,
+                rejected_bytes=rejected,
+                rejected_chunk_count=rejected_chunks,
+            )
+        else:
+            self._state.provider_error = classify_provider_error(
+                status,
+                bytes(self._provider_prefix),
+                received_bytes=received,
+                accepted_bytes=accepted,
+                rejected_bytes=rejected,
+                rejected_chunk_count=rejected_chunks,
+            )
+
     def _record_content_length(self) -> int | None:
         value = self._headers.get("content-length")
         if value is None:
@@ -1285,13 +1347,20 @@ class _ObservedStream(httpx.AsyncByteStream):
                 if self._state.failure_kind == "budget":
                     self._state.abnormal_close("budget")
                     raise RuntimeError("transport_observer_budget_exhausted")
+                self._retain_provider_error_prefix(chunk)
                 yield chunk
+            self._capture_provider_error_from_observed()
             self._state.finish()
             self._owner._finish_stream(self._record, self._state)
             self._owner._finish_response()
             self._owner._run_response_complete_hook(self._record)
             self._observation_finished = True
         except asyncio.CancelledError:
+            if self._observation_finished or self._capture_in_progress:
+                # The observation already finalized (or a direct-close
+                # capture owns cleanup); a late async-generator shutdown
+                # must not re-finalize the completed record.
+                raise
             self._record.exception_class = _exception_class("cancelled")
             self._state.abnormal_close("cancelled")
             self._owner._finish_abnormal(self._record, self._state)
@@ -1303,6 +1372,11 @@ class _ObservedStream(httpx.AsyncByteStream):
                 self._owner._release_dispatch(self._record)
             raise
         except BaseException:
+            if self._observation_finished or self._capture_in_progress:
+                # The observation already finalized (or a direct-close
+                # capture owns cleanup); a late async-generator shutdown
+                # must not re-finalize the completed record.
+                raise
             self._record.exception_class = _exception_class("stream")
             self._state.abnormal_close("stream")
             self._owner._finish_abnormal(self._record, self._state)
@@ -1346,9 +1420,11 @@ class _ObservedStream(httpx.AsyncByteStream):
                 self._record.response_status_code is not None
                 and self._record.response_status_code >= 400
             ):
+                self._capture_in_progress = True
                 try:
                     capture_status = await self._capture_provider_error()
                 except asyncio.CancelledError:
+                    self._capture_in_progress = False
                     self._record.exception_class = _exception_class("cancelled")
                     self._state.abnormal_close("cancelled")
                     self._owner._finish_abnormal(self._record, self._state)
@@ -1359,6 +1435,7 @@ class _ObservedStream(httpx.AsyncByteStream):
                     finally:
                         self._owner._release_dispatch(self._record)
                     raise
+                self._capture_in_progress = False
                 if capture_status == "read_error":
                     self._state.abnormal_close("stream")
                     self._owner._finish_abnormal(self._record, self._state)

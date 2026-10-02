@@ -1112,7 +1112,7 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
         return json.dumps(
             {
                 "schema_version": "constitution-index-v1",
-                "compiler_version": "compiler-v2",
+                "compiler_version": "compiler-v3",
                 "prompt_policy_version": "constitutional-rank-v2",
                 "model": payload.get("model"),
                 "source_logical_path": source_match.group(1),
@@ -1957,7 +1957,13 @@ class _FakeQwenHandler(http.server.BaseHTTPRequestHandler):
                 self._json(400, {"error": {"code": "compiler_input"}})
                 return
             self.server.record(compiler=True, streaming=False, tool_types=set())
-            self._json(200, {"id": "fake-compiler", "choices": [{"message": {"content": content}}]})
+            self._json(
+                200,
+                {
+                    "id": "fake-compiler",
+                    "choices": [{"finish_reason": "stop", "message": {"content": content}}],
+                },
+            )
             return
         if request_path != "/v1/responses":
             self._json(404, {"error": {"code": "not_found"}})

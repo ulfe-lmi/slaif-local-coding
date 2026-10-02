@@ -56,8 +56,16 @@ class CompilerSettings(BaseModel):
     max_candidates: int = Field(default=128, ge=0, le=4096)
     max_prompt_bytes: int = Field(default=384_000, ge=1024, le=4_194_304)
     max_output_tokens: int = Field(default=3_000, ge=128, le=16_000)
+    # Order 015-a (P02): ceiling for the bounded adaptive token allowance.
+    max_output_tokens_ceiling: int = Field(default=8_000, ge=128, le=16_000)
     max_output_bytes: int = Field(default=256_000, ge=1024, le=4_194_304)
     max_json_depth: int = Field(default=24, ge=1, le=128)
+
+    @model_validator(mode="after")
+    def ceiling_covers_initial_allowance(self) -> CompilerSettings:
+        if self.max_output_tokens_ceiling < self.max_output_tokens:
+            raise ValueError("max_output_tokens_ceiling must be at least max_output_tokens")
+        return self
 
     @model_validator(mode="after")
     def supported_base_url(self) -> CompilerSettings:
@@ -102,6 +110,49 @@ def _strict_json(raw: bytes) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("top-level JSON value is not an object")
     return value
+
+
+def _extract_chat_completion(
+    raw: bytes,
+    settings: CompilerSettings,
+) -> tuple[bool, str | None, str | None]:
+    """Parse the bounded chat-completion envelope.
+
+    Order 015-a (P02): returns ``(envelope_ok, content, finish_reason)``.
+    ``envelope_ok`` is True only for the supported shape: a top-level JSON
+    object with exactly one choice, a dict ``message`` whose ``content`` is
+    a string (or absent), and a string ``finish_reason``.  A missing or
+    unsupported structure fails closed as a completed invalid-output
+    category (never masquerades as truncation).  The caller must treat
+    ``finish_reason == "length"`` as explicit truncation BEFORE any content
+    JSON/schema validation.
+    """
+    if len(raw) > settings.max_output_bytes:
+        return False, None, None
+    try:
+        enforce_json_nesting(raw, settings.max_json_depth)
+    except JsonNestingTooDeep:
+        return False, None, None
+    try:
+        payload = _strict_json(raw)
+    except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return False, None, None
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        return False, None, None
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        return False, None, None
+    finish_reason = choice.get("finish_reason")
+    if not isinstance(finish_reason, str):
+        return False, None, None
+    message = choice.get("message")
+    if not isinstance(message, dict):
+        return False, None, None
+    content = message.get("content")
+    if content is not None and not isinstance(content, str):
+        return False, None, None
+    return True, content, finish_reason
 
 
 def _safe_logical_path(path: str) -> bool:
@@ -298,6 +349,11 @@ class ConstitutionalCompiler:
             ["reason"],
             registry=self.registry,
         )
+        self.truncations = Counter(
+            "slaif_constitution_compiler_truncations_total",
+            "Explicit length-completion compiler output truncations (typed, content-free)",
+            registry=self.registry,
+        )
         self.timeouts = Counter(
             "slaif_constitution_compiler_timeouts_total",
             "Compiler upstream timeouts",
@@ -351,6 +407,7 @@ class ConstitutionalCompiler:
                 "max_prompt_bytes": self.settings.max_prompt_bytes,
                 "max_source_bytes": self.settings.max_source_bytes,
                 "max_output_tokens": self.settings.max_output_tokens,
+                "max_output_tokens_ceiling": self.settings.max_output_tokens_ceiling,
                 "model": self.settings.model,
                 "prompt_policy_version": PROMPT_POLICY_VERSION,
                 "reasoning_effort": self.settings.reasoning_effort,
@@ -462,6 +519,7 @@ class ConstitutionalCompiler:
                     max_source_bytes=self.settings.max_source_bytes,
                     max_prompt_bytes=self.settings.max_prompt_bytes,
                     max_output_tokens=self.settings.max_output_tokens,
+                    max_output_tokens_ceiling=self.settings.max_output_tokens_ceiling,
                     max_output_bytes=self.settings.max_output_bytes,
                     max_candidates=self.settings.max_candidates,
                     max_json_depth=self.settings.max_json_depth,
@@ -567,6 +625,12 @@ class ConstitutionalCompiler:
             )
         failures: list[FailureReason] = []
         attempts = 0
+        # Order 015-a (P02): the bounded adaptive token allowance.  It starts
+        # at the configured initial allowance and, after an explicit length
+        # completion, the next permitted attempt uses
+        # min(previous * 2, max_output_tokens_ceiling).  A known-insufficient
+        # allowance is never repeated and no loop may exceed max_attempts.
+        allowance = self.settings.max_output_tokens
         assert self._client is not None
         async with self._slot:
             while attempts < self.settings.max_attempts:
@@ -589,7 +653,7 @@ class ConstitutionalCompiler:
                         ],
                         "stream": False,
                         "temperature": 0,
-                        "max_tokens": self.settings.max_output_tokens,
+                        "max_tokens": allowance,
                         "reasoning_effort": self.settings.reasoning_effort,
                     },
                 )
@@ -605,24 +669,27 @@ class ConstitutionalCompiler:
                         failures.append(FailureReason.UPSTREAM_STATUS)
                         self.transport_failures.inc()
                         continue
-                    try:
-                        message_payload = _strict_json(raw)
-                    except (UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+                    envelope_ok, output, finish_reason = _extract_chat_completion(
+                        raw, self.settings
+                    )
+                    if not envelope_ok:
                         failures.append(FailureReason.INVALID_JSON)
                         self.schema_failures.labels(FailureReason.INVALID_JSON.value).inc()
                         continue
-                    choices = message_payload.get("choices")
-                    output = ""
-                    if isinstance(choices, list) and len(choices) == 1:
-                        choice = choices[0]
-                        if isinstance(choice, dict):
-                            message = choice.get("message")
-                            if isinstance(message, dict) and isinstance(
-                                message.get("content"), str
-                            ):
-                                output = message["content"]
+                    if finish_reason == "length":
+                        # Explicit truncation: typed BEFORE any content
+                        # JSON/schema validation, so a length-finished
+                        # incomplete body never masquerades as INVALID_JSON
+                        # and is never validated or persisted.
+                        failures.append(FailureReason.OUTPUT_TRUNCATED)
+                        self.truncations.inc()
+                        if allowance >= self.settings.max_output_tokens_ceiling:
+                            break
+                        allowance = min(allowance * 2, self.settings.max_output_tokens_ceiling)
+                        continue
+                    output_text = output if output is not None else ""
                     validated = _validate_index(
-                        output.strip().encode("utf-8"),
+                        output_text.strip().encode("utf-8"),
                         expected_hash=source_hash,
                         expected_byte_length=byte_length,
                         logical_path=logical_path,
@@ -650,7 +717,7 @@ class ConstitutionalCompiler:
                         started,
                         attempts=attempts,
                         prompt_bytes=len(prompt_bytes),
-                        output_bytes=len(output.encode("utf-8")),
+                        output_bytes=len(output_text.encode("utf-8")),
                         cache_detail=cache_detail,
                     )
                 except httpx.TimeoutException:

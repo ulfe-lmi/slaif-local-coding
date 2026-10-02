@@ -185,7 +185,7 @@ def test_record_missing_when_no_publication_record(
         lambda rec: rec.update(cutover_performed=True),
         lambda rec: rec.update(private_registry_auth_required=False),
         lambda rec: rec.update(oci_image_digest="sha256:" + "b" * 63),
-        lambda rec: rec.update(oci_tags=["0.1.0-rc7", "wrong-tag"]),
+        lambda rec: rec.update(oci_tags=["0.1.0-rc10", "wrong-tag"]),
         lambda rec: rec.update(image_source_commit="a" * 39),
         lambda rec: rec.update(workflow_head_sha="g" * 40),
         lambda rec: rec.update(wheel_sha256="d" * 64 + "d"),

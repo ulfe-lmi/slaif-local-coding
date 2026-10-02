@@ -106,13 +106,13 @@ POLICY_PYPROJECT = (
 )
 
 GENERATOR_STUB = (
-    'RC_IDENTIFIER = "0.1.0-rc7"\n'
-    'RC_QUALIFICATION_LABEL = "rc-candidate-0.1.0-rc7; private; not final release"\n'
+    'RC_IDENTIFIER = "0.1.0-rc10"\n'
+    'RC_QUALIFICATION_LABEL = "rc-candidate-0.1.0-rc10; private; not final release"\n'
 )
 
 SCHEMA_STUB = (
-    '{"properties": {"oci": {"properties": {"candidate_tag": {"const": "0.1.0-rc7"}}},'
-    ' "candidate": {"properties": {"rc_identifier": {"const": "0.1.0-rc7"}}}}}\n'
+    '{"properties": {"oci": {"properties": {"candidate_tag": {"const": "0.1.0-rc10"}}},'
+    ' "candidate": {"properties": {"rc_identifier": {"const": "0.1.0-rc10"}}}}}\n'
 )
 
 DIGEST_STUB = "sha256:" + "d" * 64
@@ -150,10 +150,10 @@ def _branch_commit(repo: Path, message: str) -> str:
 def _boundary_record(repo: Path, map_fn: Any, boundary: str) -> dict[str, object]:
     """A record fully consistent with the named boundary commit."""
     return {
-        "rc_identifier": "0.1.0-rc7",
+        "rc_identifier": "0.1.0-rc10",
         "image_source_commit": boundary,
         "workflow_head_sha": boundary,
-        "oci_tags": ["0.1.0-rc7", f"sha-{boundary}"],
+        "oci_tags": ["0.1.0-rc10", f"sha-{boundary}"],
         "oci_image_digest": DIGEST_STUB,
         "source_input_hashes": map_fn(repo, boundary),
     }
@@ -164,14 +164,14 @@ def _install_record(repo: Path, record: dict[str, object]) -> None:
     functions read the committed trees; the record/manifest are derived
     metadata, excluded from every input map)."""
     manifest = {
-        "candidate": {"rc_identifier": "0.1.0-rc7", "state": "rc_published"},
+        "candidate": {"rc_identifier": "0.1.0-rc10", "state": "rc_published"},
         "oci": {
-            "candidate_tag": "0.1.0-rc7",
+            "candidate_tag": "0.1.0-rc10",
             "image_digest": DIGEST_STUB,
             "published": True,
             "labels": {
                 "slaif-local-coding.qualification": (
-                    "rc-candidate-0.1.0-rc7; private; not final release"
+                    "rc-candidate-0.1.0-rc10; private; not final release"
                 )
             },
         },

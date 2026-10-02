@@ -117,7 +117,7 @@ jobs:
           export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
           export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
           docker compose -f compose.yaml -f compose.build.yaml build \
-            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc7; private; not final release"
+            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc10; private; not final release"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
             --format "built image: {{.Id}} (push performed in the next steps)"
           REV="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
@@ -125,7 +125,7 @@ jobs:
           QUAL_LABEL="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "slaif-local-coding.qualification"}}')"
           test "$REV" = "$GITHUB_SHA"
           test "$WHEEL_LABEL" = "$SLAIF_WHEEL_SHA256"
-          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc7; private; not final release"
+          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc10; private; not final release"
 
       - name: Docker qualification (C2-C9)
         run: |
@@ -142,12 +142,18 @@ jobs:
   # authenticated registry baseline (the ephemeral packages:read token, the
   # existing strict resolver: digest / verified-absent / unauthorized are
   # distinct; inaccessible is never reported as absent) for the historical
-  # 0.1.0, the two recorded sha- tags, 0.1.0-rc1/0.1.0-rc2, and the
-  # rejected RC3/RC4/RC5 pairs (all occupied and immutable), and — when the
-  # RC record (packaging/rc_record.json) exists — its current RC tag pair
-  # (order 014-e, C.2: 0.1.0-rc7 + sha-<S>) — BEFORE the prepublication
-  # gate — so a source round yields the before state and a published round
-  # yields the after evidence. The job then authenticates
+  # 0.1.0, the two recorded sha- tags, the rejected RC3/RC4/RC5 pairs, the
+  # archived RC7 pair, the archived RC8 pair, and the archived RC9 pair
+  # (all occupied and immutable; order 015-b, workstream C: the set is the
+  # shared single
+  # source of truth in scripts/ghcr_tag_check.py, derived from the archived
+  # strict records packaging/releases/*/rc_record.json, and every archived
+  # pair is DIGEST-ASSERTED against its recorded digest — fail closed on
+  # absent, unauthorized, ambiguous, or changed registry state), and —
+  # when the RC record (packaging/rc_record.json) exists — its current RC
+  # tag pair (order 015-c, workstream D: 0.1.0-rc10 + sha-<S>) — BEFORE the
+  # prepublication gate — so a source round yields the before state and a
+  # published round yields the after evidence. The job then authenticates
   # with least-privilege packages:read (GITHUB_TOKEN), consumes the RC
   # record (packaging/rc_record.json, schema slaif-rc-record-v3) or, later,
   # the final release record (packaging/release_record.json), verifies the
@@ -174,7 +180,16 @@ jobs:
       # job's ephemeral packages:read token, executed BEFORE the
       # prepublication gate (the gate skips every later step while no
       # publication record exists, so this is the only place a source round
-      # can record registry truth). Reuses the existing strict resolver
+      # can record registry truth). Order 015-b, workstream C: the
+      # immutable historical set is the shared single source of truth
+      # (scripts/ghcr_tag_check.immutable_historical_baseline, derived from
+      # the archived strict records under
+      # packaging/releases/*/rc_record.json — the archived
+      # RC1-RC5/RC7/RC8/RC9 pairs, with the intentional RC6 absence
+      # preserved): every archived
+      # pair is digest-asserted and the step FAILS CLOSED on absent,
+      # unauthorized, ambiguous, or changed registry state; the pre-RC
+      # singletons remain record-only. Reuses the existing strict resolver
       # (scripts/ghcr_tag_check.tag_digest_strict): digest / verified-absent
       # / unauthorized are distinct outcomes — inaccessible is never
       # reported as absent. No tag mutation, no credential printing, no new
@@ -190,6 +205,7 @@ jobs:
           import sys
           import urllib.error
           import urllib.request
+          from pathlib import Path
 
           sys.path.insert(0, "scripts")
           import ghcr_tag_check as registry  # noqa: E402
@@ -197,49 +213,50 @@ jobs:
           out = sys.argv[1]
           token = os.environ.get("SLAIF_GHCR_TOKEN") or None
           repo = "ulfe-lmi/slaif-local-coding"
-          tags = (
-              "0.1.0",
-              "sha-fe334e87c9f0fc65d1826cf9af7dad7e9f70a94a",
-              "sha-be3c78b2016d5d40ce9155df8f94d14525c43d39",
-              "0.1.0-rc1",
-              "sha-4d096e404e14badb78b4f99142bf08ef17f0f8a7",
-              "0.1.0-rc2",
-              # Order 014-c, D.5: the rejected RC3/RC4 tag pairs are part of
-              # the immutable historical set (their records are archived,
-              # so the pairs are no longer picked up from
-              # packaging/rc_record.json).
-              "0.1.0-rc3",
-              "sha-307a929ffb30f4ea41c8be4e8a5ea25802e25142",
-              "0.1.0-rc4",
-              "sha-601a7f9fae19869ad8e09f10fa994550368fd87c",
-              # Order 014-e, workstream C.2: the rejected RC5 tag pair is part of the
-              # immutable historical set (the RC5 record is archived under
-              # packaging/releases/0.1.0-rc5/, so its pair is no longer
-              # picked up from packaging/rc_record.json).
-              "0.1.0-rc5",
-              "sha-e04b4a99afa6268c98f28ed7abfc1db506107523",
-          )
-          # Order 014-a, D.2: when the RC record exists (post-publication
-          # rounds), the baseline also records the CURRENT RC tag pair so
-          # the pre-gate before-state covers the aliases the gate will
-          # qualify. The tuple is otherwise the immutable historical set;
-          # old tags are asserted unchanged, never rewritten.
-          try:
-              _rc = json.loads(
-                  open("packaging/rc_record.json", encoding="utf-8").read()
-              )
-              for _tag in _rc["oci_tags"]:
-                  if _tag not in tags:
-                      tags = tags + (_tag,)
-          except (OSError, ValueError, KeyError, TypeError):
-              pass  # pre-publication round: no RC record by design
+          # Order 015-b, workstream C: the immutable historical set (single
+          # source of truth, derived from the archived strict records
+          # packaging/releases/*/rc_record.json): the pre-RC singletons
+          # (0.1.0 + the two recorded orphan sha- tags) are record-only,
+          # and EVERY archived RC pair (RC1-RC5, RC7, RC8, RC9; no RC6
+          # identity was ever created) must remain resolvable at the EXACT
+          # digest
+          # recorded in its archived record — this step fails closed on
+          # absent, unauthorized, ambiguous, or changed registry state.
+          historical = registry.immutable_historical_baseline(Path.cwd())
           lines = []
-          for tag in tags:
+          failures = []
+          for tag, expected in historical:
               status, digest = registry.tag_digest_strict(repo, tag, token)
               value = f"digest:{digest}" if status == "digest" else status
               name = "tag_" + re.sub(r"[^0-9A-Za-z_-]", "_", tag)
               lines.append(f"{name}={value}")
               print(f"registry baseline {tag} -> {value}")
+              if expected is not None and (status != "digest" or digest != expected):
+                  failures.append(f"{tag}: expected digest:{expected}, got {value}")
+          if failures:
+              raise SystemExit(
+                  "immutable historical registry baseline changed:\n"
+                  + "\n".join(failures)
+              )
+          # Order 014-a, D.2: when the RC record exists (post-publication
+          # rounds), the baseline also records the CURRENT RC tag pair so
+          # the pre-gate before-state covers the aliases the gate will
+          # qualify. The historical set above is immutable; old tags are
+          # asserted unchanged, never rewritten.
+          try:
+              _rc = json.loads(
+                  open("packaging/rc_record.json", encoding="utf-8").read()
+              )
+              _known = {tag for tag, _ in historical}
+              for _tag in _rc["oci_tags"]:
+                  if _tag not in _known:
+                      _status, _digest = registry.tag_digest_strict(repo, _tag, token)
+                      _value = f"digest:{_digest}" if _status == "digest" else _status
+                      _name = "tag_" + re.sub(r"[^0-9A-Za-z_-]", "_", _tag)
+                      lines.append(f"{_name}={_value}")
+                      print(f"registry baseline (current) {_tag} -> {_value}")
+          except (OSError, ValueError, KeyError, TypeError):
+              pass  # pre-publication round: no RC record by design
           # Package visibility via the DIRECT container-package endpoint
           # (order 013-m, M3), with the SAME credential and an explicit
           # supported GitHub API version: the legacy org package-list
