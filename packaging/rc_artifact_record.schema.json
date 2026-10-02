@@ -35,7 +35,7 @@
       "const": "slaif-rc-record-v3"
     },
     "rc_identifier": {
-      "const": "0.1.0-rc8"
+      "const": "0.1.0-rc9"
     },
     "product_version": {
       "const": "0.1.0"

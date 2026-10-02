@@ -106,13 +106,13 @@ POLICY_PYPROJECT = (
 )
 
 GENERATOR_STUB = (
-    'RC_IDENTIFIER = "0.1.0-rc8"\n'
-    'RC_QUALIFICATION_LABEL = "rc-candidate-0.1.0-rc8; private; not final release"\n'
+    'RC_IDENTIFIER = "0.1.0-rc9"\n'
+    'RC_QUALIFICATION_LABEL = "rc-candidate-0.1.0-rc9; private; not final release"\n'
 )
 
 SCHEMA_STUB = (
-    '{"properties": {"oci": {"properties": {"candidate_tag": {"const": "0.1.0-rc8"}}},'
-    ' "candidate": {"properties": {"rc_identifier": {"const": "0.1.0-rc8"}}}}}\n'
+    '{"properties": {"oci": {"properties": {"candidate_tag": {"const": "0.1.0-rc9"}}},'
+    ' "candidate": {"properties": {"rc_identifier": {"const": "0.1.0-rc9"}}}}}\n'
 )
 
 DIGEST_STUB = "sha256:" + "d" * 64
@@ -150,10 +150,10 @@ def _branch_commit(repo: Path, message: str) -> str:
 def _boundary_record(repo: Path, map_fn: Any, boundary: str) -> dict[str, object]:
     """A record fully consistent with the named boundary commit."""
     return {
-        "rc_identifier": "0.1.0-rc8",
+        "rc_identifier": "0.1.0-rc9",
         "image_source_commit": boundary,
         "workflow_head_sha": boundary,
-        "oci_tags": ["0.1.0-rc8", f"sha-{boundary}"],
+        "oci_tags": ["0.1.0-rc9", f"sha-{boundary}"],
         "oci_image_digest": DIGEST_STUB,
         "source_input_hashes": map_fn(repo, boundary),
     }
@@ -164,14 +164,14 @@ def _install_record(repo: Path, record: dict[str, object]) -> None:
     functions read the committed trees; the record/manifest are derived
     metadata, excluded from every input map)."""
     manifest = {
-        "candidate": {"rc_identifier": "0.1.0-rc8", "state": "rc_published"},
+        "candidate": {"rc_identifier": "0.1.0-rc9", "state": "rc_published"},
         "oci": {
-            "candidate_tag": "0.1.0-rc8",
+            "candidate_tag": "0.1.0-rc9",
             "image_digest": DIGEST_STUB,
             "published": True,
             "labels": {
                 "slaif-local-coding.qualification": (
-                    "rc-candidate-0.1.0-rc8; private; not final release"
+                    "rc-candidate-0.1.0-rc9; private; not final release"
                 )
             },
         },

@@ -15,7 +15,7 @@ The record includes:
 
 | Identity | Recorded facts |
 | --- | --- |
-| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc8`. |
+| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc9`. |
 | Source | Exact 40-hex image source commit and publication-run head SHA. |
 | Image | Full OCI reference, authenticated `sha256` digest and tag aliases. |
 | Package | Exact wheel SHA-256 and dependency-lock hash. |
@@ -110,13 +110,23 @@ freeze; its record set is archived byte-identical under
 before any push, tag, or publication, so no RC6 identity exists. The
 RC7 record set is archived byte-identical under
 `packaging/releases/0.1.0-rc7/`; the RC7 aliases
-(`0.1.0-rc7`, `sha-ae627131...`) remain occupied and immutable. The
-current candidate is RC8 (`0.1.0-rc8`), the successor candidate that
-repairs the independently verified product defects P01 (upstream
-HTTP-error cause discard, now a bounded private classification) and
-P02 (compiler truncation collapse into invalid output, now a typed
-truncation with bounded adaptive allowance and the `compiler-v3`
-behavior version) on top of the RC7 fail-closed record-present
-machinery, without any claim that Local Coding caused the rejected
-requests or task mistakes. Each candidate has a separate source, wheel
+(`0.1.0-rc7`, `sha-ae627131...`) remain occupied and immutable. The RC8 record set is
+archived byte-identical under `packaging/releases/0.1.0-rc8/`; the
+RC8 aliases (`0.1.0-rc8`, `sha-718fff30...`) remain occupied and
+immutable. RC8 qualified in scope (immutable testing ledger 006) and
+was published as a private candidate — it repairs the independently
+verified product defects P01 (upstream HTTP-error cause discard, now
+a bounded private classification) and P02 (compiler truncation
+collapse into invalid output, now a typed truncation with bounded
+adaptive allowance and the `compiler-v3` behavior version) on top of
+the RC7 fail-closed record-present machinery, without any claim that
+Local Coding caused the rejected requests or task mistakes — but was
+rejected as the FINAL Objective-015 handoff candidate solely because
+its frozen read-only CI registry baseline (a member of the frozen
+source-input map, immutable after publication) omitted the archived
+RC7 alias pair. The current candidate is RC9 (`0.1.0-rc9`), the
+collision-safe successor carrying the immutable registry-history
+correction (every archived RC alias pair digest-asserted in the
+read-only baseline, with a deterministic regression and the
+intentional RC6 absence preserved). Each candidate has a separate source, wheel
 and digest. Legacy private `0.1.0` tags are not handoff targets.

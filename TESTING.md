@@ -177,23 +177,39 @@ scope (immutable
 [testing ledger 005](oap/evidence/testing-ledger/005/README.md)) and
 was published as a private candidate; its record set is archived
 byte-identical under `packaging/releases/0.1.0-rc7/`, and its aliases
-remain occupied and immutable. RC8 (`0.1.0-rc8`) is the successor
-candidate: the human-supplied external review input
-`CODE-DEFECTS.md` (external input, not a repository file and not part
-of any benchmark archive) motivated two independently verified product
-defects, both repaired — P01 (upstream HTTP-error causes were
-discarded before close; now a bounded private classification with a
-closed reason enum, a dedicated low-cardinality private counter, and
-the unchanged generic public error) and P02 (explicit compiler output
-truncation was collapsed into invalid output and retried with the same
-known-insufficient allowance; now a typed `output_truncated` outcome
-with a bounded adaptive allowance, the `compiler-v3` behavior version,
-and ceiling-bound fingerprint/cache/rehydration identity). RC8 makes
-no claim that Local Coding caused the rejected requests or task
-mistakes, and the corrected harness reruns for the next immutable
-testing ledger (expected number 006). No benchmark ran; the final
-public release remains false; the package remains private; the
-protected cutover remains false.
+remain occupied and immutable. RC8 (`0.1.0-rc8`) qualified in scope (immutable
+[testing ledger 006](oap/evidence/testing-ledger/006/README.md)) and
+was published as a private candidate: the human-supplied external
+review input `CODE-DEFECTS.md` (external input, not a repository file
+and not part of any benchmark archive) motivated two independently
+verified product defects, both repaired — P01 (upstream HTTP-error
+causes were discarded before close; now a bounded private
+classification with a closed reason enum, a dedicated
+low-cardinality private counter, and the unchanged generic public
+error) and P02 (explicit compiler output truncation was collapsed
+into invalid output and retried with the same known-insufficient
+allowance; now a typed `output_truncated` outcome with a bounded
+adaptive allowance, the `compiler-v3` behavior version, and
+ceiling-bound fingerprint/cache/rehydration identity) — and its
+pulled-image qualification passed. RC8 makes no claim that Local
+Coding caused the rejected requests or task mistakes. RC8 was
+rejected as the FINAL Objective-015 handoff candidate solely because
+its frozen read-only CI registry baseline (a member of the 130-entry
+frozen source-input map, hence immutable after publication) claimed
+to cover the archived RC7 alias pair while its literal
+immutable-history set stopped at RC5; the RC8 source/provenance
+binding could not be corrected post-publication, so RC8 is preserved
+permanently: its record set is archived byte-identical under
+`packaging/releases/0.1.0-rc8/`, and its aliases remain occupied and
+immutable. RC9 (`0.1.0-rc9`) is the successor candidate: the
+immutable registry-history correction (every archived RC alias pair
+digest-asserted in the read-only baseline from a shared single source
+of truth, with a deterministic regression that fails against the
+015-a frozen source and preserves the intentional RC6 absence) plus
+the corrected harness reruns for the next immutable testing ledger
+(expected number 007). No benchmark ran; the final public release
+remains false; the package remains private; the protected cutover
+remains false.
 
 ## Evidence and review
 

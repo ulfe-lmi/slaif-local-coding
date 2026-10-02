@@ -139,6 +139,25 @@ the recorded time; they are not current operating instructions.
   immutable. RC8 publishes a new collision-safe private `0.1.0-rc8`
   candidate with the next immutable testing ledger (expected number
   006).
+- **RC9** (order 015-b): the successor candidate after RC8. RC8
+  qualified in scope (immutable testing ledger 006) and was published
+  as a private candidate, but its truthful immutable report returned
+  `BENCHMARK_BLOCKED`: after archiving RC7, the frozen read-only CI
+  registry baseline claimed to cover the archived RC7 alias pair
+  while its literal immutable-history set stopped at RC5. Because
+  `ci.yml` is a member of the 130-entry frozen source-input map, the
+  RC8 source/provenance binding could not be corrected after
+  publication, so RC8 was rejected as the FINAL Objective-015 handoff
+  candidate without altering it: its record set is archived
+  byte-identical under `packaging/releases/0.1.0-rc8/`, and its
+  aliases remain occupied and immutable. The narrow correction
+  digest-asserts EVERY archived RC alias pair (exact RC7 and RC8
+  pairs included) in the read-only baseline from a shared single
+  source of truth derived from the archived strict records, with a
+  deterministic regression that fails against the 015-a frozen source
+  and preserves the intentional RC6 absence. RC9 publishes a new
+  collision-safe private `0.1.0-rc9` candidate with the next
+  immutable testing ledger (expected number 007).
 
 ## Source-pinned documentation snapshots
 
