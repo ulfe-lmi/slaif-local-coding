@@ -183,6 +183,12 @@ class UpstreamConfig(BaseModel):
     request_timeout_seconds: float = Field(default=300, gt=0, le=3600)
     write_timeout_seconds: float = Field(default=30, gt=0, le=3600)
     pool_timeout_seconds: float = Field(default=10, gt=0, le=300)
+    # Order 015-a (P01): hard bounds for the private bounded read of an
+    # upstream HTTP-error body.  The diagnostic slice is used only by the
+    # closed classifier in ``upstream_diagnostics`` and never forwarded,
+    # logged, or persisted.  Positive finite ceilings.
+    upstream_error_diagnostic_max_bytes: int = Field(default=16_384, ge=1, le=65_536)
+    upstream_error_diagnostic_timeout_seconds: float = Field(default=1.0, gt=0, le=5.0)
 
     @model_validator(mode="after")
     def supported_base_path(self) -> UpstreamConfig:
@@ -244,11 +250,22 @@ class CompilerConfig(BaseModel):
     max_attempts: int = Field(default=2, ge=1, le=4)
     max_parallel_calls: int = Field(default=1, ge=1, le=1)
     max_output_tokens: int = Field(default=3000, ge=128, le=16000)
+    # Order 015-a (P02): ceiling for the bounded adaptive token allowance.
+    # After an explicit length completion the next permitted attempt uses
+    # min(previous * 2, ceiling); the ceiling must stay at least the initial
+    # allowance and within the legal maximum.
+    max_output_tokens_ceiling: int = Field(default=8000, ge=128, le=16000)
     max_output_bytes: int = Field(default=256000, ge=1024, le=4194304)
     max_prompt_bytes: int = Field(default=384000, ge=1024, le=4194304)
     max_source_bytes: int = Field(default=262_144, ge=1, le=4_194_304)
     max_candidates: int = Field(default=128, ge=1, le=4096)
     max_json_depth: int = Field(default=24, ge=1, le=128)
+
+    @model_validator(mode="after")
+    def ceiling_covers_initial_allowance(self) -> CompilerConfig:
+        if self.max_output_tokens_ceiling < self.max_output_tokens:
+            raise ValueError("max_output_tokens_ceiling must be at least max_output_tokens")
+        return self
 
 
 class CacheConfig(BaseModel):

@@ -80,6 +80,7 @@ class RehydrationKey(BaseModel):
     max_source_bytes: int = Field(gt=0)
     max_prompt_bytes: int = Field(gt=0)
     max_output_tokens: int = Field(gt=0)
+    max_output_tokens_ceiling: int = Field(gt=0)
     max_output_bytes: int = Field(gt=0)
     max_candidates: int = Field(ge=0)
     max_json_depth: int = Field(gt=0)
@@ -243,6 +244,7 @@ class ConstitutionPipeline:
             max_source_bytes=self.compiler_settings.max_source_bytes,
             max_prompt_bytes=self.compiler_settings.max_prompt_bytes,
             max_output_tokens=self.compiler_settings.max_output_tokens,
+            max_output_tokens_ceiling=self.compiler_settings.max_output_tokens_ceiling,
             max_output_bytes=self.compiler_settings.max_output_bytes,
             max_candidates=self.compiler_settings.max_candidates,
             max_json_depth=self.compiler_settings.max_json_depth,

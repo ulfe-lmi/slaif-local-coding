@@ -238,7 +238,35 @@ request IDs.
 
 Upstream responses with HTTP status 400 or higher retain their status and safe
 retry metadata but receive a fixed OpenAI-shaped error body; upstream error
-bodies are never relayed to callers. `/readyz` reports fixed `config`,
+bodies are never relayed to callers.
+
+Before such an error response is closed, the adapter privately classifies its
+cause for observability only. The classification reads at most
+`upstream_error_diagnostic_max_bytes` (default 16,384; hard ceiling 65,536)
+of the body and for at most `upstream_error_diagnostic_timeout_seconds`
+(default 1.0; ceiling 5.0) seconds, using streaming iteration that appends
+only the remaining permitted slice, so a single oversized chunk can never
+retain more than the allowance and the response is closed immediately at the
+bound. Status-derived classification is applied without reading the body:
+401/403 map to `authentication`, 429 to `rate_limit`, and 5xx to
+`upstream_5xx`. Every other status parses only a bounded complete JSON object
+in supported provider shapes and inspects only the fixed allowlisted
+locations (the top-level `error` object and its `code`, `type`, `param`, and
+`message` fields) through fixed matcher tables. Numeric, null, collection,
+unexpected, ambiguous, malformed, incomplete, oversized, or binary evidence
+never crashes classification and maps to `unknown`. The closed private reason
+is one of `authentication`, `rate_limit`, `image_count_limit`,
+`context_length_limit`, `malformed_input`, `upstream_5xx`, and `unknown`.
+Provider text, codes, and bodies are never returned, logged, persisted, or
+used as metric labels; the result feeds only the dedicated private counter
+`slaif_upstream_http_errors_total` with the bounded labels endpoint,
+configured route, status class, and closed reason. Timeout, cancellation, or
+read error still closes the response immediately and returns the same generic
+public error; the client-facing status, generic JSON body, selected safe
+headers, transport-failure meaning, and successful/streaming behavior are
+unchanged.
+
+`/readyz` reports fixed `config`,
 `upstream`, `compiler`, and disposable-cache states; cache degradation remains
 ready-but-degraded because original request semantics are preserved.
 
@@ -291,6 +319,39 @@ On an enabled route, work runs after image policy in this order: deterministic
 observation with request-scoped exact root/dependency bytes, direct nonrecursive
 compiler/cache execution, bounded incremental dependency compilation, working-set
 selection, idempotent endpoint-specific injection, then deterministic JSON serialization.
+
+Compiler output handling is typed and bounded. Each attempt sends the
+configured initial `max_output_tokens` (default 3,000). The chat-completion
+response is parsed for the supported envelope before any content validation:
+a top-level object with exactly one choice whose `finish_reason` is a string
+and whose `message` is an object. An explicit `finish_reason = "length"`
+yields the typed `output_truncated` outcome before content JSON/schema
+validation, so a length-finished incomplete body is never `invalid_json` and
+is never validated or persisted; a normally completed malformed body remains
+a distinct completed invalid-output failure, and a missing or unsupported
+envelope shape fails closed under the existing invalid-output category
+instead of masquerading as truncation. On explicit truncation, the next
+attempt uses `min(previous_allowance * 2, max_output_tokens_ceiling)`
+(default ceiling 8,000; range 128–16,000; validated to be at least the
+initial allowance), so a known-insufficient allowance is never repeated, and
+the loop stops with `output_truncated` when the ceiling or the per-compilation
+`max_attempts` bound (default 2, maximum 4) is reached; other completed
+validation failures retain the existing bounded retry semantics. Compiler
+attempts are per direct upstream compiler request, the attempt bound is per
+compilation leader, cache hits use zero attempts, and process counters are
+cumulative; the dedicated content-free counter
+`slaif_constitution_compiler_truncations_total` records explicit
+truncations, separate from attempts, validated successes by cache outcome,
+schema failures by reason, timeouts, and transport failures. Both the initial
+allowance and the ceiling are bound into the compilation fingerprint, the
+persistent cache key, and the rehydration identity, and the compiler behavior
+version is `compiler-v3`, so old and new compilation policies cannot be
+confused. Only a fully validated index is written to the derived cache or the
+rehydration map; a truncated, invalid, or locally overflowed output produces
+no cache entry, no rehydration entry, and no injection, and the pipeline
+degrades to the post-image-policy request with the precise
+`compiler_output_truncated` reason.
+
 Multiple/incomplete roots and compiler/cache/selection/essential-overflow
 failures preserve the post-image-policy request; a zero-root request attempts
 exact-key process-local rehydration and otherwise preserves that request. Injection conflicts or

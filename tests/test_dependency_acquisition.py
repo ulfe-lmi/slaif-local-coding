@@ -159,7 +159,7 @@ def index(
 ) -> CompiledIndex:
     return CompiledIndex(
         schema_version="constitution-index-v1",
-        compiler_version="compiler-v2",
+        compiler_version="compiler-v3",
         prompt_policy_version="constitutional-rank-v2",
         model="test-model",
         source_logical_path=path,
@@ -205,7 +205,7 @@ def compiler_response(path: str, source: bytes) -> httpx.Response:
     raw = json.dumps(compiled.model_dump(mode="json"), separators=(",", ":")).encode()
     return httpx.Response(
         200,
-        json={"choices": [{"message": {"content": raw.decode()}}]},
+        json={"choices": [{"finish_reason": "stop", "message": {"content": raw.decode()}}]},
     )
 
 

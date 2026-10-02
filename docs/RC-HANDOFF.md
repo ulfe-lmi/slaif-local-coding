@@ -15,7 +15,7 @@ The record includes:
 
 | Identity | Recorded facts |
 | --- | --- |
-| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc7`. |
+| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc8`. |
 | Source | Exact 40-hex image source commit and publication-run head SHA. |
 | Image | Full OCI reference, authenticated `sha256` digest and tag aliases. |
 | Package | Exact wheel SHA-256 and dependency-lock hash. |
@@ -108,10 +108,15 @@ required a tracked source correction after the immutable candidate
 freeze; its record set is archived byte-identical under
 `packaging/releases/0.1.0-rc5/`. The 014-d RC6 attempt was abandoned
 before any push, tag, or publication, so no RC6 identity exists. The
-current candidate is RC7 (`0.1.0-rc7`), which freezes the corrected
-record-present rehearsal (the single qualified source boundary with an
-identical source-input map and only permitted post-freeze paths) on top
-of the fail-closed source-reference binding and the evidence-bound RC
-record, and carries the two pre-freeze test corrections the abandoned
-RC6 suite exposed. Each candidate has a separate source, wheel and
-digest. Legacy private `0.1.0` tags are not handoff targets.
+RC7 record set is archived byte-identical under
+`packaging/releases/0.1.0-rc7/`; the RC7 aliases
+(`0.1.0-rc7`, `sha-ae627131...`) remain occupied and immutable. The
+current candidate is RC8 (`0.1.0-rc8`), the successor candidate that
+repairs the independently verified product defects P01 (upstream
+HTTP-error cause discard, now a bounded private classification) and
+P02 (compiler truncation collapse into invalid output, now a typed
+truncation with bounded adaptive allowance and the `compiler-v3`
+behavior version) on top of the RC7 fail-closed record-present
+machinery, without any claim that Local Coding caused the rejected
+requests or task mistakes. Each candidate has a separate source, wheel
+and digest. Legacy private `0.1.0` tags are not handoff targets.

@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 INDEX_SCHEMA_VERSION = "constitution-index-v1"
-COMPILER_VERSION = "compiler-v2"
+COMPILER_VERSION = "compiler-v3"
 PROMPT_POLICY_VERSION = "constitutional-rank-v2"
 
 
@@ -49,6 +49,7 @@ class FailureReason(StrEnum):
     SOURCE_HASH_MISMATCH = "source_hash_mismatch"
     CANDIDATE_SET_MISMATCH = "candidate_set_mismatch"
     CONTRADICTORY_OUTPUT = "contradictory_output"
+    OUTPUT_TRUNCATED = "output_truncated"
     UPSTREAM_TIMEOUT = "upstream_timeout"
     UPSTREAM_TRANSPORT = "upstream_transport"
     UPSTREAM_AUTH = "upstream_auth"

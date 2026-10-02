@@ -89,7 +89,7 @@ def dependency(**changes: Any) -> CompiledDependency:
 def index(source: bytes = SOURCE, **changes: Any) -> CompiledIndex:
     values: dict[str, Any] = {
         "schema_version": "constitution-index-v1",
-        "compiler_version": "compiler-v2",
+        "compiler_version": "compiler-v3",
         "prompt_policy_version": "constitutional-rank-v2",
         "model": "test-model",
         "source_logical_path": "AGENTS.md",
@@ -337,12 +337,13 @@ async def test_invalid_model_output_fails_closed_without_cache_write(
         source_sha256=SOURCE_HASH,
         model="test-model",
         index_schema_version="constitution-index-v1",
-        compiler_version="compiler-v2",
+        compiler_version="compiler-v3",
         prompt_policy_version="constitutional-rank-v2",
         reasoning_effort="low",
         max_source_bytes=262_144,
         max_prompt_bytes=384_000,
         max_output_tokens=3000,
+        max_output_tokens_ceiling=8000,
         max_output_bytes=256_000,
         max_candidates=128,
         max_json_depth=24,

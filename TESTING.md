@@ -172,17 +172,28 @@ abandoned before any push, tag, or publication: its first post-freeze
 full suite required tracked test corrections, triggering the round's
 literal fail-closed rule, and its re-freeze attempt was stopped; no RC6
 remote commit, release workflow, tag, registry mutation, or testing
-ledger exists, and none is claimed. RC7 (`0.1.0-rc7`) is the
-successor candidate: the record builder binds the record's source
-identity to the literal supplied source commit fail-closed (any altered
-mapped input after the source freeze rejects the builder), ordinary CI
-runs the deterministic prepublication record-present rehearsal
-(`scripts/rc_record_present_rehearsal.py`) at the candidate source —
-whose corrected POST mode proves the single qualified source boundary
-(record image source = publication workflow head, an ancestor of the
-candidate source, with an identical source-input map and only
-permitted post-freeze paths) — and the corrected harness reruns for the
-next immutable testing ledger (expected number 005).
+ledger exists, and none is claimed. RC7 (`0.1.0-rc7`) qualified in
+scope (immutable
+[testing ledger 005](oap/evidence/testing-ledger/005/README.md)) and
+was published as a private candidate; its record set is archived
+byte-identical under `packaging/releases/0.1.0-rc7/`, and its aliases
+remain occupied and immutable. RC8 (`0.1.0-rc8`) is the successor
+candidate: the human-supplied external review input
+`CODE-DEFECTS.md` (external input, not a repository file and not part
+of any benchmark archive) motivated two independently verified product
+defects, both repaired — P01 (upstream HTTP-error causes were
+discarded before close; now a bounded private classification with a
+closed reason enum, a dedicated low-cardinality private counter, and
+the unchanged generic public error) and P02 (explicit compiler output
+truncation was collapsed into invalid output and retried with the same
+known-insufficient allowance; now a typed `output_truncated` outcome
+with a bounded adaptive allowance, the `compiler-v3` behavior version,
+and ceiling-bound fingerprint/cache/rehydration identity). RC8 makes
+no claim that Local Coding caused the rejected requests or task
+mistakes, and the corrected harness reruns for the next immutable
+testing ledger (expected number 006). No benchmark ran; the final
+public release remains false; the package remains private; the
+protected cutover remains false.
 
 ## Evidence and review
 

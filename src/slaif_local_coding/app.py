@@ -30,6 +30,7 @@ from .gateway_identity import ReplayProtector, SignedIdentityError, verify_signe
 from .image_policy import AmbiguousImageShape, apply_retain_newest, count_images
 from .json_structure import JsonNestingTooDeep, enforce_json_nesting
 from .tool_policy import ResponsesToolPolicyError, apply_responses_tool_policy
+from .upstream_diagnostics import classify_upstream_error, status_class
 
 LOGGER = logging.getLogger("slaif.adapter")
 HOP_BY_HOP = frozenset(
@@ -174,6 +175,48 @@ async def _bounded_body(request: Request, maximum: int) -> bytes | None:
     return b"".join(chunks)
 
 
+async def _read_bounded_error_diagnostic(
+    upstream: httpx.Response,
+    *,
+    max_bytes: int,
+    timeout_seconds: float,
+) -> bytes | None:
+    """Read at most ``max_bytes`` of an upstream error body within the bound.
+
+    Order 015-a (P01): streaming iteration appends only the remaining
+    permitted slice, so a single oversized chunk never causes retained bytes
+    to exceed the allowance.  The read stops at the byte bound, the time
+    bound, or the end of the body.  Timeout, cancellation, malformed
+    framing, or read errors return ``None`` (the caller still closes the
+    response and returns the generic public error).  Bytes returned here are
+    consumed only by the closed classifier and are never forwarded, logged,
+    or persisted.
+    """
+    if upstream.is_stream_consumed:
+        # Non-streaming transport (e.g. mock): the body is already fully in
+        # memory.  Honor the byte bound by taking the permitted slice only.
+        return upstream.content[:max_bytes]
+    chunks: list[bytes] = []
+    state = {"remaining": max_bytes}
+
+    async def _read() -> bytes:
+        async for chunk in upstream.aiter_raw():
+            if state["remaining"] <= 0:
+                break
+            piece = chunk[: state["remaining"]]
+            state["remaining"] -= len(piece)
+            if piece:
+                chunks.append(piece)
+        return b"".join(chunks)
+
+    try:
+        return await asyncio.wait_for(_read(), timeout=timeout_seconds)
+    except asyncio.CancelledError:
+        raise
+    except (TimeoutError, httpx.HTTPError, OSError, ValueError):
+        return None
+
+
 def create_app(
     settings: Settings,
     transport: httpx.AsyncBaseTransport | None = None,
@@ -210,6 +253,7 @@ def create_app(
             max_source_bytes=settings.compiler.max_source_bytes,
             max_candidates=settings.compiler.max_candidates,
             max_output_tokens=settings.compiler.max_output_tokens,
+            max_output_tokens_ceiling=settings.compiler.max_output_tokens_ceiling,
             max_prompt_bytes=settings.compiler.max_prompt_bytes,
             max_output_bytes=settings.compiler.max_output_bytes,
             max_json_depth=settings.compiler.max_json_depth,
@@ -254,6 +298,12 @@ def create_app(
     )
     upstream_failures = Counter(
         "slaif_upstream_failures_total", "Sanitized upstream failures", ["kind"], registry=registry
+    )
+    upstream_http_errors = Counter(
+        "slaif_upstream_http_errors_total",
+        "Upstream HTTP rejections by bounded status class and closed private reason",
+        ["endpoint", "route", "status_class", "reason"],
+        registry=registry,
     )
     readiness = Gauge(
         "slaif_readiness_state",
@@ -710,6 +760,28 @@ def create_app(
                 if key.lower()
                 in {"cache-control", "openai-processing-ms", "retry-after", "x-request-id"}
             }
+            # Order 015-a (P01): bounded private cause classification before
+            # the response is closed.  Status-derived categories need no
+            # body; every other status reads at most the configured
+            # diagnostic slice within the configured duration.  The read
+            # always ends with the response closed and the same generic
+            # public error returned below; provider text never crosses the
+            # API boundary, logs, or metrics labels.
+            if upstream.status_code in (401, 403, 429) or upstream.status_code >= 500:
+                http_reason = classify_upstream_error(upstream.status_code, None)
+            else:
+                diagnostic = await _read_bounded_error_diagnostic(
+                    upstream,
+                    max_bytes=settings.upstream.upstream_error_diagnostic_max_bytes,
+                    timeout_seconds=settings.upstream.upstream_error_diagnostic_timeout_seconds,
+                )
+                http_reason = classify_upstream_error(upstream.status_code, diagnostic)
+            upstream_http_errors.labels(
+                metric_endpoint,
+                route_name,
+                status_class(upstream.status_code),
+                http_reason.value,
+            ).inc()
             await upstream.aclose()
             return JSONResponse(
                 status_code=upstream.status_code,

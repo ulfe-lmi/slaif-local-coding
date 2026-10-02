@@ -46,7 +46,7 @@ def index_for_source(source: str, *, rule_id: str, statement: str) -> dict[str, 
     }
     return {
         "schema_version": "constitution-index-v1",
-        "compiler_version": "compiler-v2",
+        "compiler_version": "compiler-v3",
         "prompt_policy_version": "constitutional-rank-v2",
         "model": "test-model",
         "source_logical_path": "AGENTS.md",
@@ -79,10 +79,11 @@ def compiler_index_response(value: dict[str, Any]) -> httpx.Response:
         json={
             "choices": [
                 {
+                    "finish_reason": "stop",
                     "message": {
                         "role": "assistant",
                         "content": json.dumps(value, separators=(",", ":")),
-                    }
+                    },
                 }
             ],
             "usage": {"total_tokens": 2},
@@ -230,12 +231,13 @@ def test_rehydration_key_matches_every_static_dimension(tmp_path: Any) -> None:
         root_logical_path="AGENTS.md",
         root_source_sha256="0" * 64,
         index_schema_version="constitution-index-v1",
-        compiler_version="compiler-v2",
+        compiler_version="compiler-v3",
         prompt_policy_version="constitutional-rank-v2",
         reasoning_effort="low",
         max_source_bytes=262_144,
         max_prompt_bytes=384_000,
         max_output_tokens=3000,
+        max_output_tokens_ceiling=8000,
         max_output_bytes=256_000,
         max_candidates=128,
         max_json_depth=24,

@@ -69,7 +69,7 @@ def _index() -> CompiledIndex:
     )
     return CompiledIndex(
         schema_version="constitution-index-v1",
-        compiler_version="compiler-v2",
+        compiler_version="compiler-v3",
         prompt_policy_version="constitutional-rank-v2",
         model=MODEL,
         source_logical_path="AGENTS.md",
@@ -100,7 +100,12 @@ def _compiler_response() -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "choices": [{"message": {"role": "assistant", "content": raw.decode()}}],
+            "choices": [
+                {
+                    "message": {"role": "assistant", "content": raw.decode()},
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {"total_tokens": 2},
         },
     )

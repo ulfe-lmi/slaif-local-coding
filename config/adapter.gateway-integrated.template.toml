@@ -63,6 +63,11 @@ connect_timeout_seconds = 10
 request_timeout_seconds = 300
 write_timeout_seconds = 30
 pool_timeout_seconds = 10
+# Order 015-a (P01): private bounded diagnostic read of upstream HTTP-error
+# bodies.  Used only by the closed private classifier (never forwarded,
+# logged, or persisted); hard positive ceilings (<= 65536 bytes, <= 5 s).
+upstream_error_diagnostic_max_bytes = 16384
+upstream_error_diagnostic_timeout_seconds = 1.0
 
 [compiler]
 # Required by signed-request constitution identity: direct compiler calls are
@@ -74,6 +79,10 @@ reasoning_effort = "low"
 timeout_seconds = 120
 max_attempts = 2
 max_output_tokens = 3000
+# Order 015-a (P02): ceiling for the bounded adaptive token allowance. After
+# an explicit length completion the next attempt uses
+# min(previous * 2, ceiling); must be >= max_output_tokens (128..16000).
+max_output_tokens_ceiling = 8000
 max_parallel_calls = 1
 max_source_bytes = 262144
 max_candidates = 128

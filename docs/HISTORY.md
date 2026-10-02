@@ -118,6 +118,27 @@ the recorded time; they are not current operating instructions.
   `0.1.0-rc7` candidate with the next immutable testing ledger
   (expected number 005). The RC6 identities remain absent and are
   never created or reserved.
+- **RC8** (order 015-a): the successor candidate after RC7. The
+  human-supplied external review input `CODE-DEFECTS.md` (external
+  input, not a repository file and not part of any benchmark archive)
+  motivated two independently verified product defects, both repaired
+  in this candidate: P01 — upstream HTTP-error causes were discarded
+  before close (now a bounded private classification with a closed
+  reason enum, a dedicated low-cardinality private counter, and the
+  unchanged generic public error) and P02 — explicit compiler output
+  truncation was collapsed into invalid output and retried with the
+  same known-insufficient allowance (now a typed `output_truncated`
+  outcome with a bounded adaptive allowance, the `compiler-v3`
+  behavior version, and ceiling-bound fingerprint/cache/rehydration
+  identity). The benchmark-harness archive 002 is failed/incomplete
+  qualification context, not a benchmark result, and this candidate
+  makes no claim that Local Coding caused the rejected requests or the
+  recorded task mistakes. The RC7 record set is archived
+  byte-identical under `packaging/releases/0.1.0-rc7/`; the RC7
+  aliases (`0.1.0-rc7`, `sha-ae627131...`) remain occupied and
+  immutable. RC8 publishes a new collision-safe private `0.1.0-rc8`
+  candidate with the next immutable testing ledger (expected number
+  006).
 
 ## Source-pinned documentation snapshots
 
