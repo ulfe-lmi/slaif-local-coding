@@ -15,18 +15,24 @@ its recorded digest. This regression closes that gap permanently:
   derived pair (focused parser over the workflow's baseline step: the
   shared single source of truth when the workflow consumes it, the inline
   static tuple otherwise — the 015-a frozen shape);
-- it pins the current exact archive inventory (RC1-RC5, RC7, RC8 — RC8 by
-  this round's archive), so any future archive (e.g. RC9) forces an
+- it pins the current exact archive inventory (RC1-RC5, RC7, RC8, RC9 —
+  RC9 by order 015-c's archive), so any future archive forces an
   explicit baseline update in the same round;
 - it handles the INTENTIONAL RC6 absence: no RC6 identity was ever
   created (the 014-d attempt was abandoned before any push, tag, or
   publication), and none may be created or reserved.
 
-Regression anchor: this test MUST FAIL against the 015-a frozen source
-with the RC7 pair missing from the baseline while
-``packaging/releases/0.1.0-rc7/`` exists, and against any state in which
-an archived pair is absent from the baseline or unbound from its recorded
-digest.
+Regression anchor: the coverage assertion MUST FAIL against the 015-a
+frozen source at the alias comparison — reaching the comparison and
+reporting the archived aliases missing from the baseline (the exact RC7
+omission named by orders 015-a/015-b, mechanically replayed in order
+015-c with the corrected fallback parser — and, as the replay also
+shows, the RC2 ``sha-`` alias, which no 015-a baseline tuple ever
+carried) while ``packaging/releases/0.1.0-rc7/`` exists — and against
+any state in which an archived pair is absent from the baseline or
+unbound from its recorded digest. It MUST PASS on the current source,
+where the baseline is derived from all archived strict records and
+bound to their recorded digests.
 """
 
 from __future__ import annotations
@@ -51,7 +57,7 @@ BASELINE_STEP_NAME = "- name: Read-only registry baseline (ephemeral packages:re
 # (v2: RC1/RC2, order 013-n era; v3: RC3 onward).
 STRICT_RECORD_SCHEMAS = frozenset({"slaif-rc-record-v2", "slaif-rc-record-v3"})
 
-# The pinned current exact archive inventory (order 015-b state): every
+# The pinned current exact archive inventory (order 015-c state): every
 # archived strict record and the exact identity it binds. Any future
 # archive must extend this map in the same round.
 PINNED_ARCHIVES: dict[str, tuple[str, str]] = {
@@ -83,6 +89,10 @@ PINNED_ARCHIVES: dict[str, tuple[str, str]] = {
     "0.1.0-rc8": (
         "718fff301bed0a5ba93b29196cde4d0bcc5d711a",
         "sha256:50450f4aa26a4da158dc457e0b80b441c69386c201491c6c0150c25d5916e126",
+    ),
+    "0.1.0-rc9": (
+        "7f601bf153ef86a567883c0008edf4ce34e79c95",
+        "sha256:54fe19483f00ef6e209b2796786fe27cddd302c6bcf5322821b2192a32884334",
     ),
 }
 
@@ -157,15 +167,31 @@ def _baseline_step_source() -> str:
     return "\n".join(line[10:] if line.startswith(" " * 10) else line for line in body.splitlines())
 
 
+class _InlineTupleError(ValueError):
+    """The historical inline ``tags = (...)`` shape is malformed,
+    ambiguous, or non-string (fail closed; order 015-c)."""
+
+
 def _inline_static_tags(source: str) -> tuple[str, ...]:
     """Extract the static ``tags = (...)`` tuple literal from a
-    record-only (015-a shape) baseline step."""
+    record-only (015-a shape) baseline step.
+
+    Order 015-c correction: parse the TUPLE EXPRESSION — the balanced
+    ``(...)`` following the assignment — not the ``tags =`` assignment
+    statement: ``ast.literal_eval`` accepts expressions only, so handing
+    it ``tags = (`` raised ``SyntaxError`` before any alias could be
+    compared (the defective 015-b replay evidence). The scan stays
+    bounded to the exact named step's run block and never executes
+    workflow text; malformed, ambiguous (non-tuple), or non-string
+    content fails closed with ``_InlineTupleError``."""
     start = source.find("tags = (")
-    assert start != -1, "no static tags tuple in the baseline step"
-    i = source.index("(", start)
+    if start == -1:
+        raise _InlineTupleError("no static tags tuple in the baseline step")
+    paren = source.index("(", start)
     depth = 0
     end = -1
     in_string: str | None = None
+    i = paren
     while i < len(source):
         ch = source[i]
         if in_string is not None:
@@ -181,9 +207,16 @@ def _inline_static_tags(source: str) -> tuple[str, ...]:
                 end = i + 1
                 break
         i += 1
-    assert end != -1, "unbalanced tags tuple"
-    value = ast.literal_eval(source[start:end])
-    assert isinstance(value, tuple) and all(isinstance(t, str) for t in value)
+    if end == -1:
+        raise _InlineTupleError("unbalanced tags tuple")
+    try:
+        value = ast.literal_eval(source[paren:end])
+    except (ValueError, SyntaxError) as exc:
+        raise _InlineTupleError(f"malformed tags tuple ({type(exc).__name__})") from exc
+    if not isinstance(value, tuple):
+        raise _InlineTupleError("ambiguous tags literal (not a tuple)")
+    if not all(isinstance(tag, str) for tag in value):
+        raise _InlineTupleError("non-string tag in the static tuple")
     return tuple(value)
 
 
@@ -202,6 +235,89 @@ def _workflow_baseline_coverage() -> dict[str, str | None]:
         baseline = module.immutable_historical_baseline(REPO_ROOT)
         return dict(baseline)
     return {tag: None for tag in _inline_static_tags(source)}
+
+
+# The exact static tuple of the 015-a frozen baseline step (commit
+# 78822ca8f8c58fbc959495d37bdff32e525eb945), verbatim: multiline, with
+# inline comments, and WITHOUT the archived RC7 pair (the historical
+# regression) or the RC2 sha alias (which no 015-a tuple ever carried).
+HISTORICAL_INLINE_TUPLE = """tags = (
+    "0.1.0",
+    "sha-fe334e87c9f0fc65d1826cf9af7dad7e9f70a94a",
+    "sha-be3c78b2016d5d40ce9155df8f94d14525c43d39",
+    "0.1.0-rc1",
+    "sha-4d096e404e14badb78b4f99142bf08ef17f0f8a7",
+    "0.1.0-rc2",
+    # Order 014-c, D.5: the rejected RC3/RC4 tag pairs are part of
+    # the immutable historical set (their records are archived,
+    # so the pairs are no longer picked up from
+    # packaging/rc_record.json).
+    "0.1.0-rc3",
+    "sha-307a929ffb30f4ea41c8be4e8a5ea25802e25142",
+    "0.1.0-rc4",
+    "sha-601a7f9fae19869ad8e09f10fa994550368fd87c",
+    # Order 014-e, workstream C.2: the rejected RC5 tag pair is part of the
+    # immutable historical set (the RC5 record is archived under
+    # packaging/releases/0.1.0-rc5/, so its pair is no longer
+    # picked up from packaging/rc_record.json).
+    "0.1.0-rc5",
+    "sha-e04b4a99afa6268c98f28ed7abfc1db506107523",
+)"""
+
+
+def test_inline_static_tags_parses_historical_multiline_shape() -> None:
+    """The 015-a frozen inline shape parses to its exact 12-tag
+    sequence: the TUPLE EXPRESSION is evaluated, inline comments are
+    transparent, and the assignment statement itself is never fed to
+    ``ast.literal_eval`` (order 015-c: the old code failed here with
+    ``SyntaxError: invalid syntax`` before any alias comparison)."""
+    assert _inline_static_tags(HISTORICAL_INLINE_TUPLE) == (
+        "0.1.0",
+        "sha-fe334e87c9f0fc65d1826cf9af7dad7e9f70a94a",
+        "sha-be3c78b2016d5d40ce9155df8f94d14525c43d39",
+        "0.1.0-rc1",
+        "sha-4d096e404e14badb78b4f99142bf08ef17f0f8a7",
+        "0.1.0-rc2",
+        "0.1.0-rc3",
+        "sha-307a929ffb30f4ea41c8be4e8a5ea25802e25142",
+        "0.1.0-rc4",
+        "sha-601a7f9fae19869ad8e09f10fa994550368fd87c",
+        "0.1.0-rc5",
+        "sha-e04b4a99afa6268c98f28ed7abfc1db506107523",
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "reason"),
+    [
+        (
+            'tags = (\n    "0.1.0-rc1",\n',
+            "unbalanced (no closing paren)",
+        ),
+        (
+            'tags = ("0.1.0-rc1" + "x")\n',
+            "malformed (non-literal expression)",
+        ),
+        (
+            'tags = ("0.1.0-rc1", 1)\n',
+            "non-string member",
+        ),
+        (
+            'tags = ("0.1.0-rc1")\n',
+            "ambiguous (parenthesized string, not a tuple)",
+        ),
+        (
+            'repo = "x/y"\n',
+            "no static tags tuple at all",
+        ),
+    ],
+)
+def test_inline_static_tags_fails_closed(source: str, reason: str) -> None:
+    """Malformed, ambiguous, non-string, or absent inline shapes fail
+    closed with ``_InlineTupleError`` — never a silent partial parse,
+    never workflow execution."""
+    with pytest.raises(_InlineTupleError):
+        _inline_static_tags(source)
 
 
 def test_archived_records_match_pinned_inventory() -> None:
@@ -280,4 +396,4 @@ def test_baseline_step_records_current_pair_dynamically() -> None:
     for tag in re.findall(r'"(0\.1\.0-rc\d+)"', source):
         pytest.fail(f"inline candidate tag literal in the baseline step: {tag}")
     raw = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "rc-candidate-0.1.0-rc9" in raw
+    assert "rc-candidate-0.1.0-rc10" in raw

@@ -201,15 +201,26 @@ immutable-history set stopped at RC5; the RC8 source/provenance
 binding could not be corrected post-publication, so RC8 is preserved
 permanently: its record set is archived byte-identical under
 `packaging/releases/0.1.0-rc8/`, and its aliases remain occupied and
-immutable. RC9 (`0.1.0-rc9`) is the successor candidate: the
-immutable registry-history correction (every archived RC alias pair
-digest-asserted in the read-only baseline from a shared single source
-of truth, with a deterministic regression that fails against the
-015-a frozen source and preserves the intentional RC6 absence) plus
-the corrected harness reruns for the next immutable testing ledger
-(expected number 007). No benchmark ran; the final public release
-remains false; the package remains private; the protected cutover
-remains false.
+immutable. RC9 (`0.1.0-rc9`) carried that correction (every archived
+RC alias pair digest-asserted in the read-only baseline from a shared
+single source of truth, with a deterministic regression and the
+intentional RC6 absence preserved), qualified in scope (immutable
+testing ledger 007), and was published as a private candidate — but
+was rejected as the FINAL Objective-015 handoff candidate solely
+because its frozen historical replay test was defective: the
+regression's fallback parser passed the ``tags =`` assignment
+statement to ``ast.literal_eval``, so the 015-a frozen-source replay
+died with ``SyntaxError`` before the alias comparison and the claimed
+RC7-omission failure was never mechanically demonstrated. Its record
+set is archived byte-identical under
+`packaging/releases/0.1.0-rc9/`, and its aliases remain occupied and
+immutable. RC10 (`0.1.0-rc10`) is the successor candidate: the narrow
+regression correction (the fallback parser parses the tuple
+expression and fails closed on malformed, ambiguous, or non-string
+content; focused parser tests) plus the corrected harness reruns for
+the next immutable testing ledger (expected number 008). No benchmark
+ran; the final public release remains false; the package remains
+private; the protected cutover remains false.
 
 ## Evidence and review
 

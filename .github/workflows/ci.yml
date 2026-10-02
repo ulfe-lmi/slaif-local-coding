@@ -117,7 +117,7 @@ jobs:
           export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
           export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
           docker compose -f compose.yaml -f compose.build.yaml build \
-            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc9; private; not final release"
+            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc10; private; not final release"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
             --format "built image: {{.Id}} (push performed in the next steps)"
           REV="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
@@ -125,7 +125,7 @@ jobs:
           QUAL_LABEL="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "slaif-local-coding.qualification"}}')"
           test "$REV" = "$GITHUB_SHA"
           test "$WHEEL_LABEL" = "$SLAIF_WHEEL_SHA256"
-          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc9; private; not final release"
+          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc10; private; not final release"
 
       - name: Docker qualification (C2-C9)
         run: |
@@ -143,14 +143,15 @@ jobs:
   # existing strict resolver: digest / verified-absent / unauthorized are
   # distinct; inaccessible is never reported as absent) for the historical
   # 0.1.0, the two recorded sha- tags, the rejected RC3/RC4/RC5 pairs, the
-  # archived RC7 pair, and the archived RC8 pair (all occupied and
-  # immutable; order 015-b, workstream C: the set is the shared single
+  # archived RC7 pair, the archived RC8 pair, and the archived RC9 pair
+  # (all occupied and immutable; order 015-b, workstream C: the set is the
+  # shared single
   # source of truth in scripts/ghcr_tag_check.py, derived from the archived
   # strict records packaging/releases/*/rc_record.json, and every archived
   # pair is DIGEST-ASSERTED against its recorded digest — fail closed on
   # absent, unauthorized, ambiguous, or changed registry state), and —
   # when the RC record (packaging/rc_record.json) exists — its current RC
-  # tag pair (order 015-b, workstream D: 0.1.0-rc9 + sha-<S>) — BEFORE the
+  # tag pair (order 015-c, workstream D: 0.1.0-rc10 + sha-<S>) — BEFORE the
   # prepublication gate — so a source round yields the before state and a
   # published round yields the after evidence. The job then authenticates
   # with least-privilege packages:read (GITHUB_TOKEN), consumes the RC
@@ -183,8 +184,9 @@ jobs:
       # immutable historical set is the shared single source of truth
       # (scripts/ghcr_tag_check.immutable_historical_baseline, derived from
       # the archived strict records under
-      # packaging/releases/*/rc_record.json — the archived RC1-RC5/RC7/RC8
-      # pairs, with the intentional RC6 absence preserved): every archived
+      # packaging/releases/*/rc_record.json — the archived
+      # RC1-RC5/RC7/RC8/RC9 pairs, with the intentional RC6 absence
+      # preserved): every archived
       # pair is digest-asserted and the step FAILS CLOSED on absent,
       # unauthorized, ambiguous, or changed registry state; the pre-RC
       # singletons remain record-only. Reuses the existing strict resolver
@@ -215,8 +217,9 @@ jobs:
           # source of truth, derived from the archived strict records
           # packaging/releases/*/rc_record.json): the pre-RC singletons
           # (0.1.0 + the two recorded orphan sha- tags) are record-only,
-          # and EVERY archived RC pair (RC1-RC5, RC7, RC8; no RC6 identity
-          # was ever created) must remain resolvable at the EXACT digest
+          # and EVERY archived RC pair (RC1-RC5, RC7, RC8, RC9; no RC6
+          # identity was ever created) must remain resolvable at the EXACT
+          # digest
           # recorded in its archived record — this step fails closed on
           # absent, unauthorized, ambiguous, or changed registry state.
           historical = registry.immutable_historical_baseline(Path.cwd())

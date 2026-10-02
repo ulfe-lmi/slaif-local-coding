@@ -155,9 +155,28 @@ the recorded time; they are not current operating instructions.
   pairs included) in the read-only baseline from a shared single
   source of truth derived from the archived strict records, with a
   deterministic regression that fails against the 015-a frozen source
-  and preserves the intentional RC6 absence. RC9 publishes a new
-  collision-safe private `0.1.0-rc9` candidate with the next
-  immutable testing ledger (expected number 007).
+  and preserves the intentional RC6 absence. RC9 published a new
+  collision-safe private `0.1.0-rc9` candidate with immutable testing
+  ledger 007, and qualified in scope — but was rejected as the FINAL
+  Objective-015 handoff candidate solely because its frozen historical
+  replay test was defective: the regression's fallback parser passed
+  the `tags =` assignment statement to `ast.literal_eval`, so the
+  015-a frozen-source replay died with `SyntaxError` before the alias
+  comparison and the claimed RC7-omission failure was never
+  mechanically demonstrated. Its record set is archived
+  byte-identical under `packaging/releases/0.1.0-rc9/`, and its
+  aliases remain occupied and immutable.
+- **RC10** (order 015-c): the successor candidate after RC9. The
+  narrow regression correction makes the historical inline-tuple
+  fallback parser parse the tuple expression (not the `tags =`
+  assignment) and fail closed on malformed, ambiguous, or non-string
+  content, with focused parser tests; the corrected replay reaches
+  the alias comparison against the 015-a frozen source and reports
+  the exact RC7 omission (and, as the replay additionally shows, the
+  RC2 `sha-` alias, which no 015-a baseline tuple ever carried), and
+  passes on the current source. RC10 publishes a new collision-safe
+  private `0.1.0-rc10` candidate with the next immutable testing
+  ledger (expected number 008).
 
 ## Source-pinned documentation snapshots
 

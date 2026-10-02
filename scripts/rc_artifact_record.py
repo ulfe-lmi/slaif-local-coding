@@ -90,7 +90,7 @@ Usage (publication round only):
         --head-sha <40-hex workflow run head SHA> \\
         --published-at 2026-01-01T00:00:00Z \\
         --qualification-facts \
-            oap/evidence/testing-ledger/NNN/real-codex-rc9-qualification.json \""
+            oap/evidence/testing-ledger/NNN/real-codex-rc10-qualification.json \""
 
         [--run-id <int>] \\
         [--emit packaging/rc_record.json] \\
@@ -133,12 +133,21 @@ HANDOFF_PATH = Path("packaging/rc_handoff.md")
 # pulled-image qualification passed; RC8 was rejected as the FINAL
 # Objective-015 handoff candidate solely because the frozen CI
 # read-only registry baseline omitted the archived RC7 pair — the
-# correction and the deterministic regression land in this round; the
+# correction and the deterministic regression land in that round; the
 # RC8 identity is occupied and immutable, archived byte-identical under
-# packaging/releases/0.1.0-rc8/). The 014-d RC6 attempt was abandoned
+# packaging/releases/0.1.0-rc8/); order 015-c,
+# workstream D: RC10 supersedes RC9 (RC9's product state, the P01/P02
+# repair, the corrected read-only registry baseline, scoped real-Codex
+# qualification per immutable ledger 007, and pulled-image
+# qualification passed; RC9 was rejected as the FINAL Objective-015
+# handoff candidate solely because its frozen historical replay test
+# was defective — the corrected regression and the replay evidence
+# land in this round; the RC9 identity is occupied and immutable,
+# archived byte-identical under
+# packaging/releases/0.1.0-rc9/). The 014-d RC6 attempt was abandoned
 # before any push, tag, or publication: no RC6 identity exists and none
 # may ever be created or reserved.
-RC_IDENTIFIER = "0.1.0-rc9"
+RC_IDENTIFIER = "0.1.0-rc10"
 PRODUCT_VERSION = "0.1.0"
 IMAGE_REFERENCE = "ghcr.io/ulfe-lmi/slaif-local-coding"
 PUBLICATION_WORKFLOW = "release-image.yml"
@@ -158,9 +167,9 @@ CLIENT_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 EVIDENCE_PATH_PATTERN = re.compile(r"^oap/evidence/testing-ledger/[0-9]{3}$")
 # Order 014-b, workstream B.3: the single manifest-verified facts file the
 # compatibility section is DERIVED from (exact closed path: a three-digit
-# ledger number, the RC9 gate output name).
+# ledger number, the RC10 gate output name).
 QUALIFICATION_FACTS_PATTERN = re.compile(
-    r"^oap/evidence/testing-ledger/[0-9]{3}/real-codex-rc9-qualification\.json$"
+    r"^oap/evidence/testing-ledger/[0-9]{3}/real-codex-rc10-qualification\.json$"
 )
 # sha256sum-format ledger manifest line: 64-hex digest, two spaces, path.
 LEDGER_MANIFEST_LINE = re.compile(r"^([0-9a-f]{64})  (\S.*)$")
@@ -420,7 +429,7 @@ def derive_compatibility(repo: Path, facts_rel: str) -> dict[str, object]:
     if not isinstance(facts_rel, str) or QUALIFICATION_FACTS_PATTERN.fullmatch(facts_rel) is None:
         raise RCRecordError(
             "qualification facts path must match "
-            "oap/evidence/testing-ledger/NNN/real-codex-rc9-qualification.json"
+            "oap/evidence/testing-ledger/NNN/real-codex-rc10-qualification.json"
         )
     ledger_dir = repo / Path(facts_rel).parent
     if not ledger_dir.is_dir():

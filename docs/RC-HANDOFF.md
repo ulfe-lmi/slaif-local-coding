@@ -15,7 +15,7 @@ The record includes:
 
 | Identity | Recorded facts |
 | --- | --- |
-| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc9`. |
+| Product | Version `0.1.0`, explicit RC identifier such as `0.1.0-rc10`. |
 | Source | Exact 40-hex image source commit and publication-run head SHA. |
 | Image | Full OCI reference, authenticated `sha256` digest and tag aliases. |
 | Package | Exact wheel SHA-256 and dependency-lock hash. |
@@ -124,9 +124,22 @@ Local Coding caused the rejected requests or task mistakes — but was
 rejected as the FINAL Objective-015 handoff candidate solely because
 its frozen read-only CI registry baseline (a member of the frozen
 source-input map, immutable after publication) omitted the archived
-RC7 alias pair. The current candidate is RC9 (`0.1.0-rc9`), the
-collision-safe successor carrying the immutable registry-history
-correction (every archived RC alias pair digest-asserted in the
-read-only baseline, with a deterministic regression and the
-intentional RC6 absence preserved). Each candidate has a separate source, wheel
+RC7 alias pair. RC9 (`0.1.0-rc9`) carried that correction (every
+archived RC alias pair digest-asserted in the read-only baseline,
+with a deterministic regression and the intentional RC6 absence
+preserved), qualified in scope (immutable testing ledger 007), and
+was published as a private candidate — but was rejected as the FINAL
+Objective-015 handoff candidate solely because its frozen historical
+replay test was defective (the regression's fallback parser passed
+the `tags =` assignment statement to `ast.literal_eval`, so the
+015-a frozen-source replay died with `SyntaxError` before the alias
+comparison and the claimed RC7-omission failure was never
+mechanically demonstrated). Its record set is archived byte-identical
+under `packaging/releases/0.1.0-rc9/`, and its aliases remain
+occupied and immutable. The current candidate is RC10
+(`0.1.0-rc10`), the collision-safe successor carrying the corrected
+regression (the fallback parser parses the tuple expression and
+fails closed on malformed, ambiguous, or non-string content; the
+corrected replay reaches the alias comparison on the 015-a frozen
+source and reports the exact RC7 omission). Each candidate has a separate source, wheel
 and digest. Legacy private `0.1.0` tags are not handoff targets.

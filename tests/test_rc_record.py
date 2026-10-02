@@ -54,7 +54,7 @@ CLIENT_VERSION = "0.149.0"
 CLIENT_SHA = "bbc3341e44c9ead340ed9570c17be936e37870f570751a941699ffd04d672827"
 # The single manifest-verified facts file the compatibility section is
 # derived from (order 014-b, workstream B.3): the next ledger number.
-QUALIFICATION_FACTS = "oap/evidence/testing-ledger/005/real-codex-rc9-qualification.json"
+QUALIFICATION_FACTS = "oap/evidence/testing-ledger/005/real-codex-rc10-qualification.json"
 EVIDENCE_PATH = "oap/evidence/testing-ledger/005"
 COMPATIBILITY: dict[str, object] = {
     "client_version": CLIENT_VERSION,
@@ -239,7 +239,7 @@ def _write_qualification_ledger(
     repo: Path,
     facts: dict[str, object] | None = None,
     *,
-    facts_name: str = "real-codex-rc9-qualification.json",
+    facts_name: str = "real-codex-rc10-qualification.json",
     manifest_entries: dict[str, str] | None = None,
 ) -> Path:
     """Write the closed ledger directory (README + facts + MANIFEST.sha256
@@ -461,7 +461,7 @@ def test_derive_compatibility_tamper_classes(
         facts_rel = "oap/evidence/testing-ledger/003/real-codex-rc3-qualification.json"
         _write_qualification_ledger(repo, facts_name="real-codex-rc3-qualification.json")
     elif tamper == "wrong-ledger-number":
-        facts_rel = "oap/evidence/testing-ledger/3/real-codex-rc9-qualification.json"
+        facts_rel = "oap/evidence/testing-ledger/3/real-codex-rc10-qualification.json"
     elif callable(tamper):
         tamper(repo)
     with pytest.raises(rc_mod.RCRecordError):
@@ -531,12 +531,12 @@ def test_build_rc_record_happy_path(
     )
     assert set(record) == V3_KEYS
     assert record["schema"] == "slaif-rc-record-v3"
-    assert record["rc_identifier"] == "0.1.0-rc9"
+    assert record["rc_identifier"] == "0.1.0-rc10"
     assert record["product_version"] == "0.1.0"
     assert record["image_source_commit"] == source
     assert record["oci_image_reference"] == "ghcr.io/ulfe-lmi/slaif-local-coding"
     assert record["oci_image_digest"] == DIGEST
-    assert record["oci_tags"] == ["0.1.0-rc9", f"sha-{source}"]
+    assert record["oci_tags"] == ["0.1.0-rc10", f"sha-{source}"]
     assert record["published_at"] == PUBLISHED_AT
     assert record["publication_workflow"] == "release-image.yml"
     assert record["publication_workflow_run_id"] is None
@@ -937,7 +937,7 @@ def test_render_handoff_is_deterministic_and_self_contained(
     for literal in (
         source,
         DIGEST,
-        "0.1.0-rc9",
+        "0.1.0-rc10",
         "linux/amd64",
         WHEEL_SHA,
         "RepoDigests",
@@ -946,7 +946,7 @@ def test_render_handoff_is_deterministic_and_self_contained(
         CLIENT_SHA,
         "standalone-loopback-no-gateway",
         EVIDENCE_PATH,
-        "rc-candidate-0.1.0-rc9; private; not final release",
+        "rc-candidate-0.1.0-rc10; private; not final release",
     ):
         assert literal in first, f"handoff missing literal fact {literal!r}"
     # Order 013-l, L2: the already-present record facts are rendered.
@@ -979,7 +979,7 @@ def test_render_handoff_emits_valid_docker_template_commands(
     rendered = rc_mod.render_handoff(record)
     lines = rendered.splitlines()
     expected_repodigests = (
-        'docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc9" '
+        'docker image inspect "ghcr.io/ulfe-lmi/slaif-local-coding:0.1.0-rc10" '
         "--format '{{range .RepoDigests}}{{.}}{{end}}'"
     )
     assert expected_repodigests in lines, (
