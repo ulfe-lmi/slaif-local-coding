@@ -17,6 +17,14 @@
 - [RC handoff](RC-HANDOFF.md): retrieve and verify the immutable artifact.
 - [Cutover and rollback plan](RELEASE-CUTOVER-RUNBOOK.md): separately authorized live changes.
 
+## Cache rework (planned profile)
+
+- [Dependency-bundle cache rework (human handoff)](CACHE-REWORK.md): approved
+  rules, contracts and acceptance matrix.
+- [Implementation plan](CACHE-IMPLEMENTATION-PLAN.md): resolved engineering
+  choices and stage succession.
+- [Stage ledger](CACHE-REWORK-LEDGER.md): criterion-level delivery state.
+
 ## Security and engineering
 
 - [Security policy](../SECURITY.md): sensitive data, credentials and reporting.
@@ -25,6 +33,8 @@
 - [Testing](../TESTING.md): local checks, CI and fixture-dependent verification.
 - [Gateway contract CI](GATEWAY-CONTRACT-CI.md): exact peer compatibility checks.
 - [Artifact policy](RELEASE-ARTIFACT-POLICY.md): reproducibility, provenance and publication.
+- [Development provenance](DEVELOPMENT-PROVENANCE.md): current-development artifact contract
+  after the RC10 freeze (state law, development manifest, A/B binding).
 - [License](../LICENSE), [notice](../NOTICE) and [third-party attribution](../THIRD_PARTY_NOTICES.md).
 
 ## Agent instructions and engineering history

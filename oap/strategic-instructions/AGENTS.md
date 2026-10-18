@@ -73,11 +73,18 @@ Non-negotiables:
 - deterministic candidate enumeration precedes model ranking;
 - reference confidence and constitutional priority remain separate;
 - compiler is bounded, tool-free, non-recursive, direct to upstream;
-- source/Git/GitHub remains authoritative; cache is disposable/isolated/bounded;
-- compiler/cache failure never silently removes governance;
+- source/Git/GitHub remains authoritative; the legacy derived cache is
+  disposable/isolated/bounded, while the v1 profile keeps RAM working state
+  without active-session TTL/LRU/eviction plus the narrow protected
+  per-session recovery exception;
+- compiler/cache failure never silently removes governance: legacy fails
+  open to the original request when safe; v1 admitted required-preparation
+  failure follows its explicit typed-rejection contract;
 - image adaptation is explicit route policy; one-image Codex route retains newest;
 - raw prompts/source/images/tool output/secrets are not logged/persisted by
-  default;
+  default; the only approved retention is the narrow, explicitly opted-in v1
+  protected per-session recovery store (mandatory for an enabled v1
+  profile);
 - no required hosted/account-bound component enters silently;
 - model weights are not committed; upstream licenses/notices preserved;
 - product claims stay limited to tested hardware/configuration/evidence.

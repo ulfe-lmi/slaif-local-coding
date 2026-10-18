@@ -57,7 +57,7 @@ This repository owns:
 - effective `AGENTS.md` observation;
 - deterministic constitutional-path discovery;
 - separate non-recursive model compilation/ranking;
-- bounded derived cache and stable reinjection;
+- bounded derived cache and stable reinjection (legacy profile; the approved v1 dependency-bundle cache is defined by docs/CACHE-REWORK.md);
 - local Qwen/vLLM deployment integration, tests, diagnostics, packaging.
 
 The separate `ulfe-lmi/slaif-api-gateway` owns public endpoint, gateway keys,
@@ -88,9 +88,12 @@ overrides source files, Git, GitHub, OAP orders, or human/strategic authority.
 - Constitutional candidate extraction is deterministic first; model ranks and
   compresses but may not silently erase candidates. Keep reference confidence
   separate from constitutional priority.
-- Compiler/cache failure must not silently delete governance. Derived cache is
-  bounded, isolated, content-addressed, invalidated by hashes/versions, and
-  disposable.
+- Compiler/cache failure must not silently delete governance. That derived-
+  cache law (bounded, isolated, content-addressed, invalidated by
+  hashes/versions, disposable) scopes the legacy profile; the approved
+  v1 profile (docs/CACHE-REWORK.md) replaces it with RAM working state and
+  per-session protected recovery records, and neither profile may
+  silently reinterpret the other's settings.
 - `retain_newest` applies only to configured one-image Codex route. Explicit
   multi-image comparison is unsupported there; another route must reject or
   support it honestly.
@@ -138,7 +141,13 @@ systems/data. Stop and report suspected exposure.
 Cache identity must prevent cross-principal/session contamination. External
 caller headers cannot assert trusted principal/route/compiler-bypass state.
 Production identity comes from authenticated/signed internal gateway metadata.
-No raw external key as cache identity. Raw source persistence is off by default.
+No raw external key as cache identity. Raw source persistence is off by
+default; the only approved exception is the narrow, explicitly opted-in
+v1 protected per-session recovery/evidence store defined in SECURITY.md
+(exact observed original bundles and derived metadata only, never
+transport credentials or credential-bearing wrappers, restricted
+permissions, integrity, explicit retention and stated encryption
+prerequisites).
 Directories 0700/files 0600 where applicable. Bound request/source/compiler
 output/cache/TTL/concurrency. Sanitize upstream errors and metrics labels.
 

@@ -109,6 +109,12 @@ exclude = [
   # and are never part of any artifact (no self-hash fixed point needed).
   "packaging/release_provenance_manifest.json",
   "packaging/release_provenance_manifest.schema.json",
+  # The current-development provenance manifest (order 016-b) is
+  # self-referential derived metadata: it records the development source
+  # commit's input map and built artifact hashes, so it must never be an
+  # artifact input itself (same self-reference exclusion law).
+  "packaging/dev_provenance_manifest.json",
+  "packaging/dev_provenance_manifest.schema.json",
   # The post-publication RC artifact record is publication metadata written
   # AFTER the source freeze (order 013-i, C11); it must never enter a
   # wheel/sdist/image build input (self-reference exclusion).

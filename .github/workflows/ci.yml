@@ -28,6 +28,17 @@ jobs:
       - name: Documentation consistency gate (scoped user-facing docs)
         run: uv run --frozen python scripts/docs_consistency_check.py
       - run: uv build
+      # Order 016-b: state-aware current-development provenance gate. In the
+      # frozen state it re-proves the frozen RC10 binding and (with dist)
+      # binds the freshly built wheel+sdist to the immutable RC10 manifest.
+      # In the development state it verifies the separate current-development
+      # provenance manifest (exact source commit, input map, derived-only
+      # A..HEAD diff, self-reference exclusion, frozen publication
+      # cross-check) and binds the freshly built artifacts to its exact
+      # recorded hashes. A missing/invalid/stale development manifest fails
+      # closed; nothing is skipped.
+      - name: Development provenance gate (state-aware fresh-build binding)
+        run: uv run --frozen python scripts/dev_provenance_manifest.py --verify --dist dist
       - name: Release-artifact content policy (wheel + sdist)
         run: uv run --frozen python scripts/artifact_policy_check.py --dist dist --inspect
       - name: Fresh-venv install smoke (wheel only)
@@ -81,6 +92,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Order 016-b: full history — the state-aware provenance gate
+          # re-proves the frozen source commit's ancestry at the checkout.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.5"
@@ -93,11 +108,19 @@ jobs:
           uv build --wheel --out-dir dist
           WHEEL="$(ls dist/slaif_local_coding-*-py3-none-any.whl)"
           WHEEL_SHA256="$(sha256sum "$WHEEL" | cut -d" " -f1)"
-          MANIFEST_SHA256="$(uv run --frozen python -c "import json; print(json.load(open('packaging/release_provenance_manifest.json'))['artifacts']['wheel']['sha256'])")"
-          echo "fresh wheel sha256:    $WHEEL_SHA256"
-          echo "manifest wheel sha256: $MANIFEST_SHA256"
-          test "$WHEEL_SHA256" = "$MANIFEST_SHA256"
+          # Order 016-b: state-aware binding. Frozen state: the fresh wheel
+          # must equal the immutable RC10 manifest wheel. Development state:
+          # it must equal the separate current-development provenance
+          # manifest wheel (verified fail-closed), and the image carries the
+          # development/source qualification label, never RC10.
+          uv run --frozen python scripts/dev_provenance_manifest.py --emit-state .ci-artifact-state.env
+          . ./.ci-artifact-state.env
+          echo "fresh wheel sha256:  $WHEEL_SHA256"
+          echo "expected wheel sha:  $expected_wheel_sha256 (state=$state, source=${source_commit:0:12})"
+          test "$WHEEL_SHA256" = "$expected_wheel_sha256"
           echo "SLAIF_WHEEL_SHA256=$WHEEL_SHA256" >> "$GITHUB_ENV"
+          echo "SLAIF_QUALIFICATION_LABEL=$qualification_label" >> "$GITHUB_ENV"
+          echo "SLAIF_ARTIFACT_STATE=$state" >> "$GITHUB_ENV"
       # Order 013-k, K1: prove the EXACT release-workflow build command and
       # environment succeed from this fresh disposable CI checkout, with the
       # nonsecret temporary Compose inputs the invocation actually needs
@@ -117,7 +140,7 @@ jobs:
           export SLAIF_ENV_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.env"
           export SLAIF_CONFIG_FILE="$GITHUB_WORKSPACE/.ci-build-inputs/adapter.toml"
           docker compose -f compose.yaml -f compose.build.yaml build \
-            --build-arg SLAIF_QUALIFICATION_LABEL="rc-candidate-0.1.0-rc10; private; not final release"
+            --build-arg SLAIF_QUALIFICATION_LABEL="$SLAIF_QUALIFICATION_LABEL"
           docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" \
             --format "built image: {{.Id}} (push performed in the next steps)"
           REV="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
@@ -125,7 +148,7 @@ jobs:
           QUAL_LABEL="$(docker image inspect "slaif-local-coding:0.1.0-${SLAIF_GIT_SHA}" --format '{{index .Config.Labels "slaif-local-coding.qualification"}}')"
           test "$REV" = "$GITHUB_SHA"
           test "$WHEEL_LABEL" = "$SLAIF_WHEEL_SHA256"
-          test "$QUAL_LABEL" = "rc-candidate-0.1.0-rc10; private; not final release"
+          test "$QUAL_LABEL" = "$SLAIF_QUALIFICATION_LABEL"
 
       - name: Docker qualification (C2-C9)
         run: |
@@ -430,6 +453,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Order 016-b: full history — the state-aware provenance gate
+          # re-proves the frozen source commit's ancestry at the checkout.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.5"
@@ -442,10 +469,13 @@ jobs:
           uv build --wheel --out-dir dist
           WHEEL="$(ls dist/slaif_local_coding-*-py3-none-any.whl)"
           WHEEL_SHA256="$(sha256sum "$WHEEL" | cut -d" " -f1)"
-          MANIFEST_SHA256="$(uv run --frozen python -c "import json; print(json.load(open('packaging/release_provenance_manifest.json'))['artifacts']['wheel']['sha256'])")"
-          echo "fresh wheel sha256:    $WHEEL_SHA256"
-          echo "manifest wheel sha256: $MANIFEST_SHA256"
-          test "$WHEEL_SHA256" = "$MANIFEST_SHA256"
+          # Order 016-b: state-aware binding (frozen RC10 manifest vs the
+          # separate current-development provenance manifest; fail closed).
+          uv run --frozen python scripts/dev_provenance_manifest.py --emit-state .ci-artifact-state.env
+          . ./.ci-artifact-state.env
+          echo "fresh wheel sha256:  $WHEEL_SHA256"
+          echo "expected wheel sha:  $expected_wheel_sha256 (state=$state, source=${source_commit:0:12})"
+          test "$WHEEL_SHA256" = "$expected_wheel_sha256"
           echo "SLAIF_WHEEL_SHA256=$WHEEL_SHA256" >> "$GITHUB_ENV"
       - name: Documented operator session (disposable; synthetic secrets; fake upstream)
         run: |

@@ -19,9 +19,11 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
 4. Compiler calls have no tools, network, filesystem, gateway credential, or
    recursion through the adapter. Input is treated as untrusted data; output is
    strict bounded structured data.
-5. Constitutional optimization fails open to the semantically original request
-   when safe. It must never silently delete governance because compilation
-   failed.
+5. Constitutional optimization must never silently delete governance because
+   compilation or cache preparation failed. Legacy profile: it fails open to
+   the semantically original request when safe. V1 profile: an admitted
+   required-preparation failure follows the explicit typed-rejection contract
+   (503/409/422) and never falls back to hidden originals.
 6. Image-limit enforcement fails closed when a request exceeds a route's hard
    physical image limit and cannot be safely transformed. The designated Codex
    vision route may use explicit `retain_newest` policy.
@@ -31,7 +33,10 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
 8. Request/response header forwarding uses an allow/deny policy; hop-by-hop
    headers and untrusted internal identity headers are removed.
 9. Cache content is bounded, permission-restricted, TTL-controlled, and
-   disposable. Deletion cannot destroy authoritative project information.
+   disposable (legacy profile). Deletion cannot destroy authoritative
+   project information. The only approved original-source retention is
+   the narrow protected per-session recovery/evidence store of the
+   explicitly opted-in v1 profile, described in the exception below.
 10. Never mutate the live Qwen installation, model files, systemd service,
     firewall, VPN, API key, or active Codex provider/profile path unless an
     active OAP order explicitly authorizes that exact operation and rollback.
@@ -51,6 +56,48 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
     `tests/fixtures/gateway/current_peer_authority.json`. See
     [the integration contract](docs/SLAIF-GATEWAY-INTEGRATION.md).
     Qualification does not authorize a production deployment or cutover.
+
+## Protected source recovery and evidence retention (narrow exception)
+
+By default, this adapter does not persist raw prompts, source, images, tool
+output, request bodies, or response bodies. The human-approved dependency-
+bundle cache rework (`docs/CACHE-REWORK.md`) introduces exactly one narrow
+exception: under the explicitly opted-in `dependency-bundles-v1` profile, a
+protected per-session store may retain the exact observed original source
+bundles and their derived metadata for evidence and session recovery.
+
+This exception is not a general permission to log or store bodies:
+
+- **Scope.** Only the exact extracted source bytes of the observed original
+  bundles (root source content and file-read content regions) plus the
+  necessary provenance, and the derived metadata needed to rebuild RAM
+  state. Never environment-context tails, full transport envelopes, whole
+  conversations, images, transport credentials, bearer headers, cookies,
+  upstream keys, or unrelated tool output.
+- **Opt-in and ownership.** Retention is enabled only by explicit operator
+  configuration, and it is mandatory for an enabled v1 profile: the profile
+  and recovery are enabled together or not at all. One protected namespace
+  per coding session; directory mode 0700, file mode 0600, current owner, no
+  symlinks or path escapes.
+- **Integrity and durability.** Atomic generation publication, integrity
+  digests, and fsync of file and directory before any request newly relies
+  on a generation. A failed checkpoint aborts that transformation.
+- **Credentials.** Transport credentials and credential-bearing wrappers are
+  never stored. Detectable forbidden credentials cause typed rejection or
+  quarantine without logging content. This is not a complete secret-
+  detection guarantee, and the adapter does not silently redact retained
+  source and then claim exact fidelity.
+- **Access.** Recovery records are read only when an authenticated session
+  resumes after a restart, after full binding, configuration, schema, and
+  integrity validation. Normal hits never read them, and their content is
+  never sent to the main model as a hidden fallback.
+- **Retention.** Operator-owned retention and deletion semantics; no
+  automatic timed deletion. Where required by deployment, filesystem
+  encryption is an explicit prerequisite, not an unimplemented guarantee.
+
+Until the v1 profile is implemented and qualified, no such store exists and
+the default prohibition applies unchanged. Operational logs and metrics
+remain content-free in every profile.
 
 ## Protected live-host resources
 

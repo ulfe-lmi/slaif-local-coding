@@ -11,6 +11,20 @@ vision model needs an explicit policy for requests containing earlier images
 alongside a new crop. Both can be handled where the complete model-bound
 request is available, without changing the client.
 
+The human-approved [dependency-bundle cache
+rework](docs/CACHE-REWORK.md) redefines how the first problem is solved:
+instead of root-only compilation with a disposable derived cache, the adapter
+acquires the actual governing documents the client reads, compiles them as
+independent insertion bundles, and transactionally replaces the observed
+originals with bounded compiled context in RAM. The approved design is the
+normative target — the `dependency-bundles-v1` profile. The currently
+implemented behavior remains explicitly named **legacy** until that migration
+is qualified. Delivery state for every rework criterion is tracked in
+[the stage ledger](docs/CACHE-REWORK-LEDGER.md), and the resolved engineering
+choices are recorded in [the implementation
+plan](docs/CACHE-IMPLEMENTATION-PLAN.md). This stage is documentation only:
+nothing in the v1 profile is implemented or qualified yet.
+
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact
 configuration is described in [the configuration reference](docs/ADAPTER-CONFIGURATION.md);
@@ -31,11 +45,11 @@ flowchart TD
     subgraph server["Supported colocated server deployment"]
         gateway["SLAIF API Gateway<br/>Public access and accounting"]
         adapter["SLAIF Local Coding<br/>Private request adaptation"]
-        cache[("Bounded derived cache")]
+        cache[("Bounded derived cache<br/>(legacy) / RAM bundles<br/>(v1, planned)")]
         model["Qwen / vLLM<br/>Private GPU inference"]
         gateway -->|"Service Bearer + signed identity"| adapter
         adapter -->|"Adapted request"| model
-        adapter <-->|"Validated indexes"| cache
+        adapter <-->|"Validated indexes / bundle state"| cache
         adapter -.->|"Direct, tool-free compiler call"| model
     end
     client <-->|"OpenAI-compatible HTTPS"| gateway
@@ -120,10 +134,20 @@ flowchart TD
     forward --> stream["Relay response incrementally"]
 ```
 
-This is the transformation path for supported model requests. Governance stages
-run only when explicitly enabled. Health/model discovery and other accepted
-passthrough requests do not undergo constitutional rewriting. Internal compiler
-calls go directly upstream and never enter this pipeline again.
+This is the transformation path for supported model requests under the current
+**legacy** profile. Governance stages run only when explicitly enabled.
+Health/model discovery and other accepted passthrough requests do not undergo
+constitutional rewriting. Internal compiler calls go directly upstream and
+never enter this pipeline again.
+
+The v1 profile keeps authentication, image policy and passthrough behavior,
+then commits the governance transformation transactionally: locate root and
+file-read observations and their exact outer spans, update the versioned
+dependency graph, admit bundles (lean or greedy), resolve RAM hits or compile
+misses, select a complete in-budget working set, and replace the observed
+original source spans with stable references plus usable compiled content only
+when replacements, references, selected content and session state all agree.
+The request is then serialized and forwarded exactly once.
 
 The API layer owns `/healthz`, `/readyz` and private `/metrics`. It proxies
 `/health`, `/v1/models`, `/v1/responses` and `/v1/chat/completions`. It preserves
@@ -142,17 +166,23 @@ intact. This does not provide hosted tool execution or full OpenAI API parity.
 ## Keeping project rules available
 
 A *constitution* is the effective project guidance rooted in `AGENTS.md`, plus
-its binding referenced documents. The adapter compiles this guidance into a
-small, validated representation and supplies it to subsequent applicable model
-requests. Source files, Git, GitHub and human decisions remain authoritative.
+its binding referenced documents. Source files, Git, GitHub and human
+decisions remain authoritative over any derived state.
 
-Governance observation, compilation and injection are opt-in. The active
-pipeline handles one complete root per request. Multiple or incomplete roots
-preserve the request after image policy instead of choosing an arbitrary root.
-A request with no root can reuse valid process-local context only when
-rehydration is enabled and its complete identity matches.
+### Current (legacy) profile — implemented
 
-### Observe first, then interpret
+The active pipeline compiles the observed root into a small, validated
+representation and adds it to subsequent applicable model requests; it acquires
+only the dependencies the root declares, from narrowly paired evidence. This
+behavior is explicitly named legacy, remains in effect until the v1 migration
+is qualified, and is not a v1 delivery. Governance observation, compilation
+and injection are opt-in. The legacy pipeline handles one complete root per
+request. Multiple or incomplete roots preserve the request after image policy
+instead of choosing an arbitrary root. A request with no root can reuse valid
+process-local context only when rehydration is enabled and its complete
+identity matches.
+
+#### Observe first, then interpret
 
 Detection requires envelope or path evidence: a supported Codex project
 instruction envelope, an `AGENTS.md` input-file item, or a tool result paired
@@ -165,7 +195,7 @@ path-like text. It normalizes relative paths and rejects unsafe paths, traversal
 and URLs. The model may classify and rank the candidates; it cannot silently
 remove them from the manifest.
 
-### Compile with a bounded internal call
+#### Compile with a bounded internal call
 
 On a cache miss, the compiler sends source text and the enumerated candidates
 directly to the private upstream. The call is text-only, tool-free,
@@ -191,7 +221,7 @@ The compiler treats the input as data. It cannot execute instructions, fetch a
 URL, read the client filesystem or invoke client tools. Schema validation and
 bounds constrain its output; they do not prove perfect semantic interpretation.
 
-### Acquire dependencies through ordinary client tools
+#### Acquire dependencies through ordinary client tools
 
 ```mermaid
 sequenceDiagram
@@ -216,14 +246,15 @@ sequenceDiagram
 Missing binding dependencies produce guidance to read the exact files before
 substantive mutation. Acquisition depends on the client's ordinary tools and
 supported path/content pairing; the adapter does not independently fetch files
-or ingest unrelated tool output. The dependency acquisition budget is finite.
+or ingest unrelated tool output. The legacy dependency acquisition budget is
+finite.
 
-### Select and inject
+#### Select and inject
 
-The working set uses a deterministic order: root P0, acquired P1, missing P1
-acquisition guidance, then relevant acquired P2/P3 entries within the remaining
-budget. P4 is omitted. Optional entries are omitted whole; essential rules are
-never silently truncated to fit.
+The legacy working set uses a deterministic order: root P0, acquired P1,
+missing P1 acquisition guidance, then relevant acquired P2/P3 entries within
+the remaining budget. P4 is omitted. Optional entries are omitted whole;
+essential rules are never silently truncated to fit.
 
 Injection uses Responses `instructions` or the earliest appropriate Chat system
 location. The marker identifies reconstructed context and makes clear that
@@ -238,25 +269,136 @@ is lost on restart. It restores available guidance at the model boundary; it
 does not guarantee that a client will compact less often or that a model will
 follow every rule.
 
+### Approved rework: the `dependency-bundles-v1` profile (planned)
+
+The human approved ten rules for how this problem must be solved; they are
+recorded verbatim in [the handoff](docs/CACHE-REWORK.md) and summarized here
+as the normative target. The mechanism below is **planned, not implemented**;
+[the stage ledger](docs/CACHE-REWORK-LEDGER.md) tracks each criterion as
+`NOT RUN` until its implementation stage lands.
+
+1. **Recognize the root.** Detect the explicit Codex `AGENTS.md` envelope and
+   extract its complete observed text and directory identity.
+2. **Discover dependencies recursively.** Parse explicit `.md` references from
+   the root and from subsequently observed reachable documents, resolving them
+   against the referring document's directory; track a graph with shared
+   nodes and cycles. The agreed filename convention excludes spaces.
+3. **Observe actual content insertions.** Recognize supported file-read tool
+   calls, pair results by call ID, assess read completion/truncation, and
+   locate the content region — including combined multi-file reads.
+4. **Configure bundle admission.** `lean` admits a whole bundle only when every
+   member is graph-eligible (it may admit an isolated eligible portion when
+   boundaries are proven); `greedy` admits the whole bundle when at least one
+   member is eligible. Neither admits an arbitrary unrelated single file.
+5. **Cache insertion bundles independently.** `[A,B]`, `[A]` and `[B]` are
+   distinct entries even when their bytes overlap; a duplicate is acceptable
+   because working storage is RAM with explicit safety ceilings, not a
+   constrained disk budget.
+6. **Replace originals only after successful preparation.** Preserve API/tool
+   structure, replace the recognized raw-content span with a stable reference,
+   and provide the appropriate compiled context; an opaque reference alone is
+   not usable instruction content.
+7. **Scale insertion size with effective context.** One file receives at most
+   `effective_context_tokens / 32`; an N-file bundle receives N allowances; a
+   separate aggregate injection budget reserves tokens for conversation, tools
+   and generation.
+8. **Compile once per version/configuration.** Reuse a valid compiled entry for
+   unchanged content; source changes invalidate affected overlapping bundles;
+   never inject stale state.
+9. **Retain originals as evidence/recovery material.** Keep the exact
+   extracted source bytes of the observed source bundles plus the necessary
+   provenance in a protected per-session store, mandatory for an enabled v1
+   profile; do not routinely return originals to model input or use them as a
+   hidden fallback.
+10. **Use RAM for the working cache; recover sessions from disk after
+    restart.** Normal lookup/reinjection uses memory; per-session recovery
+    records persist separately and are loaded only for sessions being resumed;
+    recovery recompilation is the explicit exception to compile-once.
+
+#### How the v1 pipeline differs from the legacy one
+
+- **Evidence-based acquisition, not root declarations.** The dependency graph
+  is extended from raw referenced Markdown as the client's ordinary reads
+  cross the API boundary — single reads, multi-file `cat` bundles, chained
+  commands, literal loops and absolute workspace paths, with per-read
+  completeness evidence and exact outer content spans. The adapter parses a
+  bounded read grammar; it never executes observed commands or touches the
+  client or its own filesystem.
+- **Whole bundles, typed identity.** A combined `cat A.md B.md` output is one
+  attributable two-member bundle even without internal separators. Ordered
+  members, exact content digests, versions and configuration identity make
+  every bundle entry independent; a later singleton does not split an older
+  bundle, and proven source changes invalidate overlapping entries.
+- **Token-based insertion budgets.** Per-file allowances (`floor(C/32)` each,
+  C from a validated route/session contract) plus an aggregate injection limit
+  and explicit reserves replace the fixed byte budget; the pinned actual model
+  tokenizer counts the final rendered block.
+- **RAM ownership, no eviction.** All live graph, version, compiled-entry and
+  selection state lives in memory. There is no TTL/LRU or capacity-driven
+  eviction of live-session entries; real resource exhaustion surfaces as
+  explicit backpressure or typed failure, never hidden churn or
+  recompilation. The explicit configurable RAM safety ceilings (initial
+  documented recommendations 512 MiB process / 128 MiB per session) account
+  owned cache state — cache occupancy — not a guarantee of total process
+  RSS.
+- **Transactional replacement.** Observed original spans are replaced with
+  stable references and usable compiled content only after compilation,
+  selection and checkpoint preparation succeed; the transformation is
+  idempotent under replayed history, and a failed preparation never deletes
+  the only available governing content.
+- **Restart recovery from exact originals.** A protected per-session recovery
+  record (directory `0700`, file `0600`, atomic generation, integrity-checked)
+  is mandatory for an enabled v1 profile and retains the exact extracted
+  original source bytes and necessary provenance — never environment-context
+  tails or full transport envelopes. After a restart, only a resumed
+  authenticated session is rebuilt, in a new cache epoch, with bounded lazy
+  recompilation.
+- **Source-role authority is preserved.** Co-cached documents that the graph
+  does not reach keep background provenance; nothing in a greedy bundle becomes
+  a governing instruction by co-occurrence. The explicit reference policy is
+  fixed: off-graph documents do not expand governing reachability until
+  independently reachable, and a boundaryless mixed-eligibility bundle retains
+  an unresolved-origin candidate whenever the eligible reference origin is not
+  demonstrable.
+- **Explicit failure and observability.** Failure states are typed (503 /
+  409 / 422), never hidden; and every stage — root recognition, content
+  acquisition, graph admission, compilation, RAM hit, replacement, injection,
+  recovery, upstream acceptance — is independently observable, so root-only
+  metrics can never qualify dependency caching again.
+
+The exact contracts, configuration surface, failure table and acceptance
+matrix are in [the handoff](docs/CACHE-REWORK.md); the resolved engineering
+choices (default admission mode, namespace rules, recovery policy, reserves,
+no-retry compiler, single-worker ownership, selection law) are in [the
+implementation plan](docs/CACHE-IMPLEMENTATION-PLAN.md).
+
 ## Cache and state lifetime
 
-| State | Contents and lifetime |
-| --- | --- |
-| Request memory | Observed source and request data needed for that request; no raw-payload persistence. |
-| Compiled-index cache | Validated derived indexes; bounded filesystem storage with TTL, LRU and a separate bounded P0/P1 budget. |
-| Rehydration map | Validated indexes and selection metadata for matching later requests; process-local, TTL/LRU/byte bounded. |
-| Client repository | Full authoritative documents and history; never replaced by adapter state. |
+| State | Profile | Contents and lifetime |
+| --- | --- | --- |
+| Request memory | both | Observed source and request data needed for that request; no raw-payload persistence. |
+| Compiled-index cache (filesystem) | legacy (implemented) | Validated derived indexes; bounded filesystem storage with TTL, LRU and a separate bounded P0/P1 budget. Disposable; never authoritative. |
+| Rehydration map | legacy (implemented) | Validated indexes and selection metadata for matching later requests; process-local, TTL/LRU/byte bounded; lost on restart. |
+| RAM bundle state | v1 (planned) | Live graph, file/bundle versions, compiled entries, selection and single-flight state per session; no TTL/LRU or capacity eviction of live entries; lost on restart. |
+| Per-session recovery record | v1 (planned) | Exact admitted original source bundles and metadata in a protected opt-in store; loaded only when that session resumes after restart; operator-owned retention. |
+| Client repository | both | Full authoritative documents and history; never replaced by adapter state. |
 
-Cache identity incorporates principal, session/repository, source hash and
-compiler/schema/model/policy versions. Rehydration also binds selection/render
-policies and bounds. A changed source or incompatible version cannot silently
-reuse an old index. Missing, expired or evicted state is a cache miss.
+Legacy cache identity incorporates principal, session/repository, source hash
+and compiler/schema/model/policy versions; rehydration also binds selection/
+render policies and bounds. V1 entry identity additionally binds ordered
+member references, exact bundle digests, tokenizer and budget configuration,
+render versions, admission mode and graph/root scope. A changed source or
+incompatible version cannot silently reuse an old entry in either profile.
 
-The default cache location is `/dev/shm/slaif-local-coding`, with a protected
-XDG filesystem fallback. Directories use `0700`, files `0600`, and writes are
-atomic. Per-entry, total and pinned budgets are enforced. Derived text is still
-sensitive even though raw prompts, images, source and tool output are not
-persisted. Cache deletion must never destroy authoritative information.
+The legacy default cache location is `/dev/shm/slaif-local-coding`, with a
+protected XDG filesystem fallback. Directories use `0700`, files `0600`, and
+writes are atomic. Per-entry, total and pinned budgets are enforced. Derived
+text is still sensitive even though raw prompts, images, source and tool
+output are not persisted there. Cache deletion must never destroy
+authoritative information. Under v1, working state never reads that
+filesystem path on the normal hot path, and the only protected original-source
+retention is the explicitly opted-in per-session recovery store described in
+[SECURITY.md](SECURITY.md).
 
 ## Image adaptation
 
@@ -280,7 +422,8 @@ closed. Images are neither decoded nor re-encoded.
 
 Retaining a crop makes the full-image-then-crop workflow usable on a one-image
 model. It does **not** preserve an intentional two-image comparison. Such a
-workflow needs a capable route or an explicit rejection policy.
+workflow needs a capable route or an explicit rejection policy. Image policy
+is independent of, and ordered before, both cache profiles.
 
 ## Failure behavior and observability
 
@@ -288,30 +431,42 @@ workflow needs a capable route or an explicit rejection policy.
 | --- | --- |
 | Invalid authentication, identity, route signature or replay | Reject before transformation or upstream work. |
 | Malformed or oversized transformable request | Return a bounded client error; no unsafe bypass. |
-| Compiler timeout, invalid output or cache failure | Preserve original governance when safe; never cache invalid output as valid. Image enforcement remains independent. |
-| Ambiguous/incomplete root or essential working-set overflow | Preserve the post-image request instead of deleting or truncating governance. |
-| Missing or expired rehydration state | Preserve the request; no invented context or cross-principal reuse. |
+| Compiler timeout, invalid output or cache failure (legacy) | Preserve original governance when safe; never cache invalid output as valid. Image enforcement remains independent. |
+| Ambiguous/incomplete root or essential working-set overflow (legacy) | Preserve the post-image request instead of deleting or truncating governance. |
+| Missing or expired rehydration state (legacy) | Preserve the request; no invented context or cross-principal reuse. |
+| Unsupported or uncertain read evidence (v1) | Do not invent acquisition; the span passes unchanged with a fixed observable limitation. |
+| Required transformation cannot be prepared (v1) | Reject/defer with a sanitized typed status (503 infrastructure/recovery/resource, 409 version/scope conflict, 422 budget/invalid transform); never forward dangling references or load disk originals as hidden fallback. |
+| RAM safety ceiling reached (v1) | Fixed 503 backpressure with existing state preserved; no hidden eviction or disk hot path. |
 | Unsafe image shape or marker collision | Reject explicitly. |
 | Upstream unavailable | Return a sanitized gateway error; readiness fails. |
 | Downstream disconnect | Close upstream work and release resources. |
 
 Resource bounds cover request bytes, JSON structure, source size, compiler
-output/time/concurrency, injection size, cache occupancy and replay state.
-Streaming reduces response memory pressure; compiler overhead remains a separate
-capacity cost. Gateway reservation/final accounting stays with the Gateway,
-using provider usage where available.
+output/time/concurrency, injection size, cache occupancy, replay state (both
+profiles) and, under v1, explicit RAM safety ceilings. Streaming reduces
+response memory pressure; compiler overhead remains a separate capacity cost.
+Gateway reservation/final accounting stays with the Gateway, using provider
+usage where available.
 
 Operators use process liveness, readiness and private Prometheus-compatible
 metrics. Metrics report fixed states, counts and timings for requests,
-transforms, compiler/cache outcomes and failures. Raw prompts, repository text,
-images, tool output, bodies, credentials and compiled content are excluded from
-logs and metrics. See [SECURITY.md](SECURITY.md) for the privacy and protected-host
-rules, and [DEPLOYMENT.md](docs/DEPLOYMENT.md) for operational procedures.
+transforms, compiler/cache outcomes and failures. Raw prompts, repository
+text, images, tool output, bodies, credentials and compiled content are
+excluded from logs and metrics. Under v1 the metrics additionally
+distinguish root recognition, actual content acquisition, graph admission,
+first compilation, RAM hit, source replacement, compiled injection,
+source-absent injection, actual native compaction, restart recovery and final
+upstream acceptance, with no private filenames, digests, session values or
+cache IDs in labels. See [SECURITY.md](SECURITY.md) for the privacy and
+protected-host rules, and [DEPLOYMENT.md](docs/DEPLOYMENT.md) for operational
+procedures.
 
 ## Implementation map
 
 The implementation uses Python 3.12, FastAPI/Starlette, HTTPX, Pydantic and
-Uvicorn, with locked dependencies managed by uv.
+Uvicorn, with locked dependencies managed by uv. The modules below are the
+legacy implementation; the v1 rework revisits the same areas under the module
+map in [the handoff](docs/CACHE-REWORK.md).
 
 | Area | Source |
 | --- | --- |
@@ -321,8 +476,8 @@ Uvicorn, with locked dependencies managed by uv.
 | Image and Responses tool policies | [image_policy.py](src/slaif_local_coding/image_policy.py), [tool_policy.py](src/slaif_local_coding/tool_policy.py) |
 | Evidence-based observation and candidate enumeration | [detector.py](src/slaif_local_coding/constitution/detector.py), [references.py](src/slaif_local_coding/constitution/references.py) |
 | Compilation and strict index contracts | [compiler.py](src/slaif_local_coding/constitution/compiler.py), [compiler_models.py](src/slaif_local_coding/constitution/compiler_models.py) |
-| Derived cache | [cache.py](src/slaif_local_coding/constitution/cache.py) |
-| Dependency acquisition and rehydration | [pipeline.py](src/slaif_local_coding/constitution/pipeline.py) |
+| Derived cache (legacy) | [cache.py](src/slaif_local_coding/constitution/cache.py) |
+| Dependency acquisition and rehydration (legacy) | [pipeline.py](src/slaif_local_coding/constitution/pipeline.py) |
 | Working-set selection and endpoint injection | [working_set.py](src/slaif_local_coding/constitution/working_set.py), [injection.py](src/slaif_local_coding/constitution/injection.py) |
 | Service entry point | [cli.py](src/slaif_local_coding/cli.py) |
 
@@ -332,8 +487,11 @@ Verification combines pure unit tests, fake-upstream API/SSE/tool/disconnect
 tests, security and isolation tests, pinned Gateway contract tests, and
 reproducible artifact and disposable Docker qualification. Bounded live vLLM
 and actual Codex tests supply separate fixture-specific evidence; a fake test
-cannot substitute for either. Exact commands and status meanings are in
-[TESTING.md](TESTING.md).
+cannot substitute for either. The v1 rework adds its own planned test layers
+and criterion-level gates recorded in [the stage
+ledger](docs/CACHE-REWORK-LEDGER.md); RC10 is the historical baseline for the
+rework, not a rework-qualified artifact. Exact commands and status meanings
+are in [TESTING.md](TESTING.md).
 
 The reference evidence is Qwen3.8-27B/vLLM on one RTX 3090 with 24 GB VRAM.
 [Vision acceptance](docs/VISION-ACCEPTANCE.md) records the qualified fixture;

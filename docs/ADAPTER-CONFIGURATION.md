@@ -407,6 +407,70 @@ of signed identity, gateway quotas/accounting, generic production readiness, and
 cutover remain outside this repository's production boundary. Fixture-specific acceptance is recorded in the
 [historical ledger](OBJECTIVE-004-LEDGER.md).
 
+## Planned: the `dependency-bundles-v1` profile (not implemented)
+
+The approved dependency-bundle cache rework will introduce an opt-in cache
+profile. The configuration names below are **design placeholders from
+[the handoff](CACHE-REWORK.md) and [the implementation
+plan](CACHE-IMPLEMENTATION-PLAN.md), not current keys**, and no example in
+this section is runnable in the current release. This section is the planned
+configuration contract; the criterion-level gates for it live in [the stage
+ledger](CACHE-REWORK-LEDGER.md).
+
+Planned requirements:
+
+- Enable/disable the profile independently of image handling. Conflicting
+  legacy cache/TTL/byte-budget settings under the profile are configuration
+  errors surfaced with explicit migration errors, never silently
+  reinterpreted.
+- Explicit admission mode `lean` (default) or `greedy`, recorded in
+  configuration, cache identity and recovery state, and immutable within a
+  session configuration identity.
+- Trusted effective context token budget `C` from a validated route/session
+  contract (never inferred from the serving maximum), the base-slot divisor
+  `32`, the aggregate injection limit, and the generation/tool/uncertainty
+  reserves — all explicit, configurable, and bound into identity.
+- Pinned CPU-only actual-model tokenizer identity (version/digest); no model
+  weights, torch, or image decoding.
+- Validated compiler model, policy, output budget, timeout and concurrency
+  (one concurrent leader by default); no automatic infrastructure, schema or
+  truncation retry in the profile.
+- Session namespace/ownership (one service worker and one live owner per
+  session; unsupported multi-worker configuration rejected) and explicit
+  process/per-session RAM safety ceilings with fixed backpressure.
+- Explicit per-session restart-recovery opt-in, mandatory for an enabled v1
+  profile (the profile is not a supported configuration without it), with
+  protected location, atomic generation publication, retention/deletion
+  semantics, and stated encryption prerequisites.
+- Explicit unsupported-read, compile-failure, source-conflict and overflow
+  behavior (typed 503/409/422), with no hidden raw-source fallback.
+- Finite parser/request limits and explicit resource-pressure behavior.
+
+Illustrative vocabulary, **not runnable TOML for the current release**:
+
+```toml
+[context_cache]
+profile = "dependency-bundles-v1"
+admission_mode = "lean"       # or "greedy"; selected explicitly
+working_storage = "memory"
+effective_context_tokens = 32768
+slot_divisor = 32
+active_session_retention = "retain_entries"
+
+[context_cache.recovery]
+enabled = true   # mandatory for the v1 profile
+load_policy = "on_session_resume_after_restart"
+rebuild_compiled_entries = true
+```
+
+The complete operational configuration must additionally set the aggregate
+budget/reserves and the failure/ownership policies; they are never inferred
+from the abbreviated example or from the server's largest advertised context.
+The resolved configuration identity is persisted with each session. Until the
+configuration implementation lands, the adapter accepts none of these keys and
+this section documents intent only.
+
+
 ## Running the adapter
 
 There are two supported deployment paths: the Docker

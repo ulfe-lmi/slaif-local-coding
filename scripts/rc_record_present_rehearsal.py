@@ -249,9 +249,10 @@ def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[bytes]:
     return proc
 
 
-def _build_candidate_artifacts(clone: Path, source: str, workdir: Path) -> str:
+def _build_candidate_artifacts(clone: Path, source: str, workdir: Path) -> dict[str, str]:
     """Clean build of the candidate source in a disposable tree (uv build;
-    build-environment cache; no registry). Returns the built wheel sha256."""
+    build-environment cache; no registry). Returns the built wheel and sdist
+    sha256s."""
     build_tree = workdir / "build"
     build_tree.mkdir(parents=True, exist_ok=True)
     subprocess.run(
@@ -273,9 +274,12 @@ def _build_candidate_artifacts(clone: Path, source: str, workdir: Path) -> str:
     if proc.returncode != 0:
         raise RehearsalError("rehearsal candidate build failed: " + proc.stderr.decode()[:4000])
     wheels = sorted(dist.glob("slaif_local_coding-*-py3-none-any.whl"))
+    sdists = sorted(dist.glob("slaif_local_coding-*.tar.gz"))
     if len(wheels) != 1:
         raise RehearsalError("rehearsal build produced != 1 wheel")
-    return _sha256_file(wheels[0])
+    if len(sdists) != 1:
+        raise RehearsalError("rehearsal build produced != 1 sdist")
+    return {"wheel": _sha256_file(wheels[0]), "sdist": _sha256_file(sdists[0])}
 
 
 def _regenerate_manifest(clone: Path, generator: Any, dist: Path, source: str) -> None:
@@ -306,7 +310,8 @@ def _rehearsal_pre_publication(clone: Path, source: str, workdir: Path) -> str:
     #    candidate wheel must equal the wheel the committed provenance
     #    records (order 014-c, WS-C.1: evidence bound to the candidate
     #    source/wheel).
-    built_wheel = _build_candidate_artifacts(clone, source, workdir)
+    built = _build_candidate_artifacts(clone, source, workdir)
+    built_wheel = built["wheel"]
     committed_wheel = str(committed_manifest["artifacts"]["wheel"]["sha256"])
     if built_wheel != committed_wheel:
         raise RehearsalError(
@@ -493,6 +498,91 @@ def _assert_candidate_branch(clone: Path, source: str) -> None:
         )
 
 
+DEV_MANIFEST_PATH = "packaging/dev_provenance_manifest.json"
+
+
+def _assert_development_state(clone: Path, source: str) -> dict[str, Any]:
+    """Order 016-b: the current source has diverged from the frozen
+    publication; verify the separate current-development provenance
+    contract at the candidate source (fail closed)."""
+    path = clone / DEV_MANIFEST_PATH
+    if not path.is_file():
+        raise RehearsalError(
+            "development state without a development manifest: the current "
+            "source differs from the frozen RC10 publication and a valid "
+            "development manifest is mandatory"
+        )
+    dev_mod = _load_module(
+        clone / "scripts" / "dev_provenance_manifest.py", "dev_provenance_rehearsal"
+    )
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        facts = dev_mod.verify_development(clone, source, manifest)
+    except dev_mod.DevProvenanceError as exc:
+        raise RehearsalError(f"development provenance invalid: {exc}") from exc
+    return dict(facts)
+
+
+def _prove_frozen_record_cannot_authorize(clone: Path, source: str) -> None:
+    """Order 016-b: explicitly prove that the frozen RC10 record and its
+    (stale) real-client qualification cannot authorize publication of the
+    altered development source: the frozen candidate-branch gate at the
+    development source must reject it (post-freeze mapped change)."""
+    try:
+        _assert_candidate_branch(clone, source)
+    except RehearsalError as exc:
+        if "post-freeze mapped change" not in str(exc):
+            raise RehearsalError(
+                f"frozen record rejected the development source for an unexpected reason: {exc}"
+            ) from exc
+        return
+    raise RehearsalError(
+        "frozen RC10 record unexpectedly authorizes the development source "
+        "(stale real-client qualification must never authorize altered "
+        "development source)"
+    )
+
+
+def _run_development_state(clone: Path, source: str, workdir: Path) -> None:
+    """Order 016-b development-state rehearsal:
+
+    1. frozen replay at the exact frozen source boundary (published-source
+       qualification with the exact frozen source/evidence);
+    2. explicit negative proof that the frozen record cannot authorize the
+       development source (stale real-client qualification);
+    3. the separate development provenance contract at the candidate
+       source;
+    4. a clean build from the candidate source reproducing the development
+       manifest's exact wheel and sdist hashes;
+    5. the focused gate suite and tamper classes in the clone.
+    """
+    record = json.loads((clone / "packaging" / "rc_record.json").read_text(encoding="utf-8"))
+    boundary = str(record["image_source_commit"])
+    # 1) frozen replay at the boundary.
+    _assert_candidate_branch(clone, boundary)
+    _assert_record_evidence_binding(clone)
+    # 2) the frozen record must reject the development source.
+    _prove_frozen_record_cannot_authorize(clone, source)
+    # 3) development contract.
+    _assert_development_state(clone, source)
+    # 4) clean-build artifact binding.
+    dev_manifest = json.loads((clone / DEV_MANIFEST_PATH).read_text(encoding="utf-8"))
+    built = _build_candidate_artifacts(clone, source, workdir)
+    if built["wheel"] != str(dev_manifest["artifacts"]["wheel"]["sha256"]):
+        raise RehearsalError(
+            "rehearsal development wheel does not equal the development "
+            "manifest wheel (altered development artifact)"
+        )
+    if built["sdist"] != str(dev_manifest["artifacts"]["sdist"]["sha256"]):
+        raise RehearsalError(
+            "rehearsal development sdist does not equal the development "
+            "manifest sdist (altered development artifact)"
+        )
+    # 5) gate suite and tamper classes.
+    _run_gate_suite(clone)
+    _run_tamper_cases(clone, source)
+
+
 def _expect_rejection(mutate: Any, label: str) -> None:
     try:
         mutate()
@@ -654,21 +744,51 @@ def run_rehearsal(
     try:
         clone = _clone_source(repo, source, workdir)
         record_present = (clone / "packaging" / "rc_record.json").is_file()
-        if record_present:
-            mode = "post-publication (real record at source)"
-        else:
+        if not record_present:
             mode = "pre-publication (synthetic record synthesized)"
             _rehearsal_pre_publication(clone, source, workdir)
-        _assert_candidate_branch(clone, source)
-        _assert_record_evidence_binding(clone)
-        _run_gate_suite(clone)
-        _assert_candidate_branch(clone, source)
-        _assert_record_evidence_binding(clone)
-        _run_tamper_cases(clone, source)
+            _assert_candidate_branch(clone, source)
+            _assert_record_evidence_binding(clone)
+            _run_gate_suite(clone)
+            _assert_candidate_branch(clone, source)
+            _assert_record_evidence_binding(clone)
+            _run_tamper_cases(clone, source)
+            return {
+                "source": source,
+                "mode": mode,
+                "digest": REHEARSAL_DIGEST,
+                "status": "PASSED",
+            }
+        # A record exists at the source.
+        record = json.loads((clone / "packaging" / "rc_record.json").read_text(encoding="utf-8"))
+        frozen_map = record["source_input_hashes"]
+        if map_from_git_commit(clone, source) == frozen_map:
+            # Frozen state: the candidate source (or a derived-metadata-only
+            # head above the boundary) carries exactly the frozen inputs.
+            mode = "post-publication (real record at source)"
+            _assert_candidate_branch(clone, source)
+            _assert_record_evidence_binding(clone)
+            _run_gate_suite(clone)
+            _assert_candidate_branch(clone, source)
+            _assert_record_evidence_binding(clone)
+            _run_tamper_cases(clone, source)
+            return {
+                "source": source,
+                "mode": mode,
+                "digest": "real-record",
+                "status": "PASSED",
+            }
+        # Development state: the current source has diverged from the
+        # frozen RC10 publication (order 016-b).
+        mode = (
+            "development (frozen record at boundary; development provenance "
+            "verified; frozen record cannot authorize this source)"
+        )
+        _run_development_state(clone, source, workdir)
         return {
             "source": source,
             "mode": mode,
-            "digest": REHEARSAL_DIGEST if not record_present else "real-record",
+            "digest": "real-record+development",
             "status": "PASSED",
         }
     finally:
