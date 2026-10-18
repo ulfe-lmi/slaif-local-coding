@@ -17,6 +17,14 @@
 - [RC handoff](RC-HANDOFF.md): retrieve and verify the immutable artifact.
 - [Cutover and rollback plan](RELEASE-CUTOVER-RUNBOOK.md): separately authorized live changes.
 
+## Cache rework (planned profile)
+
+- [Dependency-bundle cache rework (human handoff)](CACHE-REWORK.md): approved
+  rules, contracts and acceptance matrix.
+- [Implementation plan](CACHE-IMPLEMENTATION-PLAN.md): resolved engineering
+  choices and stage succession.
+- [Stage ledger](CACHE-REWORK-LEDGER.md): criterion-level delivery state.
+
 ## Security and engineering
 
 - [Security policy](../SECURITY.md): sensitive data, credentials and reporting.

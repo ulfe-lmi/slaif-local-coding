@@ -44,6 +44,50 @@ for clean rebuilds and RC freezing.
 | Documentation | Required landing/install pages, working relative links, current claims, pull-only operator path and protected secret-file preparation. |
 | Packaging | Explicit artifact contents, fresh non-editable installation, exact wheel/input-map binding and recorded toolchain. |
 
+## Planned dependency-bundle cache profile (v1)
+
+The approved dependency-bundle cache rework
+([docs/CACHE-REWORK.md](docs/CACHE-REWORK.md),
+[docs/CACHE-IMPLEMENTATION-PLAN.md](docs/CACHE-IMPLEMENTATION-PLAN.md)) is
+delivered in planned implementation stages tracked by [the stage
+ledger](docs/CACHE-REWORK-LEDGER.md). The legacy-profile suites above
+continue to cover the currently implemented behavior. The planned v1
+layers, per the ledger's owning stage, are:
+
+- versioned real-format root/read/result/span fixtures, including combined
+  multi-file reads, absolute workspace paths, literal loops, truncation
+  and Unicode/CRLF edges, with no shell execution in detection
+  (D01–D10);
+- recursive graph closure, lean/greedy admission, independent ordered
+  bundle identity, overlap/replay invalidation and cross-namespace
+  isolation (G01–G05, C01–C02, C04–C06, S01);
+- RAM session ownership, async single-flight, explicit
+  capacity/backpressure and zero filesystem hot-path reads
+  (C03, M01, M04, M05);
+- protected exact-original checkpoints with corrupt/torn/foreign and
+  configuration-mismatch negatives, and lazy per-session restart
+  rebuilding (M02–M04);
+- pinned actual-model tokenizer budgets (C/32 slots, aggregate limit and
+  reserves), typed compiler failure/truncation/overflow states, no-retry
+  and compile-once behavior (B01–B04, C03);
+- transactional source replacement proven against the actual upstream
+  body, idempotence under replayed history, forged/stale reference
+  rejection, and source-role authority preservation (R01–R05, S01–S02);
+- a full fake-stack adversarial/lifecycle/isolation/cancellation matrix
+  with stage-accurate telemetry and the whole-rework acceptance rules
+  (O01–O03); and
+- bounded actual-model and genuine-Codex qualification with synthetic
+  tasks, serial bounded requests and complete teardown.
+
+All v1 runtime criteria are `NOT RUN` (planned) until their owning stage
+lands; no legacy or fixture result substitutes for them, and a recognized
+root with absent dependencies fails overall rework acceptance (O01).
+RC10 is the historical baseline for the rework, not a rework-qualified
+artifact. The planned v1 configuration surface is documented as planned
+and non-runnable in [the configuration
+reference](docs/ADAPTER-CONFIGURATION.md); its examples are not runnable
+until the configuration implementation lands.
+
 ## Gateway contract tests
 
 The dedicated `gateway-contract` job checks out the exact peer in
