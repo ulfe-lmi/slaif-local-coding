@@ -81,8 +81,7 @@ layers, per the ledger's owning stage, are:
 
 A stage-scoped synthetic unit/fake test proves its named mechanism within
 that stage; it never substitutes for actual-model, genuine-Codex,
-native-compaction or artifact qualification, and no v1 runtime criterion is
-`PASSED` on synthetic evidence alone. A criterion passes only after its own
+native-compaction or artifact qualification. A criterion passes only after its own
 required evidence layers pass and are reviewed: pure/unit/fake criteria may
 be proven by their named layers, whereas actual-model, genuine-Codex,
 native-compaction and artifact claims require their distinct evidence. All v1 runtime criteria are `NOT RUN`

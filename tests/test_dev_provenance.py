@@ -26,6 +26,11 @@ suite proves the separate development provenance contract and the order
    (order 016-c): the state is selected and fully validated BEFORE the
    wheel comparison, with a genuine changed-runtime-source development
    fixture whose freshly built wheel differs from the frozen wheel;
+   order 016-d extends this to the standalone FROZEN operator selection:
+   the full authoritative verification runs in BOTH states before any
+   wheel is returned, so a dirty tracked input, an untracked mapped
+   input and a valid-JSON mutated frozen record each fail at their
+   intended guard in the production selection logic;
 3. the real repository gates: the frozen RC10 source-input binding is
    re-proved against its exact frozen source commit, the independent
    pre-rework freeze baseline holds at the pinned repository authority,
@@ -810,6 +815,63 @@ def test_operator_binding_frozen_state(dev: types.ModuleType, dev_repo: DevRepo)
     op.bind_wheel_sha256(frozen_wheel, expected, state)  # frozen positive
     with pytest.raises(op.SessionError, match="frozen manifest wheel"):
         op.bind_wheel_sha256("f" * 64, expected, state)  # mismatched wheel negative
+
+
+# ---------------------------------------------------------------------------
+# Order 016-d, item 1: full authoritative validation in BOTH states
+# ---------------------------------------------------------------------------
+
+
+def test_operator_frozen_selection_dirty_tracked_input(
+    dev: types.ModuleType, dev_repo: DevRepo
+) -> None:
+    """Order 016-d: a dirty tracked mapped input at the frozen head must
+    fail the standalone frozen operator selection at the working-tree
+    binding guard BEFORE any expected wheel is returned (production
+    selection logic, not a mocked state flag)."""
+    repo, _a, _b, baseline = dev_repo
+    op = _load_operator_module()
+    work, _frozen_head = _frozen_scratch(repo, repo.parent)
+    doc = work / "docs" / "frozen.md"
+    original = doc.read_text(encoding="utf-8")
+    doc.write_text(original + "Changed mapped input.\n", encoding="utf-8")
+    with pytest.raises(op.SessionError, match="working tree differs from the committed source"):
+        op.select_artifact_state(work, baseline)
+
+
+def test_operator_frozen_selection_untracked_mapped_input(
+    dev: types.ModuleType, dev_repo: DevRepo
+) -> None:
+    """Order 016-d: a new untracked mapped input at the frozen head must
+    fail the standalone frozen operator selection at the working-tree
+    binding guard BEFORE any expected wheel is returned."""
+    repo, _a, _b, baseline = dev_repo
+    op = _load_operator_module()
+    work, _frozen_head = _frozen_scratch(repo, repo.parent)
+    (work / "docs" / "untracked.md").write_text("# New untracked mapped input\n", encoding="utf-8")
+    with pytest.raises(op.SessionError, match=r"extra=\['docs/untracked\.md'\]"):
+        op.select_artifact_state(work, baseline)
+
+
+def test_operator_frozen_selection_valid_json_mutated_frozen_record(
+    dev: types.ModuleType, dev_repo: DevRepo
+) -> None:
+    """Order 016-d: a frozen publication record that is still VALID JSON
+    (reformatted, data-identical) but byte-different from the pinned
+    pre-rework baseline must fail the standalone frozen operator
+    selection at the independent baseline guard: a pure committed-state
+    JSON classifier is not artifact authorization."""
+    repo, _a, _b, baseline = dev_repo
+    op = _load_operator_module()
+    work, _frozen_head = _frozen_scratch(repo, repo.parent)
+    manifest_path = work / "packaging" / "release_provenance_manifest.json"
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest_path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+    with pytest.raises(
+        op.SessionError,
+        match="frozen publication bytes differ from the pre-rework baseline",
+    ):
+        op.select_artifact_state(work, baseline)
 
 
 # ---------------------------------------------------------------------------

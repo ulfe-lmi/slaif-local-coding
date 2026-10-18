@@ -36,6 +36,20 @@ frozen or development authority (a clean frozen tree remains supported
 without a development manifest); deliberately excluded OAP/derived-only
 differences follow the existing explicit policy.
 
+Order 016-d operator-session state selection: the operator-session CI's
+`select_artifact_state` consumes the full authoritative state-aware
+verification in **both** states before returning an expected wheel.
+In the frozen state this additionally requires the actual working-tree
+map binding AND the independent pre-rework frozen-publication baseline
+validation: a pure committed-state classifier is not artifact
+authorization, so dirty or untracked mapped inputs, and frozen
+publication bytes that differ from the pinned baseline (even a
+still-valid-JSON reformat), fail closed before any wheel is returned.
+In the development state the closed manifest contract validation above
+applies. The production invocation keeps the pinned freeze authority
+(never a caller-controlled relaxation), and a clean frozen tree remains
+supported without a development manifest.
+
 The frozen binding is re-proved in **both** states: the map at the exact
 frozen source commit must still equal the committed frozen manifest's
 `source_inputs`, and the frozen source commit must remain an ancestor of the

@@ -384,8 +384,9 @@ observed content. Multi-user release requires signed identity contract.
 V1 binds every state object to the namespace of authenticated principal,
 stable session, repository/workspace, route/model and full parser/compiler/
 tokenizer/render/budget configuration identity. Initially one effective
-root/workspace scope per v1 namespace; duplicate effective roots or a
-workspace transition fail explicitly rather than choosing or resetting.
+root/workspace scope per v1 namespace; competing effective root
+scopes or a workspace transition fail explicitly rather than choosing
+or resetting.
 Unsigned header identity and anonymous shared cache are not supported.
 
 Never log/store raw prompts, source, images, tool output, bodies, auth, keys,

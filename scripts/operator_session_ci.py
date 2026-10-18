@@ -81,77 +81,43 @@ PROTECTED_PORTS = (18020, 18021)
 DEV_MANIFEST = REPO_ROOT / "packaging" / "dev_provenance_manifest.json"
 
 
-def _development_state_active(repo: Path) -> bool:
-    """Order 016-b: true when the current source differs from the frozen
-    RC10 publication (a development manifest is then mandatory)."""
-    sys.path.insert(0, str(repo / "scripts"))
-    import dev_provenance_manifest as dev_mod
-
-    try:
-        head = (
-            subprocess.run(
-                ["git", "-C", str(repo), "rev-parse", "HEAD"],
-                capture_output=True,
-                check=True,
-            )
-            .stdout.decode()
-            .strip()
-        )
-        state, _frozen = dev_mod.current_state(repo, head)
-        return state == "development"
-    except dev_mod.DevProvenanceError as exc:
-        raise SessionError(f"development state check failed: {exc}") from exc
-
-
-def _load_dev_manifest(repo: Path, baseline_commit: str | None = None) -> dict:
-    """Order 016-b: load and verify the development manifest (fail closed).
-
-    ``baseline_commit`` is the typed hermetic-fixture argument (order
-    016-c); the production invocation (``main``) never supplies it, so the
-    pinned pre-rework freeze baseline remains the authority."""
-    sys.path.insert(0, str(repo / "scripts"))
-    import dev_provenance_manifest as dev_mod
-
-    if not (repo / "packaging" / "dev_provenance_manifest.json").is_file():
-        raise SessionError("development state without a development manifest (order 016-b)")
-    manifest = dev_mod.load_dev_manifest(repo)
-    if manifest is None:
-        raise SessionError("development state without a development manifest")
-    head = (
-        subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"],
-            capture_output=True,
-            check=True,
-        )
-        .stdout.decode()
-        .strip()
-    )
-    try:
-        dev_mod.verify_development(repo, head, manifest, baseline_commit=baseline_commit)
-    except dev_mod.DevProvenanceError as exc:
-        raise SessionError(f"development manifest invalid: {exc}") from exc
-    return manifest
-
-
 def select_artifact_state(repo: Path, baseline_commit: str | None = None) -> tuple[str, str]:
-    """Order 016-c: select the artifact state and return
+    """Order 016-c/016-d: select the artifact state and return
     ``(state, expected_wheel_sha256)`` for EXACTLY that state.
 
-    The development state is determined and its manifest fully validated
-    BEFORE any wheel comparison: the wheel argument is compared only with
-    the frozen RC10 manifest in the frozen state and only with the
-    separate current-development provenance manifest in the development
-    state. A development wheel that differs from the frozen RC10 wheel
-    (the next changed-runtime-source round) is therefore judged against
-    the development manifest, never the frozen one. Fail closed."""
-    if _development_state_active(repo):
-        manifest = _load_dev_manifest(repo, baseline_commit)
-        return "development", str(manifest["artifacts"]["wheel"]["sha256"])
+    Both states consume the full authoritative state-aware verification
+    (``dev_provenance_manifest.verify``) BEFORE any wheel is returned.
+    The development state is determined, its closed manifest contract
+    fully validated, and bound to the actual working tree; the frozen
+    state additionally requires the actual working-tree map binding and
+    the independent pre-rework frozen-publication baseline validation.
+    A pure committed-state classifier is not artifact authorization:
+    dirty or untracked mapped inputs, and frozen publication bytes that
+    differ from the pinned baseline (even a still-valid-JSON reformat),
+    fail closed here, before any expected wheel is returned. The wheel
+    argument is then compared only with the frozen RC10 manifest in the
+    frozen state and only with the separate current-development
+    provenance manifest in the development state. ``baseline_commit``
+    is the typed hermetic-fixture argument; the production invocation
+    keeps the pinned freeze authority and never a caller-controlled
+    relaxation. A clean frozen tree remains supported without a
+    development manifest. Fail closed."""
+    sys.path.insert(0, str(repo / "scripts"))
+    import dev_provenance_manifest as dev_mod
+
+    try:
+        facts = dev_mod.verify(repo, baseline_commit=baseline_commit)
+    except dev_mod.DevProvenanceError as exc:
+        raise SessionError(f"artifact state verification failed: {exc}") from exc
+    state = str(facts["state"])
+    if state == "development":
+        manifest = dev_mod.load_dev_manifest(repo)
+        if manifest is None:
+            raise SessionError("verified development state without a development manifest")
+        return state, str(manifest["artifacts"]["wheel"]["sha256"])
     frozen_path = repo / "packaging" / "release_provenance_manifest.json"
-    if not frozen_path.is_file():
-        raise SessionError("frozen state without the committed frozen manifest")
     frozen = json.loads(frozen_path.read_text(encoding="utf-8"))
-    return "frozen", str(frozen["artifacts"]["wheel"]["sha256"])
+    return state, str(frozen["artifacts"]["wheel"]["sha256"])
 
 
 def bind_wheel_sha256(wheel_sha256: str, expected_wheel_sha256: str, state: str) -> None:
