@@ -1,0 +1,27 @@
+{
+  "model": "synthetic-bundle-model",
+  "input": [
+    {
+      "type": "function_call",
+      "call_id": "call_two_2",
+      "name": "exec_command",
+      "arguments": "{\"cmd\": \"cat B.md A.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_two_2",
+      "output": "Chunk Id: synthetic-chunk-3\nWall time: 0.015 seconds\nProcess exited with code 0\nOutput:\nBBB second file content\nAAA first file content\n"
+    }
+  ],
+  "_fixture": {
+    "synthetic": true,
+    "observed_format_authority": "codex-0.149.0 API-boundary shapes; see tests/fixtures/codex/0.149.0/README.md for the sanitized authority record",
+    "parser_versions": {
+      "observer": "cache-bundle-observation/1",
+      "envelope": "codex-project-instructions/v1",
+      "read_grammar": "literal-shell-read/v1",
+      "tool_wrapper": "codex-exec-wrapper/v1"
+    },
+    "note": "Reversed operand order: order is part of the observation identity."
+  }
+}

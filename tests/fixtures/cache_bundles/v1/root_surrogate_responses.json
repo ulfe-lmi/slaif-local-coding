@@ -1,0 +1,25 @@
+{
+  "model": "synthetic-bundle-model",
+  "input": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "input_text",
+          "text": "# AGENTS.md instructions for repo\n\n<INSTRUCTIONS>\nbroken \ud800 surrogate\n</INSTRUCTIONS>"
+        }
+      ]
+    }
+  ],
+  "_fixture": {
+    "synthetic": true,
+    "observed_format_authority": "codex-0.149.0 API-boundary shapes; see tests/fixtures/codex/0.149.0/README.md for the sanitized authority record",
+    "parser_versions": {
+      "observer": "cache-bundle-observation/1",
+      "envelope": "codex-project-instructions/v1",
+      "read_grammar": "literal-shell-read/v1",
+      "tool_wrapper": "codex-exec-wrapper/v1"
+    },
+    "note": "Malformed (lone surrogate) content: typed rejection, no crash, no digest."
+  }
+}

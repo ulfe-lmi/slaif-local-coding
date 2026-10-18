@@ -25,6 +25,26 @@ uv run --frozen python scripts/artifact_policy_check.py --dist dist --inspect
 uv run --frozen python scripts/artifact_policy_check.py --dist dist --install-smoke
 ```
 
+The full pytest suite requires the verified non-root **process-local umask
+022** test context on this development host:
+
+```bash
+umask 022
+uv run --frozen pytest -q
+```
+
+The canonical host umask 0002 makes newly owned pytest tmp fixtures group-
+writable, which the safe-evidence validators correctly reject as
+`destination_component_writable` before the tests' intended later rejection
+classes (12 ordering failures); umask 077 masks the intentionally 0755
+untrusted-cache fixture to 0700 and breaks one separate fixture-mode
+expectation. At accepted 016, umask 022 passed the complete gate with 1543
+passed, 27 skipped, 0 failed. Never change global/home permissions to avoid
+this context, never loosen the intentional permission-negative fixtures (the
+0755 untrusted-cache directory; the execute-only-ancestor test that skips on
+UID 0), and create explicitly protected temporary roots/files with 0700/0600
+where a test requires them.
+
 Artifact tests build fresh artifacts and compare provenance with the actual
 source-input map. An intentional README/source change can require a new accepted
 wheel identity and regenerated provenance; never suppress a mismatch just to
@@ -78,6 +98,25 @@ layers, per the ledger's owning stage, are:
   (O01–O03); and
 - bounded actual-model and genuine-Codex qualification with synthetic
   tasks, serial bounded requests and complete teardown.
+
+Stage 017, first round (tracked in the stage ledger) has landed the D01-D05
+slice of the first item:
+the inert pure observation package
+`src/slaif_local_coding/constitution/bundles/` (typed models, literal client-
+path normalization, envelope observation, literal read grammar, tool-result
+pairing, and a pure composition entry point), with the named suites
+`tests/test_bundle_observation_models.py`,
+`tests/test_bundle_client_paths.py`,
+`tests/test_bundle_root_envelopes.py`,
+`tests/test_bundle_read_grammar.py`, `tests/test_bundle_tool_results.py` and
+`tests/test_bundle_observe.py` exercising the versioned synthetic fixtures in
+`tests/fixtures/cache_bundles/v1/` plus the canonical sanitized 0.149.0
+fixture. These modules are **not active in the adapter**: they are not wired
+into the legacy request execution path, and the legacy detector is unchanged.
+D06-D10 remain planned for the same-PR continuation 017-b; all v1 runtime
+criteria remain `NOT RUN` until their owning stage lands. The versioned
+contract is documented in
+[docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
 
 A stage-scoped synthetic unit/fake test proves its named mechanism within
 that stage; it never substitutes for actual-model, genuine-Codex,

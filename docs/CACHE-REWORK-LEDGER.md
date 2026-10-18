@@ -7,13 +7,18 @@ rework. The requirements are the ten approved rules in
 maps every named acceptance criterion to its owning implementation stage and
 records implementation/acceptance state.
 
-This objective is the bounded architecture/documentation and
-development-state stage. **No v1 runtime mechanism is implemented or
-qualified yet; every runtime criterion below is `NOT RUN` (planned).** Do
-not read a row in this ledger as delivered behavior. Stage-scoped synthetic
-unit/fake tests prove their named mechanisms within the owning stage; they
-never substitute for actual-model, genuine-Codex, native-compaction or
-artifact qualification.
+This objective is the bounded pure-observation stage (017). **No v1
+runtime mechanism is active in the adapter and none is qualified; every
+runtime criterion below is still `NOT RUN` (planned).** Stage 017-a has
+landed the D01-D05 slice as inert, typed, pure modules under
+`src/slaif_local_coding/constitution/bundles/` with the named evidence
+recorded below; those rows are `PENDING` strategic acceptance, not
+delivered behavior. Objective 016 (the architecture/documentation and
+development-state stage) is accepted and merged as PR #24, merge
+`96c790423f6f0097a56a0b12bacda8a9b6da6aba`. Do not read a row in this
+ledger as delivered behavior. Stage-scoped synthetic unit/fake tests prove
+their named mechanisms within the owning stage; they never substitute for
+actual-model, genuine-Codex, native-compaction or artifact qualification.
 
 ## Reading this ledger
 
@@ -44,17 +49,17 @@ Owner stages (abbreviations): **OBS** = real-format read/root observation;
 ownership; **REC** = per-session recovery; **TOK** = tokenizer, compiler and
 budgets; **REP** = transactional source replacement; **ADV** = adversarial
 acceptance matrix; **QUAL** = bounded real-model and genuine-Codex
-qualification. All states in this stage: `NOT RUN` (planned).
+qualification. States in this stage: D01-D05 are `PENDING` (pure observation slice; named evidence below, strategic acceptance outstanding); every other criterion is `NOT RUN` (planned).
 
 ### Detection and acquisition (D)
 
 | ID | Scenario | Owning stage | Required evidence (abridged) | State |
 |---|---|---|---|---|
-| D01 | Valid automatic `AGENTS.md` message plus environment metadata | OBS | Exact source extraction; environment excluded; correct directory scope | NOT RUN |
-| D02 | Fake marker in assistant text/tool description; malformed or duplicate envelope | OBS | No false root or arbitrary authority | NOT RUN |
-| D03 | Single relative/absolute workspace `cat` | OBS | Correct normalized path, complete content, removable span | NOT RUN |
-| D04 | `/work-other`, traversal, unknown root, quoted `cat`, heredoc write | OBS | No client-host confusion or false acquisition | NOT RUN |
-| D05 | `cat A.md B.md` without internal separators | OBS | One complete two-member bundle; no fabricated individual hashes | NOT RUN |
+| D01 | Valid automatic `AGENTS.md` message plus environment metadata | OBS | Exact source extraction; environment excluded; correct directory scope | 017-a evidence: tests/test_bundle_root_envelopes.py::test_real_format_canonical_fixture_parses_with_exact_bytes, ::test_adjacent_environment_tail, ::test_newline_separated_environment_tail, ::test_separate_item_environment_is_excluded, ::test_crlf_envelope_preserves_crlf_content_bytes; tests/test_bundle_observe.py::test_every_fixture_is_synthetic_and_versioned | PENDING
+| D02 | Fake marker in assistant text/tool description; malformed or duplicate envelope | OBS | No false root or arbitrary authority | 017-a evidence: tests/test_bundle_root_envelopes.py::test_assistant_envelope_never_creates_root, ::test_marker_prose_at_later_offset_is_not_a_root, ::test_tool_output_envelope_is_not_a_root, ::test_unclosed_tail_is_typed, ::test_nested_duplicate_opening_marker_is_typed, ::test_duplicate_closing_tag_in_tail_is_typed, ::test_invalid_labels_and_delimiters_are_typed, ::test_valid_root_coexists_with_observable_malformed_occurrence | PENDING
+| D03 | Single relative/absolute workspace `cat` | OBS | Correct normalized path, complete content, removable span | 017-a evidence: tests/test_bundle_read_grammar.py::test_single_relative_operand, ::test_dash_dash_separator, ::test_absolute_workspace_operands; tests/test_bundle_client_paths.py::test_relative_against_evidenced_workspace, ::test_simple_absolute_under_workspace, ::test_unicode_path_preserved; tests/test_bundle_tool_results.py::test_single_complete_read, ::test_empty_file_is_complete_empty_version, ::test_unicode_crlf_bytes_are_exact | PENDING
+| D04 | `/work-other`, traversal, unknown root, quoted `cat`, heredoc write | OBS | No client-host confusion or false acquisition | 017-a evidence: tests/test_bundle_client_paths.py::test_sibling_prefix_is_outside, ::test_lexical_dotdot_escaping_is_traversal, ::test_outside_absolute_path, ::test_absolute_with_unknown_workspace, ::test_relative_without_workspace_is_unproven, ::test_relative_traversal_escape, ::test_fully_quoted_literal_operand_under_no_spaces_convention, ::test_url_fragment_is_literal_never_stripped, ::test_query_syntax_is_never_mapped_to_the_plain_file, ::test_module_imports_no_filesystem_or_shell_facilities; tests/test_bundle_read_grammar.py::test_unsupported_shapes_are_typed_never_complete, ::test_no_expansion_no_evaluation; tests/test_bundle_observe.py::test_logical_root_scope_never_maps_host_paths, ::test_no_context_at_all_is_unproven | PENDING
+| D05 | `cat A.md B.md` without internal separators | OBS | One complete two-member bundle; no fabricated individual hashes | 017-a evidence: tests/test_bundle_read_grammar.py::test_two_operands_in_order, ::test_repeated_operand_preserves_order; tests/test_bundle_tool_results.py::test_two_members_without_separators_is_one_ordered_bundle, ::test_reversed_order_changes_observed_member_order, ::test_repeated_operands_do_not_fabricate_files; tests/test_bundle_observation_models.py::test_two_member_bundle_has_unknown_member_digests, ::test_single_member_complete_read_carries_proven_digest, ::test_requested_and_proven_executed_are_distinct | PENDING
 | D06 | Chained reads with `ls`, labels and unrelated output | OBS | Correct outer regions; unrelated output preserved | NOT RUN |
 | D07 | Literal loop, supported wildcard evidence, explicit `workdir`/`cd` | OBS | Proven executed membership; no adapter-host expansion | NOT RUN |
 | D08 | Read succeeds, later command fails; earlier read fails, later command succeeds | OBS | Per-read evidence distinguished from global exit status | NOT RUN |
@@ -126,8 +131,8 @@ drafts until activated.
 
 | Objective | PR branch | Deliverable and gate | Status in this round |
 |---|---|---|---|
-| 016 | `oap/016-cache-rework-contracts` | Commit unchanged human handoff; reconcile both architectures, root/strategic agent law, security/testing/configuration docs; publish the plan and this stage ledger; establish the separate current-development provenance contract (development-state artifact validation under the intact RC10 publication freeze). No adapter-runtime implementation claim. | Continuing (016-b) |
-| 017 | `oap/017-cache-read-observation` | Versioned pure root/read/result/span evidence and real-format synthetic fixtures: D01–D10, Unicode/CRLF, bounds, no shell execution. Preserve legacy detector until integration. | Planned (inert draft) |
+| 016 | `oap/016-cache-rework-contracts` | Commit unchanged human handoff; reconcile both architectures, root/strategic agent law, security/testing/configuration docs; publish the plan and this stage ledger; establish the separate current-development provenance contract (development-state artifact validation under the intact RC10 publication freeze). No adapter-runtime implementation claim. | Merged (PR #24; merge `96c790423f6f0097a56a0b12bacda8a9b6da6aba`; accepted) |
+| 017 | `oap/017-cache-read-observation` | Versioned pure root/read/result/span evidence and real-format synthetic fixtures: D01–D10, Unicode/CRLF, bounds, no shell execution. Preserve legacy detector until integration. | In progress (017-a published: D01-D05 pure observation slice, inert modules, `PENDING` acceptance; D06-D10 planned for same-PR continuation 017-b) |
 | 018 | `oap/018-cache-graph-bundles` | Typed namespace/file/edge/bundle versions, recursive graph, lean/greedy admission, overlap/replay invalidation: G01–G05, C01/C02/C04–C06, S01. | Planned (inert draft) |
 | 019 | `oap/019-cache-ram-state` | RAM session ownership/indexes, explicit capacity/backpressure, async single-flight and lifecycle: C03, M01/M04/M05; zero filesystem hot lookup. | Planned (inert draft) |
 | 020 | `oap/020-cache-session-recovery` | Protected exact-original atomic checkpoints, locks and lazy per-session restart rebuilding: M02–M04, corrupt/torn/foreign/config-mismatch negatives. | Planned (inert draft) |

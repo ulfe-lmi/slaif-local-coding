@@ -1,0 +1,43 @@
+{
+  "model": "synthetic-bundle-model",
+  "tools": [
+    {
+      "type": "function",
+      "name": "ns/exec_command",
+      "description": "Synthetic namespaced exec tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "cmd": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ],
+  "input": [
+    {
+      "type": "function_call",
+      "call_id": "call_ns_2",
+      "name": "ns/exec_command",
+      "arguments": "{\"cmd\": \"cat A.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_ns_2",
+      "output": "Process exited with code 0\nOutput:\nproven namespace\n"
+    }
+  ],
+  "_fixture": {
+    "synthetic": true,
+    "observed_format_authority": "codex-0.149.0 API-boundary shapes; see tests/fixtures/codex/0.149.0/README.md for the sanitized authority record",
+    "parser_versions": {
+      "observer": "cache-bundle-observation/1",
+      "envelope": "codex-project-instructions/v1",
+      "read_grammar": "literal-shell-read/v1",
+      "tool_wrapper": "codex-exec-wrapper/v1"
+    },
+    "note": "Namespace-qualified tool name with explicit supported-envelope evidence (exact name + cmd string schema)."
+  }
+}

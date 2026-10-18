@@ -22,8 +22,9 @@ implemented behavior remains explicitly named **legacy** until that migration
 is qualified. Delivery state for every rework criterion is tracked in
 [the stage ledger](docs/CACHE-REWORK-LEDGER.md), and the resolved engineering
 choices are recorded in [the implementation
-plan](docs/CACHE-IMPLEMENTATION-PLAN.md). This stage is documentation only:
-nothing in the v1 profile is implemented or qualified yet.
+plan](docs/CACHE-IMPLEMENTATION-PLAN.md). As of stage 017-a the pure
+D01-D05 observation slice is implemented as inert typed modules (not active
+in the adapter); no v1 runtime mechanism is active or qualified yet.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact
@@ -273,9 +274,11 @@ follow every rule.
 
 The human approved ten rules for how this problem must be solved; they are
 recorded verbatim in [the handoff](docs/CACHE-REWORK.md) and summarized here
-as the normative target. The mechanism below is **planned, not implemented**;
-[the stage ledger](docs/CACHE-REWORK-LEDGER.md) tracks each criterion as
-`NOT RUN` until its implementation stage lands.
+as the normative target. The mechanism below is **planned, not implemented**
+(the pure D01-D05 observation slice exists as inert typed modules, not
+active in the adapter); [the stage ledger](docs/CACHE-REWORK-LEDGER.md)
+tracks each criterion as `NOT RUN` or `PENDING` until its implementation
+stage lands and is reviewed.
 
 1. **Recognize the root.** Detect the explicit Codex `AGENTS.md` envelope and
    extract its complete observed text and directory identity.
