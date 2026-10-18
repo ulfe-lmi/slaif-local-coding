@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 134,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "3650e1a333e1bba6b751a4834c9eeb2441a9512f42fa3c0d33d618b971fcd19c",
-      "size_bytes": 538979
+      "sha256": "43ba032c098ece16ca5e77b824150062a06251b617982485e5ee438be8d00f13",
+      "size_bytes": 539022
     },
     "wheel": {
       "entry_count": 27,
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "016-b",
-  "qualification_label": "development-source-45f5abbb1cc1605f4af854992b74ea77f7a18e83; not a release candidate; not released",
+  "qualification_label": "development-source-98dcf069cdcf6d0ff854065e7ec0ef38a02c35db; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,10 +31,10 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "45f5abbb1cc1605f4af854992b74ea77f7a18e83",
+  "source_commit": "98dcf069cdcf6d0ff854065e7ec0ef38a02c35db",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
-    ".github/workflows/ci.yml": "e9144346dfb33402cadf8df0e34e937d9b5cdc42b5f0803c811ac31976498eba",
+    ".github/workflows/ci.yml": "d04c50bc8914e6c2dc880f9bb80904fa5ab9df0f241e241e46806a98073ac5ea",
     "CONTRIBUTING.md": "ef3a21206d990fcf8b586f65080a63640c2c77333a09aa152248c46a713310e6",
     "Dockerfile": "a89d6a924f119cf0a9dd6124afe47eee60fb008cbd0d2e482de9b186f2974c22",
     "INSTALL.md": "4b4ceb5159d3fa6c1d35e6aea22235d37624fdfe811e40894954d1fa35d54514",
