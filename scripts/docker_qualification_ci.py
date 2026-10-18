@@ -774,7 +774,29 @@ class Qualification:
 
     # -- phases ------------------------------------------------------------
     def _do_verify_wheel_binding(self) -> dict:
-        # Order 017-a: state-aware wheel binding. The CI build step selects
+        if self.mode == "published":
+            # The pulled image is a published (frozen) artifact: its wheel is
+            # the one recorded in the frozen release provenance manifest, and
+            # the CI step passes exactly that recorded hash.
+            manifest = json.loads(
+                (REPO_ROOT / "packaging" / "release_provenance_manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            wheel = manifest["artifacts"]["wheel"]
+            if wheel["sha256"] != self.args.wheel_sha256:
+                raise QualificationError(
+                    "verify_wheel_binding",
+                    "wheel_hash_mismatch",
+                    "pulled image wheel does not match the frozen release manifest",
+                )
+            return {
+                "wheel_sha256": wheel["sha256"],
+                "artifact_state": "frozen",
+                "manifest_status": manifest["status"],
+                "image_bound_to_committed_artifact": True,
+            }
+        # Build mode: state-aware wheel binding. The CI build step selects
         # the expected wheel from the current artifact state (frozen RC10
         # release manifest, or the current-development provenance manifest in
         # the development state) via dev_provenance_manifest.py --emit-state.
