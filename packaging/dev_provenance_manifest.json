@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 134,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "088997cceb6eb7d00cbde6f52a389bcd7be6498a5b18ce45a0f536de1d2dca23",
-      "size_bytes": 546031
+      "sha256": "2241651139142271872fbf949975064a53a9d8c4f782dced3dccecad1ce8be21",
+      "size_bytes": 546726
     },
     "wheel": {
       "entry_count": 27,
@@ -21,8 +21,8 @@
     "source_commit": "255b3f42912e3947908fc8868eccb6bcec874a08",
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
-  "objective": "016-c",
-  "qualification_label": "development-source-e2e502a59397cd1219c4fe10eb7c096d67af279f; not a release candidate; not released",
+  "objective": "016-d",
+  "qualification_label": "development-source-fc6e512c28a783718996e7524864399c33d1c99f; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "e2e502a59397cd1219c4fe10eb7c096d67af279f",
+  "source_commit": "fc6e512c28a783718996e7524864399c33d1c99f",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "d04c50bc8914e6c2dc880f9bb80904fa5ab9df0f241e241e46806a98073ac5ea",
@@ -53,7 +53,7 @@
     "docs/CACHE-REWORK-LEDGER.md": "f70bff3c9139dbab77ebdf2e4a67e7e3aac51790645f3e7116675abc60e32dc4",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
-    "docs/DEVELOPMENT-PROVENANCE.md": "a3231a341cc61b9d55eacda2ec41c43253a4145c7d91ca0a0025c0ad6a78eb1e",
+    "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
     "docs/DOCKER-INSTALL.md": "cc34ac5f4a1b18b35378bc63e899dde9c0fa792a85fd00506a39bf1d2c4fbcc8",
     "docs/DOCKER-SECURITY-DELTA.md": "c2d723ded9ba1a6282b63844f2a3794b4477122a1fc71f32fb240f9845f2fba9",
     "docs/GATEWAY-CONTRACT-CI.md": "b9c1294d88f2bd8e8902213fa82c6710c7e15fb3c8c249ade34ae3db984c4a47",
@@ -133,7 +133,7 @@
     "tests/test_current_gateway_contract.py": "ba9a741da0a41d6532887670c335af141879f6775366c1403f41737c281266f0",
     "tests/test_cutover_state_machine.py": "d8825a83af141324674474ff65f6745396baf1b5c6567dd1a041f44de09ccca8",
     "tests/test_dependency_acquisition.py": "0f2e04205bdc1f8d6b3d993b365a9594411afa59c9608f9f5dd44c65bf3e2998",
-    "tests/test_dev_provenance.py": "badddd10c395c7948380464372de12f6e78842fd2485bfc902c5f85649d4a092",
+    "tests/test_dev_provenance.py": "b1728abb7937b60e158a504f8f82b0f7e227922787bd3067340c4a0d2f1adc8b",
     "tests/test_docker_qualification_record_gate.py": "df7e6407a7c8234edf1c0944d37b24de6057dcc9d5bcc8539034f737c8ee0ab3",
     "tests/test_docs_consistency.py": "f93c231c0024e62d4a686e5837caede51ee5913e749e532ade1c9cd6b9cd247b",
     "tests/test_e2e.py": "bc82dfb3c08c0a3f47fc92245a092a2c42a42ad213c5ad25ed64d011f6884393",
