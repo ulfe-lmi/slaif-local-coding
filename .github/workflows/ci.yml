@@ -92,6 +92,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Order 016-b: full history — the state-aware provenance gate
+          # re-proves the frozen source commit's ancestry at the checkout.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.5"
@@ -449,6 +453,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Order 016-b: full history — the state-aware provenance gate
+          # re-proves the frozen source commit's ancestry at the checkout.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.12.5"
