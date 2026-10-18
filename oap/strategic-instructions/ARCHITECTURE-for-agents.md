@@ -199,10 +199,12 @@ Greedy co-cached members keep background provenance: they cannot acquire root
 or system authority by co-occurrence. The explicit reference policy is fixed:
 off-graph members do not expand governing reachability until independently
 reachable, and no outgoing reference of an off-graph member is followed before
-that member is independently graph-eligible. A boundaryless mixed-eligibility
-bundle with a common directory still has unknown eligible reference origin
-when the applicable directory is not demonstrably shared; retain an
-unresolved-origin candidate set and never assume the common directory.
+that member is independently graph-eligible. A boundaryless mixed-
+eligibility bundle keeps an unknown eligible reference origin whenever
+member attribution is unproven — even when the members' directories are
+proven equal: a shared directory never identifies which eligible or
+off-graph member supplied a reference. Retain an unresolved-origin
+candidate set and never assume the common directory.
 
 **Identity, replay and overlap.** An entry identity binds at least:
 authenticated principal, stable session, repository/workspace, route/model,

@@ -29,6 +29,13 @@ Every verification first determines the artifact state at the current head:
   skips a failure, relaxes an exact hash, or replaces an accepted historical
   hash with a new one.
 
+Order 016-c working-tree binding: **every** frozen/development verification
+and CI emission path classifies from the committed map AND binds the actual
+working-tree input map to it. Dirty or untracked mapped inputs never acquire
+frozen or development authority (a clean frozen tree remains supported
+without a development manifest); deliberately excluded OAP/derived-only
+differences follow the existing explicit policy.
+
 The frozen binding is re-proved in **both** states: the map at the exact
 frozen source commit must still equal the committed frozen manifest's
 `source_inputs`, and the frozen source commit must remain an ancestor of the
@@ -79,6 +86,44 @@ exclusions in `pyproject.toml`: they are never artifact inputs (no
 self-hash fixed point is needed) and are excluded from the manifest's own
 input map. Ordinary source, configuration, docs, tests and the frozen
 packaging records are **not** excluded.
+
+## Closed-contract validation (order 016-c)
+
+The executable validation enforces the closed development contract on
+**every public consumption path** — including callers of
+`verify_development` that bypass the loader (e.g. the record-present
+rehearsal): exact key sets and const/pattern values (mirroring
+`packaging/dev_provenance_manifest.schema.json` — `additionalProperties:
+false` at every level, schema and executable validation agree), repository
+identity, non-release facts, safe artifact basenames, valid 64-hex hashes,
+integer sizes/counts of at least 1 (booleans are not integers), source-input
+path/hash records without path escape, toolchain facts, the exact current
+`uv.lock` binding (`toolchain.uv_lock_sha256` must equal the actual
+`uv.lock` bytes at verification time), frozen-publication constants and the
+declared self-exclusions. Malformed nested objects, booleans used as
+integers, unexpected keys and path-escaping records are all rejected.
+Nothing usable is emitted on invalid state.
+
+## Independent pre-rework freeze baseline (order 016-c)
+
+Freeze immutability no longer rests on the A..HEAD diff alone (which cannot
+see a frozen metadata change committed inside a newly authored source A).
+Every development verification, the state gate and the CI emission paths
+additionally enforce an **independent baseline**: at the pinned pre-rework
+commit `f3793af9e5f05bdfba19ef800eeaf57177d0ed2b` (remote main when
+objective 016 began), every existing top-level publication
+record/manifest/handoff (`packaging/rc_record.json`, `rc_handoff.md`,
+`rc_artifact_record.schema.json`, `release_provenance_manifest.json` and its
+schema) and every archived publication record under `packaging/releases/`
+must still exist — in the verified head's tree **and** in the working tree —
+with byte-identical content, and no new top-level or archived publication
+record may have appeared (a new one would be new freeze authority, not
+development). Path presence/deletion is part of the law; the working-tree
+leg also catches dirty frozen metadata that the input map cannot see
+(record/handoff/archive files are derived exclusions). The development
+manifest never chooses the freeze authority: the production CLI uses the
+pinned repository baseline, and the typed helper argument exists solely so
+hermetic test fixtures can model their own explicit baseline.
 
 ## CI behavior
 

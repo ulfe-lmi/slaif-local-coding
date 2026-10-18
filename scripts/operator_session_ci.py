@@ -81,41 +81,45 @@ PROTECTED_PORTS = (18020, 18021)
 DEV_MANIFEST = REPO_ROOT / "packaging" / "dev_provenance_manifest.json"
 
 
-def _development_state_active() -> bool:
+def _development_state_active(repo: Path) -> bool:
     """Order 016-b: true when the current source differs from the frozen
     RC10 publication (a development manifest is then mandatory)."""
-    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    sys.path.insert(0, str(repo / "scripts"))
     import dev_provenance_manifest as dev_mod
 
     try:
         head = (
             subprocess.run(
-                ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                ["git", "-C", str(repo), "rev-parse", "HEAD"],
                 capture_output=True,
                 check=True,
             )
             .stdout.decode()
             .strip()
         )
-        state, _frozen = dev_mod.current_state(REPO_ROOT, head)
+        state, _frozen = dev_mod.current_state(repo, head)
         return state == "development"
     except dev_mod.DevProvenanceError as exc:
         raise SessionError(f"development state check failed: {exc}") from exc
 
 
-def _load_dev_manifest() -> dict:
-    """Order 016-b: load and verify the development manifest (fail closed)."""
-    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+def _load_dev_manifest(repo: Path, baseline_commit: str | None = None) -> dict:
+    """Order 016-b: load and verify the development manifest (fail closed).
+
+    ``baseline_commit`` is the typed hermetic-fixture argument (order
+    016-c); the production invocation (``main``) never supplies it, so the
+    pinned pre-rework freeze baseline remains the authority."""
+    sys.path.insert(0, str(repo / "scripts"))
     import dev_provenance_manifest as dev_mod
 
-    if not DEV_MANIFEST.is_file():
+    if not (repo / "packaging" / "dev_provenance_manifest.json").is_file():
         raise SessionError("development state without a development manifest (order 016-b)")
-    manifest = dev_mod.load_dev_manifest(REPO_ROOT)
+    manifest = dev_mod.load_dev_manifest(repo)
     if manifest is None:
         raise SessionError("development state without a development manifest")
     head = (
         subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+            ["git", "-C", str(repo), "rev-parse", "HEAD"],
             capture_output=True,
             check=True,
         )
@@ -123,10 +127,41 @@ def _load_dev_manifest() -> dict:
         .strip()
     )
     try:
-        dev_mod.verify_development(REPO_ROOT, head, manifest)
+        dev_mod.verify_development(repo, head, manifest, baseline_commit=baseline_commit)
     except dev_mod.DevProvenanceError as exc:
         raise SessionError(f"development manifest invalid: {exc}") from exc
     return manifest
+
+
+def select_artifact_state(repo: Path, baseline_commit: str | None = None) -> tuple[str, str]:
+    """Order 016-c: select the artifact state and return
+    ``(state, expected_wheel_sha256)`` for EXACTLY that state.
+
+    The development state is determined and its manifest fully validated
+    BEFORE any wheel comparison: the wheel argument is compared only with
+    the frozen RC10 manifest in the frozen state and only with the
+    separate current-development provenance manifest in the development
+    state. A development wheel that differs from the frozen RC10 wheel
+    (the next changed-runtime-source round) is therefore judged against
+    the development manifest, never the frozen one. Fail closed."""
+    if _development_state_active(repo):
+        manifest = _load_dev_manifest(repo, baseline_commit)
+        return "development", str(manifest["artifacts"]["wheel"]["sha256"])
+    frozen_path = repo / "packaging" / "release_provenance_manifest.json"
+    if not frozen_path.is_file():
+        raise SessionError("frozen state without the committed frozen manifest")
+    frozen = json.loads(frozen_path.read_text(encoding="utf-8"))
+    return "frozen", str(frozen["artifacts"]["wheel"]["sha256"])
+
+
+def bind_wheel_sha256(wheel_sha256: str, expected_wheel_sha256: str, state: str) -> None:
+    """Order 016-c: compare the wheel argument with exactly the selected
+    state's expected wheel (mismatched-wheel negative, fail closed)."""
+    if wheel_sha256 != expected_wheel_sha256:
+        raise SessionError(
+            "wheel sha256 argument does not equal the committed "
+            f"{state} manifest wheel ({expected_wheel_sha256[:12]}...)"
+        )
 
 
 REGISTRY_NAME = "slaif-operator-registry"
@@ -381,29 +416,15 @@ def main() -> int:
         signing_secret = secrets.token_hex(24)
 
         # --- manifest-bound wheel (mechanical binding) ----------------------
-        # Order 016-b: state-aware binding. Frozen state: the wheel must
-        # equal the immutable RC10 manifest wheel. Development state: the
-        # wheel must equal the separate current-development provenance
-        # manifest wheel (verified fail-closed); the session then
-        # qualifies development source, never the frozen RC10 publication.
-        state = "frozen"
-        if MANIFEST.is_file():
-            manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-            recorded = str(manifest["artifacts"]["wheel"]["sha256"])
-            if recorded != args.wheel_sha256:
-                raise SessionError(
-                    "wheel sha256 argument does not equal the committed "
-                    f"manifest wheel ({recorded[:12]}...)"
-                )
-        if _development_state_active():
-            state = "development"
-            dev_manifest = _load_dev_manifest()
-            recorded_dev = str(dev_manifest["artifacts"]["wheel"]["sha256"])
-            if recorded_dev != args.wheel_sha256:
-                raise SessionError(
-                    "wheel sha256 argument does not equal the committed "
-                    f"development manifest wheel ({recorded_dev[:12]}...)"
-                )
+        # Order 016-c: the artifact state is selected and fully validated
+        # FIRST (frozen vs development, fail closed), and only then is the
+        # wheel argument compared with EXACTLY that state's expected
+        # wheel. Development state: the wheel must equal the separate
+        # current-development provenance manifest wheel (verified fail
+        # closed); the session then qualifies development source, never
+        # the frozen RC10 publication.
+        state, expected_wheel = select_artifact_state(REPO_ROOT)
+        bind_wheel_sha256(args.wheel_sha256, expected_wheel, state)
         note(
             "wheel-binding",
             "PASSED",

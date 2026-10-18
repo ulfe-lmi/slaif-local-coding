@@ -28,10 +28,14 @@ Three distinct claims are tracked and must never be conflated:
 
 Criterion state values are `NOT RUN`, `PENDING`, `IN PROGRESS`, `PASSED`,
 `FAILED`, or `BLOCKED`. A criterion is `PASSED` only when all three claims are
-satisfied for that criterion; a root-only or counter-only result never passes
-a dependency criterion (O01/O02 law). Unit/fake-upstream, actual-model,
-genuine-Codex, native-compaction and artifact qualification are distinct
-evidence layers; none substitutes for another.
+satisfied for that criterion — that is, only after its own required
+evidence layers pass and are reviewed. Pure/unit/fake-upstream criteria may
+be proven by their named layers; actual-model, genuine-Codex, native-
+compaction and artifact claims require their distinct evidence. A root-only
+or counter-only result never passes a dependency criterion (O01/O02 law).
+Unit/fake-upstream, actual-model, genuine-Codex, native-compaction and
+artifact qualification are distinct evidence layers; none substitutes for
+another.
 
 ## Acceptance criteria matrix
 
