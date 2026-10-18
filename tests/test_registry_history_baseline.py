@@ -396,4 +396,12 @@ def test_baseline_step_records_current_pair_dynamically() -> None:
     for tag in re.findall(r'"(0\.1\.0-rc\d+)"', source):
         pytest.fail(f"inline candidate tag literal in the baseline step: {tag}")
     raw = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "rc-candidate-0.1.0-rc10" in raw
+    # Order 016-b: the built-image qualification label is state-aware and
+    # emitted from the committed provenance manifest (the frozen RC10 label
+    # in the frozen state; the deterministic development/source label in
+    # the development state). The workflow binds the image label to that
+    # emitted state and must not carry a hard-coded candidate label
+    # literal — a stale hard-coded label is exactly the drift class the
+    # state-aware contract removes.
+    assert "SLAIF_QUALIFICATION_LABEL" in raw
+    assert "rc-candidate-" not in raw

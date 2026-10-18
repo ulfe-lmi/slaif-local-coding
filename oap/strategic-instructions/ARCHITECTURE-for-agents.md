@@ -10,7 +10,7 @@ Private adapter makes ordinary Codex/OpenAI clients reliable against constrained
 local models. Production path:
 
 ```text
-client -> slaif-api-gateway -> this adapter -> private vLLM/Qwen
+client -> separate slaif-api-gateway -> this adapter -> private vLLM/Qwen
 ```
 
 Gateway is separate repo and owns public keys, permissions, quotas, accounting,
@@ -18,12 +18,37 @@ routes, admin/TLS. This repo owns model-specific request adaptation,
 constitutional compilation/cache/injection, local-model packaging/tests. Never
 merge these responsibilities or copy gateway code silently.
 
+## Cache profile scope (normative target)
+
+The human-approved dependency-bundle cache rework is the **normative target**
+for governance context state: the opt-in `dependency-bundles-v1` profile.
+Requirements: the ten approved rules in `docs/CACHE-REWORK.md`. Resolved
+engineering choices: `docs/CACHE-IMPLEMENTATION-PLAN.md`. Delivery and
+acceptance state: `docs/CACHE-REWORK-LEDGER.md`.
+
+The currently implemented behavior is the explicitly named **legacy**
+profile: evidence-based root detection, root-declared narrow dependency
+acquisition, filesystem-backed derived cache (TTL/LRU, content-addressed,
+disposable), additive constitution injection, and process-local rehydration.
+Legacy remains in effect until the v1 migration is qualified. Laws below that
+are marked legacy apply only to it; they do not constrain the v1 profile, and
+v1 laws do not retroactively reinterpret legacy settings. Never silently
+reinterpret a legacy setting as v1, and never present legacy behavior as v1
+delivery. Conflicting legacy cache/TTL/byte-budget settings under v1 are
+configuration errors, not silent fallbacks. The profile is independent of
+image policy; both profiles preserve every image, Gateway, API and
+protected-service law in this file. Until the ledger shows otherwise, all v1
+runtime claims are `NOT RUN`.
+
 ## Required stack
 
 Python 3.12; `uv` locked/frozen; FastAPI/Starlette ASGI; HTTPX async streaming;
 Pydantic settings/contracts; Uvicorn; pytest/pytest-asyncio + fake upstream;
 Ruff + mypy; Prometheus-compatible private metrics. Separate repo venv; no torch,
-model loading, image decode, or duplicate vLLM process in adapter.
+model loading, image decode, or duplicate vLLM process in adapter. The v1
+profile adds one pinned CPU-only actual-model tokenizer artifact
+(version/digest bound to cache identity) in its tokenizer stage; it adds no
+model weights, torch, or image decoding.
 
 ## APIs
 
@@ -31,9 +56,15 @@ Own `/healthz`, `/readyz`, private `/metrics`. Faithfully proxy at least
 `/health`, `/v1/models`, `/v1/responses`, `/v1/chat/completions`. Preserve
 status/errors/ordinary function tools/usage/SSE order/disconnect; no response
 buffering. Parse bounded JSON only where transformation applies. Remove
-hop-by-hop and spoofed internal headers. No raw payload logging.
+hop-by-hop and spoofed internal headers. No raw payload logging. Upstream
+HTTP-error causes are classified privately before close: bounded byte/time
+diagnostic read, closed reason enum, status-derived categories without body
+read, dedicated low-cardinality counter; the public status, generic body, and
+safe headers never change and provider text never crosses the boundary.
 
 ## Ordered request pipeline
+
+Legacy implemented pipeline (current behavior):
 
 1. Build trusted request context: request ID, endpoint, route/model, opaque
    principal, session discriminator, streaming, internal compiler-bypass.
@@ -47,6 +78,26 @@ hop-by-hop and spoofed internal headers. No raw payload logging.
 
 Compiler calls bypass this pipeline and call upstream directly; never recurse.
 
+V1 planned commit order (normative target; not yet implemented):
+
+1. Authenticate; resolve namespace, route, effective context contract and
+   admission mode.
+2. Apply the unchanged image policy; validate the supported JSON envelope.
+3. Locate root/file observations and exact outer source spans; pair tool
+   results by call ID.
+4. Update the versioned graph; assess bundle admission (lean/greedy).
+5. Resolve hits or compile misses into valid RAM entries; invalidate stale
+   state.
+6. Select a complete in-budget working set; construct the source-replacement
+   plan.
+7. Commit only when replacements, references, selected content and session
+   state agree; serialize and forward the request exactly once.
+8. Stream the response unchanged; record actual transform/usage outcomes.
+
+V1 replacement plus required compiled injection is one transaction: the
+adapter never deletes the only available governing content and then discovers
+that compilation, checkpointing or budget selection failed.
+
 ## Image law
 
 Route declares `max_images_per_request` and policy
@@ -59,16 +110,18 @@ route; use reject route, never claim semantic equivalence.
 
 Existing localhost proxy is reference/proven behavior only. Integrate its pure
 algorithm into shared adapter; no separate client proxy in final topology.
+Image policy is ordered before and independent of both cache profiles.
 
-## Constitution law
+## Constitution law (legacy profile, implemented)
 
 `AGENTS.md` is constitutional root only when envelope/path evidence supports it:
 Codex project-instruction marker, input-file filename, or paired file-read tool
 result. Arbitrary mention is insufficient. Hash exact observed bytes.
 
-Before model call deterministically enumerate candidate repository paths from
-Markdown links, backticks/quotes/path-like strings and normative-neighbor text;
-preserve every candidate+evidence; reject URL/absolute/traversal. Model may rank,
+Legacy dependency acquisition is root-declared and narrowly observed:
+deterministic candidate enumeration from Markdown links, backticks/quotes/
+path-like strings and normative-neighbor text; preserve every
+candidate+evidence; reject URL/absolute/traversal. The model may rank,
 not silently erase candidates.
 
 On source/compiler cache miss, one bounded text-only internal Qwen call returns
@@ -89,12 +142,185 @@ full-source reread triggers
 
 Never use one ambiguous score. Compiler has no tools/network/filesystem/gateway
 key; treats source as data; max one concurrent call; strict size/time/output;
-invalid output never cached valid.
+invalid output never cached valid. Legacy adaptive truncation behavior
+(`compiler-v3`: typed `finish_reason="length"` decided before content
+validation, `min(prev*2, ceiling)` allowance, fingerprint/cache/rehydration
+binding) is legacy-scoped and does not carry over to v1.
 
 Referenced content is unavailable until it crosses API boundary. Missing P0/P1
 causes injected instruction to read exact file with ordinary Codex local tools
 before substantive mutation. When paired path/content tool output arrives,
 hash/compile/update graph incrementally. Adapter never reads client filesystem.
+
+## Dependency-bundle cache law (v1 profile, normative target)
+
+Not implemented in this stage; every statement is the approved target contract.
+
+**Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
+scope. Detection uses the versioned Codex user-message envelope with exact
+content offsets and duplicate/malformed-marker handling; the optional
+environment-context tail is excluded from source bytes. Arbitrary text,
+assistant claims or tool descriptions never establish a root. Repeated
+byte- and scope-identical root envelopes of the same root are idempotent and
+deduplicated; distinct competing effective roots or a workspace-scope change
+fail explicitly (never choosing one or resetting).
+
+**Recursive graph.** Directed edges are discovered from raw observed source
+before semantic compilation: explicit Markdown links, reference definitions,
+backticked filenames and supported plain-text `.md` paths under the no-spaces
+convention. References resolve relative to the **referring document's**
+directory inside the evidenced workspace. Shared nodes, cycles and missing
+content are preserved; iteration reaches a fixed point as new raw content
+arrives. A reference establishes eligibility, not possession of content;
+unread reachable nodes are `DISCOVERED_CONTENT_MISSING`. Lexical normalization
+never escapes the evidenced workspace or touches the adapter filesystem;
+external URLs are not repository dependencies. Where a boundaryless multi-
+directory bundle leaves origin ambiguous, retain an unresolved-origin
+candidate; never invent a source file or graph edge.
+
+**Read observation.** Supported file-read tool calls are recognized with a
+bounded literal shell-read grammar that is parsed, never executed. Support is
+earned per command family and wrapper; complete outer spans and executed
+member sets are mandatory, internal A/B boundaries optional. Call/result
+pairing uses call IDs and multi-chunk completion proof. Per-command execution
+evidence is distinct from the global exit status. Unknown, partial or
+truncated output never becomes complete; a typed unsupported observation
+preserves the uncertain span and exposes a limitation. Client-workspace
+absolute paths normalize to repository-relative form only under proven
+workspace context; they never become adapter-host reads.
+
+**Admission.** `lean` admits a whole bundle only when every member is
+graph-eligible and may admit an isolated eligible portion when boundaries are
+proven; `greedy` admits the whole bundle when at least one member is
+graph-eligible. Neither admits an arbitrary unrelated single file. The mode
+is explicit, recorded in configuration, cache identity and recovery state,
+immutable within a session configuration identity, and defaults to `lean`.
+Greedy co-cached members keep background provenance: they cannot acquire root
+or system authority by co-occurrence. The explicit reference policy is fixed:
+off-graph members do not expand governing reachability until independently
+reachable, and no outgoing reference of an off-graph member is followed before
+that member is independently graph-eligible. A boundaryless mixed-eligibility
+bundle with a common directory still has unknown eligible reference origin
+when the applicable directory is not demonstrably shared; retain an
+unresolved-origin candidate set and never assume the common directory.
+
+**Identity, replay and overlap.** An entry identity binds at least:
+authenticated principal, stable session, repository/workspace, route/model,
+ordered normalized member references, exact bundle-content digest,
+parser/evidence/admission versions, graph/root scope, compiler model/revision
+and prompt/schema/semantic-policy versions, tokenizer identity,
+effective-context/insertion-budget configuration, and render-format versions.
+`[A,B]`, `[A]` and `[B]` are independent entries; `[A,B]` and `[B,A]` are
+distinct when order differs. Unknown individual member versions stay unknown;
+a whole-bundle digest is never labeled as each member's hash. A reverse
+member-path index invalidates overlapping entries and versioned graph edges
+when a new version arrives. A fresh standalone observation with unknown older bundle-member ownership
+invalidates the older boundaryless bundle conservatively: the bundle is marked
+stale/conflicting without inventing a proven incompatibility or per-file
+hashes; never splice unidentified bytes. Observations
+deduplicate at a monotonic session revision; replayed history cannot roll
+state back, and a deliberate revert requires a genuinely new observed
+occurrence. Repeated file operands do not inflate slot width.
+
+**Insertion budgets.** Effective context `C` is explicitly configured from a
+validated route/session contract — never inferred from the serving maximum or
+an executor profile. Base slot = `floor(C/32)`; bundle width = number of
+distinct represented members; allowance = width × slot. An aggregate injection
+limit (initial `floor(C/4)`) plus explicit reserves (generation
+`max(4096, floor(C/8))`, tools 2048, uncertainty/template 1024; all
+configurable and identity-bound) cap total injected content. Tokens are
+counted with the pinned actual model tokenizer over the final rendered block
+including references and metadata; byte/character heuristics are diagnostics
+only. Per-file slots never authorize unbounded injection; compiled output over
+its allowance is invalid for that allowance; required working-set overflow
+returns a typed failure, never silent truncation or dangling required
+references. Unknown or mismatched tokenizer/context/vision capability rejects
+v1 readiness or the request.
+
+**Compilation.** The compiler is a direct authenticated tool-free
+non-recursive upstream channel that treats source as data; max one concurrent
+compiler leader by default; single-flight per full key. Compile once per
+unchanged bundle/version/configuration/live cache epoch. V1 has no automatic
+infrastructure/schema/truncation retry: failed, cancelled, truncated or
+over-budget results are invalid and explicitly reported; they are never cache
+entries, never reported as hits, and never best-of-replayed. Recovery
+recompilation is separate work with a new epoch and recorded reason. Compiler
+semantic output preserves governing scopes, MUST/MUST_NOT/NEVER strength,
+exceptions, conflicts, all deterministic candidates, and separate
+reference-confidence from constitutional-priority.
+
+**RAM ownership.** All live graph, index, source-version, compiled-entry,
+selection and single-flight state lives in Python memory per session. Normal
+hits, rendering, selection and reinjection never read or deserialize
+checkpoint content, including files in `/dev/shm`; moving a file cache to
+tmpfs does not satisfy this. There is no active-session TTL/LRU or
+capacity-driven eviction of stored entries; insertion-budget pressure selects
+fewer entries without evicting or forcing recompilation. One service worker
+and one live owner per session in v1; unsupported multi-worker configuration
+is rejected. Explicit configurable process and per-session safety ceilings
+(initial documented recommendations 512 MiB and 128 MiB) bound admission;
+they account owned cache state (cache occupancy), not a guarantee of total
+process RSS; pressure returns a fixed 503 with existing state preserved. Cleanup happens
+only through explicit session teardown or authorized retention cleanup, never
+a hidden eviction loop.
+
+**Recovery.** Per-session protected recovery is an explicit configuration
+opt-in and is mandatory for an enabled `dependency-bundles-v1` profile (an
+enabled v1 profile without recovery is a configuration error, not a supported
+mode); it is likewise mandatory for v1 qualification. It retains the exact
+extracted source bytes of the admitted original bundles plus the necessary
+provenance — never environment-context tails or full transport envelopes — and
+not whole conversations, images, transport credentials or unrelated tool
+output — in a protected per-session namespace
+(directory 0700, file 0600, current owner, no symlink or path escape) with
+atomic generation publication, integrity digests, and fsync of file and
+directory before committing any request that newly relies on that generation.
+A failed checkpoint aborts that transformation. After restart, only a resumed
+authenticated session's record is read; full binding/configuration/schema/
+integrity validation precedes RAM reconstruction in a new cache epoch. Needed
+valid bundles recompile lazily once per epoch under bounded concurrency, and
+no main request forwards with unresolved required entries. Recovery originals
+are never read on normal hits and never sent to the main model as a hidden
+fallback; invalid historical originals remain evidence only. No automatic
+dormant-session scan/recompile or automatic timed deletion; retention,
+secure storage and any required filesystem encryption are operator-owned and
+stated explicitly.
+
+**Transactional replacement.** Source replacement is a pure versioned
+exact-span edit plan coordinated with session state: it preserves tool call
+IDs/names/arguments/order/status, prefix/suffix, ordinary text, images and API
+envelopes; it replaces evidenced root and eligible read-content spans only
+after compilation, selection and durable checkpoint preparation succeed; and
+opaque namespace-bound references always accompany usable required compiled
+content. Original source roles and authority stay explicit in compiled blocks;
+off-graph greedy content never becomes system instruction. Unknown, forged,
+cross-session or stale references are rejected. Replayed originals are
+replaced again using RAM hits; transformed inputs are idempotent. Endpoint-
+specific placement (Responses `instructions`, Chat stable system location) is
+tested for authority preservation; adding text at a higher API role must not
+promote off-graph content.
+
+**Failure contract.** An unsupported or uncertain untransformed source may
+pass unchanged with a fixed observable limitation, without claiming
+acquisition or replacement. Once an admitted required transformation needs
+compilation/checkpoint/state, failure rejects or defers with a sanitized
+typed status: 503 (infrastructure/recovery/resource), 409 (version/scope
+conflict), 422 (budget/invalid transform). The adapter never forwards dangling
+virtual references, silently drops governance, loads disk originals for the
+main model, or automatically replays a forwarded request. Disconnect cancels
+owned upstream work; single-flight followers never cancel another request's
+live leader. Authentication and image policy remain ordered and independent.
+
+**Observability.** Fixed enums, counts and timings; no private filenames,
+digests, session values or cache IDs in metric labels. Independently exposed
+stages: root recognition, actual content acquisition, graph admission, first
+compilation, RAM hit, source replacement, compiled injection, source-absent
+injection, actual native compaction, restart recovery, final upstream
+acceptance. A compiler-cache hit is never a "rehydration hit". Provider usage
+and client cumulative usage are overlapping separate ledgers; compiler and
+recovery overhead are separately metered. Protected synthetic evidence may
+correlate exact requests/hashes for tests; no private corpus enters the
+repository.
 
 ## Pseudo-context/cache law
 
@@ -103,25 +329,48 @@ source override it.
 
 ```text
 L0 bounded injected manifest
-L1 compiled source indexes
+L1 compiled source indexes / compiled bundle entries
 L2 observed source text
 L3 client repository/Git/GitHub authority
 ```
 
-Default protected cache `/dev/shm/slaif-local-coding`, fallback protected XDG
-cache; atomic files; dirs 0700/files 0600; content-addressed; hard total/per-entry
-bytes; TTL+LRU; separate bounded pinned P0/P1. Identity includes opaque principal,
-session/repository discriminator, source hash, compiler/schema/model/policy/
-render versions. Never cross principals. Raw source persistence off by default.
-Purge/rebuild must lose no authoritative information.
+Legacy profile: bounded filesystem derived cache at protected
+`/dev/shm/slaif-local-coding` with protected XDG fallback; atomic files;
+dirs 0700/files 0600; reject symlinks and foreign-owned paths; content-
+addressed; hard total/per-entry bytes; bounded startup scan; TTL+LRU;
+separate bounded pinned P0/P1; process-local rehydration map. This legacy
+storage law applies only while the legacy profile serves.
 
-Working-set order: P0 root; acquired P1; missing P1 acquisition list; relevant
-P2/P3 if budget. Stable deterministic ordering for prefix cache. Hard injected
-byte limit. Marker says reconstructed context, sources authoritative. Inject on
-every request, including after compaction. Do not expose cache mechanics/secrets.
+V1 profile: RAM working entries per the dependency-bundle cache law above; no
+TTL/LRU or capacity eviction of live-session state; separate per-session
+protected recovery/evidence records. The recovery store is the narrow,
+explicitly opted-in exception to the raw-source-persistence prohibition:
+protected store only, exact observed original bundles and derived metadata
+only, never transport credentials or credential-bearing wrappers, with
+restricted ownership/permissions, integrity, explicit retention/deletion and
+stated encryption prerequisites. Detectable forbidden credentials cause
+typed rejection/quarantine without logging content; the adapter does not
+claim complete secret detection and does not silently redact while claiming
+exact fidelity.
 
-Compiler/cache failure: preserve original governance-bearing request when safe;
-never silently delete law. Image enforcement remains independent.
+Identity includes opaque principal, session/repository discriminator, source
+hash, compiler/schema/model/policy/render versions, tokenizer and budget
+identity, and all deterministic source/prompt/output/candidate/depth/
+reasoning bounds. Never cross principals. No raw external key as cache
+identity. External caller headers cannot assert trusted principal/route/
+compiler-bypass state; production identity comes from authenticated/signed
+internal gateway metadata. Raw source persistence off by default: v1 recovery
+retention is enabled only by explicit operator configuration.
+
+Working-set order (both profiles): P0 root; acquired P1; missing P1
+acquisition list; relevant P2/P3 if budget. Stable deterministic ordering for
+prefix cache. Hard injected limit. Marker says reconstructed context, sources
+authoritative. Inject on every request, including after compaction. Do not
+expose cache mechanics/secrets.
+
+Compiler/cache failure: legacy preserves the original governance-bearing
+request when safe; v1 follows its explicit failure contract. Neither profile
+silently deletes law. Image enforcement remains independent.
 
 ## Identity/security
 
@@ -130,10 +379,19 @@ signed opaque principal/session/route; strips caller spoofing. Raw external key
 never cache key. MVP single-user fallback may use principal+route+best session+
 root hash; absent reliable identity means no cross-request reuse beyond current
 observed content. Multi-user release requires signed identity contract.
+V1 binds every state object to the namespace of authenticated principal,
+stable session, repository/workspace, route/model and full parser/compiler/
+tokenizer/render/budget configuration identity. Initially one effective
+root/workspace scope per v1 namespace; duplicate effective roots or a
+workspace transition fail explicitly rather than choosing or resetting.
+Unsigned header identity and anonymous shared cache are not supported.
 
 Never log/store raw prompts, source, images, tool output, bodies, auth, keys,
-cookies, private URLs. Metrics only counts/timings/states. Sanitize errors. Bound
-body/source/output/cache. Cancel upstream on disconnect.
+cookies, private URLs in operational logs/metrics. Metrics only counts/
+timings/states with sanitized labels. V1 recovery records follow the
+recovery store rules above. Bound request/source/compiler output/
+cache/TTL/concurrency (legacy) and RAM ceilings/backpressure (v1).
+Cancel upstream on disconnect.
 
 ## Live-host protection
 
@@ -143,45 +401,76 @@ Canonical paths:
 REPO=/synology/homes/janezp/codex-work/slaif-local-coding
 STRATEGIC=/synology/homes/janezp/codex-supervision/slaif-local-coding
 QWEN=/synology/homes/janezp/qwen-serving
-UPSTREAM=http://10.8.132.76:18020/v1
+UPSTREAM=http://127.0.0.1:18020/v1
 DEV_ADAPTER=127.0.0.1:18031
 ```
 
-Verify live facts first; historical docs are evidence only. No pre-existing image
-proxy or port-18021 service is assumed. Development/candidate service MUST use
-18031 unless an order explicitly selects another verified-free port. Without
-explicit active service-mutation order NEVER stop/change `qwen-serving`, model/
-checkpoint/patches, API-key files, systemd units, VPN/firewall/network binding,
-port 18020, or launch flags. Passwordless sudo permits safe repo-local tools/services, not protected
+Verify live facts first; historical docs are evidence only. The canonical value
+above is the preferred same-host upstream on `hinton1`; `http://10.8.132.75`
+is the optional LAN alternative, while `http://10.8.132.76` is historical
+provenance. No pre-existing image proxy or port-18021 service is assumed.
+Development/candidate service MUST use
+18031 unless a work order explicitly selects another free port. Without explicit
+active service-mutation order NEVER stop/change `qwen-serving`, model/checkpoint/
+patches, API-key files, systemd units, VPN/firewall/network binding, port 18020,
+or launch flags. Passwordless sudo permits safe repo-local tools/services, not protected
 fixture mutation. No direct public vLLM.
 
 ## Resource law
 
 RTX 3090/24 GB tight: adapter CPU-only; one compiler call default; deduplicate
 same misses; bounded live tests; no image decode/re-encode; stream bodies/
-responses where possible; cache MB not GB; no duplicate model; backpressure/
-timeout on saturation. Internal compiler overhead separately metered.
+responses where possible; no duplicate model; backpressure/
+timeout on saturation. Internal compiler overhead separately metered. V1 adds
+explicit RAM safety ceilings with fixed 503 backpressure instead of eviction,
+a pinned CPU-only tokenizer artifact, and per-session recovery write bounds;
+recovery disk use is bounded retention, not a hot path.
 
 ## Failure law
 
 - upstream unavailable -> sanitized 502/503, readiness fail;
 - malformed transform JSON -> explicit 4xx, no unsafe bypass;
-- compiler error -> original semantics/fallback, no governance deletion;
-- cache error -> operate unoptimized;
+- compiler error -> legacy: original semantics/fallback, no governance
+  deletion; v1: typed invalid result, no cache entry, no retry, no hidden
+  original fallback;
+- cache error -> legacy: operate unoptimized; v1: explicit backpressure or
+  typed rejection, no hidden disk hot path;
 - over-limit image -> configured transform or deterministic reject;
 - missing identity -> no cross-tenant reuse;
 - disconnect -> close/cancel upstream;
-- unknown policy/capability -> fail startup/readiness, not guess.
+- unknown policy/capability -> fail startup/readiness, not guess;
+- v1 source/version conflict -> affected bundles stale/conflicting, 409;
+- v1 budget/overflow -> typed 422, no silent truncation or dangling required
+  references;
+- v1 RAM exhaustion -> visible fixed 503, state preserved, no eviction churn;
+- v1 checkpoint failure -> that transformation aborts; resume validates or
+  fails explicitly.
 
 ## Verification law
 
 Required layers: pure unit; fake-upstream contract/SSE/errors/disconnect;
-image zero/one/multiple; AGENTS detection/candidate evidence/schema/cache/
-invalidation/budget/isolation/injection/failure; bounded live vLLM text/tool/
-stream/multiturn/vision/two-image/compiler/cache; actual Codex long-AGENTS +
-full-image→crop + compaction/history reduction; secret/raw-log scans.
+image zero/one/multiple; AGENTS detection/candidate evidence/schema/compiler/
+cache/invalidation/budget/isolation/injection/failure (legacy profile);
+bounded live vLLM text/tool/stream/multiturn/vision/two-image/compiler/cache;
+actual Codex long-AGENTS + full-image→crop + compaction/history reduction;
+secret/raw-log scans.
+
+Planned v1 layers (gates in `docs/CACHE-REWORK-LEDGER.md`, all `NOT RUN` until
+their stage lands): versioned real-format root/read/span fixtures (D);
+recursive graph, lean/greedy admission, overlap/replay invalidation (G/C);
+RAM ownership, single-flight, capacity/backpressure (C03/M01/M04/M05);
+protected recovery positives and corrupt/torn/foreign/config-mismatch
+negatives (M02–M04); pinned-tokenizer budget and compiler failure/no-retry/
+compile-once behavior (B, C03); transactional replacement with actual
+upstream-body proof and idempotence/forgery negatives (R, S02); full-stack
+adversarial/lifecycle/isolation/cancellation matrix (S, O); bounded
+actual-model and genuine-Codex qualification (O). Full request tests verify
+the actual upstream body; counter flags or configuration values alone never
+prove original removal or compiled delivery.
+
 Exact status labels; skipped/pending/missing/not-run never pass. Green CI required,
-not sufficient.
+not sufficient. RC10 is the historical baseline for the rework, not a
+rework-qualified artifact.
 
 ## Packaging/cutover
 
@@ -190,11 +479,26 @@ safe logs. OCI/Compose later. Separate explicit accepted cutover backs up old
 unit/profile, tests candidate, switches gateway/profile, proves rollback, never
 cuts off active coding turn. Model weights never in Git. Pin/provenance/license
 all components; prominently credit Apache-2.0
-`syv-ai/qwen38-27b-rtx3090`; preserve notices/modified-file markers.
+`syv-ai/qwen38-27b-rtx3090`; preserve notices/modified-file markers. Frozen
+published RC records (RC10 and earlier) are immutable: development changes to
+artifact inputs require the development-state provenance contract, never a
+rewrite of published records.
 
-## Planned objective boundaries
+## Objective boundaries
 
-000 pass-through+image policy/live fixtures; 001 detection+deterministic paths;
-002 compiler+cache; 003 injection/acquisition/rehydration; 004 real Codex+security/
-ops; 005 gateway+cutover; 006 SME package/release. Strategy may revise only from
-verified evidence. One numeric objective=one PR; coding never merges.
+Merged (verified 2026-09-14): 000 pass-through+image policy/live fixtures
+(PR #1); 001 detection+deterministic paths (PR #2); 002 compiler+cache
+(PR #3); 003 injection/acquisition/rehydration (PR #4/#5); 004 real
+Codex+security/ops (PR #6, real-E2E accepted fixture-scoped); 005 gateway
+integration+cutover contract (PR #7; the live cutover itself remains a
+separate human-authorized act); 006 signed-request replay hardening (PR #8);
+007 current Gateway contract CI (PR #9); 008 durable acceptance evidence
+(PR #10). Objectives 009–015 are merged through PR #22 (the release-candidate
+line; it concluded with the private RC10 candidate). Cutover NOT
+performed; NOT released. Objective 016 (open PR): dependency-bundle cache
+rework contracts — handoff, plan, reconciled architecture/law, stage ledger.
+Objectives 017–024 are the planned inert draft succession for the v1
+implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
+planned meanings of numeric 006-008 are historical planning prose, not live
+identifiers. Strategy may revise only from verified evidence. One numeric
+objective=one PR; coding never merges.

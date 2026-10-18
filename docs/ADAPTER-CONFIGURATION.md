@@ -438,9 +438,10 @@ Planned requirements:
 - Session namespace/ownership (one service worker and one live owner per
   session; unsupported multi-worker configuration rejected) and explicit
   process/per-session RAM safety ceilings with fixed backpressure.
-- Explicit per-session restart-recovery opt-in, protected location, atomic
-  generation publication, retention/deletion semantics, and stated encryption
-  prerequisites.
+- Explicit per-session restart-recovery opt-in, mandatory for an enabled v1
+  profile (the profile is not a supported configuration without it), with
+  protected location, atomic generation publication, retention/deletion
+  semantics, and stated encryption prerequisites.
 - Explicit unsupported-read, compile-failure, source-conflict and overflow
   behavior (typed 503/409/422), with no hidden raw-source fallback.
 - Finite parser/request limits and explicit resource-pressure behavior.
@@ -457,7 +458,7 @@ slot_divisor = 32
 active_session_retention = "retain_entries"
 
 [context_cache.recovery]
-enabled = true
+enabled = true   # mandatory for the v1 profile
 load_policy = "on_session_resume_after_restart"
 rebuild_compiled_entries = true
 ```

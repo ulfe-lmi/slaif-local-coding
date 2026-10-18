@@ -78,6 +78,57 @@ FAKE_SERVER = REPO_ROOT / "scripts" / "fake_upstream_server.py"
 # Protected-host boundary: these listeners must be ABSENT for this
 # disposable qualification to run at all (fail closed, never touch).
 PROTECTED_PORTS = (18020, 18021)
+DEV_MANIFEST = REPO_ROOT / "packaging" / "dev_provenance_manifest.json"
+
+
+def _development_state_active() -> bool:
+    """Order 016-b: true when the current source differs from the frozen
+    RC10 publication (a development manifest is then mandatory)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import dev_provenance_manifest as dev_mod
+
+    try:
+        head = (
+            subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                capture_output=True,
+                check=True,
+            )
+            .stdout.decode()
+            .strip()
+        )
+        state, _frozen = dev_mod.current_state(REPO_ROOT, head)
+        return state == "development"
+    except dev_mod.DevProvenanceError as exc:
+        raise SessionError(f"development state check failed: {exc}") from exc
+
+
+def _load_dev_manifest() -> dict:
+    """Order 016-b: load and verify the development manifest (fail closed)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    import dev_provenance_manifest as dev_mod
+
+    if not DEV_MANIFEST.is_file():
+        raise SessionError("development state without a development manifest (order 016-b)")
+    manifest = dev_mod.load_dev_manifest(REPO_ROOT)
+    if manifest is None:
+        raise SessionError("development state without a development manifest")
+    head = (
+        subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+            capture_output=True,
+            check=True,
+        )
+        .stdout.decode()
+        .strip()
+    )
+    try:
+        dev_mod.verify_development(REPO_ROOT, head, manifest)
+    except dev_mod.DevProvenanceError as exc:
+        raise SessionError(f"development manifest invalid: {exc}") from exc
+    return manifest
+
+
 REGISTRY_NAME = "slaif-operator-registry"
 REGISTRY_IMAGE = "registry:2"
 PUSH_DIGEST_LINE_RE = re.compile(
@@ -330,6 +381,12 @@ def main() -> int:
         signing_secret = secrets.token_hex(24)
 
         # --- manifest-bound wheel (mechanical binding) ----------------------
+        # Order 016-b: state-aware binding. Frozen state: the wheel must
+        # equal the immutable RC10 manifest wheel. Development state: the
+        # wheel must equal the separate current-development provenance
+        # manifest wheel (verified fail-closed); the session then
+        # qualifies development source, never the frozen RC10 publication.
+        state = "frozen"
         if MANIFEST.is_file():
             manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
             recorded = str(manifest["artifacts"]["wheel"]["sha256"])
@@ -338,7 +395,20 @@ def main() -> int:
                     "wheel sha256 argument does not equal the committed "
                     f"manifest wheel ({recorded[:12]}...)"
                 )
-        note("wheel-binding", "PASSED", f"wheel sha256 {args.wheel_sha256[:16]}... == manifest")
+        if _development_state_active():
+            state = "development"
+            dev_manifest = _load_dev_manifest()
+            recorded_dev = str(dev_manifest["artifacts"]["wheel"]["sha256"])
+            if recorded_dev != args.wheel_sha256:
+                raise SessionError(
+                    "wheel sha256 argument does not equal the committed "
+                    f"development manifest wheel ({recorded_dev[:12]}...)"
+                )
+        note(
+            "wheel-binding",
+            "PASSED",
+            f"wheel sha256 {args.wheel_sha256[:16]}... == manifest (state={state})",
+        )
 
         # --- qualification build (development path, NOT a publication) ------
         tag_sha = args.full_sha[:12]

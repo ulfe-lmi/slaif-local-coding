@@ -305,9 +305,11 @@ as the normative target. The mechanism below is **planned, not implemented**;
 8. **Compile once per version/configuration.** Reuse a valid compiled entry for
    unchanged content; source changes invalidate affected overlapping bundles;
    never inject stale state.
-9. **Retain originals as evidence/recovery material.** Keep the exact observed
-   source bundles and provenance in a protected per-session store; do not
-   routinely return originals to model input or use them as a hidden fallback.
+9. **Retain originals as evidence/recovery material.** Keep the exact
+   extracted source bytes of the observed source bundles plus the necessary
+   provenance in a protected per-session store, mandatory for an enabled v1
+   profile; do not routinely return originals to model input or use them as a
+   hidden fallback.
 10. **Use RAM for the working cache; recover sessions from disk after
     restart.** Normal lookup/reinjection uses memory; per-session recovery
     records persist separately and are loaded only for sessions being resumed;
@@ -334,7 +336,11 @@ as the normative target. The mechanism below is **planned, not implemented**;
 - **RAM ownership, no eviction.** All live graph, version, compiled-entry and
   selection state lives in memory. There is no TTL/LRU or capacity-driven
   eviction of live-session entries; real resource exhaustion surfaces as
-  explicit backpressure or typed failure, never hidden churn or recompilation.
+  explicit backpressure or typed failure, never hidden churn or
+  recompilation. The explicit configurable RAM safety ceilings (initial
+  documented recommendations 512 MiB process / 128 MiB per session) account
+  owned cache state — cache occupancy — not a guarantee of total process
+  RSS.
 - **Transactional replacement.** Observed original spans are replaced with
   stable references and usable compiled content only after compilation,
   selection and checkpoint preparation succeed; the transformation is
@@ -342,12 +348,18 @@ as the normative target. The mechanism below is **planned, not implemented**;
   the only available governing content.
 - **Restart recovery from exact originals.** A protected per-session recovery
   record (directory `0700`, file `0600`, atomic generation, integrity-checked)
-  retains the exact admitted originals and metadata. After a restart, only a
-  resumed authenticated session is rebuilt, in a new cache epoch, with bounded
-  lazy recompilation.
+  is mandatory for an enabled v1 profile and retains the exact extracted
+  original source bytes and necessary provenance — never environment-context
+  tails or full transport envelopes. After a restart, only a resumed
+  authenticated session is rebuilt, in a new cache epoch, with bounded lazy
+  recompilation.
 - **Source-role authority is preserved.** Co-cached documents that the graph
   does not reach keep background provenance; nothing in a greedy bundle becomes
-  a governing instruction by co-occurrence.
+  a governing instruction by co-occurrence. The explicit reference policy is
+  fixed: off-graph documents do not expand governing reachability until
+  independently reachable, and a boundaryless mixed-eligibility bundle retains
+  an unresolved-origin candidate whenever the eligible reference origin is not
+  demonstrable.
 - **Explicit failure and observability.** Failure states are typed (503 /
   409 / 422), never hidden; and every stage — root recognition, content
   acquisition, graph admission, compilation, RAM hit, replacement, injection,

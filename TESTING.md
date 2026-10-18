@@ -79,9 +79,14 @@ layers, per the ledger's owning stage, are:
 - bounded actual-model and genuine-Codex qualification with synthetic
   tasks, serial bounded requests and complete teardown.
 
-All v1 runtime criteria are `NOT RUN` (planned) until their owning stage
-lands; no legacy or fixture result substitutes for them, and a recognized
-root with absent dependencies fails overall rework acceptance (O01).
+A stage-scoped synthetic unit/fake test proves its named mechanism within
+that stage; it never substitutes for actual-model, genuine-Codex,
+native-compaction or artifact qualification, and no v1 runtime criterion is
+`PASSED` on synthetic evidence alone. All v1 runtime criteria are `NOT RUN`
+(planned) until their owning stage lands, is implemented, is tested at every
+required layer, and is reviewed; no legacy or fixture result substitutes for
+them, and a recognized root with absent dependencies fails overall rework
+acceptance (O01).
 RC10 is the historical baseline for the rework, not a rework-qualified
 artifact. The planned v1 configuration surface is documented as planned
 and non-runnable in [the configuration

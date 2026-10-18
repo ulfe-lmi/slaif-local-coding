@@ -3,6 +3,9 @@
 A release candidate is identified by its exact Git source, wheel SHA-256 and
 OCI digest. Build and qualify the final documentation and code together, then
 freeze those identities. See [RC-HANDOFF.md](RC-HANDOFF.md) for retrieval.
+After a candidate is frozen, current development artifacts are validated by
+the separate [development provenance contract](DEVELOPMENT-PROVENANCE.md);
+the frozen publication records never move.
 
 ## Supported artifacts
 

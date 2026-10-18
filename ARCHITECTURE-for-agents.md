@@ -160,7 +160,10 @@ Not implemented in this stage; every statement is the approved target contract.
 scope. Detection uses the versioned Codex user-message envelope with exact
 content offsets and duplicate/malformed-marker handling; the optional
 environment-context tail is excluded from source bytes. Arbitrary text,
-assistant claims or tool descriptions never establish a root.
+assistant claims or tool descriptions never establish a root. Repeated
+byte- and scope-identical root envelopes of the same root are idempotent and
+deduplicated; distinct competing effective roots or a workspace-scope change
+fail explicitly (never choosing one or resetting).
 
 **Recursive graph.** Directed edges are discovered from raw observed source
 before semantic compilation: explicit Markdown links, reference definitions,
@@ -193,8 +196,13 @@ graph-eligible. Neither admits an arbitrary unrelated single file. The mode
 is explicit, recorded in configuration, cache identity and recovery state,
 immutable within a session configuration identity, and defaults to `lean`.
 Greedy co-cached members keep background provenance: they cannot acquire root
-or system authority by co-occurrence, and following their outgoing references
-requires an explicit policy, never a silent graph-expansion rule.
+or system authority by co-occurrence. The explicit reference policy is fixed:
+off-graph members do not expand governing reachability until independently
+reachable, and no outgoing reference of an off-graph member is followed before
+that member is independently graph-eligible. A boundaryless mixed-eligibility
+bundle with a common directory still has unknown eligible reference origin
+when the applicable directory is not demonstrably shared; retain an
+unresolved-origin candidate set and never assume the common directory.
 
 **Identity, replay and overlap.** An entry identity binds at least:
 authenticated principal, stable session, repository/workspace, route/model,
@@ -206,9 +214,10 @@ effective-context/insertion-budget configuration, and render-format versions.
 distinct when order differs. Unknown individual member versions stay unknown;
 a whole-bundle digest is never labeled as each member's hash. A reverse
 member-path index invalidates overlapping entries and versioned graph edges
-when a new version arrives. A fresh singleton incompatible with an older
-boundaryless bundle marks that bundle stale/conflicting even when equality
-cannot be disproved; never splice unidentified bytes. Observations
+when a new version arrives. A fresh standalone observation with unknown older bundle-member ownership
+invalidates the older boundaryless bundle conservatively: the bundle is marked
+stale/conflicting without inventing a proven incompatibility or per-file
+hashes; never splice unidentified bytes. Observations
 deduplicate at a monotonic session revision; replayed history cannot roll
 state back, and a deliberate revert requires a genuinely new observed
 occurrence. Repeated file operands do not inflate slot width.
@@ -250,14 +259,19 @@ fewer entries without evicting or forcing recompilation. One service worker
 and one live owner per session in v1; unsupported multi-worker configuration
 is rejected. Explicit configurable process and per-session safety ceilings
 (initial documented recommendations 512 MiB and 128 MiB) bound admission;
-pressure returns a fixed 503 with existing state preserved. Cleanup happens
+they account owned cache state (cache occupancy), not a guarantee of total
+process RSS; pressure returns a fixed 503 with existing state preserved. Cleanup happens
 only through explicit session teardown or authorized retention cleanup, never
 a hidden eviction loop.
 
-**Recovery.** Per-session protected recovery is an explicit v1 opt-in and is
-mandatory for v1 qualification. It retains the exact admitted original source
-bundles and provenance — not whole conversations, images, transport
-credentials or unrelated tool output — in a protected per-session namespace
+**Recovery.** Per-session protected recovery is an explicit configuration
+opt-in and is mandatory for an enabled `dependency-bundles-v1` profile (an
+enabled v1 profile without recovery is a configuration error, not a supported
+mode); it is likewise mandatory for v1 qualification. It retains the exact
+extracted source bytes of the admitted original bundles plus the necessary
+provenance — never environment-context tails or full transport envelopes — and
+not whole conversations, images, transport credentials or unrelated tool
+output — in a protected per-session namespace
 (directory 0700, file 0600, current owner, no symlink or path escape) with
 atomic generation publication, integrity digests, and fsync of file and
 directory before committing any request that newly relies on that generation.

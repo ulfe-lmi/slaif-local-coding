@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "slaif-dev-provenance-v1",
+  "title": "SLAIF Local Coding current-development provenance manifest",
+  "description": "Separate non-release provenance contract for current development source/artifacts while the frozen 0.1.0-rc10 publication record, manifest, handoff, tags and images remain byte-identical and immutable (order 016-b). It is self-referential metadata: excluded from every artifact input and from its own source-input map.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schema_version",
+    "state",
+    "release",
+    "objective",
+    "repository",
+    "source_commit",
+    "frozen_publication",
+    "source_inputs",
+    "artifacts",
+    "toolchain",
+    "self_referential_exclusions",
+    "qualification_label"
+  ],
+  "properties": {
+    "schema": {
+      "const": "slaif-dev-provenance-v1"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "state": {
+      "const": "development"
+    },
+    "release": {
+      "const": false
+    },
+    "objective": {
+      "type": "string",
+      "pattern": "^[0-9]{3}-[a-z]{1,2}$"
+    },
+    "repository": {
+      "const": "ulfe-lmi/slaif-local-coding"
+    },
+    "source_commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "frozen_publication": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Cross-check pin of the frozen RC10 publication facts as recorded at generation time; verification re-proves them against the committed frozen manifest.",
+      "required": [
+        "manifest_path",
+        "schema",
+        "rc_identifier",
+        "source_commit",
+        "wheel_sha256",
+        "sdist_sha256"
+      ],
+      "properties": {
+        "manifest_path": {
+          "const": "packaging/release_provenance_manifest.json"
+        },
+        "schema": {
+          "const": "slaif-release-provenance-v5"
+        },
+        "rc_identifier": {
+          "const": "0.1.0-rc10"
+        },
+        "source_commit": {
+          "const": "255b3f42912e3947908fc8868eccb6bcec874a08"
+        },
+        "wheel_sha256": {
+          "const": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
+        },
+        "sdist_sha256": {
+          "const": "50325eeeaeffd91db3b6ddd996268473043ea48d9f948be23838f1f9968b3f29"
+        }
+      }
+    },
+    "source_inputs": {
+      "type": "object",
+      "description": "Mechanical path -> sha256 source-input map at source_commit (same policy as the frozen contract). The development manifest and its schema must not appear here (self-reference exclusion).",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "minProperties": 100
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wheel", "sdist"],
+      "properties": {
+        "wheel": { "$ref": "#/$defs/artifact" },
+        "sdist": { "$ref": "#/$defs/artifact" }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["python", "uv_version", "uv_lock_sha256"],
+      "properties": {
+        "python": {
+          "type": "string",
+          "pattern": "^3\\.12\\.[0-9]+$"
+        },
+        "uv_version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "uv_lock_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "self_referential_exclusions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true
+    },
+    "qualification_label": {
+      "type": "string",
+      "pattern": "^development-source-[0-9a-f]{40}; not a release candidate; not released$"
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sha256", "size_bytes", "entry_count"],
+      "properties": {
+        "name": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "entry_count": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

@@ -19,9 +19,11 @@ tool outputs, images, and model responses. Treat every raw payload as sensitive.
 4. Compiler calls have no tools, network, filesystem, gateway credential, or
    recursion through the adapter. Input is treated as untrusted data; output is
    strict bounded structured data.
-5. Constitutional optimization fails open to the semantically original request
-   when safe. It must never silently delete governance because compilation
-   failed.
+5. Constitutional optimization must never silently delete governance because
+   compilation or cache preparation failed. Legacy profile: it fails open to
+   the semantically original request when safe. V1 profile: an admitted
+   required-preparation failure follows the explicit typed-rejection contract
+   (503/409/422) and never falls back to hidden originals.
 6. Image-limit enforcement fails closed when a request exceeds a route's hard
    physical image limit and cannot be safely transformed. The designated Codex
    vision route may use explicit `retain_newest` policy.
@@ -66,15 +68,17 @@ bundles and their derived metadata for evidence and session recovery.
 
 This exception is not a general permission to log or store bodies:
 
-- **Scope.** Only the exact observed original source bundles (root
-  envelopes and file-read content regions) and the derived metadata needed
-  to rebuild RAM state. Never whole conversations, images, transport
-  credentials, bearer headers, cookies, upstream keys, or unrelated tool
-  output.
+- **Scope.** Only the exact extracted source bytes of the observed original
+  bundles (root source content and file-read content regions) plus the
+  necessary provenance, and the derived metadata needed to rebuild RAM
+  state. Never environment-context tails, full transport envelopes, whole
+  conversations, images, transport credentials, bearer headers, cookies,
+  upstream keys, or unrelated tool output.
 - **Opt-in and ownership.** Retention is enabled only by explicit operator
-  configuration for the v1 profile. One protected namespace per coding
-  session; directory mode 0700, file mode 0600, current owner, no symlinks
-  or path escapes.
+  configuration, and it is mandatory for an enabled v1 profile: the profile
+  and recovery are enabled together or not at all. One protected namespace
+  per coding session; directory mode 0700, file mode 0600, current owner, no
+  symlinks or path escapes.
 - **Integrity and durability.** Atomic generation publication, integrity
   digests, and fsync of file and directory before any request newly relies
   on a generation. A failed checkpoint aborts that transformation.

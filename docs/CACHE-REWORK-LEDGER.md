@@ -7,9 +7,13 @@ rework. The requirements are the ten approved rules in
 maps every named acceptance criterion to its owning implementation stage and
 records implementation/acceptance state.
 
-This round is the bounded architecture/documentation stage. **No v1 runtime
-mechanism is implemented or qualified yet; every runtime criterion below is
-`NOT RUN` (planned).** Do not read a row in this ledger as delivered behavior.
+This objective is the bounded architecture/documentation and
+development-state stage. **No v1 runtime mechanism is implemented or
+qualified yet; every runtime criterion below is `NOT RUN` (planned).** Do
+not read a row in this ledger as delivered behavior. Stage-scoped synthetic
+unit/fake tests prove their named mechanisms within the owning stage; they
+never substitute for actual-model, genuine-Codex, native-compaction or
+artifact qualification.
 
 ## Reading this ledger
 
@@ -118,7 +122,7 @@ drafts until activated.
 
 | Objective | PR branch | Deliverable and gate | Status in this round |
 |---|---|---|---|
-| 016 | `oap/016-cache-rework-contracts` | Commit unchanged human handoff; reconcile both architectures, root/strategic agent law, security/testing/configuration docs; publish the plan and this stage ledger. Documentation-only, no runtime claim. | Active (this round) |
+| 016 | `oap/016-cache-rework-contracts` | Commit unchanged human handoff; reconcile both architectures, root/strategic agent law, security/testing/configuration docs; publish the plan and this stage ledger; establish the separate current-development provenance contract (development-state artifact validation under the intact RC10 publication freeze). No adapter-runtime implementation claim. | Continuing (016-b) |
 | 017 | `oap/017-cache-read-observation` | Versioned pure root/read/result/span evidence and real-format synthetic fixtures: D01–D10, Unicode/CRLF, bounds, no shell execution. Preserve legacy detector until integration. | Planned (inert draft) |
 | 018 | `oap/018-cache-graph-bundles` | Typed namespace/file/edge/bundle versions, recursive graph, lean/greedy admission, overlap/replay invalidation: G01–G05, C01/C02/C04–C06, S01. | Planned (inert draft) |
 | 019 | `oap/019-cache-ram-state` | RAM session ownership/indexes, explicit capacity/backpressure, async single-flight and lifecycle: C03, M01/M04/M05; zero filesystem hot lookup. | Planned (inert draft) |

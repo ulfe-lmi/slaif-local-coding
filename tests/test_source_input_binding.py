@@ -214,9 +214,22 @@ def test_verify_ref_inputs_rejects_drifted_ref(
 def test_real_repo_source_inputs_bound_to_committed_source(
     sim: types.ModuleType,
 ) -> None:
-    """Real-repository unconditional gate (order 013-j, J4): the committed
-    `source_inputs` equal the map at the recorded source A AND the map of
-    the working tree; A..HEAD touches only derived metadata or oap/."""
+    """Real-repository unconditional gate (order 013-j, J4; order 016-b
+    development-state extension).
+
+    Frozen law (always): the committed frozen `source_inputs` equal the map
+    at the recorded frozen source A, and A is an ancestor of HEAD.
+
+    Frozen state (working-tree inputs == frozen map): the working-tree map
+    equals the frozen map and A..HEAD touches only derived metadata or the
+    OAP transcript.
+
+    Development state (working-tree inputs differ from the frozen map): the
+    separate current-development provenance contract must hold instead — a
+    valid development manifest bound to the exact development source commit
+    (tests/test_dev_provenance.py owns its focused gate suite). A missing or
+    stale development manifest fails here; nothing is skipped.
+    """
     committed = json.loads(MANIFEST.read_text(encoding="utf-8"))
     recorded = committed.get("source_inputs")
     assert isinstance(recorded, dict) and recorded, (
@@ -224,7 +237,7 @@ def test_real_repo_source_inputs_bound_to_committed_source(
     )
     a = str(committed["generated_from"]["git_commit"])
     assert sim.map_from_git_commit(REPO_ROOT, a) == recorded
-    assert sim.map_from_directory(REPO_ROOT) == recorded
+    tree_map = sim.map_from_directory(REPO_ROOT)
     head = (
         subprocess.run(
             ["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
@@ -240,19 +253,36 @@ def test_real_repo_source_inputs_bound_to_committed_source(
             capture_output=True,
         )
         assert is_ancestor.returncode == 0, "source commit A is not an ancestor of HEAD"
-    diff = (
-        subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "diff", "--name-only", a, head],
-            capture_output=True,
-            check=True,
+    if tree_map == recorded:
+        # Frozen state: the original strict A..HEAD derived-only rule.
+        diff = (
+            subprocess.run(
+                ["git", "-C", str(REPO_ROOT), "diff", "--name-only", a, head],
+                capture_output=True,
+                check=True,
+            )
+            .stdout.decode()
+            .splitlines()
         )
-        .stdout.decode()
-        .splitlines()
+        for path in diff:
+            assert path in sim.DERIVED_METADATA_PATHS or path.startswith("oap/"), (
+                f"A..HEAD diff touches a non-derived path: {path}"
+            )
+        return
+    # Development state: the separate development provenance contract.
+    spec = importlib.util.spec_from_file_location(
+        "dev_provenance_binding",
+        REPO_ROOT / "scripts" / "dev_provenance_manifest.py",
     )
-    for path in diff:
-        assert path in sim.DERIVED_METADATA_PATHS or path.startswith("oap/"), (
-            f"A..HEAD diff touches a non-derived path: {path}"
-        )
+    assert spec is not None and spec.loader is not None
+    dev = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dev)
+    # verify() fails closed (raises) on any missing/invalid/stale
+    # development manifest; success proves map(at A) == map(HEAD) ==
+    # working tree, the derived-only A..HEAD diff, the self-reference
+    # exclusion and the frozen publication cross-check.
+    facts = dev.verify(REPO_ROOT)
+    assert facts["state"] == "development"
 
 
 def test_rc1_archive_is_immutable_and_excluded_from_artifact_inputs(

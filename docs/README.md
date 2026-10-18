@@ -33,6 +33,8 @@
 - [Testing](../TESTING.md): local checks, CI and fixture-dependent verification.
 - [Gateway contract CI](GATEWAY-CONTRACT-CI.md): exact peer compatibility checks.
 - [Artifact policy](RELEASE-ARTIFACT-POLICY.md): reproducibility, provenance and publication.
+- [Development provenance](DEVELOPMENT-PROVENANCE.md): current-development artifact contract
+  after the RC10 freeze (state law, development manifest, A/B binding).
 - [License](../LICENSE), [notice](../NOTICE) and [third-party attribution](../THIRD_PARTY_NOTICES.md).
 
 ## Agent instructions and engineering history
