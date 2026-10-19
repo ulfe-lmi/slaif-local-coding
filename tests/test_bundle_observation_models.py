@@ -304,3 +304,40 @@ class TestVersionConstants:
         assert ENVELOPE_FORMAT == "codex-project-instructions/v1"
         assert READ_GRAMMAR == "literal-shell-read/v1"
         assert TOOL_WRAPPER_FORMAT == "codex-exec-wrapper/v1"
+
+
+class TestOptionalCommandDigestContract:
+    """The command digest is optional only under the typed contract."""
+
+    def test_command_digest_is_explicitly_absent_for_malformed_unicode(self) -> None:
+        from slaif_local_coding.constitution.bundles import parse_read_command
+
+        result = parse_read_command("cat A\ud800.md", _CTX, 4096, 32, 256)
+        assert result.complete is False
+        assert result.reasons == (Limitation.MALFORMED_UNICODE,)
+        assert result.command_digest is None
+
+    def test_command_digest_pattern_still_enforced_when_present(self) -> None:
+        from slaif_local_coding.constitution.bundles import ReadCommandParse
+
+        with pytest.raises(ValidationError):
+            ReadCommandParse(command_digest="not-a-digest", command_length=1, complete=False)
+        assert (
+            ReadCommandParse(command_digest=None, command_length=0, complete=False).command_digest
+            is None
+        )
+
+    def test_bundle_digests_stay_absent_for_unhashable_observation(self) -> None:
+        # An unhashable (malformed-Unicode) content read carries no digest
+        # and is non-removable: it is ineligible for later graph/cache
+        # admission, and no placeholder hash is ever treated as valid.
+        obs = _read_observation(
+            outcome=ReadOutcome.UNSUPPORTED,
+            completeness=ReadOutcome.UNSUPPORTED,
+            bundle_digest=None,
+            member_digests=(),
+            removable=False,
+            reasons=(Limitation.MALFORMED_UNICODE,),
+        )
+        assert obs.bundle_digest is None
+        assert obs.removable is False

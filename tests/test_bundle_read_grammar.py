@@ -11,8 +11,10 @@ from slaif_local_coding.constitution.bundles import (
     Limitation,
     PathContext,
     ReadCommandParse,
+    UnwrappedCommand,
     parse_read_command,
     tokenize_literal,
+    unwrap_call_arguments,
     unwrap_supported_arguments,
 )
 
@@ -209,3 +211,84 @@ class TestNoShellExecution:
                 imported.add(node.module or "")
         forbidden = {"subprocess", "os", "shlex", "glob", "pathlib", "tempfile"}
         assert not (imported & forbidden), imported & forbidden
+
+
+class TestTerminatorMembership:
+    """The option terminator is processed once; a later ``--`` is a literal
+    operand and stays in the actual complete member list."""
+
+    def test_second_terminator_is_literal_operand(self) -> None:
+        result = parse("cat -- A.md -- B.md")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["A.md", "--", "B.md"]
+        assert result.reasons == ()
+
+    def test_second_terminator_is_not_classified_as_flag(self) -> None:
+        result = parse("cat -- A.md -- B.md")
+        assert Limitation.COMMAND_UNSUPPORTED not in result.reasons
+
+    def test_terminator_only_command_stays_empty(self) -> None:
+        result = parse("cat --")
+        assert result.complete is False
+        assert result.reasons == (Limitation.COMMAND_EMPTY,)
+
+    def test_second_terminator_alone_is_literal_operand(self) -> None:
+        result = parse("cat -- --")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["--"]
+
+
+class TestMalformedUnicodeCommand:
+    def test_surrogate_command_is_typed_without_digest(self) -> None:
+        result = parse_read_command("cat A\ud800.md", _CTX, 4096, 32, 256)
+        assert result.complete is False
+        assert result.reasons == (Limitation.MALFORMED_UNICODE,)
+        # No placeholder digest: the digest is explicitly absent.
+        assert result.command_digest is None
+        assert result.operands == ()
+
+    def test_valid_command_digest_still_recorded(self) -> None:
+        import hashlib
+
+        result = parse("cat A.md")
+        assert result.command_digest == hashlib.sha256(b"cat A.md").hexdigest()
+
+
+class TestCallArgumentShapes:
+    def test_cmd_object_with_workdir(self) -> None:
+        unwrapped = unwrap_call_arguments(json.dumps({"cmd": "cat A.md", "workdir": "/work/sub"}))
+        assert unwrapped == UnwrappedCommand(command="cat A.md", workdir="/work/sub")
+
+    def test_command_alias_with_workdir(self) -> None:
+        unwrapped = unwrap_call_arguments({"command": "cat A.md", "workdir": "/work/sub"})
+        assert unwrapped == UnwrappedCommand(command="cat A.md", workdir="/work/sub")
+
+    def test_argv_form_carries_no_workdir(self) -> None:
+        unwrapped = unwrap_call_arguments({"command": ["bash", "-c", "cat A.md"]})
+        assert unwrapped == UnwrappedCommand(command="cat A.md", workdir=None)
+
+    def test_workdir_without_command_is_unsupported(self) -> None:
+        assert unwrap_call_arguments({"workdir": "/work/sub"}) is None
+
+    @pytest.mark.parametrize(
+        "arguments",
+        [
+            {"cmd": "cat A.md", "workdir": 42},
+            {"cmd": "cat A.md", "workdir": ""},
+            {"cmd": "cat A.md", "workdir": None},
+            {"cmd": "cat A.md", "workdir": ["/work"]},
+        ],
+    )
+    def test_non_string_or_empty_workdir_is_unsupported(self, arguments: object) -> None:
+        assert unwrap_call_arguments(arguments) is None
+
+    def test_over_bound_argument_string_is_unsupported_without_parsing(self) -> None:
+        # Worst-case JSON of the command bound plus wrapper overhead is the
+        # declared argument bound; beyond it the shape is typed unsupported.
+        big = json.dumps({"cmd": "cat " + " ".join(f"F{i}.md" for i in range(3000))})
+        assert len(big) > 2 * 4096 + 128
+        assert unwrap_call_arguments(big, 4096) is None
+        # Within the bound it still parses (the command itself is later
+        # typed over-bound by the grammar, not by a decode failure).
+        within = json.dumps({"cmd": "cat " + "A.md " * 30})
+        assert unwrap_call_arguments(within, 4096) is not None

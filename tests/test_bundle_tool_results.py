@@ -422,3 +422,355 @@ class TestChatEquivalent:
         assert obs.call_location == "$.messages[0].tool_calls[0]"
         assert obs.result_location == "$.messages[1]"
         assert obs.proven_executed == ("A.md",)
+
+
+def call_payload(
+    command: str = "cat A.md",
+    output: str | None = None,
+    tool: str = "exec_command",
+    arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    args = arguments if arguments is not None else {"cmd": command}
+    return {
+        "input": [
+            {
+                "type": "function_call",
+                "name": tool,
+                "call_id": "synthetic-r1",
+                "arguments": json.dumps(args),
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "synthetic-r1",
+                "output": output
+                if output is not None
+                else ("Process exited with code 0\nOutput:\nsynthetic body\n"),
+            },
+        ]
+    }
+
+
+class TestRealFormatWrapper:
+    """Human handoff 6.2 real format plus the explicitly earned variant."""
+
+    def test_handoff_chunk_id_frame_is_complete_with_exact_span(self) -> None:
+        text = (
+            "Chunk ID: handoff-1\n"
+            "Wall time: 0.010 seconds\n"
+            "Process exited with code 0\n"
+            "Output:\nExact source.\n"
+        )
+        facts = parse_wrapper(text, ObservationBounds())
+        assert facts.reasons == ()
+        assert facts.exit_code == 0
+        assert facts.output_present is True
+        assert facts.output_span is not None
+        assert text[facts.output_span.start : facts.output_span.end] == "Exact source.\n"
+        assert facts.header_span is not None
+        assert text[: facts.header_span.end].endswith("Output:\n")
+
+    def test_handoff_fixture_parses_end_to_end(self) -> None:
+        payload = load("read_handoff_wrapper_format_responses.json")
+        report = observe_request(payload, context=_CTX)
+        assert len(report.reads) == 1
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.removable is True
+        output = output_of(payload)
+        assert obs.content_span is not None
+        assert output[obs.content_span.start : obs.content_span.end] == (
+            "MUST follow the exact source bytes.\n"
+        )
+        assert obs.proven_executed == ("A.md",)
+        assert report.unpaired == ()
+
+    def test_earned_chunk_id_variant_still_supported(self) -> None:
+        facts = parse_wrapper(
+            "Chunk Id: variant\nProcess exited with code 0\nOutput:\nx", ObservationBounds()
+        )
+        assert facts.reasons == ()
+        assert facts.exit_code == 0
+
+    def test_zero_byte_read_under_real_format_stays_exact(self) -> None:
+        facts = parse_wrapper(
+            "Chunk ID: z\nProcess exited with code 0\nOutput:\n", ObservationBounds()
+        )
+        assert facts.reasons == ()
+        assert facts.output_span is not None
+        assert facts.output_span.length == 0
+
+
+class TestContradictoryWrapperStatus:
+    """Repeated status fields are typed malformed — never last-field-wins."""
+
+    def test_contradictory_exit_headers_are_malformed(self) -> None:
+        facts = parse_wrapper(
+            "Process exited with code 1\nProcess exited with code 0\nOutput:\nx",
+            ObservationBounds(),
+        )
+        assert facts.reasons == (Limitation.MALFORMED_WRAPPER,)
+        assert facts.output_present is False
+        assert facts.exit_code is None
+
+    def test_contradictory_exit_headers_not_complete_at_composition(self) -> None:
+        payload = call_payload(
+            output="Process exited with code 1\nProcess exited with code 0\nOutput:\nx"
+        )
+        report = observe_request(payload, context=_CTX)
+        assert report.reads, "the read is still observed with its typed limitation"
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+        assert Limitation.MALFORMED_WRAPPER in obs.reasons
+
+    def test_contradictory_truncation_headers_are_malformed(self) -> None:
+        facts = parse_wrapper(
+            "Truncated: true\nTruncated: false\nProcess exited with code 0\nOutput:\nx",
+            ObservationBounds(),
+        )
+        assert facts.reasons == (Limitation.MALFORMED_WRAPPER,)
+
+    def test_repeated_identical_exit_header_is_malformed(self) -> None:
+        # The versioned wrapper carries each status field exactly once;
+        # even an identical repeat is out-of-contract, not a completion
+        # proof by the last occurrence.
+        facts = parse_wrapper(
+            "Process exited with code 0\nProcess exited with code 0\nOutput:\nx",
+            ObservationBounds(),
+        )
+        assert facts.reasons == (Limitation.MALFORMED_WRAPPER,)
+
+    def test_single_status_fields_remain_complete(self) -> None:
+        facts = parse_wrapper(
+            "Chunk ID: a\nWall time: 0.1 seconds\nProcess exited with code 0\n"
+            "Truncated: false\nOutput:\nx",
+            ObservationBounds(),
+        )
+        assert facts.reasons == ()
+        assert facts.exit_code == 0
+
+
+class TestWrapperBoundsAndGrammar:
+    def test_header_line_bound_enforced_before_frame(self) -> None:
+        text = "Wall time: synthetic\n" * 9 + "Process exited with code 0\nOutput:\nx"
+        facts = parse_wrapper(text, ObservationBounds(max_wrapper_header_lines=8))
+        assert facts.reasons == (Limitation.OVER_BOUND,)
+        assert facts.output_present is False
+
+    def test_header_line_bound_exact_limit_is_accepted(self) -> None:
+        # 7 metadata lines + the exit line = 8 header lines: at the limit.
+        text = "Wall time: synthetic\n" * 7 + "Process exited with code 0\nOutput:\nx"
+        facts = parse_wrapper(text, ObservationBounds(max_wrapper_header_lines=8))
+        assert facts.reasons == ()
+        assert facts.exit_code == 0
+
+    def test_header_line_bound_over_bound_at_composition(self) -> None:
+        text = "Wall time: synthetic\n" * 9 + "Process exited with code 0\nOutput:\nx"
+        payload = call_payload(output=text)
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert Limitation.OVER_BOUND in obs.reasons
+
+    def test_unicode_digit_exit_is_typed_not_crash(self) -> None:
+        facts = parse_wrapper(
+            "Process exited with code \u00b2\nOutput:\nsynthetic", ObservationBounds()
+        )
+        assert facts.output_present is False
+        assert facts.reasons  # typed limitation, never a crash
+        # After a recognized header the same line is malformed wrapper.
+        facts2 = parse_wrapper(
+            "Chunk ID: a\nProcess exited with code \u00b2\nOutput:\nx", ObservationBounds()
+        )
+        assert facts2.reasons == (Limitation.MALFORMED_WRAPPER,)
+
+    def test_excessive_digit_exit_is_typed_not_crash(self) -> None:
+        facts = parse_wrapper(
+            "Process exited with code " + "9" * 5000 + "\nOutput:\nsynthetic",
+            ObservationBounds(),
+        )
+        assert facts.output_present is False
+        assert facts.reasons  # bounded ASCII grammar rejects it without int()
+
+    def test_three_digit_exit_at_range_edge_is_valid_grammar(self) -> None:
+        facts = parse_wrapper("Process exited with code 255\nOutput:\nx", ObservationBounds())
+        assert facts.reasons == (Limitation.NONZERO_EXIT,)
+        assert facts.exit_code == 255
+
+    def test_zero_padded_exit_is_not_the_documented_grammar(self) -> None:
+        # "007" is not the documented <0-255> ASCII numeric form; the
+        # bounded grammar rejects it instead of guessing a value.
+        facts = parse_wrapper("Process exited with code 007\nOutput:\nx", ObservationBounds())
+        assert facts.reasons != ()
+
+
+class TestPerCallWorkdir:
+    def test_per_call_workdir_resolves_relative_operands(self) -> None:
+        payload = call_payload(arguments={"cmd": "cat A.md", "workdir": "/work/sub"})
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.proven_executed == ("sub/A.md",)
+        assert obs.removable is True
+
+    def test_per_call_workdir_outside_workspace_is_not_complete(self) -> None:
+        payload = call_payload(arguments={"cmd": "cat A.md", "workdir": "/work-other"})
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is not ReadOutcome.COMPLETE
+        assert obs.removable is False
+        assert Limitation.OUTSIDE_WORKSPACE in obs.reasons
+
+    def test_per_call_workdir_does_not_shadow_absolute_operands(self) -> None:
+        payload = call_payload(arguments={"cmd": "cat /work/A.md", "workdir": "/work/sub"})
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.proven_executed == ("A.md",)
+
+    def test_relative_workdir_is_typed_not_complete(self) -> None:
+        payload = call_payload(arguments={"cmd": "cat A.md", "workdir": "sub"})
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is not ReadOutcome.COMPLETE
+        assert obs.removable is False
+
+    def test_control_character_workdir_is_typed_not_crash(self) -> None:
+        payload = call_payload(arguments={"cmd": "cat A.md", "workdir": "/work/s\x00ub"})
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert Limitation.UNSUPPORTED_TOOL in obs.reasons
+
+
+class TestToolEligibilityEvidence:
+    def _declared_payload(self, tool: str) -> dict[str, Any]:
+        payload = call_payload(tool=tool)
+        payload["tools"] = [
+            {
+                "type": "function",
+                "name": tool,
+                "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}},
+            }
+        ]
+        return payload
+
+    def test_declared_unrelated_bare_cmd_tool_is_not_exec(self) -> None:
+        payload = self._declared_payload("synthetic_summarizer")
+        report = observe_request(payload, context=_CTX)
+        assert report.reads == (), "a cmd-shaped declaration never makes a bare tool exec"
+        assert report.unpaired[0].limitation is Limitation.MISMATCHED_CALL_ID
+
+    def test_namespaced_unknown_leaf_with_declaration_is_not_exec(self) -> None:
+        payload = self._declared_payload("ns/synthetic_summarizer")
+        report = observe_request(payload, context=_CTX)
+        assert report.reads == ()
+        assert report.unpaired[0].limitation is Limitation.MISMATCHED_CALL_ID
+
+    def test_namespaced_known_leaf_still_supported_with_declaration(self) -> None:
+        payload = self._declared_payload("ns/exec_command")
+        report = observe_request(payload, context=_CTX)
+        assert len(report.reads) == 1
+        assert report.reads[0].outcome is ReadOutcome.COMPLETE
+
+    def test_namespaced_known_leaf_without_declaration_is_not_exec(self) -> None:
+        payload = call_payload(tool="ns/exec_command")
+        report = observe_request(payload, context=_CTX)
+        assert report.reads == ()
+
+
+class TestEndpointScopedPairing:
+    def test_responses_call_with_chat_result_is_not_mixed(self) -> None:
+        payload = {
+            "input": [
+                {
+                    "type": "function_call",
+                    "name": "exec_command",
+                    "call_id": "synthetic-r1",
+                    "arguments": json.dumps({"cmd": "cat A.md"}),
+                }
+            ],
+            "messages": [
+                {
+                    "role": "tool",
+                    "tool_call_id": "synthetic-r1",
+                    "content": "Process exited with code 0\nOutput:\nchat body\n",
+                }
+            ],
+        }
+        report = observe_request(payload, context=_CTX)
+        assert report.reads == (), "a cross-endpoint ID match is never evidence"
+        assert {u.limitation for u in report.unpaired} == {
+            Limitation.MISSING_CALL_RESULT,
+            Limitation.MISMATCHED_CALL_ID,
+        }
+
+    def test_chat_call_with_responses_result_is_not_mixed(self) -> None:
+        payload = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "id": "synthetic-r2",
+                            "function": {
+                                "name": "exec_command",
+                                "arguments": json.dumps({"cmd": "cat A.md"}),
+                            },
+                        }
+                    ],
+                }
+            ],
+            "input": [
+                {
+                    "type": "function_call_output",
+                    "call_id": "synthetic-r2",
+                    "output": "Process exited with code 0\nOutput:\nresponses body\n",
+                }
+            ],
+        }
+        report = observe_request(payload, context=_CTX)
+        assert report.reads == ()
+        assert {u.limitation for u in report.unpaired} == {
+            Limitation.MISSING_CALL_RESULT,
+            Limitation.MISMATCHED_CALL_ID,
+        }
+
+    def test_same_endpoint_pairing_preserved_for_both_envelopes(self) -> None:
+        responses = load("read_single_complete_responses.json")
+        assert observe_request(responses, context=_CTX).reads[0].outcome is ReadOutcome.COMPLETE
+        chat = load("read_chat_single_complete.json")
+        report = observe_request(chat, context=_CTX)
+        assert report.reads[0].outcome is ReadOutcome.COMPLETE
+        assert report.reads[0].endpoint == "chat"
+
+
+class TestMalformedUnicodeComposition:
+    def test_surrogate_command_is_typed_not_crash(self) -> None:
+        payload = call_payload(command="cat A\ud800.md")
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+        assert obs.proven_executed == ()
+        assert Limitation.MALFORMED_UNICODE in obs.reasons
+
+    def test_surrogate_output_is_typed_not_crash(self) -> None:
+        payload = call_payload(output="Process exited with code 0\nOutput:\nsynthetic\ud800\n")
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+        assert obs.member_digests == ()
+        assert Limitation.MALFORMED_UNICODE in obs.reasons
+
+    def test_fingerprint_is_stable_for_surrogate_payload(self) -> None:
+        payload = call_payload(command="cat A\ud800.md")
+        first = observe_request(payload, context=_CTX)
+        second = observe_request(payload, context=_CTX)
+        assert first.input_fingerprint == second.input_fingerprint

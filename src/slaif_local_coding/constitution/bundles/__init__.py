@@ -39,7 +39,13 @@ from ..bundles.observation_models import (
     utf8_byte_span,
 )
 from ..bundles.observe import observe_request
-from ..bundles.read_grammar import parse_read_command, tokenize_literal, unwrap_supported_arguments
+from ..bundles.read_grammar import (
+    UnwrappedCommand,
+    parse_read_command,
+    tokenize_literal,
+    unwrap_call_arguments,
+    unwrap_supported_arguments,
+)
 from ..bundles.root_envelopes import scan_root_envelopes
 from ..bundles.tool_results import observe_reads, parse_wrapper
 
@@ -64,6 +70,7 @@ __all__ = [
     "RootScanResult",
     "RootStatus",
     "UnpairedRecord",
+    "UnwrappedCommand",
     "VersionCandidate",
     "WrapperFacts",
     "canonical_payload_fingerprint",
@@ -76,6 +83,7 @@ __all__ = [
     "scan_root_envelopes",
     "sha256_hex",
     "tokenize_literal",
+    "unwrap_call_arguments",
     "unwrap_supported_arguments",
     "utf8_byte_span",
     "validate_workspace",

@@ -48,7 +48,9 @@ _ENV_SUFFIX = "</environment_context>"
 
 
 def _label_ok(label: str, max_label_bytes: int) -> bool:
-    if not label or len(label) > max_label_bytes:
+    # The declared bound is in UTF-8 bytes, not Unicode characters:
+    # "/\u00e9\u00e9\u00e9\u00e9" is 9 bytes and exceeds an 8-byte limit.
+    if not label or len(label.encode("utf-8")) > max_label_bytes:
         return False
     if any(ord(c) < 0x20 or ord(c) == 0x7F for c in label):
         return False

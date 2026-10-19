@@ -14,8 +14,9 @@ the dependency-bundle cache rework (D01-D05 in
 [the implementation plan](CACHE-IMPLEMENTATION-PLAN.md); delivery state is in
 [the stage ledger](CACHE-REWORK-LEDGER.md). D06-D10 (chained reads, literal
 loops, per-read vs global exit evidence, multi-chunk pairing and remaining
-truncation matrix) are planned for the same-PR continuation 017-b and are NOT
-implemented here.
+truncation matrix) are NOT implemented here; they are planned for later
+same-PR suffixes (planned 017-c/d). Round 017-b corrected the 017-a
+observation proof defects (findings A-E) without adding read families.
 
 ## 1. Modules and versions
 
@@ -40,7 +41,10 @@ same string; the two domains are never mixed. Digests are
 `sha256(text.encode("utf-8"))` over the exact observed bytes; they assert
 nothing about the original filesystem encoding. Malformed (lone surrogate)
 strings are rejected with `MALFORMED_UNICODE` before any hashing — never a
-crash.
+crash. A digest field is explicitly absent (`None`) only under that typed
+malformed/unsupported contract; a placeholder digest is never treated as
+valid, and an unhashable observation stays non-removable and ineligible for
+later graph/cache admission.
 
 ## 2. Root envelope contract (D01/D02)
 
@@ -55,9 +59,11 @@ character 0** with the header. Exact grammar (each `T` is `LF` or `CRLF`):
 ```
 
 - `<label>` is the exact directory scope: non-empty, no control characters,
-  bounded length; it is recorded verbatim (no normalization, no host mapping).
-  A label may be a POSIX absolute path or a logical label; only an explicit
-  validated client-workspace context (section 3) performs path normalization.
+  bounded in **UTF-8 bytes** (`max_label_bytes`; 9 bytes for `/éééé`, so an
+  8-byte limit rejects it although the label is only 5 characters); it is
+  recorded verbatim (no normalization, no host mapping). A label may be a
+  POSIX absolute path or a logical label; only an explicit validated
+  client-workspace context (section 3) performs path normalization.
 - `<source content>` is the exact inner bytes: everything after the opening
   tag line's terminator and up to (excluding) the closing tag's own
   line-start newline (LF or CRLF). Internal Unicode and CRLF bytes are
@@ -109,7 +115,12 @@ that does not exist on the client still normalizes.
   string-prefix comparison: `/work-other/A.md` is outside `/work`).
 - **Relative operands.** Resolve against the explicit supported workdir
   (itself validated inside the workspace), else the evidenced workspace (the
-  evidenced default client cwd).
+  evidenced default client cwd). The workdir may be the batch context workdir
+  or the **per-call** workdir carried by a supported call-arguments object
+  (section 4); a per-call workdir takes precedence over the batch default for
+  that call and, when it does not validate inside the evidenced workspace,
+  the affected reads are typed (e.g. `OUTSIDE_WORKSPACE`) — never silently
+  re-resolved against the batch context or an adapter-host cwd.
 - **Lexical `.`/`..` policy.** Segments resolve lexically; any resolution
   step whose prefix leaves the workspace is `TRAVERSAL` (e.g.
   `/work/../A.md` with workspace `/work`). A `..` at the workspace boundary
@@ -143,6 +154,24 @@ cat <operand> <operand> ...        (bounded operand count)
 - Tokenization is literal whitespace splitting; no quote-aware parsing
   beyond the fully-quoted operand rule, no shell parsing (no new external
   shell parser dependency), no execution, no environment/glob expansion.
+- **Option terminator.** The first `--` after the executable is processed
+  once as the option terminator. A later `--` token is a **literal operand**
+  and stays in the actual complete member list (e.g. `cat -- A.md -- B.md`
+  has members `A.md`, `--`, `B.md`): it is never silently dropped and its
+  output is never attributed to fewer members than were actually requested.
+- **Per-call workdir.** The supported argument object may carry a `workdir`
+  string (a literal absolute client path); it is validated against the
+  evidenced workspace at normalization time. A non-string, empty, or
+  control-bearing `workdir` makes the argument shape typed unsupported.
+- **Malformed Unicode.** A command string containing lone surrogates is
+  rejected with `MALFORMED_UNICODE` before any UTF-8 hashing; its
+  `command_digest` is explicitly absent (never a placeholder) and no
+  operand is normalized or proven.
+- **Argument decoding bounds.** A raw JSON-string argument longer than the
+  worst case of the command bound plus JSON wrapper/escaping overhead
+  (`2 * max_command_chars + 128`) is typed unsupported without being parsed;
+  decode errors (including nesting-depth `RecursionError`) return the same
+  typed result. No broad exception swallowing.
 - The executable must be exactly `cat`. Flags (`-n`, …), other executables
   (`head`, `tail`, `sed`, …), path-prefixed cats (`/bin/cat`), and unknown
   syntax are typed (`COMMAND_UNSUPPORTED` / `FRAGMENT_COMMAND`).
@@ -162,27 +191,50 @@ cat <operand> <operand> ...        (bounded operand count)
 ## 5. Tool call/result pairing and wrapper (D05)
 
 - **Eligibility.** Only `exec_command` and `shell_command` are supported
-  bare names. A namespace-qualified name is eligible only with explicit
-  supported-envelope evidence: the request's own `tools` array declares the
-  exact name with a `cmd` string parameter. Suffix resemblance is never
-  evidence. `write_stdin` is recognized and typed `WRITE_STDIN_CHUNK`
-  (deferred in this slice).
-- **Pairing.** Calls and results pair by exact call ID (Responses
-  `function_call`/`function_call_output`, Chat assistant `tool_calls` /
-  `role=tool` message). Duplicate call IDs are `DUPLICATE_CALL_ID` (both
-  occurrences recorded, never first-match). Missing results are
+  bare names; a declared unrelated bare function with a `cmd`-shaped
+  parameter is **not** an exec tool. A namespace-qualified name (containing
+  `/`) is eligible only when **both** hold: its **leaf** (the part after the
+  last `/`) is a known executable supported name, and the request's own
+  `tools` array declares the exact name with the compatible `cmd` string
+  schema. Suffix or substring resemblance alone is never evidence.
+  `write_stdin` is recognized and typed `WRITE_STDIN_CHUNK` (deferred in
+  this slice).
+- **Pairing.** Calls and results pair by exact call ID **and within the same
+  endpoint envelope**: a Responses `function_call` pairs only with a
+  Responses `function_call_output`, and a Chat assistant `tool_calls` entry
+  pairs only with a Chat `role=tool` message. An ID match across endpoints
+  is never evidence — the call is typed `MISSING_CALL_RESULT` and the
+  foreign result typed `MISMATCHED_CALL_ID` (ambiguous mixed shapes are
+  typed, never globally guessed). Duplicate call IDs are `DUPLICATE_CALL_ID`
+  (both occurrences recorded, never first-match). Missing results are
   `MISSING_CALL_RESULT`. Results without a supported call are
   `MISMATCHED_CALL_ID`. Multiple results for one call are
-  `MULTI_CHUNK_DEFERRED` (multi-chunk completion proof is D09/017-b).
+  `MULTI_CHUNK_DEFERRED` (multi-chunk completion proof is D09, later
+  same-PR suffix).
 - **Wrapper grammar.** Recognized header lines before the `Output:` marker
-  line (bounded count): `Chunk Id: <token>`, `Wall time: <…>`,
-  `Process exited with code <0-255>`, `Truncated: true|false`, and
-  `Process is still running` (typed `PROCESS_RUNNING`, deferred). The
-  `Output:` line must be newline-terminated; everything after it is the
-  exact source region (its character span is `content_span`). A header line
-  that is not recognized is `MALFORMED_WRAPPER` when headers were already
-  seen, otherwise `UNKNOWN_COMPLETION` (plain unstructured output). A missing
-  `Output:` marker is `UNKNOWN_COMPLETION`.
+  line: the human-handoff 6.2 real format `Chunk ID: <token>` plus the
+  explicitly earned compatible variant `Chunk Id: <token>`, `Wall time:
+  <…>`, `Process exited with code <0-255>`, and `Truncated: true|false`, and
+  `Process is still running` (typed `PROCESS_RUNNING`, deferred). The exit
+  value uses a bounded canonical ASCII decimal grammar (0..255, at most
+  three digits, no leading zeros): Unicode digit-likes (`²`) and over-long
+  fields are typed, never `int()`-converted (no crash, no unbounded work).
+  Each status field (exit code, truncation) appears **at most once**: any
+  repetition — contradictory or identical — is `MALFORMED_WRAPPER` with no
+  trusted status (never last-field-wins). The declared
+  `max_wrapper_header_lines` bound is enforced before the frame is
+  accepted: an over-bound header block is typed `OVER_BOUND`, never
+  complete. The `Output:` line must be newline-terminated; everything after
+  it is the exact source region (its character span is `content_span`). A
+  header line that is not recognized is `MALFORMED_WRAPPER` when headers
+  were already seen, otherwise `UNKNOWN_COMPLETION` (plain unstructured
+  output). A missing `Output:` marker is `UNKNOWN_COMPLETION`.
+- **Content hashing bounds.** When the wrapper proves a complete read,
+  content containing lone surrogates is rejected with `MALFORMED_UNICODE`
+  before any UTF-8 hashing: the observation is typed, non-removable, and
+  carries no bundle/member digest (explicitly absent, never a placeholder).
+  Read-level reasons propagate the wrapper's typed reasons (falling back to
+  `UNKNOWN_COMPLETION` only when the wrapper carries none).
 - **Completion states.** Exit zero + present body + no `Truncated: true`
   marker = complete (the wrapper asserts process completion; an explicit
   truncation marker overrides). `Truncated: true` is `TRUNCATED_OUTPUT`.
@@ -237,12 +289,15 @@ list is `Limitation` in `observation_models.py`: root (`marker_misplaced`,
 ## 8. Boundedness
 
 `ObservationBounds` (defaults: 1024 items, 1,000,000 item chars, 512 label
-bytes, 100,000 environment chars, 128 commands, 4,096 command chars, 32
-operands, 256 path bytes, 128 outputs, 1,000,000 output chars, 8 wrapper
-header lines, 128 tools) bounds every scan. Parsing is linear; adversarial
-input (multi-megabyte items, huge item counts, unterminated envelopes)
-terminates deterministically with typed `OVER_BOUND` results — no regex
-blowup, no timing-dependent behavior.
+**UTF-8 bytes**, 100,000 environment chars, 128 commands, 4,096 command
+chars, 32 operands, 256 path bytes, 128 outputs, 1,000,000 output chars, 8
+wrapper header lines, 128 tools) bounds every scan; the derived argument-
+decode bound is `2 * max_command_chars + 128`. Parsing is linear; adversarial
+input (multi-megabyte items, huge item counts, unterminated envelopes,
+over-long numeric fields, deep JSON nesting) terminates deterministically
+with typed limitations (`OVER_BOUND`, `MALFORMED_WRAPPER`, typed argument
+shapes) — no regex blowup, no timing-dependent behavior, no uncaught
+exceptions at the public entry points.
 
 ## 9. Privacy and identity
 
@@ -258,22 +313,39 @@ blowup, no timing-dependent behavior.
 
 ## 10. Fixtures and provenance
 
-The synthetic real-format fixtures under `tests/fixtures/cache_bundles/v1/`
-self-identify as synthetic with the observed-format authority (Codex 0.149.0
-API-boundary shapes; see
-`tests/fixtures/codex/0.149.0/README.md` for the sanitized authority record)
-and the parser versions above. No fixture is a fresh actual-client trace; no
-private audit history, task answer, credential, or customer/source content is
-included. The canonical sanitized Codex fixture
-(`tests/fixtures/codex/0.149.0/project_instructions_responses.json`) is
-reused directly as a D01 real-format input.
+The synthetic fixtures under `tests/fixtures/cache_bundles/v1/`
+self-identify as synthetic with **per-shape-family** observed-format
+authority and the parser versions above:
 
-## 11. Deferred in this slice (017-b and later)
+- **Root envelope shapes** (`root_*` fixtures): the sanitized Codex 0.149.0
+  API-boundary capture record
+  (`tests/fixtures/codex/0.149.0/README.md`). That capture is **root-only**
+  — it contains no read call/result or exec-wrapper content, so it is not
+  authority for the read wrapper shape. The canonical sanitized fixture
+  (`tests/fixtures/codex/0.149.0/project_instructions_responses.json`) is
+  reused directly as a D01 real-format input.
+- **Read call/result and wrapper shapes** (`read_*` fixtures): the human
+  handoff section 6.2 documented real format (`docs/CACHE-REWORK.md`), with
+  synthetic supplemental values (chunk IDs, timings, content). Both the
+  real-format `Chunk ID:` header and the explicitly earned compatible
+  `Chunk Id:` variant are exercised
+  (`read_handoff_wrapper_format_responses.json`).
 
-Chained/mixed reads (`ls` + labels + unrelated output, D06), literal loops
-and `cd` transitions with explicit workdir chains (D07), per-read execution
-evidence distinct from global exit status (D08), multi-chunk process
-completion proof and the remaining truncation matrix (D09), and the full
-duplicate/mismatched/substitution/unexecuted-branch matrix beyond the simple
-negatives already covered (D10). Graph identity, admission, RAM state,
-recovery, tokenization, and replacement belong to objectives 018-024.
+Root capture and synthetic supplemental read shapes are distinct; no fixture
+claims to be a fresh actual-client trace, and no private audit history, task
+answer, credential, or customer/source content is included.
+
+## 11. Deferred in this slice (later same-PR suffixes, 017-c/d and later)
+
+Round 017-b is the bounded correction of the 017-a observation proof
+(findings A-E: real-format wrapper, membership, per-call cwd, tool/endpoint
+evidence, Unicode/bounds, parser bounds, and the normative mirror); it adds
+no new read families. Still deferred: chained/mixed reads (`ls` + labels +
+unrelated output, D06), literal loops and `cd` transitions with explicit
+workdir chains (D07), per-read execution evidence distinct from global exit
+status (D08), multi-chunk process completion proof and the remaining
+truncation matrix (D09), and the full duplicate/mismatched/substitution/
+unexecuted-branch matrix beyond the simple negatives already covered (D10).
+Those compound/loop/chunk families move to later same-PR suffixes
+(planned 017-c/d). Graph identity, admission, RAM state, recovery,
+tokenization, and replacement belong to objectives 018-024.

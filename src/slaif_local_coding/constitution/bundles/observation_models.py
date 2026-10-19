@@ -298,10 +298,16 @@ class NormalizedPath(_Frozen):
 
 
 class ReadCommandParse(_Frozen):
-    """Bounded literal ``cat`` grammar result; command syntax is data."""
+    """Bounded literal ``cat`` grammar result; command syntax is data.
+
+    ``command_digest`` is the SHA-256 of the exact observed command bytes and
+    is explicitly absent (``None``) only under the typed
+    ``MALFORMED_UNICODE`` / non-string contract — never a placeholder digest
+    treated as valid.
+    """
 
     grammar: str = READ_GRAMMAR
-    command_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    command_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     command_length: int = Field(ge=0)
     complete: bool
     operands: tuple[NormalizedPath, ...] = ()

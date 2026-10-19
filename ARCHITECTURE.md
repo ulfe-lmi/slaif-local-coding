@@ -24,7 +24,9 @@ is qualified. Delivery state for every rework criterion is tracked in
 choices are recorded in [the implementation
 plan](docs/CACHE-IMPLEMENTATION-PLAN.md). As of stage 017-a the pure
 D01-D05 observation slice is implemented as inert typed modules (not active
-in the adapter); no v1 runtime mechanism is active or qualified yet.
+in the adapter); stage 017-b corrects its bounded observation-proof findings
+without adding read families, and the remaining D06-D10 scope moves to later
+same-PR suffixes; no v1 runtime mechanism is active or qualified yet.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact

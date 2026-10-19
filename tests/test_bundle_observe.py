@@ -263,6 +263,7 @@ class TestFixtureSelfIdentification:
         # unpaired records; nothing crashes and nothing is silently complete.
         expectations = {
             "read_single_complete_responses.json": (ReadOutcome.COMPLETE, ()),
+            "read_handoff_wrapper_format_responses.json": (ReadOutcome.COMPLETE, ()),
             "read_two_members_responses.json": (ReadOutcome.COMPLETE, ()),
             "read_two_members_reversed_responses.json": (ReadOutcome.COMPLETE, ()),
             "read_repeated_operand_responses.json": (ReadOutcome.COMPLETE, ()),

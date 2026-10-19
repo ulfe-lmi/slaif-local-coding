@@ -22,7 +22,7 @@
   ],
   "_fixture": {
     "synthetic": true,
-    "observed_format_authority": "codex-0.149.0 API-boundary shapes; see tests/fixtures/codex/0.149.0/README.md for the sanitized authority record",
+    "observed_format_authority": "root envelope shapes: codex-0.149.0 API-boundary record (tests/fixtures/codex/0.149.0/README.md, root-only sanitized capture); read call/result and wrapper shapes: human handoff 6.2 documented format (docs/CACHE-REWORK.md) with synthetic supplemental values; not a fresh actual-client trace",
     "parser_versions": {
       "observer": "cache-bundle-observation/1",
       "envelope": "codex-project-instructions/v1",

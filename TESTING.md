@@ -113,8 +113,9 @@ pairing, and a pure composition entry point), with the named suites
 `tests/fixtures/cache_bundles/v1/` plus the canonical sanitized 0.149.0
 fixture. These modules are **not active in the adapter**: they are not wired
 into the legacy request execution path, and the legacy detector is unchanged.
-D06-D10 remain planned for the same-PR continuation 017-b; all v1 runtime
-criteria remain `NOT RUN` until their owning stage lands. The versioned
+D06-D10 remain planned for later same-PR suffixes (planned 017-c/d; round
+017-b corrected the 017-a observation proof without adding read families);
+all v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
 

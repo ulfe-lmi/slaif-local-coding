@@ -1,19 +1,34 @@
 """Supported tool call/result pairing and exec-wrapper parsing (D05).
 
-Pairing law: a call and its result pair by **exact call ID**.  Only supported
-tool names are eligible; namespace-qualified names need explicit
-supported-envelope evidence (the request's own ``tools`` array declaring the
-exact name with a string ``cmd`` parameter) — never a suffix-name guess.
-Duplicate or missing call IDs are typed conflicts, never first-match
-selection.  Multi-chunk results and process-running/write_stdin traffic are
-explicitly deferred in this slice (typed unsupported, D09 territory).
+Pairing law: a call and its result pair by **exact call ID** and **within
+the same endpoint envelope** — a Responses ``input`` call pairs only with a
+Responses ``function_call_output``, a Chat ``messages`` call only with a
+Chat ``role=tool`` message.  An ID match across endpoints is never evidence
+(mixed shapes are typed missing/mismatched, never guessed).  Only supported
+tool names are eligible: the bare supported names, ``write_stdin`` (typed
+deferred), or a namespace-qualified name whose **leaf** is a known
+executable supported name **and** whose exact name the request's own
+``tools`` array declares with the compatible ``cmd`` string schema.  A
+declared unrelated bare function with a ``cmd``-shaped parameter is not an
+exec tool; suffix or substring resemblance is never evidence.  Duplicate or
+missing call IDs are typed conflicts, never first-match selection.
+Multi-chunk results and process-running/write_stdin traffic are explicitly
+deferred in this slice (typed unsupported, D09 territory).
 
 Wrapper law: the observed Codex exec wrapper carries its metadata **before**
 the ``Output:`` line; everything after that line is source, and source that
-merely looks like execution metadata never redefines wrapper status.  A
-proven empty successful output (wrapper exit zero, ``Output:`` present, zero
-content bytes) is a complete empty version; a missing body is a different,
-explicit state.
+merely looks like execution metadata never redefines wrapper status.  The
+recognized header lines are the human-handoff real format
+(``Chunk ID: <token>``) plus the explicitly earned compatible variant
+(``Chunk Id: <token>``), ``Wall time: <…>``, ``Process exited with code
+<0-255>`` (bounded ASCII numeric grammar) and ``Truncated: true|false``.
+Each status field (exit code, truncation) appears at most once: any
+repetition — contradictory or identical — is a typed
+``MALFORMED_WRAPPER`` limitation, never last-field-wins.  The declared
+``max_wrapper_header_lines`` bound is enforced before the frame is
+accepted.  A proven empty successful output (wrapper exit zero,
+``Output:`` present, zero content bytes) is a complete empty version; a
+missing body is a different, explicit state.
 """
 
 from __future__ import annotations
@@ -32,14 +47,22 @@ from ..bundles.observation_models import (
     TruncationStatus,
     UnpairedRecord,
     WrapperFacts,
+    contains_lone_surrogates,
     sha256_hex,
 )
-from ..bundles.read_grammar import parse_read_command, unwrap_supported_arguments
+from ..bundles.read_grammar import parse_read_command, unwrap_call_arguments
 
 _SUPPORTED_TOOL_NAMES = frozenset({"exec_command", "shell_command"})
 _WRITE_STDIN = "write_stdin"
 _OUTPUT_MARKER = "Output:"
 _RUNNING_MARKER = "Process is still running"
+_EXIT_PREFIX = "Process exited with code "
+# Human-handoff 6.2 real format first; the compatible variant earned by the
+# 017 slice fixtures/tests is explicitly retained.
+_CHUNK_ID_PREFIXES = ("Chunk ID: ", "Chunk Id: ")
+# The documented status range is 0..255: at most three ASCII digits.
+_MAX_EXIT_DIGITS = 3
+_HEADER_VALUE_MAX_CHARS = 128
 
 
 def _declared_tool_names(payload: dict[str, Any], bounds: ObservationBounds) -> set[str]:
@@ -61,11 +84,13 @@ def _declared_tool_names(payload: dict[str, Any], bounds: ObservationBounds) -> 
 def _envelope_proves_executable(
     payload: dict[str, Any], name: str, bounds: ObservationBounds
 ) -> bool:
-    """Explicit supported-envelope evidence for a non-bare tool name.
+    """Explicit compatible declaration for a namespace-qualified tool name.
 
     The request's own ``tools`` array must declare the exact name with a
     ``cmd`` string parameter (the observed Codex exec schema).  Suffix or
-    substring resemblance is never evidence.
+    substring resemblance is never evidence, and a declaration alone never
+    makes an unrelated bare function an exec tool (the leaf of a supported
+    name is required first).
     """
 
     tools = payload.get("tools")
@@ -88,13 +113,31 @@ def _envelope_proves_executable(
     return False
 
 
+def _eligible_tool_name(name: str, payload: dict[str, Any], bounds: ObservationBounds) -> bool:
+    """Eligibility: known executable name, plus explicit compatible
+    declaration for supported namespace-qualified forms."""
+
+    if name in _SUPPORTED_TOOL_NAMES or name == _WRITE_STDIN:
+        return True
+    if "/" not in name:
+        # A bare unknown function (even declared with a cmd-shaped
+        # parameter) is never an exec tool.
+        return False
+    leaf = name.rsplit("/", 1)[-1]
+    if leaf not in _SUPPORTED_TOOL_NAMES:
+        return False
+    return _envelope_proves_executable(payload, name, bounds)
+
+
 def parse_wrapper(output: str, bounds: ObservationBounds) -> WrapperFacts:
     """Parse exec-wrapper metadata from one result body (versioned format).
 
     The header is a bounded block of recognized lines before the ``Output:``
     marker line, which itself must be newline-terminated.  Everything after
-    the marker line is the exact source region.  Plain unstructured output is
-    unknown completion, never complete; process-running bodies are typed.
+    the marker line is the exact source region.  Status fields appear at
+    most once; the header-line bound is enforced before the frame is
+    accepted.  Plain unstructured output is unknown completion, never
+    complete; process-running bodies are typed.
     """
 
     def _facts(
@@ -140,9 +183,23 @@ def parse_wrapper(output: str, bounds: ObservationBounds) -> WrapperFacts:
     lines = output.split("\n")
     exit_status = ExitStatus.UNKNOWN
     exit_code: int | None = None
+    exit_seen = False
     truncation = TruncationStatus.UNKNOWN
+    truncation_seen = False
     saw_header = False
+    header_lines = 0
     index = 0
+
+    def _count_header_line() -> tuple[Limitation | None, bool]:
+        # Enforce the declared header-line bound before the frame is
+        # accepted; over-bound headers are typed, never complete.
+        nonlocal header_lines, saw_header
+        header_lines += 1
+        if header_lines > bounds.max_wrapper_header_lines:
+            return Limitation.OVER_BOUND, True
+        saw_header = True
+        return None, True
+
     while index < len(lines):
         line = lines[index].rstrip("\r")
         if line == _OUTPUT_MARKER:
@@ -169,30 +226,83 @@ def parse_wrapper(output: str, bounds: ObservationBounds) -> WrapperFacts:
                 (Limitation.PROCESS_RUNNING,),
             )
         matched = False
-        if line.startswith("Chunk Id: ") or line.startswith("Wall time: "):
+        if line.startswith(_CHUNK_ID_PREFIXES) or line.startswith("Wall time: "):
             value = line.split(": ", 1)[1]
-            if value and len(value) <= 128:
-                saw_header = True
-                matched = True
-        elif line.startswith("Process exited with code "):
-            value = line[len("Process exited with code ") :]
-            digits = value.lstrip("-")
-            if digits != "" and digits.isdigit() and value.startswith("-") is False:
+            if value and len(value) <= _HEADER_VALUE_MAX_CHARS:
+                over, ok = _count_header_line()
+                if over is not None:
+                    return _facts(exit_status, exit_code, truncation, False, None, None, (over,))
+                matched = ok
+        elif line.startswith(_EXIT_PREFIX):
+            if exit_seen:
+                # A repeated status field (contradictory or identical) is
+                # malformed: the versioned wrapper carries each status
+                # field exactly once.  Never last-field-wins — the frame
+                # carries no trusted status at all.
+                return _facts(
+                    ExitStatus.UNKNOWN,
+                    None,
+                    TruncationStatus.UNKNOWN,
+                    False,
+                    None,
+                    None,
+                    (Limitation.MALFORMED_WRAPPER,),
+                )
+            value = line[len(_EXIT_PREFIX) :]
+            # Bounded canonical ASCII decimal grammar: 0..255, no leading
+            # zeros, at most three digits.  Unicode digit-likes, padded and
+            # over-long fields are typed malformed, never int()-converted
+            # (no ValueError, no unbounded work).
+            if (
+                value
+                and value.isascii()
+                and value.isdigit()
+                and len(value) <= _MAX_EXIT_DIGITS
+                and (value == "0" or value[0] != "0")
+            ):
                 code = int(value)
-                if 0 <= code <= 255:
+                if code <= 255:
+                    over, _ = _count_header_line()
+                    if over is not None:
+                        return _facts(
+                            exit_status,
+                            exit_code,
+                            truncation,
+                            False,
+                            None,
+                            None,
+                            (over,),
+                        )
                     exit_status = ExitStatus.ZERO if code == 0 else ExitStatus.NONZERO
                     exit_code = code
-                    saw_header = True
+                    exit_seen = True
                     matched = True
         elif line.startswith("Truncated: "):
+            if truncation_seen:
+                return _facts(
+                    ExitStatus.UNKNOWN,
+                    None,
+                    TruncationStatus.UNKNOWN,
+                    False,
+                    None,
+                    None,
+                    (Limitation.MALFORMED_WRAPPER,),
+                )
             value = line.split(": ", 1)[1]
-            if value == "true":
-                truncation = TruncationStatus.TRUE
-                saw_header = True
-                matched = True
-            elif value == "false":
-                truncation = TruncationStatus.FALSE
-                saw_header = True
+            if value in ("true", "false"):
+                over, _ = _count_header_line()
+                if over is not None:
+                    return _facts(
+                        exit_status,
+                        exit_code,
+                        truncation,
+                        False,
+                        None,
+                        None,
+                        (over,),
+                    )
+                truncation = TruncationStatus.TRUE if value == "true" else TruncationStatus.FALSE
+                truncation_seen = True
                 matched = True
         if not matched:
             reason = Limitation.MALFORMED_WRAPPER if saw_header else Limitation.UNKNOWN_COMPLETION
@@ -241,22 +351,29 @@ def parse_wrapper(output: str, bounds: ObservationBounds) -> WrapperFacts:
     return _facts(ExitStatus.ZERO, exit_code, truncation, True, header_span, output_span, ())
 
 
+def _workdir_literal(workdir: str) -> bool:
+    """Explicit per-call workdir must be a clean literal (no control chars)."""
+
+    return bool(workdir) and not any(ord(c) < 0x20 or ord(c) == 0x7F for c in workdir)
+
+
 def _call_entries(
     payload: dict[str, Any], bounds: ObservationBounds
-) -> list[tuple[str, str, str, object]]:
-    """Collect eligible calls: (call_id, location, tool_name, arguments)."""
+) -> tuple[list[tuple[str, str, str, object]], list[tuple[str, str, str, object]]]:
+    """Collect eligible calls per endpoint.
 
-    declared = _declared_tool_names(payload, bounds)
+    Returns ``(responses_calls, chat_calls)`` as
+    ``(call_id, location, tool_name, arguments)`` tuples: Responses calls
+    from the ``input`` array, Chat calls from ``messages`` assistant
+    ``tool_calls``.  Endpoints never mix.
+    """
 
     def _eligible(name: Any) -> bool:
         if not isinstance(name, str) or not name:
             return False
-        if name in _SUPPORTED_TOOL_NAMES or name == _WRITE_STDIN:
-            return True
-        # Namespace-qualified: explicit envelope evidence only, no suffix guess.
-        return name in declared and _envelope_proves_executable(payload, name, bounds)
+        return _eligible_tool_name(name, payload, bounds)
 
-    calls: list[tuple[str, str, str, object]] = []
+    responses_calls: list[tuple[str, str, str, object]] = []
     input_items = payload.get("input")
     if isinstance(input_items, list):
         for index, item in enumerate(input_items):
@@ -267,10 +384,11 @@ def _call_entries(
             arguments = item.get("arguments")
             if not isinstance(call_id, str) or not call_id:
                 continue
-            if not isinstance(name, str) or not _eligible(name):
+            if not _eligible(name):
                 continue
-            calls.append((call_id, f"$.input[{index}]", name, arguments))
+            responses_calls.append((call_id, f"$.input[{index}]", str(name), arguments))
 
+    chat_calls: list[tuple[str, str, str, object]] = []
     messages = payload.get("messages")
     if isinstance(messages, list):
         for index, message in enumerate(messages):
@@ -290,23 +408,20 @@ def _call_entries(
                 arguments = function.get("arguments")
                 if not isinstance(call_id, str) or not call_id:
                     continue
-                if not isinstance(name, str) or not _eligible(name):
+                if not _eligible(name):
                     continue
-                calls.append(
-                    (
-                        call_id,
-                        f"$.messages[{index}].tool_calls[{tool_index}]",
-                        name,
-                        arguments,
-                    )
+                chat_calls.append(
+                    (call_id, f"$.messages[{index}].tool_calls[{tool_index}]", str(name), arguments)
                 )
-    return calls
+    return responses_calls, chat_calls
 
 
-def _result_entries(payload: dict[str, Any]) -> dict[str, list[tuple[str, str, str]]]:
-    """Collect results by call ID: (location, endpoint, output_text) lists."""
+def _result_entries(
+    payload: dict[str, Any],
+) -> tuple[dict[str, list[tuple[str, str]]], dict[str, list[tuple[str, str]]]]:
+    """Collect results by call ID per endpoint: ``{call_id: [(location, text)]}``."""
 
-    outputs: dict[str, list[tuple[str, str, str]]] = {}
+    responses: dict[str, list[tuple[str, str]]] = {}
     input_items = payload.get("input")
     if isinstance(input_items, list):
         for index, item in enumerate(input_items):
@@ -316,9 +431,11 @@ def _result_entries(payload: dict[str, Any]) -> dict[str, list[tuple[str, str, s
             output = item.get("output")
             if not isinstance(call_id, str) or not call_id:
                 continue
-            outputs.setdefault(call_id, []).append(
-                (f"$.input[{index}]", "responses", output if isinstance(output, str) else "")
+            responses.setdefault(call_id, []).append(
+                (f"$.input[{index}]", output if isinstance(output, str) else "")
             )
+
+    chat: dict[str, list[tuple[str, str]]] = {}
     messages = payload.get("messages")
     if isinstance(messages, list):
         for index, message in enumerate(messages):
@@ -328,10 +445,10 @@ def _result_entries(payload: dict[str, Any]) -> dict[str, list[tuple[str, str, s
             content = message.get("content")
             if not isinstance(call_id, str) or not call_id:
                 continue
-            outputs.setdefault(call_id, []).append(
-                (f"$.messages[{index}]", "chat", content if isinstance(content, str) else "")
+            chat.setdefault(call_id, []).append(
+                (f"$.messages[{index}]", content if isinstance(content, str) else "")
             )
-    return outputs
+    return responses, chat
 
 
 def _build_observation(
@@ -362,8 +479,10 @@ def _build_observation(
             reasons=(Limitation.WRITE_STDIN_CHUNK,),
         )
 
-    command = unwrap_supported_arguments(arguments)
-    if command is None:
+    unwrapped = unwrap_call_arguments(arguments, bounds.max_command_chars)
+    if unwrapped is None or (
+        unwrapped.workdir is not None and not _workdir_literal(unwrapped.workdir)
+    ):
         cid, ep, loc, rloc = _common()
         return ReadObservation(
             call_id=cid,
@@ -375,9 +494,18 @@ def _build_observation(
             wrapper=parse_wrapper(output_text, bounds),
             reasons=(Limitation.UNSUPPORTED_TOOL,),
         )
+
+    # The explicit per-call workdir (supported argument object) takes
+    # precedence over the batch default before any relative operand is
+    # resolved; it is validated against the evidenced workspace and never
+    # falls back to the batch context when invalid.
+    call_context = context
+    if unwrapped.workdir is not None:
+        call_context = PathContext(workspace=context.workspace, workdir=unwrapped.workdir)
+
     parsed = parse_read_command(
-        command,
-        context,
+        unwrapped.command,
+        call_context,
         bounds.max_command_chars,
         bounds.max_operands,
         bounds.max_path_bytes,
@@ -431,6 +559,26 @@ def _build_observation(
     removable = False
 
     if wrapper.reasons == () and wrapper.output_present and content_span is not None:
+        if contains_lone_surrogates(content):
+            # Unhashable content is rejected before any UTF-8 hashing: the
+            # observation is typed, non-removable, and carries no digest
+            # (ineligible for later graph/cache admission).
+            cid, ep, loc, rloc = _common()
+            return ReadObservation(
+                call_id=cid,
+                endpoint=ep,
+                call_location=loc,
+                result_location=rloc,
+                requested_members=parsed.operands,
+                outcome=ReadOutcome.UNSUPPORTED,
+                completeness=ReadOutcome.UNSUPPORTED,
+                wrapper=wrapper,
+                content_span=content_span,
+                removable=False,
+                bundle_digest=None,
+                member_digests=(),
+                reasons=(Limitation.MALFORMED_UNICODE,),
+            )
         # Wrapper proves exit zero, no truncation marker, exact body present:
         # the content region is the complete attributable source.
         removable = True
@@ -454,22 +602,24 @@ def _build_observation(
             completeness = ReadOutcome.COMPLETE
             distinct = len(set(valid_normalized))
             member_digests = tuple(None for _ in range(distinct))
-    elif Limitation.NONZERO_EXIT in wrapper.reasons:
-        outcome = ReadOutcome.NONZERO_EXIT
-        completeness = ReadOutcome.PARTIAL
-        reasons.append(Limitation.NONZERO_EXIT)
-    elif Limitation.TRUNCATED_OUTPUT in wrapper.reasons:
-        outcome = ReadOutcome.TRUNCATED
-        completeness = ReadOutcome.PARTIAL
-        reasons.append(Limitation.TRUNCATED_OUTPUT)
-    elif Limitation.MISSING_OUTPUT_BODY in wrapper.reasons:
-        outcome = ReadOutcome.MISSING_BODY
-        completeness = ReadOutcome.UNSUPPORTED
-        reasons.append(Limitation.MISSING_OUTPUT_BODY)
-    elif wrapper.output_present:
-        reasons.append(Limitation.UNKNOWN_COMPLETION)
     else:
-        reasons.append(Limitation.UNKNOWN_COMPLETION)
+        # The wrapper is not proven complete: propagate its typed reason(s)
+        # at the read level (fall back to unknown completion only when the
+        # wrapper already carries that reason or none at all).
+        for reason in wrapper.reasons:
+            if reason not in reasons:
+                reasons.append(reason)
+        if not reasons:
+            reasons.append(Limitation.UNKNOWN_COMPLETION)
+        if Limitation.NONZERO_EXIT in wrapper.reasons:
+            outcome = ReadOutcome.NONZERO_EXIT
+            completeness = ReadOutcome.PARTIAL
+        elif Limitation.TRUNCATED_OUTPUT in wrapper.reasons:
+            outcome = ReadOutcome.TRUNCATED
+            completeness = ReadOutcome.PARTIAL
+        elif Limitation.MISSING_OUTPUT_BODY in wrapper.reasons:
+            outcome = ReadOutcome.MISSING_BODY
+            completeness = ReadOutcome.UNSUPPORTED
 
     cid, ep, loc, rloc = _common()
     return ReadObservation(
@@ -492,26 +642,18 @@ def _build_observation(
     )
 
 
-def observe_reads(
-    payload: dict[str, Any],
+def _pair_endpoint(
+    endpoint: str,
+    calls: list[tuple[str, str, str, object]],
+    outputs: dict[str, list[tuple[str, str]]],
     context: PathContext,
     bounds: ObservationBounds,
-) -> tuple[tuple[ReadObservation, ...], tuple[UnpairedRecord, ...]]:
-    """Pair supported calls with results by exact call ID (D05)."""
-
-    calls = _call_entries(payload, bounds)
-    outputs = _result_entries(payload)
-    over_commands = len(calls) > bounds.max_commands
-    over_outputs = sum(len(v) for v in outputs.values()) > bounds.max_outputs
-    if over_commands or over_outputs:
-        return (
-            (),
-            (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
-        )
+) -> tuple[list[ReadObservation], list[UnpairedRecord]]:
+    """Pair one endpoint's eligible calls with its own results by call ID."""
 
     calls_by_id: dict[str, list[tuple[str, str, str, object]]] = {}
-    for call_id, location, name, arguments in calls:
-        calls_by_id.setdefault(call_id, []).append((call_id, location, name, arguments))
+    for call in calls:
+        calls_by_id.setdefault(call[0], []).append(call)
 
     observations: list[ReadObservation] = []
     unpaired: list[UnpairedRecord] = []
@@ -540,7 +682,7 @@ def observe_reads(
             )
             continue
         if len(results) > 1:
-            for rlocation, _endpoint, _text in results:
+            for rlocation, _text in results:
                 unpaired.append(
                     UnpairedRecord(
                         location=rlocation,
@@ -549,7 +691,7 @@ def observe_reads(
                     )
                 )
             continue
-        result_location, endpoint, output_text = results[0]
+        result_location, output_text = results[0]
         observations.append(
             _build_observation(
                 call_id=call_id,
@@ -567,7 +709,7 @@ def observe_reads(
     for call_id in sorted(outputs):
         if call_id in calls_by_id:
             continue
-        for location, _endpoint, _text in outputs[call_id]:
+        for location, _text in outputs[call_id]:
             unpaired.append(
                 UnpairedRecord(
                     location=location,
@@ -575,4 +717,43 @@ def observe_reads(
                     limitation=Limitation.MISMATCHED_CALL_ID,
                 )
             )
+    return observations, unpaired
+
+
+def observe_reads(
+    payload: dict[str, Any],
+    context: PathContext,
+    bounds: ObservationBounds,
+) -> tuple[tuple[ReadObservation, ...], tuple[UnpairedRecord, ...]]:
+    """Pair supported calls with results by exact call ID (D05).
+
+    Pairing is endpoint-scoped: a Responses call pairs only with Responses
+    results and a Chat call only with Chat results — a cross-endpoint ID
+    match is typed (missing/mismatched), never mixed evidence.
+    """
+
+    responses_calls, chat_calls = _call_entries(payload, bounds)
+    responses_outputs, chat_outputs = _result_entries(payload)
+    over_commands = len(responses_calls) + len(chat_calls) > bounds.max_commands
+    over_outputs = (
+        sum(len(v) for v in responses_outputs.values()) + sum(len(v) for v in chat_outputs.values())
+        > bounds.max_outputs
+    )
+    if over_commands or over_outputs:
+        return (
+            (),
+            (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
+        )
+
+    observations: list[ReadObservation] = []
+    unpaired: list[UnpairedRecord] = []
+    for endpoint, calls, outputs in (
+        ("responses", responses_calls, responses_outputs),
+        ("chat", chat_calls, chat_outputs),
+    ):
+        endpoint_observations, endpoint_unpaired = _pair_endpoint(
+            endpoint, calls, outputs, context, bounds
+        )
+        observations.extend(endpoint_observations)
+        unpaired.extend(endpoint_unpaired)
     return tuple(observations), tuple(unpaired)

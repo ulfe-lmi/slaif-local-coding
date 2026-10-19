@@ -16,11 +16,20 @@ under the agreed no-spaces file convention).  Every other shape — flags,
 compounds, pipes, redirections, heredocs, substitutions, globs, comments,
 ``head``/``tail``/``sed`` fragments, loops, unknown executables — yields a
 typed limitation and is never a complete whole-file observation.
+
+Membership law: the option terminator ``--`` is processed **once** (the first
+``--`` after the executable).  A later ``--`` token is a literal operand —
+the actual complete member list is preserved, never silently dropped.
+
+Malformed-Unicode law: a command string that cannot be encoded as UTF-8
+(lone surrogates) is rejected with ``MALFORMED_UNICODE`` before any hashing;
+its ``command_digest`` is explicitly absent (never a placeholder digest).
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from ..bundles.client_paths import normalize_read_path
 from ..bundles.observation_models import (
@@ -28,6 +37,7 @@ from ..bundles.observation_models import (
     NormalizedPath,
     PathContext,
     ReadCommandParse,
+    contains_lone_surrogates,
     sha256_hex,
 )
 
@@ -35,6 +45,20 @@ from ..bundles.observation_models import (
 _FRAGMENT_EXECUTABLES = {"head", "tail", "sed", "less", "more", "grep", "rg"}
 #: Shell wrapper prefixes for a literal command string (Codex argv schema).
 _SHELL_WRAPPERS = {"bash", "sh", "zsh"}
+
+
+@dataclass(frozen=True)
+class UnwrappedCommand:
+    """A supported tool-argument envelope unwrapped to its command string.
+
+    ``workdir`` is the explicit per-call client working directory carried by
+    the supported argument object (when present); it is data, never an
+    adapter-host cwd, and it is validated against the evidenced workspace at
+    path-normalization time.
+    """
+
+    command: str
+    workdir: str | None = None
 
 
 def tokenize_literal(command: str) -> list[tuple[str, int, int]]:
@@ -59,6 +83,8 @@ def _classify_token(token: str) -> Limitation | None:
     """Return the first typed limitation for a non-operand token, else None."""
 
     if token == "--":
+        # A bare ``--`` token is a literal operand (the option terminator is
+        # consumed once by the parser before classification).
         return None
     if token.startswith("-"):
         return Limitation.COMMAND_UNSUPPORTED
@@ -92,56 +118,72 @@ def parse_read_command(
 ) -> ReadCommandParse:
     """Parse one bounded literal command string into a read observation.
 
-    The raw command is never retained in the result; only its digest, length,
-    operand tokens (bounded path labels) and exact token spans are exposed.
+    The raw command is never retained in the result; only its digest (absent
+    under the typed malformed-Unicode contract), length, operand tokens
+    (bounded path labels) and exact token spans are exposed.
     """
 
-    def _unsupported(
+    def _finish(
         reasons: list[Limitation],
-        command_length: int,
-        operands: tuple[NormalizedPath, ...] = (),
+        operands: tuple[NormalizedPath, ...],
+        complete: bool,
+        digest: str | None,
     ) -> ReadCommandParse:
         ordered: list[Limitation] = []
         for reason in reasons:
             if reason not in ordered:
                 ordered.append(reason)
         return ReadCommandParse(
-            command_digest=sha256_hex(command),
-            command_length=command_length,
-            complete=False,
+            command_digest=digest,
+            command_length=len(command),
+            complete=complete,
             operands=operands,
             reasons=tuple(ordered),
         )
 
     if not isinstance(command, str):
-        return _unsupported([Limitation.COMMAND_UNSUPPORTED], 0)
+        return ReadCommandParse(
+            command_digest=None,
+            command_length=0,
+            complete=False,
+            reasons=(Limitation.COMMAND_UNSUPPORTED,),
+        )
+    if contains_lone_surrogates(command):
+        # Malformed Unicode is rejected before any UTF-8 hashing; the digest
+        # is explicitly absent, never a placeholder treated as valid.
+        return _finish([Limitation.MALFORMED_UNICODE], (), False, None)
+    digest = sha256_hex(command)
     if not command.strip():
-        return _unsupported([Limitation.COMMAND_EMPTY], len(command))
+        return _finish([Limitation.COMMAND_EMPTY], (), False, digest)
     if len(command) > max_command_chars:
-        return _unsupported([Limitation.COMMAND_OVER_BOUND], len(command))
+        return _finish([Limitation.COMMAND_OVER_BOUND], (), False, digest)
     if "\n" in command or "\r" in command:
-        return _unsupported([Limitation.MULTIPLE_COMMANDS], len(command))
+        return _finish([Limitation.MULTIPLE_COMMANDS], (), False, digest)
     if any(ord(c) < 0x20 or ord(c) == 0x7F for c in command):
-        return _unsupported([Limitation.COMMAND_UNSUPPORTED], len(command))
+        return _finish([Limitation.COMMAND_UNSUPPORTED], (), False, digest)
 
     tokens = tokenize_literal(command)
     if not tokens:
-        return _unsupported([Limitation.COMMAND_EMPTY], len(command))
+        return _finish([Limitation.COMMAND_EMPTY], (), False, digest)
     executable = tokens[0][0]
     if executable.startswith("#"):
-        return _unsupported([Limitation.COMMENT_PRESENT], len(command))
+        return _finish([Limitation.COMMENT_PRESENT], (), False, digest)
     if executable not in {"cat"}:
         reason = (
             Limitation.FRAGMENT_COMMAND
             if executable in _FRAGMENT_EXECUTABLES
             else Limitation.COMMAND_UNSUPPORTED
         )
-        return _unsupported([reason], len(command))
+        return _finish([reason], (), False, digest)
 
     reasons: list[Limitation] = []
     operands: list[NormalizedPath] = []
+    terminator_seen = False
     for token, _start, _end in tokens[1:]:
-        if token == "--":
+        # The option terminator is processed once; a later ``--`` is a
+        # literal operand and stays in the actual complete member list.
+        if token == "--" and not terminator_seen:
+            terminator_seen = True
             continue
         token_reason = _classify_token(token)
         if token_reason is not None:
@@ -166,38 +208,48 @@ def parse_read_command(
             break
 
     if not operands and not reasons:
-        return _unsupported([Limitation.COMMAND_EMPTY], len(command))
+        return _finish([Limitation.COMMAND_EMPTY], (), False, digest)
     if reasons:
-        return _unsupported(reasons, len(command), tuple(operands))
-    return ReadCommandParse(
-        command_digest=sha256_hex(command),
-        command_length=len(command),
-        complete=True,
-        operands=tuple(operands),
-    )
+        return _finish(reasons, tuple(operands), False, digest)
+    return _finish([], tuple(operands), True, digest)
 
 
-def unwrap_supported_arguments(
+def unwrap_call_arguments(
     arguments: object,
-) -> str | None:
-    """Return the literal command string from a supported tool argument shape.
+    max_argument_chars: int = 4096,
+) -> UnwrappedCommand | None:
+    """Unwrap a supported tool argument envelope to command + optional workdir.
 
     Supported shapes (documented in the observation contract): a JSON string
-    or object with a ``cmd``/``command`` string, and an argv list that is a
-    single string or a ``bash|sh|zsh -c``/``-lc`` wrapper.  Unknown shapes
-    return ``None`` (typed unsupported by the caller).
+    or object with a ``cmd``/``command`` string (and an optional ``workdir``
+    string), and an argv list that is exactly one string or exactly
+    ``[bash|sh|zsh, -c|-lc, <string>]`` (with the same optional ``workdir``
+    in the enclosing object).  Unknown shapes return ``None`` (typed
+    unsupported by the caller).
+
+    JSON decoding is bounded: a raw argument string longer than the worst
+    case of the command bound plus JSON wrapper/escaping overhead is typed
+    unsupported without being parsed, and decoding errors (including
+    nesting-depth ``RecursionError``) return the same typed result.
     """
 
     if isinstance(arguments, str):
+        if len(arguments) > 2 * max_argument_chars + 128:
+            return None
         try:
             arguments = json.loads(arguments)
         except (json.JSONDecodeError, RecursionError, ValueError):
             return None
     if not isinstance(arguments, dict):
         return None
+    workdir = arguments.get("workdir")
+    if "workdir" in arguments and not isinstance(workdir, str):
+        return None
+    if isinstance(workdir, str) and not workdir:
+        return None
     command = arguments.get("cmd", arguments.get("command"))
     if isinstance(command, str):
-        return command
+        return UnwrappedCommand(command=command, workdir=workdir)
     argv = command
     if not isinstance(argv, list) or not argv:
         return None
@@ -206,10 +258,25 @@ def unwrap_supported_arguments(
     if len(argv) == 1:
         head = argv[0]
         if isinstance(head, str):
-            return head
+            return UnwrappedCommand(command=head, workdir=workdir)
         return None
     if len(argv) == 3 and argv[0] in _SHELL_WRAPPERS and argv[1] in {"-c", "-lc"}:
         body = argv[2]
         if isinstance(body, str):
-            return body
+            return UnwrappedCommand(command=body, workdir=workdir)
     return None
+
+
+def unwrap_supported_arguments(
+    arguments: object,
+    max_argument_chars: int = 4096,
+) -> str | None:
+    """Return the literal command string from a supported tool argument shape.
+
+    Compatibility wrapper over :func:`unwrap_call_arguments` (the supported
+    ``workdir`` field is ignored here); unknown shapes return ``None``
+    (typed unsupported by the caller).
+    """
+
+    unwrapped = unwrap_call_arguments(arguments, max_argument_chars)
+    return unwrapped.command if unwrapped is not None else None

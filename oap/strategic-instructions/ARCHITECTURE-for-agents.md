@@ -154,7 +154,11 @@ hash/compile/update graph incrementally. Adapter never reads client filesystem.
 
 ## Dependency-bundle cache law (v1 profile, normative target)
 
-Not implemented in this stage; every statement is the approved target contract.
+As of stage 017-a (observation proof corrected in 017-b), the pure
+root/read/result/span observation slice (D01-D05) is implemented as inert
+typed modules under `src/slaif_local_coding/constitution/bundles/`; they are
+not active in the adapter request execution path, the legacy detector is
+unchanged, and every other statement below is the approved target contract.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -498,9 +502,13 @@ separate human-authorized act); 006 signed-request replay hardening (PR #8);
 007 current Gateway contract CI (PR #9); 008 durable acceptance evidence
 (PR #10). Objectives 009–015 are merged through PR #22 (the release-candidate
 line; it concluded with the private RC10 candidate). Cutover NOT
-performed; NOT released. Objective 016 (open PR): dependency-bundle cache
-rework contracts — handoff, plan, reconciled architecture/law, stage ledger.
-Objectives 017–024 are the planned inert draft succession for the v1
+performed; NOT released. Objective 016 (merged PR #24, merge
+`96c790423f6f0097a56a0b12bacda8a9b6da6aba`): dependency-bundle cache rework
+contracts — handoff, plan, reconciled architecture/law, stage ledger.
+Objective 017 is active (017-a published but not accepted; 017-b corrects
+its bounded observation-proof findings A-E on the same PR; D06-D10
+compound/loop/chunk scope planned for later same-PR suffixes 017-c/d);
+objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live
 identifiers. Strategy may revise only from verified evidence. One numeric

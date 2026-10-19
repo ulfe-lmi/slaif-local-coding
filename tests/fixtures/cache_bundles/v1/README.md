@@ -1,11 +1,23 @@
 # Synthetic cache-bundle observation fixtures (v1)
 
-Every JSON file in this directory is **synthetic**. It is constructed to the
-exact observed API-boundary shapes recorded for Codex 0.149.0 (Responses
-`input` items, `function_call`/`function_call_output` pairs, the Chat
-`tool_calls`/`tool` equivalent, and the exec wrapper text form). The sanitized
-authority record for those shapes is
-[`tests/fixtures/codex/0.149.0/README.md`](../../codex/0.149.0/README.md).
+Every JSON file in this directory is **synthetic**. Provenance is per shape
+family and is stated in each fixture's `observed_format_authority`:
+
+- `root_*` fixtures model the project-instructions **root envelope** shapes;
+  their observed-format authority is the sanitized Codex 0.149.0
+  API-boundary capture record
+  ([`tests/fixtures/codex/0.149.0/README.md`](../../codex/0.149.0/README.md)).
+  That capture is **root-only**: it contains no read call/result or exec
+  wrapper content, so it is not authority for the read wrapper shape.
+- `read_*` fixtures model the Responses `function_call` /
+  `function_call_output` (and Chat `tool_calls` / `tool`) pairing plus the
+  **exec wrapper text form**; their observed-format authority is the human
+  handoff section 6.2 documented real format
+  ([`docs/CACHE-REWORK.md`](../../../docs/CACHE-REWORK.md)), with synthetic
+  supplemental values (chunk IDs, timings, content). The real-format
+  `Chunk ID:` header and the explicitly earned compatible `Chunk Id:`
+  variant are both exercised.
+
 No fixture here is a fresh actual-client trace, and no private audit history,
 task answer, credential, or customer/source content enters these files.
 
@@ -32,7 +44,8 @@ unknown top-level keys; tests assert that behavior explicitly.
   reversed and repeated operands, Unicode/CRLF content, empty-file, nonzero
   exit, truncation, missing body, duplicate/mismatched call IDs, namespace
   names with and without envelope evidence, process-running and write_stdin
-  deferrals, Chat equivalent, substitution and fragment negatives.
+  deferrals, Chat equivalent, substitution and fragment negatives, and the
+  human-handoff 6.2 real-format wrapper (`read_handoff_wrapper_format_*`).
 
 Content strings are minimal synthetic placeholders (they look like
 instructions or file content but are not). Exact byte digests asserted by

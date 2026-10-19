@@ -433,3 +433,51 @@ class TestEndpointScope:
         result = scan_root_envelopes(payload, ObservationBounds())
         assert result.status is RootStatus.NO_ROOT
         assert result.scanned_items == 0
+
+
+class TestLabelByteBound:
+    """The declared label bound is in UTF-8 bytes, not Unicode characters."""
+
+    @staticmethod
+    def _root_payload(label: str) -> dict[str, Any]:
+        text = (
+            f"# AGENTS.md instructions for {label}\n\n<INSTRUCTIONS>\n"
+            "Synthetic governing content.\n</INSTRUCTIONS>"
+        )
+        return {"input": [{"role": "user", "content": [{"type": "input_text", "text": text}]}]}
+
+    def test_multibyte_label_exceeding_byte_limit_is_typed(self) -> None:
+        # "/\u00e9\u00e9\u00e9\u00e9" is 5 characters but 9 UTF-8 bytes: it
+        # exceeds an 8-byte limit even though 5 characters would not.
+        result = scan_root_envelopes(
+            self._root_payload("/\u00e9\u00e9\u00e9\u00e9"),
+            ObservationBounds(max_label_bytes=8),
+        )
+        assert result.status is RootStatus.NO_ROOT
+        occurrence = result.occurrences[0]
+        assert occurrence.status is RootStatus.UNSUPPORTED
+        assert occurrence.reasons == (Limitation.INVALID_SCOPE_LABEL,)
+
+    def test_ascii_label_at_exact_byte_limit_is_valid(self) -> None:
+        # 8 ASCII characters = 8 UTF-8 bytes: exactly at the limit.
+        result = scan_root_envelopes(
+            self._root_payload("/abcdefg"), ObservationBounds(max_label_bytes=8)
+        )
+        assert result.status is RootStatus.OK
+        assert len(result.roots) == 1
+        assert result.roots[0].scope_label == "/abcdefg"
+
+    def test_ascii_label_one_byte_over_is_typed(self) -> None:
+        result = scan_root_envelopes(
+            self._root_payload("/abcdefgh"), ObservationBounds(max_label_bytes=8)
+        )
+        assert result.status is RootStatus.NO_ROOT
+        assert result.occurrences[0].reasons == (Limitation.INVALID_SCOPE_LABEL,)
+
+    def test_multibyte_label_under_byte_limit_is_valid(self) -> None:
+        # "/\u00e9\u00e9\u00e9" is 7 UTF-8 bytes: within an 8-byte limit.
+        result = scan_root_envelopes(
+            self._root_payload("/\u00e9\u00e9\u00e9"), ObservationBounds(max_label_bytes=8)
+        )
+        assert result.status is RootStatus.OK
+        assert result.roots[0].scope_label == "/\u00e9\u00e9\u00e9"
