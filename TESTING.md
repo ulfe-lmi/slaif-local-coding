@@ -112,12 +112,25 @@ pairing, and a pure composition entry point), with the named suites
 `tests/test_bundle_observe.py` and `tests/test_bundle_shell_tokens.py`
 exercising the versioned synthetic fixtures in
 `tests/fixtures/cache_bundles/v1/` plus the canonical sanitized 0.149.0
-fixture. These modules are **not active in the adapter**: they are not wired
-into the legacy request execution path, and the legacy detector is unchanged.
-D06-D10 remain planned for later same-PR suffixes (planned 017-d/e; round
-017-b corrected the 017-a observation proof, and round 017-c corrected the
-remaining literal-grammar and actual-endpoint proof, without adding read
-families);
+fixture. Round 017-d corrected the root-domain prerequisite (root
+observation scoped to the actual selected Responses domain; string-input
+plus messages is a mixed shape, never unambiguous Chat) and earned the
+D06-D08 finite read-plan slice in the new pure module
+`src/slaif_local_coding/constitution/bundles/compound_reads.py`
+(all-cat / literal-cd `&&` plans as one ordered whole bundle, absolute
+literal `cd` transitions under the evidenced workspace with per-call
+workdir precedence, bounded literal `echo` outer boundaries with exact
+prefix/suffix proof, per-read versus global exit evidence, whole-plan
+bounds), exercised by
+`tests/test_bundle_compound_reads.py`; loops and wildcards remain
+explicitly typed unsupported in this slice. These modules are **not active
+in the adapter**: they are not wired into the legacy request execution
+path, and the legacy detector is unchanged.
+D09-D10 remain planned for a later same-PR suffix (planned 017-e; round
+017-b corrected the 017-a observation proof, round 017-c corrected the
+remaining literal-grammar and actual-endpoint proof, and round 017-d
+corrected the root-domain prerequisite and earned D06-D08, without adding
+loop/chunk families);
 all v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

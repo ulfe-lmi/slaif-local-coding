@@ -192,7 +192,13 @@ evidence is distinct from the global exit status. Unknown, partial or
 truncated output never becomes complete; a typed unsupported observation
 preserves the uncertain span and exposes a limitation. Client-workspace
 absolute paths normalize to repository-relative form only under proven
-workspace context; they never become adapter-host reads.
+workspace context; they never become adapter-host reads. Earned in 017-d
+(inert, `literal-read-plan/v1`): finite all-cat / literal-cd `&&` plans
+with absolute literal `cd` transitions (per-call workdir takes precedence),
+bounded literal `echo` prefix/suffix outer boundaries proven at their exact
+positions, whole-plan bounds, and the law that a global nonzero in a chain
+proves no per-read completion; loops, wildcards, semicolon and other
+non-earned forms remain explicitly typed unsupported.
 
 **Admission.** `lean` admits a whole bundle only when every member is
 graph-eligible and may admit an isolated eligible portion when boundaries are
@@ -508,8 +514,15 @@ performed; NOT released. Objective 016 (merged PR #24, merge
 contracts — handoff, plan, reconciled architecture/law, stage ledger.
 Objective 017 is active (017-a published but not accepted; 017-b corrects
 its bounded observation-proof findings A-E; 017-c corrects the remaining
-literal-grammar and actual-endpoint proof; D06-D10 compound/loop/chunk
-scope planned for later same-PR suffixes 017-d/e);
+literal-grammar and actual-endpoint proof; 017-d corrects the root-domain
+prerequisite — root observation scoped to the actual selected Responses
+domain, no root minting from unused containers on Chat/mixed/unknown/
+invalid selections — and earns the D06/D07/D08 finite read-plan slice in
+the inert module `constitution/bundles/compound_reads.py` (all-cat /
+literal-cd `&&` plans as one ordered bundle, absolute literal `cd`
+transitions with per-call workdir precedence, bounded literal `echo`
+outer boundaries, per-read vs global exit evidence, whole-plan bounds);
+D09/D10 loop/chunk scope planned for later same-PR suffix 017-e);
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

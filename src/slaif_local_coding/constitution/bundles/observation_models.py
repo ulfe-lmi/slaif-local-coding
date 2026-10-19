@@ -186,6 +186,10 @@ class Limitation(StrEnum):
     MISSING_OUTPUT_BODY = "missing_output_body"
     MALFORMED_WRAPPER = "malformed_wrapper"
     OUTPUT_OVER_BOUND = "output_over_bound"
+    # Read plan grammar (D06/D07/D08)
+    CD_TARGET_UNSUPPORTED = "cd_target_unsupported"
+    ECHO_TARGET_UNSUPPORTED = "echo_target_unsupported"
+    OUTER_BOUNDARY_UNPROVEN = "outer_boundary_unproven"
     # Shared
     ENDPOINT_UNSUPPORTED = "endpoint_unsupported"
 

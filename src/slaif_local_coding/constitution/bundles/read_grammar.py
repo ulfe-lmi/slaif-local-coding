@@ -47,6 +47,7 @@ its ``command_digest`` is explicitly absent (never a placeholder digest).
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..bundles.client_paths import normalize_read_path
@@ -58,7 +59,7 @@ from ..bundles.observation_models import (
     contains_lone_surrogates,
     sha256_hex,
 )
-from ..bundles.shell_tokens import _spans, tokenize_command
+from ..bundles.shell_tokens import LiteralToken, _spans, tokenize_command
 
 #: Executables that are explicit fragments, not whole-file reads.
 _FRAGMENT_EXECUTABLES = {"head", "tail", "sed", "less", "more", "grep", "rg"}
@@ -173,10 +174,48 @@ def parse_read_command(
         )
         return _finish([reason], (), False, digest)
 
+    operands, reasons = parse_cat_operands(
+        tokens[1:], command, context, max_operands, max_path_bytes
+    )
+    if not operands and not reasons:
+        return _finish([Limitation.COMMAND_EMPTY], (), False, digest)
+    if reasons:
+        return _finish(reasons, tuple(operands), False, digest)
+    return _finish([], tuple(operands), True, digest)
+
+
+def parse_cat_operands(
+    tokens: Sequence[LiteralToken],
+    command: str,
+    context: PathContext,
+    max_operands: int,
+    max_path_bytes: int,
+    stop_at_operator: bool = False,
+) -> tuple[list[NormalizedPath], list[Limitation]]:
+    """Shared cat operand law for one ``cat`` statement (pure, bounded).
+
+    ``tokens`` is the token stream after the ``cat`` executable of ONE
+    statement.  The option/terminator/stdin law is exactly the single-
+    command law: the option terminator is recognized by cooked value and
+    processed once (a later ``--`` is a literal operand kept in the
+    complete member list); a token whose cooked value starts with ``-``
+    before the terminator is an option, never a file member; the stdin
+    special operand ``-`` (quoted or not, before or after the terminator)
+    is typed ``STDIN_OPERAND``, never a file member.  ``max_operands`` is
+    the remaining whole-plan operand budget for this call site: up to the
+    budget completes, and the first operand beyond it is typed
+    ``COMMAND_OVER_BOUND`` (whole-plan bound, never per-segment
+    multiplication).  With ``stop_at_operator`` (the read-plan call
+    sites) the first typed operator token terminates member collection:
+    words after a separator, pipe, redirection, substitution or branch
+    are later-command words, never reinterpreted as requested ``cat``
+    filenames.  Returns ``(operands, reasons)`` in statement order.
+    """
+
     reasons: list[Limitation] = []
     operands: list[NormalizedPath] = []
     terminator_seen = False
-    for token in tokens[1:]:
+    for token in tokens:
         if token.quote_limitation is not None:
             # Partial/nested/concatenated quotes or quoted inner text
             # outside the literal surface: typed, never guessed.
@@ -184,6 +223,10 @@ def parse_read_command(
             continue
         if token.operator is not None:
             reasons.append(token.operator)
+            if stop_at_operator:
+                # A typed operator inside the statement: everything after
+                # it is later-command text, never a requested file.
+                break
             if token.operator is Limitation.COMMENT_PRESENT:
                 break  # a comment terminates the command line
             continue
@@ -221,12 +264,7 @@ def parse_read_command(
         if len(operands) > max_operands:
             reasons.append(Limitation.COMMAND_OVER_BOUND)
             break
-
-    if not operands and not reasons:
-        return _finish([Limitation.COMMAND_EMPTY], (), False, digest)
-    if reasons:
-        return _finish(reasons, tuple(operands), False, digest)
-    return _finish([], tuple(operands), True, digest)
+    return operands, reasons
 
 
 def raw_argument_bound(max_argument_chars: int) -> int:

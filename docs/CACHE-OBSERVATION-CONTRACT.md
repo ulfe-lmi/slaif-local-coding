@@ -22,7 +22,18 @@ proof (bounded literal lexer with raw spans/cooked values, quoted
 option/terminator/stdin semantics, non-ASCII separator law, exact operand
 limit, per-call workdir Unicode validation, repr privacy, the documented
 raw-argument cap, and mixed/envelope endpoint selection) without adding
-read families.
+read families. Round 017-d (this slice) first corrected the root-domain
+prerequisite (root observation is scoped to the actual selected
+Responses domain; a Responses string input plus Chat messages is a mixed
+shape, never unambiguous Chat; the contradictory independence clause is
+removed) and then earned the finite read-plan surface D06/D07/D08:
+all-cat / literal-cd `&&` plans as one ordered whole bundle, absolute
+literal `cd` transitions under the evidenced workspace with per-call
+workdir precedence, bounded literal `echo` outer boundaries with exact
+prefix/suffix proof, per-read versus global exit evidence, and the whole-
+plan bound law — all in the new pure inert module
+`compound_reads.py` with the versioned grammar
+`literal-read-plan/v1`.
 
 ## 1. Modules and versions
 
@@ -32,14 +43,16 @@ read families.
 | `ENVELOPE_FORMAT` | `codex-project-instructions/v1` | root delimiter contract |
 | `READ_GRAMMAR` | `literal-shell-read/v1` | command grammar |
 | `TOOL_WRAPPER_FORMAT` | `codex-exec-wrapper/v1` | exec wrapper text form |
+| `READ_PLAN_GRAMMAR` | `literal-read-plan/v1` | finite read-plan grammar (D06-D08) |
 
 Modules: `observation_models.py` (typed results, spans, digests, bounds),
 `client_paths.py` (literal client-workspace path normalization),
 `root_envelopes.py` (D01/D02 envelope observation), `shell_tokens.py`
 (bounded literal token lexing: raw spans, cooked values, quoting,
-operators), `read_grammar.py` (D03/D04 literal command grammar),
-`tool_results.py` (D05 pairing and wrapper), `observe.py` (pure
-composition entry point `observe_request`).
+operators), `read_grammar.py` (D03/D04 literal command grammar plus the shared cat
+operand law), `compound_reads.py` (D06/D07/D08 finite read-plan grammar
+and outer attribution), `tool_results.py` (D05 pairing and wrapper),
+`observe.py` (pure composition entry point `observe_request`).
 
 Coordinate law: every span is a half-open pair of **character offsets into the
 exact decoded JSON string** that carried the source (`CharSpan`).
@@ -247,6 +260,81 @@ cat <operand> <operand> ...        (bounded operand count)
   string or exactly `[bash|sh|zsh, -c|-lc, <string>]`. Other shapes are
   typed unsupported.
 
+### 4a. Finite read-plan grammar (D06/D07/D08)
+
+The earned plan surface is a **finite typed plan** (versioned
+`literal-read-plan/v1`), not a general shell interpreter:
+
+```text
+plan        := statement ('&&' statement)*
+statement   := cat_stmt | cd_stmt | echo_stmt
+cat_stmt    := 'cat' operand ...        (the exact earned cat option law)
+cd_stmt     := 'cd' absolute_literal_dir
+echo_stmt   := 'echo' 'quoted_literal'
+```
+
+- **Separators.** Statements join only on the exact unquoted `&&`
+  operator token. Operators are earned only outside quotes: a quoted
+  `&&` is a literal token (typed `QUOTED_OPERAND`), never a separator.
+  Adjacent-operator variants (`&&&`), semicolons, a single `&`, pipes,
+  redirections, substitutions, comments, heredocs, branches and other
+  metacharacters keep the plan typed unsupported. The control-character
+  guard is not relaxed: POSIX blanks are not interchangeable with
+  CR/VT/FF. Unknown branch/control flow stays typed, and later-command
+  words are never reinterpreted as requested `cat` filenames (the first
+  typed operator inside a `cat` statement terminates member collection).
+- **`cat` statements.** The exact single-command option/terminator/stdin
+  law (section 4), with one shared whole-plan operand budget.
+- **`cd` statements (D07).** Exactly one absolute literal directory that
+  validates inside the evidenced workspace (component comparison;
+  `..`-carrying, relative, bare, multi-target and over-bound targets are
+  `CD_TARGET_UNSUPPORTED`; outside the workspace is `OUTSIDE_WORKSPACE`;
+  no evidenced workspace is `UNKNOWN_WORKSPACE`). `cd` transitions
+  affect following reads only; the explicit supported per-call workdir
+  takes precedence over the batch default before the first transition.
+  Absolute literal directory transitions suffice in this slice; other
+  forms are explicitly typed, never guessed. No host cwd/stat/resolve,
+  no environment or glob expansion.
+- **`echo` statements (outer regions, D06).** Exactly one clean
+  fully-quoted literal (`ECHO_TARGET_UNSUPPORTED` otherwise). An earned
+  echo before all reads is a deterministic output **prefix**, one after
+  all reads a **suffix** (echo's newline terminator included), proven at
+  its exact position in the wrapper output. Only the pure file-source
+  span between proven boundaries is attributable; a label inside a file
+  stays source. Printed delimiters are not a universal boundary oracle:
+  a collision (content shorter than prefix plus suffix), a mismatched
+  boundary, or an `echo` between reads (unknown internal boundary) is
+  `OUTER_BOUNDARY_UNPROVEN` — typed where proof is insufficient.
+- **Non-read statements.** Any other executable (`ls`, `head`, …) is
+  typed (`COMMAND_UNSUPPORTED` / `FRAGMENT_COMMAND`) and, in a
+  multi-statement plan, makes the combined output structurally
+  unattributable (`OUTER_BOUNDARY_UNPROVEN`): listing rows and
+  diagnostics are never swallowed into a file bundle, no saved snapshot
+  is a runtime oracle, and whole-request acquisition never claims
+  support merely because `cat` appears. A plan with no `cat` statement
+  at all is typed, never a silent empty read.
+- **Whole-plan bounds.** Total plan characters (`max_command_chars`),
+  total `cat` operands across all statements (one shared
+  `max_operands` budget), statement count (`max_operands`), output
+  (wrapper `max_output_chars`) and nesting (the plan is flat; any
+  nesting metacharacter is typed). A per-segment bound is never
+  multiplied over segments.
+- **Completion and attribution (D08).** A complete plan plus a
+  wrapper-proven exit-zero, untruncated, present output proves each
+  requested read succeeded: the attributable content region is **one
+  ordered whole bundle** even without inner separators — repeated
+  operands preserve observed order, distinct member width is recorded
+  separately, and individual member hashes are never fabricated (a
+  single distinct member proves its digest, including the exact empty
+  digest for a zero-byte middle). Requested versus proven execution
+  stay distinct, and the plan never invents per-command exit metadata:
+  a global nonzero in an `&&` chain identifies no per-read failure and
+  proves no earlier source complete (`NONZERO_EXIT` / `PARTIAL`, no
+  proven members, no digest); a truncated chain is `TRUNCATED` /
+  `PARTIAL`; a semicolon or mixed chain never proves an earlier `cat`.
+  The original wrapper/global status is always preserved as recorded
+  facts.
+
 ## 5. Tool call/result pairing and wrapper (D05)
 
 - **Eligibility.** Only `exec_command` and `shell_command` are supported
@@ -364,7 +452,8 @@ tool (`unsupported_tool`,
 `mismatched_call_id`, `nonzero_exit`, `unknown_completion`,
 `truncated_output`, `process_running`, `write_stdin_chunk`,
 `multi_chunk_deferred`, `missing_output_body`, `malformed_wrapper`,
-`output_over_bound`).
+`output_over_bound`), plan (`cd_target_unsupported`,
+`echo_target_unsupported`, `outer_boundary_unproven`).
 
 ## 8. Boundedness
 
@@ -378,7 +467,10 @@ input (multi-megabyte items, huge item counts, unterminated envelopes,
 over-long numeric fields, deep JSON nesting) terminates deterministically
 with typed limitations (`OVER_BOUND`, `MALFORMED_WRAPPER`, typed argument
 shapes) — no regex blowup, no timing-dependent behavior, no uncaught
-exceptions at the public entry points.
+exceptions at the public entry points.  Plan parsing is linear over the
+whole command string (one lexing pass plus one statement pass); the
+whole-plan bounds above cap statements, operands and characters before
+any attribution work.
 
 ## 9. Privacy and identity
 
@@ -431,13 +523,20 @@ remaining literal-grammar and actual-endpoint proof (bounded literal lexer
 with raw spans/cooked values; quoted option/terminator/stdin semantics;
 non-ASCII separator law; exact operand limit; per-call workdir Unicode
 validation; repr privacy; the documented raw-argument cap; mixed/envelope
-endpoint selection); it adds no new read families.  Still deferred:
-chained/mixed reads (`ls` + labels +
-unrelated output, D06), literal loops and `cd` transitions with explicit
-workdir chains (D07), per-read execution evidence distinct from global exit
-status (D08), multi-chunk process completion proof and the remaining
-truncation matrix (D09), and the full duplicate/mismatched/substitution/
-unexecuted-branch matrix beyond the simple negatives already covered (D10).
-Those compound/loop/chunk families move to later same-PR suffixes
-(planned 017-d/e). Graph identity, admission, RAM state, recovery,
+endpoint selection); it adds no new read families.  Round 017-d first
+corrects the root-domain prerequisite (root observation scoped to the
+actual selected Responses domain; string-input plus messages is a mixed
+shape; the contradictory root-scanning independence clause removed) and
+then earns D06/D07/D08 on the same inert surface: all-cat / literal-cd
+`&&` plans as one ordered whole bundle (new module `compound_reads.py`,
+grammar `literal-read-plan/v1`), absolute literal `cd` transitions with
+per-call workdir precedence, bounded literal `echo` outer boundaries with
+exact prefix/suffix proof, per-read versus global exit evidence, and the
+whole-plan bound law — still inert, with no graph/cache/compiler/app
+integration.  Still deferred: multi-chunk process completion proof and the
+remaining truncation matrix (D09), and the full
+duplicate/mismatched/substitution/unexecuted-branch matrix beyond the
+negatives already covered (D10), on a later same-PR suffix (planned
+017-e).  Literal loops remain explicitly unsupported in this slice
+(typing, not execution). Graph identity, admission, RAM state, recovery,
 tokenization, and replacement belong to objectives 018-024.

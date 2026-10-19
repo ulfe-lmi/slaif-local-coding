@@ -48,6 +48,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..bundles.compound_reads import parse_read_plan, plan_source_region
 from ..bundles.observation_models import (
     EMPTY_SOURCE_SHA256,
     CharSpan,
@@ -543,17 +544,170 @@ def _build_observation(
         bounds.max_path_bytes,
     )
     if not parsed.complete:
+        # Finite read-plan surface (D06/D07/D08): recognized all-cat /
+        # literal-cd (plus bounded literal-echo outer boundaries) '&&'
+        # plans.  The plan is parsed as data — never executed; per-command
+        # exit metadata is never invented or inferred from source-looking
+        # text after Output.
+        plan = parse_read_plan(
+            unwrapped.command,
+            call_context,
+            bounds.max_command_chars,
+            bounds.max_operands,
+            bounds.max_path_bytes,
+        )
+        if not plan.complete:
+            # Typed unsupported plan: no acquisition; the original
+            # wrapper/global status is preserved as recorded facts.
+            cid, ep, loc, rloc = _common()
+            return ReadObservation(
+                call_id=cid,
+                endpoint=ep,
+                call_location=loc,
+                result_location=rloc,
+                requested_members=plan.requested_members,
+                outcome=ReadOutcome.UNSUPPORTED,
+                completeness=ReadOutcome.UNSUPPORTED,
+                wrapper=parse_wrapper(output_text, bounds),
+                reasons=plan.reasons,
+            )
+        plan_wrapper = parse_wrapper(output_text, bounds)
+        plan_content_span = (
+            plan_wrapper.output_span
+            if plan_wrapper.output_present and plan_wrapper.output_span is not None
+            else None
+        )
+        if Limitation.PROCESS_RUNNING in plan_wrapper.reasons:
+            cid, ep, loc, rloc = _common()
+            return ReadObservation(
+                call_id=cid,
+                endpoint=ep,
+                call_location=loc,
+                result_location=rloc,
+                requested_members=plan.requested_members,
+                outcome=ReadOutcome.UNSUPPORTED,
+                completeness=ReadOutcome.UNSUPPORTED,
+                wrapper=plan_wrapper,
+                reasons=(Limitation.PROCESS_RUNNING,),
+            )
+        if (
+            plan_wrapper.reasons == ()
+            and plan_wrapper.output_present
+            and plan_content_span is not None
+        ):
+            plan_content = output_text[plan_content_span.start : plan_content_span.end]
+            if contains_lone_surrogates(plan_content):
+                # Unhashable content is rejected before any UTF-8 hashing:
+                # the observation is typed, non-removable, and carries no
+                # digest (ineligible for later graph/cache admission).
+                cid, ep, loc, rloc = _common()
+                return ReadObservation(
+                    call_id=cid,
+                    endpoint=ep,
+                    call_location=loc,
+                    result_location=rloc,
+                    requested_members=plan.requested_members,
+                    outcome=ReadOutcome.UNSUPPORTED,
+                    completeness=ReadOutcome.UNSUPPORTED,
+                    wrapper=plan_wrapper,
+                    content_span=plan_content_span,
+                    removable=False,
+                    bundle_digest=None,
+                    member_digests=(),
+                    reasons=(Limitation.MALFORMED_UNICODE,),
+                )
+            region, region_reasons = plan_source_region(plan, plan_content)
+            if region is not None:
+                # A proven exit-zero, untruncated, present output proves
+                # each requested read succeeded: the attributable content
+                # region is ONE ordered whole bundle, even without inner
+                # separators; repeated operands preserve observed order,
+                # distinct width is recorded, and individual member hashes
+                # stay unknown (never fabricated).
+                plan_proven = tuple(
+                    member.normalized
+                    for member in plan.requested_members
+                    if member.normalized is not None
+                )
+                source = plan_content[region.start : region.end]
+                plan_distinct = len(set(plan_proven))
+                if len(plan_proven) == 1:
+                    plan_digest = EMPTY_SOURCE_SHA256 if source == "" else sha256_hex(source)
+                    plan_member_digests: tuple[str | None, ...] = (plan_digest,)
+                else:
+                    plan_member_digests = tuple(None for _ in range(plan_distinct))
+                cid, ep, loc, rloc = _common()
+                return ReadObservation(
+                    call_id=cid,
+                    endpoint=ep,
+                    call_location=loc,
+                    result_location=rloc,
+                    requested_members=plan.requested_members,
+                    proven_executed=plan_proven,
+                    distinct_member_count=plan_distinct,
+                    slot_width=plan_distinct,
+                    outcome=ReadOutcome.COMPLETE,
+                    completeness=ReadOutcome.COMPLETE,
+                    wrapper=plan_wrapper,
+                    content_span=CharSpan(
+                        start=plan_content_span.start + region.start,
+                        end=plan_content_span.start + region.end,
+                    ),
+                    removable=True,
+                    bundle_digest=sha256_hex(source),
+                    member_digests=plan_member_digests,
+                )
+            # A complete plan whose output boundary cannot be proven
+            # (collision, unknown internal boundary or extra output):
+            # typed, non-removable, and no digest is issued.
+            cid, ep, loc, rloc = _common()
+            return ReadObservation(
+                call_id=cid,
+                endpoint=ep,
+                call_location=loc,
+                result_location=rloc,
+                requested_members=plan.requested_members,
+                outcome=ReadOutcome.UNSUPPORTED,
+                completeness=ReadOutcome.UNSUPPORTED,
+                wrapper=plan_wrapper,
+                content_span=plan_content_span,
+                removable=False,
+                reasons=region_reasons,
+            )
+        # The wrapper is not proven: the global exit status alone is no
+        # per-command proof — a nonzero in an '&&' chain identifies no
+        # per-read failure and proves no earlier source complete; no read
+        # is proven and no bundle digest is issued.
+        plan_reasons: list[Limitation] = []
+        for reason in plan_wrapper.reasons:
+            if reason not in plan_reasons:
+                plan_reasons.append(reason)
+        if not plan_reasons:
+            plan_reasons.append(Limitation.UNKNOWN_COMPLETION)
+        if Limitation.NONZERO_EXIT in plan_wrapper.reasons:
+            plan_outcome = ReadOutcome.NONZERO_EXIT
+            plan_completeness = ReadOutcome.PARTIAL
+        elif Limitation.TRUNCATED_OUTPUT in plan_wrapper.reasons:
+            plan_outcome = ReadOutcome.TRUNCATED
+            plan_completeness = ReadOutcome.PARTIAL
+        elif Limitation.MISSING_OUTPUT_BODY in plan_wrapper.reasons:
+            plan_outcome = ReadOutcome.MISSING_BODY
+            plan_completeness = ReadOutcome.UNSUPPORTED
+        else:
+            plan_outcome = ReadOutcome.UNSUPPORTED
+            plan_completeness = ReadOutcome.UNSUPPORTED
         cid, ep, loc, rloc = _common()
         return ReadObservation(
             call_id=cid,
             endpoint=ep,
             call_location=loc,
             result_location=rloc,
-            requested_members=parsed.operands,
-            outcome=ReadOutcome.UNSUPPORTED,
-            completeness=ReadOutcome.UNSUPPORTED,
-            wrapper=parse_wrapper(output_text, bounds),
-            reasons=parsed.reasons,
+            requested_members=plan.requested_members,
+            outcome=plan_outcome,
+            completeness=plan_completeness,
+            wrapper=plan_wrapper,
+            content_span=plan_content_span,
+            reasons=tuple(plan_reasons),
         )
 
     wrapper = parse_wrapper(output_text, bounds)

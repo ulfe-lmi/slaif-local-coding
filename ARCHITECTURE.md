@@ -26,9 +26,12 @@ plan](docs/CACHE-IMPLEMENTATION-PLAN.md). As of stage 017-a the pure
 D01-D05 observation slice is implemented as inert typed modules (not active
 in the adapter); stage 017-b corrects its bounded observation-proof
 findings, stage 017-c corrects the remaining literal-grammar and
-actual-endpoint proof, each without adding read families, and the
-remaining D06-D10 scope moves to later same-PR suffixes; no v1 runtime
-mechanism is active or qualified yet.
+actual-endpoint proof, each without adding read families; stage 017-d
+gates root observation on the actually selected endpoint domain and
+earns the bounded finite cd/cat read-plan and outer-region
+attribution slice (D06-D08) as inert typed modules, leaving the
+remaining D09-D10 scope to the later same-PR suffix 017-e; no v1
+runtime mechanism is active or qualified yet.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact

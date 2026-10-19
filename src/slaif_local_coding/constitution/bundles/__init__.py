@@ -10,6 +10,14 @@ runtime stage; see ``docs/CACHE-OBSERVATION-CONTRACT.md``.
 from __future__ import annotations
 
 from ..bundles.client_paths import normalize_read_path, validate_workspace
+from ..bundles.compound_reads import (
+    READ_PLAN_GRAMMAR,
+    PlanStatement,
+    PlanStatementKind,
+    ReadPlanParse,
+    parse_read_plan,
+    plan_source_region,
+)
 from ..bundles.observation_models import (
     EMPTY_SOURCE_SHA256,
     ENVELOPE_FORMAT,
@@ -75,6 +83,12 @@ __all__ = [
     "ENDPOINT_RESPONSES",
     "ENDPOINT_UNKNOWN",
     "LiteralToken",
+    "READ_PLAN_GRAMMAR",
+    "PlanStatement",
+    "PlanStatementKind",
+    "ReadPlanParse",
+    "parse_read_plan",
+    "plan_source_region",
     "PathContext",
     "PathForm",
     "ReadCommandParse",
