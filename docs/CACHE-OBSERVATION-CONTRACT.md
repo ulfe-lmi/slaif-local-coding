@@ -91,8 +91,19 @@ character 0** with the header. Exact grammar (each `T` is `LF` or `CRLF`):
 
 Authority law: assistant/developer/system/tool text, quoted marker prose at
 any later offset, and top-level `instructions` text never create root
-authority. The Chat endpoint is `UNSUPPORTED_ENDPOINT` for root observation in
-this slice (the legacy detector keeps its own behavior on the legacy path).
+authority. **Root-domain law:** only the actual selected **Responses**
+domain can establish a root from its user `input_text` container. An
+explicit Chat selection never borrows root authority from an ignored
+Responses `input`; mixed, unknown and invalid-endpoint selections return
+no valid-root occurrence eligible for later graph/cache admission, even
+when a root-shaped object sits in an unused field — such an occurrence is
+demoted to non-authoritative typed evidence (status `unsupported`, no
+digest, `UNSUPPORTED_ENDPOINT` reason) and the root result is typed
+`UNSUPPORTED` with `UNSUPPORTED_ENDPOINT` in its conflicts. A Chat-only
+envelope has no recognized root container at all (`UNSUPPORTED_ENDPOINT`,
+zero scanned items). A valid Responses string-form input carries no item
+container: no root occurrence exists (`NO_ROOT`, zero scanned items). The
+legacy detector keeps its own behavior on the legacy path.
 
 Aggregation law: repeated byte- and scope-identical roots are idempotent —
 every occurrence span is preserved for later edits. Same-scope differing
@@ -275,8 +286,10 @@ cat <operand> <operand> ...        (bounded operand count)
   `unknown`.  The global endpoint and per-read endpoints always agree
   about the selected domain (under a mixed selection the per-read value is
   the container provenance of a typed, non-acquiring record).  Root
-  envelope observation keeps its own input-array contract and is not
-  changed by this selection.
+  envelope observation is scoped by this same actual endpoint selection
+  (section 2 root-domain law): only the selected Responses domain scans
+  roots; the other container is never acquired and can never mint a
+  valid root.
 - **Wrapper grammar.** Recognized header lines before the `Output:` marker
   line: the human-handoff 6.2 real format `Chunk ID: <token>` plus the
   explicitly earned compatible variant `Chunk Id: <token>`, `Wall time:

@@ -14,8 +14,12 @@ from slaif_local_coding.constitution.bundles import (
     TOOL_WRAPPER_FORMAT,
     Limitation,
     ObservationBounds,
+    ObservationReport,
+    OccurrenceKind,
     PathContext,
+    ReadObservation,
     ReadOutcome,
+    RootOccurrence,
     RootStatus,
     canonical_payload_fingerprint,
     observe_request,
@@ -347,9 +351,20 @@ class TestEndpointDomainAtComposition:
         ]
         report = observe_request(payload, context=_CTX)
         assert report.endpoint == "mixed"
-        # Root observation keeps its own (input-array) contract.
-        assert report.roots.status is RootStatus.OK
-        # But no read is acquired from either container.
+        # Root-domain law: a mixed selection establishes no valid root from
+        # the unused Responses input (supersedes the 017-c expectation that
+        # root scanning stayed independent of endpoint selection): the
+        # result is typed unsupported and every root-shaped occurrence is
+        # demoted to non-authoritative typed evidence.
+        assert report.roots.status is RootStatus.UNSUPPORTED
+        assert Limitation.UNSUPPORTED_ENDPOINT in report.roots.conflicts
+        assert report.roots.roots == ()
+        for occurrence in report.roots.occurrences:
+            if occurrence.kind is OccurrenceKind.ROOT:
+                assert occurrence.status is RootStatus.UNSUPPORTED
+                assert occurrence.digest is None
+                assert Limitation.UNSUPPORTED_ENDPOINT in occurrence.reasons
+        # And no read is acquired from either container.
         for obs in report.reads:
             assert obs.outcome is not ReadOutcome.COMPLETE
             assert obs.removable is False
@@ -364,3 +379,159 @@ class TestEndpointDomainAtComposition:
         assert mismatch.endpoint == "unknown"
         assert mismatch.reads == ()
         assert [u.limitation for u in mismatch.unpaired] == [Limitation.ENDPOINT_UNSUPPORTED]
+
+
+def _root_text() -> str:
+    return (
+        "# AGENTS.md instructions for /work\n\n"
+        "<INSTRUCTIONS>\n"
+        "Synthetic root rule.\n"
+        "</INSTRUCTIONS>"
+    )
+
+
+def _input_root_container() -> dict[str, Any]:
+    return {"input": [{"role": "user", "content": [{"type": "input_text", "text": _root_text()}]}]}
+
+
+def _chat_user_container() -> dict[str, Any]:
+    return {"messages": [{"role": "user", "content": "Synthetic request"}]}
+
+
+def _chat_read_container() -> dict[str, Any]:
+    return {
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "id": "synthetic-chat",
+                        "function": {
+                            "name": "exec_command",
+                            "arguments": json.dumps({"cmd": "cat B.md"}),
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "synthetic-chat",
+                "content": "Process exited with code 0\nOutput:\nSynthetic source\n",
+            },
+        ]
+    }
+
+
+def _valid_roots(report: ObservationReport) -> list[RootOccurrence]:
+    return [
+        r
+        for r in report.roots.occurrences
+        if r.kind is OccurrenceKind.ROOT and r.status is RootStatus.OK
+    ]
+
+
+def _complete_reads(report: ObservationReport) -> list[ReadObservation]:
+    return [r for r in report.reads if r.outcome is ReadOutcome.COMPLETE and r.removable]
+
+
+class TestRootDomainGating:
+    """Only the actual selected Responses domain can establish a root."""
+
+    def test_inferred_responses_root_positive_preserved(self) -> None:
+        payload = _input_root_container()
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "responses"
+        valid = _valid_roots(report)
+        assert len(valid) == 1
+        assert valid[0].scope_label == "/work"
+        assert valid[0].digest is not None
+
+    def test_explicit_responses_root_positive_preserved(self) -> None:
+        payload = {**_input_root_container(), **_chat_user_container()}
+        report = observe_request(payload, context=_CTX, endpoint="responses")
+        assert report.endpoint == "responses"
+        assert len(_valid_roots(report)) == 1
+
+    def test_explicit_chat_cannot_mint_root_from_unused_input(self) -> None:
+        payload = {**_input_root_container(), **_chat_user_container()}
+        report = observe_request(payload, context=_CTX, endpoint="chat")
+        assert report.endpoint == "chat"
+        assert report.roots.status is RootStatus.UNSUPPORTED
+        assert _valid_roots(report) == []
+        # Non-authoritative typed evidence is preserved without authority.
+        demoted = [o for o in report.roots.occurrences if o.kind is OccurrenceKind.ROOT]
+        assert len(demoted) == 1
+        assert demoted[0].status is RootStatus.UNSUPPORTED
+        assert demoted[0].digest is None
+        assert demoted[0].scope_label == "/work"
+        assert demoted[0].content_span is not None
+        assert Limitation.UNSUPPORTED_ENDPOINT in demoted[0].reasons
+
+    def test_mixed_without_endpoint_cannot_mint_root(self) -> None:
+        payload = {**_input_root_container(), **_chat_user_container()}
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "mixed"
+        assert report.roots.status is RootStatus.UNSUPPORTED
+        assert _valid_roots(report) == []
+
+    def test_invalid_explicit_endpoint_cannot_mint_root(self) -> None:
+        payload = _input_root_container()
+        report = observe_request(payload, context=_CTX, endpoint="invalid")
+        assert report.endpoint == "unknown"
+        assert report.roots.status is RootStatus.UNSUPPORTED
+        assert _valid_roots(report) == []
+        assert [u.limitation for u in report.unpaired] == [Limitation.ENDPOINT_UNSUPPORTED]
+
+    def test_malformed_root_in_unused_container_stays_typed(self) -> None:
+        text = "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nnever closed"
+        payload = {
+            "input": [{"role": "user", "content": [{"type": "input_text", "text": text}]}],
+            **_chat_user_container(),
+        }
+        report = observe_request(payload, context=_CTX, endpoint="chat")
+        assert _valid_roots(report) == []
+        occurrence = report.roots.occurrences[0]
+        assert occurrence.kind is OccurrenceKind.ROOT
+        assert occurrence.status is RootStatus.UNSUPPORTED
+        assert occurrence.reasons == (
+            Limitation.UNCLOSED_TAIL,
+            Limitation.UNSUPPORTED_ENDPOINT,
+        )
+
+    def test_chat_only_payload_root_result_unchanged(self) -> None:
+        report = observe_request(_chat_user_container(), context=_CTX)
+        assert report.endpoint == "chat"
+        assert report.roots.status is RootStatus.UNSUPPORTED
+        assert report.roots.conflicts == (Limitation.UNSUPPORTED_ENDPOINT,)
+        assert report.roots.occurrences == ()
+        assert report.roots.scanned_items == 0
+
+    def test_string_input_with_chat_messages_is_mixed_not_chat(self) -> None:
+        # An input string is a valid Responses API form: with messages also
+        # present, inference must not call this unambiguous Chat.
+        payload = {
+            "input": "Synthetic Responses input",
+            **_chat_read_container(),
+        }
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "mixed"
+        assert _complete_reads(report) == []
+        assert _valid_roots(report) == []
+
+    def test_string_input_alone_is_responses_without_root_container(self) -> None:
+        payload = {"input": "Synthetic Responses input"}
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "responses"
+        assert report.roots.status is RootStatus.NO_ROOT
+        assert report.roots.occurrences == ()
+        assert report.roots.scanned_items == 0
+        assert report.reads == ()
+        assert report.unpaired == ()
+
+    def test_input_not_mutated_under_root_gating(self) -> None:
+        payload = {**_input_root_container(), **_chat_user_container()}
+        before = json.dumps(payload, sort_keys=True)
+        observe_request(payload, context=_CTX)
+        observe_request(payload, context=_CTX, endpoint="chat")
+        assert json.dumps(payload, sort_keys=True) == before
