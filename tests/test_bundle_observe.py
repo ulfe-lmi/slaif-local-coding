@@ -320,3 +320,47 @@ class TestFixtureSelfIdentification:
         chat = load("read_chat_single_complete.json")
         report = observe_request(chat, context=_CTX)
         assert report.reads[0].outcome is ReadOutcome.COMPLETE
+
+
+class TestEndpointDomainAtComposition:
+    def test_mixed_envelope_is_typed_mixed_and_non_removable(self) -> None:
+        payload = combined_payload()
+        payload["messages"] = [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "id": "mix-c",
+                        "function": {
+                            "name": "exec_command",
+                            "arguments": json.dumps({"cmd": "chat/OTHER.md"}),
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "mix-c",
+                "content": "Process exited with code 0\nOutput:\nchat body\n",
+            },
+        ]
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "mixed"
+        # Root observation keeps its own (input-array) contract.
+        assert report.roots.status is RootStatus.OK
+        # But no read is acquired from either container.
+        for obs in report.reads:
+            assert obs.outcome is not ReadOutcome.COMPLETE
+            assert obs.removable is False
+            assert obs.bundle_digest is None
+
+    def test_explicit_endpoint_at_composition(self) -> None:
+        payload = combined_payload()
+        report = observe_request(payload, context=_CTX, endpoint="responses")
+        assert report.endpoint == "responses"
+        assert report.reads[0].outcome is ReadOutcome.COMPLETE
+        mismatch = observe_request(payload, context=_CTX, endpoint="chat")
+        assert mismatch.endpoint == "unknown"
+        assert mismatch.reads == ()
+        assert [u.limitation for u in mismatch.unpaired] == [Limitation.ENDPOINT_UNSUPPORTED]

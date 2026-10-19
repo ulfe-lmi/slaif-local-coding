@@ -208,3 +208,20 @@ class TestNoFilesystemAccess:
                 imported.add(node.module or "")
         forbidden = {"subprocess", "os", "glob", "shlex", "pathlib", "tempfile", "socket"}
         assert not (imported & forbidden), imported & forbidden
+
+
+class TestMalformedUnicodeAndSpaces:
+    def test_workspace_label_with_lone_surrogate_never_raises(self) -> None:
+        # The byte check must not be reached: no UnicodeEncodeError.
+        assert validate_workspace("/work/\ud800", 256) is None
+
+    def test_nbsp_path_label_is_typed_ambiguous(self) -> None:
+        result = normalize_read_path("A.md\u00a0B.md", _CTX, 256)
+        assert result.limitation is Limitation.AMBIGUOUS_PATH
+        assert result.normalized is None
+
+    def test_valid_unicode_path_still_normalizes(self) -> None:
+        assert normalize_read_path("A\u00e9.md", _CTX, 256).normalized == "A\u00e9.md"
+        assert (
+            normalize_read_path("/work/\u00fcbers/B.md", _CTX, 256).normalized == "\u00fcbers/B.md"
+        )

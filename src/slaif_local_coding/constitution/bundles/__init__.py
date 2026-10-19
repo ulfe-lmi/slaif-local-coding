@@ -38,15 +38,24 @@ from ..bundles.observation_models import (
     sha256_hex,
     utf8_byte_span,
 )
-from ..bundles.observe import observe_request
+from ..bundles.observe import (
+    ENDPOINT_CHAT,
+    ENDPOINT_MIXED,
+    ENDPOINT_RESPONSES,
+    ENDPOINT_UNKNOWN,
+    observe_request,
+    select_endpoint,
+)
 from ..bundles.read_grammar import (
     UnwrappedCommand,
     parse_read_command,
+    raw_argument_bound,
     tokenize_literal,
     unwrap_call_arguments,
     unwrap_supported_arguments,
 )
 from ..bundles.root_envelopes import scan_root_envelopes
+from ..bundles.shell_tokens import LiteralToken, tokenize_command
 from ..bundles.tool_results import observe_reads, parse_wrapper
 
 __all__ = [
@@ -61,6 +70,11 @@ __all__ = [
     "ObservationBounds",
     "ObservationReport",
     "OccurrenceKind",
+    "ENDPOINT_CHAT",
+    "ENDPOINT_MIXED",
+    "ENDPOINT_RESPONSES",
+    "ENDPOINT_UNKNOWN",
+    "LiteralToken",
     "PathContext",
     "PathForm",
     "ReadCommandParse",
@@ -80,8 +94,11 @@ __all__ = [
     "observe_request",
     "parse_read_command",
     "parse_wrapper",
+    "raw_argument_bound",
     "scan_root_envelopes",
+    "select_endpoint",
     "sha256_hex",
+    "tokenize_command",
     "tokenize_literal",
     "unwrap_call_arguments",
     "unwrap_supported_arguments",

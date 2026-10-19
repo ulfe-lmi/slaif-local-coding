@@ -11,7 +11,9 @@ from slaif_local_coding.constitution.bundles import (
     EMPTY_SOURCE_SHA256,
     Limitation,
     ObservationBounds,
+    ObservationReport,
     PathContext,
+    ReadObservation,
     ReadOutcome,
     observe_request,
     parse_wrapper,
@@ -774,3 +776,157 @@ class TestMalformedUnicodeComposition:
         first = observe_request(payload, context=_CTX)
         second = observe_request(payload, context=_CTX)
         assert first.input_fingerprint == second.input_fingerprint
+
+
+class TestMalformedWorkdirUnicode:
+    """A per-call workdir with lone surrogates is typed before any UTF-8
+    byte check: no crash, no placeholder digest, non-removable — for both
+    relative and absolute operand variants."""
+
+    def test_relative_operand_with_surrogate_workdir_is_typed_not_crash(self) -> None:
+        payload = call_payload(arguments={"cmd": "cat A.md", "workdir": "/work/\ud800"})
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.completeness is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+        assert obs.member_digests == ()
+        assert obs.proven_executed == ()
+        assert Limitation.MALFORMED_UNICODE in obs.reasons
+
+    def test_absolute_operand_with_surrogate_workdir_is_typed_not_crash(self) -> None:
+        payload = call_payload(arguments={"cmd": "cat /work/A.md", "workdir": "/work/\ud800"})
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert Limitation.MALFORMED_UNICODE in obs.reasons
+
+    def test_valid_unicode_workdir_is_still_proven(self) -> None:
+        payload = call_payload(arguments={"cmd": "cat A.md", "workdir": "/work/\u00fcbers"})
+        report = observe_request(payload, context=_CTX)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.proven_executed == ("\u00fcbers/A.md",)
+
+
+class TestEndpointSelection:
+    """One API request is one endpoint: mixed shapes are typed unsupported
+    and non-removable; explicit endpoints scope observation to one
+    container; global and per-read endpoints agree."""
+
+    def _responses_pair(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "type": "function_call",
+                "name": "exec_command",
+                "call_id": "ep-r",
+                "arguments": json.dumps({"cmd": "cat A.md"}),
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "ep-r",
+                "output": "Process exited with code 0\nOutput:\nresponses body\n",
+            },
+        ]
+
+    def _chat_pair(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "id": "ep-c",
+                        "function": {
+                            "name": "exec_command",
+                            "arguments": json.dumps({"cmd": "cat B.md"}),
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "ep-c",
+                "content": "Process exited with code 0\nOutput:\nchat body\n",
+            },
+        ]
+
+    def _complete(self, report: ObservationReport) -> list[ReadObservation]:
+        return [r for r in report.reads if r.outcome is ReadOutcome.COMPLETE and r.removable]
+
+    def test_mixed_complete_pairs_acquire_nothing(self) -> None:
+        payload = {"input": self._responses_pair(), "messages": self._chat_pair()}
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "mixed"
+        assert self._complete(report) == []
+        # The call evidence stays observable, typed, and non-removable.
+        for obs in report.reads:
+            assert obs.outcome is ReadOutcome.UNSUPPORTED
+            assert Limitation.ENDPOINT_UNSUPPORTED in obs.reasons
+            assert obs.removable is False
+            assert obs.bundle_digest is None
+            assert obs.proven_executed == ()
+            assert obs.content_span is None
+
+    def test_responses_shape_cannot_acquire_chat_pair(self) -> None:
+        payload = {
+            "input": [{"role": "user", "content": "Synthetic request"}],
+            "messages": self._chat_pair(),
+        }
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "mixed"
+        assert self._complete(report) == []
+
+    def test_chat_shape_cannot_acquire_responses_pair(self) -> None:
+        payload = {
+            "messages": [{"role": "user", "content": "Synthetic request"}],
+            "input": self._responses_pair(),
+        }
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "mixed"
+        assert self._complete(report) == []
+
+    def test_unambiguous_envelopes_still_complete(self) -> None:
+        responses = observe_request({"input": self._responses_pair()}, context=_CTX)
+        assert responses.endpoint == "responses"
+        assert [r.endpoint for r in responses.reads] == ["responses"]
+        assert len(self._complete(responses)) == 1
+        chat = observe_request({"messages": self._chat_pair()}, context=_CTX)
+        assert chat.endpoint == "chat"
+        assert [r.endpoint for r in chat.reads] == ["chat"]
+        assert len(self._complete(chat)) == 1
+
+    def test_explicit_endpoint_scopes_to_its_container(self) -> None:
+        payload = {"input": self._responses_pair(), "messages": self._chat_pair()}
+        report = observe_request(payload, context=_CTX, endpoint="responses")
+        assert report.endpoint == "responses"
+        assert [r.endpoint for r in report.reads] == ["responses"]
+        assert len(self._complete(report)) == 1
+        chat = observe_request(payload, context=_CTX, endpoint="chat")
+        assert chat.endpoint == "chat"
+        assert [r.endpoint for r in chat.reads] == ["chat"]
+        assert len(self._complete(chat)) == 1
+
+    def test_explicit_endpoint_with_absent_container_is_typed(self) -> None:
+        report = observe_request(
+            {"messages": self._chat_pair()}, context=_CTX, endpoint="responses"
+        )
+        assert report.endpoint == "unknown"
+        assert report.reads == ()
+        assert [u.limitation for u in report.unpaired] == [Limitation.ENDPOINT_UNSUPPORTED]
+
+    def test_invalid_explicit_endpoint_is_typed(self) -> None:
+        report = observe_request(
+            {"input": self._responses_pair()}, context=_CTX, endpoint="responsses"
+        )
+        assert report.endpoint == "unknown"
+        assert report.reads == ()
+        assert [u.limitation for u in report.unpaired] == [Limitation.ENDPOINT_UNSUPPORTED]
+
+    def test_no_container_is_unknown(self) -> None:
+        report = observe_request({"model": "synthetic-bundle-model"}, context=_CTX)
+        assert report.endpoint == "unknown"
+        assert report.reads == ()
+        assert report.unpaired == ()

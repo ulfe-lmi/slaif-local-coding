@@ -15,8 +15,14 @@ the dependency-bundle cache rework (D01-D05 in
 [the stage ledger](CACHE-REWORK-LEDGER.md). D06-D10 (chained reads, literal
 loops, per-read vs global exit evidence, multi-chunk pairing and remaining
 truncation matrix) are NOT implemented here; they are planned for later
-same-PR suffixes (planned 017-c/d). Round 017-b corrected the 017-a
+same-PR suffixes (planned 017-d/e). Round 017-b corrected the 017-a
 observation proof defects (findings A-E) without adding read families.
+Round 017-c corrected the remaining literal-grammar and actual-endpoint
+proof (bounded literal lexer with raw spans/cooked values, quoted
+option/terminator/stdin semantics, non-ASCII separator law, exact operand
+limit, per-call workdir Unicode validation, repr privacy, the documented
+raw-argument cap, and mixed/envelope endpoint selection) without adding
+read families.
 
 ## 1. Modules and versions
 
@@ -29,10 +35,11 @@ observation proof defects (findings A-E) without adding read families.
 
 Modules: `observation_models.py` (typed results, spans, digests, bounds),
 `client_paths.py` (literal client-workspace path normalization),
-`root_envelopes.py` (D01/D02 envelope observation), `read_grammar.py`
-(D03/D04 literal command grammar), `tool_results.py` (D05 pairing and
-wrapper), `observe.py` (pure composition entry point
-`observe_request`).
+`root_envelopes.py` (D01/D02 envelope observation), `shell_tokens.py`
+(bounded literal token lexing: raw spans, cooked values, quoting,
+operators), `read_grammar.py` (D03/D04 literal command grammar),
+`tool_results.py` (D05 pairing and wrapper), `observe.py` (pure
+composition entry point `observe_request`).
 
 Coordinate law: every span is a half-open pair of **character offsets into the
 exact decoded JSON string** that carried the source (`CharSpan`).
@@ -133,6 +140,18 @@ that does not exist on the client still normalizes.
   onto `A.md`. A fully-quoted operand (`"A.md"`) is the same literal path
   under the agreed no-spaces file convention and is recorded with
   `quoted=True`; partial or nested quotes are `QUOTED_OPERAND`.
+- **No-spaces convention (all whitespace).** A path label carrying any
+  whitespace character of any kind — including non-ASCII (e.g. NBSP) — is
+  not a representable literal member under the agreed no-spaces file
+  convention and is typed `AMBIGUOUS_PATH`: it never normalizes and is
+  never silently split into two fabricated files.  Valid non-ASCII paths
+  (e.g. `Aé.md`) are preserved exactly.
+- **Malformed Unicode.** A workspace or workdir label containing lone
+  surrogates is rejected **before** any UTF-8 byte check (typed, never a
+  `UnicodeEncodeError`).  A per-call `workdir` that is malformed Unicode
+  makes the whole call typed `MALFORMED_UNICODE` (relative and absolute
+  operand variants alike): a fixed non-removable limitation with no
+  placeholder digest and no raw exception echo.
 - **Non-literal operands.** Any shell metacharacter (`$`, backtick, `\`,
   `*`, `?`, `[`, `]`, `{`, `}`, `~`, `^`, `|`, `&`, `;`, `<`, `>`, `(`, `)`,
   `!`) makes the operand non-literal (`NON_LITERAL_OPERAND` /
@@ -151,27 +170,54 @@ cat -- <operand>
 cat <operand> <operand> ...        (bounded operand count)
 ```
 
-- Tokenization is literal whitespace splitting; no quote-aware parsing
-  beyond the fully-quoted operand rule, no shell parsing (no new external
-  shell parser dependency), no execution, no environment/glob expansion.
-- **Option terminator.** The first `--` after the executable is processed
-  once as the option terminator. A later `--` token is a **literal operand**
-  and stays in the actual complete member list (e.g. `cat -- A.md -- B.md`
-  has members `A.md`, `--`, `B.md`): it is never silently dropped and its
-  output is never attributed to fewer members than were actually requested.
+- Tokenization is a bounded literal lexing (the pure `shell_tokens`
+  module) that separates each token's raw span (character offsets into the
+  exact command string), cooked value (the quoted inner text for a fully-
+  quoted literal, otherwise the exact raw text), quote classification and
+  shell-operator classification.  Only **ASCII whitespace** separates
+  tokens: arbitrary Unicode `isspace` characters (e.g. NBSP) are **not**
+  POSIX shell separators — they stay inside the token and are typed by the
+  path layer (no-spaces convention), never split into two files.  No shell
+  parsing (no new external shell parser dependency), no execution, no
+  environment/glob/substitution expansion; operators and substitutions
+  stay classified data.
+- **Option parser (quoting does not disable it).** Recognition is by
+  **cooked value**: the first token whose cooked value is exactly `--`
+  (quoted or not) is processed once as the option terminator — `cat '--'
+  A.md` proves only `A.md` and never invents a `--` file.  A later `--`
+  token (quoted or not) is a **literal operand** and stays in the actual
+  complete member list (e.g. `cat -- A.md '--' B.md` has members `A.md`,
+  `--`, `B.md`): it is never silently dropped and its output is never
+  attributed to fewer members than were actually requested.  A token whose
+  cooked value starts with `-` before the terminator (`-n`, `--number`,
+  quoted or not) is a cat option, never a file member
+  (`COMMAND_UNSUPPORTED`); after the terminator, option-looking names are
+  literal file labels.  The stdin special operand `-` (cooked value,
+  quoted or not, before or after the terminator) is never a file member:
+  the read is typed `STDIN_OPERAND` and never complete (cat would read
+  stdin as well).  A literal path that merely ends in `-` (`./-`,
+  `/work/-`) is a path operand, distinguished from the special operand.
 - **Per-call workdir.** The supported argument object may carry a `workdir`
   string (a literal absolute client path); it is validated against the
   evidenced workspace at normalization time. A non-string, empty, or
-  control-bearing `workdir` makes the argument shape typed unsupported.
+  control-bearing `workdir` makes the argument shape typed unsupported.  A
+  workdir containing lone surrogates is typed `MALFORMED_UNICODE` before
+  any UTF-8 byte check and makes the whole call non-removable (relative
+  and absolute operand variants alike) — a fixed typed limitation, no
+  placeholder digest, no raw exception echo.
 - **Malformed Unicode.** A command string containing lone surrogates is
   rejected with `MALFORMED_UNICODE` before any UTF-8 hashing; its
   `command_digest` is explicitly absent (never a placeholder) and no
   operand is normalized or proven.
 - **Argument decoding bounds.** A raw JSON-string argument longer than the
-  worst case of the command bound plus JSON wrapper/escaping overhead
-  (`2 * max_command_chars + 128`) is typed unsupported without being parsed;
-  decode errors (including nesting-depth `RecursionError`) return the same
-  typed result. No broad exception swallowing.
+  documented conservative cap `12 * max_argument_chars + 128` — the finite
+  worst case of the supported JSON encoding (at most 6 characters per
+  Unicode character per string field, two fields, plus bounded wrapper
+  overhead) — is typed unsupported without being parsed; decode errors
+  (including nesting-depth `RecursionError`) return the same typed result
+  and are never re-raised with raw argument text.  No broad exception
+  swallowing.  (The earlier `2 * max_command_chars + 128` was not a Unicode
+  JSON-escaping bound and is superseded.)
 - The executable must be exactly `cat`. Flags (`-n`, …), other executables
   (`head`, `tail`, `sed`, …), path-prefixed cats (`/bin/cat`), and unknown
   syntax are typed (`COMMAND_UNSUPPORTED` / `FRAGMENT_COMMAND`).
@@ -182,7 +228,9 @@ cat <operand> <operand> ...        (bounded operand count)
   branch is a compound command, not a read.
 - A command string containing newlines is `MULTIPLE_COMMANDS`. Commands are
   bounded (`max_command_chars`); operand counts are bounded
-  (`max_operands`).
+  (`max_operands`) **exactly**: up to `max_operands` operands form a
+  complete observation, and the first operand beyond the limit is typed
+  `COMMAND_OVER_BOUND`.
 - Supported argument shapes (documented envelope forms): a JSON string or
   object with a `cmd`/`command` string; an argv list that is exactly one
   string or exactly `[bash|sh|zsh, -c|-lc, <string>]`. Other shapes are
@@ -211,6 +259,24 @@ cat <operand> <operand> ...        (bounded operand count)
   `MISMATCHED_CALL_ID`. Multiple results for one call are
   `MULTI_CHUNK_DEFERRED` (multi-chunk completion proof is D09, later
   same-PR suffix).
+- **Endpoint selection.** One API request is one endpoint, never a batch
+  of two.  The selected domain is an explicit validated endpoint context
+  (`observe_request(..., endpoint="responses"|"chat")`) or an inferred
+  **unambiguous** supported envelope (exactly one of `input` / `messages`
+  present as a list).  A mixed shape (both present, no explicit context)
+  is typed `ENDPOINT_UNSUPPORTED` and non-removable: pairing bookkeeping
+  (duplicate/missing/mismatched IDs, including cross-endpoint ID matches)
+  is preserved, but no read is acquired from either container — never by
+  precedence, never as two real calls.  The report's `endpoint` is
+  `responses`, `chat`, `mixed` or `unknown`.  An explicit endpoint scopes
+  observation to its own root/call/result container (the other container
+  is never acquired); an explicit endpoint whose container is absent, or
+  an invalid value, is typed `ENDPOINT_UNSUPPORTED` with `endpoint`
+  `unknown`.  The global endpoint and per-read endpoints always agree
+  about the selected domain (under a mixed selection the per-read value is
+  the container provenance of a typed, non-acquiring record).  Root
+  envelope observation keeps its own input-array contract and is not
+  changed by this selection.
 - **Wrapper grammar.** Recognized header lines before the `Output:` marker
   line: the human-handoff 6.2 real format `Chunk ID: <token>` plus the
   explicitly earned compatible variant `Chunk Id: <token>`, `Wall time:
@@ -279,7 +345,8 @@ list is `Limitation` in `observation_models.py`: root (`marker_misplaced`,
 (`command_unsupported`, `command_empty`, `command_over_bound`,
 `command_substitution`, `shell_escape`, `glob_unproven`, `redirection`,
 `pipe`, `multiple_commands`, `heredoc`, `fragment_command`,
-`comment_present`, `quoted_operand`, `tilde_unproven`), tool (`unsupported_tool`,
+`comment_present`, `quoted_operand`, `tilde_unproven`, `stdin_operand`),
+tool (`unsupported_tool`,
 `namespace_tool_unproven`, `duplicate_call_id`, `missing_call_result`,
 `mismatched_call_id`, `nonzero_exit`, `unknown_completion`,
 `truncated_output`, `process_running`, `write_stdin_chunk`,
@@ -292,7 +359,8 @@ list is `Limitation` in `observation_models.py`: root (`marker_misplaced`,
 **UTF-8 bytes**, 100,000 environment chars, 128 commands, 4,096 command
 chars, 32 operands, 256 path bytes, 128 outputs, 1,000,000 output chars, 8
 wrapper header lines, 128 tools) bounds every scan; the derived argument-
-decode bound is `2 * max_command_chars + 128`. Parsing is linear; adversarial
+decode bound is `12 * max_argument_chars + 128` (the documented
+conservative JSON-encoding worst case).  Parsing is linear; adversarial
 input (multi-megabyte items, huge item counts, unterminated envelopes,
 over-long numeric fields, deep JSON nesting) terminates deterministically
 with typed limitations (`OVER_BOUND`, `MALFORMED_WRAPPER`, typed argument
@@ -308,6 +376,11 @@ exceptions at the public entry points.
   content, prompts, tool output bodies, and argument payloads are not
   retained in result representations (bounded path labels and scope labels
   are metadata).
+- Operational representations never echo raw text: the
+  `UnwrappedCommand` repr carries command/workdir lengths and presence
+  only, and token representations carry spans and flags only; no
+  exception path re-raises with raw command, workdir, body or source
+  text.
 - No filesystem or network access occurs anywhere in this package; observed
   commands are never executed.
 
@@ -335,17 +408,23 @@ Root capture and synthetic supplemental read shapes are distinct; no fixture
 claims to be a fresh actual-client trace, and no private audit history, task
 answer, credential, or customer/source content is included.
 
-## 11. Deferred in this slice (later same-PR suffixes, 017-c/d and later)
+## 11. Deferred in this slice (later same-PR suffixes, 017-d/e and later)
 
 Round 017-b is the bounded correction of the 017-a observation proof
 (findings A-E: real-format wrapper, membership, per-call cwd, tool/endpoint
 evidence, Unicode/bounds, parser bounds, and the normative mirror); it adds
-no new read families. Still deferred: chained/mixed reads (`ls` + labels +
+no new read families.  Round 017-c is the bounded correction of the
+remaining literal-grammar and actual-endpoint proof (bounded literal lexer
+with raw spans/cooked values; quoted option/terminator/stdin semantics;
+non-ASCII separator law; exact operand limit; per-call workdir Unicode
+validation; repr privacy; the documented raw-argument cap; mixed/envelope
+endpoint selection); it adds no new read families.  Still deferred:
+chained/mixed reads (`ls` + labels +
 unrelated output, D06), literal loops and `cd` transitions with explicit
 workdir chains (D07), per-read execution evidence distinct from global exit
 status (D08), multi-chunk process completion proof and the remaining
 truncation matrix (D09), and the full duplicate/mismatched/substitution/
 unexecuted-branch matrix beyond the simple negatives already covered (D10).
 Those compound/loop/chunk families move to later same-PR suffixes
-(planned 017-c/d). Graph identity, admission, RAM state, recovery,
+(planned 017-d/e). Graph identity, admission, RAM state, recovery,
 tokenization, and replacement belong to objectives 018-024.

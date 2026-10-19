@@ -27,7 +27,13 @@ from __future__ import annotations
 
 from typing import TypeGuard
 
-from ..bundles.observation_models import Limitation, NormalizedPath, PathContext, PathForm
+from ..bundles.observation_models import (
+    Limitation,
+    NormalizedPath,
+    PathContext,
+    PathForm,
+    contains_lone_surrogates,
+)
 
 #: Shell metacharacters that make a token non-literal (per-token; whitespace
 #: is handled by tokenization, a leading ``#`` is a comment, handled by the
@@ -44,6 +50,10 @@ def validate_workspace(label: str, max_bytes: int) -> str | None:
     """
 
     if not label or any(ord(c) < 0x20 or ord(c) == 0x7F or c.isspace() for c in label):
+        return None
+    if contains_lone_surrogates(label):
+        # Malformed Unicode is never UTF-8-encoded here (the byte checks
+        # below would raise): the label is simply not a valid workspace.
         return None
     if "\\" in label or label.startswith("~"):
         return None
@@ -135,6 +145,13 @@ def normalize_read_path(
 
     if token.startswith("#"):
         return _reject(Limitation.COMMENT_PRESENT, PathForm.RELATIVE, quoted)
+    if any(c.isspace() for c in token):
+        # Agreed no-spaces file convention: a path label carrying any
+        # whitespace character (including non-ASCII such as NBSP) is not a
+        # representable literal member.  It is typed ambiguous — never
+        # silently split into fabricated files.
+        form = PathForm.ABSOLUTE if token.startswith("/") else PathForm.RELATIVE
+        return _reject(Limitation.AMBIGUOUS_PATH, form, quoted)
     if any(c in _META for c in token):
         return _reject(Limitation.NON_LITERAL_OPERAND, PathForm.RELATIVE, quoted)
     if "\\" in token or token.startswith("~"):

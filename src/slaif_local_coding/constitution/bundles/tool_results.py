@@ -15,6 +15,19 @@ missing call IDs are typed conflicts, never first-match selection.
 Multi-chunk results and process-running/write_stdin traffic are explicitly
 deferred in this slice (typed unsupported, D09 territory).
 
+Endpoint-selection law: one API request is one endpoint, never a batch of
+two.  The selected domain is an explicit validated endpoint context or an
+inferred **unambiguous** supported envelope (exactly one of ``input`` /
+``messages`` present).  A mixed shape (both present, no explicit context)
+is typed ``ENDPOINT_UNSUPPORTED`` and non-removable: pairing bookkeeping
+(duplicate/missing/mismatched IDs) is preserved, but no read is ever
+acquired from either container — never by precedence, never as two real
+calls.  An explicit endpoint scopes observation to its own root/call/
+result container; the other container is never acquired.  The global
+endpoint and per-read endpoints always agree about the selected domain
+(the per-read value is the container provenance of a typed record when the
+global selection is mixed).
+
 Wrapper law: the observed Codex exec wrapper carries its metadata **before**
 the ``Output:`` line; everything after that line is source, and source that
 merely looks like execution metadata never redefines wrapper status.  The
@@ -495,6 +508,25 @@ def _build_observation(
             reasons=(Limitation.UNSUPPORTED_TOOL,),
         )
 
+    # A per-call workdir that cannot be encoded as valid UTF-8 (lone
+    # surrogates) is typed before any UTF-8 byte check: a fixed
+    # non-removable limitation, no placeholder digest, no raw exception
+    # echo.  It makes the call's workspace context unproven, so it applies
+    # to relative and absolute operand variants alike — the whole call is
+    # never resolved elsewhere.
+    if unwrapped.workdir is not None and contains_lone_surrogates(unwrapped.workdir):
+        cid, ep, loc, rloc = _common()
+        return ReadObservation(
+            call_id=cid,
+            endpoint=ep,
+            call_location=loc,
+            result_location=rloc,
+            outcome=ReadOutcome.UNSUPPORTED,
+            completeness=ReadOutcome.UNSUPPORTED,
+            wrapper=parse_wrapper(output_text, bounds),
+            reasons=(Limitation.MALFORMED_UNICODE,),
+        )
+
     # The explicit per-call workdir (supported argument object) takes
     # precedence over the batch default before any relative operand is
     # resolved; it is validated against the evidenced workspace and never
@@ -642,14 +674,26 @@ def _build_observation(
     )
 
 
+#: One planned pairing container: endpoint name, eligible calls, results.
+PlanEndpoint = tuple[str, list[tuple[str, str, str, object]], dict[str, list[tuple[str, str]]]]
+
+
 def _pair_endpoint(
     endpoint: str,
     calls: list[tuple[str, str, str, object]],
     outputs: dict[str, list[tuple[str, str]]],
     context: PathContext,
     bounds: ObservationBounds,
+    suppress_acquisition: bool = False,
 ) -> tuple[list[ReadObservation], list[UnpairedRecord]]:
-    """Pair one endpoint's eligible calls with its own results by call ID."""
+    """Pair one endpoint's eligible calls with its own results by call ID.
+
+    Under ``suppress_acquisition`` (mixed envelope without explicit
+    endpoint context) pairing bookkeeping — including cross-endpoint ID
+    typing — is preserved, but no read is ever acquired: every observation
+    is typed ``ENDPOINT_UNSUPPORTED`` with no proven members, no span, no
+    digest and no removability.
+    """
 
     calls_by_id: dict[str, list[tuple[str, str, str, object]]] = {}
     for call in calls:
@@ -692,19 +736,36 @@ def _pair_endpoint(
                 )
             continue
         result_location, output_text = results[0]
-        observations.append(
-            _build_observation(
-                call_id=call_id,
-                endpoint=endpoint,
-                call_location=location,
-                tool_name=name,
-                arguments=arguments,
-                result_location=result_location,
-                output_text=output_text,
-                context=context,
-                bounds=bounds,
-            )
+        observation = _build_observation(
+            call_id=call_id,
+            endpoint=endpoint,
+            call_location=location,
+            tool_name=name,
+            arguments=arguments,
+            result_location=result_location,
+            output_text=output_text,
+            context=context,
+            bounds=bounds,
         )
+        if suppress_acquisition:
+            # The envelope is typed unsupported: the call evidence (ID,
+            # locations, requested members, wrapper facts) is preserved,
+            # but nothing is acquired from either container.
+            observation = observation.model_copy(
+                update={
+                    "outcome": ReadOutcome.UNSUPPORTED,
+                    "completeness": ReadOutcome.UNSUPPORTED,
+                    "proven_executed": (),
+                    "distinct_member_count": None,
+                    "slot_width": None,
+                    "content_span": None,
+                    "removable": False,
+                    "bundle_digest": None,
+                    "member_digests": (),
+                    "reasons": (Limitation.ENDPOINT_UNSUPPORTED,),
+                }
+            )
+        observations.append(observation)
 
     for call_id in sorted(outputs):
         if call_id in calls_by_id:
@@ -724,12 +785,20 @@ def observe_reads(
     payload: dict[str, Any],
     context: PathContext,
     bounds: ObservationBounds,
+    selected_endpoint: str | None = None,
+    suppress_acquisition: bool = False,
 ) -> tuple[tuple[ReadObservation, ...], tuple[UnpairedRecord, ...]]:
     """Pair supported calls with results by exact call ID (D05).
 
     Pairing is endpoint-scoped: a Responses call pairs only with Responses
     results and a Chat call only with Chat results — a cross-endpoint ID
     match is typed (missing/mismatched), never mixed evidence.
+
+    ``selected_endpoint`` scopes observation to one container (an explicit
+    validated endpoint or an unambiguously inferred envelope); the other
+    container is never acquired.  ``suppress_acquisition`` (mixed envelope
+    without explicit context) keeps pairing bookkeeping but acquires
+    nothing from either container (typed ``ENDPOINT_UNSUPPORTED``).
     """
 
     responses_calls, chat_calls = _call_entries(payload, bounds)
@@ -745,14 +814,23 @@ def observe_reads(
             (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
         )
 
+    plan: tuple[PlanEndpoint, ...]
+    if selected_endpoint == "responses":
+        plan = (("responses", responses_calls, responses_outputs),)
+    elif selected_endpoint == "chat":
+        plan = (("chat", chat_calls, chat_outputs),)
+    else:
+        # No selected domain (legacy direct callers): both containers.
+        plan = (
+            ("responses", responses_calls, responses_outputs),
+            ("chat", chat_calls, chat_outputs),
+        )
+
     observations: list[ReadObservation] = []
     unpaired: list[UnpairedRecord] = []
-    for endpoint, calls, outputs in (
-        ("responses", responses_calls, responses_outputs),
-        ("chat", chat_calls, chat_outputs),
-    ):
+    for endpoint, calls, outputs in plan:
         endpoint_observations, endpoint_unpaired = _pair_endpoint(
-            endpoint, calls, outputs, context, bounds
+            endpoint, calls, outputs, context, bounds, suppress_acquisition
         )
         observations.extend(endpoint_observations)
         unpaired.extend(endpoint_unpaired)

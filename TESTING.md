@@ -108,13 +108,16 @@ pairing, and a pure composition entry point), with the named suites
 `tests/test_bundle_observation_models.py`,
 `tests/test_bundle_client_paths.py`,
 `tests/test_bundle_root_envelopes.py`,
-`tests/test_bundle_read_grammar.py`, `tests/test_bundle_tool_results.py` and
-`tests/test_bundle_observe.py` exercising the versioned synthetic fixtures in
+`tests/test_bundle_read_grammar.py`, `tests/test_bundle_tool_results.py`,
+`tests/test_bundle_observe.py` and `tests/test_bundle_shell_tokens.py`
+exercising the versioned synthetic fixtures in
 `tests/fixtures/cache_bundles/v1/` plus the canonical sanitized 0.149.0
 fixture. These modules are **not active in the adapter**: they are not wired
 into the legacy request execution path, and the legacy detector is unchanged.
-D06-D10 remain planned for later same-PR suffixes (planned 017-c/d; round
-017-b corrected the 017-a observation proof without adding read families);
+D06-D10 remain planned for later same-PR suffixes (planned 017-d/e; round
+017-b corrected the 017-a observation proof, and round 017-c corrected the
+remaining literal-grammar and actual-endpoint proof, without adding read
+families);
 all v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

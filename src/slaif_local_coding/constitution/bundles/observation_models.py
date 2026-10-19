@@ -170,6 +170,7 @@ class Limitation(StrEnum):
     COMMENT_PRESENT = "comment_present"
     QUOTED_OPERAND = "quoted_operand"
     TILDE_UNPROVEN = "tilde_unproven"
+    STDIN_OPERAND = "stdin_operand"
     # Tool call/result pairing and wrapper (D05)
     UNSUPPORTED_TOOL = "unsupported_tool"
     NAMESPACE_TOOL_UNPROVEN = "namespace_tool_unproven"

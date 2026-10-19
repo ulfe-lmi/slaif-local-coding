@@ -154,7 +154,8 @@ hash/compile/update graph incrementally. Adapter never reads client filesystem.
 
 ## Dependency-bundle cache law (v1 profile, normative target)
 
-As of stage 017-a (observation proof corrected in 017-b), the pure
+As of stage 017-a (observation proof corrected in 017-b, and the
+remaining literal-grammar and actual-endpoint proof in 017-c), the pure
 root/read/result/span observation slice (D01-D05) is implemented as inert
 typed modules under `src/slaif_local_coding/constitution/bundles/`; they are
 not active in the adapter request execution path, the legacy detector is
@@ -506,8 +507,9 @@ performed; NOT released. Objective 016 (merged PR #24, merge
 `96c790423f6f0097a56a0b12bacda8a9b6da6aba`): dependency-bundle cache rework
 contracts — handoff, plan, reconciled architecture/law, stage ledger.
 Objective 017 is active (017-a published but not accepted; 017-b corrects
-its bounded observation-proof findings A-E on the same PR; D06-D10
-compound/loop/chunk scope planned for later same-PR suffixes 017-c/d);
+its bounded observation-proof findings A-E; 017-c corrects the remaining
+literal-grammar and actual-endpoint proof; D06-D10 compound/loop/chunk
+scope planned for later same-PR suffixes 017-d/e);
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

@@ -17,9 +17,27 @@ compounds, pipes, redirections, heredocs, substitutions, globs, comments,
 ``head``/``tail``/``sed`` fragments, loops, unknown executables — yields a
 typed limitation and is never a complete whole-file observation.
 
-Membership law: the option terminator ``--`` is processed **once** (the first
-``--`` after the executable).  A later ``--`` token is a literal operand —
-the actual complete member list is preserved, never silently dropped.
+Option-parser law: quoting does **not** disable ``cat``'s own argument
+parser.  A token whose cooked value starts with ``-`` before the terminator
+(``-n``, ``--number`` — quoted or not) is an option, never a file member.
+The option terminator is recognized by cooked value: the first token whose
+cooked value is exactly ``--`` (quoted or not) is processed **once**; a
+later ``--`` token (quoted or not) is a literal operand and stays in the
+actual complete member list — the complete member list is preserved, never
+silently dropped.  The stdin special operand ``-`` (cooked value, quoted or
+not, before or after the terminator) is never a file member: a command that
+would read stdin is typed ``STDIN_OPERAND``, not a whole-file observation.
+A literal path that merely ends in ``-`` (``./-``, ``/work/-``) is a path
+operand, distinguished from the special operand.
+
+Separator law: only ASCII whitespace separates tokens; arbitrary Unicode
+``isspace`` characters (e.g. NBSP) are not shell separators — a token that
+carries one is a single literal path label, typed ambiguous under the
+agreed no-spaces file convention, never split into two fabricated files.
+
+Privacy law: raw command and workdir text never appears in operational
+representations (``UnwrappedCommand`` repr carries lengths/presence only)
+and no exception echo of raw bodies, sources or arguments is produced.
 
 Malformed-Unicode law: a command string that cannot be encoded as UTF-8
 (lone surrogates) is rejected with ``MALFORMED_UNICODE`` before any hashing;
@@ -40,6 +58,7 @@ from ..bundles.observation_models import (
     contains_lone_surrogates,
     sha256_hex,
 )
+from ..bundles.shell_tokens import _spans, tokenize_command
 
 #: Executables that are explicit fragments, not whole-file reads.
 _FRAGMENT_EXECUTABLES = {"head", "tail", "sed", "less", "more", "grep", "rg"}
@@ -54,59 +73,30 @@ class UnwrappedCommand:
     ``workdir`` is the explicit per-call client working directory carried by
     the supported argument object (when present); it is data, never an
     adapter-host cwd, and it is validated against the evidenced workspace at
-    path-normalization time.
+    path-normalization time.  The operational repr carries lengths and
+    presence only: the raw command/workdir text is never re-exposed.
     """
 
     command: str
     workdir: str | None = None
 
+    def __repr__(self) -> str:
+        if self.workdir is not None:
+            workdir = f"workdir_length={len(self.workdir)}"
+        else:
+            workdir = "workdir=None"
+        return f"UnwrappedCommand(command_length={len(self.command)}, {workdir})"
+
 
 def tokenize_literal(command: str) -> list[tuple[str, int, int]]:
-    """Split *command* on literal whitespace runs; return (token, start, end)."""
+    """Split *command* on literal whitespace runs; return (token, start, end).
 
-    tokens: list[tuple[str, int, int]] = []
-    index = 0
-    length = len(command)
-    while index < length:
-        while index < length and command[index].isspace():
-            index += 1
-        if index >= length:
-            break
-        start = index
-        while index < length and not command[index].isspace():
-            index += 1
-        tokens.append((command[start:index], start, index))
-    return tokens
+    Only ASCII whitespace separates tokens: arbitrary Unicode ``isspace``
+    characters (e.g. NBSP) are not shell separators and stay inside the
+    token (the path layer types them under the no-spaces convention).
+    """
 
-
-def _classify_token(token: str) -> Limitation | None:
-    """Return the first typed limitation for a non-operand token, else None."""
-
-    if token == "--":
-        # A bare ``--`` token is a literal operand (the option terminator is
-        # consumed once by the parser before classification).
-        return None
-    if token.startswith("-"):
-        return Limitation.COMMAND_UNSUPPORTED
-    if token.startswith("#"):
-        return Limitation.COMMENT_PRESENT
-    if any(c in "$`" for c in token):
-        return Limitation.COMMAND_SUBSTITUTION
-    if "\\" in token:
-        return Limitation.SHELL_ESCAPE
-    if any(c in token for c in "*?[[]"):
-        return Limitation.GLOB_UNPROVEN
-    if "<" in token or ">" in token:
-        return Limitation.REDIRECTION
-    if "|" in token:
-        return Limitation.PIPE
-    if "&" in token or ";" in token:
-        return Limitation.MULTIPLE_COMMANDS
-    if token.startswith("{") or token.endswith("}") or "(" in token or ")" in token:
-        return Limitation.COMMAND_UNSUPPORTED
-    if "!" in token or "^" in token:
-        return Limitation.COMMAND_UNSUPPORTED
-    return None
+    return [(command[s:e], s, e) for s, e in _spans(command)]
 
 
 def parse_read_command(
@@ -162,16 +152,23 @@ def parse_read_command(
     if any(ord(c) < 0x20 or ord(c) == 0x7F for c in command):
         return _finish([Limitation.COMMAND_UNSUPPORTED], (), False, digest)
 
-    tokens = tokenize_literal(command)
+    tokens = tokenize_command(command)
     if not tokens:
         return _finish([Limitation.COMMAND_EMPTY], (), False, digest)
-    executable = tokens[0][0]
-    if executable.startswith("#"):
+    executable = tokens[0]
+    if executable.operator is Limitation.COMMENT_PRESENT:
         return _finish([Limitation.COMMENT_PRESENT], (), False, digest)
-    if executable not in {"cat"}:
+    # The executable must be the exact unquoted literal word ``cat``: a
+    # quoted or otherwise limited token is not the earned surface.
+    if (
+        executable.value != "cat"
+        or executable.quoted
+        or executable.quote_limitation is not None
+        or executable.operator is not None
+    ):
         reason = (
             Limitation.FRAGMENT_COMMAND
-            if executable in _FRAGMENT_EXECUTABLES
+            if executable.value in _FRAGMENT_EXECUTABLES
             else Limitation.COMMAND_UNSUPPORTED
         )
         return _finish([reason], (), False, digest)
@@ -179,31 +176,49 @@ def parse_read_command(
     reasons: list[Limitation] = []
     operands: list[NormalizedPath] = []
     terminator_seen = False
-    for token, _start, _end in tokens[1:]:
-        # The option terminator is processed once; a later ``--`` is a
-        # literal operand and stays in the actual complete member list.
-        if token == "--" and not terminator_seen:
-            terminator_seen = True
+    for token in tokens[1:]:
+        if token.quote_limitation is not None:
+            # Partial/nested/concatenated quotes or quoted inner text
+            # outside the literal surface: typed, never guessed.
+            reasons.append(token.quote_limitation)
             continue
-        token_reason = _classify_token(token)
-        if token_reason is not None:
-            reasons.append(token_reason)
-            if token_reason is Limitation.COMMENT_PRESENT:
+        if token.operator is not None:
+            reasons.append(token.operator)
+            if token.operator is Limitation.COMMENT_PRESENT:
                 break  # a comment terminates the command line
             continue
-        operand = normalize_read_path(token, context, max_path_bytes)
+        # The option terminator is recognized by cooked value (quoting
+        # does not disable cat's option parser) and processed once; a
+        # later ``--`` is a literal operand kept in the member list.
+        if token.value == "--" and not terminator_seen:
+            terminator_seen = True
+            continue
+        if token.value == "-":
+            # The stdin special operand (cooked value, before or after
+            # the terminator): cat would read stdin as well, so no
+            # whole-file membership can be proven for this call.
+            reasons.append(Limitation.STDIN_OPERAND)
+            continue
+        if not terminator_seen and token.value.startswith("-"):
+            # A formatting option, quoted or not: never a file member.
+            reasons.append(Limitation.COMMAND_UNSUPPORTED)
+            continue
+        raw_token = command[token.raw_start : token.raw_end]
+        operand = normalize_read_path(raw_token, context, max_path_bytes)
         if operand.limitation is not None:
             reasons.append(operand.limitation)
         operands.append(
             NormalizedPath(
-                raw=token,
+                raw=raw_token,
                 form=operand.form,
                 quoted=operand.quoted,
                 normalized=operand.normalized,
                 limitation=operand.limitation,
             )
         )
-        if len(operands) >= max_operands:
+        # The documented operand bound is exact: up to max_operands
+        # operands are complete; one over is typed over-bound.
+        if len(operands) > max_operands:
             reasons.append(Limitation.COMMAND_OVER_BOUND)
             break
 
@@ -212,6 +227,24 @@ def parse_read_command(
     if reasons:
         return _finish(reasons, tuple(operands), False, digest)
     return _finish([], tuple(operands), True, digest)
+
+
+def raw_argument_bound(max_argument_chars: int) -> int:
+    """Documented conservative raw JSON-argument cap (finite encoding).
+
+    The supported argument shapes carry at most two string fields (the
+    ``cmd``/``command`` and the optional ``workdir``), each bounded by
+    *max_argument_chars* Unicode characters.  In a JSON document one
+    character encodes to at most 6 characters (``\\uXXXX``), plus two
+    quotes per field and a bounded object/wrapper overhead.  The declared
+    cap is therefore ``12 * max_argument_chars + 128``: a finite,
+    conservative worst case of the supported encoding — any raw string
+    beyond it cannot encode a supported in-bounds argument.  (The earlier
+    ``2 * max_argument_chars + 128`` was not a Unicode JSON-escaping bound
+    and wrongly rejected valid in-bounds non-ASCII commands.)
+    """
+
+    return 12 * max_argument_chars + 128
 
 
 def unwrap_call_arguments(
@@ -227,14 +260,15 @@ def unwrap_call_arguments(
     in the enclosing object).  Unknown shapes return ``None`` (typed
     unsupported by the caller).
 
-    JSON decoding is bounded: a raw argument string longer than the worst
-    case of the command bound plus JSON wrapper/escaping overhead is typed
+    JSON decoding is bounded: a raw argument string longer than the
+    documented conservative cap :func:`raw_argument_bound` is typed
     unsupported without being parsed, and decoding errors (including
-    nesting-depth ``RecursionError``) return the same typed result.
+    nesting-depth ``RecursionError``) return the same typed result.  No
+    decode error is re-raised with raw argument text.
     """
 
     if isinstance(arguments, str):
-        if len(arguments) > 2 * max_argument_chars + 128:
+        if len(arguments) > raw_argument_bound(max_argument_chars):
             return None
         try:
             arguments = json.loads(arguments)

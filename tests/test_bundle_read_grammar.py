@@ -13,6 +13,7 @@ from slaif_local_coding.constitution.bundles import (
     ReadCommandParse,
     UnwrappedCommand,
     parse_read_command,
+    raw_argument_bound,
     tokenize_literal,
     unwrap_call_arguments,
     unwrap_supported_arguments,
@@ -283,12 +284,155 @@ class TestCallArgumentShapes:
         assert unwrap_call_arguments(arguments) is None
 
     def test_over_bound_argument_string_is_unsupported_without_parsing(self) -> None:
-        # Worst-case JSON of the command bound plus wrapper overhead is the
-        # declared argument bound; beyond it the shape is typed unsupported.
-        big = json.dumps({"cmd": "cat " + " ".join(f"F{i}.md" for i in range(3000))})
-        assert len(big) > 2 * 4096 + 128
+        # The documented raw cap (12 * bound + 128) is the conservative
+        # worst case of the supported JSON encoding; beyond it the shape
+        # is typed unsupported without being parsed.
+        big = json.dumps({"cmd": "cat " + " ".join(f"F{i:015d}.md" for i in range(3000))})
+        assert len(big) > raw_argument_bound(4096)
         assert unwrap_call_arguments(big, 4096) is None
         # Within the bound it still parses (the command itself is later
         # typed over-bound by the grammar, not by a decode failure).
         within = json.dumps({"cmd": "cat " + "A.md " * 30})
         assert unwrap_call_arguments(within, 4096) is not None
+
+    def test_unicode_command_within_documented_cap_still_decodes(self) -> None:
+        # Worst-case JSON escaping (six characters per character) of an
+        # in-bounds non-ASCII command stays inside the documented raw cap;
+        # the earlier 2x+128 cap wrongly rejected such valid commands.
+        command = "cat " + "\u00e9" * 4092  # exactly 4096 characters
+        assert len(command) <= 4096
+        raw = json.dumps({"cmd": command})
+        assert raw_argument_bound(4096) >= len(raw) > 2 * 4096 + 128
+        assert unwrap_call_arguments(raw, 4096) is not None
+
+    def test_repr_omits_raw_command_and_workdir(self) -> None:
+        marker = "SYNTHETIC_PRIVATE_MARKER"
+        unwrapped = unwrap_call_arguments(
+            {"cmd": f"cat A.md # {marker}", "workdir": f"/work/{marker}"}
+        )
+        assert unwrapped is not None
+        assert marker not in repr(unwrapped)
+
+
+class TestQuotedOptionSemantics:
+    """Quoting does not disable cat's option parser: options and the stdin
+    special operand are never file members; the terminator is recognized by
+    cooked value."""
+
+    def test_quoted_short_option_is_not_a_file_member(self) -> None:
+        result = parse("cat '-n' A.md")
+        assert result.complete is False
+        assert Limitation.COMMAND_UNSUPPORTED in result.reasons
+        assert all(o.normalized != "-n" for o in result.operands)
+
+    def test_quoted_long_option_is_not_a_file_member(self) -> None:
+        result = parse("cat '--number' A.md")
+        assert result.complete is False
+        assert Limitation.COMMAND_UNSUPPORTED in result.reasons
+        assert all(o.normalized != "--number" for o in result.operands)
+
+    def test_quoted_stdin_is_not_a_file_member(self) -> None:
+        result = parse("cat '-' A.md")
+        assert result.complete is False
+        assert Limitation.STDIN_OPERAND in result.reasons
+        assert all(o.normalized != "-" for o in result.operands)
+
+    def test_unquoted_stdin_is_not_a_file_member(self) -> None:
+        result = parse("cat - A.md")
+        assert result.complete is False
+        assert Limitation.STDIN_OPERAND in result.reasons
+
+    def test_stdin_after_terminator_is_not_a_file_member(self) -> None:
+        for command in ("cat -- '-' A.md", "cat -- - A.md"):
+            result = parse(command)
+            assert result.complete is False, command
+            assert Limitation.STDIN_OPERAND in result.reasons, command
+            assert all(o.normalized != "-" for o in result.operands), command
+
+    def test_quoted_terminator_proves_only_the_operand(self) -> None:
+        result = parse("cat '--' A.md")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["A.md"]
+        # The terminator is consumed, never a member: no '--' file invented.
+        assert all(o.normalized != "--" for o in result.operands)
+
+    def test_unquoted_terminator_positive_preserved(self) -> None:
+        result = parse("cat -- A.md")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["A.md"]
+
+    def test_quoted_file_positive_preserved(self) -> None:
+        result = parse("cat 'A.md'")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["A.md"]
+        assert result.operands[0].quoted is True
+
+    def test_second_quoted_terminator_retains_literal_members(self) -> None:
+        result = parse("cat -- A.md '--' B.md")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["A.md", "--", "B.md"]
+
+    def test_option_like_name_after_terminator_is_literal(self) -> None:
+        # After the terminator the option parser is off: '-n' is a file
+        # label, distinct from the stdin special operand.
+        result = parse("cat -- -n")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["-n"]
+
+    def test_literal_dash_paths_are_distinguished_from_stdin(self) -> None:
+        result = parse("cat ./- A.md")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["-", "A.md"]
+        absolute = parse("cat /work/-")
+        assert absolute.complete is True
+        assert [o.normalized for o in absolute.operands] == ["-"]
+
+
+class TestNonAsciiWhitespaceNotASeparator:
+    """Arbitrary Unicode isspace characters are not shell separators."""
+
+    def test_nbsp_token_is_one_ambiguous_label_not_two_files(self) -> None:
+        result = parse("cat A.md\u00a0B.md")
+        assert result.complete is False
+        assert Limitation.AMBIGUOUS_PATH in result.reasons
+        normalized = [o.normalized for o in result.operands if o.normalized is not None]
+        assert normalized != ["A.md", "B.md"]  # never two fabricated files
+
+    def test_quoted_nbsp_inner_is_typed(self) -> None:
+        result = parse('cat "A.md\u00a0B.md"')
+        assert result.complete is False
+        assert Limitation.QUOTED_OPERAND in result.reasons
+
+    def test_ascii_tab_remains_explicitly_unsupported(self) -> None:
+        result = parse("cat A.md\tB.md")
+        assert result.complete is False
+        assert result.reasons
+
+    def test_carriage_return_remains_typed(self) -> None:
+        result = parse("cat A.md\rB.md")
+        assert result.complete is False
+        assert result.reasons
+
+    def test_valid_unicode_path_preserved(self) -> None:
+        result = parse("cat A\u00e9.md")
+        assert result.complete is True
+        assert [o.normalized for o in result.operands] == ["A\u00e9.md"]
+
+
+class TestExactOperandLimit:
+    """The documented operand bound is exact: up to the limit complete,
+    one over typed over-bound."""
+
+    def test_exact_limit_is_complete(self) -> None:
+        command = "cat " + " ".join(f"A{i}.md" for i in range(32))
+        result = parse(command)
+        assert result.complete is True
+        assert len(result.operands) == 32
+        assert result.distinct_operands == 32
+        assert result.reasons == ()
+
+    def test_one_over_limit_is_typed(self) -> None:
+        command = "cat " + " ".join(f"A{i}.md" for i in range(33))
+        result = parse(command)
+        assert result.complete is False
+        assert Limitation.COMMAND_OVER_BOUND in result.reasons
