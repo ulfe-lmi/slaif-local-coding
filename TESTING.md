@@ -134,14 +134,29 @@ observations the single grammar actually earned keep
 `literal-shell-read/v1`), exercised by
 `tests/test_bundle_compound_reads.py::TestEchoOptionSemantics`,
 `::TestEchoOptionSemanticsComposition` and `::TestPlanGrammarIdentity`.
+Round 017-f earned the bounded pure literal-loop slice (the D07 loop
+criterion, not a blanket D09/D10 completion) in the new pure module
+`src/slaif_local_coding/constitution/bundles/literal_loops.py`
+(grammar `literal-loop/v1`; the human 6.2 loop forms as finite parsed
+data with deterministic requested members, all-success guarded
+pure-cat loops as one ordered whole-source bundle under wrapper-
+proven exit-zero/untruncated/present completion, unguarded and
+echo-labeled forms non-removable with typed iteration/outer-
+attribution limitations, the exact per-cat `|| exit 1` guard,
+double-quoted one-reference filename templates, the `f`/`d` variable
+law, adjacent-quote and control-flow typing, and the whole-loop
+expanded-operand budget never multiplied per iteration), exercised by
+`tests/test_bundle_literal_loops.py`.
 These modules are **not active
 in the adapter**: they are not wired into the legacy request execution
 path, and the legacy detector is unchanged.
 D09-D10 remain planned for later same-PR suffixes (the earlier planned
 017-e loops/chunks draft was superseded by the 017-e bounded
-correction; strategy now plans 017-f literal loops and 017-g
-process/chunk association, subject to review — and rounds 017-b/017-c/
-017-d/017-e added no loop/chunk families);
+correction; strategy now plans 017-g process/chunk association,
+subject to review — and rounds 017-b/017-c/017-d/017-e added no
+loop/chunk families; 017-f added the bounded pure literal-loop slice
+without process/chunk (D09) or branch/substitution-matrix (D10)
+support);
 all v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

@@ -205,7 +205,16 @@ earn a boundary; and every observation produced through the finite-plan
 parser carries the actual `literal-read-plan/v1` identity across all
 outcomes, while observations the single grammar actually earned keep
 `literal-shell-read/v1` (the grammar label never changes outcome or
-digests).
+digests). Earned in 017-f (inert, `literal-loop/v1`): finite literal
+`for var in list; do ...; done` loops with the earned `f`/`d` variable
+names, clean literal iteration lists, double-quoted one-reference
+filename templates, the exact `|| exit 1` guard on each `cat`, and the
+whole-loop expanded-operand budget never multiplied per iteration; an
+all-success guarded pure-cat loop earns one ordered whole-source bundle
+under a wrapper-proven exit-zero/untruncated/present completion,
+unguarded or echo-labeled forms stay non-removable with typed
+iteration/outer-attribution limitations, and every observation the
+loop parser evaluates carries `literal-loop/v1`.
 
 **Admission.** `lean` admits a whole bundle only when every member is
 graph-eligible and may admit an isolated eligible portion when boundaries are
@@ -530,9 +539,14 @@ literal-cd `&&` plans as one ordered bundle, absolute literal `cd`
 transitions with per-call workdir precedence, bounded literal `echo`
 outer boundaries, per-read vs global exit evidence, whole-plan bounds);
 017-e corrects that slice's echo option semantics and plan-grammar
-identity on the same inert surface; D09/D10 loop/chunk scope planned for
-later same-PR suffixes — 017-f literal loops and 017-g process/chunk
-association, subject to review);
+identity on the same inert surface; 017-f earns the bounded pure
+literal-loop slice — the D07 loop criterion, not a blanket D09/D10
+completion — in the inert module `constitution/bundles/literal_loops.py`
+(grammar `literal-loop/v1`: deterministic requested members, all-
+success guarded pure-cat bundles, typed unguarded/labeled/control-flow
+forms); the remaining D09/D10 multi-chunk and branch-matrix scope is
+planned for a later same-PR suffix (017-g process/chunk association,
+subject to review));
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

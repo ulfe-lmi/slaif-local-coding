@@ -1,10 +1,12 @@
 """Inert pure observation stage for the dependency-bundle cache rework.
 
-This package implements the bounded first slice (D01-D05) of Objective 017:
-versioned root-envelope, literal shell-read, and tool-result observation with
-exact source spans and typed limitations.  It is deliberately **not** wired
-into the legacy request execution path, the graph/cache/compiler, or any
-runtime stage; see ``docs/CACHE-OBSERVATION-CONTRACT.md``.
+This package implements the bounded pure-observation slice (D01-D08) of
+Objective 017: versioned root-envelope, literal shell-read, finite
+read-plan (D06/D07/D08) and literal-loop (D07) observation, and tool-
+result pairing with exact source spans and typed limitations.  It is
+deliberately **not** wired into the legacy request execution path, the
+graph/cache/compiler, or any runtime stage; see
+``docs/CACHE-OBSERVATION-CONTRACT.md``.
 """
 
 from __future__ import annotations
@@ -17,6 +19,14 @@ from ..bundles.compound_reads import (
     ReadPlanParse,
     parse_read_plan,
     plan_source_region,
+)
+from ..bundles.literal_loops import (
+    LOOP_GRAMMAR,
+    LoopOperand,
+    LoopParse,
+    LoopStatement,
+    LoopStatementKind,
+    parse_literal_loop,
 )
 from ..bundles.observation_models import (
     EMPTY_SOURCE_SHA256,
@@ -69,9 +79,15 @@ from ..bundles.tool_results import observe_reads, parse_wrapper
 __all__ = [
     "EMPTY_SOURCE_SHA256",
     "ENVELOPE_FORMAT",
+    "LOOP_GRAMMAR",
     "OBSERVER_VERSION",
     "READ_GRAMMAR",
     "TOOL_WRAPPER_FORMAT",
+    "LoopOperand",
+    "LoopParse",
+    "LoopStatement",
+    "LoopStatementKind",
+    "parse_literal_loop",
     "CharSpan",
     "Limitation",
     "NormalizedPath",

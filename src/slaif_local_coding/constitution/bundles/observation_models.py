@@ -190,6 +190,12 @@ class Limitation(StrEnum):
     CD_TARGET_UNSUPPORTED = "cd_target_unsupported"
     ECHO_TARGET_UNSUPPORTED = "echo_target_unsupported"
     OUTER_BOUNDARY_UNPROVEN = "outer_boundary_unproven"
+    # Loop grammar (D07)
+    LOOP_FORM_UNSUPPORTED = "loop_form_unsupported"
+    LOOP_VARIABLE_UNSUPPORTED = "loop_variable_unsupported"
+    LOOP_TEMPLATE_UNSUPPORTED = "loop_template_unsupported"
+    LOOP_GUARD_UNSUPPORTED = "loop_guard_unsupported"
+    LOOP_ITERATION_UNPROVEN = "loop_iteration_unproven"
     # Shared
     ENDPOINT_UNSUPPORTED = "endpoint_unsupported"
 

@@ -51,11 +51,26 @@ nothing), and every observation produced through the finite-plan
 parser carries the actual `READ_PLAN_GRAMMAR` identity across all
 outcomes while observations the single grammar earned keep
 `READ_GRAMMAR`; it adds no new read families and no loops/chunks.
-D09/D10 (multi-chunk process completion proof, remaining truncation
-matrix) move to later same-PR suffixes: the earlier planned 017-e
-loops/chunks draft is superseded by this correction, and strategy now
-plans 017-f literal loops and 017-g process/chunk association,
-subject to review.
+Stage 017-f earns the bounded pure literal-loop slice — the D07 loop
+criterion, not a blanket D09/D10 completion — on the same inert
+surface: the human 6.2 loop forms are recognized as finite parsed
+data with deterministic requested members; the all-success guarded
+pure-cat variants earn one ordered whole-source bundle under a
+wrapper-proven exit-zero/untruncated/present completion (one
+concatenated region, one exact digest, no fabricated internal
+boundaries or member hashes); unguarded and echo-labeled forms stay
+non-removable with typed iteration/outer-attribution limitations; and
+every observation the loop parser evaluates carries the actual
+`literal-loop/v1` identity (new pure module
+`src/slaif_local_coding/constitution/bundles/literal_loops.py`,
+grammar `literal-loop/v1`, whole-loop expanded-operand budget never
+multiplied per iteration). The D06/D08 source-attribution and
+status laws are preserved unchanged. The remaining D09/D10 scope
+(multi-chunk process completion proof, remaining truncation matrix,
+duplicate/substitution/branch matrix) moves to a later same-PR
+suffix: the earlier planned 017-e loops/chunks draft is superseded
+by the 017-e correction, and strategy now plans 017-g process/chunk
+association, subject to review.
 Objective 016 (the architecture/documentation and
 development-state stage) is accepted and merged as PR #24, merge
 `96c790423f6f0097a56a0b12bacda8a9b6da6aba`. Do not read a row in this
@@ -92,7 +107,7 @@ Owner stages (abbreviations): **OBS** = real-format read/root observation;
 ownership; **REC** = per-session recovery; **TOK** = tokenizer, compiler and
 budgets; **REP** = transactional source replacement; **ADV** = adversarial
 acceptance matrix; **QUAL** = bounded real-model and genuine-Codex
-qualification. States in this stage: D01-D05 are `PENDING` (pure observation slice; named evidence below, strategic acceptance outstanding); every other criterion is `NOT RUN` (planned).
+qualification. States in this stage: D01-D08 are `PENDING` (pure observation slice; named evidence below, strategic acceptance outstanding); every other criterion is `NOT RUN` (planned).
 
 ### Detection and acquisition (D)
 
@@ -104,10 +119,10 @@ qualification. States in this stage: D01-D05 are `PENDING` (pure observation sli
 | D04 | `/work-other`, traversal, unknown root, quoted `cat`, heredoc write | OBS | No client-host confusion or false acquisition | 017-a evidence: tests/test_bundle_client_paths.py::test_sibling_prefix_is_outside, ::test_lexical_dotdot_escaping_is_traversal, ::test_outside_absolute_path, ::test_absolute_with_unknown_workspace, ::test_relative_without_workspace_is_unproven, ::test_relative_traversal_escape, ::test_fully_quoted_literal_operand_under_no_spaces_convention, ::test_url_fragment_is_literal_never_stripped, ::test_query_syntax_is_never_mapped_to_the_plain_file, ::test_module_imports_no_filesystem_or_shell_facilities; tests/test_bundle_read_grammar.py::test_unsupported_shapes_are_typed_never_complete, ::test_no_expansion_no_evaluation; tests/test_bundle_observe.py::test_logical_root_scope_never_maps_host_paths, ::test_no_context_at_all_is_unproven; 017-b regression: tests/test_bundle_tool_results.py::TestPerCallWorkdir::test_per_call_workdir_outside_workspace_is_not_complete, ::test_relative_workdir_is_typed_not_complete, ::TestMalformedUnicodeComposition (typed, non-crashing, non-removable); 017-c regression: tests/test_bundle_tool_results.py::TestMalformedWorkdirUnicode (surrogate per-call workdir typed `MALFORMED_UNICODE`, relative and absolute operand variants, no crash/placeholder digest) | PENDING
 | D05 | `cat A.md B.md` without internal separators | OBS | One complete two-member bundle; no fabricated individual hashes | 017-a evidence: tests/test_bundle_read_grammar.py::test_two_operands_in_order, ::test_repeated_operand_preserves_order; tests/test_bundle_tool_results.py::test_two_members_without_separators_is_one_ordered_bundle, ::test_reversed_order_changes_observed_member_order, ::test_repeated_operands_do_not_fabricate_files; tests/test_bundle_observation_models.py::test_two_member_bundle_has_unknown_member_digests, ::test_single_member_complete_read_carries_proven_digest, ::test_requested_and_proven_executed_are_distinct; 017-b regression: tests/test_bundle_tool_results.py::TestRealFormatWrapper (handoff `Chunk ID:` + earned variant), ::TestContradictoryWrapperStatus, ::TestWrapperBoundsAndGrammar, ::TestToolEligibilityEvidence, ::TestEndpointScopedPairing; fixture tests/fixtures/cache_bundles/v1/read_handoff_wrapper_format_responses.json; 017-c regression: tests/test_bundle_tool_results.py::TestEndpointSelection (mixed shapes typed non-removable, unambiguous positives, explicit endpoint scoping, global/per-read agreement), tests/test_bundle_observe.py::TestEndpointDomainAtComposition | PENDING
 | D06 | Chained reads with `ls`, labels and unrelated output | OBS | Correct outer regions; unrelated output preserved | 017-d evidence: tests/test_bundle_compound_reads.py::TestChainedReadPlans (all-cat `&&` plans, one ordered bundle, order/duplicate preservation), ::TestEchoOuterBoundaries (literal echo prefix/suffix, internal-echo negative), ::TestMixedOutputNegatives (`ls` family exit-zero/nonzero, semicolon chain), ::TestOuterRegionComposition (pure file span exposure, label-inside-source, collision/extra-output typed); outer-region proof in ::TestOuterSourceRegions; 017-e regression: ::TestEchoOptionSemantics (option-like dash-leading quoted literals typed, both quote kinds, combinations/repetitions, narrow exclusion), ::TestEchoOptionSemanticsComposition (echo '-n'/'-ne' prefix/suffix never strips source, fake/real marker inside source stays source, earned-marker control) | PENDING
-| D07 | Literal loop, supported wildcard evidence, explicit `workdir`/`cd` | OBS | Proven executed membership; no adapter-host expansion | 017-d evidence (loop/wildcard remain explicitly typed unsupported in this slice): tests/test_bundle_compound_reads.py::TestLiteralCdTransitions (absolute literal `cd` under evidenced workspace, sibling/ancestor/`..`/relative/bare/multi-target negatives, per-call workdir precedence, mid-chain failure), ::TestPlanNegatives (loop/branch/glob/substitution typed, later words never reinterpreted), ::TestWholePlanBounds (whole-plan statement/operand bounds); composition: ::TestChainedPlanComposition::test_cd_then_reads_resolves_against_transition, ::test_per_call_workdir_then_cd_transition | PENDING
+| D07 | Literal loop, supported wildcard evidence, explicit `workdir`/`cd` | OBS | Proven executed membership; no adapter-host expansion | 017-d evidence (loop/wildcard remain explicitly typed unsupported in this slice): tests/test_bundle_compound_reads.py::TestLiteralCdTransitions (absolute literal `cd` under evidenced workspace, sibling/ancestor/`..`/relative/bare/multi-target negatives, per-call workdir precedence, mid-chain failure), ::TestPlanNegatives (loop/branch/glob/substitution typed, later words never reinterpreted), ::TestWholePlanBounds (whole-plan statement/operand bounds); composition: ::TestChainedPlanComposition::test_cd_then_reads_resolves_against_transition, ::test_per_call_workdir_then_cd_transition; 017-f evidence (the loop criterion is D07, not a blanket D09/D10 completion; wildcard iteration evidence remains typed unsupported): tests/test_bundle_literal_loops.py (human 6.2 unguarded forms as finite parsed data with deterministic requested members; all-success guarded positives with exact digest/slot-width/reversed/duplicate order; unguarded and echo-labeled forms non-removable with typed iteration/outer-attribution limitations and preserved members; `f`/`d` variable law with special/unknown/prefix references typed; double-quoted one-reference template law with adjacent-quote words typed; exact `|| exit 1` guard law with false/late/pipe variants typed; cat option/terminator/stdin law applied after substitution including the dynamic terminator; workdir/workspace/parent-relative resolution and outside negatives; empty/over-bound lists, at-limit and one-over whole-loop operand budget under one shared `max_operands`; wrapper completion matrix nonzero/truncated/unknown/missing/running/malformed-Unicode; `literal-loop/v1` grammar identity across all outcomes; repr privacy with no raw command literals) | PENDING
 | D08 | Read succeeds, later command fails; earlier read fails, later command succeeds | OBS | Per-read evidence distinguished from global exit status | 017-d evidence: tests/test_bundle_compound_reads.py::TestPerReadVersusGlobalExit (nonzero chain proves no read and no digest, requested members preserved, wrapper status recorded; earlier-failure/later-success; truncated chain; process-running; malformed-Unicode content; chat composition; mixed suppression); 017-e regression: ::TestPlanGrammarIdentity (the actual plan grammar carried on complete/unsupported/nonzero/truncated/missing/running/malformed/outer-boundary outcomes; single-grammar contrast; an unsupported attempt is never a successful plan) | PENDING
-| D09 | Truncation, partial `head`/`sed`, missing output, multi-chunk process | OBS | Explicit completeness state; no false full-file cache entry | NOT RUN |
-| D10 | Duplicate/mismatched call IDs, command substitution, unexecuted branch | OBS | No invented pairing/content; unsupported cases observable | NOT RUN |
+| D09 | Truncation, partial `head`/`sed`, missing output, multi-chunk process | OBS | Explicit completeness state; no false full-file cache entry | NOT RUN (017-f note: the loop completion negatives — nonzero/truncated/unknown/missing/running/malformed-Unicode wrapper over looped reads, no inferred earlier iteration — are typed on the D07 loop surface, tests/test_bundle_literal_loops.py::TestWrapperNegatives; multi-chunk process completion and the remaining truncation matrix stay deferred to 017-g) |
+| D10 | Duplicate/mismatched call IDs, command substitution, unexecuted branch | OBS | No invented pairing/content; unsupported cases observable | NOT RUN (017-f note: the loop substitution/nested/branch/fragment/control-flow negatives remain explicitly typed, tests/test_bundle_literal_loops.py::TestLoopFormNegatives, ::TestTemplateLaw; the duplicate/mismatched/unexecuted-branch matrix stays deferred to 017-g) |
 
 ### Graph, admission and identity (G, C)
 

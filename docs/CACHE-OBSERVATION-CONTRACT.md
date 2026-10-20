@@ -12,10 +12,13 @@ the dependency-bundle cache rework (D01-D05 in
 [the stage ledger](CACHE-REWORK-LEDGER.md)). The accepted design authority is
 [the human handoff](CACHE-REWORK.md); the resolved engineering choices are in
 [the implementation plan](CACHE-IMPLEMENTATION-PLAN.md); delivery state is in
-[the stage ledger](CACHE-REWORK-LEDGER.md). D06-D10 (chained reads, literal
-loops, per-read vs global exit evidence, multi-chunk pairing and remaining
-truncation matrix) are NOT implemented here; they are planned for later
-same-PR suffixes (planned 017-d/e). Round 017-b corrected the 017-a
+[the stage ledger](CACHE-REWORK-LEDGER.md). D06-D08 (chained reads,
+literal loops, per-read vs global exit evidence) are earned in rounds
+017-d and 017-f of this same PR (section 4a and section 4b); D09-D10
+(multi-chunk process completion, the remaining truncation matrix and
+the duplicate/substitution/branch matrix) are NOT implemented here;
+they are planned for later same-PR suffixes (planned 017-g). Round
+017-b corrected the 017-a
 observation proof defects (findings A-E) without adding read families.
 Round 017-c corrected the remaining literal-grammar and actual-endpoint
 proof (bounded literal lexer with raw spans/cooked values, quoted
@@ -44,7 +47,21 @@ instead of inventing a false boundary; and every observation
 produced through the finite-plan parser now carries the actual plan
 grammar identity `READ_PLAN_GRAMMAR` across all outcomes (the
 grammar-identity fallback law, section 4a), while observations the
-single grammar actually earned keep `READ_GRAMMAR`.
+single grammar actually earned keep `READ_GRAMMAR`. Round 017-f earns
+the bounded pure literal-loop slice (the D07 loop criterion) in the
+new pure inert module `literal_loops.py` with the versioned grammar
+`literal-loop/v1`: the human 6.2 loop forms are recognized as finite
+parsed data with deterministic requested members, the all-success
+guarded pure-cat variants earn one ordered whole-source bundle under
+a proven exit-zero, untruncated, present wrapper (one concatenated
+region with an exact digest, no fabricated internal boundaries or
+member hashes), and unguarded or echo-labeled forms stay non-removable
+with typed iteration/outer-attribution limitations; the loop variable,
+list, template, guard, echo, adjacent-quote, workdir and whole-loop
+bound laws are explicit (section 4b), with the whole-loop expanded-
+operand budget never multiplied per iteration, and every observation
+the loop parser evaluates carries the actual loop grammar identity
+`LOOP_GRAMMAR`.
 
 ## 1. Modules and versions
 
@@ -55,6 +72,7 @@ single grammar actually earned keep `READ_GRAMMAR`.
 | `READ_GRAMMAR` | `literal-shell-read/v1` | command grammar |
 | `TOOL_WRAPPER_FORMAT` | `codex-exec-wrapper/v1` | exec wrapper text form |
 | `READ_PLAN_GRAMMAR` | `literal-read-plan/v1` | finite read-plan grammar (D06-D08) |
+| `LOOP_GRAMMAR` | `literal-loop/v1` | finite literal-loop grammar (D07) |
 
 Modules: `observation_models.py` (typed results, spans, digests, bounds),
 `client_paths.py` (literal client-workspace path normalization),
@@ -62,7 +80,9 @@ Modules: `observation_models.py` (typed results, spans, digests, bounds),
 (bounded literal token lexing: raw spans, cooked values, quoting,
 operators), `read_grammar.py` (D03/D04 literal command grammar plus the shared cat
 operand law), `compound_reads.py` (D06/D07/D08 finite read-plan grammar
-and outer attribution), `tool_results.py` (D05 pairing and wrapper),
+and outer attribution), `literal_loops.py` (D07 finite
+literal-loop grammar and attribution), `tool_results.py` (D05 pairing
+and wrapper),
 `observe.py` (pure composition entry point `observe_request`).
 
 Coordinate law: every span is a half-open pair of **character offsets into the
@@ -372,6 +392,137 @@ echo_stmt   := 'echo' 'quoted_literal'    (cooked value not dash-leading)
   (`TOOL_WRAPPER_FORMAT`) is a separate identity from the read
   grammar.
 
+### 4b. Finite literal-loop grammar (D07)
+
+The earned loop surface is a **finite typed loop** (versioned
+`literal-loop/v1`), not a general shell interpreter:
+
+```text
+loop        := 'for' var 'in' list '; do' body '; done'
+var         := one of the earned ordinary names (`f`, `d`)
+list        := clean-literal+                (bounded)
+body        := statement (';' statement)*
+statement   := cat_stmt | echo_stmt
+cat_stmt    := 'cat' operand+ ('|| exit 1')?
+echo_stmt   := 'echo' quoted_literal | quoted_echo_template
+```
+
+- **Domain and identity fallback.** The loop parser's domain is a
+  command whose first token is the exact unquoted `for` keyword. A
+  command outside the domain is evaluated by the finite-plan parser
+  (section 4a), whose reasons and identity apply unchanged; an
+  observation the loop parser evaluates carries `LOOP_GRAMMAR`.
+- **Variable law (D07).** The loop variable must be exactly one of the
+  earned ordinary names of the human handoff 6.2 forms (`f`, `d`).
+  Shell-special, dynamic, readonly or any other name (`RANDOM`,
+  `SECONDS`, `LINENO`, `_`, `g`, ...) is never a literal local binding
+  (`LOOP_VARIABLE_UNSUPPORTED`), and no runtime or environment oracle
+  is consulted. A `$name` reference inside a body template that is not
+  the loop variable — including a longer name that merely starts with
+  it (`$f_extra`) or an unknown name — is typed the same way. Other
+  ordinary names may be earned only if explicitly bounded by a later
+  round.
+- **List law.** List values are clean literals only: an unquoted
+  literal, or a fully-quoted literal whose inner text carries no
+  metacharacter, quote or whitespace of any kind (the agreed
+  no-spaces file convention). A substitution (`$FILES`), a glob
+  (`*.md`), an empty list (`in;`), an implicit positional list
+  (`for f;`), or a word that mixes quoting is typed
+  (`COMMAND_SUBSTITUTION`, `GLOB_UNPROVEN`, `COMMAND_EMPTY`,
+  `LOOP_FORM_UNSUPPORTED`, `QUOTED_OPERAND` respectively), never
+  guessed. Option-like list values (`-n`, `-`, `--`) never fabricate
+  whole-file membership: their substituted expansion is still held to
+  the exact cat option/stdin/terminator law per iteration.
+- **Template law.** A `cat` operand template is a double-quoted path
+  whose segments are clean literal labels with exactly one segment
+  equal to `$<loopvar>` (the pure-variable form `"$f"` is the
+  one-segment case); a leading `/` is allowed (an absolute client
+  template decided by the shared path law). Partial-segment references
+  (`pre"$f"`, `"$f.md"`), repeated references, `${...}` defaults,
+  substitutions, single-quoted `'$f'`, adjacent-quote mixed words
+  (`"$f"".md"`, `pre"$f"`) and any other non-literal segment text are
+  typed (`LOOP_TEMPLATE_UNSUPPORTED` / `LOOP_VARIABLE_UNSUPPORTED` /
+  `QUOTED_OPERAND`), never guessed. The echoed form may carry at most
+  one whole loop-variable reference inside double-quoted text with no
+  other metacharacter (whitespace allowed — echo text, not a path).
+- **Guard law.** The earned per-iteration guard is exactly `|| exit 1`
+  after each `cat` statement (the guard operator is the exact unquoted
+  `||` token). A missing guard, an `exit 0` guard, another exit
+  literal, a guard after the loop, or a `break`/`continue`/`true`
+  variant is not equivalent (`LOOP_GUARD_UNSUPPORTED` /
+  `LOOP_FORM_UNSUPPORTED`). A single `|` is a pipe operator, never a
+  guard.
+- **Adjacent-quote law.** A shell word that mixes quoting
+  (`A".md"`, `A'.md'`, `"$f"".md"`, `pre"$f"`) is typed
+  (`QUOTED_OPERAND` / `ECHO_TARGET_UNSUPPORTED` at its use site),
+  consistent with the shared quote law: no member or template is
+  fabricated from the fragments. A metacharacter word never joins its
+  quoted neighbor: a `;` separator after a quoted value stays a
+  separator (`for f in "A.md";` still earns).
+- **Echo law (outer attribution).** Loop body echo output is ordinary
+  actual output, never source bytes: a loop whose body carries an
+  `echo` statement interleaves printed text between the read output,
+  so the source region is not attributable as a pure bundle
+  (`OUTER_BOUNDARY_UNPROVEN`) — a labeled-loop positive is earned
+  later, if at all, with exact multiple-span/collision/order proof,
+  never assumed here, and matching file bytes are not an echo-output
+  oracle. An unearned echo target (unquoted, mixed, dash-leading
+  cooked literal, broken quote, extra words) is
+  `ECHO_TARGET_UNSUPPORTED`.
+- **Control flow and fragments.** The loop is flat: a nested
+  `for`/`while`/`until`/`if`/`case`/`select`, `break`/`continue`, or
+  any other control-flow keyword is typed (`LOOP_FORM_UNSUPPORTED`);
+  a non-`cat`/`echo` body executable is typed (`FRAGMENT_COMMAND` for
+  the earned fragment family, `COMMAND_UNSUPPORTED` otherwise);
+  comments, heredocs, redirections, writes, pipes, branches,
+  substitutions and the `;do` attached-separator variant keep their
+  shared typed reasons. A loop with no `cat` statement at all is
+  typed, never a silent empty read.
+- **Completion and attribution (D07).** An unguarded `cat` does not
+  prove that every earlier iteration succeeded from the final exit
+  status: an earned loop with an unguarded `cat` is a recognized read
+  whose per-iteration execution is not proven (`LOOP_ITERATION_UNPROVEN`),
+  and requested paths are not proven-executed paths. Only an
+  all-success guarded pure-cat loop (every `cat` guarded, no body
+  echo, no member-level limitation) plus a wrapper-proven exit-zero,
+  untruncated, present output is a complete ordered whole-source
+  bundle: one concatenated region with an exact digest over the
+  attributable content span, no fabricated internal boundaries or
+  member hashes (a single distinct member proves its digest,
+  including the exact empty digest for a zero-byte region). Duplicate
+  operand order is preserved; distinct represented members determine
+  the slot width. Unknown, nonzero, partial, truncated or missing
+  output never yields a whole complete bundle, and no earlier
+  iteration is inferred to have succeeded; malformed-Unicode content
+  is rejected before any hashing. Requested, proven and complete stay
+  separate facts for every outcome.
+- **Whole-loop bounds.** Total command characters
+  (`max_command_chars`), iteration count (`max_operands`), body
+  statement count (`max_operands`) and — the key bound — the total
+  expanded `cat` operands across **all** iterations (one shared
+  `max_operands` budget, never re-applied per iteration) are
+  explicit (`OVER_BOUND`); the loop is flat and parsing is linear
+  over the command string. Path law: the evidenced workspace plus
+  the explicit per-call workdir resolves every expanded operand
+  lexically in the client domain (the shared `normalize_read_path`
+  law); a path-limited expansion stays a member with its typed
+  limitation, and sibling/workspace-escape/ambiguous-cwd/
+  control-character/Unicode rejections are preserved.
+- **Grammar identity (017-f).** Every `ReadObservation` produced
+  through the loop parser carries the actual shared loop grammar
+  identity `LOOP_GRAMMAR` (`literal-loop/v1`) consistently across
+  complete, unsupported, nonzero, missing/truncated/running,
+  malformed-content and iteration/outer-boundary-unproven outcomes.
+  The grammar label identifies the parser that evaluated the command;
+  it never changes outcome, completeness, removability or digests,
+  and an unsupported loop attempt is never a successful read. The
+  simple (`READ_GRAMMAR`) and finite-plan (`READ_PLAN_GRAMMAR`)
+  identities remain exact for their prior families, and the wrapper
+  format (`TOOL_WRAPPER_FORMAT`) is a separate identity from the read
+  grammar. No raw command, list value or echoed literal appears in a
+  loop parse representation (spans, counts, digests and typed reasons
+  only).
+
 ## 5. Tool call/result pairing and wrapper (D05)
 
 - **Eligibility.** Only `exec_command` and `shell_command` are supported
@@ -490,7 +641,10 @@ tool (`unsupported_tool`,
 `truncated_output`, `process_running`, `write_stdin_chunk`,
 `multi_chunk_deferred`, `missing_output_body`, `malformed_wrapper`,
 `output_over_bound`), plan (`cd_target_unsupported`,
-`echo_target_unsupported`, `outer_boundary_unproven`).
+`echo_target_unsupported`, `outer_boundary_unproven`), loop
+(`loop_form_unsupported`, `loop_variable_unsupported`,
+`loop_template_unsupported`, `loop_guard_unsupported`,
+`loop_iteration_unproven`).
 
 ## 8. Boundedness
 
@@ -507,7 +661,11 @@ shapes) — no regex blowup, no timing-dependent behavior, no uncaught
 exceptions at the public entry points.  Plan parsing is linear over the
 whole command string (one lexing pass plus one statement pass); the
 whole-plan bounds above cap statements, operands and characters before
-any attribution work.
+any attribution work. Loop parsing is likewise linear over the command
+string (one quote-aware scan plus one statement pass); the whole-loop
+bounds above cap characters, iterations, statements and — before any
+expansion — the total expanded operands across all iterations under one
+shared `max_operands` budget (never multiplied per iteration).
 
 ## 9. Privacy and identity
 
@@ -575,9 +733,17 @@ remaining truncation matrix (D09), and the full
 duplicate/mismatched/substitution/unexecuted-branch matrix beyond the
 negatives already covered (D10), on later same-PR suffixes — the
 earlier planned 017-e loops/chunks draft is superseded by the 017-e
-bounded correction (echo option semantics plus plan-grammar identity),
-and strategy now plans 017-f literal loops and 017-g process/chunk
-association, subject to review.  Literal loops remain explicitly
-unsupported in this slice (typing, not execution). Graph identity,
-admission, RAM state, recovery, tokenization, and replacement belong to
-objectives 018-024.
+bounded correction (echo option semantics plus plan-grammar identity).
+Round 017-f earned the bounded pure literal-loop slice on this same
+inert surface (section 4b, module `literal_loops.py`, grammar
+`literal-loop/v1`): the human 6.2 loop forms are recognized as finite
+parsed data with deterministic requested members, the all-success
+guarded pure-cat variants earn complete ordered whole-source bundles
+under wrapper-proven exit-zero/untruncated/present completion, and
+unguarded or echo-labeled forms stay typed and non-removable. Still
+deferred there: the labeled-loop positive (exact multiple-span/
+collision/order proof), other ordinary loop variable names, and
+wildcard iteration evidence — explicitly typed, never executed.
+Strategy now plans 017-g process/chunk association, subject to
+review.  Graph identity, admission, RAM state, recovery,
+tokenization, and replacement belong to objectives 018-024.

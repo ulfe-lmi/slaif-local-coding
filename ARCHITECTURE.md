@@ -32,10 +32,15 @@ earns the bounded finite cd/cat read-plan and outer-region
 attribution slice (D06-D08) as inert typed modules; stage 017-e
 corrects that slice's echo option semantics (option-like dash-leading
 quoted literals are typed, never a boundary) and carries the actual
-plan-grammar identity on every plan-parser observation, leaving the
-remaining D09-D10 scope to later same-PR suffixes (017-f/017-g,
-subject to review); no v1 runtime mechanism is active or qualified
-yet.
+plan-grammar identity on every plan-parser observation; stage 017-f
+earns the bounded pure literal-loop slice (the D07 loop criterion) as
+inert typed modules — finite `for ... in ...; do ...; done` loops with
+the earned `f`/`d` variable names, deterministic requested members,
+all-success guarded pure-cat loops as one ordered whole-source bundle,
+and typed unguarded/labeled/control-flow forms (grammar
+`literal-loop/v1`) — leaving the remaining D09-D10 scope to a later
+same-PR suffix (017-g, subject to review); no v1 runtime mechanism is
+active or qualified yet.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact

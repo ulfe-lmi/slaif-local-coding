@@ -53,6 +53,11 @@ from ..bundles.compound_reads import (
     parse_read_plan,
     plan_source_region,
 )
+from ..bundles.literal_loops import (
+    LOOP_GRAMMAR,
+    LoopParse,
+    parse_literal_loop,
+)
 from ..bundles.observation_models import (
     EMPTY_SOURCE_SHA256,
     CharSpan,
@@ -469,6 +474,191 @@ def _result_entries(
     return responses, chat
 
 
+def _build_loop_observation(
+    *,
+    call_id: str,
+    endpoint: str,
+    call_location: str,
+    tool_name: str,
+    result_location: str,
+    output_text: str,
+    loop: LoopParse,
+    bounds: ObservationBounds,
+) -> ReadObservation:
+    """One loop-parsed read observation (grammar ``LOOP_GRAMMAR``).
+
+    Grammar-identity law: the loop parser evaluated the command, so every
+    observation it produces carries the actual shared loop grammar
+    identity ``LOOP_GRAMMAR`` — the grammar label identifies the parser
+    and never changes outcome, completeness, removability or digests.
+
+    Completion law: only a structurally earned loop whose reasons are
+    empty (every ``cat`` guarded, no body echo, no member-level
+    limitation) plus a wrapper-proven exit-zero, untruncated, present
+    output is a complete ordered whole-source bundle — one concatenated
+    region with an exact digest, no fabricated internal boundaries or
+    member hashes.  A recognized unguarded or labeled loop preserves the
+    deterministic requested members but stays non-removable with no
+    bundle digest (per-iteration execution and/or outer attribution is
+    not proven).  Unknown, nonzero, partial, truncated or missing output
+    never yields a whole complete bundle, and no earlier iteration is
+    inferred to have succeeded.
+    """
+
+    if not loop.complete:
+        # Structurally unsupported loop: no acquisition; the original
+        # wrapper/global status is preserved as recorded facts.
+        return ReadObservation(
+            call_id=call_id,
+            endpoint=endpoint,
+            call_location=call_location,
+            result_location=result_location,
+            read_grammar=LOOP_GRAMMAR,
+            requested_members=loop.requested_members,
+            outcome=ReadOutcome.UNSUPPORTED,
+            completeness=ReadOutcome.UNSUPPORTED,
+            wrapper=parse_wrapper(output_text, bounds),
+            reasons=loop.reasons,
+        )
+    loop_wrapper = parse_wrapper(output_text, bounds)
+    loop_content_span = (
+        loop_wrapper.output_span
+        if loop_wrapper.output_present and loop_wrapper.output_span is not None
+        else None
+    )
+    if Limitation.PROCESS_RUNNING in loop_wrapper.reasons:
+        return ReadObservation(
+            call_id=call_id,
+            endpoint=endpoint,
+            call_location=call_location,
+            result_location=result_location,
+            read_grammar=LOOP_GRAMMAR,
+            requested_members=loop.requested_members,
+            outcome=ReadOutcome.UNSUPPORTED,
+            completeness=ReadOutcome.UNSUPPORTED,
+            wrapper=loop_wrapper,
+            reasons=(Limitation.PROCESS_RUNNING,),
+        )
+    if loop_wrapper.reasons == () and loop_wrapper.output_present and loop_content_span is not None:
+        loop_content = output_text[loop_content_span.start : loop_content_span.end]
+        if contains_lone_surrogates(loop_content):
+            # Unhashable content is rejected before any UTF-8 hashing:
+            # the observation is typed, non-removable, and carries no
+            # digest (ineligible for later graph/cache admission).
+            return ReadObservation(
+                call_id=call_id,
+                endpoint=endpoint,
+                call_location=call_location,
+                result_location=result_location,
+                read_grammar=LOOP_GRAMMAR,
+                requested_members=loop.requested_members,
+                outcome=ReadOutcome.UNSUPPORTED,
+                completeness=ReadOutcome.UNSUPPORTED,
+                wrapper=loop_wrapper,
+                content_span=loop_content_span,
+                removable=False,
+                bundle_digest=None,
+                member_digests=(),
+                reasons=(Limitation.MALFORMED_UNICODE,),
+            )
+        if loop.reasons == ():
+            # An all-success guarded pure-cat loop with a proven
+            # exit-zero, untruncated, present output: the attributable
+            # content region is ONE ordered whole bundle — one
+            # concatenated region with an exact digest, even without
+            # inner separators; repeated members preserve observed
+            # order, distinct width is recorded, and individual member
+            # hashes stay unknown (never fabricated).
+            loop_proven = tuple(
+                member.normalized
+                for member in loop.requested_members
+                if member.normalized is not None
+            )
+            loop_distinct = len(set(loop_proven))
+            if len(loop_proven) == 1:
+                loop_digest = (
+                    EMPTY_SOURCE_SHA256 if loop_content == "" else sha256_hex(loop_content)
+                )
+                loop_member_digests: tuple[str | None, ...] = (loop_digest,)
+            else:
+                loop_member_digests = tuple(None for _ in range(loop_distinct))
+            return ReadObservation(
+                call_id=call_id,
+                endpoint=endpoint,
+                call_location=call_location,
+                result_location=result_location,
+                read_grammar=LOOP_GRAMMAR,
+                requested_members=loop.requested_members,
+                proven_executed=loop_proven,
+                distinct_member_count=loop_distinct,
+                slot_width=loop_distinct,
+                outcome=ReadOutcome.COMPLETE,
+                completeness=ReadOutcome.COMPLETE,
+                wrapper=loop_wrapper,
+                content_span=loop_content_span,
+                removable=True,
+                bundle_digest=sha256_hex(loop_content),
+                member_digests=loop_member_digests,
+            )
+        # A recognized loop whose per-iteration execution or outer
+        # attribution is not proven (an unguarded cat, a body echo, or a
+        # member-level limitation): the deterministic requested members
+        # are preserved, but the output is not attributable as a pure
+        # source bundle — non-removable, no bundle digest.
+        return ReadObservation(
+            call_id=call_id,
+            endpoint=endpoint,
+            call_location=call_location,
+            result_location=result_location,
+            read_grammar=LOOP_GRAMMAR,
+            requested_members=loop.requested_members,
+            outcome=ReadOutcome.UNSUPPORTED,
+            completeness=ReadOutcome.UNSUPPORTED,
+            wrapper=loop_wrapper,
+            content_span=loop_content_span,
+            removable=False,
+            reasons=loop.reasons,
+        )
+    # The wrapper is not proven: the global exit status alone is no
+    # per-iteration proof — a nonzero in a guarded loop identifies no
+    # failed iteration and proves no earlier source complete; no read
+    # is proven and no bundle digest is issued.
+    loop_reasons: list[Limitation] = []
+    for reason in loop_wrapper.reasons:
+        if reason not in loop_reasons:
+            loop_reasons.append(reason)
+    for reason in loop.reasons:
+        if reason not in loop_reasons:
+            loop_reasons.append(reason)
+    if not loop_reasons:
+        loop_reasons.append(Limitation.UNKNOWN_COMPLETION)
+    if Limitation.NONZERO_EXIT in loop_wrapper.reasons:
+        loop_outcome = ReadOutcome.NONZERO_EXIT
+        loop_completeness = ReadOutcome.PARTIAL
+    elif Limitation.TRUNCATED_OUTPUT in loop_wrapper.reasons:
+        loop_outcome = ReadOutcome.TRUNCATED
+        loop_completeness = ReadOutcome.PARTIAL
+    elif Limitation.MISSING_OUTPUT_BODY in loop_wrapper.reasons:
+        loop_outcome = ReadOutcome.MISSING_BODY
+        loop_completeness = ReadOutcome.UNSUPPORTED
+    else:
+        loop_outcome = ReadOutcome.UNSUPPORTED
+        loop_completeness = ReadOutcome.UNSUPPORTED
+    return ReadObservation(
+        call_id=call_id,
+        endpoint=endpoint,
+        call_location=call_location,
+        result_location=result_location,
+        read_grammar=LOOP_GRAMMAR,
+        requested_members=loop.requested_members,
+        outcome=loop_outcome,
+        completeness=loop_completeness,
+        wrapper=loop_wrapper,
+        content_span=loop_content_span,
+        reasons=tuple(loop_reasons),
+    )
+
+
 def _build_observation(
     *,
     call_id: str,
@@ -572,6 +762,32 @@ def _build_observation(
             bounds.max_path_bytes,
         )
         if not plan.complete:
+            # Finite literal-loop surface (D07): a loop command is
+            # evaluated by the loop parser, and EVERY observation that
+            # parser produces — complete, unsupported, nonzero,
+            # missing/truncated/running, malformed-content or
+            # iteration/outer-boundary-unproven — carries the actual
+            # shared loop grammar identity ``LOOP_GRAMMAR``.  A command
+            # outside the loop parser's domain keeps the typed
+            # unsupported plan observation (plan grammar) above.
+            loop = parse_literal_loop(
+                unwrapped.command,
+                call_context,
+                bounds.max_command_chars,
+                bounds.max_operands,
+                bounds.max_path_bytes,
+            )
+            if loop.is_loop_attempt:
+                return _build_loop_observation(
+                    call_id=call_id,
+                    endpoint=endpoint,
+                    call_location=call_location,
+                    tool_name=tool_name,
+                    result_location=result_location,
+                    output_text=output_text,
+                    loop=loop,
+                    bounds=bounds,
+                )
             # Typed unsupported plan: no acquisition; the original
             # wrapper/global status is preserved as recorded facts.
             cid, ep, loc, rloc = _common()
