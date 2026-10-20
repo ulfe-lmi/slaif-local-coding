@@ -152,9 +152,14 @@ def _scan_tokens(command: str) -> list[_LoopToken]:
     The loop grammar therefore scans the exact string itself: a double- or
     single-quoted region is one token whose ``text`` is the inner text, an
     unterminated quote runs to the end of the command (typed broken), and
-    unquoted runs stop at whitespace or a quote.  No execution, no
-    expansion; the input is assumed pre-validated (no CR/LF/control
-    characters, bounded length).
+    unquoted runs stop at whitespace, a quote, or an unquoted ``;``: the
+    separator metacharacter terminates the current word and is emitted as
+    its own standalone token, never as part of the preceding word.  A
+    quoted prefix plus a literal suffix touching the separator
+    (``"A".md;``) therefore stays one word (``A.md``) followed by the
+    separator, and a semiterminated literal suffix can never become an
+    extra list member.  No execution, no expansion; the input is assumed
+    pre-validated (no CR/LF/control characters, bounded length).
     """
 
     tokens: list[_LoopToken] = []
@@ -180,10 +185,21 @@ def _scan_tokens(command: str) -> list[_LoopToken]:
         else:
             end = index
             while (
-                end < length and command[end] not in _ASCII_SEPARATORS and command[end] not in "'\""
+                end < length
+                and command[end] not in _ASCII_SEPARATORS
+                and command[end] not in "'\""
+                and command[end] != ";"
             ):
                 end += 1
-            tokens.append(_LoopToken(start, end, command[start:end], _TokenKind.UNQUOTED))
+            if end > start:
+                tokens.append(_LoopToken(start, end, command[start:end], _TokenKind.UNQUOTED))
+            if end < length and command[end] == ";":
+                # The unquoted ``;`` is its own syntactic element: it
+                # terminates the current word without riding it, so a
+                # mixed word touching the separator keeps its literal
+                # prefix intact (never two members).
+                tokens.append(_LoopToken(end, end + 1, ";", _TokenKind.UNQUOTED))
+                end += 1
             index = end
     return _join_words(tokens)
 
@@ -359,13 +375,12 @@ def _clean_unquoted(text: str) -> bool:
 def _is_separator(token: _LoopToken) -> bool:
     """The loop's statement separator: the exact unquoted ``;``.
 
-    The ``;`` is earned only unquoted: either a standalone ``;`` token, or a
-    trailing ``;`` attached to a non-empty unquoted prefix (``B.md;``,
-    ``1;``, ``*.md;``).  The prefix keeps its own typed classification
-    (a clean prefix is the final list value / statement word; a typed
-    prefix carries its own reason); a ``;`` inside a quoted region is
-    literal text, never a separator; a ``;`` attached to a keyword
-    (``;do``) is not an earned separator in this slice.
+    The scanner emits every unquoted ``;`` as its own standalone token, so
+    the separator is a standalone word: it never rides a preceding word, a
+    quoted prefix plus a literal suffix touching the separator stays one
+    word, and a semiterminated literal suffix can never become an extra
+    member.  A ``;`` inside a quoted region is literal text, never a
+    separator.
     """
 
     if token.kind is not _TokenKind.UNQUOTED:
@@ -496,8 +511,7 @@ def _parse_cat_statement(
             reasons.append(Limitation.QUOTED_OPERAND)
             break
         if token.kind is _TokenKind.UNQUOTED and token.text == "||":
-            # Candidate guard start: exactly ``|| exit 1`` follows (the
-            # ``1`` may ride a trailing-`;` separator pseudo-token).  The
+            # Candidate guard start: exactly ``|| exit 1`` follows.  The
             # earned guard operator is the exact unquoted ``||`` token; any
             # other exit literal, missing literal or branch variant is
             # typed, never guessed.
@@ -832,23 +846,13 @@ def parse_literal_loop(
         structural_ok = False
 
     in_token = tokens[2]
-    in_separator_consumed = False
     if (
         in_token.kind is not _TokenKind.UNQUOTED
         or in_token.text != "in"
         or not _clean_unquoted(in_token.text)
     ):
-        if (
-            in_token.kind is _TokenKind.UNQUOTED
-            and _is_separator(in_token)
-            and in_token.text[:-1] == "in"
-        ):
-            # ``in;``: the separator rides the keyword — the shell reads
-            # this as ``in`` plus an (empty) iteration list terminator.
-            in_separator_consumed = True
-        else:
-            reasons.append(Limitation.LOOP_FORM_UNSUPPORTED)
-            structural_ok = False
+        reasons.append(Limitation.LOOP_FORM_UNSUPPORTED)
+        structural_ok = False
 
     list_values: list[str] = []
     statements: tuple[LoopStatement, ...] = ()
@@ -859,19 +863,13 @@ def parse_literal_loop(
     if structural_ok:
         # --- iteration list: clean literals up to the `;` separator -----
         index = 3
-        list_closed = in_separator_consumed
+        list_closed = False
         while not list_closed and index < len(tokens):
             token = tokens[index]
             if _is_separator(token):
-                if token.text != ";":
-                    leading = token.text[:-1]
-                    if _clean_unquoted(leading):
-                        list_values.append(leading)
-                    else:
-                        reasons.append(
-                            _operator_limitation(leading) or Limitation.LOOP_FORM_UNSUPPORTED
-                        )
-                        structural_ok = False
+                # The standalone separator closes the list; the preceding
+                # word was already classified as a complete word (no
+                # semiterminated suffix can become an extra member).
                 list_closed = True
                 index += 1
                 break
@@ -939,20 +937,8 @@ def parse_literal_loop(
         while index < len(tokens):
             token = tokens[index]
             if _is_separator(token):
-                if token.text != ";":
-                    leading = token.text[:-1]
-                    # The separator's leading word belongs to the current
-                    # statement (e.g. the guard's exit literal in `1;`); a
-                    # typed prefix (operator, glob, ...) is classified by
-                    # the statement parser like any statement word.
-                    current.append(
-                        _LoopToken(
-                            token.raw_start,
-                            token.raw_start + len(leading),
-                            leading,
-                            _TokenKind.UNQUOTED,
-                        )
-                    )
+                # The standalone separator closes the current statement;
+                # every statement word was already a complete word.
                 if current:
                     statement = _parse_loop_statement(
                         current,

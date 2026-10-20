@@ -366,10 +366,15 @@ echo_stmt   := 'echo' 'quoted_literal'    (cooked value not dash-leading)
   requested read succeeded: the attributable content region is **one
   ordered whole bundle** even without inner separators — repeated
   operands preserve observed order, distinct member width is recorded
-  separately, and individual member hashes are never fabricated (a
-  single distinct member proves its digest, including the exact empty
-  digest for a zero-byte middle). Requested versus proven execution
-  stay distinct, and the plan never invents per-command exit metadata:
+  separately, and individual member hashes are never fabricated: a
+  file's digest is proven only when exactly one member occurrence
+  covers the entire attributable region (a whole pure region read
+  once — including the exact empty digest for a zero-byte read);
+  distinct slot width alone cannot prove a per-file digest, so a
+  repeated member (`A,A`) has width one but unknown individual
+  versions/boundaries and no per-file digest. Requested versus proven
+  execution stay distinct, and the plan never invents per-command exit
+  metadata:
   a global nonzero in an `&&` chain identifies no per-read failure and
   proves no earlier source complete (`NONZERO_EXIT` / `PARTIAL`, no
   proven members, no digest); a truncated chain is `TRUNCATED` /
@@ -452,13 +457,20 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
   variant is not equivalent (`LOOP_GUARD_UNSUPPORTED` /
   `LOOP_FORM_UNSUPPORTED`). A single `|` is a pipe operator, never a
   guard.
-- **Adjacent-quote law.** A shell word that mixes quoting
-  (`A".md"`, `A'.md'`, `"$f"".md"`, `pre"$f"`) is typed
-  (`QUOTED_OPERAND` / `ECHO_TARGET_UNSUPPORTED` at its use site),
-  consistent with the shared quote law: no member or template is
-  fabricated from the fragments. A metacharacter word never joins its
-  quoted neighbor: a `;` separator after a quoted value stays a
-  separator (`for f in "A.md";` still earns).
+- **Adjacent-quote law (word boundaries corrected in 017-g).** A
+  shell word that mixes quoting (`A".md"`, `A'.md'`, `"$f"".md"`,
+  `pre"$f"`, `"A".md`) is typed (`QUOTED_OPERAND` /
+  `ECHO_TARGET_UNSUPPORTED` at its use site), consistent with the
+  shared quote law: no member or template is fabricated from the
+  fragments. The unquoted `;` is its own syntactic element, emitted
+  as a standalone token: a standalone `;` stays syntax (a `;`
+  separator after a quoted value stays a separator — `for f in
+  "A.md";` still earns), while a semiterminated literal suffix of a
+  mixed word can never become an extra member — a quoted prefix plus
+  a literal suffix touching the separator (`for f in "A".md;`) is one
+  unearned word, typed `QUOTED_OPERAND`, never two members (`A` and
+  `.md`); the attached and spaced separator forms observe identically.
+
 - **Echo law (outer attribution).** Loop body echo output is ordinary
   actual output, never source bytes: a loop whose body carries an
   `echo` statement interleaves printed text between the read output,
@@ -474,9 +486,8 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
   any other control-flow keyword is typed (`LOOP_FORM_UNSUPPORTED`);
   a non-`cat`/`echo` body executable is typed (`FRAGMENT_COMMAND` for
   the earned fragment family, `COMMAND_UNSUPPORTED` otherwise);
-  comments, heredocs, redirections, writes, pipes, branches,
-  substitutions and the `;do` attached-separator variant keep their
-  shared typed reasons. A loop with no `cat` statement at all is
+  comments, heredocs, redirections, writes, pipes, branches and
+  substitutions keep their shared typed reasons. A loop with no `cat` statement at all is
   typed, never a silent empty read.
 - **Completion and attribution (D07).** An unguarded `cat` does not
   prove that every earlier iteration succeeded from the final exit
@@ -488,8 +499,12 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
   untruncated, present output is a complete ordered whole-source
   bundle: one concatenated region with an exact digest over the
   attributable content span, no fabricated internal boundaries or
-  member hashes (a single distinct member proves its digest,
-  including the exact empty digest for a zero-byte region). Duplicate
+  member hashes: a file's digest is proven only when exactly one
+  member occurrence covers the entire attributable region (a whole
+  pure region read once — including the exact empty digest for a
+  zero-byte region); distinct slot width alone cannot prove a
+  per-file digest, so a duplicate (`A,A`) has width one but unknown
+  individual versions/boundaries and no per-file digest. Duplicate
   operand order is preserved; distinct represented members determine
   the slot width. Unknown, nonzero, partial, truncated or missing
   output never yields a whole complete bundle, and no earlier

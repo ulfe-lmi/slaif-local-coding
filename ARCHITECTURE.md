@@ -38,9 +38,14 @@ inert typed modules — finite `for ... in ...; do ...; done` loops with
 the earned `f`/`d` variable names, deterministic requested members,
 all-success guarded pure-cat loops as one ordered whole-source bundle,
 and typed unguarded/labeled/control-flow forms (grammar
-`literal-loop/v1`) — leaving the remaining D09-D10 scope to a later
-same-PR suffix (017-g, subject to review); no v1 runtime mechanism is
-active or qualified yet.
+`literal-loop/v1`); stage 017-g corrects that slice's loop
+word/separator law — the unquoted `;` is its own syntactic element,
+so a quoted prefix plus a literal suffix touching the separator
+(`for f in "A".md;`) stays one unearned word, never two members —
+and corrects the member-digest prose to the occurrence law — leaving
+the remaining D09-D10 scope to a later same-PR suffix (process/chunk
+association, subject to review); no v1 runtime mechanism is active or
+qualified yet.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact

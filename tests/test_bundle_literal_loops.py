@@ -796,6 +796,181 @@ class TestListBounds:
         assert Limitation.COMMAND_OVER_BOUND in result.reasons
 
 
+class TestQuotedWordSeparatorBoundaries:
+    """A quoted word touching the list separator stays one word (017-g).
+
+    The unquoted ``;`` is its own syntactic element: a quoted prefix plus a
+    literal suffix touching the separator (``"A".md;``) is one word
+    (``A.md``) followed by the separator, never two members.  The unearned
+    mixed word keeps its narrow typed unsupported observation (no
+    proven/removable bundle, no digest, no phantom ``A``/``.md`` members);
+    attached and spaced separators agree; first/last/single positions all
+    behave the same; and the plain and whole-word quoted controls stay
+    earned exactly as before.
+    """
+
+    _SOURCE = "Synthetic A\r\nSynthetic B é\n"
+
+    def test_attached_separator_does_not_split_quoted_word(self) -> None:
+        # The four independently reproduced defect forms: the quoted word
+        # is the single or last list member with an attached separator.
+        commands = (
+            'for f in "A".md; do cat "$f" || exit 1; done',
+            "for f in 'A'.md; do cat \"$f\" || exit 1; done",
+            'for f in B.md "A".md; do cat "$f" || exit 1; done',
+            "for f in B.md 'A'.md; do cat \"$f\" || exit 1; done",
+        )
+        for command in commands:
+            result = loop(command)
+            assert result.is_loop_attempt is True, command
+            assert result.complete is False, command
+            assert Limitation.QUOTED_OPERAND in result.reasons, command
+            assert members(result) == (), command
+            # No phantom member: the unearned word never yields `A` or `.md`.
+            assert "A" not in result.list_values, command
+            assert ".md" not in result.list_values, command
+
+    def test_spaced_separator_forms_stay_typed_the_same_way(self) -> None:
+        for command in (
+            'for f in "A".md ; do cat "$f" || exit 1; done',
+            "for f in 'A'.md ; do cat \"$f\" || exit 1; done",
+            'for f in B.md "A".md ; do cat "$f" || exit 1; done',
+            "for f in B.md 'A'.md ; do cat \"$f\" || exit 1; done",
+            'for f in "A".md B.md; do cat "$f" || exit 1; done',
+            "for f in 'A'.md B.md; do cat \"$f\" || exit 1; done",
+        ):
+            result = loop(command)
+            assert result.is_loop_attempt is True, command
+            assert result.complete is False, command
+            assert Limitation.QUOTED_OPERAND in result.reasons, command
+            assert members(result) == (), command
+            assert "A" not in result.list_values, command
+            assert ".md" not in result.list_values, command
+
+    def test_attached_and_spaced_separators_agree_per_word(self) -> None:
+        for word in ('"A".md', "'A'.md"):
+            attached = loop(f'for f in {word}; do cat "$f" || exit 1; done')
+            spaced = loop(f'for f in {word} ; do cat "$f" || exit 1; done')
+            assert attached.complete is False, word
+            assert spaced.complete is False, word
+            assert attached.reasons == spaced.reasons, word
+            assert attached.list_values == spaced.list_values, word
+            assert members(attached) == () == members(spaced), word
+
+    def test_first_position_quoted_word_is_typed_with_clean_neighbor(self) -> None:
+        for command, values in (
+            ('for f in "A".md B.md; do cat "$f" || exit 1; done', ("B.md",)),
+            ("for f in 'A'.md B.md; do cat \"$f\" || exit 1; done", ("B.md",)),
+        ):
+            result = loop(command)
+            assert result.complete is False, command
+            assert Limitation.QUOTED_OPERAND in result.reasons, command
+            assert members(result) == (), command
+            assert result.list_values == values, command
+
+    def test_empty_quote_insertion_stays_typed_without_members(self) -> None:
+        for command in (
+            "for f in A''.md; do cat \"$f\" || exit 1; done",
+            "for f in B.md A''.md; do cat \"$f\" || exit 1; done",
+            "for f in 'A'''.md; do cat \"$f\" || exit 1; done",
+        ):
+            result = loop(command)
+            assert result.is_loop_attempt is True, command
+            assert result.complete is False, command
+            assert members(result) == (), command
+            assert "A" not in result.list_values, command
+
+    def test_whole_word_quote_controls_stay_earned(self) -> None:
+        for command, expected in (
+            ('for f in "A.md"; do cat "$f" || exit 1; done', ("A.md",)),
+            ("for f in 'A.md'; do cat \"$f\" || exit 1; done", ("A.md",)),
+            ('for f in "A.md" B.md; do cat "$f" || exit 1; done', ("A.md", "B.md")),
+            ("for f in 'A.md' B.md; do cat \"$f\" || exit 1; done", ("A.md", "B.md")),
+            ('for f in A.md; do cat "$f" || exit 1; done', ("A.md",)),
+            ('for f in A.md B.md; do cat "$f" || exit 1; done', ("A.md", "B.md")),
+        ):
+            result = loop(command)
+            assert result.complete is True, command
+            assert result.reasons == (), command
+            assert result.all_cats_guarded is True, command
+            assert members(result) == expected, command
+
+    def test_attached_separator_observation_is_typed_not_removable(self) -> None:
+        # Public composition: a wrapper-proven exit-zero/untruncated/present
+        # output over an unearned mixed word is still not a bundle.
+        commands = (
+            'for f in "A".md; do cat "$f" || exit 1; done',
+            "for f in 'A'.md; do cat \"$f\" || exit 1; done",
+            'for f in B.md "A".md; do cat "$f" || exit 1; done',
+            "for f in B.md 'A'.md; do cat \"$f\" || exit 1; done",
+            'for f in "A".md B.md; do cat "$f" || exit 1; done',
+            'for f in "A".md ; do cat "$f" || exit 1; done',
+        )
+        for command in commands:
+            payload = _loop_payload(command, self._SOURCE)
+            report = _observe(payload)  # also asserts input immutability
+            assert len(report.reads) == 1, command
+            obs = report.reads[0]
+            assert obs.read_grammar == LOOP_GRAMMAR, command
+            assert obs.outcome is ReadOutcome.UNSUPPORTED, command
+            assert obs.completeness is ReadOutcome.UNSUPPORTED, command
+            assert obs.removable is False, command
+            assert obs.bundle_digest is None, command
+            assert obs.member_digests == (), command
+            assert obs.proven_executed == (), command
+            assert obs.requested_members == (), command
+            assert obs.slot_width is None, command
+            assert obs.content_span is None, command
+            assert Limitation.QUOTED_OPERAND in obs.reasons, command
+
+    def test_attached_separator_observation_keeps_wrapper_facts(self) -> None:
+        # The typed observation preserves the recorded wrapper facts and
+        # carries no content or digest of the output.
+        payload = _loop_payload(
+            'for f in "A".md; do cat "$f" || exit 1; done', self._SOURCE, exit_code=1
+        )
+        report = _observe(payload)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+        assert obs.proven_executed == ()
+        assert obs.requested_members == ()
+
+    def test_quoted_word_control_is_earned_bundle_at_composition(self) -> None:
+        payload = _loop_payload('for f in "A.md" B.md; do cat "$f" || exit 1; done', self._SOURCE)
+        report = _observe(payload)
+        assert len(report.reads) == 1
+        obs = report.reads[0]
+        assert obs.read_grammar == LOOP_GRAMMAR
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.completeness is ReadOutcome.COMPLETE
+        assert obs.removable is True
+        assert obs.proven_executed == ("A.md", "B.md")
+        assert obs.distinct_member_count == 2
+        assert obs.slot_width == 2
+        assert obs.member_digests == (None, None)
+        output = payload["input"][1]["output"]
+        assert obs.content_span is not None
+        assert 0 <= obs.content_span.start <= obs.content_span.end <= len(output)
+        assert output[obs.content_span.start : obs.content_span.end] == self._SOURCE
+        assert obs.bundle_digest == _digest(self._SOURCE)
+
+    def test_single_quoted_word_control_is_earned_bundle_at_composition(self) -> None:
+        payload = _loop_payload("for f in 'A.md'; do cat \"$f\" || exit 1; done", self._SOURCE)
+        report = _observe(payload)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.removable is True
+        assert obs.proven_executed == ("A.md",)
+        assert obs.slot_width == 1
+        assert obs.bundle_digest == _digest(self._SOURCE)
+        assert obs.member_digests == (_digest(self._SOURCE),)
+        output = payload["input"][1]["output"]
+        assert obs.content_span is not None
+        assert output[obs.content_span.start : obs.content_span.end] == self._SOURCE
+
+
 class TestLoopIdentityAndComposition:
     """Grammar identity, endpoint/domain, call-ID and ordering law."""
 

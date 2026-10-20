@@ -214,7 +214,15 @@ all-success guarded pure-cat loop earns one ordered whole-source bundle
 under a wrapper-proven exit-zero/untruncated/present completion,
 unguarded or echo-labeled forms stay non-removable with typed
 iteration/outer-attribution limitations, and every observation the
-loop parser evaluates carries `literal-loop/v1`.
+loop parser evaluates carries `literal-loop/v1`. Corrected in 017-g:
+the unquoted `;` is its own syntactic element (a standalone token),
+so a quoted prefix plus a literal suffix touching the list separator
+(`for f in "A".md;`) stays one unearned word typed `QUOTED_OPERAND`
+— never two members (`A` and `.md`) — with attached and spaced
+separator forms observing identically and the plain/whole-word quoted
+controls unchanged; the member-digest prose follows the occurrence
+law (one member occurrence covering the entire attributable region
+proves that file's digest; distinct slot width alone never does).
 
 **Admission.** `lean` admits a whole bundle only when every member is
 graph-eligible and may admit an isolated eligible portion when boundaries are
@@ -544,9 +552,13 @@ literal-loop slice — the D07 loop criterion, not a blanket D09/D10
 completion — in the inert module `constitution/bundles/literal_loops.py`
 (grammar `literal-loop/v1`: deterministic requested members, all-
 success guarded pure-cat bundles, typed unguarded/labeled/control-flow
-forms); the remaining D09/D10 multi-chunk and branch-matrix scope is
-planned for a later same-PR suffix (017-g process/chunk association,
-subject to review));
+forms; 017-g corrects the loop word/separator law — the unquoted `;`
+is a standalone token, a quoted prefix plus a literal suffix touching
+the separator stays one unearned word, never two members — and the
+member-digest prose follows the occurrence law); the remaining D09/D10
+multi-chunk process-completion and branch-matrix scope is planned for
+a later same-PR suffix (process/chunk association, subject to
+review));
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

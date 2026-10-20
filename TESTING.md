@@ -147,16 +147,30 @@ double-quoted one-reference filename templates, the `f`/`d` variable
 law, adjacent-quote and control-flow typing, and the whole-loop
 expanded-operand budget never multiplied per iteration), exercised by
 `tests/test_bundle_literal_loops.py`.
+Round 017-g corrected that slice's loop word/separator law on the
+same inert module: the unquoted `;` is its own syntactic element (a
+standalone token), so a quoted prefix plus a literal suffix touching
+the list separator (`for f in "A".md;`) is one unearned word typed
+`QUOTED_OPERAND` — never two members (`A` and `.md`) — with attached
+and spaced separator forms observing identically, the first/last/
+single list positions agreeing, and the plain and whole-word quoted
+controls unchanged; the member-digest prose follows the occurrence
+law (a file's digest is proven only when exactly one member
+occurrence covers the entire attributable region; a duplicate `A,A`
+has width one but unknown individual versions/boundaries). It is
+exercised by
+`tests/test_bundle_literal_loops.py::TestQuotedWordSeparatorBoundaries`.
 These modules are **not active
 in the adapter**: they are not wired into the legacy request execution
 path, and the legacy detector is unchanged.
 D09-D10 remain planned for later same-PR suffixes (the earlier planned
 017-e loops/chunks draft was superseded by the 017-e bounded
-correction; strategy now plans 017-g process/chunk association,
-subject to review — and rounds 017-b/017-c/017-d/017-e added no
-loop/chunk families; 017-f added the bounded pure literal-loop slice
-without process/chunk (D09) or branch/substitution-matrix (D10)
-support);
+correction; 017-g was the bounded loop word/separator correction and
+added no loop/chunk families — rounds 017-b/017-c/017-d/017-e added
+no loop/chunk families, and 017-f added the bounded pure literal-loop
+slice without process/chunk (D09) or branch/substitution-matrix (D10)
+support; the process/chunk association remains planned for a later
+same-PR suffix, subject to review);
 all v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
