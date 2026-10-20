@@ -14,12 +14,15 @@ import json
 from typing import Any
 
 from slaif_local_coding.constitution.bundles import (
+    READ_GRAMMAR,
     READ_PLAN_GRAMMAR,
+    TOOL_WRAPPER_FORMAT,
     Limitation,
     ObservationBounds,
     ObservationReport,
     PathContext,
     PlanStatementKind,
+    ReadObservation,
     ReadOutcome,
     ReadPlanParse,
     observe_request,
@@ -825,3 +828,251 @@ class TestPerReadVersusGlobalExit:
             assert obs.outcome is ReadOutcome.UNSUPPORTED
             assert obs.removable is False
             assert obs.bundle_digest is None
+
+
+class TestEchoOptionSemantics:
+    """Quoting does not disable echo's option parser (017-e correction).
+
+    Option-like cooked operands are implementation-sensitive: the actual
+    ``echo '-n'`` writes nothing, so a dash-leading quoted literal never
+    earns a literal+newline boundary (either quote kind).  The exclusion
+    is narrow: non-dash-leading literals (including a dash inside the
+    literal or the empty literal) stay earned.
+    """
+
+    def test_single_quoted_option_prefix_is_typed(self) -> None:
+        result = plan("echo '-n' && cat A.md B.md")
+        assert result.complete is False
+        assert Limitation.ECHO_TARGET_UNSUPPORTED in result.reasons
+        # The cat request stays recorded data; nothing is attributed.
+        assert members(result) == ("A.md", "B.md")
+        span, reasons = plan_source_region(result, "-n\nsource")
+        assert span is None
+        assert reasons == (Limitation.OUTER_BOUNDARY_UNPROVEN,)
+
+    def test_double_quoted_option_prefix_is_typed(self) -> None:
+        result = plan('echo "-n" && cat A.md B.md')
+        assert result.complete is False
+        assert Limitation.ECHO_TARGET_UNSUPPORTED in result.reasons
+
+    def test_option_combinations_are_typed(self) -> None:
+        for command in (
+            "echo '-ne' && cat A.md",
+            'echo "-ne" && cat A.md',
+            "echo '-e' && cat A.md",
+            'echo "-E" && cat A.md',
+            "echo '-nE' && cat A.md",
+        ):
+            result = plan(command)
+            assert result.complete is False, command
+            assert Limitation.ECHO_TARGET_UNSUPPORTED in result.reasons, command
+
+    def test_repeated_option_literals_are_typed(self) -> None:
+        result = plan("echo '-n' '-n' && cat A.md")
+        assert result.complete is False
+        assert Limitation.ECHO_TARGET_UNSUPPORTED in result.reasons
+
+    def test_unquoted_option_is_typed(self) -> None:
+        result = plan("echo -n && cat A.md")
+        assert result.complete is False
+        assert Limitation.ECHO_TARGET_UNSUPPORTED in result.reasons
+
+    def test_dash_alone_is_conservatively_typed(self) -> None:
+        result = plan("echo '-' && cat A.md")
+        assert result.complete is False
+        assert Limitation.ECHO_TARGET_UNSUPPORTED in result.reasons
+
+    def test_non_option_literals_stay_earned(self) -> None:
+        # The exclusion is dash-leading only: markers and dash-inside or
+        # empty literals keep the earned boundary contract.
+        result = plan("echo '===READ===' && cat A.md")
+        assert result.complete is True
+        assert result.statements[0].echo_literal == "===READ==="
+        result = plan("echo 'A-n' && cat A.md")
+        assert result.complete is True
+        assert result.statements[0].echo_literal == "A-n"
+        result = plan("echo '' && cat A.md")
+        assert result.complete is True
+        assert result.statements[0].echo_literal == ""
+
+
+class TestEchoOptionSemanticsComposition:
+    """Public observe_request: option-like echo never strips source."""
+
+    BODY = "Synthetic A\r\nSynthetic B \u00e9\n"
+
+    def _unsupported(self, command: str, source: str) -> ReadObservation:
+        payload = _chain_payload(command, source)
+        report = _observe(payload)
+        assert len(report.reads) == 1
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.completeness is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+        assert obs.member_digests == ()
+        assert obs.content_span is None
+        assert obs.proven_executed == ()
+        assert Limitation.ECHO_TARGET_UNSUPPORTED in obs.reasons
+        return obs
+
+    def test_quoted_n_prefix_never_strips_source(self) -> None:
+        # The source deliberately begins with the fake boundary '-n\n';
+        # the echo is typed before boundary matching, so no span and no
+        # digest can be invented.
+        obs = self._unsupported("echo '-n' && cat A.md B.md", "-n\n" + self.BODY)
+        assert tuple(m.normalized for m in obs.requested_members) == ("A.md", "B.md")
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_double_quoted_n_suffix_never_strips_source(self) -> None:
+        obs = self._unsupported('cat A.md B.md && echo "-n"', self.BODY + "-n\n")
+        assert tuple(m.normalized for m in obs.requested_members) == ("A.md", "B.md")
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_ne_prefix_with_fake_boundary_inside_source(self) -> None:
+        # The source contains the fake boundary twice (outer and inside):
+        # both are source, and nothing is removable or attributable.
+        obs = self._unsupported("echo '-ne' && cat A.md B.md", "-ne\n" + "-ne\n" + self.BODY)
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+
+    def test_source_containing_real_marker_stays_typed(self) -> None:
+        # Even when the source carries a real marker-like line, an
+        # option-like echo command stays typed unsupported: matching file
+        # bytes cannot establish that an echo printed them.
+        marker = "===READ===\n"
+        obs = self._unsupported("echo '-n' && cat A.md B.md", "-n\n" + marker + self.BODY)
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.content_span is None
+
+    def test_single_quoted_marker_still_earned_in_source(self) -> None:
+        # Control: the earned marker contract is unchanged — only the
+        # dash-leading exclusion is new.
+        marker = "===READ===\n"
+        payload = _chain_payload("echo '===READ===' && cat A.md B.md", marker + self.BODY)
+        report = _observe(payload)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.removable is True
+        output = payload["input"][1]["output"]
+        assert obs.content_span is not None
+        assert output[obs.content_span.start : obs.content_span.end] == self.BODY
+        assert obs.bundle_digest == _digest(self.BODY)
+
+
+class TestPlanGrammarIdentity:
+    """The actual parser grammar is carried on every plan observation.
+
+    Grammar-identity fallback law: the single-command grammar is primary;
+    a command it does not complete is evaluated by the finite-plan parser,
+    and every observation that parser produces carries ``READ_PLAN_GRAMMAR``
+    (complete, unsupported, nonzero, missing/truncated/running, malformed
+    or outer-boundary-unproven).  Observations the single grammar actually
+    earned keep ``READ_GRAMMAR``.  The label never changes outcome.
+    """
+
+    def test_complete_chain_carries_plan_grammar(self) -> None:
+        report = _observe(_chain_payload("cat A.md && cat B.md", "a\nb\n"))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+        assert obs.wrapper_format == TOOL_WRAPPER_FORMAT
+
+    def test_unsupported_plan_carries_plan_grammar(self) -> None:
+        report = _observe(_chain_payload("head A.md && cat B.md", "frag\n"))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_nonzero_chain_carries_plan_grammar(self) -> None:
+        report = _observe(_chain_payload("cat A.md && cat B.md", "a\n", exit_code=1))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.NONZERO_EXIT
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_truncated_chain_carries_plan_grammar(self) -> None:
+        report = _observe(_chain_payload("cat A.md && cat B.md", "a\n", truncated=True))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.TRUNCATED
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_missing_body_chain_carries_plan_grammar(self) -> None:
+        payload = {
+            "input": [
+                {
+                    "type": "function_call",
+                    "call_id": "synthetic-plan-1",
+                    "name": "exec_command",
+                    "arguments": json.dumps({"cmd": "cat A.md && cat B.md"}),
+                },
+                {"type": "function_call_output", "call_id": "synthetic-plan-1", "output": ""},
+            ]
+        }
+        report = _observe(payload)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.MISSING_BODY
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_process_running_chain_carries_plan_grammar(self) -> None:
+        payload = {
+            "input": [
+                {
+                    "type": "function_call",
+                    "call_id": "synthetic-plan-1",
+                    "name": "exec_command",
+                    "arguments": json.dumps({"cmd": "cat A.md && cat B.md"}),
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "synthetic-plan-1",
+                    "output": "Process is still running",
+                },
+            ]
+        }
+        report = _observe(payload)
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert Limitation.PROCESS_RUNNING in obs.reasons
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_malformed_unicode_chain_carries_plan_grammar(self) -> None:
+        report = _observe(_chain_payload("cat A.md && cat B.md", "synthetic\ud800"))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert Limitation.MALFORMED_UNICODE in obs.reasons
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_outer_boundary_collision_carries_plan_grammar(self) -> None:
+        # A complete plan whose echo boundary does not match the output:
+        # the grammar that evaluated the plan is still the plan grammar.
+        report = _observe(_chain_payload("echo '===READ===' && cat A.md", "Unexpected\nsrcA\n"))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert Limitation.OUTER_BOUNDARY_UNPROVEN in obs.reasons
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_single_complete_read_keeps_single_grammar(self) -> None:
+        report = _observe(_chain_payload("cat A.md", "a\n"))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.read_grammar == READ_GRAMMAR
+        assert obs.read_grammar != READ_PLAN_GRAMMAR
+
+    def test_single_unsupported_read_is_never_a_successful_plan(self) -> None:
+        # Fallback selection: the plan parser evaluates the unsupported
+        # single command and labels it, but the outcome stays unsupported
+        # (never a complete/earned plan).
+        report = _observe(_chain_payload("head A.md", "frag\n"))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert obs.removable is False
+        assert obs.bundle_digest is None
+        assert obs.read_grammar == READ_PLAN_GRAMMAR
+
+    def test_single_nonzero_read_keeps_single_grammar(self) -> None:
+        report = _observe(_chain_payload("cat A.md", "a\n", exit_code=1))
+        obs = report.reads[0]
+        assert obs.outcome is ReadOutcome.NONZERO_EXIT
+        assert obs.read_grammar == READ_GRAMMAR

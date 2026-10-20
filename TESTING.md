@@ -123,14 +123,25 @@ workdir precedence, bounded literal `echo` outer boundaries with exact
 prefix/suffix proof, per-read versus global exit evidence, whole-plan
 bounds), exercised by
 `tests/test_bundle_compound_reads.py`; loops and wildcards remain
-explicitly typed unsupported in this slice. These modules are **not active
+explicitly typed unsupported in this slice. Round 017-e corrected the
+echo outer-boundary law (option-like dash-leading quoted literals —
+`-n`, `-e`, `-E`, combinations, repetitions, either quote kind — are
+implementation-sensitive and typed `ECHO_TARGET_UNSUPPORTED`, never a
+literal+newline boundary; the actual `echo '-n'` writes nothing) and
+the grammar identity (every observation produced through the
+finite-plan parser carries `literal-read-plan/v1` across all outcomes;
+observations the single grammar actually earned keep
+`literal-shell-read/v1`), exercised by
+`tests/test_bundle_compound_reads.py::TestEchoOptionSemantics`,
+`::TestEchoOptionSemanticsComposition` and `::TestPlanGrammarIdentity`.
+These modules are **not active
 in the adapter**: they are not wired into the legacy request execution
 path, and the legacy detector is unchanged.
-D09-D10 remain planned for a later same-PR suffix (planned 017-e; round
-017-b corrected the 017-a observation proof, round 017-c corrected the
-remaining literal-grammar and actual-endpoint proof, and round 017-d
-corrected the root-domain prerequisite and earned D06-D08, without adding
-loop/chunk families);
+D09-D10 remain planned for later same-PR suffixes (the earlier planned
+017-e loops/chunks draft was superseded by the 017-e bounded
+correction; strategy now plans 017-f literal loops and 017-g
+process/chunk association, subject to review — and rounds 017-b/017-c/
+017-d/017-e added no loop/chunk families);
 all v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

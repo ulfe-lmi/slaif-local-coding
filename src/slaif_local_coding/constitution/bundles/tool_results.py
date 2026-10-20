@@ -48,7 +48,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..bundles.compound_reads import parse_read_plan, plan_source_region
+from ..bundles.compound_reads import (
+    READ_PLAN_GRAMMAR,
+    parse_read_plan,
+    plan_source_region,
+)
 from ..bundles.observation_models import (
     EMPTY_SOURCE_SHA256,
     CharSpan,
@@ -549,6 +553,17 @@ def _build_observation(
         # plans.  The plan is parsed as data — never executed; per-command
         # exit metadata is never invented or inferred from source-looking
         # text after Output.
+        #
+        # Grammar-identity fallback law: the single-command grammar is the
+        # primary grammar; a command it does not complete is evaluated by
+        # the finite-plan parser, and EVERY observation that parser
+        # produces — complete, unsupported, nonzero, missing/truncated/
+        # running, malformed-content or outer-boundary-unproven — carries
+        # the plan grammar ``READ_PLAN_GRAMMAR``.  An observation the
+        # single grammar actually earned (below) keeps ``READ_GRAMMAR``.
+        # The grammar label identifies the parser that evaluated the
+        # command; it never changes outcome, completeness, removability or
+        # digests, and an unsupported attempt is never a successful plan.
         plan = parse_read_plan(
             unwrapped.command,
             call_context,
@@ -565,6 +580,7 @@ def _build_observation(
                 endpoint=ep,
                 call_location=loc,
                 result_location=rloc,
+                read_grammar=READ_PLAN_GRAMMAR,
                 requested_members=plan.requested_members,
                 outcome=ReadOutcome.UNSUPPORTED,
                 completeness=ReadOutcome.UNSUPPORTED,
@@ -584,6 +600,7 @@ def _build_observation(
                 endpoint=ep,
                 call_location=loc,
                 result_location=rloc,
+                read_grammar=READ_PLAN_GRAMMAR,
                 requested_members=plan.requested_members,
                 outcome=ReadOutcome.UNSUPPORTED,
                 completeness=ReadOutcome.UNSUPPORTED,
@@ -606,6 +623,7 @@ def _build_observation(
                     endpoint=ep,
                     call_location=loc,
                     result_location=rloc,
+                    read_grammar=READ_PLAN_GRAMMAR,
                     requested_members=plan.requested_members,
                     outcome=ReadOutcome.UNSUPPORTED,
                     completeness=ReadOutcome.UNSUPPORTED,
@@ -642,6 +660,7 @@ def _build_observation(
                     endpoint=ep,
                     call_location=loc,
                     result_location=rloc,
+                    read_grammar=READ_PLAN_GRAMMAR,
                     requested_members=plan.requested_members,
                     proven_executed=plan_proven,
                     distinct_member_count=plan_distinct,
@@ -666,6 +685,7 @@ def _build_observation(
                 endpoint=ep,
                 call_location=loc,
                 result_location=rloc,
+                read_grammar=READ_PLAN_GRAMMAR,
                 requested_members=plan.requested_members,
                 outcome=ReadOutcome.UNSUPPORTED,
                 completeness=ReadOutcome.UNSUPPORTED,
@@ -702,6 +722,7 @@ def _build_observation(
             endpoint=ep,
             call_location=loc,
             result_location=rloc,
+            read_grammar=READ_PLAN_GRAMMAR,
             requested_members=plan.requested_members,
             outcome=plan_outcome,
             completeness=plan_completeness,

@@ -29,9 +29,13 @@ findings, stage 017-c corrects the remaining literal-grammar and
 actual-endpoint proof, each without adding read families; stage 017-d
 gates root observation on the actually selected endpoint domain and
 earns the bounded finite cd/cat read-plan and outer-region
-attribution slice (D06-D08) as inert typed modules, leaving the
-remaining D09-D10 scope to the later same-PR suffix 017-e; no v1
-runtime mechanism is active or qualified yet.
+attribution slice (D06-D08) as inert typed modules; stage 017-e
+corrects that slice's echo option semantics (option-like dash-leading
+quoted literals are typed, never a boundary) and carries the actual
+plan-grammar identity on every plan-parser observation, leaving the
+remaining D09-D10 scope to later same-PR suffixes (017-f/017-g,
+subject to review); no v1 runtime mechanism is active or qualified
+yet.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact

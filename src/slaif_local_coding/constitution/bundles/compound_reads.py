@@ -12,7 +12,7 @@ The earned plan surface is exactly:
     statement   := cat_stmt | cd_stmt | echo_stmt
     cat_stmt    := 'cat' operand ...        (the exact earned cat option law)
     cd_stmt     := 'cd' absolute_literal_dir
-    echo_stmt   := 'echo' 'quoted_literal'
+    echo_stmt   := 'echo' 'quoted_literal'    (cooked value not dash-leading)
 
 - Statements are joined only by the unquoted two-character ``&&`` operator
   token.  Adjacent-operator variants (``&&&``), semicolons, a single
@@ -27,9 +27,14 @@ The earned plan surface is exactly:
   absolute literal directory that validates inside the evidenced
   workspace; relative, bare or multi-target ``cd`` forms are explicitly
   typed (``CD_TARGET_UNSUPPORTED``), never guessed.  ``echo`` earns
-  exactly one clean fully-quoted literal (``ECHO_TARGET_UNSUPPORTED``
-  otherwise).  Other executables are typed (``COMMAND_UNSUPPORTED`` /
-  ``FRAGMENT_COMMAND``) and make the output structurally unattributable.
+  exactly one clean fully-quoted literal whose cooked value is not
+  dash-leading (``ECHO_TARGET_UNSUPPORTED`` otherwise): quoting does not
+  disable ``echo``'s own option parser, so option-like cooked operands
+  (``-n``, ``-e``, ``-E``, combinations and repetitions, in either quote
+  kind) are implementation-sensitive and never earn a literal+newline
+  boundary — the actual ``echo '-n'`` writes nothing.  Other
+  executables are typed (``COMMAND_UNSUPPORTED`` / ``FRAGMENT_COMMAND``)
+  and make the output structurally unattributable.
 - Bounds are whole-plan, not per-segment: total characters
   (``max_command_chars``), total ``cat`` operands across all statements
   (``max_operands``, one shared budget), statement count (``max_operands``:
@@ -287,6 +292,15 @@ def _parse_statement(
         # deterministic and earned); unquoted or quote-limited text is
         # explicitly typed, never a boundary.
         if not literal.quoted or literal.quote_limitation is not None:
+            return _other(Limitation.ECHO_TARGET_UNSUPPORTED), 0
+        if literal.value.startswith("-"):
+            # Quoting does not disable echo's option parser: a
+            # dash-leading cooked operand (either quote kind) is
+            # implementation-sensitive — the actual ``echo '-n'`` writes
+            # nothing — so it never earns a literal+newline boundary.
+            # Command-local grammar semantics precede boundary matching:
+            # matching file bytes cannot establish that an echo printed
+            # them.
             return _other(Limitation.ECHO_TARGET_UNSUPPORTED), 0
         return (
             PlanStatement(

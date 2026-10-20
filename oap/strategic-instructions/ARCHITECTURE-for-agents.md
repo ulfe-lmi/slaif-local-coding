@@ -198,7 +198,14 @@ with absolute literal `cd` transitions (per-call workdir takes precedence),
 bounded literal `echo` prefix/suffix outer boundaries proven at their exact
 positions, whole-plan bounds, and the law that a global nonzero in a chain
 proves no per-read completion; loops, wildcards, semicolon and other
-non-earned forms remain explicitly typed unsupported.
+non-earned forms remain explicitly typed unsupported. Corrected in 017-e:
+quoting does not disable `echo`'s option parser, so option-like dash-leading
+quoted literals are implementation-sensitive, typed unsupported, and never
+earn a boundary; and every observation produced through the finite-plan
+parser carries the actual `literal-read-plan/v1` identity across all
+outcomes, while observations the single grammar actually earned keep
+`literal-shell-read/v1` (the grammar label never changes outcome or
+digests).
 
 **Admission.** `lean` admits a whole bundle only when every member is
 graph-eligible and may admit an isolated eligible portion when boundaries are
@@ -522,7 +529,10 @@ the inert module `constitution/bundles/compound_reads.py` (all-cat /
 literal-cd `&&` plans as one ordered bundle, absolute literal `cd`
 transitions with per-call workdir precedence, bounded literal `echo`
 outer boundaries, per-read vs global exit evidence, whole-plan bounds);
-D09/D10 loop/chunk scope planned for later same-PR suffix 017-e);
+017-e corrects that slice's echo option semantics and plan-grammar
+identity on the same inert surface; D09/D10 loop/chunk scope planned for
+later same-PR suffixes — 017-f literal loops and 017-g process/chunk
+association, subject to review);
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

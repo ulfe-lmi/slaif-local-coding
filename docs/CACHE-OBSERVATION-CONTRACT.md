@@ -33,7 +33,18 @@ workdir precedence, bounded literal `echo` outer boundaries with exact
 prefix/suffix proof, per-read versus global exit evidence, and the whole-
 plan bound law — all in the new pure inert module
 `compound_reads.py` with the versioned grammar
-`literal-read-plan/v1`.
+`literal-read-plan/v1`. Round 017-e is the bounded correction of
+that slice: the echo outer-boundary law now types option-like
+dash-leading quoted literals (`-n`, `-e`, `-E`, combinations and
+repetitions, either quote kind) as `ECHO_TARGET_UNSUPPORTED` —
+quoting does not disable `echo`'s option parser, and the actual
+`echo '-n'` writes nothing — so such commands keep their typed
+unsupported observation with no removable span and no bundle digest
+instead of inventing a false boundary; and every observation
+produced through the finite-plan parser now carries the actual plan
+grammar identity `READ_PLAN_GRAMMAR` across all outcomes (the
+grammar-identity fallback law, section 4a), while observations the
+single grammar actually earned keep `READ_GRAMMAR`.
 
 ## 1. Modules and versions
 
@@ -270,7 +281,7 @@ plan        := statement ('&&' statement)*
 statement   := cat_stmt | cd_stmt | echo_stmt
 cat_stmt    := 'cat' operand ...        (the exact earned cat option law)
 cd_stmt     := 'cd' absolute_literal_dir
-echo_stmt   := 'echo' 'quoted_literal'
+echo_stmt   := 'echo' 'quoted_literal'    (cooked value not dash-leading)
 ```
 
 - **Separators.** Statements join only on the exact unquoted `&&`
@@ -296,14 +307,25 @@ echo_stmt   := 'echo' 'quoted_literal'
   forms are explicitly typed, never guessed. No host cwd/stat/resolve,
   no environment or glob expansion.
 - **`echo` statements (outer regions, D06).** Exactly one clean
-  fully-quoted literal (`ECHO_TARGET_UNSUPPORTED` otherwise). An earned
-  echo before all reads is a deterministic output **prefix**, one after
-  all reads a **suffix** (echo's newline terminator included), proven at
-  its exact position in the wrapper output. Only the pure file-source
-  span between proven boundaries is attributable; a label inside a file
-  stays source. Printed delimiters are not a universal boundary oracle:
-  a collision (content shorter than prefix plus suffix), a mismatched
-  boundary, or an `echo` between reads (unknown internal boundary) is
+  fully-quoted literal whose cooked value is **not dash-leading**
+  (`ECHO_TARGET_UNSUPPORTED` otherwise). Quoting does **not** disable
+  `echo`'s own option parser: an option-like cooked operand (`-n`,
+  `-e`, `-E`, combinations and repetitions, in either quote kind) is
+  implementation-sensitive — the actual `echo '-n'` writes nothing —
+  so it never earns a literal+newline boundary; the command keeps its
+  typed unsupported observation with no removable span and no bundle
+  digest. Command-local grammar semantics precede boundary matching:
+  matching file bytes cannot establish that an echo printed them. The
+  exclusion is narrow and conservative: non-dash-leading literals
+  (including a dash inside the literal and the empty literal) stay
+  earned. An earned echo before all reads is a deterministic output
+  **prefix**, one after all reads a **suffix** (echo's newline
+  terminator included), proven at its exact position in the wrapper
+  output. Only the pure file-source span between proven boundaries is
+  attributable; a label inside a file stays source. Printed delimiters
+  are not a universal boundary oracle: a collision (content shorter
+  than prefix plus suffix), a mismatched boundary, or an `echo`
+  between reads (unknown internal boundary) is
   `OUTER_BOUNDARY_UNPROVEN` — typed where proof is insufficient.
 - **Non-read statements.** Any other executable (`ls`, `head`, …) is
   typed (`COMMAND_UNSUPPORTED` / `FRAGMENT_COMMAND`) and, in a
@@ -334,6 +356,21 @@ echo_stmt   := 'echo' 'quoted_literal'
   `PARTIAL`; a semicolon or mixed chain never proves an earlier `cat`.
   The original wrapper/global status is always preserved as recorded
   facts.
+- **Grammar identity (017-e).** Every `ReadObservation` produced
+  through the finite-plan parser carries the actual plan grammar
+  identity `READ_PLAN_GRAMMAR` (`literal-read-plan/v1`) consistently
+  across complete, unsupported, nonzero, missing/truncated/running,
+  malformed-content and outer-boundary-unproven outcomes. The
+  fallback selection is explicit: the single-command grammar
+  (`READ_GRAMMAR`, `literal-shell-read/v1`) is primary; a command it
+  does not complete is evaluated by the finite-plan parser and its
+  observations carry the plan grammar, while an observation the single
+  grammar actually earned keeps `READ_GRAMMAR`. The grammar label
+  identifies the parser that evaluated the command; it never changes
+  outcome, completeness, removability or digests, and an unsupported
+  attempted read is never a successful plan. The wrapper format
+  (`TOOL_WRAPPER_FORMAT`) is a separate identity from the read
+  grammar.
 
 ## 5. Tool call/result pairing and wrapper (D05)
 
@@ -536,7 +573,11 @@ whole-plan bound law — still inert, with no graph/cache/compiler/app
 integration.  Still deferred: multi-chunk process completion proof and the
 remaining truncation matrix (D09), and the full
 duplicate/mismatched/substitution/unexecuted-branch matrix beyond the
-negatives already covered (D10), on a later same-PR suffix (planned
-017-e).  Literal loops remain explicitly unsupported in this slice
-(typing, not execution). Graph identity, admission, RAM state, recovery,
-tokenization, and replacement belong to objectives 018-024.
+negatives already covered (D10), on later same-PR suffixes — the
+earlier planned 017-e loops/chunks draft is superseded by the 017-e
+bounded correction (echo option semantics plus plan-grammar identity),
+and strategy now plans 017-f literal loops and 017-g process/chunk
+association, subject to review.  Literal loops remain explicitly
+unsupported in this slice (typing, not execution). Graph identity,
+admission, RAM state, recovery, tokenization, and replacement belong to
+objectives 018-024.
