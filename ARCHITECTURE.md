@@ -42,9 +42,20 @@ and typed unguarded/labeled/control-flow forms (grammar
 word/separator law — the unquoted `;` is its own syntactic element,
 so a quoted prefix plus a literal suffix touching the separator
 (`for f in "A".md;`) stays one unearned word, never two members —
-and corrects the member-digest prose to the occurrence law — leaving
-the remaining D09-D10 scope to a later same-PR suffix (process/chunk
-association, subject to review); no v1 runtime mechanism is active or
+and corrects the member-digest prose to the occurrence law; stage
+017-h attempted the process evidence path but was interrupted and
+closed as PARTIAL with no repository change and nothing earned;
+stage 017-i lands the offline, opt-in, fail-closed process-capture
+utility (`scripts/real_client_capture.py`) for independent strategic
+review — inert (not active in the adapter), hard-capped,
+privacy-law enforced in code, with the actual-client path
+unreachable by construction (startup readiness is `not_ready`: the
+candidate plugin/telemetry/update controls remain unverified from
+local static evidence) — so it performs no actual capture, no
+process collector, and no model call; the remaining D09-D10 scope
+stays with a later same-PR suffix (a later exact order may authorize
+one bounded reviewed actual capture, then the process/chunk
+collector, subject to review); no v1 runtime mechanism is active or
 qualified yet.
 
 This guide explains the components, data flow and design limits. For deployment,

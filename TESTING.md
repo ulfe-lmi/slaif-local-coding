@@ -170,8 +170,34 @@ added no loop/chunk families — rounds 017-b/017-c/017-d/017-e added
 no loop/chunk families, and 017-f added the bounded pure literal-loop
 slice without process/chunk (D09) or branch/substitution-matrix (D10)
 support; the process/chunk association remains planned for a later
-same-PR suffix, subject to review);
-all v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
+same-PR suffix, subject to review). Round 017-h attempted that
+process evidence path but was **interrupted and published as
+PARTIAL, non-delivery** (out-of-bound raw persistence, exceeded
+ingress/attempt bounds, a client-startup plugin sync side effect);
+it changed no repository utility, test, fixture or documentation and
+earned nothing, so no 017-h evidence exists. Round 017-i lands the
+**offline process-capture utility**
+(`scripts/real_client_capture.py` plus the synthetic
+`scripts/real_client_capture_fake_child.py`) with its named offline
+suite `tests/test_real_client_capture.py`: injected synthetic child
+executables (pinned paths, no installed-client fallback), the
+in-process owned fake provider over raw sockets (auth, hard-limit
+accounting, malformed/chunked/oversized/invalid-length and stalled-
+read robustness), allowlist extraction with canary/digest/
+non-echoing guarantees, process-group supervision (deadline and
+output-cap kills, unrelated-process survival, group-gone
+verification), the non-resettable attempt ledger, the fail-closed
+actual-client gates (opt-in, version/hash binding, readiness,
+authorization), workspace/cleanup ownership guards, the CLI, and
+static stdlib-only/OAP-decoupling/no-raw-persistence guards. Those
+offline synthetic tests are **not** actual-format or genuine-client
+evidence: the utility's actual-client path is unreachable in this
+round by construction (startup readiness is `not_ready`), no actual
+client, provider session or model call is made, and the actual
+capture plus process/chunk collector remain `NOT RUN`; one honest
+environment skip applies where the foreign-ownership cleanup guard
+requires `chown` to another uid.
+All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
 

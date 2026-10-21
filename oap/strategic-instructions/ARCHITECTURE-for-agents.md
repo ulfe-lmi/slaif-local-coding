@@ -555,10 +555,21 @@ success guarded pure-cat bundles, typed unguarded/labeled/control-flow
 forms; 017-g corrects the loop word/separator law — the unquoted `;`
 is a standalone token, a quoted prefix plus a literal suffix touching
 the separator stays one unearned word, never two members — and the
-member-digest prose follows the occurrence law); the remaining D09/D10
+member-digest prose follows the occurrence law; 017-h attempted the
+process evidence path but was interrupted and closed PARTIAL with no
+repository change and nothing earned; 017-i lands the offline,
+opt-in, fail-closed, stdlib-only process-capture utility
+(`scripts/real_client_capture.py`) for independent strategic review:
+inert (not wired into the adapter runtime), hard-capped,
+privacy-law enforced in code, actual-client path unreachable by
+construction — startup readiness is `not_ready` because the
+candidate plugin/telemetry/update controls remain unverified from
+local static evidence — with no actual capture, process collector or
+model call performed); the remaining D09/D10
 multi-chunk process-completion and branch-matrix scope is planned for
-a later same-PR suffix (process/chunk association, subject to
-review));
+a later same-PR suffix (a later exact order may authorize one
+bounded reviewed actual capture, then the process/chunk collector,
+subject to review));
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

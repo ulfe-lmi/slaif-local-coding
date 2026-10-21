@@ -762,3 +762,107 @@ wildcard iteration evidence — explicitly typed, never executed.
 Strategy now plans 017-g process/chunk association, subject to
 review.  Graph identity, admission, RAM state, recovery,
 tokenization, and replacement belong to objectives 018-024.
+Round 017-g published the bounded loop word/separator correction on
+this same inert surface (the unquoted `;` as a standalone token;
+the occurrence law for member digests). Round 017-h attempted the
+process/chunk association evidence path but was **interrupted and
+published as PARTIAL, non-delivery**: the original worker persisted
+full provider requests and raw child stdout/stderr, exceeded the
+prescribed ingress and attempt bounds, and triggered a client-startup
+plugin sync side effect; it produced **no repository utility, test,
+fixture or documentation change** and earned no format or process
+acquisition. D09/D10 remain `NOT RUN`. Round 017-i (this round)
+superseded the collector draft with a corrective **offline
+process-capture utility** for independent strategic review (section
+12): bounded, opt-in, fail-closed, stdlib-only, not wired into the
+adapter runtime, with the actual-client path unreachable by
+construction; it acquires no format evidence. The actual capture and
+the process/chunk collector remain `NOT RUN`, planned for later
+exact orders after independent review.
+
+## 12. Offline process-capture utility (round 017-i, inert)
+
+Round 017-i lands `scripts/real_client_capture.py` (schema family
+`slaif-real-client-capture-*-v1`), a small repo-owned capture utility
+for **independent strategic review**. It is stdlib-only, explicit
+opt-in, and **inert**: nothing in the adapter runtime imports or
+consults it, and it never reads or modifies `oap/active` or
+`oap/orders`. Its companion `scripts/real_client_capture_fake_child.py`
+is a wholly synthetic child executable used **only** by the offline
+test suite (`tests/test_real_client_capture.py`); it is not a client
+and earns no genuine-client format authority.
+
+### 12.1 Hard limits (fail closed; config may only lower)
+
+- At most **1 actual attempt** under an external authorized-run
+  identity (`max_attempts=1`, `max_requests=20`, `deadline_seconds=120`,
+  `max_inbound_bytes=1 MiB` per request, `max_selected_bytes=256 KiB`
+  aggregate, `max_child_output_bytes=4 MiB` aggregate, one concurrent
+  child). `CaptureLimits.resolved` rejects over-hard or invalid values.
+- A persistent, non-sensitive **attempt ledger** (O_EXCL, 0600) claims a
+  run ID before any genuine launch and consumes it exactly once with the
+  truthful outcome; it can never be reset by a new wrapper invocation.
+- A hard deadline independently terminates the **owned process group**
+  (SIGTERM then SIGKILL); unrelated sessions are never signalled.
+  Group membership is verified gone after both normal exit and timeout.
+- Finite reads on the owned fake provider: a stalling or truncated
+  client (malformed, chunked, oversized, or invalid-length payloads) is
+  rejected with a sanitized status; no handler thread can be pinned.
+- Child stdout/stderr are drained in bounded memory (byte counts only,
+  never content); exceeding the cap terminates the owned group. Child
+  output is never redirected to raw files.
+
+### 12.2 Privacy law (enforced in code, not documentation)
+
+- Bounded in-memory request parsing only (JSON with a recursion guard);
+  the provider is log-silent; diagnostics are fixed enums, counts and
+  digests. No raw request, system prompt, tool schema, header value,
+  body, history, unknown stdout/stderr or credential ever reaches disk,
+  console, errors, tracebacks or reprs.
+- **Allowlisted extraction**: only predeclared synthetic commands
+  (closed `read`/`sleep` step table) and their typed outputs are
+  selectable. Undeclared commands, unknown tool modes, unknown item
+  types (bounded sample count), over-bound metadata, and
+  credential-marker (canary) hits are rejected with typed reasons;
+  unsupported shapes are counted and digested, never echoed.
+- Selected frames carry exact-byte digests of the raw output bytes and
+  bounded metadata only; the run/selection records carry
+  `provenance: "synthetic-offline"` and `fixture_authority: "none"`.
+- The child environment is built from scratch (fixed PATH, no parent
+  auth/profile/config/keys/SQLite/hooks/login/network inheritance); the
+  child CODEX_HOME is a fresh 0700 scratch directory, and the scratch
+  root is removed only by exact per-entry, lstat-validated cleanup that
+  refuses symlinks, foreign ownership, and escape paths.
+
+### 12.3 Actual-client path (unreachable this round, by construction)
+
+`child_kind="actual"` requires, **all before any launch**: explicit
+opt-in, a version/hash-bound read-only binary preflight
+(`--version` and `exec --help` probes, bounded output, closed flag
+set), a readiness record whose verdict is `ready`, and a matching
+external authorization record. `evaluate_startup_readiness` can only
+ever produce `not_ready` in this version: the H-round startup plugin
+sync shows that relocating a private home plus `--ephemeral` does not
+prove suppression of component/plugin downloads, updates, or telemetry,
+and no packaged static evidence for the candidate controls
+(`features.remote_plugin`, `features.plugins`,
+`features.code_mode.enabled`, `features.unified_exec`) exists. Unknown
+control means **not ready**, never a silent fetch. The readiness record
+is metadata-only (no observed flag text). No actual client, provider
+session, or model call is made or permitted by this round; a future
+exact order may authorize one bounded reviewed actual capture, and the
+process/chunk collector follows earned format evidence (D09/D10).
+
+### 12.4 Offline verification
+
+`tests/test_real_client_capture.py` exercises only the offline
+surface: injected synthetic child executables (pinned paths, no
+installed-client fallback), the in-process owned fake provider over
+raw sockets (auth, limits, malformed/chunked/oversized/invalid-length
+robustness, finite stalls), allowlist extraction, supervision
+(deadline/output-cap kills, unrelated-process survival, environment
+isolation), the attempt ledger, the fail-closed actual-client gates,
+workspace/cleanup guards, the CLI, and static guards (stdlib-only
+imports, OAP decoupling, no raw-content persistence, marker
+non-leakage). Its synthetic frames are synthetic test data; they are
+**not** earned genuine-client fixtures.
