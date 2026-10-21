@@ -779,11 +779,44 @@ adapter runtime, with the actual-client path unreachable by
 construction; it acquires no format evidence. The actual capture and
 the process/chunk collector remain `NOT RUN`, planned for later
 exact orders after independent review.
+Round 017-j amended that same inert utility (still not wired into
+the adapter runtime) from independent review: frozen review scripts
+at the 017-i head exposed 11 check failures across the selection,
+resource, and process surfaces (the file-boundary control had
+already passed 3/3 and stays passing). 017-j repaired those bounded
+defects: selection is bound to the controller's issued call records
+(exact issued ID, tool family/name, declared step/command and
+expected argument values, controller-issued process ID) with
+advancement requiring completed outputs that carry issued metadata;
+unissued/orphaned/conflicting/mismatched items are rejected with
+typed reasons and their raw values are stored nowhere; proven
+selected synthetic result text is retained losslessly after strict
+ownership, shape, and byte verification against the owned seeded
+workspace (selection schema v2, still `fixture_authority: none`);
+the selected cap is enforced on the exact serialized UTF-8 record
+bytes (serialize once, publish the same bytes); every fixture
+request counts against the per-run budget before route/auth/body
+outcome branches; preflight binary output is bounded while
+receiving; pre-existing directories are never chmoded (group- or
+world-writable pre-existing directories are rejected in place);
+readiness/authorization metadata schemas are closed; and the
+absolute run deadline spans owned descendants (the group is
+terminated and reaped before pipe-drain waits; unrelated processes
+survive). The 017-i record's "unreachable by construction" wording
+is superseded: the actual-client path is input-gated (caller-
+supplied `ready`/authorization records can launch the bound
+stand-in), and this version's generated readiness verdict is
+`not_ready`; the gate is stated accurately in section 12.3. This
+round still performs no actual client, provider session, or model
+call; the actual capture and the process/chunk collector remain
+`NOT RUN`.
 
-## 12. Offline process-capture utility (round 017-i, inert)
+## 12. Offline process-capture utility (rounds 017-i/017-j, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family
-`slaif-real-client-capture-*-v1`), a small repo-owned capture utility
+`slaif-real-client-capture-*-v1`; the selection record is
+`slaif-real-client-capture-selection-v2` after the round 017-j
+export correction), a small repo-owned capture utility
 for **independent strategic review**. It is stdlib-only, explicit
 opt-in, and **inert**: nothing in the adapter runtime imports or
 consults it, and it never reads or modifies `oap/active` or
@@ -796,21 +829,37 @@ and earns no genuine-client format authority.
 
 - At most **1 actual attempt** under an external authorized-run
   identity (`max_attempts=1`, `max_requests=20`, `deadline_seconds=120`,
-  `max_inbound_bytes=1 MiB` per request, `max_selected_bytes=256 KiB`
-  aggregate, `max_child_output_bytes=4 MiB` aggregate, one concurrent
+  `max_inbound_bytes=1 MiB` per request, `max_selected_bytes=256 KiB`,
+  `max_child_output_bytes=4 MiB` aggregate, one concurrent
   child). `CaptureLimits.resolved` rejects over-hard or invalid values.
+  The selected cap is enforced on the **exact UTF-8 bytes of the
+  serialized selection record** (metadata and serialization overhead
+  included), serialized once and published as those same bytes;
+  exceedance is a typed `selected_over_bound` failure with no
+  oversized or partial artifact, and the run record reports the
+  exact published byte count in that unit.
 - A persistent, non-sensitive **attempt ledger** (O_EXCL, 0600) claims a
   run ID before any genuine launch and consumes it exactly once with the
   truthful outcome; it can never be reset by a new wrapper invocation.
 - A hard deadline independently terminates the **owned process group**
-  (SIGTERM then SIGKILL); unrelated sessions are never signalled.
-  Group membership is verified gone after both normal exit and timeout.
+  (SIGTERM then SIGKILL) across all owned descendants, including after
+  the leader has exited; the group is terminated and reaped **before**
+  pipe-drain joins can pin the supervisor, with a bounded, reported
+  teardown grace; unrelated sessions are never signalled. Group
+  membership is verified gone after both normal exit and timeout.
 - Finite reads on the owned fake provider: a stalling or truncated
   client (malformed, chunked, oversized, or invalid-length payloads) is
   rejected with a sanitized status; no handler thread can be pinned.
+  Every fixture request counts against the per-run request budget
+  before route, authentication, or body-outcome branches, so
+  unsupported or malformed requests cannot evade the cap.
 - Child stdout/stderr are drained in bounded memory (byte counts only,
   never content); exceeding the cap terminates the owned group. Child
   output is never redirected to raw files.
+- Binary preflight (`--version`/`--help`) output is bounded **while
+  receiving** (bounded collection with a finite deadline); overflow
+  and timeout are fixed, non-echoing failures; there is no
+  buffer-then-truncate path.
 
 ### 12.2 Privacy law (enforced in code, not documentation)
 
@@ -819,37 +868,70 @@ and earns no genuine-client format authority.
   digests. No raw request, system prompt, tool schema, header value,
   body, history, unknown stdout/stderr or credential ever reaches disk,
   console, errors, tracebacks or reprs.
-- **Allowlisted extraction**: only predeclared synthetic commands
-  (closed `read`/`sleep` step table) and their typed outputs are
-  selectable. Undeclared commands, unknown tool modes, unknown item
-  types (bounded sample count), over-bound metadata, and
-  credential-marker (canary) hits are rejected with typed reasons;
-  unsupported shapes are counted and digested, never echoed.
-- Selected frames carry exact-byte digests of the raw output bytes and
-  bounded metadata only; the run/selection records carry
+- **Issued-binding extraction**: selection is bound to the
+  controller's issued call records — the exact issued call ID for a
+  step position, the declared tool family/name, the declared
+  step/command and expected argument values, and the
+  controller-issued process ID on results. A later step's call counts
+  as issued only after a structurally valid completed output for
+  every earlier step that carries issued metadata; a "running" or
+  forged-metadata output is never advancement evidence. Unissued,
+  orphaned, conflicting, mismatched, wrong-mode, undeclared-command,
+  unknown tool mode, unknown item type (bounded sample count),
+  over-bound metadata, and credential-marker (canary) hits are
+  rejected or excluded with typed reasons, item by item; their raw
+  values are stored nowhere.
+- **Narrow synthetic text export (selection schema v2)**: the exact
+  received result text of a proven selected synthetic frame is
+  retained losslessly **only after** strict ownership, source/shape,
+  and byte verification against the bytes this run seeded into the
+  owned workspace for the declared read path (or the exact empty
+  payload of a sleep step); anything else is stripped to metadata
+  plus the exact-byte digest and counted `content_unverified`.
+  Retained text is controlled synthetic fixture data, never
+  reconstructed from hashes or guessed metadata; no full requests,
+  user/system/developer messages, tool schemas, headers, histories,
+  unknown child stdout/stderr, credentials, or unrelated tool output
+  is ever persisted.
+- Selected frames carry exact-byte digests of the raw output bytes
+  and bounded metadata only (proven selected synthetic frames
+  additionally carry the byte-verified result text above); the
+  run/selection records carry
   `provenance: "synthetic-offline"` and `fixture_authority: "none"`.
 - The child environment is built from scratch (fixed PATH, no parent
   auth/profile/config/keys/SQLite/hooks/login/network inheritance); the
   child CODEX_HOME is a fresh 0700 scratch directory, and the scratch
   root is removed only by exact per-entry, lstat-validated cleanup that
   refuses symlinks, foreign ownership, and escape paths.
+- Output directories are protected without mutation: a pre-existing
+  directory is accepted only when owned by this run's user and not
+  group- or world-writable, is **never chmoded**, and a directory this
+  run creates is created 0700; symlinks and foreign ownership are
+  rejected in place.
 
-### 12.3 Actual-client path (unreachable this round, by construction)
+### 12.3 Actual-client path (input-gated; not exercised this round)
 
 `child_kind="actual"` requires, **all before any launch**: explicit
 opt-in, a version/hash-bound read-only binary preflight
-(`--version` and `exec --help` probes, bounded output, closed flag
+(`--version` and `--help` probes, bounded output, closed flag
 set), a readiness record whose verdict is `ready`, and a matching
-external authorization record. `evaluate_startup_readiness` can only
-ever produce `not_ready` in this version: the H-round startup plugin
-sync shows that relocating a private home plus `--ephemeral` does not
-prove suppression of component/plugin downloads, updates, or telemetry,
+external authorization record. The gate is **input-driven, not
+structural**: a caller-supplied `ready`/authorization record can
+launch the bound stand-in binary through the public API (the
+fail-closed tests demonstrate the block-until-records and
+consume-once behavior). What this version cannot produce is a
+*trusted* ready verdict: `evaluate_startup_readiness` can only ever
+produce `not_ready`, because the H-round startup plugin sync shows
+that relocating a private home plus `--ephemeral` does not prove
+suppression of component/plugin downloads, updates, or telemetry,
 and no packaged static evidence for the candidate controls
 (`features.remote_plugin`, `features.plugins`,
 `features.code_mode.enabled`, `features.unified_exec`) exists. Unknown
-control means **not ready**, never a silent fetch. The readiness record
-is metadata-only (no observed flag text). No actual client, provider
-session, or model call is made or permitted by this round; a future
+control means **not ready**, never a silent fetch. A literal `ready`
+value in a hand-supplied record is **not** proof that those unverified
+startup controls were verified or applied. The readiness record is
+metadata-only (no observed flag text). No actual client, provider
+session, or model call is made or authorized by this round; a future
 exact order may authorize one bounded reviewed actual capture, and the
 process/chunk collector follows earned format evidence (D09/D10).
 
@@ -864,5 +946,15 @@ robustness, finite stalls), allowlist extraction, supervision
 isolation), the attempt ledger, the fail-closed actual-client gates,
 workspace/cleanup guards, the CLI, and static guards (stdlib-only
 imports, OAP decoupling, no raw-content persistence, marker
-non-leakage). Its synthetic frames are synthetic test data; they are
+non-leakage). Round 017-j adds regressions for every repaired boundary:
+issued-ID binding and progression (including non-selected marker
+variants, input immutability, and malformed Unicode), exact
+selected text/digest/byte counts, the serialized-byte cap, budget
+centralization, bounded preflight, no-mutation directory rejection,
+closed readiness/authorization schemas, the descendant deadline, and
+deterministic non-root simulated-UID ownership-guard proofs (the
+foreign-ownership cleanup test that requires a real `chown` remains
+an explicit environment skip, never a pass). The permission fixtures
+are intentional, so the suite runs under a process-local umask of
+022. Its synthetic frames are synthetic test data; they are
 **not** earned genuine-client fixtures.

@@ -725,13 +725,19 @@ class TestExtraction:
         assert call["declared_command_index"] == 0
         assert out["status"] == "completed"
         assert out["exit_code"] == 0
+        # process_id is the controller-issued value for call_01 (step 0).
         assert out["process_id"] == "proc_01"
         assert out["output_bytes"] == len(output.encode())
         import hashlib
 
         assert out["output_digest"] == hashlib.sha256(output.encode()).hexdigest()
-        # Exact-byte digest even though the wrapper parsed.
-        assert "alpha file content" not in json.dumps(frames)
+        # selection-v2: the exact received selected synthetic result text
+        # is retained losslessly for a proven selected frame (byte
+        # verification against the owned seeded workspace happens at run
+        # time, so it is not yet asserted here).
+        assert out["content"] == "alpha file content\n"
+        assert out["content_bytes"] == len(b"alpha file content\n")
+        assert out["content_verified"] is None
 
     def test_undeclared_command_rejected(self) -> None:
         frames, rejections, _ = self._extract(
@@ -1176,15 +1182,36 @@ class TestSyntheticRuns:
         ]
         statuses = [f["status"] for f in sleep_outputs]
         assert "running" in statuses and "completed" in statuses
-        # Digests present (exact raw output bytes), raw content absent.
+        # Digests present (exact raw output bytes).
         output_frames = [f for f in selection["frames"] if f["item_type"] == "function_call_output"]
         assert output_frames
         for frame in output_frames:
             digest = frame["output_digest"]
             assert isinstance(digest, str) and len(digest) == 64
             assert all(c in "0123456789abcdef" for c in digest)
-        assert "alpha file content" not in json.dumps(selection)
-        assert b"alpha file content" not in record_blob(result.run_record_path.parent)
+        # selection-v2: the exact selected synthetic read text is
+        # retained losslessly and byte-verified against the owned seeded
+        # workspace; nothing else from the request (prompt, history,
+        # schemas, headers) is ever published.
+        read_frames = [
+            f
+            for f in selection["frames"]
+            if f["item_type"] == "function_call_output" and f["call_id"] == "call_01"
+        ]
+        assert read_frames
+        assert read_frames[0]["content"] == "alpha file content\n"
+        assert read_frames[0]["content_verified"] is True
+        assert read_frames[0]["content_bytes"] == len(b"alpha file content\n")
+        assert "Synthetic capture run" not in json.dumps(selection)
+        blob = record_blob(result.run_record_path.parent)
+        assert b"alpha file content" in blob  # selection record only (0600)
+        assert b"Synthetic capture run" not in blob
+        # Exact serialized-byte accounting: the run record reports the
+        # exact UTF-8 bytes of the published selection.json.
+        assert (
+            result.run_record["selection"]["selected_bytes_total"]
+            == result.selection_path.stat().st_size
+        )
         # Leak markers: derived from the run id; must persist nowhere.
         for channel in ("stdout", "stderr", "header", "prompt"):
             marker = f"LEAK-happy-1-{channel}".encode()
@@ -1619,6 +1646,910 @@ class TestWorkspaceAndCleanup:
 
 
 # ---------------------------------------------------------------------------
+# 017-j: issued-call selection binding (pure extraction).
+# ---------------------------------------------------------------------------
+UNSELECTED_MARKER = "SYNTHETIC_UNSELECTED_MARKER_VALUE"
+
+
+def _payload(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"model": rcc.SYNTHETIC_MODEL, "input": items}
+
+
+def _call_item(
+    call_id: str = "call_01",
+    name: str = "exec_command",
+    cmd: str = "cat A.md",
+    workdir: str = ".",
+) -> dict[str, Any]:
+    return {
+        "type": "function_call",
+        "call_id": call_id,
+        "name": name,
+        "arguments": json.dumps({"cmd": cmd, "workdir": workdir}),
+    }
+
+
+def _out_item(call_id: str, output: Any) -> dict[str, Any]:
+    if isinstance(output, str):
+        out: Any = output
+    else:
+        out = json.dumps(output, sort_keys=True)
+    return {"type": "function_call_output", "call_id": call_id, "output": out}
+
+
+def _ok_read_output(process_id: str = "proc_01") -> dict[str, Any]:
+    return {
+        "content": "alpha file content\n",
+        "exit_code": 0,
+        "status": "completed",
+        "process_id": process_id,
+    }
+
+
+class TestIssuedCallBinding:
+    def _extract(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        steps: tuple[Any, ...] | None = None,
+        canary: str = "CANARY",
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        payload = _payload(items)
+        before = json.loads(json.dumps(payload))
+        frames, rejections, _ = rcc.extract_frames(
+            payload,
+            declared_steps=steps or default_steps(),
+            canary=canary,
+            request_seq=1,
+            mode=DEFAULT_MODE,
+        )
+        # Input immutability: extraction never mutates the parsed request.
+        assert payload == before
+        return list(frames), dict(rejections)
+
+    def test_declared_pair_control(self) -> None:
+        frames, rejections = self._extract([_call_item(), _out_item("call_01", _ok_read_output())])
+        assert rejections == {}
+        assert [f["item_type"] for f in frames] == [
+            "function_call",
+            "function_call_output",
+        ]
+
+    @pytest.mark.parametrize(
+        "bad_id", ["call_99", "forged_01", "unexpected_123", UNSELECTED_MARKER]
+    )
+    def test_orphan_unissued_result_never_selected(self, bad_id: str) -> None:
+        frames, rejections = self._extract(
+            [_out_item(bad_id, {"content": "synthetic unrelated", "status": "completed"})]
+        )
+        assert frames == []
+        assert rejections == {"call_id_unissued": 1}
+        # The raw unissued value is stored nowhere in the result.
+        blob = json.dumps([frames, rejections])
+        assert bad_id not in blob
+
+    def test_unissued_declared_command_id_never_selected(self) -> None:
+        for bad_id in ("call_99", "unexpected_123", UNSELECTED_MARKER):
+            frames, rejections = self._extract([_call_item(call_id=bad_id)])
+            assert frames == []
+            assert rejections == {"call_id_unissued": 1}
+
+    def test_later_step_requires_earlier_completed_output(self) -> None:
+        # step 1 command with NO step-0 completed output in the input.
+        frames, rejections = self._extract([_call_item(call_id="call_02", cmd="sleep 0.3")])
+        assert frames == []
+        assert rejections == {"call_id_unissued": 1}
+        # step-0 output still "running" is not advancement evidence for
+        # the later call, but it remains a proven frame of its own
+        # issued call.
+        frames, rejections = self._extract(
+            [
+                _call_item(call_id="call_02", cmd="sleep 0.3"),
+                _out_item("call_01", {"status": "running", "process_id": "proc_01"}),
+            ]
+        )
+        assert [f["call_id"] for f in frames] == ["call_01"]
+        assert [f["item_type"] for f in frames] == ["function_call_output"]
+        assert frames[0]["status"] == "running"
+        assert rejections == {"call_id_unissued": 1}
+        # A forged "completed" output with an unissued process ID is
+        # also not advancement evidence: it is rejected, and the later
+        # call stays unissued.
+        frames, rejections = self._extract(
+            [
+                _call_item(call_id="call_02", cmd="sleep 0.3"),
+                _out_item("call_01", _ok_read_output(process_id="forged_proc_99")),
+            ]
+        )
+        assert frames == []
+        assert rejections == {
+            "call_id_unissued": 1,
+            "metadata_unissued": 1,
+        }
+        # The forged process ID is stored nowhere in the result.
+        assert "forged_proc_99" not in json.dumps([frames, rejections])
+
+    def test_later_step_selected_after_completed_progression(self) -> None:
+        frames, rejections = self._extract(
+            [
+                _call_item(),
+                _out_item("call_01", _ok_read_output()),
+                _call_item(call_id="call_02", cmd="sleep 0.3"),
+            ]
+        )
+        assert rejections == {}
+        # call_01, its output, then the now-issued call_02.
+        assert [f["call_id"] for f in frames] == ["call_01", "call_01", "call_02"]
+        assert [f["item_type"] for f in frames] == [
+            "function_call",
+            "function_call_output",
+            "function_call",
+        ]
+
+    def test_command_of_different_step_than_id_never_selected(self) -> None:
+        # call_02 is the sleep step; a "cat A.md" argument names step 0.
+        frames, rejections = self._extract(
+            [
+                _call_item(),
+                _out_item("call_01", _ok_read_output()),
+                _call_item(call_id="call_02", cmd="cat A.md"),
+            ]
+        )
+        # call_01 + output are proven; the conflicting call_02 is not.
+        assert [f["call_id"] for f in frames] == ["call_01", "call_01"]
+        assert [f["item_type"] for f in frames] == [
+            "function_call",
+            "function_call_output",
+        ]
+        assert rejections == {"call_id_unissued": 1}
+
+    def test_name_of_different_step_than_id_never_selected(self) -> None:
+        frames, rejections = self._extract(
+            [_call_item(call_id="call_02", name="some_other_tool", cmd="cat A.md")],
+            steps=(
+                DeclaredStep(
+                    index=0,
+                    tool_name="some_other_tool",
+                    kind="read",
+                    path="A.md",
+                    seconds=0.0,
+                ),
+                DeclaredStep(
+                    index=1,
+                    tool_name="exec_command",
+                    kind="sleep",
+                    path="",
+                    seconds=0.3,
+                ),
+            ),
+        )
+        assert frames == []
+        assert rejections == {"call_id_unissued": 1}
+
+    def test_custom_call_requires_issued_input_value(self) -> None:
+        steps = (
+            DeclaredStep(
+                index=0,
+                tool_name="synthetic_custom",
+                kind="read",
+                path="A.md",
+                seconds=0.0,
+            ),
+        )
+        call = {
+            "type": "custom_tool_call",
+            "call_id": "call_01",
+            "name": "synthetic_custom",
+            "input": "not-the-issued-value",
+        }
+        frames, rejections = self._extract([call], steps=steps)
+        assert frames == []
+        assert rejections == {"call_id_unissued": 1}
+        call["input"] = rcc._issued_custom_input(0)
+        frames, rejections = self._extract([call], steps=steps)
+        assert rejections == {}
+        assert len(frames) == 1
+
+    def test_unissued_process_id_never_stored(self) -> None:
+        frames, rejections = self._extract(
+            [
+                _call_item(),
+                _out_item("call_01", _ok_read_output(process_id=UNSELECTED_MARKER)),
+            ]
+        )
+        # Item-level rejection: the forged output is rejected with the
+        # fixed reason; the proven issued call frame is retained. The
+        # unissued process ID is stored nowhere in the result.
+        assert [f["item_type"] for f in frames] == ["function_call"]
+        assert frames[0]["call_id"] == "call_01"
+        assert rejections == {"metadata_unissued": 1}
+        assert UNSELECTED_MARKER not in json.dumps([frames, rejections])
+
+    def test_session_and_chunk_ids_not_issued(self) -> None:
+        for key in ("session_id", "chunk_id"):
+            out = _ok_read_output()
+            out[key] = "sess_01"
+            frames, rejections = self._extract([_call_item(), _out_item("call_01", out)])
+            # Item-level rejection of the unissued-metadata output; the
+            # proven issued call frame is retained.
+            assert [f["item_type"] for f in frames] == ["function_call"]
+            assert rejections == {"metadata_unissued": 1}
+
+    def test_repeated_history_snapshot_preserves_occurrences(self) -> None:
+        call = _call_item()
+        out = _out_item("call_01", _ok_read_output())
+        frames, rejections = self._extract([call, out, call, out])
+        assert rejections == {}
+        assert [f["seq"] for f in frames] == [1, 2, 3, 4]
+        transitions = rcc.build_transitions(frames)
+        assert len(transitions) == 1
+        assert transitions[0]["output_frame_count"] == 2
+        assert transitions[0]["final_status"] == "completed"
+
+    def test_malformed_unicode_arguments_rejected_not_echoed(self) -> None:
+        evil = "cat A.md\ud800"  # lone surrogate: invalid UTF-8 candidate
+        item = _call_item()
+        item["arguments"] = json.dumps({"cmd": "cat \u00e9.md", "workdir": "."})
+        frames, rejections = self._extract([item])
+        assert frames == []
+        assert rejections == {"command_not_declared": 1}
+        assert evil not in json.dumps([frames, rejections])
+
+
+# ---------------------------------------------------------------------------
+# 017-j: lossless selected synthetic text, byte verification, serialized
+# byte cap (public receiver/run surface).
+# ---------------------------------------------------------------------------
+UNSELECTED_RUN_MARKER = b"SYNTHETIC_UNSELECTED_RUN_MARKER"
+
+
+class TestSelectionTextRetention:
+    def test_selected_text_retained_and_byte_verified(self, tmp_path: Path) -> None:
+        result = run_synthetic(
+            tmp_path,
+            "text-1",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            out_name="out-text",
+        )
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        assert selection["schema"] == "slaif-real-client-capture-selection-v2"
+        assert selection["provenance"] == "synthetic-offline"
+        assert selection["fixture_authority"] == "none"
+        read_frames = [
+            f
+            for f in selection["frames"]
+            if f["item_type"] == "function_call_output" and f["call_id"] == "call_01"
+        ]
+        assert read_frames
+        frame = read_frames[0]
+        # Exact received text, exact bytes, verified against the seeded
+        # owned workspace file for the declared path.
+        assert frame["content"] == "alpha file content\n"
+        assert frame["content_bytes"] == len(b"alpha file content\n")
+        assert frame["content_verified"] is True
+        # Exact-byte digest of the raw output payload still present.
+        import hashlib
+
+        assert isinstance(frame["output_digest"], str)
+        assert (
+            frame["output_digest"]
+            == hashlib.sha256(json.dumps(_ok_read_output(), sort_keys=True).encode()).hexdigest()
+        )
+
+    def test_tampered_result_text_stripped_not_published(self, tmp_path: Path) -> None:
+        child = tmp_path / "tamper_child.py"
+        child.write_text(
+            "import json, sys, urllib.request\n"
+            "control = json.load(open(sys.argv[1]))\n"
+            "base = control['provider_base_url']\n"
+            "token = control['token']\n"
+            "def post():\n"
+            "    body = json.dumps({'model': control['model'], 'stream': True,\n"
+            "      'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': 's'}]}],\n"
+            "      'tools': [{'type': 'function', 'name': 'exec_command', 'parameters':\n"
+            "        {'type': 'object', 'properties': {'cmd': {'type': 'string'},\n"
+            "                                          'workdir': {'type': 'string'}},\n"
+            "        'required': ['cmd', 'workdir']}}]}).encode()\n"
+            "    req = urllib.request.Request(base + '/responses', data=body,\n"
+            "      headers={'Authorization': f'Bearer {token}'})\n"
+            "    with urllib.request.urlopen(req, timeout=5) as r: return r.read(65536)\n"
+            "def call_from(data):\n"
+            "    for line in data.decode().splitlines():\n"
+            "        if line.startswith('data: '):\n"
+            "            event = json.loads(line[6:])\n"
+            "            if event.get('type') == 'response.output_item.added':\n"
+            "                return event['item']\n"
+            "    raise SystemExit(65)\n"
+            "data = post()\n"
+            "call = call_from(data)\n"
+            "value = {'content': 'TAMPERED-CONTENT-\\n', 'status': 'completed',\n"
+            "        'exit_code': 0, 'process_id': 'proc_01'}\n"
+            "body2 = json.dumps({'model': control['model'], 'stream': True,\n"
+            "  'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': 's'}]},\n"
+            "             call,\n"
+            "             {'type': 'function_call_output', 'call_id': call['call_id'],\n"
+            "              'output': json.dumps(value)}],\n"
+            "  'tools': [{'type': 'function', 'name': 'exec_command', 'parameters':\n"
+            "    {'type': 'object', 'properties': {'cmd': {'type': 'string'},\n"
+            "                                      'workdir': {'type': 'string'}},\n"
+            "    'required': ['cmd', 'workdir']}}]}).encode()\n"
+            "req2 = urllib.request.Request(base + '/responses', data=body2,\n"
+            "  headers={'Authorization': f'Bearer {token}'})\n"
+            "try:\n"
+            "    urllib.request.urlopen(req2, timeout=5).read(65536)\n"
+            "except urllib.error.HTTPError:\n"
+            "    pass\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        child.chmod(0o700)
+        result = run_synthetic(
+            tmp_path,
+            "tamper-1",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            child=child,
+            out_name="out-tamper",
+        )
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        # The tampered text is NOT the seeded owned-workspace bytes:
+        # stripped, metadata + exact-byte digest retained, typed count.
+        assert selection["rejected"]["reason_counts"].get("content_unverified") == 1
+        out_frames = [f for f in selection["frames"] if f["item_type"] == "function_call_output"]
+        assert out_frames
+        assert all(f["content"] is None for f in out_frames)
+        assert all(f["content_verified"] is False for f in out_frames)
+        assert all(
+            isinstance(f["output_digest"], str) and len(f["output_digest"]) == 64
+            for f in out_frames
+        )
+        assert b"TAMPERED-CONTENT" not in record_blob(result.run_record_path.parent)
+
+    def test_unissued_result_value_never_persisted(self, tmp_path: Path) -> None:
+        child = tmp_path / "unissued_child.py"
+        child.write_text(
+            "import json, sys, urllib.request\n"
+            "control = json.load(open(sys.argv[1]))\n"
+            "base = control['provider_base_url']\n"
+            "token = control['token']\n"
+            "tools = [{'type': 'function', 'name': 'exec_command', 'parameters':\n"
+            "  {'type': 'object', 'properties': {'cmd': {'type': 'string'},\n"
+            "                                    'workdir': {'type': 'string'}},\n"
+            "  'required': ['cmd', 'workdir']}}]\n"
+            "history = [{'role': 'user', 'content': [{'type': 'input_text', 'text': 's'}]}]\n"
+            "def post():\n"
+            "    body = json.dumps({'model': control['model'], 'stream': True,\n"
+            "      'input': history, 'tools': tools}).encode()\n"
+            "    req = urllib.request.Request(base + '/responses', data=body,\n"
+            "      headers={'Authorization': f'Bearer {token}'})\n"
+            "    with urllib.request.urlopen(req, timeout=5) as r: return r.read(65536)\n"
+            "def call_from(data):\n"
+            "    for line in data.decode().splitlines():\n"
+            "        if line.startswith('data: '):\n"
+            "            event = json.loads(line[6:])\n"
+            "            if event.get('type') == 'response.output_item.added':\n"
+            "                return event['item']\n"
+            "    raise SystemExit(65)\n"
+            "call = call_from(post())\n"
+            "history.append(call)\n"
+            "value = {'content': 'alpha file content\\n', 'status': 'completed',\n"
+            "         'exit_code': 0, 'process_id': 'proc_01'}\n"
+            "history.append({'type': 'function_call_output',\n"
+            "                'call_id': call['call_id'], 'output': json.dumps(value)})\n"
+            "history.append({'type': 'function_call_output',\n"
+            "                'call_id': 'unissued_99',\n"
+            "                'output': json.dumps({'content': 'synthetic unrelated',\n"
+            "                                       'status': 'completed',\n"
+            "                                       'process_id': '"
+            + UNSELECTED_RUN_MARKER.decode()
+            + "'})})\n"
+            "post()\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        child.chmod(0o700)
+        result = run_synthetic(
+            tmp_path,
+            "unissued-1",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            child=child,
+            out_name="out-unissued",
+        )
+        assert result.outcome == "completed"
+        # The unissued result (and its private value) is rejected with a
+        # fixed reason and stored nowhere under the output directory.
+        selection = result.selection_record
+        assert selection is not None
+        assert selection["rejected"]["reason_counts"].get("call_id_unissued") == 1
+        assert all(f["call_id"] != "unissued_99" for f in selection["frames"])
+        assert UNSELECTED_RUN_MARKER not in record_blob(result.run_record_path.parent)
+
+    def test_serialized_cap_on_published_bytes(self, tmp_path: Path) -> None:
+        first = run_synthetic(
+            tmp_path,
+            "cap0-1",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            out_name="out-cap0",
+        )
+        assert first.outcome == "completed"
+        size = first.selection_path.stat().st_size
+        assert first.run_record["selection"]["selected_bytes_total"] == size
+        # A cap smaller than the serialized record: fixed typed failure,
+        # no oversized/partial selection artifact.
+        small = run_synthetic(
+            tmp_path,
+            "cap1-1",
+            limits=rcc.CaptureLimits.resolved(max_selected_bytes=100, deadline_seconds=10.0),
+            out_name="out-cap1",
+        )
+        assert small.outcome == "selected_over_bound"
+        assert small.selection_path is None
+        assert not (tmp_path / "out-cap1" / "selection.json").exists()
+        assert small.run_record["selection"]["written"] is False
+        # Boundary: a cap exactly at the serialized size is NOT an
+        # exceedance (accept either the equal-size publish or a
+        # truthful over-bound if the rerun's own serialization differs
+        # by the self-size fixed point; never a file over the cap).
+        boundary = run_synthetic(
+            tmp_path,
+            "cap2-1",
+            limits=rcc.CaptureLimits.resolved(max_selected_bytes=size, deadline_seconds=10.0),
+            out_name="out-cap2",
+        )
+        if boundary.outcome == "completed":
+            assert boundary.selection_path.stat().st_size <= size
+        else:
+            assert boundary.outcome == "selected_over_bound"
+            assert not (tmp_path / "out-cap2" / "selection.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# 017-j: centralized per-run request budget on the owned provider.
+# ---------------------------------------------------------------------------
+class TestProviderBudgetCentralization:
+    def _provider(self, limits: Any) -> tuple[Any, Any, int]:
+        state = rcc.ProviderState(limits, rcc.SYNTHETIC_MODEL, DEFAULT_MODE, "tok")
+        provider = rcc.FakeProvider(
+            state=state, steps=rcc.default_declared_steps(), canary="CANARY"
+        )
+        port = provider.start()
+        return provider, state, port
+
+    def _raw(self, port: int, request: bytes) -> str:
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            sock.sendall(request)
+            chunks: list[bytes] = []
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                if len(b"".join(chunks)) > 65536:
+                    break
+            return b"".join(chunks).decode("utf-8", "replace")
+
+    def test_unsupported_routes_consume_budget(self, tmp_path: Path) -> None:
+        provider, state, port = self._provider(rcc.CaptureLimits.resolved(max_requests=2))
+        try:
+            codes: list[str] = []
+            for _ in range(3):
+                response = self._raw(
+                    port,
+                    (
+                        f"GET /v1/unsupported HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{port}\r\n"
+                        f"Authorization: Bearer tok\r\n\r\n"
+                    ).encode(),
+                )
+                codes.append(response.split(" ", 2)[1])
+            assert codes[:2] == ["404", "404"]
+            assert codes[2] == "429"
+            assert state.request_limit_hit
+        finally:
+            provider.stop()
+
+    def test_unsupported_post_consumes_budget_without_body_read(self, tmp_path: Path) -> None:
+        provider, state, port = self._provider(rcc.CaptureLimits.resolved(max_requests=2))
+        try:
+            response = self._raw(
+                port,
+                (
+                    f"POST /v1/bogus HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    f"Authorization: Bearer tok\r\n"
+                    f"Content-Length: 5\r\n\r\nhello"
+                ).encode(),
+            )
+            assert response.split(" ", 2)[1] == "404"
+            assert state.request_count == 1
+            response = self._raw(
+                port,
+                (
+                    f"POST /v1/bogus HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    f"Authorization: Bearer tok\r\n"
+                    f"Content-Length: 5\r\n\r\nhello"
+                ).encode(),
+            )
+            assert response.split(" ", 2)[1] == "404"
+            response = self._raw(
+                port,
+                (
+                    f"POST /v1/bogus HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    f"Authorization: Bearer tok\r\n"
+                    f"Content-Length: 5\r\n\r\nhello"
+                ).encode(),
+            )
+            assert response.split(" ", 2)[1] == "429"
+            assert state.request_limit_hit
+        finally:
+            provider.stop()
+
+    def test_oversized_body_consumes_budget(self, tmp_path: Path) -> None:
+        provider, state, port = self._provider(
+            rcc.CaptureLimits.resolved(max_requests=1, max_inbound_bytes=64)
+        )
+        try:
+            body = b"x" * 512
+            response = self._raw(
+                port,
+                (
+                    f"POST /v1/responses HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    f"Authorization: Bearer tok\r\n"
+                    f"Content-Length: {len(body)}\r\n\r\n"
+                ).encode()
+                + body,
+            )
+            assert response.split(" ", 2)[1] == "413"
+            assert state.request_count == 1
+            response = self._raw(
+                port,
+                (
+                    f"GET /v1/models HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    f"Authorization: Bearer tok\r\n\r\n"
+                ).encode(),
+            )
+            assert response.split(" ", 2)[1] == "429"
+            assert state.request_limit_hit
+        finally:
+            provider.stop()
+
+    def test_auth_failure_value_free_and_counted(self, tmp_path: Path) -> None:
+        provider, state, port = self._provider(rcc.CaptureLimits.resolved(max_requests=2))
+        try:
+            response = self._raw(
+                port,
+                (
+                    f"GET /v1/models HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    f"Authorization: Bearer WRONG-TOKEN-VALUE\r\n\r\n"
+                ).encode(),
+            )
+            assert response.split(" ", 2)[1] == "401"
+            assert state.auth_rejected == 1
+            # Counted (cannot evade the cap) but value-free: no token
+            # value is recorded anywhere in the provider state.
+            assert state.request_count == 1
+            blob = json.dumps(state.status_counts).encode() + str(state).encode()
+            assert b"WRONG-TOKEN-VALUE" not in blob
+        finally:
+            provider.stop()
+
+
+# ---------------------------------------------------------------------------
+# 017-j: bounded preflight output collection.
+# ---------------------------------------------------------------------------
+class TestPreflightBoundedOutput:
+    def _binary(self, tmp_path: Path, body: str) -> tuple[Path, str]:
+        binary = tmp_path / f"probe-{abs(hash(body)) % 100000}"
+        binary.write_text(f"#!{sys.executable}\n{body}", encoding="utf-8")
+        binary.chmod(0o700)
+        return binary, sha256_file(binary)
+
+    def test_version_overflow_is_typed_and_bounded(self, tmp_path: Path) -> None:
+        body = (
+            "import sys\n"
+            "if '--version' in sys.argv:\n"
+            "    sys.stdout.buffer.write(b'codex-cli 9.9.9-test\\n')\n"
+            "for _ in range(16384):\n"
+            "    sys.stdout.buffer.write(b'x' * 1024)\n"
+        )
+        binary, sha = self._binary(tmp_path, body)
+        with pytest.raises(CaptureError) as exc:
+            rcc.preflight_binary(binary, TEST_VERSION, sha)
+        assert exc.value.failure_class == "binary_version_over_bound"
+        # Fixed, non-echoing failure class only.
+        assert "x" * 100 not in str(exc.value)
+
+    def test_hanging_probe_is_typed_timeout(self, tmp_path: Path) -> None:
+        body = (
+            "import sys, time\n"
+            "if '--version' in sys.argv:\n"
+            "    sys.stdout.buffer.write(b'codex-cli 9.9.9-test\\n')\n"
+            "    sys.stdout.flush()\n"
+            "else:\n"
+            "    time.sleep(30)\n"
+        )
+        binary, sha = self._binary(tmp_path, body)
+        with pytest.raises(CaptureError) as exc:
+            rcc.preflight_binary(binary, TEST_VERSION, sha, probe_timeout=1.5)
+        assert exc.value.failure_class == "binary_probe_timeout"
+
+    def test_help_overflow_keeps_legacy_class(self, tmp_path: Path) -> None:
+        binary = make_synthetic_binary(tmp_path, help_bytes=rcc.HARD_MAX_HELP_BYTES + 1024)
+        with pytest.raises(CaptureError) as exc:
+            rcc.preflight_binary(binary, TEST_VERSION, sha256_file(binary))
+        assert exc.value.failure_class == "binary_help_over_bound"
+
+
+# ---------------------------------------------------------------------------
+# 017-j: protected directories preserve pre-existing permissions/files.
+# ---------------------------------------------------------------------------
+class TestProtectedDirNoMutation:
+    def test_preexisting_shared_mode_preserved_on_rejection(self, tmp_path: Path) -> None:
+        dest = tmp_path / "shared-out"
+        dest.mkdir(mode=0o755)
+        dest.chmod(0o755)
+        sentinel = dest / "preexisting"
+        sentinel.write_text("synthetic unrelated file", encoding="utf-8")
+        before = sentinel.read_bytes()
+        mode_before = dest.stat().st_mode & 0o777
+        with pytest.raises(CaptureError):
+            rcc.run_capture(
+                run_id="guard-1",
+                out_dir=dest,
+                child=tmp_path / "not-a-client",
+                child_kind="actual",
+                allow_actual_client=False,
+            )
+        assert dest.stat().st_mode & 0o777 == mode_before  # never chmoded
+        assert sentinel.read_bytes() == before
+        # No new files in the pre-existing directory.
+        assert {x.name for x in dest.iterdir()} == {"preexisting"}
+
+    def test_preexisting_group_writable_rejected_without_mutation(self, tmp_path: Path) -> None:
+        dest = tmp_path / "group-out"
+        dest.mkdir(mode=0o770)
+        dest.chmod(0o770)
+        sentinel = dest / "keep"
+        sentinel.write_text("keep", encoding="utf-8")
+        mode_before = dest.stat().st_mode & 0o777
+        with pytest.raises(CaptureError) as exc:
+            rcc._protected_dir(dest)
+        assert exc.value.failure_class == "protected_dir_unsafe_preexisting"
+        assert dest.stat().st_mode & 0o777 == mode_before
+        assert sentinel.read_bytes() == b"keep"
+
+    def test_preexisting_symlink_rejected(self, tmp_path: Path) -> None:
+        real = tmp_path / "real"
+        real.mkdir(mode=0o700)
+        link = tmp_path / "link-out"
+        link.symlink_to(real)
+        with pytest.raises(CaptureError) as exc:
+            rcc._protected_dir(link)
+        assert exc.value.failure_class == "protected_dir_invalid"
+        assert link.is_symlink()
+        assert not real.exists() or set(real.iterdir()) == set()
+
+    def test_preexisting_file_rejected(self, tmp_path: Path) -> None:
+        target = tmp_path / "a-file"
+        target.write_text("x", encoding="utf-8")
+        with pytest.raises(CaptureError) as exc:
+            rcc._protected_dir(target)
+        assert exc.value.failure_class == "protected_dir_invalid"
+        assert target.read_text() == "x"
+
+    def test_foreign_owned_rejected_simulated_uid(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dest = tmp_path / "foreign-out"
+        dest.mkdir(mode=0o700)
+        mode_before = dest.stat().st_mode & 0o777
+        # Simulated caller-UID mismatch (deterministic, non-root): the
+        # directory is real and owned by the test user, but the caller
+        # presents a different uid to the ownership guard.
+        real_uid = os.getuid()
+        monkeypatch.setattr(os, "getuid", lambda: real_uid + 1)
+        with pytest.raises(CaptureError) as exc:
+            rcc._protected_dir(dest)
+        assert exc.value.failure_class == "protected_dir_not_owned"
+        assert dest.stat().st_mode & 0o777 == mode_before  # never chmoded
+
+    def test_created_output_dir_is_0700(self, tmp_path: Path) -> None:
+        dest = tmp_path / "fresh-out"
+        rcc._protected_dir(dest)
+        assert dest.stat().st_mode & 0o777 == 0o700
+
+
+# ---------------------------------------------------------------------------
+# 017-j: absolute active-run deadline across owned descendants.
+# ---------------------------------------------------------------------------
+class TestDescendantDeadline:
+    def _run(self, tmp_path: Path, code: str, deadline: float) -> Any:
+        child = tmp_path / "leader.py"
+        child.write_text(code, encoding="utf-8")
+        child.chmod(0o700)
+        return rcc.run_child(
+            argv=[sys.executable, str(child)],
+            env={"PATH": "/usr/bin:/bin"},
+            cwd=tmp_path,
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=deadline),
+        )
+
+    def test_normal_exit_control(self, tmp_path: Path) -> None:
+        facts = self._run(tmp_path, "raise SystemExit(0)\n", 0.25)
+        assert facts.returncode == 0
+        assert not facts.timed_out
+        assert facts.group_cleanup_verified
+
+    def test_exited_leader_does_not_bypass_descendant_deadline(self, tmp_path: Path) -> None:
+        marker = tmp_path / "late-descendant-marker"
+        child_code = (
+            "import time; from pathlib import Path; "
+            f"time.sleep(2); Path({str(marker)!r}).write_text('synthetic late execution'); "
+            "time.sleep(1)"
+        )
+        code = f"import subprocess, sys\nsubprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+        facts = self._run(tmp_path, code, 0.25)
+        # The descendant is terminated before it can write at ~2s.
+        assert not marker.exists()
+        assert facts.group_cleanup_verified
+        # Bounded, reported teardown window.
+        assert facts.teardown_seconds is not None
+        assert 0 <= facts.teardown_seconds <= rcc.TEARDOWN_GRACE_SECONDS + 5
+
+    def test_descendant_finishing_inside_deadline_survives(self, tmp_path: Path) -> None:
+        marker = tmp_path / "early-descendant-marker"
+        child_code = (
+            "import time; from pathlib import Path; "
+            f"time.sleep(0.3); Path({str(marker)!r}).write_text('synthetic early execution'); "
+            "time.sleep(0.2)"
+        )
+        code = (
+            "import subprocess, sys\n"
+            f"subprocess.Popen([sys.executable, '-c', {child_code!r}])\n"
+            "import time\n"
+            "time.sleep(1.5)\n"
+        )
+        facts = self._run(tmp_path, code, 5.0)
+        assert facts.returncode == 0
+        assert not facts.timed_out
+        assert marker.exists()  # finished inside the deadline: untouched
+        assert facts.group_cleanup_verified
+
+
+# ---------------------------------------------------------------------------
+# 017-j: readiness record closure (closed sets, types, ownership, bounds).
+# ---------------------------------------------------------------------------
+class TestReadinessRecordClosure:
+    def _facts(self) -> Any:
+        return rcc.BinaryFacts(
+            version="review-version",
+            sha256="a" * 64,
+            detected_flags=(),
+            help_complete=True,
+        )
+
+    def _generated_record(self, facts: Any) -> dict[str, Any]:
+        return cast("dict[str, Any]", rcc.evaluate_startup_readiness(facts).to_record())
+
+    def test_generated_record_round_trips(self, tmp_path: Path) -> None:
+        facts = self._facts()
+        record = self._generated_record(facts)
+        meta = tmp_path / "readiness.json"
+        write_json_0600(meta, record)
+        loaded = rcc.load_readiness_record(meta, facts)
+        assert loaded.to_record() == record
+        assert loaded.verdict == "not_ready"
+
+    def test_reasons_closed_enum(self, tmp_path: Path) -> None:
+        facts = self._facts()
+        record = self._generated_record(facts)
+        record["reasons"] = [UNSELECTED_MARKER]
+        meta = tmp_path / "readiness-reasons.json"
+        write_json_0600(meta, record)
+        with pytest.raises(CaptureError) as exc:
+            rcc.load_readiness_record(meta, facts)
+        assert exc.value.failure_class == "readiness_record_invalid"
+        assert UNSELECTED_MARKER not in repr(exc.value)
+
+    def test_unknown_field_rejected(self, tmp_path: Path) -> None:
+        facts = self._facts()
+        record = self._generated_record(facts)
+        record["detected_flags"] = [UNSELECTED_MARKER]
+        meta = tmp_path / "readiness-flags.json"
+        write_json_0600(meta, record)
+        with pytest.raises(CaptureError) as exc:
+            rcc.load_readiness_record(meta, facts)
+        assert exc.value.failure_class == "readiness_record_invalid"
+        assert UNSELECTED_MARKER not in repr(exc.value)
+
+    def test_flag_count_binding(self, tmp_path: Path) -> None:
+        facts = self._facts()
+        record = self._generated_record(facts)
+        record["detected_flag_count"] = 5
+        meta = tmp_path / "readiness-count.json"
+        write_json_0600(meta, record)
+        with pytest.raises(CaptureError) as exc:
+            rcc.load_readiness_record(meta, facts)
+        assert exc.value.failure_class == "readiness_record_binding_mismatch"
+
+    def test_control_candidates_closed(self, tmp_path: Path) -> None:
+        facts = self._facts()
+        record = self._generated_record(facts)
+        record["control_candidates"][0]["status"] = "verified"
+        meta = tmp_path / "readiness-candidates.json"
+        write_json_0600(meta, record)
+        with pytest.raises(CaptureError):
+            rcc.load_readiness_record(meta, facts)
+
+    def test_group_readable_record_rejected(self, tmp_path: Path) -> None:
+        facts = self._facts()
+        record = self._generated_record(facts)
+        meta = tmp_path / "readiness-mode.json"
+        meta.write_text(json.dumps(record))
+        meta.chmod(0o644)
+        with pytest.raises(CaptureError) as exc:
+            rcc.load_readiness_record(meta, facts)
+        assert exc.value.failure_class == "readiness_record_unsafe_mode"
+
+    def test_symlink_record_rejected(self, tmp_path: Path) -> None:
+        facts = self._facts()
+        record = self._generated_record(facts)
+        real = tmp_path / "real-readiness.json"
+        write_json_0600(real, record)
+        link = tmp_path / "link-readiness.json"
+        link.symlink_to(real)
+        with pytest.raises(CaptureError):
+            rcc.load_readiness_record(link, facts)
+
+    def test_foreign_owned_record_rejected_simulated_uid(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Simulated caller-UID mismatch (deterministic, non-root): the
+        # record is real and owned by the test user, but the caller
+        # presents a different uid to the ownership guard.
+        facts = self._facts()
+        record = self._generated_record(facts)
+        meta = tmp_path / "readiness-foreign.json"
+        write_json_0600(meta, record)
+        real_uid = os.getuid()
+        monkeypatch.setattr(os, "getuid", lambda: real_uid + 1)
+        with pytest.raises(CaptureError) as exc:
+            rcc.load_readiness_record(meta, facts)
+        assert exc.value.failure_class == "readiness_record_not_owned"
+        assert meta.read_bytes()  # file preserved
+
+
+# ---------------------------------------------------------------------------
+# 017-j: deterministic non-root proof of the cleanup ownership guard
+# (real synthetic root + simulated caller-UID mismatch). The optional
+# real-chown environment test above may remain explicitly skipped.
+# ---------------------------------------------------------------------------
+class TestCleanupOwnershipGuardSimulated:
+    def test_cleanup_refuses_foreign_root_simulated_uid(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        setup = rcc.setup_scratch(tmp_path, "sim-foreign-1")
+        inner = setup.root / "workspace" / "A.md"
+        inner_bytes = inner.read_bytes()
+        real_uid = os.getuid()
+        monkeypatch.setattr(os, "getuid", lambda: real_uid + 1)
+        with pytest.raises(CaptureError) as exc:
+            rcc.cleanup_root(setup.root)
+        assert exc.value.failure_class == "cleanup_root_not_owned"
+        # Files preserved on rejection.
+        assert setup.root.exists()
+        assert inner.read_bytes() == inner_bytes
+
+
+# ---------------------------------------------------------------------------
 # CLI surface.
 # ---------------------------------------------------------------------------
 def run_cli(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -1777,7 +2708,7 @@ class TestStaticGuarantees:
 
     def test_utility_version_and_schemas_stable(self) -> None:
         assert rcc.SCHEMA == "slaif-real-client-capture-v1"
-        assert rcc.SELECTION_SCHEMA == "slaif-real-client-capture-selection-v1"
+        assert rcc.SELECTION_SCHEMA == "slaif-real-client-capture-selection-v2"
         assert rcc.RUN_SCHEMA == "slaif-real-client-capture-run-v1"
         assert rcc.ATTEMPT_SCHEMA == "slaif-real-client-capture-attempt-v1"
         assert rcc.READINESS_SCHEMA == "slaif-real-client-capture-readiness-v1"

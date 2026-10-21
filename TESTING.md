@@ -196,7 +196,20 @@ round by construction (startup readiness is `not_ready`), no actual
 client, provider session or model call is made, and the actual
 capture plus process/chunk collector remain `NOT RUN`; one honest
 environment skip applies where the foreign-ownership cleanup guard
-requires `chown` to another uid.
+requires `chown` to another uid. Round 017-j amends that same inert
+utility and its named offline suite for the issued-binding,
+lossless byte-verified synthetic text export (selection schema v2),
+serialized-byte cap, centralized request budget, bounded preflight,
+no-mutation directory guards, closed metadata schemas, and
+descendant-deadline repairs, with added regressions for every
+repaired boundary (including deterministic non-root simulated-UID
+ownership proofs and non-selected marker variants). The suite runs
+under a process-local umask of 022 because the permission fixtures
+are intentional. Full-suite skip accounting stays distinct: the 27
+prior stage skips plus exactly one 017-i foreign-ownership `chown`
+environment skip — the simulated-UID proofs are passing tests, never
+skips. No actual client, provider session, or model call is made;
+the actual capture and process/chunk collector remain `NOT RUN`.
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

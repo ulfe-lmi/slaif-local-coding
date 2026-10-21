@@ -49,12 +49,29 @@ stage 017-i lands the offline, opt-in, fail-closed process-capture
 utility (`scripts/real_client_capture.py`) for independent strategic
 review — inert (not active in the adapter), hard-capped,
 privacy-law enforced in code, with the actual-client path
-unreachable by construction (startup readiness is `not_ready`: the
+input-gated (the generated startup readiness is `not_ready`: the
 candidate plugin/telemetry/update controls remain unverified from
-local static evidence) — so it performs no actual capture, no
-process collector, and no model call; the remaining D09-D10 scope
-stays with a later same-PR suffix (a later exact order may authorize
-one bounded reviewed actual capture, then the process/chunk
+local static evidence, while caller-supplied `ready`/authorization
+records can launch the bound stand-in through the public API) — so
+it performs no actual capture, no process collector, and no model
+call; stage 017-j repairs that utility's selection/privacy/
+ownership/resource boundaries per independent review: frame
+selection bound to the controller's issued call records (exact
+issued ID, tool family/name, declared step/command and expected
+argument values, controller-issued process ID) with advancement
+evidence requiring completed outputs carrying issued metadata;
+lossless retention of proven selected synthetic result text after
+ownership/shape/byte verification (selection schema v2,
+`fixture_authority: none`); the selected cap enforced on the exact
+serialized record bytes (serialize once, publish the same bytes);
+every fixture request counted against the per-run budget before
+route/auth/body branches; bounded preflight output; pre-existing
+directories never chmoded; closed readiness/authorization metadata
+schemas; and the absolute deadline spanning owned descendants —
+still inert, with no actual capture, process collector, or model
+call, and no format or process acquisition; the remaining D09-D10
+scope stays with a later same-PR suffix (a later exact order may
+authorize one bounded reviewed actual capture, then the process/chunk
 collector, subject to review); no v1 runtime mechanism is active or
 qualified yet.
 

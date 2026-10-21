@@ -561,11 +561,22 @@ repository change and nothing earned; 017-i lands the offline,
 opt-in, fail-closed, stdlib-only process-capture utility
 (`scripts/real_client_capture.py`) for independent strategic review:
 inert (not wired into the adapter runtime), hard-capped,
-privacy-law enforced in code, actual-client path unreachable by
-construction — startup readiness is `not_ready` because the
-candidate plugin/telemetry/update controls remain unverified from
-local static evidence — with no actual capture, process collector or
-model call performed); the remaining D09/D10
+privacy-law enforced in code, actual-client path input-gated — the
+generated startup readiness is `not_ready` because the candidate
+plugin/telemetry/update controls remain unverified from local static
+evidence, while caller-supplied `ready`/authorization records can
+launch the bound stand-in through the public API — with no actual
+capture, process collector or model call performed; 017-j repairs
+that utility's selection/privacy/ownership/resource boundaries per
+independent review (controller-issued call binding with issued-
+metadata advancement evidence, lossless byte-verified synthetic
+result text in selection schema v2 with `fixture_authority: none`,
+the selected cap on exact serialized record bytes, centralized
+per-run request budget, bounded preflight output, no-mutation
+directory guards, closed readiness/authorization schemas, and the
+absolute deadline across owned descendants) — still inert, with no
+actual capture, process collector or model call, and no format or
+process acquisition); the remaining D09/D10
 multi-chunk process-completion and branch-matrix scope is planned for
 a later same-PR suffix (a later exact order may authorize one
 bounded reviewed actual capture, then the process/chunk collector,

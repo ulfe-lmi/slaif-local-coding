@@ -10,16 +10,29 @@ loopback fake provider, and selects ONLY allowlisted synthetic
 call/result/provenance frames (plus sanitized provenance) into a closed
 metadata schema. Everything else is bounded, counted, or discarded.
 
-Order 017-i scope: OFFLINE ONLY. The actual-client launch path exists in
-code but is fail-closed by construction: it requires an explicit opt-in
-flag, a readiness record whose verdict is ``ready`` (this version of the
-utility never emits one -- the plugin/catalog sync, update and telemetry
-controls remain unverified from local static evidence, and unknown control
-means NOT READY, never silent fetch), an external strategic
-authorization record, and an unconsumed one-attempt ledger claim.
-Ordinary offline runs use an injected wholly synthetic child executable
-and an in-process owned fake provider; they NEVER launch an installed
-client, call a model, or touch a provider.
+Order 017-i scope: OFFLINE ONLY. Round 017-j repaired the utility's
+selection, privacy, ownership, and resource boundaries (issued-call
+selection binding, closed metadata sets, lossless but byte-verified
+synthetic result-text retention under selection schema v2, exact
+serialized-byte selection cap, centralized per-run request budget,
+bounded preflight output collection, permission-preserving protected
+directories, readiness-record closure, and an absolute active-run
+deadline that also covers owned descendants).
+
+The actual-client launch path exists in code and is GATED, not
+unreachable by construction: a caller that supplies an explicit opt-in,
+a validated readiness record whose verdict is ``ready``, a validated
+external strategic authorization record bound to the run, and an
+unconsumed one-attempt ledger claim CAN launch a stand-in binary
+through this public API. Such caller-supplied records are external
+input; they are NOT proof that any real client's unverified startup
+controls were verified or applied. This version's own static evaluation
+(``evaluate_startup_readiness``) only ever emits ``not_ready`` -- the
+plugin/catalog sync, update and telemetry controls remain unverified on
+local static evidence, and unknown control means NOT READY, never
+silent fetch. Ordinary offline runs use an injected wholly synthetic
+child executable and an in-process owned fake provider; they NEVER
+launch an installed client, call a model, or touch a provider.
 
 Hard law (implemented as fail-closed code, not documentary warnings):
 
@@ -53,10 +66,39 @@ Hard law (implemented as fail-closed code, not documentary warnings):
   only). Credential-bearing transport headers are validated in memory and
   rejected without values; a declared canary marker in any selectable
   content rejects the frame without echo.
-- Only predeclared harmless synthetic commands (the controller's declared
-  table) are ever emitted or selectable; arbitrary incoming command/code
-  is never executed, selected, or echoed. The child never executes model-
-  directed commands.
+- Selection is bound to the controller's ISSUED call records: the exact
+  issued call ID (``call_NN`` for the step at 0-based position NN-1),
+  the tool family/name, the declared step/command and expected argument
+  values, and the controller-issued process ID (``proc_NN``) for
+  results. The controller advances a step only after a completed output
+  for every earlier step, so a later step's call is never "issued"
+  early. Unissued, orphaned, conflicting, mismatched, or wrong-mode
+  items are rejected with a fixed reason and their raw values are never
+  stored. Only predeclared harmless synthetic commands are ever emitted
+  or selectable; arbitrary incoming command/code is never executed,
+  selected, or echoed. The child never executes model-directed
+  commands.
+- Selected synthetic result TEXT is retained losslessly (selection
+  schema v2) only after strict ownership, source/shape, and byte
+  validation: at run time the exact received text of a selected read
+  result must equal the bytes THIS RUN seeded into the owned workspace
+  for the declared path (sleep steps: the exact empty payload), or the
+  text is stripped (metadata + exact-byte digest retained) and a fixed
+  ``content_unverified`` count is recorded. This is a narrow
+  synthetic-fixture export permission, NOT permission to save full
+  requests, user/system/developer messages, tool schemas, headers,
+  histories, unknown child stdout/stderr, credentials, or unrelated
+  tool output. Fake-child content stays labeled synthetic with
+  ``fixture_authority: "none"``; no actual client format is earned.
+- The per-run selected-byte cap applies to the EXACT UTF-8 bytes of the
+  canonical serialization that is published (metadata and serialization
+  overhead included): serialize once, validate once, publish those same
+  bytes; exceedance is a fixed typed failure with no oversized or
+  partial artifact.
+- Every request reaching an owned provider handler (known, unknown,
+  malformed, or oversize route/body) consumes the per-run request
+  budget before any route/auth/body outcome branch; authentication
+  failures remain value-free (counter only).
 - Tool mode is read from the actual offered tool schema in memory
   (function vs custom); unknown modes, mixed shapes, and declared/observed
   mismatches fail closed. Causal call IDs are preserved through nested
@@ -96,6 +138,7 @@ import json
 import os
 import re
 import secrets
+import select
 import signal
 import stat
 import subprocess
@@ -108,7 +151,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "slaif-real-client-capture-v1"
-SELECTION_SCHEMA = "slaif-real-client-capture-selection-v1"
+SELECTION_SCHEMA = "slaif-real-client-capture-selection-v2"
 RUN_SCHEMA = "slaif-real-client-capture-run-v1"
 ATTEMPT_SCHEMA = "slaif-real-client-capture-attempt-v1"
 READINESS_SCHEMA = "slaif-real-client-capture-readiness-v1"
@@ -208,6 +251,9 @@ REJECTION_REASONS: frozenset[str] = frozenset(
         "output_shape_unsupported",
         "credential_marker_present",
         "metadata_value_over_bound",
+        "call_id_unissued",
+        "metadata_unissued",
+        "content_unverified",
     }
 )
 
@@ -368,21 +414,83 @@ class BinaryFacts:
     help_complete: bool
 
 
-def _run_bounded(argv: list[str], cap: int, timeout: float = 15.0) -> tuple[bytes, bool]:
-    """Run a read-only CLI probe; return (bounded bytes, complete)."""
-    proc = subprocess.run(  # noqa: S603 - fixed argv, never a shell
-        argv,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        env={"PATH": CHILD_ENV_FIXED_PATH, "LC_ALL": "C.UTF-8"},
-        timeout=timeout,
-        check=False,
-    )
+def _run_bounded(
+    argv: list[str],
+    cap: int,
+    timeout: float = 15.0,
+    overflow_class: str = "binary_probe_over_bound",
+) -> tuple[bytes, bool]:
+    """Run a read-only CLI probe with BOUNDED streaming collection.
+
+    Output is drained in bounded chunks under a finite wall-clock
+    deadline; exceeding the byte cap or the deadline kills the probe
+    and fails closed with a fixed, non-echoing class. No unbounded
+    buffer followed by truncation. Returns (bounded bytes, complete).
+    """
+    try:
+        proc = subprocess.Popen(  # noqa: S603 - fixed argv, never a shell
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env={"PATH": CHILD_ENV_FIXED_PATH, "LC_ALL": "C.UTF-8"},
+        )
+    except OSError:
+        raise CaptureError("binary_probe_failed") from None
+    data = bytearray()
+    overflow = False
+    timed_out = False
+    deadline = time.monotonic() + timeout
+    try:
+        stream = proc.stdout
+        assert stream is not None
+        fd = stream.fileno()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                timed_out = True
+                break
+            try:
+                ready, _, _ = select.select([fd], [], [], min(0.1, remaining))
+            except OSError:
+                break
+            if not ready:
+                continue
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                break
+            if not chunk:
+                break
+            data.extend(chunk)
+            if len(data) > cap:
+                overflow = True
+                break
+    finally:
+        if overflow or timed_out:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        try:
+            proc.stdout.close()
+        except (OSError, AttributeError):
+            pass
+    try:
+        proc.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        try:
+            proc.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            pass
+    if timed_out:
+        raise CaptureError("binary_probe_timeout")
+    if overflow:
+        raise CaptureError(overflow_class)
     if proc.returncode != 0:
         raise CaptureError("binary_probe_failed")
-    data = proc.stdout[:cap]
-    return data, len(proc.stdout) <= cap
+    return bytes(data), len(data) <= cap
 
 
 def _detect_flags(help_text: str) -> tuple[str, ...]:
@@ -394,7 +502,9 @@ def _detect_flags(help_text: str) -> tuple[str, ...]:
     return tuple(found)
 
 
-def preflight_binary(binary: Path, expected_version: str, expected_sha256: str) -> BinaryFacts:
+def preflight_binary(
+    binary: Path, expected_version: str, expected_sha256: str, probe_timeout: float = 15.0
+) -> BinaryFacts:
     """Read-only verification of the pinned release binary."""
     if not RUN_ID_RE.fullmatch(expected_version) and not VERSION_RE.fullmatch(expected_version):
         raise CaptureError("expected_version_invalid")
@@ -423,7 +533,12 @@ def preflight_binary(binary: Path, expected_version: str, expected_sha256: str) 
         raise CaptureError("binary_unreadable") from None
     if digest.hexdigest() != expected_sha256:
         raise CaptureError("binary_hash_mismatch")
-    version_data, _ = _run_bounded([str(binary), "--version"], HARD_MAX_VERSION_BYTES)
+    version_data, _ = _run_bounded(
+        [str(binary), "--version"],
+        HARD_MAX_VERSION_BYTES,
+        probe_timeout,
+        overflow_class="binary_version_over_bound",
+    )
     version_line = version_data.decode("utf-8", "replace").splitlines()
     version = version_line[0].strip() if version_line else ""
     # Expected form: "<tool> <version>" (e.g. "codex-cli 0.162.1").
@@ -431,7 +546,12 @@ def preflight_binary(binary: Path, expected_version: str, expected_sha256: str) 
     observed_version = parts[-1] if len(parts) >= 2 else version
     if not VERSION_RE.fullmatch(observed_version) or observed_version != expected_version:
         raise CaptureError("binary_version_mismatch")
-    help_data, complete = _run_bounded([str(binary), "exec", "--help"], HARD_MAX_HELP_BYTES)
+    help_data, complete = _run_bounded(
+        [str(binary), "exec", "--help"],
+        HARD_MAX_HELP_BYTES,
+        probe_timeout,
+        overflow_class="binary_help_over_bound",
+    )
     flags = _detect_flags(help_data.decode("utf-8", "replace"))
     if not complete:
         raise CaptureError("binary_help_over_bound")
@@ -497,32 +617,98 @@ def evaluate_startup_readiness(facts: BinaryFacts) -> ReadinessFacts:
     )
 
 
+READINESS_RECORD_MAX_BYTES = 16 * 1024
+
+
 def load_readiness_record(path: Path, facts: BinaryFacts) -> ReadinessFacts:
-    """Validate a previously written readiness record (metadata only)."""
+    """Validate a previously written readiness record (metadata only).
+
+    Closed validation: exact key set, closed verdict/reason enums, exact
+    binding to the live preflight facts (version, sha256, flag count),
+    the fixed startup-control candidate table, and protected metadata
+    read rules (regular non-symlink file, current owner, mode 0600,
+    bounded size). Any deviation fails closed with a sanitized class;
+    no record value ever reaches an exception, repr, or diagnostic.
+    A ``ready`` verdict in a record is caller-supplied external input
+    that can unlock the gated launch path; it is not evidence that the
+    real client's unverified startup controls were verified or applied.
+    """
+    try:
+        st = path.lstat()
+    except OSError:
+        raise CaptureError("readiness_record_invalid") from None
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        raise CaptureError("readiness_record_invalid")
+    if st.st_uid != os.getuid():
+        raise CaptureError("readiness_record_not_owned")
+    if st.st_mode & 0o077:
+        raise CaptureError("readiness_record_unsafe_mode")
+    if st.st_size > READINESS_RECORD_MAX_BYTES:
+        raise CaptureError("readiness_record_over_bound")
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         raise CaptureError("readiness_record_invalid") from None
-    if not isinstance(data, dict) or data.get("schema") != READINESS_SCHEMA:
+    if not isinstance(data, dict):
+        raise CaptureError("readiness_record_invalid")
+    expected_keys = {
+        "schema",
+        "verdict",
+        "reasons",
+        "binary_version",
+        "binary_sha256",
+        "detected_flag_count",
+        "control_candidates",
+    }
+    if set(data) != expected_keys or data.get("schema") != READINESS_SCHEMA:
+        raise CaptureError("readiness_record_invalid")
+    verdict = data.get("verdict")
+    if verdict not in {"ready", "not_ready"}:
+        raise CaptureError("readiness_record_invalid")
+    reasons = data.get("reasons")
+    if (
+        not isinstance(reasons, list)
+        or len(reasons) > len(READINESS_REASONS)
+        or not all(isinstance(r, str) for r in reasons)
+        or not set(reasons) <= READINESS_REASONS
+    ):
         raise CaptureError("readiness_record_invalid")
     if data.get("binary_sha256") != facts.sha256:
         raise CaptureError("readiness_record_binding_mismatch")
     if data.get("binary_version") != facts.version:
         raise CaptureError("readiness_record_binding_mismatch")
-    verdict = data.get("verdict")
-    reasons = data.get("reasons")
-    if verdict not in {"ready", "not_ready"} or not isinstance(reasons, list):
+    count = data.get("detected_flag_count")
+    if (
+        isinstance(count, bool)
+        or not isinstance(count, int)
+        or count < 0
+        or count > len(DECLARED_FLAG_SET)
+    ):
         raise CaptureError("readiness_record_invalid")
-    if not all(isinstance(r, str) for r in reasons):
+    if count != len(facts.detected_flags):
+        raise CaptureError("readiness_record_binding_mismatch")
+    candidates = data.get("control_candidates")
+    if (
+        not isinstance(candidates, list)
+        or len(candidates) != len(STARTUP_CONTROL_CANDIDATES)
+        or any(
+            not isinstance(c, dict)
+            or set(c) != {"name", "status"}
+            or c.get("name") != name
+            or c.get("status") != status
+            for c, (name, status) in zip(candidates, STARTUP_CONTROL_CANDIDATES, strict=True)
+        )
+    ):
         raise CaptureError("readiness_record_invalid")
     return ReadinessFacts(
         verdict=verdict,
         reasons=tuple(reasons),
         binary_version=str(data["binary_version"]),
         binary_sha256=str(data["binary_sha256"]),
-        # The record no longer carries flag text; the live preflight facts
-        # own the in-memory flag set.
-        detected_flags=(),
+        # The record carries the flag COUNT only (metadata law); the live
+        # preflight facts own the in-memory flag set. The tuple below is a
+        # length-only placeholder so ``to_record()`` round-trips the count.
+        detected_flags=tuple("") * count,
         control_candidates=STARTUP_CONTROL_CANDIDATES,
     )
 
@@ -566,17 +752,30 @@ def _rewrite_atomic_0600(path: Path, data: bytes) -> None:
 
 
 def _protected_dir(path: Path) -> None:
-    """Require/create a private owned 0700 directory (never follows links)."""
+    """Require/create a private owned directory (never follows links).
+
+    Pre-existing directories are accepted only when they are owned by
+    the current user and NOT group- or world-writable; they are never
+    chmoded, so a shared or foreign directory is rejected without
+    mutation (its mode and contents are preserved). Permission bits are
+    set only on directories THIS run creates.
+    """
+    if path.is_symlink():
+        raise CaptureError("protected_dir_invalid")
     if path.exists():
-        if path.is_symlink() or not path.is_dir():
+        if not path.is_dir():
             raise CaptureError("protected_dir_invalid")
         st = path.lstat()
         if st.st_uid != os.getuid():
             raise CaptureError("protected_dir_not_owned")
-        os.chmod(path, 0o700)
+        if st.st_mode & 0o022:
+            raise CaptureError("protected_dir_unsafe_preexisting")
         return
     parent = path.parent
     if not parent.is_dir() or parent.is_symlink():
+        raise CaptureError("protected_dir_parent_invalid")
+    pst = parent.lstat()
+    if pst.st_mode & 0o002:
         raise CaptureError("protected_dir_parent_invalid")
     try:
         os.mkdir(path, 0o700)
@@ -1162,29 +1361,42 @@ class _SilentRequestHandler(BaseHTTPRequestHandler):
             return None, 400
 
     # -- routes ------------------------------------------------------------
+    def _count_request(self) -> bool:
+        """Centralized per-run request accounting.
+
+        EVERY request that reaches a handler consumes the per-run
+        budget BEFORE any route, auth, body, or error outcome branch, so
+        unsupported and malformed fixture requests cannot evade the
+        cap. Authentication failures stay value-free (counter only).
+        Returns True when the cap is already hit (a sanitized 429 was
+        sent; the handler must stop).
+        """
+        st = self.provider.state
+        with st.lock:
+            st.request_count += 1
+            over = st.request_count > st.limits.max_requests
+            if over:
+                st.request_limit_hit = True
+        if over:
+            st.count_status(429)
+            self._send(429, b"rate limited\n", "text/plain")
+        return over
+
     def do_GET(self) -> None:  # noqa: N802 - http.server API
         st = self.provider.state
+        if self._count_request():
+            return
         if not self._headers_ok():
             st.count_status(400)
             self._send(400, b"bad request\n", "text/plain")
-            return
-        if self.path != "/v1/models":
-            st.count_status(404)
-            self._send(404, b"not found\n", "text/plain")
             return
         if not self._auth_ok():
             st.count_status(401)
             self._send(401, b"unauthorized\n", "text/plain")
             return
-        over_limit = False
-        with st.lock:
-            st.request_count += 1
-            if st.request_count > st.limits.max_requests:
-                st.request_limit_hit = True
-                over_limit = True
-        if over_limit:
-            st.count_status(429)
-            self._send(429, b"rate limited\n", "text/plain")
+        if self.path != "/v1/models":
+            st.count_status(404)
+            self._send(404, b"not found\n", "text/plain")
             return
         body = json.dumps(
             {"object": "list", "data": [{"id": st.model, "object": "model"}]},
@@ -1195,11 +1407,18 @@ class _SilentRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - http.server API
         st = self.provider.state
+        if self._count_request():
+            return
         if not self._headers_ok():
             st.count_status(400)
             self._send(400, b"bad request\n", "text/plain")
             return
+        if not self._auth_ok():
+            st.count_status(401)
+            self._send(401, b"unauthorized\n", "text/plain")
+            return
         if self.path != "/v1/responses":
+            # Unsupported route: bounded work, no body read, close.
             st.count_status(404)
             self._send(404, b"not found\n", "text/plain")
             return
@@ -1209,20 +1428,6 @@ class _SilentRequestHandler(BaseHTTPRequestHandler):
             st.count_status(status)
             self.close_connection = True
             self._send(status, b"bad request\n", "text/plain")
-            return
-        if not self._auth_ok():
-            st.count_status(401)
-            self._send(401, b"unauthorized\n", "text/plain")
-            return
-        over_limit = False
-        with st.lock:
-            st.request_count += 1
-            if st.request_count > st.limits.max_requests:
-                st.request_limit_hit = True
-                over_limit = True
-        if over_limit:
-            st.count_status(429)
-            self._send(429, b"rate limited\n", "text/plain")
             return
         status, response = self.provider.handle_responses_post(body)
         st.count_status(status)
@@ -1292,6 +1497,12 @@ def _frame_base(seq: int, request_seq: int, item_type: str, call_id: str) -> dic
         "exit_code": None,
         "parent_call_id": None,
         "output_field_names": None,
+        # selection-v2: exact received result text, retained only for
+        # proven selected synthetic frames (see module docstring law);
+        # None until byte-verified at run time, never reconstructed.
+        "content": None,
+        "content_bytes": None,
+        "content_verified": None,
     }
 
 
@@ -1332,7 +1543,41 @@ def _iter_items(payload: Any) -> tuple[list[dict[str, Any]], set[str]]:
     return items, unknown
 
 
-def _check_declared_command(arguments: Any, steps: tuple[DeclaredStep, ...]) -> int | None:
+def _issued_call_id(step_pos: int) -> str:
+    """The controller's exact issued call ID for the step at 0-based
+    position ``step_pos`` (the step machine issues one new call per
+    response, in step order)."""
+    return f"call_{step_pos + 1:02d}"
+
+
+def _issued_process_id(step_pos: int) -> str:
+    """The controller-issued process ID a result for the step at
+    ``step_pos`` must carry (or omit)."""
+    return f"proc_{step_pos + 1:02d}"
+
+
+def _issued_custom_input(step_pos: int) -> str:
+    """The controller-issued custom-tool input value for the step at
+    ``step_pos`` (expected argument value of an issued custom call)."""
+    return f"synthetic-custom-input-{step_pos + 1:02d}"
+
+
+def _parse_output_structured(output: Any) -> Any:
+    """Structured output payload as a dict, or None (never raises)."""
+    if isinstance(output, str):
+        try:
+            parsed = json.loads(output)
+        except (ValueError, RecursionError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    if isinstance(output, dict):
+        return output
+    return None
+
+
+def _declared_command_match(arguments: Any, steps: tuple[DeclaredStep, ...]) -> int | None:
+    """Position of the declared step whose exact command this
+    ``arguments`` string names (any declared step), or None."""
     if not isinstance(arguments, str):
         return None
     if len(arguments) > HARD_MAX_STEP_BYTES * 4:
@@ -1349,11 +1594,9 @@ def _check_declared_command(arguments: Any, steps: tuple[DeclaredStep, ...]) -> 
     workdir = parsed.get("workdir")
     if not isinstance(cmd, str) or not isinstance(workdir, str):
         return None
-    for step in steps:
-        if step.tool_name != "exec_command":
-            continue
-        if cmd == FakeProvider._declared_cmd(step) and workdir == step.workdir:
-            return step.index
+    for pos, step in enumerate(steps):
+        if cmd == step.cmd_text() and workdir == step.workdir:
+            return pos
     return None
 
 
@@ -1365,7 +1608,18 @@ def extract_frames(
     request_seq: int,
     mode: str,
 ) -> tuple[list[dict[str, Any]], dict[str, int], frozenset[str]]:
-    """Extract allowlisted frames from ONE parsed request payload."""
+    """Extract PROVEN selected frames from ONE parsed request payload.
+
+    Selection is bound to the controller's issued call records: the
+    exact issued call ID for a step position, the tool family/name, the
+    declared step/command and expected argument values, and the
+    controller-issued process ID for results. The controller advances a
+    step only after a completed output for every earlier step, so that
+    progression is required before a later step's call counts as
+    issued. Unissued, orphaned, conflicting, mismatched, or wrong-mode
+    items are rejected with a fixed reason; their raw values are never
+    stored. The input payload is never mutated.
+    """
     frames: list[dict[str, Any]] = []
     rejections: dict[str, int] = {}
     items, unknown_types = _iter_items(payload)
@@ -1374,6 +1628,34 @@ def extract_frames(
     def reject(reason: str) -> None:
         rejections[reason] = rejections.get(reason, 0) + 1
 
+    # Issued IDs: one per declared step position (the step machine
+    # issues them in order). A call/result is only ever proven by its
+    # exact issued ID plus the declared binding below.
+    issued_positions = {_issued_call_id(pos): pos for pos in range(len(declared_steps))}
+    declared_names = {s.tool_name for s in declared_steps}
+    # Controller advancement evidence: a step position counts as
+    # completed in this request's input only when a structurally valid
+    # completed output for its issued ID with controller-issued
+    # metadata is present. An unissued process ID, or any session/chunk
+    # ID, is unearned metadata and never unlocks a later step's call.
+    completed: set[int] = set()
+    for entry in items:
+        if entry.get("type") not in {"function_call_output", "custom_tool_call_output"}:
+            continue
+        cid = _bounded_str(entry.get("call_id"), HARD_MAX_CALL_ID_BYTES)
+        if cid is None or cid not in issued_positions:
+            continue
+        pos = issued_positions[cid]
+        structured = _parse_output_structured(entry.get("output"))
+        if not isinstance(structured, dict) or structured.get("status") != "completed":
+            continue
+        process_id = structured.get("process_id")
+        if process_id is not None and process_id != _issued_process_id(pos):
+            continue
+        if "session_id" in structured or "chunk_id" in structured:
+            continue
+        completed.add(pos)
+
     for entry in items:
         item_type = entry.get("type")
         call_id = _bounded_str(entry.get("call_id"), HARD_MAX_CALL_ID_BYTES)
@@ -1381,38 +1663,76 @@ def extract_frames(
             if isinstance(item_type, str) and item_type in ITEM_TYPES:
                 reject("call_id_invalid")
             continue
+        pos = issued_positions.get(call_id)
         seq += 1
         frame = _frame_base(seq, request_seq, item_type, call_id)
 
         if item_type in {"function_call", "custom_tool_call"}:
             name = _bounded_str(entry.get("name"), HARD_MAX_NAME_BYTES)
-            if name is None or name not in {s.tool_name for s in declared_steps}:
+            if name is None or name not in declared_names:
                 reject("name_not_declared")
                 continue
             frame["name"] = name
+            # Declared-command check first (fixed taxonomy: an
+            # undeclared command is command_not_declared regardless of
+            # the ID).
+            matched: int | None
             if item_type == "function_call":
-                index = _check_declared_command(entry.get("arguments"), declared_steps)
-                if index is None:
+                matched = _declared_command_match(entry.get("arguments"), declared_steps)
+                if matched is None:
                     reject("command_not_declared")
                     continue
-                frame["declared_command_index"] = index
+            else:
+                matched = None
+            if pos is None:
+                # Syntactically valid ID the controller never issued.
+                reject("call_id_unissued")
+                continue
+            step = declared_steps[pos]
+            if name != step.tool_name:
+                # The ID belongs to a different step than the name.
+                reject("call_id_unissued")
+                continue
+            if item_type == "function_call":
+                if matched != pos:
+                    # Declared command of a DIFFERENT step than the
+                    # issued ID names: conflicting, never proven.
+                    reject("call_id_unissued")
+                    continue
             else:
                 tool_input = entry.get("input")
                 if not isinstance(tool_input, str) or not tool_input:
                     reject("input_shape_unsupported")
                     continue
+                input_bytes = tool_input.encode("utf-8")
+                if len(input_bytes) > HARD_MAX_METADATA_BYTES * 4:
+                    reject("metadata_value_over_bound")
+                    continue
                 if canary in tool_input:
                     reject("credential_marker_present")
                     continue
-                data = tool_input.encode("utf-8")
-                if len(data) > HARD_MAX_METADATA_BYTES * 4:
-                    reject("metadata_value_over_bound")
+                if tool_input != _issued_custom_input(pos):
+                    # Not the exact expected argument value the
+                    # controller issued for this call ID.
+                    reject("call_id_unissued")
                     continue
-                frame["input_digest"] = _digest_bytes(data)
-                frame["input_bytes"] = len(data)
+                frame["input_digest"] = _digest_bytes(input_bytes)
+                frame["input_bytes"] = len(input_bytes)
+            # Controller progression: every earlier step must have a
+            # completed output in this request's input, or this call
+            # was never issued at this point.
+            if any(j not in completed for j in range(pos)):
+                reject("call_id_unissued")
+                continue
+            frame["declared_command_index"] = pos
             frames.append(frame)
         else:
-            # Output frames.
+            # Output frames: the call ID must be an issued ID (an
+            # orphan result naming an unissued call is rejected and its
+            # raw value is never stored).
+            if pos is None:
+                reject("call_id_unissued")
+                continue
             output = entry.get("output")
             payload_bytes = _output_payload_bytes(output)
             if payload_bytes is None:
@@ -1423,20 +1743,15 @@ def extract_frames(
                 continue
             frame["output_digest"] = _digest_bytes(payload_bytes)
             frame["output_bytes"] = len(payload_bytes)
-            structured: Any = output
-            if isinstance(output, str):
-                # A string output may carry a JSON object wrapper inside
-                # the exact bytes; the digest always stays on the raw bytes.
-                try:
-                    parsed = json.loads(output)
-                except (ValueError, RecursionError):
-                    parsed = None
-                if isinstance(parsed, dict):
-                    structured = parsed
-            if not isinstance(structured, dict):
-                # Plain-string (non-JSON) outputs carry no declared
-                # completion metadata: digest/bytes only; the transition
-                # stays incomplete (never "completed").
+            structured: Any = _parse_output_structured(output)
+            if structured is None:
+                # Plain-string (non-JSON) output: the exact received
+                # text IS the controlled synthetic result payload for a
+                # proven selected frame; digest stays on the raw bytes
+                # and no completion metadata is invented.
+                if isinstance(output, str):
+                    frame["content"] = output
+                    frame["content_bytes"] = len(payload_bytes)
                 frames.append(frame)
                 continue
             names = sorted(structured.keys())
@@ -1450,12 +1765,29 @@ def extract_frames(
             frame["output_field_names"] = names
             bad = False
             for key in ("process_id", "session_id", "chunk_id"):
-                value = _bounded_str(structured.get(key), HARD_MAX_METADATA_BYTES)
-                if structured.get(key) is not None and value is None:
-                    reject("metadata_value_over_bound")
+                value = structured.get(key)
+                if value is None:
+                    continue
+                if key == "process_id":
+                    v = _bounded_str(value, HARD_MAX_METADATA_BYTES)
+                    if v is None:
+                        reject("metadata_value_over_bound")
+                        bad = True
+                        break
+                    if v != _issued_process_id(pos):
+                        # Not the controller-issued process ID for this
+                        # call: unearned metadata, rejected, never
+                        # stored.
+                        reject("metadata_unissued")
+                        bad = True
+                        break
+                    frame["process_id"] = v
+                else:
+                    # session_id/chunk_id are not controller-issued
+                    # values; any presence is typed and rejected.
+                    reject("metadata_unissued")
                     bad = True
                     break
-                frame[key] = value
             if bad:
                 continue
             exit_code = structured.get("exit_code")
@@ -1482,6 +1814,23 @@ def extract_frames(
                     reject("output_shape_unsupported")
                     continue
                 frame["status"] = status
+            if "content" in structured:
+                content = structured.get("content")
+                if not isinstance(content, str):
+                    # Unknown/unearned result shape: typed, metadata
+                    # only, never stored.
+                    reject("output_shape_unsupported")
+                    continue
+                content_bytes = content.encode("utf-8")
+                if len(content_bytes) > HARD_MAX_INBOUND_BYTES:
+                    reject("metadata_value_over_bound")
+                    continue
+                # Lossless retention of the exact received text for a
+                # proven selected synthetic frame (selection-v2); the
+                # run-time byte verification against the owned seeded
+                # workspace happens in _verify_selected_content.
+                frame["content"] = content
+                frame["content_bytes"] = len(content_bytes)
             frames.append(frame)
     return frames, rejections, frozenset(unknown_types)
 
@@ -1550,10 +1899,8 @@ def build_selection(
     client_sha256: str | None,
 ) -> dict[str, Any]:
     frames = sorted(state.frames, key=lambda f: (f["request_seq"], f["seq"]))
-    total = sum(f["output_bytes"] or 0 for f in frames)
-    total += sum(f["input_bytes"] or 0 for f in frames)
     provenance = "synthetic-offline" if child_kind == "synthetic" else "actual-capture"
-    return {
+    record: dict[str, Any] = {
         "schema": SELECTION_SCHEMA,
         "provenance": provenance,
         "fixture_authority": "none",
@@ -1580,8 +1927,50 @@ def build_selection(
                 else _digest_bytes("\n".join(sorted(state.unsupported_item_types)).encode("utf-8"))
             ),
         },
-        "selected_bytes_total": total,
+        # Exact UTF-8 byte length of the canonical serialization of THIS
+        # record (metadata and serialization overhead included); see
+        # serialize_selection. It is the unit the per-run selected-byte
+        # cap is enforced on.
+        "selected_bytes_total": 0,
     }
+    record["selected_bytes_total"] = _selection_self_size(record)
+    return record
+
+
+def _selection_bytes(record: dict[str, Any]) -> bytes:
+    """Canonical serialization: indent=1, sorted keys, trailing newline."""
+    return (json.dumps(record, indent=1, sort_keys=True) + "\n").encode("utf-8")
+
+
+def _selection_self_size(record: dict[str, Any]) -> int:
+    """Self-consistent serialized size of the record.
+
+    The record embeds its own serialized byte length, so the value is
+    the fixed point ``v == size(record with selected_bytes_total=v)``.
+    The iteration converges because the size only depends on the field's
+    decimal width.
+    """
+    value = 0
+    for _ in range(16):
+        record["selected_bytes_total"] = value
+        size = len(_selection_bytes(record))
+        if size == value:
+            return size
+        value = size
+    raise CaptureError("selection_size_unstable")
+
+
+def serialize_selection(record: dict[str, Any]) -> bytes:
+    """The exact bytes a run publishes as ``selection.json``.
+
+    Serialize once, validate once, publish those same bytes: the
+    returned length equals ``record["selected_bytes_total"]``, and the
+    per-run selected-byte cap is enforced on this length.
+    """
+    data = _selection_bytes(record)
+    if record.get("selected_bytes_total") != len(data):
+        raise CaptureError("selection_size_unstable")
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -1711,6 +2100,9 @@ class ChildFacts:
     timed_out: bool
     output_cap_exceeded: bool
     group_cleanup_verified: bool
+    # Bounded, honest report of the teardown window: wall-clock seconds
+    # from leader exit until the owned group was verified gone.
+    teardown_seconds: float | None = None
 
 
 def _group_members_gone(pgid: int, grace_seconds: float = 10.0) -> bool:
@@ -1867,8 +2259,20 @@ def run_child(
             proc.wait(timeout=HARD_CHILD_IO_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             pass
-    out_thread.join(timeout=HARD_CHILD_IO_TIMEOUT_SECONDS)
-    err_thread.join(timeout=HARD_CHILD_IO_TIMEOUT_SECONDS)
+    leader_exited_at = time.monotonic()
+    # Absolute active-run deadline across owned descendants: a normal
+    # leader exit never disables the deadline. Never wait past the
+    # deadline for inherited pipe drains.
+    remaining = deadline - time.monotonic()
+    out_thread.join(timeout=max(0.0, remaining))
+    err_thread.join(timeout=max(0.0, remaining))
+    if time.monotonic() >= deadline:
+        # The deadline arrived while owned descendants (e.g. pipe
+        # holders) may still run: terminate/reap the owned group NOW,
+        # then finish draining with a bounded teardown grace only.
+        _reap_group_members(pgid, grace_seconds=TEARDOWN_GRACE_SECONDS)
+        out_thread.join(timeout=TEARDOWN_GRACE_SECONDS)
+        err_thread.join(timeout=TEARDOWN_GRACE_SECONDS)
     for stream in (proc.stdout, proc.stderr):
         try:
             stream.close()
@@ -1888,7 +2292,6 @@ def run_child(
     # owned pgid is ever signalled; unrelated processes are untouched.
     _reap_group_members(pgid)
     group_gone = _group_members_gone(pgid)
-    _ = deadline
     return ChildFacts(
         returncode=proc.returncode,
         stdout_bytes=stdout_bytes,
@@ -1896,6 +2299,7 @@ def run_child(
         timed_out=timed_out,
         output_cap_exceeded=cap,
         group_cleanup_verified=group_gone,
+        teardown_seconds=round(time.monotonic() - leader_exited_at, 3),
     )
 
 
@@ -1945,6 +2349,7 @@ def cleanup_root(root: Path) -> int:
 SYNTHETIC_MODEL = "synthetic-capture-model"
 CONTROL_SCHEMA = "slaif-real-client-capture-control-v1"
 DRAIN_GRACE_SECONDS = 2.0
+TEARDOWN_GRACE_SECONDS = 2.0
 HARD_REQUEST_READ_TIMEOUT_SECONDS = 2.0
 PROVIDER_ERROR_EXIT = 65
 UNDECLARED_COMMAND_EXIT = 64
@@ -1980,13 +2385,56 @@ def _provider_summary(state: ProviderState) -> dict[str, Any]:
         }
 
 
+def _verify_selected_content(
+    state: ProviderState, steps: tuple[DeclaredStep, ...], workspace: Path
+) -> None:
+    """Byte-validate selected result text against the owned workspace.
+
+    Only text that EXACTLY equals the bytes this run seeded into the
+    owned workspace for the declared read path (or the exact empty
+    payload of a sleep step) is retained as controlled synthetic
+    content. Anything else is stripped (metadata + exact-byte digest
+    retained) and counted with the fixed content_unverified reason.
+    Nothing is ever reconstructed from hashes, constants, or guessed
+    metadata.
+    """
+    issued = {_issued_call_id(pos): pos for pos in range(len(steps))}
+    for frame in state.frames:
+        if frame["item_type"] not in {"function_call_output", "custom_tool_call_output"}:
+            frame["content_verified"] = None
+            continue
+        content = frame.get("content")
+        if content is None:
+            frame["content_verified"] = None
+            continue
+        pos = issued.get(frame["call_id"])
+        if pos is None:
+            state.reject_frame("content_unverified")
+            frame["content"] = None
+            frame["content_bytes"] = None
+            frame["content_verified"] = False
+            continue
+        step = steps[pos]
+        try:
+            seeded = (workspace / step.path).read_bytes() if step.kind == "read" else b""
+        except OSError:
+            seeded = None
+        if seeded is not None and content.encode("utf-8") == seeded:
+            frame["content_verified"] = True
+        else:
+            state.reject_frame("content_unverified")
+            frame["content"] = None
+            frame["content_bytes"] = None
+            frame["content_verified"] = False
+
+
 def _select_outcome(
     state: ProviderState,
     child: ChildFacts,
-    total_selected: int,
-    limits: CaptureLimits,
 ) -> tuple[str, bool]:
-    """Return (outcome, selection_written)."""
+    """Return (outcome, build_selection). The selected-byte cap is
+    enforced separately on the EXACT serialized selection bytes (see
+    serialize_selection), never on a different accounting."""
     if state.fatal_mode_mismatch:
         return "tool_mode_mismatch", False
     if state.request_limit_hit:
@@ -1999,8 +2447,6 @@ def _select_outcome(
         return "provider_error", False
     if child.returncode != 0:
         return "child_failure", False
-    if total_selected > limits.max_selected_bytes:
-        return "selected_over_bound", False
     return "completed", True
 
 
@@ -2155,15 +2601,17 @@ def run_capture(
             stdin_bytes=stdin_bytes,
         )
         child_env_facts = collect_child_env_facts(scratch)
+        # Byte-verify selected result text against the owned seeded
+        # workspace BEFORE any selection is serialized or published.
+        _verify_selected_content(provider.state, declared_steps, scratch.workspace)
         # Bounded drain grace for in-flight provider requests, then stop.
         time.sleep(min(DRAIN_GRACE_SECONDS, eff_limits.deadline_seconds / 4))
         provider.stop()
         state = provider.state
         provider_summary = _provider_summary(state)
-        total_selected = sum(f["output_bytes"] or 0 for f in state.frames) + sum(
-            f["input_bytes"] or 0 for f in state.frames
-        )
-        outcome, write_selection = _select_outcome(state, child_facts, total_selected, eff_limits)
+        outcome, write_selection = _select_outcome(state, child_facts)
+        total_selected = 0
+        selection_data: bytes | None = None
         if write_selection:
             selection_record = build_selection(
                 run_id=run_id,
@@ -2175,7 +2623,20 @@ def run_capture(
                 client_version=client_version,
                 client_sha256=client_sha256,
             )
-            selection_path = _write_record(out_dir / "selection.json", selection_record)
+            # Serialize ONCE; the cap applies to the EXACT UTF-8 bytes
+            # that will be published (metadata and serialization
+            # overhead included); publish those same bytes.
+            selection_data = serialize_selection(selection_record)
+            total_selected = len(selection_data)
+            if total_selected > eff_limits.max_selected_bytes:
+                outcome = "selected_over_bound"
+                write_selection = False
+                selection_record = None
+                selection_data = None
+                total_selected = 0
+        if write_selection and selection_data is not None:
+            selection_path = out_dir / "selection.json"
+            _write_atomic_0600(selection_path, selection_data)
         run_record = {
             "schema": RUN_SCHEMA,
             "run_id": run_id,
@@ -2194,14 +2655,18 @@ def run_capture(
                 "timed_out": child_facts.timed_out,
                 "output_cap_exceeded": child_facts.output_cap_exceeded,
                 "group_cleanup_verified": child_facts.group_cleanup_verified,
+                "teardown_seconds": child_facts.teardown_seconds,
                 "env_facts": child_env_facts,
             },
             "selection": {
                 "frame_count": len(state.frames),
                 "transition_count": len(build_transitions(state.frames)),
+                # Exact UTF-8 bytes of the published selection.json
+                # record (metadata and serialization overhead included);
+                # 0 when no selection was published.
                 "selected_bytes_total": total_selected,
                 "rejected_counts": dict(state.rejection_counts),
-                "written": write_selection,
+                "written": write_selection and selection_data is not None,
             },
             "scratch_entries_removed": scratch_entries_removed,
             "limits": {
