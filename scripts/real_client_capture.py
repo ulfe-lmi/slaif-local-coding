@@ -36,7 +36,28 @@ sanitized errors, and accepted handler concurrency is bounded;
 faithfully (no placeholder tuples), and malformed Unicode (e.g. lone
 surrogates) is rejected with the fixed typed ``malformed_unicode``
 reason before any encoding/hashing/retention, with the raw value
-stored nowhere and no lossy replacement.
+stored nowhere and no lossy replacement. Round 017-l repaired the two
+remaining offline capture boundaries exposed by a third independent
+review: (5) quiesce now closes every ADMISSION-OWNED request socket
+(a bounded registry capped at the concurrent-handler cap) after the
+accept loop stops and the listening socket closes, so an in-flight
+bounded body read that a per-read timeout cannot stop (a progressing
+drip) is unblocked by an effective socket shutdown and the peer
+observes closure before the bounded handler join; thread-start
+failure is counted and the socket closed; repeated stop is safe; and
+an incomplete teardown (a handler that outlives the bounded grace)
+can no longer yield a completed outcome (fixed ``cleanup_failed``,
+no raw error details); (6) selected result-text verification is
+bound to the IMMUTABLE ORIGINAL seed bytes (the default synthetic
+workspace files plus every explicitly supplied extra synthetic
+workspace file) recorded BEFORE the child launches -- never to the
+child-writable workspace file reread at finalization -- so a child
+that rewrites its own seed after receiving a legitimately issued read
+can no longer redefine the purported original: the received text is
+compared against that pre-launch original, and tampered or unverified
+text is stripped with the fixed ``content_unverified`` reason (or a
+typed non-echoing failure plus safe cleanup) and reaches no persisted
+record, console, repr, or diagnostic.
 
 The actual-client launch path exists in code and is GATED, not
 unreachable by construction: a caller that supplies an explicit opt-in,
@@ -106,11 +127,20 @@ Hard law (implemented as fail-closed code, not documentary warnings):
   commands.
 - Selected synthetic result TEXT is retained losslessly (selection
   schema v2) only after strict ownership, source/shape, and byte
-  validation: at run time the exact received text of a selected read
-  result must equal the bytes THIS RUN seeded into the owned workspace
-  for the declared path (sleep steps: the exact empty payload), or the
-  text is stripped (metadata + exact-byte digest retained) and a fixed
-  ``content_unverified`` count is recorded. This is a narrow
+  validation against the IMMUTABLE ORIGINAL seed bytes: the exact
+  bytes this run seeded (the default synthetic workspace files plus
+  every explicitly supplied extra synthetic workspace file) are bound
+  in memory BEFORE the child launches, and at run time the exact
+  received text of a selected read result must equal that original
+  for the declared path (sleep steps: the exact empty payload), or
+  the text is stripped (metadata + exact-byte digest retained) and a
+  fixed ``content_unverified`` count is recorded -- or a typed
+  non-echoing failure with safe cleanup is raised. A child that
+  rewrites its own seed file after receiving a legitimately issued
+  read cannot redefine the purported original: the comparison never
+  reads a child-writable file at finalization, and tampered or
+  unverified text reaches no persisted record, console, repr, or
+  diagnostic. This is a narrow
   synthetic-fixture export permission, NOT permission to save full
   requests, user/system/developer messages, tool schemas, headers,
   histories, unknown child stdout/stderr, credentials, or unrelated
@@ -129,13 +159,20 @@ Hard law (implemented as fail-closed code, not documentary warnings):
   bytes; exceedance is a fixed typed failure with no oversized or
   partial artifact.
 - Finalization QUIESCES the owned provider before any final validation
-  or publication: the frame state is frozen (no further appends, ever),
-  the accept loop stops, the listening socket closes, and in-flight
+  or publication: the frame state is frozen (no further appends,
+  ever), the accept loop stops, the listening socket closes, EVERY
+  admission-owned request socket is shut down and closed (a bounded
+  registry capped at the concurrent-handler cap) so that an in-flight
+  bounded read a per-read timeout cannot stop (a progressing drip) is
+  unblocked and the peer observes closure, and the remaining in-flight
   handler work is joined under a bounded grace; validation and
   serialization then operate on the explicit frozen frame snapshot, so
   no late or in-flight append can reach a persisted record, console,
-  repr, diagnostic, or error. Unsuccessful cleanup is reported
-  honestly, never hidden.
+  repr, diagnostic, or error. Thread-start failure is counted and its
+  socket closed; repeated stop is safe; and an incomplete teardown (a
+  handler that outlives the bounded grace) is reported honestly, never
+  hidden, and can never yield a completed outcome (fixed
+  ``cleanup_failed`` with no raw error details).
 - EVERY request method and error-dispatch path reaching the owned
   provider -- known routes, unsupported routes, unsupported HTTP
   methods, malformed request lines, unsupported versions, oversize
@@ -188,6 +225,7 @@ import re
 import secrets
 import select
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -1068,6 +1106,16 @@ class _OwnedThreadingHTTPServer(ThreadingHTTPServer):
     owner can join them under a bounded grace at quiesce time, and
     handler exceptions are counted, never printed (no traceback may
     echo raw content to the console).
+
+    Every ADMISSION-OWNED request socket is additionally tracked in a
+    bounded registry (capped at the concurrent-handler cap, so it
+    can never grow past the admission cap). At quiesce the owner
+    shuts down and closes every admitted socket BEFORE the bounded
+    handler join: an in-flight bounded read that a per-read timeout
+    cannot stop (a progressing drip) is thereby unblocked by an
+    effective socket shutdown, and the peer observes closure. Only
+    sockets admitted by THIS server are ever touched; unrelated
+    sockets and processes are never seen here.
     """
 
     daemon_threads = True
@@ -1083,6 +1131,8 @@ class _OwnedThreadingHTTPServer(ThreadingHTTPServer):
         self.state = state
         self._handler_count = 0
         self._handler_lock = threading.Lock()
+        self._admitted: set[Any] = set()
+        self._closing = False
 
     def handle_error(self, request: Any, client_address: Any) -> None:  # noqa: N802
         # Count only: the stdlib prints the traceback, which is a
@@ -1092,8 +1142,25 @@ class _OwnedThreadingHTTPServer(ThreadingHTTPServer):
         except Exception:  # noqa: BLE001
             pass
 
+    def begin_quiesce(self) -> None:
+        """Refuse further admissions; idempotent, race-safe.
+
+        Set BEFORE the accept loop stops so a connection accepted in
+        the accept/shutdown race is rejected and closed (counted)
+        instead of spawning an unjoinable handler.
+        """
+        with self._handler_lock:
+            self._closing = True
+
     def process_request(self, request: Any, client_address: Any) -> None:  # noqa: N802
         with self._handler_lock:
+            if self._closing:
+                self.state.rejected_connections += 1
+                try:
+                    request.close()
+                except OSError:
+                    pass
+                return
             if self._handler_count >= HARD_MAX_CONCURRENT_HANDLERS:
                 self.state.rejected_connections += 1
                 try:
@@ -1101,18 +1168,68 @@ class _OwnedThreadingHTTPServer(ThreadingHTTPServer):
                 except OSError:
                     pass
                 return
+            if len(self._admitted) >= HARD_MAX_CONCURRENT_HANDLERS:
+                # Registry bound (defense in depth; the handler cap
+                # above already prevents this).
+                self.state.rejected_connections += 1
+                try:
+                    request.close()
+                except OSError:
+                    pass
+                return
             self._handler_count += 1
+            self._admitted.add(request)
         thread = threading.Thread(
             target=self._tracked_request, args=(request, client_address), daemon=True
         )
-        thread.start()
+        try:
+            thread.start()
+        except RuntimeError:
+            # Bounded thread-start failure: counted, socket closed,
+            # no handler thread left behind.
+            with self._handler_lock:
+                self._handler_count -= 1
+                self._admitted.discard(request)
+            self.state.rejected_connections += 1
+            try:
+                request.close()
+            except OSError:
+                pass
 
     def _tracked_request(self, request: Any, client_address: Any) -> None:
         try:
             self.process_request_thread(request, client_address)
         finally:
             with self._handler_lock:
+                self._admitted.discard(request)
                 self._handler_count -= 1
+
+    def admitted_sockets(self) -> list[Any]:
+        with self._handler_lock:
+            return list(self._admitted)
+
+    def active_admissions(self) -> int:
+        with self._handler_lock:
+            return len(self._admitted)
+
+    def close_admitted_sockets(self) -> None:
+        """Shut down and close every admitted owned request socket.
+
+        An effective shutdown (not a bare close) is used because the
+        handler may hold socket.makefile references blocked in a
+        progressing read; the shutdown unblocks them. Races are safe:
+        a socket the handler already closed raises OSError, which is
+        the expected no-op outcome, and repeated calls are no-ops.
+        """
+        for sock in self.admitted_sockets():
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                sock.close()
+            except OSError:
+                pass
 
     def active_handlers(self) -> int:
         with self._handler_lock:
@@ -1156,11 +1273,18 @@ class FakeProvider:
 
         Order: freeze first (the append path rechecks the gate under
         the state lock, so NO further frame append can happen from
-        this point on), stop the accept loop, close the listening
-        socket, then join in-flight handler work under a bounded
-        grace. A handler that outlives the grace is reported honestly
-        (``teardown_incomplete``) and can still never reach the
-        frozen snapshot or a published record. Idempotent.
+        this point on), refuse further admissions, stop the accept
+        loop, close the listening socket, close every ADMISSION-OWNED
+        request socket (a bounded read that a per-read timeout cannot
+        stop is thereby unblocked by an effective socket shutdown and
+        the peer observes closure), then join the remaining in-flight
+        handler work under a bounded grace. A handler that outlives
+        the grace is reported honestly (``teardown_incomplete``), can
+        still never reach the frozen snapshot or a published record,
+        and can never yield a completed outcome (see
+        :func:`_select_outcome`). Idempotent and safe to repeat: the
+        second call finds no server or thread and only re-asserts the
+        freeze gate.
         """
         st = self.state
         with st.lock:
@@ -1168,6 +1292,22 @@ class FakeProvider:
         server = self._server
         self._server = None
         if server is not None:
+            try:
+                server.begin_quiesce()
+            except Exception:  # noqa: BLE001 - quiesce must never raise
+                pass
+            if server is not None:
+                # Close the admitted owned request sockets as soon as
+                # no new admission can join the registry: an in-flight
+                # progressing read (which a per-read timeout cannot
+                # stop) is unblocked by an effective socket shutdown,
+                # so the handlers below cannot pin the bounded join.
+                # A bare close may leave socket.makefile references
+                # blocked; the shutdown does not.
+                try:
+                    server.close_admitted_sockets()
+                except Exception:  # noqa: BLE001 - quiesce must never raise
+                    pass
             try:
                 server.shutdown()
             except Exception:  # noqa: BLE001 - quiesce must never raise
@@ -1181,9 +1321,11 @@ class FakeProvider:
             self._thread = None
         if server is not None:
             deadline = time.monotonic() + HARD_HANDLER_JOIN_GRACE_SECONDS
-            while server.active_handlers() > 0 and time.monotonic() < deadline:
+            while (
+                server.active_handlers() > 0 or server.active_admissions() > 0
+            ) and time.monotonic() < deadline:
                 time.sleep(0.01)
-            if server.active_handlers() > 0:
+            if server.active_handlers() > 0 or server.active_admissions() > 0:
                 st.teardown_incomplete = True
 
     def frame_snapshot(self) -> list[dict[str, Any]]:
@@ -2681,18 +2823,26 @@ def _verify_selected_content(
     frames: list[dict[str, Any]],
     state: ProviderState,
     steps: tuple[DeclaredStep, ...],
-    workspace: Path,
+    original_seeds: dict[str, bytes],
 ) -> None:
-    """Byte-validate selected result text against the owned workspace.
+    """Byte-validate selected result text against the immutable
+    ORIGINAL seed bytes.
 
     ``frames`` is the FROZEN snapshot taken after the owned provider
     was quiesced (frozen + handler join), so no later append can reach
-    this validation or the published record. Only text that EXACTLY
-    equals the bytes this run seeded into the owned workspace for the
-    declared read path (or the exact empty payload of a sleep step) is
-    retained as controlled synthetic content. Anything else is
-    stripped (metadata + exact-byte digest retained) and counted with
-    the fixed content_unverified reason. Nothing is ever
+    this validation or the published record. ``original_seeds`` is the
+    exact byte binding of every seed this run wrote (the default
+    synthetic workspace files plus every explicitly supplied extra
+    synthetic workspace file), recorded BEFORE the child launched.
+    Only text that EXACTLY equals that original for the declared read
+    path (or the exact empty payload of a sleep step) is retained as
+    controlled synthetic content. The comparison never reads a
+    child-writable file at finalization: a child that rewrites its
+    own seed after receiving a legitimately issued read cannot
+    redefine the purported original, and the tampered or unverified
+    text is stripped (metadata + exact-byte digest retained) and
+    counted with the fixed content_unverified reason -- reaching no
+    persisted record, console, repr, or diagnostic. Nothing is ever
     reconstructed from hashes, constants, or guessed metadata.
     """
     issued = {_issued_call_id(pos): pos for pos in range(len(steps))}
@@ -2712,10 +2862,12 @@ def _verify_selected_content(
             frame["content_verified"] = False
             continue
         step = steps[pos]
-        try:
-            seeded = (workspace / step.path).read_bytes() if step.kind == "read" else b""
-        except OSError:
-            seeded = None
+        if step.kind == "read":
+            # The immutable pre-launch original, never a
+            # child-writable file reread at finalization.
+            seeded = original_seeds.get(step.path)
+        else:
+            seeded = b""
         # Defense in depth: retained content is already strict-UTF-8
         # from extraction; a None encode can never verify.
         content_bytes = _strict_utf8(content)
@@ -2734,7 +2886,14 @@ def _select_outcome(
 ) -> tuple[str, bool]:
     """Return (outcome, build_selection). The selected-byte cap is
     enforced separately on the EXACT serialized selection bytes (see
-    serialize_selection), never on a different accounting."""
+    serialize_selection), never on a different accounting. An
+    incomplete owned-I/O teardown (a handler that outlives the
+    bounded quiesce grace) is a fixed truthful failure: it can never
+    yield a completed/qualified run, and carries no raw error
+    details (the fixed enum plus the honest boolean in the run
+    record are the whole report)."""
+    if state.teardown_incomplete:
+        return "cleanup_failed", False
     if state.fatal_mode_mismatch:
         return "tool_mode_mismatch", False
     if state.request_limit_hit:
@@ -2825,6 +2984,15 @@ def run_capture(
 
     scratch_base_eff = scratch_base if scratch_base is not None else out_dir / "scratch"
     scratch = setup_scratch(scratch_base_eff, run_id, workspace_files)
+    # IMMUTABLE original seed binding, recorded BEFORE the child
+    # launches: the exact bytes setup_scratch just wrote (the default
+    # synthetic workspace files plus every explicitly supplied extra
+    # synthetic workspace file, names/bounds already validated).
+    # Finalization compares received selected text against THIS
+    # binding, never against a child-writable file.
+    original_seeds: dict[str, bytes] = {name: data for name, data in WORKSPACE_FILES}
+    for name, data in workspace_files:
+        original_seeds[name] = data
     token = secrets.token_hex(16)
     outcome = "setup_failed"
     child_facts = ChildFacts(None, 0, 0, False, False, False)
@@ -2913,10 +3081,10 @@ def run_capture(
         # operate on it, never on the live list, so no late or
         # in-flight append can reach a published record.
         frame_snapshot = provider.frame_snapshot()
-        # Byte-verify selected result text against the owned seeded
-        # workspace in the frozen snapshot BEFORE any selection is
-        # serialized or published.
-        _verify_selected_content(frame_snapshot, state, declared_steps, scratch.workspace)
+        # Byte-verify selected result text in the frozen snapshot
+        # against the IMMUTABLE pre-launch original seed binding,
+        # BEFORE any selection is serialized or published.
+        _verify_selected_content(frame_snapshot, state, declared_steps, original_seeds)
         provider_summary = _provider_summary(state)
         outcome, write_selection = _select_outcome(state, child_facts)
         total_selected = 0

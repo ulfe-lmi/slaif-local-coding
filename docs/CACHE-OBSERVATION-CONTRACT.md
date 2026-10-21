@@ -843,8 +843,38 @@ encoding/hashing/retention, with the raw value stored nowhere and
 no lossy replacement. This round still performs no actual client,
 provider session, or model call; the actual capture and the
 process/chunk collector remain `NOT RUN`.
+Round 017-l repaired the two remaining offline capture
+boundaries on that same inert utility (still not wired into the
+adapter runtime) from a third independent review: a new
+source-driven probe at the 017-k implementation head exposed 2
+failures among 5 checks with 3 valid positive controls
+(`check-capture-owned-io-and-seed-v2.py`; the fourteen prior frozen
+scripts and their hashes remain unchanged and passing). 017-l
+repaired those two bounded defects: (1) quiesce now closes every
+ADMISSION-OWNED request socket (a bounded registry capped at the
+concurrent-handler cap) as soon as no new admission can join it, so
+an in-flight bounded body read that a per-read timeout cannot stop
+(a progressing drip) is unblocked by an effective socket shutdown,
+the peer observes closure, and the remaining handler work is joined
+under the bounded grace; thread-start failure is counted and its
+socket closed; repeated stop is safe; and an incomplete teardown (a
+handler that outlives the bounded grace) is reported honestly and
+can never yield a completed outcome (fixed `cleanup_failed`, no raw
+error details); (2) selected result text is verified against the
+IMMUTABLE ORIGINAL seed bytes (the default synthetic workspace files
+plus every explicitly supplied extra synthetic workspace file)
+recorded BEFORE the child launches -- never against a
+child-writable file reread at finalization: a child that rewrites
+its own seed after receiving a legitimately issued read can no
+longer redefine the purported original, the received text is
+compared against that pre-launch original, and tampered or
+unverified text is stripped with the fixed `content_unverified`
+reason (or a typed non-echoing failure plus safe cleanup), reaching
+no persisted record, console, repr, or diagnostic. This round still
+performs no actual client, provider session, or model call; the
+actual capture and the process/chunk collector remain `NOT RUN`.
 
-## 12. Offline process-capture utility (rounds 017-i/017-j/017-k, inert)
+## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family
 `slaif-real-client-capture-*-v1`; the selection record is
@@ -894,15 +924,30 @@ and earns no genuine-client format authority.
   line or method, and authentication failures remain value-free.
 - Bounded handler work: accepted handler concurrency is capped (hard
   cap 4 concurrent handlers); connections beyond the cap are closed
-  without a response and counted; in-flight handler work is joined
-  under a bounded grace at quiesce time and unsuccessful teardown is
-  reported honestly in the run record, never hidden.
+  without a response and counted; every admission-owned request
+  socket is tracked in a bounded registry (capped at the
+  concurrent-handler cap) and is shut down and closed as soon as no
+  new admission can join it, so an in-flight bounded read a per-read
+  timeout cannot stop (a progressing drip) is unblocked by an
+  effective socket shutdown, the peer observes closure, and no
+  handler can pin the bounded join; thread-start failure is counted
+  and its socket closed; repeated stop is a safe no-op; in-flight
+  handler work is joined under a bounded grace at quiesce time and
+  unsuccessful teardown is reported honestly in the run record,
+  never hidden, and can never yield a completed outcome (fixed
+  `cleanup_failed`, no raw error details). Only sockets admitted by
+  the owned server are ever touched; unrelated sockets and processes
+  are never seen.
 - **Finalization quiesce**: before any final validation or
   publication the owned provider is quiesced — the frame state is
   FROZEN (the append path rechecks the gate under the state lock, so
-  no further append can happen), the accept loop stops, the
-  listening socket closes, and in-flight handlers are joined under
-  the bounded grace. Validation and serialization then operate on
+  no further append can happen), no new admission is accepted, every
+  admission-owned request socket is shut down and closed (an
+  in-flight progressing read is thereby unblocked and the peer
+  observes closure), the accept loop stops, the listening socket
+  closes, and the remaining in-flight handlers are joined under the
+  bounded grace; an incomplete teardown is honestly reported and can
+  never yield a completed outcome (fixed `cleanup_failed`). Validation and serialization then operate on
   the explicit frozen frame snapshot: every exported text is
   byte-verified in that final snapshot, and serialization cannot
   pick up a later unverified append (the 017-j ordering verified
@@ -959,12 +1004,20 @@ and earns no genuine-client format authority.
 - **Narrow synthetic text export (selection schema v2)**: the exact
   received result text of a proven selected synthetic frame is
   retained losslessly **only after** strict ownership, source/shape,
-  and byte verification against the bytes this run seeded into the
-  owned workspace for the declared read path (or the exact empty
-  payload of a sleep step); anything else is stripped to metadata
-  plus the exact-byte digest and counted `content_unverified`.
-  Retained text is controlled synthetic fixture data, never
-  reconstructed from hashes or guessed metadata; no full requests,
+  and byte verification against the IMMUTABLE ORIGINAL seed bytes
+  bound BEFORE the child launches — the exact bytes this run seeded
+  (the default synthetic workspace files plus every explicitly
+  supplied extra synthetic workspace file) for the declared read
+  path (or the exact empty payload of a sleep step); the comparison
+  never reads a child-writable file at finalization, so a child that
+  rewrites its own seed after a legitimately issued read cannot
+  redefine the purported original; anything else is stripped to
+  metadata plus the exact-byte digest and counted
+  `content_unverified` (or a typed non-echoing failure plus safe
+  cleanup is raised), reaching no persisted record, console, repr,
+  or diagnostic. Retained text is the actual received text —
+  controlled synthetic fixture data, never reconstructed from hashes
+  or guessed metadata; no full requests,
   user/system/developer messages, tool schemas, headers, histories,
   unknown child stdout/stderr, credentials, or unrelated tool output
   is ever persisted.
@@ -1075,3 +1128,33 @@ implementation head. Skip accounting stays distinct: the 27 prior
 stage skips plus the one foreign-ownership `chown` environment
 skip; the simulated-UID and these new lifecycle proofs are passing
 tests, never skips.
+
+Round 017-l adds public receiver/run/lifecycle regressions for
+every repaired boundary: an authenticated progressing slow-drip
+body (1 byte per 0.05 s, defeating the 2 s per-read bound) whose
+owned accepted socket is observed closed by the PEER from an
+external socket after stop, with honest teardown accounting, a
+repeated stop no-op, and an unrelated own-session process
+surviving; a closed listener (the port re-bindable) with
+idempotent stop; an incomplete teardown (a handler that ignores
+the socket closure and outlives a tiny quiesce grace) producing
+the fixed `cleanup_failed` outcome and never `completed`, with the
+persisted record carrying only the closed enum set and the honest
+boolean (no raw error details); the failure/timeout cleanup path
+(a non-progressing stalled read rejected at the per-read bound
+with complete teardown); actual-issued default-seed and
+actual-issued custom-seed positives (an arbitrary declared path
+`C.md` plus explicitly supplied seed bytes) retaining useful exact
+received text with `content_verified` true; and the
+child-mutated original negative — a child that rewrites its own
+`A.md` after receiving the legitimately issued read and returns
+the new bytes, with the marker bytes absent from every persisted
+file, the frame stripped to `content_unverified` — plus an
+unseeded-path negative (no original exists, never verified, never
+invented). The added frozen probe
+`check-capture-owned-io-and-seed-v2.py` (5 checks: three positive
+controls plus two negatives) is covered by these suites and is
+re-asserted by the canonical probes at the implementation head.
+Skip accounting stays distinct: the 27 prior stage skips plus the
+one foreign-ownership `chown` environment skip; the new 017-l
+lifecycle proofs are passing tests, never skips.

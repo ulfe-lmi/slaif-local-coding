@@ -583,9 +583,20 @@ with frozen-snapshot validation and late-unverified-text stripping,
 every-method/error-path budget accounting with fixed sanitized
 non-echoing errors and bounded handler concurrency, faithful
 generated readiness round-trips, and typed non-echoing
-malformed-Unicode rejection) — still inert, with no actual capture,
-process collector or model call, and no format or process
-acquisition); the remaining D09/D10
+malformed-Unicode rejection); 017-l repairs the two remaining
+offline capture boundaries on that same inert utility — quiesce
+closes every admitted owned request socket (bounded registry;
+effective socket shutdown unblocks in-flight reads a per-read
+timeout cannot stop so the peer observes closure; repeated stop
+safe; an incomplete teardown is honestly reported and can never
+yield a completed outcome) and selected text verifies against the
+immutable original seed bytes bound before child launch (a child
+that rewrites its own seed after a legitimately issued read cannot
+redefine the purported original; tampered or unverified text is
+stripped with the fixed reason and reaches no persisted record,
+console, repr, or diagnostic) — still inert, with no actual
+capture, process collector or model call, and no format or
+process acquisition); the remaining D09/D10
 multi-chunk process-completion and branch-matrix scope is planned for
 a later same-PR suffix (a later exact order may authorize one
 bounded reviewed actual capture, then the process/chunk collector,

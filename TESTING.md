@@ -231,7 +231,26 @@ concurrency, generated readiness records round-tripping the
 validated count for zero and every nonzero known flag without
 flag-text export, and ACTUAL lone-surrogate malformed Unicode
 rejected with the fixed typed `malformed_unicode` reason before any
-encoding/hashing/retention plus valid non-ASCII controls. Full-suite
+encoding/hashing/retention plus valid non-ASCII controls.
+Round 017-l amends that same inert utility and its named offline
+suite for the two remaining offline capture boundaries, with public
+receiver/run/lifecycle regressions: an authenticated progressing
+slow-drip body (defeating the per-read bound) whose owned accepted
+socket is observed closed by the peer after stop (repeated stop
+safe; unrelated own-session process survives); a closed listener
+with idempotent stop; an incomplete teardown (handler outliving a
+tiny quiesce grace) yielding the fixed `cleanup_failed` outcome and
+never `completed` (closed enum set plus honest boolean only, no raw
+error details); failure/timeout cleanup under a non-progressing
+stalled read; actual-issued default-seed and custom-seed (arbitrary
+declared path plus explicitly supplied bytes) positives retaining
+useful exact received text with `content_verified` true; and the
+child-mutated original negative (a child that rewrites its own seed
+after a legitimately issued read: marker bytes nowhere under the
+output directory, frame stripped to `content_unverified`) plus an
+unseeded-path negative. Verification is bound to the IMMUTABLE
+original seed bytes recorded before child launch — never a
+child-writable file reread at finalization. Full-suite
 skip accounting stays distinct: the 27 prior stage skips plus exactly
 one 017-i foreign-ownership `chown` environment skip — the
 simulated-UID proofs and the new 017-k lifecycle proofs are passing

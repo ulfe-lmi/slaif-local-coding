@@ -3546,3 +3546,423 @@ class TestMalformedUnicodeStrict:
         assert b"SYNTHETIC_UNSELECTED_UNICODE_VALUE" not in record_blob(
             result.run_record_path.parent
         )
+
+
+# ---------------------------------------------------------------------------
+# 017-l: owned I/O quiesce (admitted request sockets) and immutable
+# original seeds (pre-launch byte binding).
+# ---------------------------------------------------------------------------
+MUTATED_SEED_MARKER = "SYNTHETIC_UNSELECTED_SEED_REWRITE_VALUE"
+
+SEED_CHILD_TEMPLATE = """
+import json, sys, urllib.request
+from pathlib import Path
+
+MUTATE = __MUTATE__
+
+def main():
+    c = json.load(open(sys.argv[1]))
+    tools = [{"type": "function", "name": "exec_command", "parameters":
+        {"type": "object", "properties": {"cmd": {"type": "string"},
+                                          "workdir": {"type": "string"}},
+        "required": ["cmd", "workdir"]}}]
+    history = [{"role": "user", "content": [{"type": "input_text", "text": "s"}]}]
+    def post():
+        body = json.dumps({"model": c["model"], "stream": True,
+                           "input": history, "tools": tools}).encode()
+        q = urllib.request.Request(c["provider_base_url"] + "/responses", data=body,
+                                   headers={"Authorization": "Bearer " + c["token"]})
+        with urllib.request.urlopen(q, timeout=5) as r:
+            return r.read(65536)
+    data = post()
+    call = None
+    for line in data.decode().splitlines():
+        if line.startswith("data: "):
+            ev = json.loads(line[6:])
+            if ev.get("type") == "response.output_item.added":
+                call = ev["item"]
+    assert call is not None
+    __MUTATION__
+    history.append(call)
+    history.append({"type": "function_call_output", "call_id": call["call_id"],
+                    "output": json.dumps({"content": Path("__PATH__").read_text(),
+                                          "status": "completed", "exit_code": 0,
+                                          "process_id": "proc_01"})})
+    post()
+    return 0
+
+sys.exit(main())
+"""
+
+
+def write_seed_child(tmp_path: Path, name: str, path: str, mutate: bool) -> Path:
+    mutation = f'Path("{path}").write_text({MUTATED_SEED_MARKER!r})' if mutate else "pass"
+    code = (
+        SEED_CHILD_TEMPLATE.replace("__MUTATION__", mutation)
+        .replace("__PATH__", path)
+        .replace("__MUTATE__", "True" if mutate else "False")
+    )
+    child = tmp_path / name
+    child.write_text(code, encoding="utf-8")
+    child.chmod(0o700)
+    return child
+
+
+class TestOwnedIoQuiesce:
+    """The owned provider must close every admission-owned request
+    socket at quiesce, not only the listener (017-l boundary 1)."""
+
+    def test_stop_closes_owned_inflight_drip_body(self, tmp_path: Path) -> None:
+        import signal as _signal
+        import threading as _threading
+        import time as _time
+
+        state = rcc.ProviderState(
+            rcc.CaptureLimits.resolved(), rcc.SYNTHETIC_MODEL, DEFAULT_MODE, "tok"
+        )
+        provider = rcc.FakeProvider(
+            state=state, steps=rcc.default_declared_steps(), canary="CANARY"
+        )
+        port = provider.start()
+        # An unrelated process in its own session: provider teardown
+        # must never touch it.
+        survivor = tmp_path / "survivor.py"
+        survivor.write_text("import time\ntime.sleep(30)\n", encoding="utf-8")
+        survivor_proc = subprocess.Popen(
+            [sys.executable, str(survivor)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        sock: socket.socket | None = None
+        drip_stop = _threading.Event()
+        drip_thread: _threading.Thread | None = None
+
+        def drip(s: socket.socket) -> None:
+            end = _time.monotonic() + 15
+            while not drip_stop.wait(0.05) and _time.monotonic() < end:
+                try:
+                    s.sendall(b"x")
+                except OSError:
+                    break
+
+        try:
+            sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+            sock.sendall(
+                b"POST /v1/responses HTTP/1.1\r\n"
+                b"Host: synthetic\r\n"
+                b"Authorization: Bearer tok\r\n"
+                b"Content-Length: 1000\r\n"
+                b"\r\n"
+            )
+            end = _time.monotonic() + 5
+            while state.request_count < 1 and _time.monotonic() < end:
+                _time.sleep(0.01)
+            assert state.request_count == 1  # handler entered the body read
+            # A progressing drip defeats the per-read 2 s timeout: the
+            # read keeps advancing, so only an effective socket shutdown
+            # can unblock it.
+            drip_thread = _threading.Thread(target=drip, args=(sock,), daemon=True)
+            drip_thread.start()
+            provider.stop()
+            # External observation (no private tracking): the peer must
+            # see the owned accepted socket closed (EOF or reset), not
+            # a live connection.
+            sock.settimeout(0.15)
+            closed = False
+            end = _time.monotonic() + 1.0
+            while _time.monotonic() < end:
+                try:
+                    data = sock.recv(1024)
+                    if not data:
+                        closed = True
+                        break
+                except (ConnectionResetError, BrokenPipeError):
+                    closed = True
+                    break
+                except TimeoutError:
+                    continue
+            assert closed
+            assert state.frozen is True
+            assert state.teardown_incomplete is False
+            assert state.frames == []
+            # Repeated stop is a safe no-op.
+            provider.stop()
+            assert state.teardown_incomplete is False
+            # The unrelated session survived the provider teardown.
+            assert survivor_proc.poll() is None
+        finally:
+            drip_stop.set()
+            if drip_thread is not None and drip_thread.ident is not None:
+                drip_thread.join(timeout=2)
+            if sock is not None:
+                try:
+                    sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                sock.close()
+            try:
+                os.killpg(os.getpgid(survivor_proc.pid), _signal.SIGTERM)
+            except OSError:
+                survivor_proc.kill()
+            survivor_proc.wait(timeout=10)
+            provider.stop()
+
+    def test_listener_closed_and_repeated_stop_is_safe(self, tmp_path: Path) -> None:
+        import time as _time
+        import urllib.request
+
+        state = rcc.ProviderState(
+            rcc.CaptureLimits.resolved(), rcc.SYNTHETIC_MODEL, DEFAULT_MODE, "tok"
+        )
+        provider = rcc.FakeProvider(
+            state=state, steps=rcc.default_declared_steps(), canary="CANARY"
+        )
+        port = provider.start()
+        with urllib.request.urlopen(
+            urllib.request.Request(
+                f"http://127.0.0.1:{port}/v1/models",
+                headers={"Authorization": "Bearer tok"},
+            ),
+            timeout=5,
+        ) as response:
+            assert response.status == 200
+            response.read(1024)
+        _time.sleep(0.1)  # let the handler thread finish and deregister
+        provider.stop()
+        assert state.frozen is True
+        assert state.teardown_incomplete is False
+        provider.stop()  # idempotent: no server, no thread, no error
+        assert state.teardown_incomplete is False
+        # The owned listener is actually closed: the port is bindable
+        # (SO_REUSEADDR ignores TIME_WAIT leftovers of the handler
+        # connection, which is what distinguishes "closed listener"
+        # from "still listening").
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind(("127.0.0.1", port))
+        finally:
+            probe.close()
+
+    def test_teardown_incomplete_never_yields_completed_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import time as _time
+
+        # A handler that ignores the socket closure (a pure sleep)
+        # outlives a tiny quiesce grace: stop() reports the incomplete
+        # teardown honestly and the run must come out with the fixed
+        # truthful failure, never completed.
+        monkeypatch.setattr(rcc, "HARD_HANDLER_JOIN_GRACE_SECONDS", 0.05)
+        # 2.0 s stall: it outlives the serve-loop poll window (<=0.5 s)
+        # and the tiny grace, so the handler is provably still alive
+        # when the bounded join gives up.
+        monkeypatch.setattr(
+            rcc._SilentRequestHandler,
+            "do_POST",
+            lambda self_handler: _time.sleep(2.0),
+        )
+        child = tmp_path / "post_once_child.py"
+        child.write_text(
+            "import json, socket, sys, time\n"
+            "c = json.load(open(sys.argv[1]))\n"
+            "host, port = c['provider_base_url'].replace('http://', '').split('/')[0].split(':')\n"
+            "body = json.dumps({'model': c['model'], 'stream': True,\n"
+            "  'input': [{'role': 'user', 'content': [{'type': 'input_text', 'text': 's'}]}],\n"
+            "  'tools': [{'type': 'function', 'name': 'exec_command', 'parameters':\n"
+            "    {'type': 'object', 'properties': {'cmd': {'type': 'string'},\n"
+            "                                      'workdir': {'type': 'string'}},\n"
+            "    'required': ['cmd', 'workdir']}}]}).encode()\n"
+            "s = socket.create_connection((host, int(port)), timeout=5)\n"
+            "s.sendall(b'POST /v1/responses HTTP/1.1\\r\\nHost: x\\r\\n'\n"
+            "           b'Authorization: Bearer ' + c['token'].encode() + b'\\r\\n'\n"
+            "           b'Content-Length: ' + str(len(body)).encode() + b'\\r\\n\\r\\n'\n"
+            "           + body)\n"
+            "time.sleep(0.5)  # let the handler thread enter its stall\n"
+            "s.close()\n",
+            encoding="utf-8",
+        )
+        child.chmod(0o700)
+        result = rcc.run_capture(
+            run_id="teardown-1",
+            out_dir=protected_out_dir(tmp_path),
+            child=child,
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            child_kind="synthetic",
+        )
+        assert result.outcome == "cleanup_failed"
+        assert result.selection_path is None
+        assert result.run_record["provider"]["teardown_incomplete"] is True
+        # Fixed enum only, no raw error details in the persisted record.
+        assert result.run_record["outcome"] in rcc.OUTCOMES
+
+    def test_idle_stalled_read_times_out_and_teardown_complete(self, tmp_path: Path) -> None:
+        # The failure/timeout path: a stalled (non-progressing) body
+        # read hits the per-read timeout, the handler rejects and
+        # exits on its own, and teardown is complete with honest
+        # accounting.
+        import time as _time
+
+        state = rcc.ProviderState(
+            rcc.CaptureLimits.resolved(), rcc.SYNTHETIC_MODEL, DEFAULT_MODE, "tok"
+        )
+        provider = rcc.FakeProvider(
+            state=state, steps=rcc.default_declared_steps(), canary="CANARY"
+        )
+        port = provider.start()
+        sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        try:
+            sock.sendall(
+                b"POST /v1/responses HTTP/1.1\r\n"
+                b"Host: synthetic\r\n"
+                b"Authorization: Bearer tok\r\n"
+                b"Content-Length: 1000\r\n"
+                b"\r\n"
+            )
+            # No drip: the per-read 2 s bound fires and the handler
+            # exits with a sanitized 400.
+            _time.sleep(3.0)
+            provider.stop()
+        finally:
+            sock.close()
+            provider.stop()
+        assert state.frozen is True
+        assert state.teardown_incomplete is False
+        assert state.frames == []
+        assert "400" in state.status_counts
+
+
+class TestOriginalSeedImmutability:
+    """Selected text verifies against the immutable pre-launch
+    original seeds, never a child-writable file (017-l boundary 2)."""
+
+    def test_actual_issued_default_seed_retains_exact_received_text(self, tmp_path: Path) -> None:
+        result = run_synthetic(
+            tmp_path,
+            "seed-default-1",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            steps=(rcc.default_declared_steps()[0],),
+            out_name="out-seed-default",
+        )
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        frames = [f for f in selection["frames"] if f["item_type"] == "function_call_output"]
+        assert frames
+        # Useful exact received text retained and byte-verified.
+        assert frames[0]["content"] == "alpha file content\n"
+        assert frames[0]["content_bytes"] == len(b"alpha file content\n")
+        assert frames[0]["content_verified"] is True
+        assert selection["rejected"]["reason_counts"].get("content_unverified", 0) == 0
+
+    def test_actual_issued_custom_seed_retains_exact_received_text(self, tmp_path: Path) -> None:
+        custom_bytes = b"gamma custom fixture content\n"
+        steps = (
+            rcc.DeclaredStep(
+                index=0, tool_name="exec_command", kind="read", path="C.md", seconds=0.0
+            ),
+        )
+        result = run_synthetic(
+            tmp_path,
+            "seed-custom-1",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            steps=steps,
+            workspace_files=(("C.md", custom_bytes),),
+            out_name="out-seed-custom",
+        )
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        frames = [f for f in selection["frames"] if f["item_type"] == "function_call_output"]
+        assert frames
+        assert frames[0]["content"] == custom_bytes.decode()
+        assert frames[0]["content_bytes"] == len(custom_bytes)
+        assert frames[0]["content_verified"] is True
+        assert selection["rejected"]["reason_counts"].get("content_unverified", 0) == 0
+
+    def test_child_mutated_original_never_redefines_seed(self, tmp_path: Path) -> None:
+        # The child receives the legitimately issued read, then REWRITES
+        # its own A.md and returns the new bytes: the verification must
+        # compare against the pre-launch original, so the mutated text
+        # is stripped and reaches no persisted record.
+        child = write_seed_child(tmp_path, "seed_mutator_child.py", "A.md", mutate=True)
+        result = rcc.run_capture(
+            run_id="seed-mutator-1",
+            out_dir=protected_out_dir(tmp_path),
+            child=child,
+            steps=(rcc.default_declared_steps()[0],),
+            child_kind="synthetic",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+        )
+        assert result.outcome == "completed"
+        out = result.run_record_path.parent
+        assert MUTATED_SEED_MARKER.encode() not in record_blob(out)
+        selection = result.selection_record
+        assert selection is not None
+        # The mutation was actually received (the fixed reason fired),
+        # stripped with metadata retained, and never published.
+        assert selection["rejected"]["reason_counts"].get("content_unverified") == 1
+        out_frames = [f for f in selection["frames"] if f["item_type"] == "function_call_output"]
+        assert out_frames
+        assert all(f["content"] is None for f in out_frames)
+        assert all(f["content_verified"] is False for f in out_frames)
+
+    def test_unseeded_path_content_never_verified(self, tmp_path: Path) -> None:
+        # A step reading a path this run never seeded: no original
+        # exists, so any received text is unverified and stripped
+        # (never invented from the child's file).
+        child = tmp_path / "unseeded_child.py"
+        child.write_text(
+            "import json, sys, urllib.request\n"
+            "c = json.load(open(sys.argv[1]))\n"
+            "tools = [{'type': 'function', 'name': 'exec_command', 'parameters':\n"
+            "  {'type': 'object', 'properties': {'cmd': {'type': 'string'},\n"
+            "                                    'workdir': {'type': 'string'}},\n"
+            "  'required': ['cmd', 'workdir']}}]\n"
+            "history = [{'role': 'user', 'content': [{'type': 'input_text', 'text': 's'}]}]\n"
+            "def post():\n"
+            "    body = json.dumps({'model': c['model'], 'stream': True, 'input': history,\n"
+            "                       'tools': tools}).encode()\n"
+            "    q = urllib.request.Request(c['provider_base_url'] + '/responses', data=body,\n"
+            "                               headers={'Authorization': 'Bearer ' + c['token']})\n"
+            "    with urllib.request.urlopen(q, timeout=5) as r: return r.read(65536)\n"
+            "data = post()\n"
+            "call = None\n"
+            "for line in data.decode().splitlines():\n"
+            "    if line.startswith('data: '):\n"
+            "        ev = json.loads(line[6:])\n"
+            "        if ev.get('type') == 'response.output_item.added': call = ev['item']\n"
+            "assert call is not None\n"
+            "history.append(call)\n"
+            "history.append({'type': 'function_call_output', 'call_id': call['call_id'],\n"
+            "                'output': json.dumps({'content': 'ghost unseeded content',\n"
+            "                                       'status': 'completed', 'exit_code': 0,\n"
+            "                                       'process_id': 'proc_01'})})\n"
+            "post()\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        child.chmod(0o700)
+        steps = (
+            rcc.DeclaredStep(
+                index=0, tool_name="exec_command", kind="read", path="C.md", seconds=0.0
+            ),
+        )
+        result = rcc.run_capture(
+            run_id="unseeded-1",
+            out_dir=protected_out_dir(tmp_path, "out-unseeded"),
+            child=child,
+            steps=steps,
+            child_kind="synthetic",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+        )
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        assert selection["rejected"]["reason_counts"].get("content_unverified") == 1
+        out_frames = [f for f in selection["frames"] if f["item_type"] == "function_call_output"]
+        assert out_frames
+        assert all(f["content"] is None for f in out_frames)
+        assert all(f["content_verified"] is False for f in out_frames)
+        assert b"ghost unseeded content" not in record_blob(result.run_record_path.parent)
