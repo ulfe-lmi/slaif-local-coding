@@ -69,7 +69,17 @@ route/auth/body branches; bounded preflight output; pre-existing
 directories never chmoded; closed readiness/authorization metadata
 schemas; and the absolute deadline spanning owned descendants —
 still inert, with no actual capture, process collector, or model
-call, and no format or process acquisition; the remaining D09-D10
+call, and no format or process acquisition; stage 017-k repairs that
+utility's second-review boundaries — RUNTIME selection bound to the
+controller's actually issued records (preloaded/anticipated/forged
+calls never selected before issuance), finalization quiesce with
+frozen-snapshot validation before publication (late unverified text
+is stripped, never persisted), every-method/error-path request-budget
+accounting with fixed sanitized non-echoing errors and bounded
+handler concurrency, faithful generated readiness record
+round-trips, and typed non-echoing rejection of actual malformed
+Unicode — still inert, with no actual capture, process collector, or
+model call, and no format or process acquisition; the remaining D09-D10
 scope stays with a later same-PR suffix (a later exact order may
 authorize one bounded reviewed actual capture, then the process/chunk
 collector, subject to review); no v1 runtime mechanism is active or

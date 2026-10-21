@@ -191,10 +191,14 @@ actual-client gates (opt-in, version/hash binding, readiness,
 authorization), workspace/cleanup ownership guards, the CLI, and
 static stdlib-only/OAP-decoupling/no-raw-persistence guards. Those
 offline synthetic tests are **not** actual-format or genuine-client
-evidence: the utility's actual-client path is unreachable in this
-round by construction (startup readiness is `not_ready`), no actual
-client, provider session or model call is made, and the actual
-capture plus process/chunk collector remain `NOT RUN`; one honest
+evidence: the 017-i record's wording that the utility's actual-client
+path is "unreachable in this round by construction (startup
+readiness is `not_ready`)" is a REJECTED historical claim,
+superseded by 017-j — the path is input-gated (caller-supplied
+`ready`/authorization records can launch the bound stand-in), while
+the generated readiness verdict is `not_ready`; no actual client,
+provider session or model call is made in any of these rounds, and
+the actual capture plus process/chunk collector remain `NOT RUN`; one honest
 environment skip applies where the foreign-ownership cleanup guard
 requires `chown` to another uid. Round 017-j amends that same inert
 utility and its named offline suite for the issued-binding,
@@ -210,6 +214,30 @@ prior stage skips plus exactly one 017-i foreign-ownership `chown`
 environment skip — the simulated-UID proofs are passing tests, never
 skips. No actual client, provider session, or model call is made;
 the actual capture and process/chunk collector remain `NOT RUN`.
+Round 017-k amends that same inert utility and its named offline
+suite for the second-review repairs, with public
+receiver/run/lifecycle regressions (not merely constructor
+assertions): RUNTIME issued-registry binding through embedded-mode
+fake children (preloaded first/later calls and forged inbound
+progression never selected before issuance; the actually-issued echo
+selected and byte-verified), wrong-family items under an otherwise
+valid offered schema, finalization quiesce (a real shutdown-boundary
+late request byte-verified and stripped to `content_unverified` with
+its marker bytes nowhere under the output directory; frozen-append
+rejection; bounded stop under a stalled in-flight handler with
+honest teardown accounting), every-method/malformed/error-path
+budget accounting with fixed non-echoing bodies and bounded handler
+concurrency, generated readiness records round-tripping the
+validated count for zero and every nonzero known flag without
+flag-text export, and ACTUAL lone-surrogate malformed Unicode
+rejected with the fixed typed `malformed_unicode` reason before any
+encoding/hashing/retention plus valid non-ASCII controls. Full-suite
+skip accounting stays distinct: the 27 prior stage skips plus exactly
+one 017-i foreign-ownership `chown` environment skip — the
+simulated-UID proofs and the new 017-k lifecycle proofs are passing
+tests, never skips. No actual client, provider session, or model
+call is made; the actual capture and process/chunk collector remain
+`NOT RUN`.
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

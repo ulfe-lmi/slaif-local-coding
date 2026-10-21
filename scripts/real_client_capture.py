@@ -17,7 +17,26 @@ synthetic result-text retention under selection schema v2, exact
 serialized-byte selection cap, centralized per-run request budget,
 bounded preflight output collection, permission-preserving protected
 directories, readiness-record closure, and an absolute active-run
-deadline that also covers owned descendants).
+deadline that also covers owned descendants). Round 017-k repaired the
+remaining four bounded defects exposed by independent review of 017-j:
+(1) RUNTIME frame selection is now bound to the controller's ACTUAL
+issued records (`FakeProvider._issued`) captured before each provider
+request -- a preloaded/anticipated/forged call is never selected
+before the controller issues it; the pure-facade candidate parsing
+(declared-step inference) is a distinct mode used only by the offline
+fixture controls; (2) finalization QUIESCES the owned provider before
+final validation/publication -- freeze, stop accepting, close the
+listening socket, join in-flight handlers under a bounded grace -- and
+validates/serializes an explicit frozen frame snapshot, so no late
+append can reach a published record; (3) EVERY request method and
+error-dispatch path (unsupported methods, malformed request lines,
+unsupported versions) consumes the per-run budget with fixed
+sanitized errors, and accepted handler concurrency is bounded;
+(4) readiness metadata round-trips the validated live-facts flag count
+faithfully (no placeholder tuples), and malformed Unicode (e.g. lone
+surrogates) is rejected with the fixed typed ``malformed_unicode``
+reason before any encoding/hashing/retention, with the raw value
+stored nowhere and no lossy replacement.
 
 The actual-client launch path exists in code and is GATED, not
 unreachable by construction: a caller that supplies an explicit opt-in,
@@ -70,12 +89,19 @@ Hard law (implemented as fail-closed code, not documentary warnings):
   issued call ID (``call_NN`` for the step at 0-based position NN-1),
   the tool family/name, the declared step/command and expected argument
   values, and the controller-issued process ID (``proc_NN``) for
-  results. The controller advances a step only after a completed output
-  for every earlier step, so a later step's call is never "issued"
-  early. Unissued, orphaned, conflicting, mismatched, or wrong-mode
-  items are rejected with a fixed reason and their raw values are never
-  stored. Only predeclared harmless synthetic commands are ever emitted
-  or selectable; arbitrary incoming command/code is never executed,
+  results. At RUNTIME (the owned provider receiver) the issued set is
+  the controller's actual ``_issued`` records created BEFORE that
+  provider request: a preloaded, anticipated, or forged call is never
+  selected before the controller issues it, and issuance/completion is
+  never inferred from a caller's predicted ID or forged earlier status.
+  The pure-facade candidate parsing (declared-step ID inference plus
+  progression from the request's own completed outputs) is a distinct
+  fixture mode used only by the offline pure controls; a constructor or
+  manually populated state is not runtime provenance evidence.
+  Unissued, orphaned, conflicting, mismatched, or wrong-mode items are
+  rejected with a fixed reason and their raw values are never stored.
+  Only predeclared harmless synthetic commands are ever emitted or
+  selectable; arbitrary incoming command/code is never executed,
   selected, or echoed. The child never executes model-directed
   commands.
 - Selected synthetic result TEXT is retained losslessly (selection
@@ -90,15 +116,37 @@ Hard law (implemented as fail-closed code, not documentary warnings):
   histories, unknown child stdout/stderr, credentials, or unrelated
   tool output. Fake-child content stays labeled synthetic with
   ``fixture_authority: "none"``; no actual client format is earned.
+- Malformed Unicode (e.g. a lone surrogate from a JSON ``\\ud800``
+  escape) is validated before any encoding, hashing, or retention on
+  the function/custom output/argument and metadata paths: the frame is
+  rejected with the fixed typed ``malformed_unicode`` reason, the raw
+  value is stored nowhere (not in exceptions, reprs, digests, or
+  records), and no lossy replacement ever masquerades as fidelity.
+  Valid non-ASCII Unicode is processed normally.
 - The per-run selected-byte cap applies to the EXACT UTF-8 bytes of the
   canonical serialization that is published (metadata and serialization
   overhead included): serialize once, validate once, publish those same
   bytes; exceedance is a fixed typed failure with no oversized or
   partial artifact.
-- Every request reaching an owned provider handler (known, unknown,
-  malformed, or oversize route/body) consumes the per-run request
-  budget before any route/auth/body outcome branch; authentication
-  failures remain value-free (counter only).
+- Finalization QUIESCES the owned provider before any final validation
+  or publication: the frame state is frozen (no further appends, ever),
+  the accept loop stops, the listening socket closes, and in-flight
+  handler work is joined under a bounded grace; validation and
+  serialization then operate on the explicit frozen frame snapshot, so
+  no late or in-flight append can reach a persisted record, console,
+  repr, diagnostic, or error. Unsuccessful cleanup is reported
+  honestly, never hidden.
+- EVERY request method and error-dispatch path reaching the owned
+  provider -- known routes, unsupported routes, unsupported HTTP
+  methods, malformed request lines, unsupported versions, oversize
+  bodies -- consumes the per-run request budget before any
+  route/auth/body outcome branch (the centralized accounting also
+  covers the BaseHTTPRequestHandler error-dispatch fallback, which the
+  017-j do_GET/do_POST-only centralization missed); authentication
+  failures remain value-free (counter only); error dispatch sends
+  fixed sanitized bodies that never echo the request line or method;
+  accepted handler concurrency is bounded (bounded, honestly reported
+  teardown).
 - Tool mode is read from the actual offered tool schema in memory
   (function vs custom); unknown modes, mixed shapes, and declared/observed
   mismatches fail closed. Causal call IDs are preserved through nested
@@ -190,6 +238,8 @@ HARD_MAX_UNSUPPORTED_TYPE_SAMPLES = 8
 HARD_MAX_SSE_EVENT_BYTES = 64 * 1024
 HARD_SSE_READ_TIMEOUT_SECONDS = 2.0
 HARD_CHILD_IO_TIMEOUT_SECONDS = 30.0
+HARD_MAX_CONCURRENT_HANDLERS = 4
+HARD_HANDLER_JOIN_GRACE_SECONDS = 10.0
 
 RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 CALL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
@@ -254,6 +304,7 @@ REJECTION_REASONS: frozenset[str] = frozenset(
         "call_id_unissued",
         "metadata_unissued",
         "content_unverified",
+        "malformed_unicode",
     }
 )
 
@@ -700,15 +751,18 @@ def load_readiness_record(path: Path, facts: BinaryFacts) -> ReadinessFacts:
         )
     ):
         raise CaptureError("readiness_record_invalid")
+    # The record carries the flag COUNT only (metadata law); the live
+    # preflight facts own the in-memory flag set, and the validated
+    # binding ``count == len(facts.detected_flags)`` above means the
+    # reconstructed facts reproduce the record's count exactly
+    # (zero and every nonzero case) with no placeholder semantics and
+    # no flag-text export: ``to_record()`` serializes the count again.
     return ReadinessFacts(
         verdict=verdict,
         reasons=tuple(reasons),
         binary_version=str(data["binary_version"]),
         binary_sha256=str(data["binary_sha256"]),
-        # The record carries the flag COUNT only (metadata law); the live
-        # preflight facts own the in-memory flag set. The tuple below is a
-        # length-only placeholder so ``to_record()`` round-trips the count.
-        detected_flags=tuple("") * count,
+        detected_flags=facts.detected_flags,
         control_candidates=STARTUP_CONTROL_CANDIDATES,
     )
 
@@ -949,6 +1003,13 @@ class ProviderState:
         self.unsupported_item_types: set[str] = set()
         self.selected_bytes_total = 0
         self.response_script_index = 0
+        # 017-k finalization: the frame state is frozen when the owned
+        # provider is quiesced; no append may happen after the freeze
+        # gate is set (rechecked under this lock at the append site).
+        self.frozen = False
+        self.post_freeze_rejected = 0
+        self.rejected_connections = 0
+        self.teardown_incomplete = False
 
     def count_status(self, status: int) -> None:
         with self.lock:
@@ -997,6 +1058,67 @@ def render_sse_events(events: list[dict[str, Any]]) -> bytes:
     return b"".join(parts)
 
 
+class _OwnedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with bounded, tracked handler work.
+
+    Accepted connections beyond the hard handler cap are closed
+    without a response and counted (the per-REQUEST budget is a
+    separate law; a connection that never sends a request line
+    consumes no request budget). Handler threads are tracked so the
+    owner can join them under a bounded grace at quiesce time, and
+    handler exceptions are counted, never printed (no traceback may
+    echo raw content to the console).
+    """
+
+    daemon_threads = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        RequestHandlerClass: type,  # noqa: N803 - http.server API
+        *,
+        state: ProviderState,
+    ) -> None:
+        super().__init__(server_address, RequestHandlerClass)
+        self.state = state
+        self._handler_count = 0
+        self._handler_lock = threading.Lock()
+
+    def handle_error(self, request: Any, client_address: Any) -> None:  # noqa: N802
+        # Count only: the stdlib prints the traceback, which is a
+        # console-echo path the privacy law forbids.
+        try:
+            self.state.malformed_count += 1
+        except Exception:  # noqa: BLE001
+            pass
+
+    def process_request(self, request: Any, client_address: Any) -> None:  # noqa: N802
+        with self._handler_lock:
+            if self._handler_count >= HARD_MAX_CONCURRENT_HANDLERS:
+                self.state.rejected_connections += 1
+                try:
+                    request.close()
+                except OSError:
+                    pass
+                return
+            self._handler_count += 1
+        thread = threading.Thread(
+            target=self._tracked_request, args=(request, client_address), daemon=True
+        )
+        thread.start()
+
+    def _tracked_request(self, request: Any, client_address: Any) -> None:
+        try:
+            self.process_request_thread(request, client_address)
+        finally:
+            with self._handler_lock:
+                self._handler_count -= 1
+
+    def active_handlers(self) -> int:
+        with self._handler_lock:
+            return self._handler_count
+
+
 class FakeProvider:
     """The owned fake provider: server, scripted controller, extraction."""
 
@@ -1012,7 +1134,7 @@ class FakeProvider:
         self.canary = canary
         self._issued: list[tuple[str, int]] = []
         self._ack_count = 0
-        self._server: ThreadingHTTPServer | None = None
+        self._server: _OwnedThreadingHTTPServer | None = None
         self._port = 0
         self._thread: threading.Thread | None = None
 
@@ -1023,27 +1145,58 @@ class FakeProvider:
         class Handler(_SilentRequestHandler):
             provider = outer
 
-        self._server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self._server.daemon_threads = True
+        self._server = _OwnedThreadingHTTPServer(("127.0.0.1", 0), Handler, state=self.state)
         self._port = self._server.server_address[1]
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
         return self._port
 
     def stop(self) -> None:
-        if self._server is not None:
+        """Quiesce the owned provider and freeze the frame state.
+
+        Order: freeze first (the append path rechecks the gate under
+        the state lock, so NO further frame append can happen from
+        this point on), stop the accept loop, close the listening
+        socket, then join in-flight handler work under a bounded
+        grace. A handler that outlives the grace is reported honestly
+        (``teardown_incomplete``) and can still never reach the
+        frozen snapshot or a published record. Idempotent.
+        """
+        st = self.state
+        with st.lock:
+            st.frozen = True
+        server = self._server
+        self._server = None
+        if server is not None:
             try:
-                self._server.shutdown()
-            except Exception:  # noqa: BLE001 - shutdown must never raise
+                server.shutdown()
+            except Exception:  # noqa: BLE001 - quiesce must never raise
                 pass
             try:
-                self._server.server_close()
+                server.server_close()
             except Exception:  # noqa: BLE001
                 pass
-            self._server = None
         if self._thread is not None:
             self._thread.join(timeout=HARD_CHILD_IO_TIMEOUT_SECONDS)
             self._thread = None
+        if server is not None:
+            deadline = time.monotonic() + HARD_HANDLER_JOIN_GRACE_SECONDS
+            while server.active_handlers() > 0 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            if server.active_handlers() > 0:
+                st.teardown_incomplete = True
+
+    def frame_snapshot(self) -> list[dict[str, Any]]:
+        """A list copy of the frame state under the state lock.
+
+        After :meth:`stop` (frozen + handler join) no further append
+        can happen, so the snapshot taken then is the FINAL frame
+        state; validation and serialization operate on it, never on
+        the live list, so serialization cannot pick up a later
+        unverified append.
+        """
+        with self.state.lock:
+            return list(self.state.frames)
 
     # -- scripted controller ----------------------------------------------
     def _input_call_state(self, payload: Any) -> dict[str, str]:
@@ -1205,11 +1358,19 @@ class FakeProvider:
     def handle_responses_post(self, body: bytes) -> tuple[int, bytes]:
         st = self.state
         with st.lock:
+            if st.frozen:
+                # Quiesced provider: no extraction, no append, no
+                # response-script advance; fixed sanitized rejection.
+                st.post_freeze_rejected += 1
+                return 503, b"service unavailable\n"
             st.responses_count += 1
             st.ingress_bytes_total += min(len(body), st.limits.max_inbound_bytes)
             if st.responses_count > st.limits.max_requests:
                 st.request_limit_hit = True
                 return 429, b"rate limited\n"
+            # Runtime provenance: only the controller's ACTUAL issued
+            # records created before this request may prove issuance.
+            issued_snapshot = tuple(self._issued)
         try:
             payload = json.loads(body.decode("utf-8"))
         except (ValueError, RecursionError, MemoryError):
@@ -1234,8 +1395,14 @@ class FakeProvider:
             canary=self.canary,
             request_seq=st.responses_count,
             mode=st.mode,
+            issued=issued_snapshot,
         )
         with st.lock:
+            if st.frozen:
+                # Frozen while this request was being parsed: the
+                # frames are discarded, never appended or published.
+                st.post_freeze_rejected += 1
+                return 503, b"service unavailable\n"
             st.frames.extend(frames)
             for reason, count in rejections.items():
                 st.rejection_counts[reason] = st.rejection_counts.get(reason, 0) + count
@@ -1263,6 +1430,24 @@ class _SilentRequestHandler(BaseHTTPRequestHandler):
 
     def log_message(self, *args: object) -> None:  # noqa: D102 - silent
         return
+
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        """Fixed sanitized error dispatch for EVERY error path.
+
+        BaseHTTPRequestHandler funnels unsupported methods, malformed
+        request lines, overlong lines, and unsupported versions
+        through ``send_error``; its default body echoes the request
+        line or method name. This override (a) consumes the per-run
+        request budget here exactly once, so error-dispatch paths
+        cannot evade the cap, and (b) sends a fixed sanitized body
+        with no message/explain echo.
+        """
+        try:
+            if self._count_request():
+                return
+            self._send(int(code), b"error\n", "text/plain")
+        except (OSError, ValueError, AttributeError):
+            self.close_connection = True
 
     # -- helpers -----------------------------------------------------------
     def _send(self, status: int, body: bytes, content_type: str) -> None:
@@ -1466,6 +1651,38 @@ def _digest_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _strict_utf8(value: str) -> bytes | None:
+    """Strict UTF-8 encoding, or None for malformed Unicode.
+
+    A Python ``str`` carrying a lone surrogate (e.g. from a JSON
+    ``\\ud800`` escape) is malformed Unicode: it can never be a
+    faithful byte value. Callers must check this BEFORE any
+    encoding, hashing, or retention; the raw value is then rejected
+    with the fixed typed reason and stored nowhere. Never raises,
+    never echoes.
+    """
+    try:
+        return value.encode("utf-8")
+    except UnicodeEncodeError:
+        return None
+
+
+def _arguments_carry_malformed_unicode(arguments: Any) -> bool:
+    """True when the declared-command arguments JSON carries a
+    malformed-Unicode (non-strict) string value. Valid Unicode (e.g.
+    ``\\u00e9``) is NOT malformed; it simply fails the declared-
+    command match like any other text."""
+    if not isinstance(arguments, str) or len(arguments) > HARD_MAX_STEP_BYTES * 4:
+        return False
+    try:
+        parsed = json.loads(arguments)
+    except (ValueError, RecursionError):
+        return False
+    if not isinstance(parsed, dict):
+        return False
+    return any(isinstance(value, str) and _strict_utf8(value) is None for value in parsed.values())
+
+
 def _output_payload_bytes(output: Any) -> bytes | None:
     if isinstance(output, str):
         return output.encode("utf-8")
@@ -1607,18 +1824,33 @@ def extract_frames(
     canary: str,
     request_seq: int,
     mode: str,
+    issued: tuple[tuple[str, int], ...] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int], frozenset[str]]:
     """Extract PROVEN selected frames from ONE parsed request payload.
 
-    Selection is bound to the controller's issued call records: the
-    exact issued call ID for a step position, the tool family/name, the
-    declared step/command and expected argument values, and the
-    controller-issued process ID for results. The controller advances a
-    step only after a completed output for every earlier step, so that
-    progression is required before a later step's call counts as
-    issued. Unissued, orphaned, conflicting, mismatched, or wrong-mode
-    items are rejected with a fixed reason; their raw values are never
-    stored. The input payload is never mutated.
+    Two distinct modes, never conflated:
+
+    - RUNTIME provenance (``issued`` given): the owned provider
+      receiver passes the controller's ACTUAL issued records
+      (``FakeProvider._issued``) captured BEFORE this provider
+      request. Only those (call ID, step position) pairs prove
+      issuance; a preloaded, anticipated, or forged call is never
+      selected before the controller issues it, and issuance/
+      completion is never inferred from a caller's predicted ID or
+      forged earlier status (the controller's own gating already
+      encoded causal progression when it issued each record).
+    - PURE candidate/fixture parsing (``issued`` is None): declared-
+      step ID inference plus progression from this request's own
+      completed outputs. This is the offline pure-facade mode used by
+      the fixture controls; it is NOT runtime provenance evidence.
+
+    In both modes the tool family/name, the declared step/command and
+    expected argument values, and the controller-issued process ID for
+    results are enforced, malformed Unicode is rejected with the fixed
+    typed reason before any encoding/hashing/retention, and unissued,
+    orphaned, conflicting, mismatched, or wrong-mode items are
+    rejected with a fixed reason; raw values are never stored. The
+    input payload is never mutated.
     """
     frames: list[dict[str, Any]] = []
     rejections: dict[str, int] = {}
@@ -1628,40 +1860,65 @@ def extract_frames(
     def reject(reason: str) -> None:
         rejections[reason] = rejections.get(reason, 0) + 1
 
-    # Issued IDs: one per declared step position (the step machine
-    # issues them in order). A call/result is only ever proven by its
-    # exact issued ID plus the declared binding below.
-    issued_positions = {_issued_call_id(pos): pos for pos in range(len(declared_steps))}
+    # Issuence proof. Runtime mode binds to the controller's actual
+    # records created before this request; pure-facade mode infers the
+    # declared-step IDs (fixture controls only).
+    if issued is None:
+        issued_positions = {_issued_call_id(pos): pos for pos in range(len(declared_steps))}
+        use_completion_inference = True
+    else:
+        issued_positions = {call_id: pos for call_id, pos in issued}
+        use_completion_inference = False
     declared_names = {s.tool_name for s in declared_steps}
-    # Controller advancement evidence: a step position counts as
-    # completed in this request's input only when a structurally valid
-    # completed output for its issued ID with controller-issued
-    # metadata is present. An unissued process ID, or any session/chunk
-    # ID, is unearned metadata and never unlocks a later step's call.
+    # The item family must match the mode of the actually OFFERED tool
+    # schema; a wrong-family item is a typed unsupported shape.
+    if mode == "responses-function-tool":
+        allowed_item_types = {"function_call", "function_call_output"}
+    else:
+        allowed_item_types = {"custom_tool_call", "custom_tool_call_output"}
+    # Controller advancement evidence (PURE-facade mode only): a step
+    # position counts as completed in this request's input only when a
+    # structurally valid completed output for its issued ID with
+    # controller-issued metadata is present. An unissued process ID,
+    # or any session/chunk ID, is unearned metadata and never unlocks
+    # a later step's call. Runtime mode does NOT infer progression
+    # from inbound status; the issued registry is the evidence.
     completed: set[int] = set()
-    for entry in items:
-        if entry.get("type") not in {"function_call_output", "custom_tool_call_output"}:
-            continue
-        cid = _bounded_str(entry.get("call_id"), HARD_MAX_CALL_ID_BYTES)
-        if cid is None or cid not in issued_positions:
-            continue
-        pos = issued_positions[cid]
-        structured = _parse_output_structured(entry.get("output"))
-        if not isinstance(structured, dict) or structured.get("status") != "completed":
-            continue
-        process_id = structured.get("process_id")
-        if process_id is not None and process_id != _issued_process_id(pos):
-            continue
-        if "session_id" in structured or "chunk_id" in structured:
-            continue
-        completed.add(pos)
+    if use_completion_inference:
+        for entry in items:
+            if entry.get("type") not in {"function_call_output", "custom_tool_call_output"}:
+                continue
+            cid = _bounded_str(entry.get("call_id"), HARD_MAX_CALL_ID_BYTES)
+            if cid is None or cid not in issued_positions:
+                continue
+            pos = issued_positions[cid]
+            structured = _parse_output_structured(entry.get("output"))
+            if not isinstance(structured, dict) or structured.get("status") != "completed":
+                continue
+            process_id = structured.get("process_id")
+            if process_id is not None and process_id != _issued_process_id(pos):
+                continue
+            if "session_id" in structured or "chunk_id" in structured:
+                continue
+            completed.add(pos)
+    # Canary membership bytes: a malformed-Unicode canary is a
+    # meaningless marker; it is treated as absent (never crashes,
+    # never echoed).
+    canary_bytes = _strict_utf8(canary)
+    if canary_bytes is None:
+        canary_bytes = b""
 
     for entry in items:
         item_type = entry.get("type")
+        if item_type not in allowed_item_types:
+            # Wrong family under the offered tool schema (or a
+            # non-selectable shape): typed, counted, never stored.
+            if isinstance(item_type, str) and item_type in ITEM_TYPES:
+                reject("input_shape_unsupported")
+            continue
         call_id = _bounded_str(entry.get("call_id"), HARD_MAX_CALL_ID_BYTES)
         if call_id is None or not CALL_ID_RE.fullmatch(call_id):
-            if isinstance(item_type, str) and item_type in ITEM_TYPES:
-                reject("call_id_invalid")
+            reject("call_id_invalid")
             continue
         pos = issued_positions.get(call_id)
         seq += 1
@@ -1675,9 +1932,12 @@ def extract_frames(
             frame["name"] = name
             # Declared-command check first (fixed taxonomy: an
             # undeclared command is command_not_declared regardless of
-            # the ID).
-            matched: int | None
+            # the ID); malformed Unicode inside the arguments is the
+            # distinct typed malformed_unicode reason.
             if item_type == "function_call":
+                if _arguments_carry_malformed_unicode(entry.get("arguments")):
+                    reject("malformed_unicode")
+                    continue
                 matched = _declared_command_match(entry.get("arguments"), declared_steps)
                 if matched is None:
                     reject("command_not_declared")
@@ -1704,7 +1964,10 @@ def extract_frames(
                 if not isinstance(tool_input, str) or not tool_input:
                     reject("input_shape_unsupported")
                     continue
-                input_bytes = tool_input.encode("utf-8")
+                input_bytes = _strict_utf8(tool_input)
+                if input_bytes is None:
+                    reject("malformed_unicode")
+                    continue
                 if len(input_bytes) > HARD_MAX_METADATA_BYTES * 4:
                     reject("metadata_value_over_bound")
                     continue
@@ -1718,10 +1981,11 @@ def extract_frames(
                     continue
                 frame["input_digest"] = _digest_bytes(input_bytes)
                 frame["input_bytes"] = len(input_bytes)
-            # Controller progression: every earlier step must have a
-            # completed output in this request's input, or this call
-            # was never issued at this point.
-            if any(j not in completed for j in range(pos)):
+            # Pure-facade progression only: every earlier step must
+            # have a completed output in this request's input, or this
+            # call was never issued at this point. Runtime mode: the
+            # issued registry is the progression proof.
+            if use_completion_inference and any(j not in completed for j in range(pos)):
                 reject("call_id_unissued")
                 continue
             frame["declared_command_index"] = pos
@@ -1734,11 +1998,16 @@ def extract_frames(
                 reject("call_id_unissued")
                 continue
             output = entry.get("output")
+            if isinstance(output, str) and _strict_utf8(output) is None:
+                # Malformed Unicode in the raw output text: typed,
+                # counted, never encoded, hashed, or stored.
+                reject("malformed_unicode")
+                continue
             payload_bytes = _output_payload_bytes(output)
             if payload_bytes is None:
                 reject("output_shape_unsupported")
                 continue
-            if canary.encode("utf-8") in payload_bytes:
+            if canary_bytes in payload_bytes:
                 reject("credential_marker_present")
                 continue
             frame["output_digest"] = _digest_bytes(payload_bytes)
@@ -1821,7 +2090,12 @@ def extract_frames(
                     # only, never stored.
                     reject("output_shape_unsupported")
                     continue
-                content_bytes = content.encode("utf-8")
+                content_bytes = _strict_utf8(content)
+                if content_bytes is None:
+                    # Malformed Unicode result text: typed, counted,
+                    # never encoded, hashed, or retained.
+                    reject("malformed_unicode")
+                    continue
                 if len(content_bytes) > HARD_MAX_INBOUND_BYTES:
                     reject("metadata_value_over_bound")
                     continue
@@ -1891,6 +2165,7 @@ def build_selection(
     *,
     run_id: str,
     state: ProviderState,
+    frames: list[dict[str, Any]] | None = None,
     steps: tuple[DeclaredStep, ...],
     deadline_seconds: float,
     elapsed_seconds: float,
@@ -1898,7 +2173,15 @@ def build_selection(
     client_version: str | None,
     client_sha256: str | None,
 ) -> dict[str, Any]:
-    frames = sorted(state.frames, key=lambda f: (f["request_seq"], f["seq"]))
+    # ``frames`` is the FROZEN snapshot (see run_capture): serialization
+    # cannot pick up a later unverified append. The runtime finalization
+    # path (run_capture) ALWAYS passes the explicit frozen snapshot; the
+    # omitted-frames form is the pure-facade fixture control, where the
+    # caller owns the static frame state (no live receiver exists, so
+    # there is no late-append surface).
+    if frames is None:
+        frames = list(state.frames)
+    frames = sorted(frames, key=lambda f: (f["request_seq"], f["seq"]))
     provenance = "synthetic-offline" if child_kind == "synthetic" else "actual-capture"
     record: dict[str, Any] = {
         "schema": SELECTION_SCHEMA,
@@ -1924,7 +2207,13 @@ def build_selection(
             "unsupported_item_type_digest": (
                 None
                 if not state.unsupported_item_types
-                else _digest_bytes("\n".join(sorted(state.unsupported_item_types)).encode("utf-8"))
+                else _digest_bytes(
+                    b"\n".join(
+                        t.encode("utf-8")
+                        for t in sorted(state.unsupported_item_types)
+                        if _strict_utf8(t) is not None
+                    )
+                )
             ),
         },
         # Exact UTF-8 byte length of the canonical serialization of THIS
@@ -2348,7 +2637,6 @@ def cleanup_root(root: Path) -> int:
 # ---------------------------------------------------------------------------
 SYNTHETIC_MODEL = "synthetic-capture-model"
 CONTROL_SCHEMA = "slaif-real-client-capture-control-v1"
-DRAIN_GRACE_SECONDS = 2.0
 TEARDOWN_GRACE_SECONDS = 2.0
 HARD_REQUEST_READ_TIMEOUT_SECONDS = 2.0
 PROVIDER_ERROR_EXIT = 65
@@ -2382,24 +2670,33 @@ def _provider_summary(state: ProviderState) -> dict[str, Any]:
             "status_counts": dict(state.status_counts),
             "request_limit_hit": state.request_limit_hit,
             "tool_mode_mismatch": state.fatal_mode_mismatch,
+            "frozen": state.frozen,
+            "post_freeze_rejected": state.post_freeze_rejected,
+            "rejected_connections": state.rejected_connections,
+            "teardown_incomplete": state.teardown_incomplete,
         }
 
 
 def _verify_selected_content(
-    state: ProviderState, steps: tuple[DeclaredStep, ...], workspace: Path
+    frames: list[dict[str, Any]],
+    state: ProviderState,
+    steps: tuple[DeclaredStep, ...],
+    workspace: Path,
 ) -> None:
     """Byte-validate selected result text against the owned workspace.
 
-    Only text that EXACTLY equals the bytes this run seeded into the
-    owned workspace for the declared read path (or the exact empty
-    payload of a sleep step) is retained as controlled synthetic
-    content. Anything else is stripped (metadata + exact-byte digest
-    retained) and counted with the fixed content_unverified reason.
-    Nothing is ever reconstructed from hashes, constants, or guessed
-    metadata.
+    ``frames`` is the FROZEN snapshot taken after the owned provider
+    was quiesced (frozen + handler join), so no later append can reach
+    this validation or the published record. Only text that EXACTLY
+    equals the bytes this run seeded into the owned workspace for the
+    declared read path (or the exact empty payload of a sleep step) is
+    retained as controlled synthetic content. Anything else is
+    stripped (metadata + exact-byte digest retained) and counted with
+    the fixed content_unverified reason. Nothing is ever
+    reconstructed from hashes, constants, or guessed metadata.
     """
     issued = {_issued_call_id(pos): pos for pos in range(len(steps))}
-    for frame in state.frames:
+    for frame in frames:
         if frame["item_type"] not in {"function_call_output", "custom_tool_call_output"}:
             frame["content_verified"] = None
             continue
@@ -2419,7 +2716,10 @@ def _verify_selected_content(
             seeded = (workspace / step.path).read_bytes() if step.kind == "read" else b""
         except OSError:
             seeded = None
-        if seeded is not None and content.encode("utf-8") == seeded:
+        # Defense in depth: retained content is already strict-UTF-8
+        # from extraction; a None encode can never verify.
+        content_bytes = _strict_utf8(content)
+        if seeded is not None and content_bytes is not None and content_bytes == seeded:
             frame["content_verified"] = True
         else:
             state.reject_frame("content_unverified")
@@ -2601,13 +2901,22 @@ def run_capture(
             stdin_bytes=stdin_bytes,
         )
         child_env_facts = collect_child_env_facts(scratch)
-        # Byte-verify selected result text against the owned seeded
-        # workspace BEFORE any selection is serialized or published.
-        _verify_selected_content(provider.state, declared_steps, scratch.workspace)
-        # Bounded drain grace for in-flight provider requests, then stop.
-        time.sleep(min(DRAIN_GRACE_SECONDS, eff_limits.deadline_seconds / 4))
+        # QUIESCE the owned provider BEFORE any final validation or
+        # publication: freeze the frame state (no further appends,
+        # ever), stop accepting, close the listening socket, join
+        # in-flight handler work under a bounded grace. The child has
+        # fully exited, so no drain grace is needed; the bounded
+        # handler join inside stop() covers any straggler.
         provider.stop()
         state = provider.state
+        # Explicit FROZEN snapshot: validation and serialization
+        # operate on it, never on the live list, so no late or
+        # in-flight append can reach a published record.
+        frame_snapshot = provider.frame_snapshot()
+        # Byte-verify selected result text against the owned seeded
+        # workspace in the frozen snapshot BEFORE any selection is
+        # serialized or published.
+        _verify_selected_content(frame_snapshot, state, declared_steps, scratch.workspace)
         provider_summary = _provider_summary(state)
         outcome, write_selection = _select_outcome(state, child_facts)
         total_selected = 0
@@ -2616,6 +2925,7 @@ def run_capture(
             selection_record = build_selection(
                 run_id=run_id,
                 state=state,
+                frames=frame_snapshot,
                 steps=declared_steps,
                 deadline_seconds=eff_limits.deadline_seconds,
                 elapsed_seconds=time.monotonic() - started,
@@ -2659,8 +2969,8 @@ def run_capture(
                 "env_facts": child_env_facts,
             },
             "selection": {
-                "frame_count": len(state.frames),
-                "transition_count": len(build_transitions(state.frames)),
+                "frame_count": len(frame_snapshot),
+                "transition_count": len(build_transitions(frame_snapshot)),
                 # Exact UTF-8 bytes of the published selection.json
                 # record (metadata and serialization overhead included);
                 # 0 when no selection was published.

@@ -576,7 +576,16 @@ per-run request budget, bounded preflight output, no-mutation
 directory guards, closed readiness/authorization schemas, and the
 absolute deadline across owned descendants) — still inert, with no
 actual capture, process collector or model call, and no format or
-process acquisition); the remaining D09/D10
+process acquisition; 017-k repairs that utility's second-review
+boundaries (RUNTIME issued-registry selection with
+preloaded/anticipated/forged-call negatives, finalization quiesce
+with frozen-snapshot validation and late-unverified-text stripping,
+every-method/error-path budget accounting with fixed sanitized
+non-echoing errors and bounded handler concurrency, faithful
+generated readiness round-trips, and typed non-echoing
+malformed-Unicode rejection) — still inert, with no actual capture,
+process collector or model call, and no format or process
+acquisition); the remaining D09/D10
 multi-chunk process-completion and branch-matrix scope is planned for
 a later same-PR suffix (a later exact order may authorize one
 bounded reviewed actual capture, then the process/chunk collector,

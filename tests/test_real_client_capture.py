@@ -1,13 +1,16 @@
 """Offline adversarial coverage for the 017-i capture utility.
 
 The utility (``scripts/real_client_capture.py``) is a bounded, opt-in,
-fail-closed process-capture harness whose ACTUAL-client path is disabled by
-construction. These tests exercise ONLY the offline surface: synthetic
-child executables (pinned injected paths; no installed-client fallback),
-the in-process owned fake provider, bounded provider robustness over raw
-sockets, extraction allowlists, supervision/timeout/cap accounting,
-attempt-ledger persistence, and privacy non-leakage. No test launches an
-installed client, calls a model, or touches a real provider.
+fail-closed process-capture harness whose ACTUAL-client path is input-
+gated (explicit opt-in plus validated readiness/authorization records;
+the generated readiness verdict is ``not_ready``) and is not exercised
+by any test in this suite. These tests exercise ONLY the offline
+surface: synthetic child executables (pinned injected paths; no
+installed-client fallback), the in-process owned fake provider, bounded
+provider robustness over raw sockets, extraction allowlists,
+supervision/timeout/cap accounting, attempt-ledger persistence, and
+privacy non-leakage. No test launches an installed client, calls a
+model, or touches a real provider.
 """
 
 from __future__ import annotations
@@ -1693,6 +1696,7 @@ class TestIssuedCallBinding:
         *,
         steps: tuple[Any, ...] | None = None,
         canary: str = "CANARY",
+        mode: str = DEFAULT_MODE,
     ) -> tuple[list[dict[str, Any]], dict[str, int]]:
         payload = _payload(items)
         before = json.loads(json.dumps(payload))
@@ -1701,7 +1705,7 @@ class TestIssuedCallBinding:
             declared_steps=steps or default_steps(),
             canary=canary,
             request_seq=1,
-            mode=DEFAULT_MODE,
+            mode=mode,
         )
         # Input immutability: extraction never mutates the parsed request.
         assert payload == before
@@ -1842,11 +1846,11 @@ class TestIssuedCallBinding:
             "name": "synthetic_custom",
             "input": "not-the-issued-value",
         }
-        frames, rejections = self._extract([call], steps=steps)
+        frames, rejections = self._extract([call], steps=steps, mode="responses-custom-tool")
         assert frames == []
         assert rejections == {"call_id_unissued": 1}
         call["input"] = rcc._issued_custom_input(0)
-        frames, rejections = self._extract([call], steps=steps)
+        frames, rejections = self._extract([call], steps=steps, mode="responses-custom-tool")
         assert rejections == {}
         assert len(frames) == 1
 
@@ -1887,13 +1891,27 @@ class TestIssuedCallBinding:
         assert transitions[0]["final_status"] == "completed"
 
     def test_malformed_unicode_arguments_rejected_not_echoed(self) -> None:
-        evil = "cat A.md\ud800"  # lone surrogate: invalid UTF-8 candidate
+        # ACTUAL malformed value: a lone surrogate (invalid UTF-8
+        # candidate) inside the declared-command arguments. The JSON
+        # escape is valid on the wire; the parsed value is not.
+        evil = "cat A.md\ud800"
+        item = _call_item()
+        item["arguments"] = json.dumps({"cmd": evil, "workdir": "."})
+        frames, rejections = self._extract([item])
+        assert frames == []
+        assert rejections == {"malformed_unicode": 1}
+        assert evil not in json.dumps([frames, rejections])
+        assert "\\ud800" not in json.dumps([frames, rejections])
+
+    def test_valid_unicode_arguments_are_typed_not_malformed(self) -> None:
+        # Valid non-ASCII Unicode is NOT malformed: it simply fails the
+        # declared-command match like any other undeclared text.
         item = _call_item()
         item["arguments"] = json.dumps({"cmd": "cat \u00e9.md", "workdir": "."})
         frames, rejections = self._extract([item])
         assert frames == []
         assert rejections == {"command_not_declared": 1}
-        assert evil not in json.dumps([frames, rejections])
+        assert "malformed_unicode" not in rejections
 
 
 # ---------------------------------------------------------------------------
@@ -2714,3 +2732,817 @@ class TestStaticGuarantees:
         assert rcc.READINESS_SCHEMA == "slaif-real-client-capture-readiness-v1"
         assert rcc.AUTHORIZATION_SCHEMA == ("slaif-real-client-capture-authorization-v1")
         assert rcc.CONTROL_SCHEMA == "slaif-real-client-capture-control-v1"
+
+
+# ---------------------------------------------------------------------------
+# 017-k: runtime issued-registry binding (public receiver lifecycle).
+# ---------------------------------------------------------------------------
+RUNTIME_CHILD_TEMPLATE = """
+import json, sys, urllib.request, urllib.error
+
+MODE = "__MODE__"
+
+def main():
+    c = json.load(open(sys.argv[1]))
+    mode = MODE
+    tools = [{"type": "function", "name": "exec_command", "parameters":
+        {"type": "object", "properties": {"cmd": {"type": "string"},
+                                          "workdir": {"type": "string"}},
+        "required": ["cmd", "workdir"]}}]
+    user = [{"role": "user", "content": [{"type": "input_text", "text": "s"}]}]
+    def post(history):
+        body = json.dumps({"model": c["model"], "stream": True,
+                           "input": history, "tools": tools}).encode()
+        req = urllib.request.Request(c["provider_base_url"] + "/responses",
+                                     data=body,
+                                     headers={"Authorization": "Bearer " + c["token"]})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = r.read(65536)
+        items = []
+        for line in data.decode().splitlines():
+            if line.startswith("data: "):
+                ev = json.loads(line[6:])
+                if ev.get("type") == "response.output_item.added":
+                    items.append(ev["item"])
+        return items
+    def call(call_id, cmd):
+        return {"type": "function_call", "call_id": call_id,
+                "name": "exec_command",
+                "arguments": json.dumps({"cmd": cmd, "workdir": "."})}
+    def out(call_id, content, status, proc):
+        return {"type": "function_call_output", "call_id": call_id,
+                "output": json.dumps({"content": content, "status": status,
+                                      "exit_code": 0, "process_id": proc})}
+    c1 = call("call_01", "cat A.md")
+    o1 = out("call_01", "alpha file content\\n", "completed", "proc_01")
+    c2 = call("call_02", "sleep 0.3")
+    o2 = out("call_02", "", "completed", "proc_02")
+    if mode == "preloaded_first":
+        # Exact call01/catA/result preloaded BEFORE any controller issue.
+        items = post(user + [c1, o1])
+        issued = items[0]
+        post(user + [issued, out(issued["call_id"], "alpha file content\\n",
+                                 "completed", "proc_01")])
+    elif mode == "preloaded_later":
+        # call02 (and its precondition) preloaded before any issue of it.
+        items = post(user + [c1, o1, c2])
+        i1 = items[0]
+        items = post(user + [i1, o1])
+        i2 = items[0]
+        post(user + [i1, o1, i2, o2])
+    elif mode == "forged_progression":
+        # Forged inbound completed progress for call01 while offering
+        # call02 early; the controller's own issuance is the evidence.
+        items = post(user + [c1, o1, c2])
+        i1 = items[0]
+        items = post(user + [c1, o1, c2])
+        i2 = items[0]
+        post(user + [i1, o1, i2, o2])
+    else:
+        items = post(user)
+        issued = items[0]
+        post(user + [issued, out(issued["call_id"], "alpha file content\\n",
+                                 "completed", "proc_01")])
+    return 0
+
+sys.exit(main())
+"""
+
+
+def write_runtime_child(tmp_path: Path, mode: str) -> Path:
+    child = tmp_path / f"runtime_child_{mode}.py"
+    child.write_text(RUNTIME_CHILD_TEMPLATE.replace("__MODE__", mode), encoding="utf-8")
+    child.chmod(0o700)
+    return child
+
+
+class TestIssuedRegistryRuntime:
+    def _run(self, tmp_path: Path, mode: str, out_name: str) -> Any:
+        return run_synthetic(
+            tmp_path,
+            f"rt-{mode}",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            child=write_runtime_child(tmp_path, mode),
+            out_name=out_name,
+        )
+
+    def test_preloaded_first_call_before_issue_is_not_selected(self, tmp_path: Path) -> None:
+        result = self._run(tmp_path, "preloaded_first", "out-rt-pre1")
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        frames = selection["frames"]
+        # The preloaded pair in request 1 is selected NOWHERE.
+        assert not [f for f in frames if f["request_seq"] == 1]
+        # The controller-issued echo in request 2 IS selected (2 frames).
+        req2 = [f for f in frames if f["request_seq"] == 2]
+        assert [f["item_type"] for f in req2] == ["function_call", "function_call_output"]
+        # Both preloaded items rejected with the fixed reason.
+        assert selection["rejected"]["reason_counts"]["call_id_unissued"] == 2
+        # The proven echo is byte-verified against the owned workspace.
+        out_frame = [f for f in req2 if f["item_type"] == "function_call_output"][0]
+        assert out_frame["content"] == "alpha file content\n"
+        assert out_frame["content_verified"] is True
+
+    def test_preloaded_later_call_before_issue_is_not_selected(self, tmp_path: Path) -> None:
+        result = self._run(tmp_path, "preloaded_later", "out-rt-pre2")
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        frames = selection["frames"]
+        assert not [f for f in frames if f["request_seq"] == 1]
+        # call_02 frames appear ONLY after the controller issued it
+        # (request 3), never at the preloaded request 1 or 2.
+        c2_frames = [f for f in frames if f["call_id"] == "call_02"]
+        assert c2_frames and all(f["request_seq"] == 3 for f in c2_frames)
+        assert selection["rejected"]["reason_counts"]["call_id_unissued"] == 3
+        # Sleep-step empty payload verified.
+        sleep_out = [
+            f
+            for f in c2_frames
+            if f["item_type"] == "function_call_output" and f["status"] == "completed"
+        ]
+        assert sleep_out and sleep_out[0]["content_verified"] is True
+
+    def test_forged_inbound_progression_never_selects_early_call(self, tmp_path: Path) -> None:
+        result = self._run(tmp_path, "forged_progression", "out-rt-forged")
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        frames = selection["frames"]
+        # No frame at all in request 1 (forged progress + early call02).
+        assert not [f for f in frames if f["request_seq"] == 1]
+        # Request 2 selects only the actually-issued call_01 pair.
+        req2 = [f for f in frames if f["request_seq"] == 2]
+        assert [f["call_id"] for f in req2] == ["call_01", "call_01"]
+        # call_02 selected only once the controller issued it (request 3).
+        c2_frames = [f for f in frames if f["call_id"] == "call_02"]
+        assert c2_frames and all(f["request_seq"] == 3 for f in c2_frames)
+        # 3 rejections in request 1 + 1 in request 2 (the late call02).
+        assert selection["rejected"]["reason_counts"]["call_id_unissued"] == 4
+
+    def test_actual_issued_receiver_control(self, tmp_path: Path) -> None:
+        result = self._run(tmp_path, "normal", "out-rt-normal")
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        frames = selection["frames"]
+        assert selection["rejected"]["reason_counts"].get("call_id_unissued", 0) == 0
+        out_frames = [f for f in frames if f["item_type"] == "function_call_output"]
+        assert out_frames and all(f["content_verified"] is True for f in out_frames)
+
+
+class TestWrongFamilyUnderOfferedSchema:
+    def _extract(
+        self, items: list[dict[str, Any]], mode: str
+    ) -> tuple[list[dict[str, Any]], dict[str, int]]:
+        payload = {"model": rcc.SYNTHETIC_MODEL, "input": items}
+        frames, rejections, _ = rcc.extract_frames(
+            payload,
+            declared_steps=rcc.default_declared_steps(),
+            canary="CANARY",
+            request_seq=1,
+            mode=mode,
+        )
+        return list(frames), dict(rejections)
+
+    def test_custom_call_in_function_mode_rejected(self) -> None:
+        frames, rejections = self._extract(
+            [
+                {
+                    "type": "custom_tool_call",
+                    "call_id": "call_01",
+                    "name": "exec_command",
+                    "input": "synthetic-custom-input-01",
+                }
+            ],
+            "responses-function-tool",
+        )
+        assert frames == []
+        assert rejections == {"input_shape_unsupported": 1}
+
+    def test_function_call_in_custom_mode_rejected(self) -> None:
+        frames, rejections = self._extract(
+            [
+                {
+                    "type": "function_call",
+                    "call_id": "call_01",
+                    "name": "exec_command",
+                    "arguments": json.dumps({"cmd": "cat A.md", "workdir": "."}),
+                }
+            ],
+            "responses-custom-tool",
+        )
+        assert frames == []
+        assert rejections == {"input_shape_unsupported": 1}
+
+    def test_matching_family_control(self) -> None:
+        frames, rejections = self._extract(
+            [_call_item(), _out_item("call_01", _ok_read_output())],
+            "responses-function-tool",
+        )
+        assert rejections == {}
+        assert len(frames) == 2
+
+
+# ---------------------------------------------------------------------------
+# 017-k: finalization quiesce (freeze before validation/publication).
+# ---------------------------------------------------------------------------
+LATE_MARKER = "SYNTHETIC_LATE_UNVERIFIED_VALUE"
+
+
+class TestFinalizationQuiesce:
+    def _patch_stop_injection(self, monkeypatch: pytest.MonkeyPatch, held: dict[str, Any]) -> None:
+        original_start = rcc.FakeProvider.start
+        original_stop = rcc.FakeProvider.stop
+
+        def start(self_provider: Any) -> int:
+            port: int = original_start(self_provider)
+            held["port"] = port
+            return port
+
+        def stop(self_provider: Any) -> None:
+            if not held.get("injected"):
+                held["injected"] = True
+                import urllib.error
+                import urllib.request
+
+                state = self_provider.state
+                call = {
+                    "type": "function_call",
+                    "call_id": "call_01",
+                    "name": "exec_command",
+                    "arguments": json.dumps({"cmd": "cat A.md", "workdir": "."}),
+                }
+                output = {
+                    "type": "function_call_output",
+                    "call_id": "call_01",
+                    "output": json.dumps(
+                        {
+                            "content": LATE_MARKER,
+                            "status": "completed",
+                            "exit_code": 0,
+                            "process_id": "proc_01",
+                        }
+                    ),
+                }
+                tools = [
+                    {
+                        "type": "function",
+                        "name": "exec_command",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "cmd": {"type": "string"},
+                                "workdir": {"type": "string"},
+                            },
+                            "required": ["cmd", "workdir"],
+                        },
+                    }
+                ]
+                body = json.dumps(
+                    {"model": state.model, "stream": True, "input": [call, output], "tools": tools}
+                ).encode()
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{held['port']}/v1/responses",
+                    data=body,
+                    headers={
+                        "Authorization": f"Bearer {state.token}",
+                        "Content-Type": "application/json",
+                    },
+                )
+                try:
+                    with urllib.request.urlopen(request, timeout=2) as response:
+                        response.read(65536)
+                except (urllib.error.URLError, TimeoutError, OSError):
+                    pass
+            original_stop(self_provider)
+
+        monkeypatch.setattr(rcc.FakeProvider, "start", start)
+        monkeypatch.setattr(rcc.FakeProvider, "stop", stop)
+
+    def test_normal_receiver_finalization_control(self, tmp_path: Path) -> None:
+        result = run_synthetic(
+            tmp_path, "fin-1", limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0)
+        )
+        assert result.outcome == "completed"
+        assert result.selection_path is not None and result.selection_path.is_file()
+        assert result.run_record["provider"]["frozen"] is True
+
+    def test_request_at_shutdown_boundary_never_persists_unverified_text(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        held: dict[str, Any] = {}
+        self._patch_stop_injection(monkeypatch, held)
+        out = protected_out_dir(tmp_path)
+        result = rcc.run_capture(
+            run_id="fin-2",
+            out_dir=out,
+            child=FAKE_CHILD,
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            child_kind="synthetic",
+        )
+        assert held.get("injected") is True
+        assert result.outcome == "completed"
+        # The late unverified text is stored NOWHERE under the output
+        # directory (selection, run record, attempt, scratch).
+        assert LATE_MARKER.encode() not in record_blob(out)
+        selection = result.selection_record
+        assert selection is not None
+        # Honest accounting: the late known-issued frame was byte-
+        # verified and stripped (metadata + digest only).
+        assert selection["rejected"]["reason_counts"].get("content_unverified") == 1
+        late_frames = [
+            f
+            for f in selection["frames"]
+            if f["item_type"] == "function_call_output" and f["content_verified"] is False
+        ]
+        assert late_frames
+        assert all(f["content"] is None for f in late_frames)
+        assert result.run_record["provider"]["frozen"] is True
+        assert result.run_record["provider"]["teardown_incomplete"] is False
+
+    @staticmethod
+    def _body(history: list[dict[str, Any]]) -> bytes:
+        return json.dumps(
+            {
+                "model": rcc.SYNTHETIC_MODEL,
+                "stream": True,
+                "input": history,
+                "tools": [
+                    {
+                        "type": "function",
+                        "name": "exec_command",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "cmd": {"type": "string"},
+                                "workdir": {"type": "string"},
+                            },
+                            "required": ["cmd", "workdir"],
+                        },
+                    }
+                ],
+            }
+        ).encode()
+
+    def test_frozen_provider_rejects_appends_and_snapshot_is_final(self, tmp_path: Path) -> None:
+        state = rcc.ProviderState(
+            rcc.CaptureLimits.resolved(), rcc.SYNTHETIC_MODEL, DEFAULT_MODE, "tok"
+        )
+        provider = rcc.FakeProvider(
+            state=state, steps=rcc.default_declared_steps(), canary="CANARY"
+        )
+        provider.start()
+        user_only = self._body([{"role": "user", "content": [{"type": "input_text", "text": "s"}]}])
+        try:
+            status, _ = provider.handle_responses_post(user_only)
+            assert status == 200  # controller issues call_01 here
+            pair = self._body(
+                [
+                    {"role": "user", "content": [{"type": "input_text", "text": "s"}]},
+                    {
+                        "type": "function_call",
+                        "call_id": "call_01",
+                        "name": "exec_command",
+                        "arguments": json.dumps({"cmd": "cat A.md", "workdir": "."}),
+                    },
+                    _out_item("call_01", _ok_read_output()),
+                ]
+            )
+            status, _ = provider.handle_responses_post(pair)
+            assert status == 200
+            assert len(state.frames) == 2
+        finally:
+            pass
+        provider.stop()
+        assert state.frozen is True
+        snapshot_before = provider.frame_snapshot()
+        # Append attempts after the freeze gate are rejected with a
+        # fixed typed status and never reach the frame state.
+        status, _ = provider.handle_responses_post(self._body([]))
+        assert status == 503
+        assert state.post_freeze_rejected == 1
+        snapshot_after = provider.frame_snapshot()
+        assert snapshot_after == snapshot_before
+        assert len(snapshot_after) == 2
+
+    def test_stop_is_bounded_with_stalled_inflight_handler(self, tmp_path: Path) -> None:
+        state = rcc.ProviderState(
+            rcc.CaptureLimits.resolved(), rcc.SYNTHETIC_MODEL, DEFAULT_MODE, "tok"
+        )
+        provider = rcc.FakeProvider(
+            state=state, steps=rcc.default_declared_steps(), canary="CANARY"
+        )
+        port = provider.start()
+        try:
+            # A connection that sends headers but never finishes the
+            # body: the handler is in flight, bounded by the 2 s read
+            # timeout. stop() must join it under the bounded grace,
+            # never hang, and never let it append.
+            sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+            sock.sendall(
+                b"POST /v1/responses HTTP/1.1\r\n"
+                b"Host: 127.0.0.1\r\n"
+                b"Authorization: Bearer tok\r\n"
+                b"Content-Length: 10\r\n"
+                b"\r\n"
+            )
+            import time as _time
+
+            _time.sleep(0.3)  # let the handler spawn and block on the body
+            started = _time.monotonic()
+            provider.stop()
+            elapsed = _time.monotonic() - started
+            sock.close()
+            assert elapsed < 8.0
+            assert state.frozen is True
+            assert state.teardown_incomplete is False
+            assert state.frames == []
+        finally:
+            provider.stop()
+
+    def test_build_selection_without_explicit_snapshot_is_pure_facade_control(
+        self,
+    ) -> None:
+        # The 017-j public call form (no explicit snapshot) is preserved
+        # for the pure-facade fixture control: the caller owns the static
+        # frame state, so there is no live receiver or late-append
+        # surface. The runtime finalization path (run_capture) always
+        # passes the explicit frozen snapshot, and both forms agree on
+        # the same static state.
+        state = rcc.ProviderState(
+            rcc.CaptureLimits.resolved(), rcc.SYNTHETIC_MODEL, DEFAULT_MODE, "tok"
+        )
+        payload = {
+            "model": rcc.SYNTHETIC_MODEL,
+            "input": [_call_item(), _out_item("call_01", _ok_read_output())],
+        }
+        frames, rejections, _ = rcc.extract_frames(
+            payload,
+            declared_steps=rcc.default_declared_steps(),
+            canary="CANARY",
+            request_seq=1,
+            mode=DEFAULT_MODE,
+        )
+        assert rejections == {}
+        state.frames = frames
+        steps = rcc.default_declared_steps()
+        kwargs = dict(
+            run_id="pure-facade",
+            state=state,
+            steps=steps,
+            deadline_seconds=1.0,
+            elapsed_seconds=0.001,
+            child_kind="synthetic",
+            client_version=None,
+            client_sha256=None,
+        )
+        implicit = rcc.build_selection(**kwargs)
+        explicit = rcc.build_selection(frames=list(state.frames), **kwargs)
+        assert explicit == implicit
+        texts = [f.get("content") for f in implicit["frames"]]
+        assert "alpha file content\n" in texts
+
+
+# ---------------------------------------------------------------------------
+# 017-k: all-method / error-path request accounting and bounded handlers.
+# ---------------------------------------------------------------------------
+class TestMethodAccounting:
+    def _provider(self) -> tuple[Any, Any, int]:
+        state = rcc.ProviderState(
+            rcc.CaptureLimits.resolved(max_requests=2),
+            rcc.SYNTHETIC_MODEL,
+            DEFAULT_MODE,
+            "tok",
+        )
+        provider = rcc.FakeProvider(
+            state=state, steps=rcc.default_declared_steps(), canary="CANARY"
+        )
+        port = provider.start()
+        return provider, state, port
+
+    def _raw(self, port: int, request: bytes) -> bytes:
+        with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+            sock.sendall(request)
+            chunks: list[bytes] = []
+            while True:
+                chunk = sock.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                if len(b"".join(chunks)) > 65536:
+                    break
+            return b"".join(chunks)
+
+    def test_head_consumes_request_budget(self, tmp_path: Path) -> None:
+        provider, state, port = self._provider()
+        try:
+            codes: list[str] = []
+            for _ in range(3):
+                response = self._raw(
+                    port,
+                    (
+                        f"HEAD /v1/models HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{port}\r\n"
+                        f"Authorization: Bearer tok\r\n\r\n"
+                    ).encode(),
+                )
+                assert response.split(b" ", 2)[1] in (b"501", b"429")
+                codes.append(response.split(b" ", 2)[1].decode())
+            assert codes[:2] == ["501", "501"]
+            assert codes[2] == "429"
+            assert state.request_limit_hit
+            assert state.request_count == 3
+        finally:
+            provider.stop()
+
+    def test_unsupported_arbitrary_method_consumes_budget(self, tmp_path: Path) -> None:
+        provider, state, port = self._provider()
+        try:
+            codes: list[str] = []
+            for _ in range(3):
+                response = self._raw(
+                    port,
+                    (
+                        f"FOO /v1/models HTTP/1.1\r\n"
+                        f"Host: 127.0.0.1:{port}\r\n"
+                        f"Authorization: Bearer tok\r\n\r\n"
+                    ).encode(),
+                )
+                codes.append(response.split(b" ", 2)[1].decode())
+            assert codes[:2] == ["501", "501"]
+            assert codes[2] == "429"
+            assert state.request_limit_hit
+        finally:
+            provider.stop()
+
+    def test_malformed_request_line_consumes_budget_without_echo(self, tmp_path: Path) -> None:
+        provider, state, port = self._provider()
+        try:
+            # Two garbage request lines (malformed dispatch paths) plus
+            # one valid GET: the budget is consumed by ALL of them and
+            # the error bodies are fixed sanitized text with no echo.
+            for _ in range(2):
+                response = self._raw(port, b"GARBAGE-LINE\r\n\r\n")
+                assert b"GARBAGE" not in response
+                assert b"error\n" in response
+            response = self._raw(
+                port,
+                (
+                    f"GET /v1/models HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    f"Authorization: Bearer tok\r\n\r\n"
+                ).encode(),
+            )
+            assert b"HTTP/1.1 429" in response
+            assert state.request_limit_hit
+            assert state.request_count == 3
+        finally:
+            provider.stop()
+
+    def test_unsupported_method_error_body_is_fixed_and_silent(self, tmp_path: Path) -> None:
+        provider, state, port = self._provider()
+        try:
+            response = self._raw(
+                port,
+                (f"BREW /v1/models HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n").encode(),
+            )
+            # Fixed sanitized body: the method name is never echoed.
+            assert b"BREW" not in response
+            assert response.endswith(b"error\n")
+            assert state.request_count == 1
+        finally:
+            provider.stop()
+
+    def test_concurrent_handlers_bounded_and_server_survives(self, tmp_path: Path) -> None:
+        import time as _time
+
+        state = rcc.ProviderState(
+            rcc.CaptureLimits.resolved(), rcc.SYNTHETIC_MODEL, DEFAULT_MODE, "tok"
+        )
+        provider = rcc.FakeProvider(
+            state=state, steps=rcc.default_declared_steps(), canary="CANARY"
+        )
+        port = provider.start()
+        stalled: list[socket.socket] = []
+        try:
+            for _ in range(rcc.HARD_MAX_CONCURRENT_HANDLERS):
+                sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+                # Request line only, no header terminator: the handler
+                # stalls in the bounded header read.
+                sock.sendall(b"GET /v1/models HTTP/1.1\r\nHost: x\r\n")
+                stalled.append(sock)
+            _time.sleep(0.3)  # handlers spawned
+            fifth = socket.create_connection(("127.0.0.1", port), timeout=5)
+            fifth.settimeout(1.0)
+            data = b""
+            try:
+                data = fifth.recv(4096)
+            except (TimeoutError, OSError):
+                pass
+            fifth.close()
+            assert data == b""  # rejected without a response
+            assert state.rejected_connections >= 1
+            # After the stalled handlers hit their bounded read
+            # timeout, the server still serves new work.
+            _time.sleep(2.5)
+            for sock in stalled:
+                sock.close()
+            response = self._raw(
+                port,
+                (
+                    f"GET /v1/models HTTP/1.1\r\n"
+                    f"Host: 127.0.0.1:{port}\r\n"
+                    f"Authorization: Bearer tok\r\n\r\n"
+                ).encode(),
+            )
+            assert b"HTTP/1.1 200" in response
+        finally:
+            for sock in stalled:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+            provider.stop()
+
+
+# ---------------------------------------------------------------------------
+# 017-k: readiness metadata fidelity (zero and nonzero known flags).
+# ---------------------------------------------------------------------------
+class TestReadinessMetadataFidelity:
+    def _roundtrip(self, tmp_path: Path, flags: tuple[str, ...]) -> None:
+        facts = rcc.BinaryFacts(
+            version="review-version",
+            sha256="a" * 64,
+            detected_flags=flags,
+            help_complete=True,
+        )
+        record = rcc.evaluate_startup_readiness(facts).to_record()
+        assert record["detected_flag_count"] == len(flags)
+        path = tmp_path / f"readiness-{len(flags)}.json"
+        write_json_0600(path, record)
+        loaded = rcc.load_readiness_record(path, facts)
+        # The generated record round-trips byte-for-byte at the
+        # metadata level for zero AND every nonzero known-flag count.
+        assert loaded.to_record() == record
+        assert loaded.verdict == "not_ready"
+        assert loaded.detected_flags == facts.detected_flags
+
+    def test_zero_flags_roundtrip_control(self, tmp_path: Path) -> None:
+        self._roundtrip(tmp_path, ())
+
+    def test_one_flag_roundtrip(self, tmp_path: Path) -> None:
+        self._roundtrip(tmp_path, ("--ephemeral",))
+
+    def test_multiple_nonzero_flags_roundtrip(self, tmp_path: Path) -> None:
+        self._roundtrip(tmp_path, ("--ephemeral", "--json", "-s"))
+
+    def test_roundtrip_never_exports_flag_text(self, tmp_path: Path) -> None:
+        facts = rcc.BinaryFacts(
+            version="review-version",
+            sha256="a" * 64,
+            detected_flags=("--ephemeral", "--strict-config"),
+            help_complete=True,
+        )
+        record = rcc.evaluate_startup_readiness(facts).to_record()
+        path = tmp_path / "readiness-noflags.json"
+        write_json_0600(path, record)
+        loaded = rcc.load_readiness_record(path, facts)
+        # Metadata law: the loaded record still carries the count only.
+        assert loaded.to_record()["detected_flag_count"] == 2
+        assert "ephemeral" not in json.dumps(loaded.to_record())
+
+
+# ---------------------------------------------------------------------------
+# 017-k: ACTUAL malformed Unicode (lone surrogates) + valid Unicode
+# controls, typed and non-echoing, across output/argument/metadata paths.
+# ---------------------------------------------------------------------------
+class TestMalformedUnicodeStrict:
+    MARKER = "SYNTHETIC_UNSELECTED_UNICODE_VALUE"
+
+    def _extract(
+        self, items: list[dict[str, Any]], mode: str = DEFAULT_MODE
+    ) -> tuple[list[dict[str, Any]], dict[str, int], frozenset[str]]:
+        payload = {"model": rcc.SYNTHETIC_MODEL, "input": items}
+        before = json.loads(json.dumps(payload))
+        frames, rejections, unknown = rcc.extract_frames(
+            payload,
+            declared_steps=rcc.default_declared_steps(),
+            canary="CANARY",
+            request_seq=1,
+            mode=mode,
+        )
+        assert payload == before  # input immutability
+        return list(frames), dict(rejections), frozenset(unknown)
+
+    def test_malformed_output_content_typed_and_non_echoing(self) -> None:
+        evil_content = self.MARKER + "\ud800"  # ACTUAL lone surrogate
+        frames, rejections, unknown = self._extract(
+            [
+                _call_item(),
+                _out_item("call_01", {"content": evil_content, "status": "completed"}),
+            ]
+        )
+        assert rejections == {"malformed_unicode": 1}
+        exported = json.dumps([frames, dict(rejections), sorted(unknown)])
+        assert self.MARKER not in exported
+        assert "ud800" not in exported
+
+    def test_malformed_plain_string_output_typed_and_non_echoing(self) -> None:
+        evil = self.MARKER + "\ud800"
+        frames, rejections, _ = self._extract([_out_item("call_01", evil)])
+        assert rejections == {"malformed_unicode": 1}
+        assert self.MARKER not in json.dumps([frames, dict(rejections)])
+
+    def test_malformed_custom_input_typed_and_non_echoing(self) -> None:
+        steps = (
+            DeclaredStep(
+                index=0, tool_name="synthetic_custom", kind="read", path="A.md", seconds=0.0
+            ),
+        )
+        payload = {
+            "model": rcc.SYNTHETIC_MODEL,
+            "input": [
+                {
+                    "type": "custom_tool_call",
+                    "call_id": "call_01",
+                    "name": "synthetic_custom",
+                    "input": rcc._issued_custom_input(0) + "\ud800",
+                }
+            ],
+        }
+        frames, rejections, _ = rcc.extract_frames(
+            payload,
+            declared_steps=steps,
+            canary="CANARY",
+            request_seq=1,
+            mode="responses-custom-tool",
+        )
+        assert frames == []
+        assert rejections == {"malformed_unicode": 1}
+
+    def test_valid_unicode_output_is_not_malformed(self) -> None:
+        # Valid non-ASCII text: processed normally (no malformed
+        # Unicode rejection); it may still be unverified at run time,
+        # but extraction must not type it malformed.
+        frames, rejections, _ = self._extract(
+            [
+                _call_item(),
+                _out_item("call_01", {"content": "caf\u00e9 content\n", "status": "completed"}),
+            ]
+        )
+        assert "malformed_unicode" not in rejections
+        assert len(frames) == 2
+
+    def test_run_level_malformed_unicode_no_crash_no_persistence(self, tmp_path: Path) -> None:
+        child = tmp_path / "unicode_child.py"
+        child.write_text(
+            "import json, sys, urllib.request\n"
+            "c = json.load(open(sys.argv[1]))\n"
+            "tools = [{'type': 'function', 'name': 'exec_command', 'parameters':\n"
+            "  {'type': 'object', 'properties': {'cmd': {'type': 'string'},\n"
+            "                                    'workdir': {'type': 'string'}},\n"
+            "  'required': ['cmd', 'workdir']}}]\n"
+            "def post(history):\n"
+            "    body = json.dumps({'model': c['model'], 'stream': True,\n"
+            "                       'input': history, 'tools': tools}).encode()\n"
+            "    req = urllib.request.Request(c['provider_base_url'] + '/responses',\n"
+            "                                 data=body,\n"
+            "                                 headers={'Authorization': 'Bearer ' + c['token']})\n"
+            "    with urllib.request.urlopen(req, timeout=5) as r:\n"
+            "        data = r.read(65536)\n"
+            "    items = []\n"
+            "    for line in data.decode().splitlines():\n"
+            "        if line.startswith('data: '):\n"
+            "            ev = json.loads(line[6:])\n"
+            "            if ev.get('type') == 'response.output_item.added':\n"
+            "                items.append(ev['item'])\n"
+            "    return items\n"
+            "items = post([{'role': 'user', 'content': [{'type': 'input_text', 'text': 's'}]}])\n"
+            "call = items[0]\n"
+            "evil = 'SYNTHETIC_UNSELECTED_UNICODE_VALUE' + '\\ud800'\n"
+            "post([{'role': 'user', 'content': [{'type': 'input_text', 'text': 's'}]},\n"
+            "      call,\n"
+            "      {'type': 'function_call_output', 'call_id': call['call_id'],\n"
+            "       'output': json.dumps({'content': evil, 'status': 'completed',\n"
+            "                              'exit_code': 0, 'process_id': 'proc_01'})}])\n"
+            "sys.exit(0)\n",
+            encoding="utf-8",
+        )
+        child.chmod(0o700)
+        result = run_synthetic(
+            tmp_path,
+            "uni-1",
+            limits=rcc.CaptureLimits.resolved(deadline_seconds=10.0),
+            child=child,
+            out_name="out-uni",
+        )
+        assert result.outcome == "completed"
+        selection = result.selection_record
+        assert selection is not None
+        assert selection["rejected"]["reason_counts"].get("malformed_unicode") == 1
+        assert all(f["content"] is None for f in selection["frames"])
+        assert b"SYNTHETIC_UNSELECTED_UNICODE_VALUE" not in record_blob(
+            result.run_record_path.parent
+        )

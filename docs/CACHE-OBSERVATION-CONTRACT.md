@@ -775,10 +775,13 @@ acquisition. D09/D10 remain `NOT RUN`. Round 017-i (this round)
 superseded the collector draft with a corrective **offline
 process-capture utility** for independent strategic review (section
 12): bounded, opt-in, fail-closed, stdlib-only, not wired into the
-adapter runtime, with the actual-client path unreachable by
-construction; it acquires no format evidence. The actual capture and
-the process/chunk collector remain `NOT RUN`, planned for later
-exact orders after independent review.
+adapter runtime; it acquires no format evidence. (Historical
+note: the 017-i record's "actual-client path unreachable by
+construction" wording is a REJECTED claim, superseded by 017-j:
+the path is input-gated, not structurally unreachable; see section
+12.3.) The actual capture and the process/chunk collector remain
+`NOT RUN`, planned for later exact orders after independent
+review.
 Round 017-j amended that same inert utility (still not wired into
 the adapter runtime) from independent review: frozen review scripts
 at the 017-i head exposed 11 check failures across the selection,
@@ -809,9 +812,39 @@ stand-in), and this version's generated readiness verdict is
 `not_ready`; the gate is stated accurately in section 12.3. This
 round still performs no actual client, provider session, or model
 call; the actual capture and the process/chunk collector remain
-`NOT RUN`.
+`NOT RUN`. Round 017-k amended that same inert utility (still not
+wired into the adapter runtime) from a second independent review:
+two additional frozen scripts at the 017-j implementation head
+exposed 5 failures among 10 checks with valid controls
+(`check-capture-issued-registry.py` 1/2;
+`check-capture-finalization-v3.py` 4/8; the twelve original frozen
+scripts and their hashes remain unchanged and passing). 017-k
+repaired those four bounded defect areas: (1) RUNTIME frame
+selection is bound to the controller's ACTUAL issued records
+created before each provider request (a preloaded/anticipated/
+forged call is never selected before the controller issues it; the
+pure-facade candidate parsing is a distinct fixture mode, and a
+constructor or manually populated state is not runtime provenance
+evidence); (2) finalization quiesces the owned provider BEFORE
+final validation/publication (freeze, stop accepting, close the
+listening socket, bounded handler join) and validates/serializes
+the explicit frozen frame snapshot, so no late or in-flight append
+can reach a persisted record; (3) EVERY request method and
+error-dispatch path consumes the per-run budget with fixed
+sanitized errors (the 017-j do_GET/do_POST-only centralization
+missed the BaseHTTPRequestHandler error-dispatch fallback), and
+accepted handler concurrency is bounded with honestly reported
+teardown; (4) readiness metadata round-trips the validated
+live-facts flag count faithfully for zero and every nonzero known
+flag (the 017-j `tuple("") * count` placeholder was always empty),
+and malformed Unicode (e.g. a lone surrogate) is rejected with the
+fixed typed `malformed_unicode` reason before any
+encoding/hashing/retention, with the raw value stored nowhere and
+no lossy replacement. This round still performs no actual client,
+provider session, or model call; the actual capture and the
+process/chunk collector remain `NOT RUN`.
 
-## 12. Offline process-capture utility (rounds 017-i/017-j, inert)
+## 12. Offline process-capture utility (rounds 017-i/017-j/017-k, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family
 `slaif-real-client-capture-*-v1`; the selection record is
@@ -850,9 +883,30 @@ and earns no genuine-client format authority.
 - Finite reads on the owned fake provider: a stalling or truncated
   client (malformed, chunked, oversized, or invalid-length payloads) is
   rejected with a sanitized status; no handler thread can be pinned.
-  Every fixture request counts against the per-run request budget
-  before route, authentication, or body-outcome branches, so
-  unsupported or malformed requests cannot evade the cap.
+  EVERY request method and error-dispatch path consumes the per-run
+  request budget before route, authentication, or body-outcome
+  branches — known routes, unsupported routes, unsupported HTTP
+  methods, malformed request lines, and unsupported versions (the
+  accounting covers the BaseHTTPRequestHandler error-dispatch
+  fallback, which 017-j's do_GET/do_POST-only centralization
+  missed) — so no request or error path can evade the cap; error
+  dispatch sends fixed sanitized bodies that never echo the request
+  line or method, and authentication failures remain value-free.
+- Bounded handler work: accepted handler concurrency is capped (hard
+  cap 4 concurrent handlers); connections beyond the cap are closed
+  without a response and counted; in-flight handler work is joined
+  under a bounded grace at quiesce time and unsuccessful teardown is
+  reported honestly in the run record, never hidden.
+- **Finalization quiesce**: before any final validation or
+  publication the owned provider is quiesced — the frame state is
+  FROZEN (the append path rechecks the gate under the state lock, so
+  no further append can happen), the accept loop stops, the
+  listening socket closes, and in-flight handlers are joined under
+  the bounded grace. Validation and serialization then operate on
+  the explicit frozen frame snapshot: every exported text is
+  byte-verified in that final snapshot, and serialization cannot
+  pick up a later unverified append (the 017-j ordering verified
+  BEFORE drain/stop, leaving a check/append/write race).
 - Child stdout/stderr are drained in bounded memory (byte counts only,
   never content); exceeding the cap terminates the owned group. Child
   output is never redirected to raw files.
@@ -868,19 +922,40 @@ and earns no genuine-client format authority.
   digests. No raw request, system prompt, tool schema, header value,
   body, history, unknown stdout/stderr or credential ever reaches disk,
   console, errors, tracebacks or reprs.
-- **Issued-binding extraction**: selection is bound to the
-  controller's issued call records — the exact issued call ID for a
-  step position, the declared tool family/name, the declared
-  step/command and expected argument values, and the
-  controller-issued process ID on results. A later step's call counts
-  as issued only after a structurally valid completed output for
-  every earlier step that carries issued metadata; a "running" or
-  forged-metadata output is never advancement evidence. Unissued,
-  orphaned, conflicting, mismatched, wrong-mode, undeclared-command,
-  unknown tool mode, unknown item type (bounded sample count),
-  over-bound metadata, and credential-marker (canary) hits are
-  rejected or excluded with typed reasons, item by item; their raw
-  values are stored nowhere.
+- **Issued-binding extraction (runtime vs pure-facade)**: at RUNTIME
+  (the owned provider receiver) selection is bound to the
+  controller's ACTUAL issued records created BEFORE that provider
+  request — the exact issued call ID, the tool family/name matching
+  the offered tool schema, the declared step/command and expected
+  argument values, and the controller-issued process ID on results.
+  A preloaded, anticipated, or forged call is never selected before
+  the controller issues it; issuance/completion is never inferred
+  from a caller's predicted ID or forged earlier status (the
+  controller's own gating already encoded causal progression when it
+  issued each record), and valid echoed histories keep their
+  occurrence order. The pure-facade candidate parsing (declared-step
+  ID inference plus progression from the request's own completed
+  outputs, where a later step's call counts as issued only after a
+  structurally valid completed output for every earlier step that
+  carries issued metadata) is a distinct FIXTURE mode used only by
+  the offline pure controls; a constructor or manually populated
+  ProviderState is not runtime provenance evidence. Unissued,
+  orphaned, conflicting, mismatched, wrong-mode (wrong item family
+  under the offered tool schema), undeclared-command, unknown tool
+  mode, unknown item type (bounded sample count), over-bound
+  metadata, and credential-marker (canary) hits are rejected or
+  excluded with typed reasons, item by item; their raw values are
+  stored nowhere.
+- **Malformed-Unicode law**: a `str` carrying a lone surrogate (e.g.
+  from a JSON `\ud800` escape) is malformed Unicode and can never
+  be a faithful byte value. It is validated BEFORE any
+  encoding, hashing, or retention on the function/custom
+  output/argument and relevant metadata paths: the frame is
+  rejected with the fixed typed `malformed_unicode` reason, the raw
+  value is stored nowhere (not in exceptions, reprs, digests, or
+  records), and no lossy replacement ever masquerades as fidelity.
+  Valid non-ASCII Unicode (e.g. `\u00e9`) is processed normally and
+  is never typed malformed.
 - **Narrow synthetic text export (selection schema v2)**: the exact
   received result text of a proven selected synthetic frame is
   retained losslessly **only after** strict ownership, source/shape,
@@ -930,7 +1005,17 @@ and no packaged static evidence for the candidate controls
 control means **not ready**, never a silent fetch. A literal `ready`
 value in a hand-supplied record is **not** proof that those unverified
 startup controls were verified or applied. The readiness record is
-metadata-only (no observed flag text). No actual client, provider
+metadata-only (no observed flag text). Round 017-k repaired the
+generated record's round-trip fidelity: the loaded facts
+reproduce the record's validated flag count exactly for zero and
+every nonzero known flag (the live preflight facts own the in-
+memory flag set; the validated ``count ==
+len(facts.detected_flags)`` binding replaces the 017-j placeholder
+tuple, which always exported count 0 after loading), with no
+flag-text export, no fabricated placeholder semantics, and no new
+ready state — the generated verdict remains `not_ready`, and a
+caller's literal `ready` record remains caller input, not
+verification. No actual client, provider
 session, or model call is made or authorized by this round; a future
 exact order may authorize one bounded reviewed actual capture, and the
 process/chunk collector follows earned format evidence (D09/D10).
@@ -958,3 +1043,35 @@ an explicit environment skip, never a pass). The permission fixtures
 are intentional, so the suite runs under a process-local umask of
 022. Its synthetic frames are synthetic test data; they are
 **not** earned genuine-client fixtures.
+
+Round 017-k adds public receiver/run/lifecycle regressions for
+every repaired boundary: RUNTIME issued-registry binding through
+embedded-mode fake children (preloaded first/later calls and forged
+inbound progression are never selected before the controller
+issues; the actually-issued echo is selected and byte-verified; a
+constructor or manually populated state is not runtime provenance
+evidence), wrong-family items under an otherwise valid offered
+schema typed `input_shape_unsupported` with the matching-family
+control, finalization quiesce (a REAL late HTTP request at the
+public shutdown boundary is processed pre-freeze, byte-verified and
+stripped to `content_unverified`, and its marker bytes appear
+nowhere under the output directory; the frozen provider rejects
+later appends with a fixed typed status and the frozen snapshot is
+final; stop is bounded under a stalled in-flight handler with
+honest teardown accounting), every unsupported method, malformed
+request line, and error-dispatch path consuming a lowered budget
+with fixed non-echoing sanitized bodies, bounded handler
+concurrency with rejected over-cap connections and a surviving
+server, generated readiness records round-tripping the validated
+count for zero and every nonzero known flag without flag-text
+export, and ACTUAL lone-surrogate values across function/custom
+output/argument and run-level paths rejected with the fixed typed
+`malformed_unicode` reason (no echo in any exported record) plus
+valid non-ASCII Unicode controls. The two added frozen probes'
+expectations (`check-capture-issued-registry.py` 2 checks;
+`check-capture-finalization-v3.py` 8 checks) are covered by these
+suites and are re-asserted by the canonical probes at the
+implementation head. Skip accounting stays distinct: the 27 prior
+stage skips plus the one foreign-ownership `chown` environment
+skip; the simulated-UID and these new lifecycle proofs are passing
+tests, never skips.
