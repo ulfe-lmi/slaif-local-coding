@@ -22,80 +22,41 @@ implemented behavior remains explicitly named **legacy** until that migration
 is qualified. Delivery state for every rework criterion is tracked in
 [the stage ledger](docs/CACHE-REWORK-LEDGER.md), and the resolved engineering
 choices are recorded in [the implementation
-plan](docs/CACHE-IMPLEMENTATION-PLAN.md). As of stage 017-a the pure
-D01-D05 observation slice is implemented as inert typed modules (not active
-in the adapter); stage 017-b corrects its bounded observation-proof
-findings, stage 017-c corrects the remaining literal-grammar and
-actual-endpoint proof, each without adding read families; stage 017-d
-gates root observation on the actually selected endpoint domain and
-earns the bounded finite cd/cat read-plan and outer-region
-attribution slice (D06-D08) as inert typed modules; stage 017-e
-corrects that slice's echo option semantics (option-like dash-leading
-quoted literals are typed, never a boundary) and carries the actual
-plan-grammar identity on every plan-parser observation; stage 017-f
-earns the bounded pure literal-loop slice (the D07 loop criterion) as
-inert typed modules — finite `for ... in ...; do ...; done` loops with
-the earned `f`/`d` variable names, deterministic requested members,
-all-success guarded pure-cat loops as one ordered whole-source bundle,
-and typed unguarded/labeled/control-flow forms (grammar
-`literal-loop/v1`); stage 017-g corrects that slice's loop
-word/separator law — the unquoted `;` is its own syntactic element,
-so a quoted prefix plus a literal suffix touching the separator
-(`for f in "A".md;`) stays one unearned word, never two members —
-and corrects the member-digest prose to the occurrence law; stage
-017-h attempted the process evidence path but was interrupted and
-closed as PARTIAL with no repository change and nothing earned;
-stage 017-i lands the offline, opt-in, fail-closed process-capture
-utility (`scripts/real_client_capture.py`) for independent strategic
-review — inert (not active in the adapter), hard-capped,
+plan](docs/CACHE-IMPLEMENTATION-PLAN.md). As of the current stage the pure
+observation slice is implemented as inert typed modules (not active
+in the adapter) and has earned the D01-D05 root/path/read/result/
+span observation — including the eligibility-independent call-
+identity inventory (an unknown or ineligible call never acquires a
+source, but a collision with an eligible call ID is a typed conflict
+that cannot disappear through filtering, and missing, empty or
+malformed call IDs remain observable without inventing an ID) and
+structural causality (a result attaches to its matching call only
+when its exact numeric structural position — the `input` item index,
+or the Chat `messages` index of the assistant message carrying the
+call — follows the call's, never via lexical call IDs or JSONPath
+string sorting; a result before its call is a typed non-removable
+`PRE_CALL_RESULT` chain with no bundle/member digest, no source span
+and no proven-executed claim) — the D06/D07/D08 finite read plans,
+the D07 literal-loop slice, and the public D10 composition matrix
+with the pure D09 unsupported/partial negative matrix (rounds 017-b
+through 017-m corrected that surface's bounded proof findings and
+pairing identity); the offline, opt-in, fail-closed process-capture
+utility (`scripts/real_client_capture.py`) exists for independent
+strategic review — inert (not active in the adapter), hard-capped,
 privacy-law enforced in code, with the actual-client path
-input-gated (the generated startup readiness is `not_ready`: the
-candidate plugin/telemetry/update controls remain unverified from
-local static evidence, while caller-supplied `ready`/authorization
-records can launch the bound stand-in through the public API) — so
-it performs no actual capture, no process collector, and no model
-call; stage 017-j repairs that utility's selection/privacy/
-ownership/resource boundaries per independent review: frame
-selection bound to the controller's issued call records (exact
-issued ID, tool family/name, declared step/command and expected
-argument values, controller-issued process ID) with advancement
-evidence requiring completed outputs carrying issued metadata;
-lossless retention of proven selected synthetic result text after
-ownership/shape/byte verification (selection schema v2,
-`fixture_authority: none`); the selected cap enforced on the exact
-serialized record bytes (serialize once, publish the same bytes);
-every fixture request counted against the per-run budget before
-route/auth/body branches; bounded preflight output; pre-existing
-directories never chmoded; closed readiness/authorization metadata
-schemas; and the absolute deadline spanning owned descendants —
-still inert, with no actual capture, process collector, or model
-call, and no format or process acquisition; stage 017-k repairs that
-utility's second-review boundaries — RUNTIME selection bound to the
-controller's actually issued records (preloaded/anticipated/forged
-calls never selected before issuance), finalization quiesce with
-frozen-snapshot validation before publication (late unverified text
-is stripped, never persisted), every-method/error-path request-budget
-accounting with fixed sanitized non-echoing errors and bounded
-handler concurrency, faithful generated readiness record
-round-trips, and typed non-echoing rejection of actual
-malformed Unicode; stage 017-l repairs the two remaining offline
-capture boundaries on that same inert utility: quiesce now closes
-every admitted owned request socket (bounded registry; effective
-socket shutdown unblocks in-flight reads a per-read timeout cannot
-stop so the peer observes closure; repeated stop safe; an
-incomplete teardown is honestly reported and can never yield a
-completed outcome), and selected text verifies against the
-immutable original seed bytes bound before child launch (a child
-that rewrites its own seed after a legitimately issued read cannot
-redefine the purported original; tampered or unverified text is
-stripped with the fixed reason and reaches no persisted record,
-console, repr, or diagnostic) — still inert, with no actual
-capture, process collector, or model call, and no format or
-process acquisition; the remaining D09-D10
-scope stays with a later same-PR suffix (a later exact order may
-authorize one bounded reviewed actual capture, then the process/chunk
-collector, subject to review); no v1 runtime mechanism is active or
-qualified yet.
+input-gated (the generated startup readiness is `not_ready`;
+caller-supplied `ready`/authorization records can launch the bound
+stand-in through the public API) — so it performs no actual
+capture, no process collector, and no model call, and no format or
+process acquisition is earned. The remaining D09 actual-trace/
+multi-chunk process-completion and process/chunk collector gap stays
+with a later same-PR suffix (a later exact order may authorize one
+bounded reviewed actual capture, then the process/chunk collector,
+subject to review). Detailed round history is in [the stage
+ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
+transcripts; the versioned contract is [the observation
+contract](docs/CACHE-OBSERVATION-CONTRACT.md); no v1 runtime
+mechanism is active or qualified yet.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact

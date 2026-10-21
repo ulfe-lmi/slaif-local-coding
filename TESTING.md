@@ -257,6 +257,47 @@ simulated-UID proofs and the new 017-k lifecycle proofs are passing
 tests, never skips. No actual client, provider session, or model
 call is made; the actual capture and process/chunk collector remain
 `NOT RUN`.
+Round 017-m repairs the per-request pure read-observation identity
+and causality pairing on the same inert surface (no capture utility/
+child modification, no actual capture, no process collector), with
+the new public suite
+`tests/test_bundle_d10_matrix.py`: (1) identity conflicts precede
+read eligibility — the schema-evidenced call-ID inventory is
+eligibility-independent (an unknown/ineligible call colliding with
+an eligible call ID is a typed `DUPLICATE_CALL_ID` conflict, never
+filtered away; unknown calls never acquire; unrelated unique unknown
+calls neither recorded nor poisoning separate valid chains; absent/
+null/empty `MISSING_CALL_ID` and non-string `MALFORMED_CALL_ID` stay
+observable, never invent an ID, and never acquire content); (2)
+structural causality — a result attaches to its matching call only
+when its exact numeric structural position follows the call's (the
+`input` item index; the Chat `messages` index of the assistant
+message carrying the call), never from lexical call IDs or JSONPath
+string sorting, and a pre-call result keeps its chain typed
+`PRE_CALL_RESULT`, non-removable, with no bundle/member digest, no
+source span and no proven-executed claim. The public D10 composition
+matrix covers ordinary valid reads amid unrelated calls, same-ID
+conflicts across supported/unsupported names and relevant families,
+identical/conflicting duplicate calls, missing/empty/malformed IDs,
+orphan/mismatched/pre-call outputs, duplicate same-call results
+(still unsupported absent later earned process-chain evidence),
+non-monotonic IDs and >=10 structural positions, with independent
+valid chains still earning exact source span/digest/members/width
+alongside the rejected ambiguous chain; selected endpoint, mixed
+domain and ignored other-domain behavior preserve prior law. The
+pure D09 unsupported/partial negative matrix (command substitution
+`$()` and backticks, false/conditional/unexecuted branches, partial
+`head`/`sed` readers, known truncated/missing/running/unknown
+wrappers — typed unsupported/partial, never complete whole-file
+acquisitions, contrasted with the exact proven empty successful
+output) makes no shell/filesystem/network execution claim, adds no
+grammar family, and is not multi-chunk evidence: D09 multi-chunk/
+process association remains `NOT RUN`/deferred. All previously
+earned literal read/plan/loop positives, exact spans, aggregate work
+bounds and occurrence/member-hash/slot-width laws are preserved;
+tests assert unchanged inputs and non-echoing reprs. No actual
+client, provider session, or model call is made; the actual capture
+and process/chunk collector remain `NOT RUN`.
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

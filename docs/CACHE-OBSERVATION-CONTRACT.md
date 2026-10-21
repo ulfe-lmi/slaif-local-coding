@@ -61,7 +61,29 @@ list, template, guard, echo, adjacent-quote, workdir and whole-loop
 bound laws are explicit (section 4b), with the whole-loop expanded-
 operand budget never multiplied per iteration, and every observation
 the loop parser evaluates carries the actual loop grammar identity
-`LOOP_GRAMMAR`.
+`LOOP_GRAMMAR`. Round 017-m repairs the per-request pairing and
+causality identity on this same inert surface: the schema-evidenced
+call-ID inventory is eligibility-independent (a collision with an
+eligible call ID cannot disappear through filtering of unknown or
+ineligible calls; an unknown call never acquires; missing, empty or
+malformed call IDs stay observable and are never invented), and a
+result attaches to its matching call only when its exact numeric
+structural position (the `input` item index; the Chat `messages` index
+of the assistant message carrying the call) follows the call's — a
+pre-call result is a typed non-removable `PRE_CALL_RESULT` chain with
+no bundle/member digest, no source span and no proven-executed claim.
+The public D10 composition matrix (ordinary valid reads amid
+unrelated calls, same-ID conflicts across supported/unsupported
+families, identical/conflicting duplicate calls, missing/empty/
+malformed IDs, orphan/mismatched/pre-call outputs, duplicate same-
+call results, non-monotonic IDs and >=10 structural positions) and
+the pure D09 unsupported/partial negative matrix (command
+substitution, unexecuted branches, partial readers, known
+truncated/missing/running/unknown wrappers contrasted with the exact
+proven empty successful output) are earned as public observation
+tests (`tests/test_bundle_d10_matrix.py`).  D09 multi-chunk/
+process association remains deferred and is never marked delivered
+by these negatives.
 
 ## 1. Modules and versions
 
@@ -556,11 +578,44 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
   is never evidence — the call is typed `MISSING_CALL_RESULT` and the
   foreign result typed `MISMATCHED_CALL_ID` (ambiguous mixed shapes are
   typed, never globally guessed). Duplicate call IDs are `DUPLICATE_CALL_ID`
-  (both occurrences recorded, never first-match). Missing results are
+  (every occurrence recorded, never first-match). Missing results are
   `MISSING_CALL_RESULT`. Results without a supported call are
   `MISMATCHED_CALL_ID`. Multiple results for one call are
   `MULTI_CHUNK_DEFERRED` (multi-chunk completion proof is D09, later
   same-PR suffix).
+- **Identity conflicts precede eligibility.** The relevant schema-
+  evidenced call identities are inventoried **before** read eligibility
+  is applied: every call record in a schema call position (Responses
+  `input` `function_call` item; Chat assistant `tool_calls` `function`
+  entry) participates in duplicate bookkeeping regardless of whether
+  its tool name earns read support — so an unknown/ineligible call's
+  ID colliding with an eligible call ID is a typed `DUPLICATE_CALL_ID`
+  conflict, never filtered away.  An unknown or ineligible tool call
+  never acquires a source, and an unrelated unknown call with a unique
+  ID is neither recorded nor allowed to poison a separate valid chain.
+  Arbitrary nested text objects carrying `id`/`name` are not call
+  records.  A call ID that is absent, JSON null, or an empty string is
+  typed `MISSING_CALL_ID`; a present non-string ID is typed
+  `MALFORMED_CALL_ID`.  Both stay observable, never pair, never
+  acquire content, and no ID is ever invented.  The exact ID/name/
+  arguments association, the namespace-declaration evidence, and the
+  typed duplicate/missing/mismatch/unsupported states are preserved;
+  diagnostics and reprs stay bounded and non-echoing, and private
+  values never become metric labels.
+- **Structural causality.** A result attaches to its matching call only
+  when its exact **numeric structural position** follows the call's —
+  the Responses `input` item index, or the Chat `messages` index of the
+  assistant message carrying the call.  Causality is never established
+  from lexical call IDs, JSONPath string sorting, or JSONPath
+  evaluation (presentation order of the report is separate from, and
+  never used for, causality).  A result structurally before its
+  matching call cannot be attached to a future call: its chain stays
+  typed `PRE_CALL_RESULT` and non-removable, with no bundle/member
+  digest, no source span and no proven-executed claim, while the
+  wrapper facts and the exact ID/name/arguments association remain
+  recorded.  Missing initial calls remain unsupported.  This is pure
+  per-request evidence — no hidden cross-request history, process or
+  session state, and no new freshness or root-transition policy.
 - **Endpoint selection.** One API request is one endpoint, never a batch
   of two.  The selected domain is an explicit validated endpoint context
   (`observe_request(..., endpoint="responses"|"chat")`) or an inferred
@@ -651,8 +706,9 @@ list is `Limitation` in `observation_models.py`: root (`marker_misplaced`,
 `pipe`, `multiple_commands`, `heredoc`, `fragment_command`,
 `comment_present`, `quoted_operand`, `tilde_unproven`, `stdin_operand`),
 tool (`unsupported_tool`,
-`namespace_tool_unproven`, `duplicate_call_id`, `missing_call_result`,
-`mismatched_call_id`, `nonzero_exit`, `unknown_completion`,
+`namespace_tool_unproven`, `duplicate_call_id`, `missing_call_id`,
+`malformed_call_id`, `missing_call_result`, `mismatched_call_id`,
+`pre_call_result`, `nonzero_exit`, `unknown_completion`,
 `truncated_output`, `process_running`, `write_stdin_chunk`,
 `multi_chunk_deferred`, `missing_output_body`, `malformed_wrapper`,
 `output_over_bound`), plan (`cd_target_unsupported`,
@@ -873,6 +929,45 @@ reason (or a typed non-echoing failure plus safe cleanup), reaching
 no persisted record, console, repr, or diagnostic. This round still
 performs no actual client, provider session, or model call; the
 actual capture and the process/chunk collector remain `NOT RUN`.
+Round 017-m repaired the per-request pure read-observation identity
+and causality pairing on the same inert surface (no capture
+utility/child modification, no actual capture, no process
+collector): (1) identity conflicts now precede read eligibility —
+the schema-evidenced call-ID inventory is eligibility-independent, so
+an unknown/ineligible call colliding with an eligible call ID is a
+typed `DUPLICATE_CALL_ID` conflict instead of disappearing through
+filtering, unknown calls never acquire, unrelated unique unknown
+calls are neither recorded nor allowed to poison separate valid
+chains, and absent/null/empty (`MISSING_CALL_ID`) or non-string
+(`MALFORMED_CALL_ID`) call IDs stay observable without inventing an
+ID; (2) results now attach only when their exact numeric structural
+position follows the matching call's (the `input` item index; the
+Chat `messages` index of the assistant message carrying the call) —
+never from lexical call IDs or JSONPath string sorting — and a pre-
+call result keeps its chain typed `PRE_CALL_RESULT`, non-removable,
+with no bundle/member digest, no source span and no proven-executed
+claim. The public D10 composition matrix (Responses and Chat:
+ordinary valid reads amid unrelated calls, same-ID conflicts across
+supported/unsupported names and families, identical/conflicting
+duplicate calls, missing/empty/malformed IDs, orphan/mismatched/
+pre-call outputs, duplicate same-call results remaining unsupported
+absent later earned process-chain evidence, non-monotonic IDs and
+>=10 structural positions, with independent valid chains still
+earning exact source span/digest/members/width alongside the
+rejected ambiguous chain) and the pure D09 unsupported/partial
+negative matrix (command substitution `$()` and backticks,
+false/conditional/unexecuted branches, partial `head`/`sed` readers,
+known truncated/missing/running/unknown wrappers — all typed
+unsupported/partial, never complete whole-file acquisitions —
+contrasted with the exact proven empty successful output) are earned
+by the new public suite `tests/test_bundle_d10_matrix.py`, with
+unchanged inputs, non-echoing reprs, preserved bounds and exact
+Unicode/CRLF source slices.  All previously earned literal read/
+plan/loop positives, exact spans, aggregate work bounds and the
+occurrence/member-hash/slot-width laws are preserved.  D09 multi-
+chunk/process association remains deferred (these negatives are not
+multi-chunk evidence); the D10 delivery claim requires independent
+strategic acceptance.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 

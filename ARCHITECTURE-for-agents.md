@@ -205,7 +205,25 @@ earn a boundary; and every observation produced through the finite-plan
 parser carries the actual `literal-read-plan/v1` identity across all
 outcomes, while observations the single grammar actually earned keep
 `literal-shell-read/v1` (the grammar label never changes outcome or
-digests). Earned in 017-f (inert, `literal-loop/v1`): finite literal
+digests). Corrected in 017-m (per-request pairing identity and
+causality, section D05 of the observation contract): the relevant
+schema-evidenced call identities are inventoried independently of read
+eligibility — an unknown/ineligible tool call never acquires a source,
+but its ID colliding with an eligible call ID is a typed
+`DUPLICATE_CALL_ID` conflict, never filtered away; unrelated unique
+unknown calls are neither recorded nor allowed to poison separate
+valid chains; arbitrary nested text objects carrying id/name are not
+call records; absent/null/empty IDs are typed `MISSING_CALL_ID` and
+present non-string IDs `MALFORMED_CALL_ID`, both observable, never
+pairing, never inventing an ID — and a result attaches to its
+matching call only when its exact numeric structural position follows
+the call's (the `input` item index; the Chat `messages` index of the
+assistant message carrying the call), never from lexical call IDs,
+JSONPath string sorting or JSONPath evaluation; a result before its
+matching call keeps its chain typed `PRE_CALL_RESULT` and
+non-removable with no bundle/member digest, no source span and no
+proven-executed claim, while missing initial calls remain
+unsupported. Earned in 017-f (inert, `literal-loop/v1`): finite literal
 `for var in list; do ...; done` loops with the earned `f`/`d` variable
 names, clean literal iteration lists, double-quoted one-reference
 filename templates, the exact `|| exit 1` guard on each `cat`, and the
@@ -536,71 +554,7 @@ line; it concluded with the private RC10 candidate). Cutover NOT
 performed; NOT released. Objective 016 (merged PR #24, merge
 `96c790423f6f0097a56a0b12bacda8a9b6da6aba`): dependency-bundle cache rework
 contracts — handoff, plan, reconciled architecture/law, stage ledger.
-Objective 017 is active (017-a published but not accepted; 017-b corrects
-its bounded observation-proof findings A-E; 017-c corrects the remaining
-literal-grammar and actual-endpoint proof; 017-d corrects the root-domain
-prerequisite — root observation scoped to the actual selected Responses
-domain, no root minting from unused containers on Chat/mixed/unknown/
-invalid selections — and earns the D06/D07/D08 finite read-plan slice in
-the inert module `constitution/bundles/compound_reads.py` (all-cat /
-literal-cd `&&` plans as one ordered bundle, absolute literal `cd`
-transitions with per-call workdir precedence, bounded literal `echo`
-outer boundaries, per-read vs global exit evidence, whole-plan bounds);
-017-e corrects that slice's echo option semantics and plan-grammar
-identity on the same inert surface; 017-f earns the bounded pure
-literal-loop slice — the D07 loop criterion, not a blanket D09/D10
-completion — in the inert module `constitution/bundles/literal_loops.py`
-(grammar `literal-loop/v1`: deterministic requested members, all-
-success guarded pure-cat bundles, typed unguarded/labeled/control-flow
-forms; 017-g corrects the loop word/separator law — the unquoted `;`
-is a standalone token, a quoted prefix plus a literal suffix touching
-the separator stays one unearned word, never two members — and the
-member-digest prose follows the occurrence law; 017-h attempted the
-process evidence path but was interrupted and closed PARTIAL with no
-repository change and nothing earned; 017-i lands the offline,
-opt-in, fail-closed, stdlib-only process-capture utility
-(`scripts/real_client_capture.py`) for independent strategic review:
-inert (not wired into the adapter runtime), hard-capped,
-privacy-law enforced in code, actual-client path input-gated — the
-generated startup readiness is `not_ready` because the candidate
-plugin/telemetry/update controls remain unverified from local static
-evidence, while caller-supplied `ready`/authorization records can
-launch the bound stand-in through the public API — with no actual
-capture, process collector or model call performed; 017-j repairs
-that utility's selection/privacy/ownership/resource boundaries per
-independent review (controller-issued call binding with issued-
-metadata advancement evidence, lossless byte-verified synthetic
-result text in selection schema v2 with `fixture_authority: none`,
-the selected cap on exact serialized record bytes, centralized
-per-run request budget, bounded preflight output, no-mutation
-directory guards, closed readiness/authorization schemas, and the
-absolute deadline across owned descendants) — still inert, with no
-actual capture, process collector or model call, and no format or
-process acquisition; 017-k repairs that utility's second-review
-boundaries (RUNTIME issued-registry selection with
-preloaded/anticipated/forged-call negatives, finalization quiesce
-with frozen-snapshot validation and late-unverified-text stripping,
-every-method/error-path budget accounting with fixed sanitized
-non-echoing errors and bounded handler concurrency, faithful
-generated readiness round-trips, and typed non-echoing
-malformed-Unicode rejection); 017-l repairs the two remaining
-offline capture boundaries on that same inert utility — quiesce
-closes every admitted owned request socket (bounded registry;
-effective socket shutdown unblocks in-flight reads a per-read
-timeout cannot stop so the peer observes closure; repeated stop
-safe; an incomplete teardown is honestly reported and can never
-yield a completed outcome) and selected text verifies against the
-immutable original seed bytes bound before child launch (a child
-that rewrites its own seed after a legitimately issued read cannot
-redefine the purported original; tampered or unverified text is
-stripped with the fixed reason and reaches no persisted record,
-console, repr, or diagnostic) — still inert, with no actual
-capture, process collector or model call, and no format or
-process acquisition); the remaining D09/D10
-multi-chunk process-completion and branch-matrix scope is planned for
-a later same-PR suffix (a later exact order may authorize one
-bounded reviewed actual capture, then the process/chunk collector,
-subject to review));
+Objective 017 is active (rounds 017-a through 017-l published and `PENDING` strategic acceptance; detailed round history is in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP transcripts, not restated here). Current earned scope on the inert pure-observation package `src/slaif_local_coding/constitution/bundles/` (never active in the adapter; legacy detector unchanged): the D01-D05 root/path/read/result/span observation, including the 017-m per-request pairing identity/causality law — the schema-evidenced call-ID inventory is eligibility-independent (an unknown/ineligible call never acquires, but a collision with an eligible call ID cannot disappear through filtering; missing/empty/malformed IDs stay observable and are never invented), and a result attaches only when its exact numeric structural position (the `input` item index; the Chat `messages` index of the assistant message carrying the call) follows the matching call's (never lexical call IDs or JSONPath string sorting; a pre-call result is a typed `PRE_CALL_RESULT` non-removable chain with no bundle/member digest, source span or proven-executed claim) — plus the D06/D07/D08 finite read plans (`literal-read-plan/v1`), the D07 literal-loop slice (`literal-loop/v1`), and the public D10 composition matrix with the pure D09 unsupported/partial negative matrix (`tests/test_bundle_d10_matrix.py`). The offline, opt-in, fail-closed, stdlib-only process-capture utility (`scripts/real_client_capture.py`) is inert (not wired into the adapter runtime), hard-capped, privacy-law enforced in code, actual-client path input-gated (generated startup readiness `not_ready`; caller-supplied `ready`/authorization records can launch the bound stand-in through the public API), with no actual capture, process collector or model call performed and no format or process acquisition earned. Remaining: the D09 actual-trace/multi-chunk process-completion and process/chunk collector gap is `NOT RUN`, planned for a later same-PR suffix (a later exact order may authorize one bounded reviewed actual capture, then the process/chunk collector, subject to review));
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live
