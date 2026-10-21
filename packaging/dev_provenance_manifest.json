@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 184,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "641c628dbe66216ac3bc736b725c4dbc67ccdc2be9512b7a8097c16c54bd2c6d",
-      "size_bytes": 670706
+      "sha256": "8e7cb21bda8fc41b306923c78e48e14eb536ea5d33536e6d44add3601ac5de8b",
+      "size_bytes": 680236
     },
     "wheel": {
       "entry_count": 37,
@@ -21,8 +21,8 @@
     "source_commit": "255b3f42912e3947908fc8868eccb6bcec874a08",
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
-  "objective": "017-i",
-  "qualification_label": "development-source-d9efbae85a388389afcea255563891517fcf6100; not a release candidate; not released",
+  "objective": "017-j",
+  "qualification_label": "development-source-9a7bc3e07b7991856d3df5996f6ffde00c127768; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "d9efbae85a388389afcea255563891517fcf6100",
+  "source_commit": "9a7bc3e07b7991856d3df5996f6ffde00c127768",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "d04c50bc8914e6c2dc880f9bb80904fa5ab9df0f241e241e46806a98073ac5ea",
@@ -50,8 +50,8 @@
     "config/adapter.gateway-integrated.template.toml": "14357037ab96029ed510d0d491f10a9e7b51586d0f7b9b4842ac3d9937e74afb",
     "docs/ADAPTER-CONFIGURATION.md": "8da874d2036eb9de2ff99c1e9e195d856061bae5dcdeb030d766d6f6268a9e8f",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "aa13596f4efbd9f77ff637fd6af459a9e16e8ef69856e040edccbede3acedf23",
-    "docs/CACHE-OBSERVATION-CONTRACT.md": "82e717bf7b0c775cb908ee1ce9cdf689f5c7fdbdbecdf25652c320a8a59eac95",
-    "docs/CACHE-REWORK-LEDGER.md": "6731305f64490bb77d06301215abca4a544b227fd8689d959fb85bf14b3cfb11",
+    "docs/CACHE-OBSERVATION-CONTRACT.md": "dd7550c04fe60be46571ffabef3f509cb82b840133068d612186180426602159",
+    "docs/CACHE-REWORK-LEDGER.md": "44b2744455aa4bcaf78c7d29b967228eb275024d163f666c46f69303d563da9c",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
@@ -201,7 +201,7 @@
     "tests/test_pipeline.py": "6458dfaa37d590b654f3668cd5c8676302d29b19c839c12dd54023c19ccb0f1a",
     "tests/test_rc_record.py": "fc68492f2ee2f59a0347aa11205094c498df1628bd6fc941bb576739d9c07589",
     "tests/test_rc_record_present_rehearsal.py": "07d23eeb611f71ffbb479a39319becf65709881bbfadfd40d5946745eec87997",
-    "tests/test_real_client_capture.py": "9ac076b0abfb6bc091516cddc08d551d1564910e260ffecad78795237c03bf0f",
+    "tests/test_real_client_capture.py": "f77b1d9734407d977d7a5c529fc5135c52dc1a7f33d144119660f23af6326a24",
     "tests/test_real_codex_rc_qualification.py": "2f2cac64cbe0b96dfdb35d336e4b146182e0bb75562333d2fb4ceb2c14cde21e",
     "tests/test_reference_proxy_headers.py": "9a6aaf9af01a7c1a0c7514ff1274a48fd85bc57ff8562251b0acaa9253f1e2b9",
     "tests/test_registry_history_baseline.py": "17ac32ab8c711a9309707c075484968f7f32167ba453c14a75f2ef177351ab81",
