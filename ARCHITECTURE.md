@@ -22,8 +22,58 @@ implemented behavior remains explicitly named **legacy** until that migration
 is qualified. Delivery state for every rework criterion is tracked in
 [the stage ledger](docs/CACHE-REWORK-LEDGER.md), and the resolved engineering
 choices are recorded in [the implementation
-plan](docs/CACHE-IMPLEMENTATION-PLAN.md). This stage is documentation only:
-nothing in the v1 profile is implemented or qualified yet.
+plan](docs/CACHE-IMPLEMENTATION-PLAN.md). As of the current stage the pure
+observation slice is implemented as inert typed modules (not active
+in the adapter) and has earned the D01-D05 root/path/read/result/
+span observation — including the eligibility-independent call-
+identity inventory (an unknown or ineligible call never acquires a
+source, but a collision with an eligible call ID is a typed conflict
+that cannot disappear through filtering, and missing, empty or
+malformed call IDs remain observable without inventing an ID) and
+structural causality (a result attaches to its matching call only
+when its exact numeric structural position — the `input` item index,
+or the Chat `messages` index of the assistant message carrying the
+call — follows the call's, never via lexical call IDs or JSONPath
+string sorting; a result before its call is a typed non-removable
+`PRE_CALL_RESULT` chain with no bundle/member digest, no source span
+and no proven-executed claim), the wire-family call inventory (the
+Responses `custom_tool_call` identity is inventoried alongside
+`function_call` for conflict bookkeeping only — it never earns read
+acquisition and its opaque input is never reinterpreted), the
+complete-inventory bounds (`max_commands`/`max_outputs` enforced
+against every relevant call and result record, including
+unsupported/custom/malformed-ID records, by a no-retention
+streaming preflight decided before any record, location string,
+identity map or diagnostic is retained), and the typed result-ID
+observability (absent/empty and non-string result IDs are fixed
+non-echoing unpaired limitations, never invented or attached), with
+exact internal call/result IDs staying usable while operational
+`str`/`repr` of report/read/unpaired objects never echo private ID
+values (fixed `<private-id>` placeholder; the observable no-ID
+state, fixed enums, counts, locations and digests remain visible) —
+the D06/D07/D08 finite read plans,
+the D07 literal-loop slice, and the public D10 composition matrix
+with the pure D09 unsupported/partial negative matrix (rounds 017-b
+through 017-o corrected that surface's bounded proof findings,
+pairing identity, inventory boundaries and private-ID
+representations); the offline, opt-in,
+fail-closed process-capture
+utility (`scripts/real_client_capture.py`) exists for independent
+strategic review — inert (not active in the adapter), hard-capped,
+privacy-law enforced in code, with the actual-client path
+input-gated (the generated startup readiness is `not_ready`;
+caller-supplied `ready`/authorization records can launch the bound
+stand-in through the public API) — so it performs no actual
+capture, no process collector, and no model call, and no format or
+process acquisition is earned. The remaining D09 actual-trace/
+multi-chunk process-completion and process/chunk collector gap stays
+with a later same-PR suffix (a later exact order may authorize one
+bounded reviewed actual capture, then the process/chunk collector,
+subject to review). Detailed round history is in [the stage
+ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
+transcripts; the versioned contract is [the observation
+contract](docs/CACHE-OBSERVATION-CONTRACT.md); no v1 runtime
+mechanism is active or qualified yet.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact
@@ -273,9 +323,11 @@ follow every rule.
 
 The human approved ten rules for how this problem must be solved; they are
 recorded verbatim in [the handoff](docs/CACHE-REWORK.md) and summarized here
-as the normative target. The mechanism below is **planned, not implemented**;
-[the stage ledger](docs/CACHE-REWORK-LEDGER.md) tracks each criterion as
-`NOT RUN` until its implementation stage lands.
+as the normative target. The mechanism below is **planned, not implemented**
+(the pure D01-D05 observation slice exists as inert typed modules, not
+active in the adapter); [the stage ledger](docs/CACHE-REWORK-LEDGER.md)
+tracks each criterion as `NOT RUN` or `PENDING` until its implementation
+stage lands and is reviewed.
 
 1. **Recognize the root.** Detect the explicit Codex `AGENTS.md` envelope and
    extract its complete observed text and directory identity.

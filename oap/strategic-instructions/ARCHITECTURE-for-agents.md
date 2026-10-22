@@ -154,7 +154,12 @@ hash/compile/update graph incrementally. Adapter never reads client filesystem.
 
 ## Dependency-bundle cache law (v1 profile, normative target)
 
-Not implemented in this stage; every statement is the approved target contract.
+As of stage 017-a (observation proof corrected in 017-b, and the
+remaining literal-grammar and actual-endpoint proof in 017-c), the pure
+root/read/result/span observation slice (D01-D05) is implemented as inert
+typed modules under `src/slaif_local_coding/constitution/bundles/`; they are
+not active in the adapter request execution path, the legacy detector is
+unchanged, and every other statement below is the approved target contract.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -187,7 +192,73 @@ evidence is distinct from the global exit status. Unknown, partial or
 truncated output never becomes complete; a typed unsupported observation
 preserves the uncertain span and exposes a limitation. Client-workspace
 absolute paths normalize to repository-relative form only under proven
-workspace context; they never become adapter-host reads.
+workspace context; they never become adapter-host reads. Earned in 017-d
+(inert, `literal-read-plan/v1`): finite all-cat / literal-cd `&&` plans
+with absolute literal `cd` transitions (per-call workdir takes precedence),
+bounded literal `echo` prefix/suffix outer boundaries proven at their exact
+positions, whole-plan bounds, and the law that a global nonzero in a chain
+proves no per-read completion; loops, wildcards, semicolon and other
+non-earned forms remain explicitly typed unsupported. Corrected in 017-e:
+quoting does not disable `echo`'s option parser, so option-like dash-leading
+quoted literals are implementation-sensitive, typed unsupported, and never
+earn a boundary; and every observation produced through the finite-plan
+parser carries the actual `literal-read-plan/v1` identity across all
+outcomes, while observations the single grammar actually earned keep
+`literal-shell-read/v1` (the grammar label never changes outcome or
+digests). Corrected in 017-m (per-request pairing identity and
+causality, section D05 of the observation contract): the relevant
+schema-evidenced call identities are inventoried independently of read
+eligibility — an unknown/ineligible tool call never acquires a source,
+but its ID colliding with an eligible call ID is a typed
+`DUPLICATE_CALL_ID` conflict, never filtered away; unrelated unique
+unknown calls are neither recorded nor allowed to poison separate
+valid chains; arbitrary nested text objects carrying id/name are not
+call records; absent/null/empty IDs are typed `MISSING_CALL_ID` and
+present non-string IDs `MALFORMED_CALL_ID`, both observable, never
+pairing, never inventing an ID — and a result attaches to its
+matching call only when its exact numeric structural position follows
+the call's (the `input` item index; the Chat `messages` index of the
+assistant message carrying the call), never from lexical call IDs,
+JSONPath string sorting or JSONPath evaluation; a result before its
+matching call keeps its chain typed `PRE_CALL_RESULT` and
+non-removable with no bundle/member digest, no source span and no
+proven-executed claim, while missing initial calls remain
+unsupported. Corrected in 017-n (identity-inventory boundaries,
+section D05 of the observation contract): the Responses
+`custom_tool_call` identity joins the call inventory alongside
+`function_call` — identity bookkeeping only (no custom-tool read
+parsing/execution/acquisition, opaque input never reinterpreted, no
+generic unknown-family wildcard), so an exact colliding ID makes the
+ambiguous eligible chain typed/non-removable with no acquired
+digest/span/proven members while a unique unrelated opaque custom
+call neither records nor poisons a valid chain; `max_commands`/
+`max_outputs` bound the **complete** relevant inventory (unsupported
+names, opaque custom records, missing/empty/malformed IDs, invalid
+result IDs) before any identity map or diagnostic is retained — a
+fixed non-acquiring `OVER_BOUND`, the scan bounded by the existing
+item bound, selected-domain scoping under explicit endpoint
+selection, mixed bounded across inspected domains; absent/
+null/empty and non-string result IDs are fixed typed non-echoing
+unpaired limitations (`MISSING_RESULT_ID`/`MALFORMED_RESULT_ID`),
+never invented, hashed, attached or acquired. Earned in 017-f
+(inert, `literal-loop/v1`): finite literal
+`for var in list; do ...; done` loops with the earned `f`/`d` variable
+names, clean literal iteration lists, double-quoted one-reference
+filename templates, the exact `|| exit 1` guard on each `cat`, and the
+whole-loop expanded-operand budget never multiplied per iteration; an
+all-success guarded pure-cat loop earns one ordered whole-source bundle
+under a wrapper-proven exit-zero/untruncated/present completion,
+unguarded or echo-labeled forms stay non-removable with typed
+iteration/outer-attribution limitations, and every observation the
+loop parser evaluates carries `literal-loop/v1`. Corrected in 017-g:
+the unquoted `;` is its own syntactic element (a standalone token),
+so a quoted prefix plus a literal suffix touching the list separator
+(`for f in "A".md;`) stays one unearned word typed `QUOTED_OPERAND`
+— never two members (`A` and `.md`) — with attached and spaced
+separator forms observing identically and the plain/whole-word quoted
+controls unchanged; the member-digest prose follows the occurrence
+law (one member occurrence covering the entire attributable region
+proves that file's digest; distinct slot width alone never does).
 
 **Admission.** `lean` admits a whole bundle only when every member is
 graph-eligible and may admit an isolated eligible portion when boundaries are
@@ -498,9 +569,11 @@ separate human-authorized act); 006 signed-request replay hardening (PR #8);
 007 current Gateway contract CI (PR #9); 008 durable acceptance evidence
 (PR #10). Objectives 009–015 are merged through PR #22 (the release-candidate
 line; it concluded with the private RC10 candidate). Cutover NOT
-performed; NOT released. Objective 016 (open PR): dependency-bundle cache
-rework contracts — handoff, plan, reconciled architecture/law, stage ledger.
-Objectives 017–024 are the planned inert draft succession for the v1
+performed; NOT released. Objective 016 (merged PR #24, merge
+`96c790423f6f0097a56a0b12bacda8a9b6da6aba`): dependency-bundle cache rework
+contracts — handoff, plan, reconciled architecture/law, stage ledger.
+Objective 017 is active (rounds 017-a through 017-o published and `PENDING` strategic acceptance; detailed round history is in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP transcripts, not restated here). Current earned scope on the inert pure-observation package `src/slaif_local_coding/constitution/bundles/` (never active in the adapter; legacy detector unchanged): the D01-D05 root/path/read/result/span observation, including the 017-m per-request pairing identity/causality law — the schema-evidenced call-ID inventory is eligibility-independent (an unknown/ineligible call never acquires, but a collision with an eligible call ID cannot disappear through filtering; missing/empty/malformed IDs stay observable and are never invented), and a result attaches only when its exact numeric structural position (the `input` item index; the Chat `messages` index of the assistant message carrying the call) follows the matching call's (never lexical call IDs or JSONPath string sorting; a pre-call result is a typed `PRE_CALL_RESULT` non-removable chain with no bundle/member digest, source span or proven-executed claim) — and the 017-n identity-inventory boundaries: the Responses `custom_tool_call` identity joins the call inventory alongside `function_call` (identity bookkeeping only — no custom-tool read parsing/execution/acquisition, opaque input never reinterpreted, no generic unknown-family wildcard — so an exact colliding ID makes the ambiguous eligible chain typed/non-removable with no acquired digest/span/proven members while a unique unrelated opaque custom call neither records nor poisons a valid chain); `max_commands`/`max_outputs` bound the complete relevant inventory (unsupported names, opaque custom records, missing/empty/malformed IDs, invalid result IDs) by a no-retention streaming preflight decided before any record tuple, location string, identity map or diagnostic is retained (fixed non-acquiring `OVER_BOUND`, selected-domain scoping under explicit endpoint selection); absent/null/empty and non-string result IDs are typed `MISSING_RESULT_ID`/`MALFORMED_RESULT_ID` non-echoing unpaired limitations, never invented, hashed, attached or acquired; exact internal call/result IDs stay usable while operational `str`/`repr` of report/read/unpaired objects never echo private ID values (fixed `<private-id>` placeholder for non-empty values; the observable no-ID state, fixed enums, counts, locations and digests remain visible) — plus the D06/D07/D08 finite read plans (`literal-read-plan/v1`), the D07 literal-loop slice (`literal-loop/v1`), and the public D10 composition matrix with the pure D09 unsupported/partial negative matrix (`tests/test_bundle_d10_matrix.py`). The offline, opt-in, fail-closed, stdlib-only process-capture utility (`scripts/real_client_capture.py`) is inert (not wired into the adapter runtime), hard-capped, privacy-law enforced in code, actual-client path input-gated (generated startup readiness `not_ready`; caller-supplied `ready`/authorization records can launch the bound stand-in through the public API), with no actual capture, process collector or model call performed and no format or process acquisition earned. Remaining: the D09 actual-trace/multi-chunk process-completion and process/chunk collector gap is `NOT RUN`, planned for a later same-PR suffix (a later exact order may authorize one bounded reviewed actual capture, then the process/chunk collector, subject to review));
+objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live
 identifiers. Strategy may revise only from verified evidence. One numeric

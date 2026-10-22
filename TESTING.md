@@ -25,6 +25,26 @@ uv run --frozen python scripts/artifact_policy_check.py --dist dist --inspect
 uv run --frozen python scripts/artifact_policy_check.py --dist dist --install-smoke
 ```
 
+The full pytest suite requires the verified non-root **process-local umask
+022** test context on this development host:
+
+```bash
+umask 022
+uv run --frozen pytest -q
+```
+
+The canonical host umask 0002 makes newly owned pytest tmp fixtures group-
+writable, which the safe-evidence validators correctly reject as
+`destination_component_writable` before the tests' intended later rejection
+classes (12 ordering failures); umask 077 masks the intentionally 0755
+untrusted-cache fixture to 0700 and breaks one separate fixture-mode
+expectation. At accepted 016, umask 022 passed the complete gate with 1543
+passed, 27 skipped, 0 failed. Never change global/home permissions to avoid
+this context, never loosen the intentional permission-negative fixtures (the
+0755 untrusted-cache directory; the execute-only-ancestor test that skips on
+UID 0), and create explicitly protected temporary roots/files with 0700/0600
+where a test requires them.
+
 Artifact tests build fresh artifacts and compare provenance with the actual
 source-input map. An intentional README/source change can require a new accepted
 wheel identity and regenerated provenance; never suppress a mismatch just to
@@ -78,6 +98,289 @@ layers, per the ledger's owning stage, are:
   (O01–O03); and
 - bounded actual-model and genuine-Codex qualification with synthetic
   tasks, serial bounded requests and complete teardown.
+
+Stage 017, first round (tracked in the stage ledger) has landed the D01-D05
+slice of the first item:
+the inert pure observation package
+`src/slaif_local_coding/constitution/bundles/` (typed models, literal client-
+path normalization, envelope observation, literal read grammar, tool-result
+pairing, and a pure composition entry point), with the named suites
+`tests/test_bundle_observation_models.py`,
+`tests/test_bundle_client_paths.py`,
+`tests/test_bundle_root_envelopes.py`,
+`tests/test_bundle_read_grammar.py`, `tests/test_bundle_tool_results.py`,
+`tests/test_bundle_observe.py` and `tests/test_bundle_shell_tokens.py`
+exercising the versioned synthetic fixtures in
+`tests/fixtures/cache_bundles/v1/` plus the canonical sanitized 0.149.0
+fixture. Round 017-d corrected the root-domain prerequisite (root
+observation scoped to the actual selected Responses domain; string-input
+plus messages is a mixed shape, never unambiguous Chat) and earned the
+D06-D08 finite read-plan slice in the new pure module
+`src/slaif_local_coding/constitution/bundles/compound_reads.py`
+(all-cat / literal-cd `&&` plans as one ordered whole bundle, absolute
+literal `cd` transitions under the evidenced workspace with per-call
+workdir precedence, bounded literal `echo` outer boundaries with exact
+prefix/suffix proof, per-read versus global exit evidence, whole-plan
+bounds), exercised by
+`tests/test_bundle_compound_reads.py`; loops and wildcards remain
+explicitly typed unsupported in this slice. Round 017-e corrected the
+echo outer-boundary law (option-like dash-leading quoted literals —
+`-n`, `-e`, `-E`, combinations, repetitions, either quote kind — are
+implementation-sensitive and typed `ECHO_TARGET_UNSUPPORTED`, never a
+literal+newline boundary; the actual `echo '-n'` writes nothing) and
+the grammar identity (every observation produced through the
+finite-plan parser carries `literal-read-plan/v1` across all outcomes;
+observations the single grammar actually earned keep
+`literal-shell-read/v1`), exercised by
+`tests/test_bundle_compound_reads.py::TestEchoOptionSemantics`,
+`::TestEchoOptionSemanticsComposition` and `::TestPlanGrammarIdentity`.
+Round 017-f earned the bounded pure literal-loop slice (the D07 loop
+criterion, not a blanket D09/D10 completion) in the new pure module
+`src/slaif_local_coding/constitution/bundles/literal_loops.py`
+(grammar `literal-loop/v1`; the human 6.2 loop forms as finite parsed
+data with deterministic requested members, all-success guarded
+pure-cat loops as one ordered whole-source bundle under wrapper-
+proven exit-zero/untruncated/present completion, unguarded and
+echo-labeled forms non-removable with typed iteration/outer-
+attribution limitations, the exact per-cat `|| exit 1` guard,
+double-quoted one-reference filename templates, the `f`/`d` variable
+law, adjacent-quote and control-flow typing, and the whole-loop
+expanded-operand budget never multiplied per iteration), exercised by
+`tests/test_bundle_literal_loops.py`.
+Round 017-g corrected that slice's loop word/separator law on the
+same inert module: the unquoted `;` is its own syntactic element (a
+standalone token), so a quoted prefix plus a literal suffix touching
+the list separator (`for f in "A".md;`) is one unearned word typed
+`QUOTED_OPERAND` — never two members (`A` and `.md`) — with attached
+and spaced separator forms observing identically, the first/last/
+single list positions agreeing, and the plain and whole-word quoted
+controls unchanged; the member-digest prose follows the occurrence
+law (a file's digest is proven only when exactly one member
+occurrence covers the entire attributable region; a duplicate `A,A`
+has width one but unknown individual versions/boundaries). It is
+exercised by
+`tests/test_bundle_literal_loops.py::TestQuotedWordSeparatorBoundaries`.
+These modules are **not active
+in the adapter**: they are not wired into the legacy request execution
+path, and the legacy detector is unchanged.
+D09-D10 remain planned for later same-PR suffixes (the earlier planned
+017-e loops/chunks draft was superseded by the 017-e bounded
+correction; 017-g was the bounded loop word/separator correction and
+added no loop/chunk families — rounds 017-b/017-c/017-d/017-e added
+no loop/chunk families, and 017-f added the bounded pure literal-loop
+slice without process/chunk (D09) or branch/substitution-matrix (D10)
+support; the process/chunk association remains planned for a later
+same-PR suffix, subject to review). Round 017-h attempted that
+process evidence path but was **interrupted and published as
+PARTIAL, non-delivery** (out-of-bound raw persistence, exceeded
+ingress/attempt bounds, a client-startup plugin sync side effect);
+it changed no repository utility, test, fixture or documentation and
+earned nothing, so no 017-h evidence exists. Round 017-i lands the
+**offline process-capture utility**
+(`scripts/real_client_capture.py` plus the synthetic
+`scripts/real_client_capture_fake_child.py`) with its named offline
+suite `tests/test_real_client_capture.py`: injected synthetic child
+executables (pinned paths, no installed-client fallback), the
+in-process owned fake provider over raw sockets (auth, hard-limit
+accounting, malformed/chunked/oversized/invalid-length and stalled-
+read robustness), allowlist extraction with canary/digest/
+non-echoing guarantees, process-group supervision (deadline and
+output-cap kills, unrelated-process survival, group-gone
+verification), the non-resettable attempt ledger, the fail-closed
+actual-client gates (opt-in, version/hash binding, readiness,
+authorization), workspace/cleanup ownership guards, the CLI, and
+static stdlib-only/OAP-decoupling/no-raw-persistence guards. Those
+offline synthetic tests are **not** actual-format or genuine-client
+evidence: the 017-i record's wording that the utility's actual-client
+path is "unreachable in this round by construction (startup
+readiness is `not_ready`)" is a REJECTED historical claim,
+superseded by 017-j — the path is input-gated (caller-supplied
+`ready`/authorization records can launch the bound stand-in), while
+the generated readiness verdict is `not_ready`; no actual client,
+provider session or model call is made in any of these rounds, and
+the actual capture plus process/chunk collector remain `NOT RUN`; one honest
+environment skip applies where the foreign-ownership cleanup guard
+requires `chown` to another uid. Round 017-j amends that same inert
+utility and its named offline suite for the issued-binding,
+lossless byte-verified synthetic text export (selection schema v2),
+serialized-byte cap, centralized request budget, bounded preflight,
+no-mutation directory guards, closed metadata schemas, and
+descendant-deadline repairs, with added regressions for every
+repaired boundary (including deterministic non-root simulated-UID
+ownership proofs and non-selected marker variants). The suite runs
+under a process-local umask of 022 because the permission fixtures
+are intentional. Full-suite skip accounting stays distinct: the 27
+prior stage skips plus exactly one 017-i foreign-ownership `chown`
+environment skip — the simulated-UID proofs are passing tests, never
+skips. No actual client, provider session, or model call is made;
+the actual capture and process/chunk collector remain `NOT RUN`.
+Round 017-k amends that same inert utility and its named offline
+suite for the second-review repairs, with public
+receiver/run/lifecycle regressions (not merely constructor
+assertions): RUNTIME issued-registry binding through embedded-mode
+fake children (preloaded first/later calls and forged inbound
+progression never selected before issuance; the actually-issued echo
+selected and byte-verified), wrong-family items under an otherwise
+valid offered schema, finalization quiesce (a real shutdown-boundary
+late request byte-verified and stripped to `content_unverified` with
+its marker bytes nowhere under the output directory; frozen-append
+rejection; bounded stop under a stalled in-flight handler with
+honest teardown accounting), every-method/malformed/error-path
+budget accounting with fixed non-echoing bodies and bounded handler
+concurrency, generated readiness records round-tripping the
+validated count for zero and every nonzero known flag without
+flag-text export, and ACTUAL lone-surrogate malformed Unicode
+rejected with the fixed typed `malformed_unicode` reason before any
+encoding/hashing/retention plus valid non-ASCII controls.
+Round 017-l amends that same inert utility and its named offline
+suite for the two remaining offline capture boundaries, with public
+receiver/run/lifecycle regressions: an authenticated progressing
+slow-drip body (defeating the per-read bound) whose owned accepted
+socket is observed closed by the peer after stop (repeated stop
+safe; unrelated own-session process survives); a closed listener
+with idempotent stop; an incomplete teardown (handler outliving a
+tiny quiesce grace) yielding the fixed `cleanup_failed` outcome and
+never `completed` (closed enum set plus honest boolean only, no raw
+error details); failure/timeout cleanup under a non-progressing
+stalled read; actual-issued default-seed and custom-seed (arbitrary
+declared path plus explicitly supplied bytes) positives retaining
+useful exact received text with `content_verified` true; and the
+child-mutated original negative (a child that rewrites its own seed
+after a legitimately issued read: marker bytes nowhere under the
+output directory, frame stripped to `content_unverified`) plus an
+unseeded-path negative. Verification is bound to the IMMUTABLE
+original seed bytes recorded before child launch — never a
+child-writable file reread at finalization. Full-suite
+skip accounting stays distinct: the 27 prior stage skips plus exactly
+one 017-i foreign-ownership `chown` environment skip — the
+simulated-UID proofs and the new 017-k lifecycle proofs are passing
+tests, never skips. No actual client, provider session, or model
+call is made; the actual capture and process/chunk collector remain
+`NOT RUN`.
+Round 017-m repairs the per-request pure read-observation identity
+and causality pairing on the same inert surface (no capture utility/
+child modification, no actual capture, no process collector), with
+the new public suite
+`tests/test_bundle_d10_matrix.py`: (1) identity conflicts precede
+read eligibility — the schema-evidenced call-ID inventory is
+eligibility-independent (an unknown/ineligible call colliding with
+an eligible call ID is a typed `DUPLICATE_CALL_ID` conflict, never
+filtered away; unknown calls never acquire; unrelated unique unknown
+calls neither recorded nor poisoning separate valid chains; absent/
+null/empty `MISSING_CALL_ID` and non-string `MALFORMED_CALL_ID` stay
+observable, never invent an ID, and never acquire content); (2)
+structural causality — a result attaches to its matching call only
+when its exact numeric structural position follows the call's (the
+`input` item index; the Chat `messages` index of the assistant
+message carrying the call), never from lexical call IDs or JSONPath
+string sorting, and a pre-call result keeps its chain typed
+`PRE_CALL_RESULT`, non-removable, with no bundle/member digest, no
+source span and no proven-executed claim. The public D10 composition
+matrix covers ordinary valid reads amid unrelated calls, same-ID
+conflicts across supported/unsupported names and relevant families,
+identical/conflicting duplicate calls, missing/empty/malformed IDs,
+orphan/mismatched/pre-call outputs, duplicate same-call results
+(still unsupported absent later earned process-chain evidence),
+non-monotonic IDs and >=10 structural positions, with independent
+valid chains still earning exact source span/digest/members/width
+alongside the rejected ambiguous chain; selected endpoint, mixed
+domain and ignored other-domain behavior preserve prior law. The
+pure D09 unsupported/partial negative matrix (command substitution
+`$()` and backticks, false/conditional/unexecuted branches, partial
+`head`/`sed` readers, known truncated/missing/running/unknown
+wrappers — typed unsupported/partial, never complete whole-file
+acquisitions, contrasted with the exact proven empty successful
+output) makes no shell/filesystem/network execution claim, adds no
+grammar family, and is not multi-chunk evidence: D09 multi-chunk/
+process association remains `NOT RUN`/deferred. All previously
+earned literal read/plan/loop positives, exact spans, aggregate work
+bounds and occurrence/member-hash/slot-width laws are preserved;
+tests assert unchanged inputs and non-echoing reprs. No actual
+client, provider session, or model call is made; the actual capture
+and process/chunk collector remain `NOT RUN`.
+Round 017-n completes the per-request identity-inventory repairs
+required by 017-m on the same inert surface (no capture
+utility/child modification, no actual capture, no process
+collector), with public regression proof in
+`tests/test_bundle_d10_matrix.py::TestWireFamilyInventoryAndBounds`:
+(1) the Responses `custom_tool_call` wire family joins the
+schema-evidenced call inventory alongside `function_call` — identity
+bookkeeping only, earning no custom-tool read parsing/execution/
+acquisition (a custom call named like a supported tool still never
+acquires), its opaque `input` never captured as arguments or
+reinterpreted as a shell/source oracle, no generic unknown-family
+wildcard recognition — so an exact colliding ID makes the ambiguous
+eligible chain typed `DUPLICATE_CALL_ID` non-removable with no
+acquired digest/span/proven members (both collision orderings,
+repeated identical/conflicting records; every relevant occurrence
+observable, never first-match), while a unique unrelated opaque
+custom call neither records nor poisons a separate valid read and
+its opaque input is never echoed; (2) `max_commands`/`max_outputs`
+bound the **complete** relevant inventory — every schema-position
+call record (unsupported names, opaque custom records,
+missing/empty/malformed IDs) and every result record (including
+invalid IDs) — before any identity map or typed diagnostic is
+retained: a fixed non-acquiring `OVER_BOUND` record (at-limit and
+one-over on Responses and Chat, including many `tool_calls` in one
+assistant message, and a late collision beyond any retained prefix;
+the scan itself is bounded by the existing `max_items` item bound),
+scoped to the selected domain under explicit endpoint selection,
+with mixed input bounded across its inspected domains and the
+useful unknown+valid within-limit controls preserved; (3)
+absent/null/empty result IDs are typed `MISSING_RESULT_ID` and
+present non-string result IDs (list/dict/number/boolean) typed
+`MALFORMED_RESULT_ID` — fixed, non-echoing, unpaired limitations on
+Responses `function_call_output` and Chat `role=tool` positions that
+never invent an ID, hash an unhashable value, attach the output to
+any call, or acquire, while separate well-formed chains remain
+useful within the total limits and the existing
+duplicate/missing/mismatched/structural pre-call typing and
+namespace/domain separation are preserved. All previously earned
+D10 numeric causality tests, selected/mixed/ignored domain behavior
+and literal read/plan/loop positives are preserved with unchanged
+inputs and non-echoing reprs; no shell/filesystem/network oracle or
+new dependency. No actual client, provider session, or model call is
+made; the actual capture and process/chunk collector remain `NOT
+RUN`.
+Round 017-o completes the two remaining per-request boundary repairs
+on the same inert surface (no capture utility/child modification, no
+actual capture, no process collector), with public regression proof in
+`tests/test_bundle_d10_matrix.py::TestInventoryAllocationAndIdRepre
+sentation` (13 tests): (1) the complete relevant call/result
+inventory bounds are enforced **before retention** — a no-retention
+streaming preflight decides `max_commands`/`max_outputs` over the
+complete inventory (every schema-position call record, every result
+record including invalid IDs) and stops at the first exceeded limit,
+so an over-bound request is the fixed non-acquiring `OVER_BOUND`
+before any record tuple, location string, ID map, typed diagnostic,
+argument/wrapper parsing or identity map is retained or built; the
+public proof distinguishes early bounded allocation/work from small
+final record counts — large prebuilt Responses calls, nested Chat
+`tool_calls`, Responses results and Chat results at limit one are
+measured (tracemalloc, generous 2 MiB regression ceiling, inputs/
+imports/full-payload fingerprinting excluded — not a total-RSS
+guarantee), with at-limit useful reads keeping exact
+digest/span/member/width, one-over/late-collision/invalid-ID/
+ignored-domain/mixed shapes keeping their typed behavior and inputs
+unchanged; (2) exact internal call/result IDs stay usable (internal
+fields asserted exact on Responses and Chat paired/orphan/duplicate/
+missing-result paths) while operational `str`/`repr` of report/read/
+unpaired objects never echo private ID values — synthetic canaries
+only, the observable no-ID state (empty string), fixed enums,
+counts, locations and digests remain visible in representations.
+This supersedes the 017-n wording that the bound was decided "before
+any identity map or typed diagnostic is retained" (the pre-017-o
+code had retained the record lists and location strings first); from
+017-o the bound is decided before any retention. All previously
+earned D10 causality/inventory tests, selected/mixed/ignored domain
+behavior and literal read/plan/loop positives are preserved with
+unchanged inputs; no shell/filesystem/network oracle or new
+dependency. No actual client, provider session, or model call is
+made; the actual capture and process/chunk collector remain `NOT
+RUN`.
+All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
+contract is documented in
+[docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
 
 A stage-scoped synthetic unit/fake test proves its named mechanism within
 that stage; it never substitutes for actual-model, genuine-Codex,
