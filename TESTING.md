@@ -342,6 +342,42 @@ inputs and non-echoing reprs; no shell/filesystem/network oracle or
 new dependency. No actual client, provider session, or model call is
 made; the actual capture and process/chunk collector remain `NOT
 RUN`.
+Round 017-o completes the two remaining per-request boundary repairs
+on the same inert surface (no capture utility/child modification, no
+actual capture, no process collector), with public regression proof in
+`tests/test_bundle_d10_matrix.py::TestInventoryAllocationAndIdRepre
+sentation` (13 tests): (1) the complete relevant call/result
+inventory bounds are enforced **before retention** — a no-retention
+streaming preflight decides `max_commands`/`max_outputs` over the
+complete inventory (every schema-position call record, every result
+record including invalid IDs) and stops at the first exceeded limit,
+so an over-bound request is the fixed non-acquiring `OVER_BOUND`
+before any record tuple, location string, ID map, typed diagnostic,
+argument/wrapper parsing or identity map is retained or built; the
+public proof distinguishes early bounded allocation/work from small
+final record counts — large prebuilt Responses calls, nested Chat
+`tool_calls`, Responses results and Chat results at limit one are
+measured (tracemalloc, generous 2 MiB regression ceiling, inputs/
+imports/full-payload fingerprinting excluded — not a total-RSS
+guarantee), with at-limit useful reads keeping exact
+digest/span/member/width, one-over/late-collision/invalid-ID/
+ignored-domain/mixed shapes keeping their typed behavior and inputs
+unchanged; (2) exact internal call/result IDs stay usable (internal
+fields asserted exact on Responses and Chat paired/orphan/duplicate/
+missing-result paths) while operational `str`/`repr` of report/read/
+unpaired objects never echo private ID values — synthetic canaries
+only, the observable no-ID state (empty string), fixed enums,
+counts, locations and digests remain visible in representations.
+This supersedes the 017-n wording that the bound was decided "before
+any identity map or typed diagnostic is retained" (the pre-017-o
+code had retained the record lists and location strings first); from
+017-o the bound is decided before any retention. All previously
+earned D10 causality/inventory tests, selected/mixed/ignored domain
+behavior and literal read/plan/loop positives are preserved with
+unchanged inputs; no shell/filesystem/network oracle or new
+dependency. No actual client, provider session, or model call is
+made; the actual capture and process/chunk collector remain `NOT
+RUN`.
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

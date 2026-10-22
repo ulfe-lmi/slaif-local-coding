@@ -42,14 +42,21 @@ Responses `custom_tool_call` identity is inventoried alongside
 acquisition and its opaque input is never reinterpreted), the
 complete-inventory bounds (`max_commands`/`max_outputs` enforced
 against every relevant call and result record, including
-unsupported/custom/malformed-ID records, before anything is
-retained), and the typed result-ID observability (absent/empty and
-non-string result IDs are fixed non-echoing unpaired limitations,
-never invented or attached) — the D06/D07/D08 finite read plans,
+unsupported/custom/malformed-ID records, by a no-retention
+streaming preflight decided before any record, location string,
+identity map or diagnostic is retained), and the typed result-ID
+observability (absent/empty and non-string result IDs are fixed
+non-echoing unpaired limitations, never invented or attached), with
+exact internal call/result IDs staying usable while operational
+`str`/`repr` of report/read/unpaired objects never echo private ID
+values (fixed `<private-id>` placeholder; the observable no-ID
+state, fixed enums, counts, locations and digests remain visible) —
+the D06/D07/D08 finite read plans,
 the D07 literal-loop slice, and the public D10 composition matrix
 with the pure D09 unsupported/partial negative matrix (rounds 017-b
-through 017-n corrected that surface's bounded proof findings,
-pairing identity and inventory boundaries); the offline, opt-in,
+through 017-o corrected that surface's bounded proof findings,
+pairing identity, inventory boundaries and private-ID
+representations); the offline, opt-in,
 fail-closed process-capture
 utility (`scripts/real_client_capture.py`) exists for independent
 strategic review — inert (not active in the adapter), hard-capped,

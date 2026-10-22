@@ -17,7 +17,7 @@ Public composition tests over the inert bundle-observation stage:
   pre-call outputs, duplicate same-call results (still unsupported
   absent later earned process-chain evidence), non-monotonic IDs and
   >=10 structural positions;
-- wire-family and complete-inventory boundaries (017-n): the
+- wire-family and complete-inventory boundaries (017-n/017-o): the
   Responses ``custom_tool_call`` identity participates in the call
   inventory alongside ``function_call`` (exact colliding IDs make the
   ambiguous eligible chain typed/non-acquiring in both collision
@@ -26,16 +26,25 @@ Public composition tests over the inert bundle-observation stage:
   named like a supported tool still never acquires; no generic
   unknown-family recognition), ``max_commands``/``max_outputs`` bound
   the complete relevant inventory (unsupported names, opaque custom
-  records, missing/empty/malformed IDs, invalid result IDs) before any
-  identity map or diagnostic is retained — fixed non-acquiring
-  ``OVER_BOUND``, at-limit and one-over on Responses and Chat
-  (including many ``tool_calls`` in one assistant message) and a late
-  collision beyond any retained prefix — scoped to the selected domain
-  under explicit endpoint selection, and absent/null/empty and
-  non-string result IDs (Responses ``function_call_output``; Chat
-  ``role=tool``) are fixed typed non-echoing unpaired limitations that
-  never invent, hash, attach or acquire, with separate well-formed
-  chains remaining useful within the total limits;
+  records, missing/empty/malformed IDs, invalid result IDs) while
+  streaming — the bound is decided **before** any record tuple,
+  location string, ID map or typed diagnostic is retained (bounded
+  regression allocation proof on large prebuilt inventories at limit
+  one, with at-limit useful reads keeping exact digest/span/member/
+  width), fixed non-acquiring ``OVER_BOUND``, at-limit and one-over on
+  Responses and Chat (including many ``tool_calls`` in one assistant
+  message) and a late collision beyond any retained prefix — scoped to
+  the selected domain under explicit endpoint selection, and
+  absent/null/empty and non-string result IDs (Responses
+  ``function_call_output``; Chat ``role=tool``) are fixed typed
+  non-echoing unpaired limitations that never invent, hash, attach or
+  acquire, with separate well-formed chains remaining useful within
+  the total limits;
+- private-ID representation (017-o): exact internal call/result IDs
+  stay usable while operational ``str``/``repr`` of report/read/
+  unpaired objects never echo private ID values (synthetic canaries
+  only) — the observable no-ID state, fixed enums, counts, locations
+  and digests remain visible;
 - the pure unsupported/partial acquisition matrix: command
   substitution, unexecuted branches, partial readers and known
   truncated/missing/running/unknown wrappers — typed
@@ -53,14 +62,18 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import tracemalloc
 from typing import Any
 
 from slaif_local_coding.constitution.bundles import (
     EMPTY_SOURCE_SHA256,
+    PRIVATE_ID_PLACEHOLDER,
     Limitation,
     ObservationBounds,
     PathContext,
     ReadOutcome,
+    UnpairedRecord,
+    observe_reads,
     observe_request,
 )
 
@@ -1338,3 +1351,342 @@ class TestWireFamilyInventoryAndBounds:
             ("$.input[2]", "", Limitation.MISSING_RESULT_ID),
             ("$.input[1]", "orphan", Limitation.MISMATCHED_CALL_ID),
         ]
+
+
+class TestInventoryAllocationAndIdRepresentation:
+    """017-o: pre-retention bounded inventory work and private-ID reprs.
+
+    - complete relevant call/result inventory bounds are enforced while
+      streaming — before any record tuple, location string, ID map or
+      typed diagnostic is retained: large prebuilt Responses calls,
+      nested Chat calls, Responses results and Chat results at limit
+      one are a fixed non-acquiring ``OVER_BOUND`` whose measured
+      allocation stays under the generous regression ceiling (inputs,
+      imports and full-payload fingerprinting excluded), while at-limit
+      useful reads keep their exact digest/span/member/width proof and
+      one-over/late-collision/invalid-ID/ignored-domain/mixed shapes
+      keep their typed behavior;
+    - exact internal call/result IDs stay usable while operational
+      ``str``/``repr`` of report/read/unpaired objects never echo
+      private ID values (synthetic canaries only): the observable
+      no-ID state, fixed enums, counts, locations and digests remain
+      visible.
+    """
+
+    _TOKEN = "SYNTH-PRIVATE-CALL-ID-017o"
+    # Generous independent allocation regression ceiling (bytes) at
+    # inventory budget one; not a total-process RSS guarantee.
+    _CEILING = 2 * 1024 * 1024
+
+    @staticmethod
+    def _read_pair() -> tuple[str, dict[str, Any], dict[str, Any]]:
+        text = "synthetic allocation body é\r\n"
+        return text, _rcall("alloc-control"), _rresult("alloc-control", _wrapper(text))
+
+    @staticmethod
+    def _assistant_with_tools(ids: list[str]) -> dict[str, Any]:
+        tools: list[dict[str, Any]] = []
+        for call_id in ids:
+            tool: dict[str, Any] = {
+                "type": "function",
+                "function": {"name": "exec_command", "arguments": json.dumps({"cmd": "cat A.md"})},
+            }
+            tool["id"] = call_id
+            tools.append(tool)
+        return {"role": "assistant", "tool_calls": tools}
+
+    @staticmethod
+    def _assert_over_bound(unpaired: Any) -> None:
+        assert unpaired == (
+            UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),
+        )
+
+    def _measured_reads(
+        self,
+        payload: dict[str, Any],
+        bounds: ObservationBounds,
+        endpoint: str,
+    ) -> tuple[Any, Any, int]:
+        before = copy.deepcopy(payload)
+        tracemalloc.start()
+        try:
+            reads, unpaired = observe_reads(payload, _CTX, bounds, selected_endpoint=endpoint)
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert payload == before, "observer mutated its input"
+        return reads, unpaired, peak
+
+    # -- Requirement 1: pre-retention bounded allocation/work ----------
+
+    def test_large_inventories_bounded_before_retention(self) -> None:
+        big = 50_000
+        bound = ObservationBounds(max_items=100_000, max_commands=1, max_outputs=1)
+        unknown = _rcall("u", name="unrelated_function")
+        chat_tool: dict[str, Any] = {
+            "type": "function",
+            "id": "u",
+            "function": {"name": "unrelated_function", "arguments": "{}"},
+        }
+        cases = [
+            ({"input": [unknown] * big}, "responses"),
+            ({"messages": [{"role": "assistant", "tool_calls": [chat_tool] * big}]}, "chat"),
+            ({"input": [_rresult("u", "")] * big}, "responses"),
+            ({"messages": [_cresult("u", "")] * big}, "chat"),
+        ]
+        for payload, endpoint in cases:
+            reads, unpaired, peak = self._measured_reads(payload, bound, endpoint)
+            assert reads == ()
+            self._assert_over_bound(unpaired)
+            assert peak < self._CEILING, (endpoint, peak)
+
+    def test_public_entry_fixed_over_bound_large_inventory(self) -> None:
+        payload = {"input": [_rcall("u", name="unrelated_function")] * 50_000}
+        before = copy.deepcopy(payload)
+        report = observe_request(
+            payload,
+            context=_CTX,
+            bounds=ObservationBounds(max_items=100_000, max_commands=1, max_outputs=1),
+            endpoint="responses",
+        )
+        assert payload == before
+        assert report.reads == ()
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_at_limit_useful_keeps_exact_proof_responses_and_chat(self) -> None:
+        text, call, result = self._read_pair()
+        bound = ObservationBounds(max_commands=1, max_outputs=1)
+        payloads = [
+            ({"input": [call, result]}, "responses"),
+            (
+                {
+                    "messages": [
+                        _ccall("alloc-control"),
+                        _cresult("alloc-control", _wrapper(text)),
+                    ]
+                },
+                "chat",
+            ),
+        ]
+        for payload, endpoint in payloads:
+            reads, unpaired, peak = self._measured_reads(payload, bound, endpoint)
+            assert unpaired == ()
+            assert len(reads) == 1
+            obs = reads[0]
+            assert obs.removable is True
+            assert obs.bundle_digest == hashlib.sha256(text.encode()).hexdigest()
+            assert obs.content_span is not None
+            assert obs.proven_executed == ("A.md",)
+            assert obs.distinct_member_count == 1
+            assert obs.slot_width == 1
+            assert peak < self._CEILING, (endpoint, peak)
+
+    def test_one_over_responses_and_nested_chat(self) -> None:
+        bound = ObservationBounds(max_commands=2, max_outputs=8)
+        responses_payload = {
+            "input": [
+                _rcall("u1", name="unrelated_function"),
+                _rcall("u2", name="unrelated_function"),
+                _rcall("ok"),
+                _rresult("ok", _wrapper()),
+            ]
+        }
+        reads, unpaired, _ = self._measured_reads(responses_payload, bound, "responses")
+        assert reads == ()
+        self._assert_over_bound(unpaired)
+        chat_payload = {"messages": [self._assistant_with_tools(["a", "b", "c"])]}
+        reads, unpaired, _ = self._measured_reads(chat_payload, bound, "chat")
+        assert reads == ()
+        self._assert_over_bound(unpaired)
+
+    def test_invalid_ids_count_toward_pre_retention_bound(self) -> None:
+        command_bound = ObservationBounds(max_commands=2)
+        missing = _rcall_no_id()
+        payload = {
+            "input": [
+                missing,
+                missing,
+                _rcall("ok"),
+                _rresult("ok", _wrapper()),
+            ]
+        }
+        reads, unpaired, _ = self._measured_reads(payload, command_bound, "responses")
+        assert reads == ()
+        self._assert_over_bound(unpaired)
+        output_bound = ObservationBounds(max_outputs=2)
+        bad = _rresult_bad_id(None)
+        payload = {
+            "input": [
+                bad,
+                bad,
+                _rresult("ok", _wrapper()),
+            ]
+        }
+        reads, unpaired, _ = self._measured_reads(payload, output_bound, "responses")
+        assert reads == ()
+        self._assert_over_bound(unpaired)
+
+    def test_ignored_domain_inventory_is_not_counted(self) -> None:
+        big = 50_000
+        text, call, result = self._read_pair()
+        bound = ObservationBounds(max_items=100_000, max_commands=1, max_outputs=1)
+        unknown_tool: dict[str, Any] = {
+            "type": "function",
+            "id": "u",
+            "function": {"name": "unrelated_function", "arguments": "{}"},
+        }
+        responses_selection = {
+            "input": [call, result],
+            "messages": [{"role": "assistant", "tool_calls": [unknown_tool] * big}],
+        }
+        reads, unpaired, peak = self._measured_reads(responses_selection, bound, "responses")
+        assert unpaired == ()
+        assert len(reads) == 1 and reads[0].removable is True
+        assert peak < self._CEILING
+        chat_selection = {
+            "input": [_rcall("u", name="unrelated_function")] * big,
+            "messages": [_ccall("c-ok"), _cresult("c-ok", _wrapper(text))],
+        }
+        reads, unpaired, peak = self._measured_reads(chat_selection, bound, "chat")
+        assert unpaired == ()
+        assert len(reads) == 1 and reads[0].removable is True
+        assert peak < self._CEILING
+
+    def test_mixed_aggregate_counts_both_domains(self) -> None:
+        payload = {
+            "input": [_rcall("x"), _rresult("x", _wrapper())],
+            "messages": [_ccall("y"), _cresult("y", _wrapper())],
+        }
+        report = observe_request(
+            payload, context=_CTX, bounds=ObservationBounds(max_commands=1, max_outputs=8)
+        )
+        assert report.endpoint == "mixed"
+        assert report.reads == ()
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_late_collision_at_limit_and_one_over_beyond_prefix(self) -> None:
+        text, call, result = self._read_pair()
+        custom = _rcustom("alloc-control", name="exec_command")
+        bound = ObservationBounds(max_commands=3, max_outputs=1)
+        at_limit = {"input": [call, result, _rcall("u", name="unrelated_function"), custom]}
+        reads, unpaired, _ = self._measured_reads(at_limit, bound, "responses")
+        assert reads == ()
+        assert [(u.location, u.call_id, u.limitation) for u in unpaired] == [
+            ("$.input[0]", "alloc-control", Limitation.DUPLICATE_CALL_ID),
+            ("$.input[3]", "alloc-control", Limitation.DUPLICATE_CALL_ID),
+        ]
+        one_over = {
+            "input": [
+                call,
+                result,
+                _rcall("u", name="unrelated_function"),
+                custom,
+                _rcall("v", name="unrelated_function"),
+            ]
+        }
+        reads, unpaired, _ = self._measured_reads(one_over, bound, "responses")
+        assert reads == ()
+        self._assert_over_bound(unpaired)
+        del text
+
+    # -- Requirement 2: non-echoing operational representations -------
+
+    @staticmethod
+    def _assert_non_echoing(report: Any, token: str) -> None:
+        for value in (report, *report.reads, *report.unpaired):
+            assert token not in repr(value)
+            assert token not in str(value)
+
+    def test_paired_ids_internal_exact_repr_private(self) -> None:
+        token = self._TOKEN
+        text = "synthetic repr body\n"
+        payloads = [
+            {"input": [_rcall(token), _rresult(token, _wrapper(text))]},
+            {"messages": [_ccall(token), _cresult(token, _wrapper(text))]},
+        ]
+        for payload in payloads:
+            report = _run(payload)
+            complete = _complete(report)
+            assert len(complete) == 1
+            assert complete[0].call_id == token  # internal field stays exact
+            assert complete[0].removable is True
+            self._assert_non_echoing(report, token)
+            assert PRIVATE_ID_PLACEHOLDER in repr(report.reads[0])
+            # fixed enums/counts/digests remain observable
+            assert report.endpoint in repr(report)
+            assert '"bundle_digest"' in repr(report)
+
+    def test_orphan_result_ids_internal_exact_repr_private(self) -> None:
+        token = self._TOKEN
+        payloads = [
+            {"input": [_rresult(token, _wrapper())]},
+            {"messages": [_cresult(token, _wrapper())]},
+        ]
+        for payload in payloads:
+            report = _run(payload)
+            assert len(report.unpaired) == 1
+            record = report.unpaired[0]
+            assert record.limitation is Limitation.MISMATCHED_CALL_ID
+            assert record.call_id == token  # internal field stays exact
+            assert record.call_id == token and token not in repr(record)
+            self._assert_non_echoing(report, token)
+            assert PRIVATE_ID_PLACEHOLDER in repr(record)
+            # the structural location stays observable
+            assert '"location"' in repr(record)
+
+    def test_duplicate_call_ids_internal_exact_repr_private(self) -> None:
+        token = self._TOKEN
+        payloads = [
+            {"input": [_rcall(token), _rcall(token), _rresult(token, _wrapper())]},
+            {
+                "messages": [
+                    _ccall(token),
+                    _ccall(token),
+                    _cresult(token, _wrapper()),
+                ]
+            },
+        ]
+        for payload in payloads:
+            report = _run(payload)
+            assert _complete(report) == []
+            assert len(report.unpaired) == 2
+            for record in report.unpaired:
+                assert record.limitation is Limitation.DUPLICATE_CALL_ID
+                assert record.call_id == token  # internal field stays exact
+            self._assert_non_echoing(report, token)
+            assert PRIVATE_ID_PLACEHOLDER in repr(report.unpaired[0])
+
+    def test_missing_result_ids_internal_exact_repr_private(self) -> None:
+        token = self._TOKEN
+        payloads = [
+            {"input": [_rcall(token)]},
+            {"messages": [_ccall(token)]},
+        ]
+        for payload in payloads:
+            report = _run(payload)
+            assert _complete(report) == []
+            assert len(report.unpaired) == 1
+            record = report.unpaired[0]
+            assert record.limitation is Limitation.MISSING_CALL_RESULT
+            assert record.call_id == token  # internal field stays exact
+            self._assert_non_echoing(report, token)
+            assert PRIVATE_ID_PLACEHOLDER in repr(record)
+
+    def test_repr_keeps_enums_counts_and_empty_id_state(self) -> None:
+        report = _run({"input": [_rcall_no_id(), _rresult("orphan-x", _wrapper())]})
+        assert len(report.unpaired) == 2
+        missing = [u for u in report.unpaired if u.limitation is Limitation.MISSING_CALL_ID][0]
+        mismatched = [u for u in report.unpaired if u.limitation is Limitation.MISMATCHED_CALL_ID][
+            0
+        ]
+        assert missing.call_id == ""  # observable no-ID state stays exact
+        assert '"call_id":""' in repr(missing)
+        assert '"missing_call_id"' in repr(missing)
+        assert '"location":"$.input[0]"' in repr(missing)
+        assert '"mismatched_call_id"' in repr(mismatched)
+        assert '"observer_version"' in repr(report)
+        assert '"input_fingerprint"' in repr(report)

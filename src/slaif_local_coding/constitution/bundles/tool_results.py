@@ -37,10 +37,17 @@ bound law: ``max_commands`` is enforced against **all** relevant
 schema-position call records — including unsupported names, opaque
 custom records and missing/empty/malformed IDs — and
 ``max_outputs`` against **all** relevant result records, including
-invalid IDs, before any identity map or typed diagnostic is
-retained or built: a fixed non-acquiring ``OVER_BOUND`` result,
-never a silently truncated inventory that acquires an earlier chain
-while missing a later collision.  For explicit endpoint selection
+invalid IDs, while streaming the inventory — the bound is decided
+**before** any record tuple, location string, identity map or typed
+diagnostic is retained or built: a fixed non-acquiring
+``OVER_BOUND`` result, never a silently truncated inventory that
+acquires an earlier chain while missing a later collision; the
+bounded collection pass retains records only once the complete
+inventory is proven within its limits.  Representation law:
+operational ``str``/``repr`` of report/read/unpaired objects never
+echo private call/result ID values; the exact internal typed ID
+fields stay usable, and fixed enums, counts, locations and digests
+remain observable.  For explicit endpoint selection
 only the selected domain contributes; mixed input remains
 non-acquiring under the existing law, bounded across its inspected
 domains.  Result-ID observability law: in the relevant Responses
@@ -449,6 +456,62 @@ _ACQUIRABLE_CALL_FAMILIES = frozenset({"function_call", "function"})
 #: One eligible acquisition call: ``(id, position, location, name,
 #: arguments)``.
 EligibleCall = tuple[str, int, str, str, object]
+
+
+def _inventory_totals(
+    input_items: list[Any] | None,
+    messages: list[Any] | None,
+    max_commands: int,
+    max_outputs: int,
+) -> tuple[int, int]:
+    """Stream the complete relevant inventory, bounded before retention.
+
+    Counts every schema-position call record (supported names,
+    unsupported names, opaque ``custom_tool_call`` records,
+    missing/empty/malformed IDs) against *max_commands* and every
+    result record (valid and invalid IDs) against *max_outputs*,
+    using exactly the collection pass' recognition predicates, and
+    stops the moment either declared limit is exceeded.  This pass
+    retains nothing — no record tuple, location string, ID map or
+    typed diagnostic — so an over-bound request is decided (and
+    bounded) before any retention, argument/wrapper parsing or
+    identity mapping happens.  Returns
+    ``(command_total, output_total)``.
+    """
+
+    commands = 0
+    outputs = 0
+    if input_items is not None:
+        for item in input_items:
+            if not isinstance(item, dict):
+                continue
+            item_type = item.get("type")
+            if item_type in ("function_call", "custom_tool_call"):
+                commands += 1
+                if commands > max_commands:
+                    return commands, outputs
+            elif item_type == "function_call_output":
+                outputs += 1
+                if outputs > max_outputs:
+                    return commands, outputs
+    if messages is not None:
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = message.get("role")
+            if role == "assistant":
+                tool_calls = message.get("tool_calls")
+                if isinstance(tool_calls, list):
+                    for tool in tool_calls:
+                        if isinstance(tool, dict) and tool.get("type") == "function":
+                            commands += 1
+                            if commands > max_commands:
+                                return commands, outputs
+            elif role == "tool":
+                outputs += 1
+                if outputs > max_outputs:
+                    return commands, outputs
+    return commands, outputs
 
 
 def _call_records(
@@ -1457,15 +1520,20 @@ def observe_reads(
     **all** relevant schema-position call records (supported,
     unsupported, opaque ``custom_tool_call`` and missing/empty/malformed
     IDs) and ``max_outputs`` against **all** relevant result records
-    (including invalid IDs), before any identity map or typed
-    diagnostic is retained or built.  Over-bound input yields the fixed
-    non-acquiring ``OVER_BOUND`` record — never a truncated inventory
-    from which an earlier chain acquires while a later collision is
-    missed.  The scan itself is bounded by the existing ``max_items``
-    item bound before any record is retained.  For explicit endpoint
-    selection only the selected domain is inspected and contributes;
-    the mixed and legacy no-selection shapes inspect both present
-    containers (bounded across the inspected domains).
+    (including invalid IDs) while streaming the inventory: the bound is
+    decided by a no-retention preflight **before** any record tuple,
+    location string, identity map or typed diagnostic is retained, and
+    the bounded collection pass runs only once the complete inventory
+    is proven within its limits (it retains at most the declared
+    counts).  Over-bound input yields the fixed non-acquiring
+    ``OVER_BOUND`` record — never a truncated inventory from which an
+    earlier chain acquires while a later collision is missed, and
+    never argument/wrapper parsing or identity maps for an already
+    over-bound request.  The inspected containers are additionally
+    bounded by the existing ``max_items`` item bound.  For explicit
+    endpoint selection only the selected domain is inspected and
+    contributes; the mixed and legacy no-selection shapes inspect both
+    present containers (bounded across the inspected domains).
 
     ``selected_endpoint`` scopes observation to one container (an
     explicit validated endpoint or an unambiguously inferred envelope);
@@ -1501,6 +1569,24 @@ def observe_reads(
             (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
         )
 
+    # Complete-inventory preflight: the declared limits are decided
+    # while streaming the complete relevant inventory (every
+    # schema-position call record, every result record including ID
+    # defects) — before any record tuple, location string, ID map or
+    # typed diagnostic is retained.  An over-bound request stops here:
+    # no argument/wrapper parsing, eligibility scan or identity map is
+    # ever built for it.
+    command_total, output_total = _inventory_totals(
+        resp_items, chat_msgs, bounds.max_commands, bounds.max_outputs
+    )
+    if command_total > bounds.max_commands or output_total > bounds.max_outputs:
+        return (
+            (),
+            (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
+        )
+
+    # The complete inventory is proven within its limits: the bounded
+    # collection pass retains at most the declared counts.
     responses_records, chat_records = _call_records(resp_items, chat_msgs)
     (
         responses_outputs,
@@ -1509,17 +1595,16 @@ def observe_reads(
         chat_defects,
     ) = _result_entries(resp_items, chat_msgs)
 
-    # The bounds are decided on the complete relevant inventory (every
-    # schema-position call record, every result record including ID
-    # defects) before any identity map or diagnostic is built.
-    command_total = len(responses_records) + len(chat_records)
-    output_total = (
+    # Defensive invariant: the collection pass counts the same complete
+    # relevant inventory as the preflight.
+    collected_commands = len(responses_records) + len(chat_records)
+    collected_outputs = (
         sum(len(v) for v in responses_outputs.values())
         + len(responses_defects)
         + sum(len(v) for v in chat_outputs.values())
         + len(chat_defects)
     )
-    if command_total > bounds.max_commands or output_total > bounds.max_outputs:
+    if collected_commands > bounds.max_commands or collected_outputs > bounds.max_outputs:
         return (
             (),
             (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),

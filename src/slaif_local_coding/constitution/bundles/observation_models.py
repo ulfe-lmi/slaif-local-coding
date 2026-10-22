@@ -85,6 +85,47 @@ def canonical_payload_fingerprint(payload: object) -> str:
     ).hexdigest()
 
 
+#: Fixed placeholder for private call/result ID values in operational
+#: representations: a private value is never echoed, invented, hashed
+#: or re-serialized into a representation.
+PRIVATE_ID_PLACEHOLDER = "<private-id>"
+
+
+def _redact_private_ids(value: object) -> object:
+    """Redact private ID values in a dumped model structure.
+
+    Only observed non-empty ``call_id`` values are replaced by the
+    fixed placeholder; the observable no-ID state (``""``) is preserved,
+    and every other field, enum, count, location, span and digest is
+    unchanged.
+    """
+
+    if isinstance(value, dict):
+        redacted: dict[str, object] = {}
+        for key, item in value.items():
+            if key == "call_id" and isinstance(item, str) and item != "":
+                redacted[key] = PRIVATE_ID_PLACEHOLDER
+            else:
+                redacted[key] = _redact_private_ids(item)
+        return redacted
+    if isinstance(value, (list, tuple)):
+        return [_redact_private_ids(item) for item in value]
+    return value
+
+
+def operational_repr(model: BaseModel) -> str:
+    """Operational representation for observation models.
+
+    Fixed enums, counts, locations, spans and digests remain
+    observable; private call/result ID values never do.  The internal
+    typed fields are untouched — only their representation is
+    suppressed.
+    """
+
+    data = _redact_private_ids(model.model_dump(mode="json"))
+    return f"{type(model).__name__}({json.dumps(data, sort_keys=True, separators=(',', ':'))})"
+
+
 class OccurrenceKind(StrEnum):
     ROOT = "root"
     ENVIRONMENT = "environment"
@@ -357,6 +398,8 @@ class ReadObservation(_Frozen):
 
     read_grammar: str = READ_GRAMMAR
     wrapper_format: str = TOOL_WRAPPER_FORMAT
+    #: Exact observed call ID; internal pairing/association data stays
+    #: exact and usable, while operational ``str``/``repr`` suppress it.
     call_id: str
     endpoint: str
     call_location: str
@@ -374,11 +417,26 @@ class ReadObservation(_Frozen):
     member_digests: tuple[str | None, ...] = ()
     reasons: tuple[Limitation, ...] = ()
 
+    def __repr__(self) -> str:
+        return operational_repr(self)
+
+    def __str__(self) -> str:
+        return operational_repr(self)
+
 
 class UnpairedRecord(_Frozen):
     location: str
+    #: Exact observed call ID (``""`` is the observable no-ID state);
+    #: internal bookkeeping stays exact, operational representations
+    #: suppress non-empty private values.
     call_id: str
     limitation: Limitation
+
+    def __repr__(self) -> str:
+        return operational_repr(self)
+
+    def __str__(self) -> str:
+        return operational_repr(self)
 
 
 class ObservationReport(_Frozen):
@@ -386,6 +444,8 @@ class ObservationReport(_Frozen):
 
     The report carries spans, digests, counts and fixed reasons only; it never
     carries raw source content, and it never derives identity from text.
+    Operational ``str``/``repr`` never echo private call/result ID values
+    (fixed enums, counts, locations and digests remain observable).
     """
 
     observer_version: str = OBSERVER_VERSION
@@ -394,6 +454,12 @@ class ObservationReport(_Frozen):
     roots: RootScanResult
     reads: tuple[ReadObservation, ...] = ()
     unpaired: tuple[UnpairedRecord, ...] = ()
+
+    def __repr__(self) -> str:
+        return operational_repr(self)
+
+    def __str__(self) -> str:
+        return operational_repr(self)
 
 
 class ObservationBounds(_Frozen):

@@ -628,21 +628,35 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
   **all** relevant schema-position call records — including
   unsupported names, opaque `custom_tool_call` records, and
   missing/empty/malformed IDs — and `max_outputs` against **all**
-  relevant result records, including invalid-ID results, **before** any
-  identity map or typed diagnostic is retained or built: the
+  relevant result records, including invalid-ID results, **while
+  streaming the inventory**: the bound is decided by a no-retention
+  preflight **before** any record tuple, location string, identity
+  map or typed diagnostic is retained or built, and the bounded
+  collection pass runs only once the complete inventory is proven
+  within its limits (retaining at most the declared counts): the
   over-bound input yields the fixed non-acquiring `OVER_BOUND` record
   (single, bounded, no private content), never a silently truncated
   inventory from which an earlier chain acquires while a later
-  collision is missed.  The complete-inventory scan itself is bounded
-  by the existing `max_items` item bound before any record is
-  retained.  At exactly the bound, the full inventory is retained and
-  paired normally (the useful unknown+valid within-limit control
+  collision is missed, and never argument/wrapper parsing or
+  identity maps for an already over-bound request.  The inspected
+  containers are additionally bounded by the existing `max_items`
+  item bound.  At exactly the bound, the full inventory is retained
+  and paired normally (the useful unknown+valid within-limit control
   holds; there is no blanket reject-all).  For **explicit** endpoint
   selection only the selected domain is inspected and contributes to
   the counts (the other container is neither scanned nor counted);
   mixed input (and the legacy no-selection shape) is bounded across
   the inspected domains and remains non-acquiring under the existing
   law.
+- **Private-ID representation.** Exact internal call/result IDs and
+  association fields stay usable for pairing and bookkeeping, while
+  the operational `str`/`repr` of report, read and unpaired objects
+  never echo private ID values: a non-empty `call_id` renders as the
+  fixed `<private-id>` placeholder, the observable no-ID state (empty
+  string) stays exact, and no ID is invented, hashed or re-serialized
+  into a representation.  Fixed enums, counts, locations, spans and
+  digests remain observable in operational representations; no
+  private value becomes a metric label.
 - **Result-ID observability.** In the relevant Responses
   `function_call_output` and Chat `role=tool` schema positions, a
   result ID that is absent, JSON null, or an empty string is typed
@@ -1073,6 +1087,40 @@ domain behavior and literal read/plan/loop positives are preserved
 with unchanged inputs and non-echoing reprs.  No shell/filesystem/
 network oracle and no new dependency.  D09 multi-chunk/process
 association remains `NOT RUN`; no v1 runtime claim.
+Round 017-o completed the two remaining per-request boundary
+repairs on the same inert surface (no capture utility/child
+modification, no actual capture, no process collector): (1) the
+complete relevant call/result inventory bounds are now enforced
+**before retention** — a no-retention streaming preflight decides
+`max_commands`/`max_outputs` over the complete inventory (every
+schema-position call record, every result record including invalid
+IDs) and stops at the first exceeded limit, so an over-bound request
+is a fixed non-acquiring `OVER_BOUND` before any record tuple,
+location string, identity map, typed diagnostic, argument/wrapper
+parsing or identity mapping is retained or built; the bounded
+collection pass retains at most the declared counts, and the 2 MiB
+allocation regression ceiling at inventory budget one (excluding
+inputs, imports and full-payload fingerprinting — a generous
+regression ceiling, not a new runtime setting or total-RSS
+guarantee) is proven by the frozen allocation probe and the public
+`TestInventoryAllocationAndIdRepresentation` suite in
+`tests/test_bundle_d10_matrix.py` on large prebuilt Responses calls,
+nested Chat calls, Responses results and Chat results at limit one,
+with
+at-limit useful reads keeping their exact digest/span/member/width
+proof and one-over/late-collision/invalid-ID/ignored-domain/mixed
+shapes keeping their typed behavior; (2) exact internal call/result
+IDs stay usable while operational `str`/`repr` of report/read/
+unpaired objects never echo private ID values (fixed `<private-id>`
+placeholder for non-empty values; the observable no-ID state, fixed
+enums, counts, locations and digests remain visible; synthetic
+canaries only — no actual secret or private body test data).  This
+supersedes the 017-n status wording "before any identity map or
+typed diagnostic is retained": the pre-017-o code had already
+retained the record lists and location strings before the bound
+check — from 017-o the bound is decided before any retention.  D09
+multi-chunk/process association remains `NOT RUN`; no v1 runtime
+claim.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
