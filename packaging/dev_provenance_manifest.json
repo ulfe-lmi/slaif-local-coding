@@ -3,14 +3,14 @@
     "sdist": {
       "entry_count": 185,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "3cea1fe2c1b792faf826010e1edd75c546790227ad49fcef83d9700f8bd7c024",
-      "size_bytes": 716283
+      "sha256": "3808e6108515194e1467b5a07eefb957d37782d9f51ffc8190fae09ac0277a83",
+      "size_bytes": 722711
     },
     "wheel": {
       "entry_count": 37,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "9ee76e1832c5c11620ea884491592291c6a9b633c294d2a9998095b478e74490",
-      "size_bytes": 140705
+      "sha256": "729a4248a34c0e661e195ada868aaf09025d072df234bf0d71d259188ec04390",
+      "size_bytes": 142322
     }
   },
   "frozen_publication": {
@@ -21,8 +21,8 @@
     "source_commit": "255b3f42912e3947908fc8868eccb6bcec874a08",
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
-  "objective": "016-b",
-  "qualification_label": "development-source-ce5e67ac0739ca6d81512b398a035accfc5f306b; not a release candidate; not released",
+  "objective": "017-o",
+  "qualification_label": "development-source-e938d176f81ab4e7f7d53cba22a80f9450171687; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "ce5e67ac0739ca6d81512b398a035accfc5f306b",
+  "source_commit": "e938d176f81ab4e7f7d53cba22a80f9450171687",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "d04c50bc8914e6c2dc880f9bb80904fa5ab9df0f241e241e46806a98073ac5ea",
@@ -50,8 +50,8 @@
     "config/adapter.gateway-integrated.template.toml": "14357037ab96029ed510d0d491f10a9e7b51586d0f7b9b4842ac3d9937e74afb",
     "docs/ADAPTER-CONFIGURATION.md": "8da874d2036eb9de2ff99c1e9e195d856061bae5dcdeb030d766d6f6268a9e8f",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "aa13596f4efbd9f77ff637fd6af459a9e16e8ef69856e040edccbede3acedf23",
-    "docs/CACHE-OBSERVATION-CONTRACT.md": "5e8565fd6ac3de0fadef2d8665c907234a5d9eed21f4e9e946897fd9b1c0802e",
-    "docs/CACHE-REWORK-LEDGER.md": "a94fbcd1de4b987e3c80404cf33fc201c2887006008c27692fad7da674efab04",
+    "docs/CACHE-OBSERVATION-CONTRACT.md": "78cb90201ac47d2fd06fd96f3e0ab06533640f59dffaae15da045e5159359306",
+    "docs/CACHE-REWORK-LEDGER.md": "e28ba9d7d0b484eedf512ee8b590b139d06154629877fbe5447cca311e186614",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
@@ -81,16 +81,16 @@
     "src/slaif_local_coding/cli.py": "b301a5971e36b3bbe0627a4114e8515fdf23dac821f12e5d84bd94ad91d36335",
     "src/slaif_local_coding/config.py": "a20a089c2fe56f496425b27485be82e38935cde3bcedb3ae750aa1d5af551913",
     "src/slaif_local_coding/constitution/__init__.py": "9731277b8a4c7552a0457efd7d09f0a117e24fcad3b0df0782259363c4d0e867",
-    "src/slaif_local_coding/constitution/bundles/__init__.py": "913f264fe1e10c8ae728f9528c25f0eb65e5c7efa7151f2b336507e96b6dc2cd",
+    "src/slaif_local_coding/constitution/bundles/__init__.py": "8123cca0b5b49ef3f80d3551a963824b0aaad35c42f15fdaad2d4ba1fb4cd310",
     "src/slaif_local_coding/constitution/bundles/client_paths.py": "ce4312f4e81f868076974bfbd519fc8c3a62ef2d5f30f2a5200b48078a0976e9",
     "src/slaif_local_coding/constitution/bundles/compound_reads.py": "6f857d9f2df249e4cc566be8ea13a48612af7c3a0ae4677dd20b2b34e78c82cc",
     "src/slaif_local_coding/constitution/bundles/literal_loops.py": "a6b07245969a52c4d8f73d585e43d8f4d53114396ecb0882532a1cf6119d83d6",
-    "src/slaif_local_coding/constitution/bundles/observation_models.py": "fa05e58666486dcf3ca149ef00a9938ba0057096fa67a2f72fdc52f73db2e271",
+    "src/slaif_local_coding/constitution/bundles/observation_models.py": "d542abf3bd94c5343428f9af00c39f318aaabf8ab86d0fb0a5376942b75605ab",
     "src/slaif_local_coding/constitution/bundles/observe.py": "42d5c45b4bded12bddffa850c0130fe9d4b7fd9e7720ba90d7b5e1a15ec86712",
     "src/slaif_local_coding/constitution/bundles/read_grammar.py": "2ad0e07971274e5ccab94a8c33a1beee86d6c6fef249cbcd83f6e030bfe94f45",
     "src/slaif_local_coding/constitution/bundles/root_envelopes.py": "9212e5fe33dea102131696997da27a619667042d6c0bd51f57bde1473a801444",
     "src/slaif_local_coding/constitution/bundles/shell_tokens.py": "99161042191b2ad0d68196a440fbfc7eeb04717aea1dccbc424fffb5ab1c98f0",
-    "src/slaif_local_coding/constitution/bundles/tool_results.py": "1f046dcb96d7ade06d2c6847b3eae6caed85cab3bd89127494f3116785e9d1c1",
+    "src/slaif_local_coding/constitution/bundles/tool_results.py": "48279ffcddff61cf57acb7e4355c9c4db0288d24b83b43eb03ab39be6c8a6e22",
     "src/slaif_local_coding/constitution/cache.py": "3836255390244ef1bd9a223319216ddbb34e87ba447600eb0da546a7fbec09cc",
     "src/slaif_local_coding/constitution/compiler.py": "d278f89adc7d2a91f0193614c30c47080f2bdd4fded7b001ba57e8c99e10ad2e",
     "src/slaif_local_coding/constitution/compiler_models.py": "468e389d8359c912ce6bf760116ad7cb10055fe12997c5bfa59b738088a04246",
@@ -165,7 +165,7 @@
     "tests/test_boot_contract.py": "df2add7e565981c2ab7937209b1ce7954aec5f787974faad5bd8ff43f70240b6",
     "tests/test_bundle_client_paths.py": "f67d9c8fd33290349aa51a86ef006c6c4cdd15ad2f3bc3cd564378dfad868c9b",
     "tests/test_bundle_compound_reads.py": "1033b7d91c2fb42fcee982a9c411ebced2956db0738849b6805e569e4bf973ae",
-    "tests/test_bundle_d10_matrix.py": "87a76f77b00add2ce7d98c83b214746ec5a3137f7df7aabcdce1e2e5514167c9",
+    "tests/test_bundle_d10_matrix.py": "d349972cd04b19886c98f9a47c5f3401a80a6e8f4c792140ec787a8f391905d6",
     "tests/test_bundle_literal_loops.py": "daab316becb25ac89c319f1959ea91f1ac66a6b5e65a3fda86c7e74b8be349d2",
     "tests/test_bundle_observation_models.py": "bb17d4b7e063c65ae26fe2fd593c6d063d8fde300900a50d333f5983c94a073b",
     "tests/test_bundle_observe.py": "11b9e2d301f2e8cc9260de81dff39dd9d9baf133367f16b4b98bcc4e6475f89a",
