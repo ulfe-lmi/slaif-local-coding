@@ -36,11 +36,21 @@ or the Chat `messages` index of the assistant message carrying the
 call — follows the call's, never via lexical call IDs or JSONPath
 string sorting; a result before its call is a typed non-removable
 `PRE_CALL_RESULT` chain with no bundle/member digest, no source span
-and no proven-executed claim) — the D06/D07/D08 finite read plans,
+and no proven-executed claim), the wire-family call inventory (the
+Responses `custom_tool_call` identity is inventoried alongside
+`function_call` for conflict bookkeeping only — it never earns read
+acquisition and its opaque input is never reinterpreted), the
+complete-inventory bounds (`max_commands`/`max_outputs` enforced
+against every relevant call and result record, including
+unsupported/custom/malformed-ID records, before anything is
+retained), and the typed result-ID observability (absent/empty and
+non-string result IDs are fixed non-echoing unpaired limitations,
+never invented or attached) — the D06/D07/D08 finite read plans,
 the D07 literal-loop slice, and the public D10 composition matrix
 with the pure D09 unsupported/partial negative matrix (rounds 017-b
-through 017-m corrected that surface's bounded proof findings and
-pairing identity); the offline, opt-in, fail-closed process-capture
+through 017-n corrected that surface's bounded proof findings,
+pairing identity and inventory boundaries); the offline, opt-in,
+fail-closed process-capture
 utility (`scripts/real_client_capture.py`) exists for independent
 strategic review — inert (not active in the adapter), hard-capped,
 privacy-law enforced in code, with the actual-client path

@@ -81,7 +81,20 @@ the pure D09 unsupported/partial negative matrix (command
 substitution, unexecuted branches, partial readers, known
 truncated/missing/running/unknown wrappers contrasted with the exact
 proven empty successful output) are earned as public observation
-tests (`tests/test_bundle_d10_matrix.py`).  D09 multi-chunk/
+tests (`tests/test_bundle_d10_matrix.py`).  Round 017-n repairs the
+observer identity-inventory boundaries on the same inert surface:
+the Responses `custom_tool_call` identity joins the call inventory
+alongside `function_call` (identity bookkeeping only — no custom-tool
+read parsing/execution/acquisition, opaque input never reinterpreted,
+no generic unknown-family wildcard), `max_commands`/`max_outputs`
+bound the **complete** relevant inventory (unsupported names, opaque
+custom records, missing/empty/malformed IDs, invalid result IDs)
+before any identity map or diagnostic is retained (fixed
+non-acquiring `OVER_BOUND`, selected-domain scoping under explicit
+endpoint selection), and absent/null/empty or non-string result IDs
+are fixed typed non-echoing unpaired limitations
+(`MISSING_RESULT_ID` / `MALFORMED_RESULT_ID`), never invented,
+hashed, attached or acquired.  D09 multi-chunk/
 process association remains deferred and is never marked delivered
 by these negatives.
 
@@ -586,12 +599,21 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
 - **Identity conflicts precede eligibility.** The relevant schema-
   evidenced call identities are inventoried **before** read eligibility
   is applied: every call record in a schema call position (Responses
-  `input` `function_call` item; Chat assistant `tool_calls` `function`
-  entry) participates in duplicate bookkeeping regardless of whether
-  its tool name earns read support — so an unknown/ineligible call's
-  ID colliding with an eligible call ID is a typed `DUPLICATE_CALL_ID`
-  conflict, never filtered away.  An unknown or ineligible tool call
-  never acquires a source, and an unrelated unknown call with a unique
+  `input` `function_call` **and** `custom_tool_call` items; Chat
+  assistant `tool_calls` `function` entry) participates in duplicate
+  bookkeeping regardless of whether its tool name earns read support —
+  so an unknown/ineligible call's ID colliding with an eligible call
+  ID is a typed `DUPLICATE_CALL_ID` conflict, never filtered away, and
+  never first-match.  The Responses `custom_tool_call` wire family is
+  identity bookkeeping only: it earns **no** custom-tool read parsing,
+  execution or acquisition (whatever its name — a custom call named
+  like a supported tool still never acquires), its opaque `input` is
+  never captured as arguments and never reinterpreted as a shell or
+  source oracle, and no generic unknown-family wildcard recognition is
+  invented (the exact family/name/ID association is preserved, and the
+  supported namespace-declaration law is unchanged for acquirable
+  families).  An unknown or ineligible tool call never acquires a
+  source, and an unrelated unknown or opaque custom call with a unique
   ID is neither recorded nor allowed to poison a separate valid chain.
   Arbitrary nested text objects carrying `id`/`name` are not call
   records.  A call ID that is absent, JSON null, or an empty string is
@@ -602,6 +624,39 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
   typed duplicate/missing/mismatch/unsupported states are preserved;
   diagnostics and reprs stay bounded and non-echoing, and private
   values never become metric labels.
+- **Complete-inventory bounds.** `max_commands` is enforced against
+  **all** relevant schema-position call records — including
+  unsupported names, opaque `custom_tool_call` records, and
+  missing/empty/malformed IDs — and `max_outputs` against **all**
+  relevant result records, including invalid-ID results, **before** any
+  identity map or typed diagnostic is retained or built: the
+  over-bound input yields the fixed non-acquiring `OVER_BOUND` record
+  (single, bounded, no private content), never a silently truncated
+  inventory from which an earlier chain acquires while a later
+  collision is missed.  The complete-inventory scan itself is bounded
+  by the existing `max_items` item bound before any record is
+  retained.  At exactly the bound, the full inventory is retained and
+  paired normally (the useful unknown+valid within-limit control
+  holds; there is no blanket reject-all).  For **explicit** endpoint
+  selection only the selected domain is inspected and contributes to
+  the counts (the other container is neither scanned nor counted);
+  mixed input (and the legacy no-selection shape) is bounded across
+  the inspected domains and remains non-acquiring under the existing
+  law.
+- **Result-ID observability.** In the relevant Responses
+  `function_call_output` and Chat `role=tool` schema positions, a
+  result ID that is absent, JSON null, or an empty string is typed
+  `MISSING_RESULT_ID`; a present non-string result ID (list, dict,
+  number, boolean) is typed `MALFORMED_RESULT_ID`.  These are fixed,
+  non-echoing, unpaired limitations: no ID is invented, no unhashable
+  value is hashed, the malformed output is never attached to any call
+  (no pair, no digest, no span, no acquisition), and the offending
+  value is never stored or echoed.  Separate well-formed chains remain
+  useful within the total inventory limits; the existing
+  duplicate/missing/mismatched-result and structural pre-call typing
+  and the namespace/domain separation are preserved.  Opaque result
+  families (e.g. `custom_tool_call_output`) do not participate in the
+  pairing bookkeeping in this slice — no new native format claim.
 - **Structural causality.** A result attaches to its matching call only
   when its exact **numeric structural position** follows the call's —
   the Responses `input` item index, or the Chat `messages` index of the
@@ -707,7 +762,8 @@ list is `Limitation` in `observation_models.py`: root (`marker_misplaced`,
 `comment_present`, `quoted_operand`, `tilde_unproven`, `stdin_operand`),
 tool (`unsupported_tool`,
 `namespace_tool_unproven`, `duplicate_call_id`, `missing_call_id`,
-`malformed_call_id`, `missing_call_result`, `mismatched_call_id`,
+`malformed_call_id`, `missing_result_id`, `malformed_result_id`,
+`missing_call_result`, `mismatched_call_id`,
 `pre_call_result`, `nonzero_exit`, `unknown_completion`,
 `truncated_output`, `process_running`, `write_stdin_chunk`,
 `multi_chunk_deferred`, `missing_output_body`, `malformed_wrapper`,
@@ -722,8 +778,14 @@ tool (`unsupported_tool`,
 `ObservationBounds` (defaults: 1024 items, 1,000,000 item chars, 512 label
 **UTF-8 bytes**, 100,000 environment chars, 128 commands, 4,096 command
 chars, 32 operands, 256 path bytes, 128 outputs, 1,000,000 output chars, 8
-wrapper header lines, 128 tools) bounds every scan; the derived argument-
-decode bound is `12 * max_argument_chars + 128` (the documented
+wrapper header lines, 128 tools) bounds every scan; the complete
+call/result inventory is bounded by `max_items` per inspected
+container before any record is retained, and `max_commands` /
+`max_outputs` are enforced on the **complete** relevant inventory
+(all schema-position call records and all result records, including
+invalid IDs) before any identity map or diagnostic is built (section
+5, complete-inventory bounds).  The derived argument-decode bound is
+`12 * max_argument_chars + 128` (the documented
 conservative JSON-encoding worst case).  Parsing is linear; adversarial
 input (multi-megabyte items, huge item counts, unterminated envelopes,
 over-long numeric fields, deep JSON nesting) terminates deterministically
@@ -968,6 +1030,49 @@ occurrence/member-hash/slot-width laws are preserved.  D09 multi-
 chunk/process association remains deferred (these negatives are not
 multi-chunk evidence); the D10 delivery claim requires independent
 strategic acceptance.
+Round 017-n completed the per-request identity-inventory repairs
+required by 017-m on the same inert surface (no capture
+utility/child modification, no actual capture, no process
+collector): (1) the Responses `custom_tool_call` wire family now
+joins the schema-evidenced call inventory alongside
+`function_call` — identity bookkeeping only, earning no custom-tool
+read parsing, execution or acquisition (a custom call named like a
+supported tool still never acquires), its opaque `input` never
+captured as arguments or reinterpreted as a shell/source oracle,
+with no generic unknown-family wildcard recognition — so an exact
+colliding ID makes the ambiguous eligible chain typed
+`DUPLICATE_CALL_ID` non-removable with no acquired digest, span or
+proven members (every relevant occurrence observable, never
+first-match), while a unique unrelated opaque custom call neither
+records nor poisons a separate valid read; (2) `max_commands` and
+`max_outputs` are now enforced against the **complete** relevant
+inventory — every schema-position call record (supported,
+unsupported, opaque custom, missing/empty/malformed ID) and every
+result record (including invalid IDs) — before any identity map or
+typed diagnostic is retained, yielding the fixed non-acquiring
+`OVER_BOUND` record (no truncated acquisition missing a later
+collision), with the scan itself bounded by the existing `max_items`
+item bound, the bound scoped to the selected domain under explicit
+endpoint selection, and mixed input bounded across its inspected
+domains; (3) absent/null/empty result IDs are typed
+`MISSING_RESULT_ID` and present non-string result IDs typed
+`MALFORMED_RESULT_ID` — fixed, non-echoing, unpaired limitations
+that never invent an ID, hash an unhashable value, attach the
+output to a call, or acquire, while separate well-formed chains
+remain useful within the total limits and the existing
+duplicate/missing/mismatched/pre-call typing is preserved.  The
+public regression proof (both collision orderings, repeated
+identical/conflicting records, supported/unsupported/custom
+positive controls, missing/null/empty/list/dict/number result IDs,
+all-inventory at-limit and one-over bounds on Responses and Chat
+including many `tool_calls` in one assistant message, and a late
+collision beyond any retained prefix) is earned in
+`tests/test_bundle_d10_matrix.py::TestWireFamilyInventoryAndBounds`;
+all previously earned D10 causality tests, selected/mixed/ignored
+domain behavior and literal read/plan/loop positives are preserved
+with unchanged inputs and non-echoing reprs.  No shell/filesystem/
+network oracle and no new dependency.  D09 multi-chunk/process
+association remains `NOT RUN`; no v1 runtime claim.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 

@@ -177,6 +177,8 @@ class Limitation(StrEnum):
     DUPLICATE_CALL_ID = "duplicate_call_id"
     MISSING_CALL_ID = "missing_call_id"
     MALFORMED_CALL_ID = "malformed_call_id"
+    MISSING_RESULT_ID = "missing_result_id"
+    MALFORMED_RESULT_ID = "malformed_result_id"
     MISSING_CALL_RESULT = "missing_call_result"
     MISMATCHED_CALL_ID = "mismatched_call_id"
     PRE_CALL_RESULT = "pre_call_result"

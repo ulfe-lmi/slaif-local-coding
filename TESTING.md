@@ -298,6 +298,50 @@ bounds and occurrence/member-hash/slot-width laws are preserved;
 tests assert unchanged inputs and non-echoing reprs. No actual
 client, provider session, or model call is made; the actual capture
 and process/chunk collector remain `NOT RUN`.
+Round 017-n completes the per-request identity-inventory repairs
+required by 017-m on the same inert surface (no capture
+utility/child modification, no actual capture, no process
+collector), with public regression proof in
+`tests/test_bundle_d10_matrix.py::TestWireFamilyInventoryAndBounds`:
+(1) the Responses `custom_tool_call` wire family joins the
+schema-evidenced call inventory alongside `function_call` — identity
+bookkeeping only, earning no custom-tool read parsing/execution/
+acquisition (a custom call named like a supported tool still never
+acquires), its opaque `input` never captured as arguments or
+reinterpreted as a shell/source oracle, no generic unknown-family
+wildcard recognition — so an exact colliding ID makes the ambiguous
+eligible chain typed `DUPLICATE_CALL_ID` non-removable with no
+acquired digest/span/proven members (both collision orderings,
+repeated identical/conflicting records; every relevant occurrence
+observable, never first-match), while a unique unrelated opaque
+custom call neither records nor poisons a separate valid read and
+its opaque input is never echoed; (2) `max_commands`/`max_outputs`
+bound the **complete** relevant inventory — every schema-position
+call record (unsupported names, opaque custom records,
+missing/empty/malformed IDs) and every result record (including
+invalid IDs) — before any identity map or typed diagnostic is
+retained: a fixed non-acquiring `OVER_BOUND` record (at-limit and
+one-over on Responses and Chat, including many `tool_calls` in one
+assistant message, and a late collision beyond any retained prefix;
+the scan itself is bounded by the existing `max_items` item bound),
+scoped to the selected domain under explicit endpoint selection,
+with mixed input bounded across its inspected domains and the
+useful unknown+valid within-limit controls preserved; (3)
+absent/null/empty result IDs are typed `MISSING_RESULT_ID` and
+present non-string result IDs (list/dict/number/boolean) typed
+`MALFORMED_RESULT_ID` — fixed, non-echoing, unpaired limitations on
+Responses `function_call_output` and Chat `role=tool` positions that
+never invent an ID, hash an unhashable value, attach the output to
+any call, or acquire, while separate well-formed chains remain
+useful within the total limits and the existing
+duplicate/missing/mismatched/structural pre-call typing and
+namespace/domain separation are preserved. All previously earned
+D10 numeric causality tests, selected/mixed/ignored domain behavior
+and literal read/plan/loop positives are preserved with unchanged
+inputs and non-echoing reprs; no shell/filesystem/network oracle or
+new dependency. No actual client, provider session, or model call is
+made; the actual capture and process/chunk collector remain `NOT
+RUN`.
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

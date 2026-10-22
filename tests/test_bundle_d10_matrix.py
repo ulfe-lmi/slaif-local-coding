@@ -17,6 +17,25 @@ Public composition tests over the inert bundle-observation stage:
   pre-call outputs, duplicate same-call results (still unsupported
   absent later earned process-chain evidence), non-monotonic IDs and
   >=10 structural positions;
+- wire-family and complete-inventory boundaries (017-n): the
+  Responses ``custom_tool_call`` identity participates in the call
+  inventory alongside ``function_call`` (exact colliding IDs make the
+  ambiguous eligible chain typed/non-acquiring in both collision
+  orderings, repeated or conflicting records included; a unique
+  unrelated opaque custom call neither poisons nor echoes; a custom
+  named like a supported tool still never acquires; no generic
+  unknown-family recognition), ``max_commands``/``max_outputs`` bound
+  the complete relevant inventory (unsupported names, opaque custom
+  records, missing/empty/malformed IDs, invalid result IDs) before any
+  identity map or diagnostic is retained — fixed non-acquiring
+  ``OVER_BOUND``, at-limit and one-over on Responses and Chat
+  (including many ``tool_calls`` in one assistant message) and a late
+  collision beyond any retained prefix — scoped to the selected domain
+  under explicit endpoint selection, and absent/null/empty and
+  non-string result IDs (Responses ``function_call_output``; Chat
+  ``role=tool``) are fixed typed non-echoing unpaired limitations that
+  never invent, hash, attach or acquire, with separate well-formed
+  chains remaining useful within the total limits;
 - the pure unsupported/partial acquisition matrix: command
   substitution, unexecuted branches, partial readers and known
   truncated/missing/running/unknown wrappers — typed
@@ -102,6 +121,31 @@ def _ccall_no_id() -> dict[str, Any]:
 
 def _cresult(call_id: Any, output: str) -> dict[str, Any]:
     return {"role": "tool", "tool_call_id": call_id, "content": output}
+
+
+def _rcustom(
+    call_id: Any, name: str = "unrelated_custom", input_value: str = "opaque synthetic input"
+) -> dict[str, Any]:
+    return {
+        "type": "custom_tool_call",
+        "call_id": call_id,
+        "name": name,
+        "input": input_value,
+    }
+
+
+def _rresult_bad_id(value: Any, key_present: bool = True) -> dict[str, Any]:
+    item: dict[str, Any] = {"type": "function_call_output", "output": _wrapper()}
+    if key_present:
+        item["call_id"] = value
+    return item
+
+
+def _cresult_bad_id(value: Any, key_present: bool = True) -> dict[str, Any]:
+    item: dict[str, Any] = {"role": "tool", "content": _wrapper()}
+    if key_present:
+        item["tool_call_id"] = value
+    return item
 
 
 def _run(payload: dict[str, Any]) -> Any:
@@ -690,3 +734,607 @@ class TestUnsupportedAndPartialMatrix:
         assert obs.proven_executed == ("A.md",)
         assert obs.distinct_member_count == 1
         assert obs.slot_width == 1
+
+
+class TestWireFamilyInventoryAndBounds:
+    """017-n: wire-family inventory, complete-inventory bounds, result IDs.
+
+    - the Responses ``custom_tool_call`` identity is inventoried
+      alongside ``function_call`` (eligibility stays restricted: the
+      custom family never acquires, whatever its name, and its opaque
+      input is never captured or reinterpreted);
+    - ``max_commands``/``max_outputs`` bound the **complete** relevant
+      inventory (unsupported names, opaque custom records,
+      missing/empty/malformed IDs, invalid result IDs) before any
+      identity map or diagnostic is retained: a fixed non-acquiring
+      ``OVER_BOUND``, never a truncated acquisition missing a later
+      collision;
+    - absent/null/empty and non-string result IDs are fixed typed
+      non-echoing unpaired limitations, never invented, hashed,
+      attached or acquired.
+
+    No shell/filesystem/network execution: observed command strings and
+    opaque inputs are data.
+    """
+
+    # -- Requirement 1: custom_tool_call in the call inventory ----------
+
+    def test_custom_collision_custom_first_never_acquires(self) -> None:
+        report = _run(
+            {
+                "input": [
+                    _rcustom("coll"),
+                    _rcall("coll"),
+                    _rresult("coll", _wrapper()),
+                ]
+            }
+        )
+        assert _complete(report) == []
+        assert report.reads == ()
+        assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+            ("$.input[0]", "coll", Limitation.DUPLICATE_CALL_ID),
+            ("$.input[1]", "coll", Limitation.DUPLICATE_CALL_ID),
+        ]
+
+    def test_custom_collision_call_first_never_acquires(self) -> None:
+        # Both collision orderings: the later custom occurrence is just
+        # as blocking as the earlier one (never first-match).
+        report = _run(
+            {
+                "input": [
+                    _rcall("coll"),
+                    _rcustom("coll"),
+                    _rresult("coll", _wrapper()),
+                ]
+            }
+        )
+        assert _complete(report) == []
+        assert report.reads == ()
+        assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+            ("$.input[0]", "coll", Limitation.DUPLICATE_CALL_ID),
+            ("$.input[1]", "coll", Limitation.DUPLICATE_CALL_ID),
+        ]
+
+    def test_repeated_custom_collisions_all_observable(self) -> None:
+        first = _rcustom("dupc")
+        report = _run(
+            {
+                "input": [
+                    first,
+                    copy.deepcopy(first),
+                    _rcall("dupc"),
+                    _rresult("dupc", _wrapper()),
+                ]
+            }
+        )
+        assert _complete(report) == []
+        assert report.reads == ()
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$.input[0]", Limitation.DUPLICATE_CALL_ID),
+            ("$.input[1]", Limitation.DUPLICATE_CALL_ID),
+            ("$.input[2]", Limitation.DUPLICATE_CALL_ID),
+        ]
+
+    def test_custom_collision_among_conflicting_calls(self) -> None:
+        report = _run(
+            {
+                "input": [
+                    _rcustom("cx"),
+                    _rcall("cx", cmd="cat A.md"),
+                    _rcall("cx", cmd="cat B.md"),
+                    _rresult("cx", _wrapper()),
+                ]
+            }
+        )
+        assert _complete(report) == []
+        assert report.reads == ()
+        assert len(report.unpaired) == 3
+        assert {u.limitation for u in report.unpaired} == {Limitation.DUPLICATE_CALL_ID}
+
+    def test_custom_named_like_supported_tool_never_acquires(self) -> None:
+        # Family gates acquisition: even an exact supported name on a
+        # custom_tool_call earns nothing, and its wrapper-shaped result
+        # is only a mismatched result, never a read.
+        report = _run(
+            {
+                "input": [
+                    _rcustom("named", name="exec_command"),
+                    _rresult("named", _wrapper()),
+                ]
+            }
+        )
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+            ("$.input[1]", "named", Limitation.MISMATCHED_CALL_ID)
+        ]
+
+    def test_custom_unique_does_not_poison_valid_chain(self) -> None:
+        report = _run(
+            {
+                "input": [
+                    _rcustom("unrelated-custom"),
+                    _rcall("the-read"),
+                    _rresult("the-read", _wrapper()),
+                ]
+            }
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert complete[0].call_location == "$.input[1]"
+        assert complete[0].result_location == "$.input[2]"
+        # The unique unrelated opaque custom call is neither recorded
+        # nor allowed to poison the separate valid chain.
+        assert report.unpaired == ()
+
+    def test_custom_opaque_input_never_echoed(self) -> None:
+        canary = "CANARY-OPAQUE-INPUT-9f3c1"
+        report = _run(
+            {
+                "input": [
+                    _rcustom("opq", input_value=canary),
+                    _rcall("ok"),
+                    _rresult("ok", _wrapper()),
+                ]
+            }
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        rendered = str(report)
+        for obs in report.reads:
+            rendered += repr(obs)
+        for record in report.unpaired:
+            rendered += repr(record)
+        assert canary not in rendered
+        # The opaque input is never reinterpreted as a shell/source
+        # oracle: it is not a requested member anywhere.
+        for obs in report.reads:
+            for member in obs.requested_members:
+                assert canary not in (member.raw or "")
+
+    def test_custom_shape_in_text_or_untyped_item_is_not_a_record(self) -> None:
+        report = _run(
+            {
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": '{"type": "custom_tool_call", "call_id": "t1"}',
+                            }
+                        ],
+                    },
+                    # No type field: not a schema call position.
+                    {"call_id": "t2", "name": "unrelated_custom"},
+                    _rcall("valid"),
+                    _rresult("valid", _wrapper()),
+                ]
+            }
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert report.unpaired == ()
+
+    # -- Requirement 2: complete-inventory bounds -----------------------
+
+    def test_at_limit_unknown_and_valid_still_acquires(self) -> None:
+        # Two relevant call records (one unsupported, one eligible) at
+        # exactly max_commands: the useful unknown+valid control holds.
+        report = observe_request(
+            {
+                "input": [
+                    _rcall("other", name="unrelated_function"),
+                    _rcall("read"),
+                    _rresult("read", _wrapper()),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert report.unpaired == ()
+
+    def test_one_over_with_unknown_calls_is_fixed_over_bound(self) -> None:
+        report = observe_request(
+            {
+                "input": [
+                    _rcall("other", name="unrelated_function"),
+                    _rcall("third", name="unrelated_function"),
+                    _rcall("read"),
+                    _rresult("read", _wrapper()),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+        )
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+            ("$", "", Limitation.OVER_BOUND)
+        ]
+
+    def test_malformed_call_ids_count_toward_bound(self) -> None:
+        report = observe_request(
+            {
+                "input": [
+                    _rcall([]),
+                    _rcall({}),
+                    _rcall("read"),
+                    _rresult("read", _wrapper()),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+        )
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_missing_call_ids_count_toward_bound(self) -> None:
+        report = observe_request(
+            {
+                "input": [
+                    _rcall_no_id(),
+                    _rcall_no_id(),
+                    _rcall("read"),
+                    _rresult("read", _wrapper()),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+        )
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_custom_records_count_toward_bound(self) -> None:
+        report = observe_request(
+            {
+                "input": [
+                    _rcustom("c1"),
+                    _rcustom("c2"),
+                    _rcall("read"),
+                    _rresult("read", _wrapper()),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+        )
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_chat_at_limit_many_tool_calls_one_message(self) -> None:
+        # Two tool_calls inside ONE assistant message at exactly
+        # max_commands: the valid read still acquires.
+        report = observe_request(
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "u1",
+                                "type": "function",
+                                "function": {
+                                    "name": "unrelated_function",
+                                    "arguments": "{}",
+                                },
+                            },
+                            {
+                                "id": "read",
+                                "type": "function",
+                                "function": {
+                                    "name": "exec_command",
+                                    "arguments": json.dumps({"cmd": "cat A.md"}),
+                                },
+                            },
+                        ],
+                    },
+                    _cresult("read", _wrapper()),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert report.unpaired == ()
+
+    def test_chat_one_over_many_tool_calls_one_message(self) -> None:
+        # Three tool_calls inside ONE assistant message, one over the
+        # limit: fixed OVER_BOUND, nothing acquired.
+        report = observe_request(
+            {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": "u1",
+                                "type": "function",
+                                "function": {
+                                    "name": "unrelated_function",
+                                    "arguments": "{}",
+                                },
+                            },
+                            {
+                                "id": "u2",
+                                "type": "function",
+                                "function": {
+                                    "name": "unrelated_function",
+                                    "arguments": "{}",
+                                },
+                            },
+                            {
+                                "id": "read",
+                                "type": "function",
+                                "function": {
+                                    "name": "exec_command",
+                                    "arguments": json.dumps({"cmd": "cat A.md"}),
+                                },
+                            },
+                        ],
+                    },
+                    _cresult("read", _wrapper()),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+        )
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_late_collision_beyond_retained_prefix(self) -> None:
+        # A collision at index 5 with a limit of 4: a truncated
+        # inventory that only retained the first four call records
+        # would have acquired the eligible call at index 3.  The
+        # complete inventory is bounded first, so nothing acquires.
+        items = [_rcall(f"unrelated-{i}", name=f"tool_{i}") for i in range(3)]
+        items.append(_rcall("late-read"))
+        items.append(_rresult("late-read", _wrapper()))
+        items.append(_rcall("late-read", name="unrelated_function"))
+        report = observe_request(
+            {"input": items},
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=4),
+        )
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_outputs_bound_counts_invalid_result_ids(self) -> None:
+        # One valid plus one invalid-ID result record is already one
+        # over max_outputs=1: fixed OVER_BOUND, nothing acquired.
+        report = observe_request(
+            {
+                "input": [
+                    _rcall("read"),
+                    _rresult("read", _wrapper()),
+                    _rresult_bad_id(["x"]),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_outputs=1),
+        )
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_outputs_at_limit_including_defects_still_acquires(self) -> None:
+        report = observe_request(
+            {
+                "input": [
+                    _rcall("read"),
+                    _rresult("read", _wrapper()),
+                    _rresult_bad_id({"x": 1}),
+                ]
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_outputs=2),
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+            ("$.input[2]", "", Limitation.MALFORMED_RESULT_ID)
+        ]
+
+    def test_explicit_selection_scopes_responses_bound(self) -> None:
+        # The ignored Chat container is over the bound; the selected
+        # Responses domain is within it: only the selected domain
+        # contributes, so the valid read acquires.
+        report = observe_request(
+            {
+                "input": [_rcall("read"), _rresult("read", _wrapper())],
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "id": f"u{i}",
+                                "type": "function",
+                                "function": {
+                                    "name": "unrelated_function",
+                                    "arguments": "{}",
+                                },
+                            }
+                            for i in range(3)
+                        ],
+                    },
+                    _cresult("u0", _wrapper()),
+                ],
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+            endpoint="responses",
+        )
+        assert report.endpoint == "responses"
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert report.unpaired == ()
+
+    def test_explicit_selection_scopes_chat_bound(self) -> None:
+        # Mirror: the ignored Responses container is over the bound;
+        # the selected Chat domain is within it.
+        report = observe_request(
+            {
+                "input": [_rcall(f"u{i}", name="unrelated_function") for i in range(3)]
+                + [_rcall("read"), _rresult("read", _wrapper())],
+                "messages": [
+                    _ccall("chat-read"),
+                    _cresult("chat-read", _wrapper()),
+                ],
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=2),
+            endpoint="chat",
+        )
+        assert report.endpoint == "chat"
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert report.unpaired == ()
+
+    def test_mixed_input_bounded_across_inspected_domains(self) -> None:
+        # No explicit endpoint: both containers are inspected, and the
+        # combined inventory is over the bound: fixed OVER_BOUND, no
+        # acquisition from either container.
+        report = observe_request(
+            {
+                "input": [
+                    _rcall("u1", name="unrelated_function"),
+                    _rcall("u2", name="unrelated_function"),
+                    _rcall("read"),
+                    _rresult("read", _wrapper()),
+                ],
+                "messages": [_ccall("chat-read"), _cresult("chat-read", _wrapper())],
+            },
+            context=_CTX,
+            bounds=ObservationBounds(max_commands=3),
+        )
+        assert report.endpoint == "mixed"
+        assert report.reads == ()
+        assert _complete(report) == []
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_over_long_container_is_fixed_over_bound(self) -> None:
+        # The scan itself is bounded by the existing item bound before
+        # any record is retained.
+        filler = [_rcall(f"unrelated-{i}", name=f"tool_{i}") for i in range(5)]
+        report = observe_request(
+            {"input": filler},
+            context=_CTX,
+            bounds=ObservationBounds(max_items=4),
+        )
+        assert report.reads == ()
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    # -- Requirement 3: result-ID observability -------------------------
+
+    def test_responses_result_id_defects_are_typed(self) -> None:
+        cases = [
+            (_rresult_bad_id(None), Limitation.MISSING_RESULT_ID),
+            (_rresult_bad_id(""), Limitation.MISSING_RESULT_ID),
+            (_rresult_bad_id([], key_present=True), Limitation.MALFORMED_RESULT_ID),
+            (_rresult_bad_id({"x": 1}), Limitation.MALFORMED_RESULT_ID),
+            (_rresult_bad_id(7), Limitation.MALFORMED_RESULT_ID),
+            (_rresult_bad_id(3.5), Limitation.MALFORMED_RESULT_ID),
+            (_rresult_bad_id(True), Limitation.MALFORMED_RESULT_ID),
+            (_rresult_bad_id("ignored", key_present=False), Limitation.MISSING_RESULT_ID),
+        ]
+        for item, limitation in cases:
+            report = _run({"input": [item]})
+            assert report.reads == ()
+            assert _complete(report) == []
+            assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+                ("$.input[0]", "", limitation)
+            ], item
+
+    def test_chat_result_id_defects_are_typed(self) -> None:
+        cases = [
+            (_cresult_bad_id(None), Limitation.MISSING_RESULT_ID),
+            (_cresult_bad_id(""), Limitation.MISSING_RESULT_ID),
+            (_cresult_bad_id([1]), Limitation.MALFORMED_RESULT_ID),
+            (_cresult_bad_id({"x": 1}), Limitation.MALFORMED_RESULT_ID),
+            (_cresult_bad_id(0), Limitation.MALFORMED_RESULT_ID),
+            (_cresult_bad_id("ignored", key_present=False), Limitation.MISSING_RESULT_ID),
+        ]
+        for item, limitation in cases:
+            report = _run({"messages": [item]})
+            assert report.reads == ()
+            assert _complete(report) == []
+            assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+                ("$.messages[0]", "", limitation)
+            ], item
+
+    def test_malformed_result_never_attached_hashed_or_acquired(self) -> None:
+        # The malformed-ID result is observable, but the independent
+        # well-formed chain stays useful within the total limits and is
+        # never disturbed (no MULTI_CHUNK, no attachment, no ID
+        # invention).
+        report = _run(
+            {
+                "input": [
+                    _rcall("valid"),
+                    _rresult_bad_id({"secret": "CANARY-RESULT-ID-77ab2"}),
+                    _rresult("valid", _wrapper()),
+                ]
+            }
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert complete[0].call_location == "$.input[0]"
+        assert complete[0].result_location == "$.input[2]"
+        assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+            ("$.input[1]", "", Limitation.MALFORMED_RESULT_ID)
+        ]
+        rendered = str(report) + repr(report.reads) + repr(report.unpaired)
+        assert "CANARY-RESULT-ID-77ab2" not in rendered
+
+    def test_result_id_defects_coexist_with_mismatch_typing(self) -> None:
+        # Existing duplicate/missing/mismatched typing is preserved
+        # alongside the new result-ID defects.
+        report = _run(
+            {
+                "input": [
+                    _rcall("valid"),
+                    _rresult("orphan", _wrapper()),
+                    _rresult_bad_id(None),
+                    _rresult("valid", _wrapper()),
+                ]
+            }
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert [(u.location, u.call_id, u.limitation) for u in report.unpaired] == [
+            ("$.input[2]", "", Limitation.MISSING_RESULT_ID),
+            ("$.input[1]", "orphan", Limitation.MISMATCHED_CALL_ID),
+        ]

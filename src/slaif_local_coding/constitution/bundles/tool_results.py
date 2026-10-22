@@ -14,17 +14,44 @@ exec tool; suffix or substring resemblance is never evidence.  Identity-
 conflict law: the relevant schema-evidenced call identities are
 inventoried **before** read eligibility is applied —
 every call record in a schema call position (Responses ``input``
-``function_call`` item; Chat assistant ``tool_calls`` ``function``
-entry), regardless of whether its tool name earns read support.  An
-unknown or ineligible tool call never acquires a source, but a
-collision with an eligible call ID cannot disappear through
-eligibility filtering: it is a typed ``DUPLICATE_CALL_ID`` conflict.
-Arbitrary nested text objects carrying ``id``/``name`` are not call
-records.  Missing, empty or malformed call IDs remain observable as
-typed conflicts and never acquire content; no ID is ever invented.
-Duplicate or missing call IDs are typed conflicts, never first-match
-selection.  Causality law: a result attaches to its matching call only
-when its exact numeric structural position (the ``input`` item index;
+``function_call`` and ``custom_tool_call`` items; Chat assistant
+``tool_calls`` ``function`` entry), regardless of whether its tool
+name earns read support.  The Responses ``custom_tool_call`` wire
+family is identity bookkeeping only: it earns no custom-tool read
+parsing, execution or acquisition, its opaque input is never
+captured as arguments and never reinterpreted as a shell or source
+oracle, and no generic unknown-family wildcard recognition is
+invented.  An unknown or ineligible tool call never acquires a
+source, but a collision with an eligible call ID cannot disappear
+through eligibility filtering: an exact ID collision makes the
+ambiguous eligible chain a typed ``DUPLICATE_CALL_ID`` conflict,
+non-removable, with no acquired digest, span or proven members, and
+every relevant occurrence stays observable, never first-match.  A
+unique unrelated opaque custom call neither records nor poisons a
+separate valid read.  Arbitrary nested text objects carrying
+``id``/``name`` are not call records.  Missing, empty or malformed
+call IDs remain observable as typed conflicts and never acquire
+content; no ID is ever invented.  Duplicate or missing call IDs are
+typed conflicts, never first-match selection.  Complete-inventory
+bound law: ``max_commands`` is enforced against **all** relevant
+schema-position call records — including unsupported names, opaque
+custom records and missing/empty/malformed IDs — and
+``max_outputs`` against **all** relevant result records, including
+invalid IDs, before any identity map or typed diagnostic is
+retained or built: a fixed non-acquiring ``OVER_BOUND`` result,
+never a silently truncated inventory that acquires an earlier chain
+while missing a later collision.  For explicit endpoint selection
+only the selected domain contributes; mixed input remains
+non-acquiring under the existing law, bounded across its inspected
+domains.  Result-ID observability law: in the relevant Responses
+``function_call_output`` and Chat ``role=tool`` schema positions, an
+absent/null/empty result ID is typed ``MISSING_RESULT_ID`` and a
+present non-string result ID is typed ``MALFORMED_RESULT_ID`` —
+fixed, non-echoing, unpaired limitations: no ID is invented, no
+unhashable value is hashed, the malformed output is never attached
+to any call and nothing is acquired from it.  Causality law: a
+result attaches to its matching call only when its exact numeric
+structural position (the ``input`` item index;
 the Chat ``messages`` index of the assistant message carrying the call)
 follows the call's position — never from lexical call IDs, JSONPath
 string sorting or JSONPath evaluation.  A pre-call result is a typed
@@ -399,53 +426,77 @@ def _workdir_literal(workdir: str) -> bool:
     return bool(workdir) and not any(ord(c) < 0x20 or ord(c) == 0x7F for c in workdir)
 
 
-#: One schema-evidenced call record: ``(position, location, raw_id,
-#: raw_name, arguments)``.  ``position`` is the exact numeric structural
-#: position (the Responses ``input`` item index, or the Chat
-#: ``messages`` index of the assistant message carrying the tool call);
-#: causality is established from these positions, never from lexical
-#: IDs.  ``raw_id``/``raw_name`` are the exact observed values (any JSON
-#: type, or ``None`` when the key is absent); no ID is ever invented.
-CallRecord = tuple[int, str, object, object, object]
+#: One schema-evidenced call record: ``(wire_family, position, location,
+#: raw_id, raw_name, arguments)``.  ``wire_family`` is the exact schema
+#: item type that evidences the record (Responses ``function_call`` /
+#: ``custom_tool_call``; Chat ``function``); it preserves the exact
+#: family/name/ID association and gates acquisition eligibility (the
+#: custom family is identity bookkeeping only).  ``position`` is the
+#: exact numeric structural position (the Responses ``input`` item index,
+#: or the Chat ``messages`` index of the assistant message carrying the
+#: tool call); causality is established from these positions, never from
+#: lexical IDs.  ``raw_id``/``raw_name`` are the exact observed values
+#: (any JSON type, or ``None`` when the key is absent); no ID is ever
+#: invented.  ``arguments`` carries the exact observed function arguments
+#: only — the opaque ``custom_tool_call`` input is never captured here.
+CallRecord = tuple[str, int, str, object, object, object]
+
+#: Wire families that may earn read acquisition.  The Responses
+#: ``custom_tool_call`` family is deliberately absent: it participates in
+#: identity bookkeeping only and never acquires, whatever its name.
+_ACQUIRABLE_CALL_FAMILIES = frozenset({"function_call", "function"})
 
 #: One eligible acquisition call: ``(id, position, location, name,
 #: arguments)``.
 EligibleCall = tuple[str, int, str, str, object]
 
 
-def _call_records(payload: dict[str, Any]) -> tuple[list[CallRecord], list[CallRecord]]:
+def _call_records(
+    input_items: list[Any] | None, messages: list[Any] | None
+) -> tuple[list[CallRecord], list[CallRecord]]:
     """Inventory every schema-evidenced call record per endpoint.
 
     Returns ``(responses_records, chat_records)``.  A call record is any
     object in a schema call position — a Responses ``input`` item with
-    ``type == "function_call"``, or a Chat assistant ``tool_calls``
-    entry with ``type == "function"`` — **regardless of whether its
-    tool name earns read support**.  The inventory exists so that an
-    unknown/ineligible call's ID still participates in identity-conflict
+    ``type == "function_call"`` or ``type == "custom_tool_call"``, or a
+    Chat assistant ``tool_calls`` entry with ``type == "function"`` —
+    **regardless of whether its tool name earns read support**.  The
+    inventory exists so that an unknown/ineligible call's ID (and an
+    opaque custom call's ID) still participates in identity-conflict
     bookkeeping; it is not evidence of read or execution support, and
     arbitrary nested text objects carrying ``id``/``name`` fields are
-    not call records.
+    not call records.  The ``custom_tool_call`` family is captured for
+    identity bookkeeping only: its opaque ``input`` is never stored in
+    the record (``arguments`` stays ``None``) and the family never earns
+    acquisition.  No other wire family is recognized (no generic
+    unknown-family wildcard).
     """
 
     responses: list[CallRecord] = []
-    input_items = payload.get("input")
-    if isinstance(input_items, list):
+    if input_items is not None:
         for index, item in enumerate(input_items):
-            if not isinstance(item, dict) or item.get("type") != "function_call":
+            if not isinstance(item, dict):
+                continue
+            wire_family = item.get("type")
+            if wire_family == "function_call":
+                arguments: object = item.get("arguments")
+            elif wire_family == "custom_tool_call":
+                arguments = None
+            else:
                 continue
             responses.append(
                 (
+                    wire_family,
                     index,
                     f"$.input[{index}]",
                     item["call_id"] if "call_id" in item else None,
                     item.get("name"),
-                    item.get("arguments"),
+                    arguments,
                 )
             )
 
     chat: list[CallRecord] = []
-    messages = payload.get("messages")
-    if isinstance(messages, list):
+    if messages is not None:
         for index, message in enumerate(messages):
             if not isinstance(message, dict) or message.get("role") != "assistant":
                 continue
@@ -464,6 +515,7 @@ def _call_records(payload: dict[str, Any]) -> tuple[list[CallRecord], list[CallR
                     arguments = None
                 chat.append(
                     (
+                        "function",
                         index,
                         f"$.messages[{index}].tool_calls[{tool_index}]",
                         tool["id"] if "id" in tool else None,
@@ -484,16 +536,20 @@ def _call_entries(
 
     Returns ``(responses_calls, chat_calls)`` as
     ``(call_id, position, location, tool_name, arguments)`` tuples.  A
-    record earns read eligibility only when its observed ID is a
-    non-empty string **and** its tool name is a supported read name
-    (bare supported name, deferred ``write_stdin``, or an
-    envelope-proven namespace form).  Unsupported names never acquire;
-    malformed or missing IDs never pair.  Endpoints never mix.
+    record earns read eligibility only when its wire family is an
+    acquirable family (the ``custom_tool_call`` family never does,
+    whatever its name), its observed ID is a non-empty string, **and**
+    its tool name is a supported read name (bare supported name,
+    deferred ``write_stdin``, or an envelope-proven namespace form).
+    Unsupported names never acquire; malformed or missing IDs never
+    pair.  Endpoints never mix.
     """
 
     def _eligible(records: list[CallRecord]) -> list[EligibleCall]:
         calls: list[EligibleCall] = []
-        for position, location, raw_id, raw_name, arguments in records:
+        for wire_family, position, location, raw_id, raw_name, arguments in records:
+            if wire_family not in _ACQUIRABLE_CALL_FAMILIES:
+                continue
             if not isinstance(raw_id, str) or not raw_id:
                 continue
             if not isinstance(raw_name, str) or not raw_name:
@@ -506,47 +562,75 @@ def _call_entries(
     return _eligible(responses_records), _eligible(chat_records)
 
 
-def _result_entries(
-    payload: dict[str, Any],
-) -> tuple[dict[str, list[tuple[int, str, str]]], dict[str, list[tuple[int, str, str]]]]:
-    """Collect results by exact call ID per endpoint.
+#: One typed result-ID defect: ``(location, limitation)`` for a schema
+#: result position whose ID is absent/null/empty (``MISSING_RESULT_ID``)
+#: or present but non-string (``MALFORMED_RESULT_ID``).  Defects are
+#: observable, counted against the output bound, never paired, never
+#: acquired, and never echo the offending value.
+ResultDefect = tuple[str, Limitation]
 
-    Returns ``{call_id: [(position, location, text)]}`` where position
-    is the exact numeric structural position (the ``input`` item index;
-    the Chat ``messages`` index of the tool message).  A result without
-    a non-empty string ID is not pairing evidence: it can never match a
-    call, and its defect is recorded by the pairing bookkeeping, not
-    resolved by invention.
+
+def _result_entries(
+    input_items: list[Any] | None, messages: list[Any] | None
+) -> tuple[
+    dict[str, list[tuple[int, str, str]]],
+    list[ResultDefect],
+    dict[str, list[tuple[int, str, str]]],
+    list[ResultDefect],
+]:
+    """Collect results by exact call ID per endpoint, with typed ID defects.
+
+    Returns ``(responses_outputs, responses_defects, chat_outputs,
+    chat_defects)`` where ``outputs`` maps a valid non-empty string ID to
+    ``[(position, location, text)]`` and position is the exact numeric
+    structural position (the ``input`` item index; the Chat ``messages``
+    index of the tool message).  A result whose ID is absent, JSON null
+    or an empty string is a typed ``MISSING_RESULT_ID`` defect; a
+    present non-string ID is a typed ``MALFORMED_RESULT_ID`` defect.
+    Defects are not pairing evidence: they can never match a call, and
+    the defect is observed by the pairing bookkeeping, not resolved by
+    invention — no ID is invented, no unhashable value is hashed, and
+    the output is never attached to any call or acquired.
     """
 
     responses: dict[str, list[tuple[int, str, str]]] = {}
-    input_items = payload.get("input")
-    if isinstance(input_items, list):
+    responses_defects: list[ResultDefect] = []
+    if input_items is not None:
         for index, item in enumerate(input_items):
             if not isinstance(item, dict) or item.get("type") != "function_call_output":
                 continue
-            call_id = item.get("call_id")
-            output = item.get("output")
-            if not isinstance(call_id, str) or not call_id:
+            location = f"$.input[{index}]"
+            call_id = item["call_id"] if "call_id" in item else None
+            if call_id is None or call_id == "":
+                responses_defects.append((location, Limitation.MISSING_RESULT_ID))
                 continue
+            if not isinstance(call_id, str):
+                responses_defects.append((location, Limitation.MALFORMED_RESULT_ID))
+                continue
+            output = item.get("output")
             responses.setdefault(call_id, []).append(
-                (index, f"$.input[{index}]", output if isinstance(output, str) else "")
+                (index, location, output if isinstance(output, str) else "")
             )
 
     chat: dict[str, list[tuple[int, str, str]]] = {}
-    messages = payload.get("messages")
-    if isinstance(messages, list):
+    chat_defects: list[ResultDefect] = []
+    if messages is not None:
         for index, message in enumerate(messages):
             if not isinstance(message, dict) or message.get("role") != "tool":
                 continue
-            call_id = message.get("tool_call_id")
-            content = message.get("content")
-            if not isinstance(call_id, str) or not call_id:
+            location = f"$.messages[{index}]"
+            call_id = message["tool_call_id"] if "tool_call_id" in message else None
+            if call_id is None or call_id == "":
+                chat_defects.append((location, Limitation.MISSING_RESULT_ID))
                 continue
+            if not isinstance(call_id, str):
+                chat_defects.append((location, Limitation.MALFORMED_RESULT_ID))
+                continue
+            content = message.get("content")
             chat.setdefault(call_id, []).append(
-                (index, f"$.messages[{index}]", content if isinstance(content, str) else "")
+                (index, location, content if isinstance(content, str) else "")
             )
-    return responses, chat
+    return responses, responses_defects, chat, chat_defects
 
 
 def _build_loop_observation(
@@ -1147,6 +1231,7 @@ PlanEndpoint = tuple[
     list[EligibleCall],
     list[CallRecord],
     dict[str, list[tuple[int, str, str]]],
+    list[ResultDefect],
 ]
 
 
@@ -1155,6 +1240,7 @@ def _pair_endpoint(
     calls: list[EligibleCall],
     records: list[CallRecord],
     outputs: dict[str, list[tuple[int, str, str]]],
+    defects: list[ResultDefect],
     context: PathContext,
     bounds: ObservationBounds,
     suppress_acquisition: bool = False,
@@ -1164,13 +1250,19 @@ def _pair_endpoint(
     Identity-conflict law: duplicate/missing/mismatched bookkeeping is
     computed from the **full schema-evidenced call inventory** — every
     call record with a valid non-empty string ID, regardless of tool
-    support — so a collision with an eligible call ID cannot disappear
-    through eligibility filtering.  Acquisition stays restricted to
-    eligible calls: an unknown/ineligible call never acquires a source,
-    and an unrelated unknown call with a unique ID is neither recorded
-    nor allowed to poison a separate valid chain.  Missing, empty or
-    non-string call IDs are observable typed conflicts that never pair
-    and never invent an ID.
+    support **or wire family** (a Responses ``custom_tool_call``
+    colliding with an eligible call ID makes the ambiguous chain
+    typed/non-acquiring) — so a collision with an eligible call ID
+    cannot disappear through eligibility filtering.  Acquisition stays
+    restricted to eligible calls: an unknown/ineligible call never
+    acquires a source, and an unrelated unknown or opaque custom call
+    with a unique ID is neither recorded nor allowed to poison a
+    separate valid chain.  Missing, empty or non-string call IDs are
+    observable typed conflicts that never pair and never invent an ID.
+    Typed result-ID defects (``MISSING_RESULT_ID`` /
+    ``MALFORMED_RESULT_ID``) are emitted as bounded non-echoing unpaired
+    records in structural order; they never pair, never acquire and
+    never echo the offending value.
 
     Causality law: a result attaches to its matching call only when its
     exact numeric structural position follows the call's.  A pre-call
@@ -1192,7 +1284,7 @@ def _pair_endpoint(
 
     records_by_id: dict[str, list[CallRecord]] = {}
     for record in records:
-        raw_id = record[2]
+        raw_id = record[3]
         if isinstance(raw_id, str) and raw_id:
             records_by_id.setdefault(raw_id, []).append(record)
 
@@ -1202,7 +1294,7 @@ def _pair_endpoint(
     # Missing (absent key, JSON null or empty string) or malformed
     # (present but not a string) call IDs remain observable and never
     # pair: no ID is invented, no content is acquired.
-    for _position, location, raw_id, _raw_name, _arguments in records:
+    for _wire_family, _position, location, raw_id, _raw_name, _arguments in records:
         if raw_id is None or raw_id == "":
             unpaired.append(
                 UnpairedRecord(
@@ -1220,6 +1312,17 @@ def _pair_endpoint(
                 )
             )
 
+    # Typed result-ID defects: observable, non-echoing, never paired and
+    # never acquired (the offending value is never stored or echoed).
+    for location, limitation in defects:
+        unpaired.append(
+            UnpairedRecord(
+                location=location,
+                call_id="",
+                limitation=limitation,
+            )
+        )
+
     for call_id in sorted(calls_by_id):
         paired_calls = calls_by_id[call_id]
         colliding_records = records_by_id.get(call_id, [])
@@ -1227,7 +1330,14 @@ def _pair_endpoint(
             # Identity conflict across ANY schema-evidenced records
             # (supported, unsupported or mixed families): every
             # occurrence is observed, none acquires.
-            for _position, location, _raw_id, _raw_name, _arguments in colliding_records:
+            for (
+                _wire_family,
+                _position,
+                location,
+                _raw_id,
+                _raw_name,
+                _arguments,
+            ) in colliding_records:
                 unpaired.append(
                     UnpairedRecord(
                         location=location,
@@ -1339,8 +1449,23 @@ def observe_reads(
     Responses results and a Chat call only with Chat results — a
     cross-endpoint ID match is typed (missing/mismatched), never mixed
     evidence.  Identity-conflict bookkeeping uses the full
-    schema-evidenced call inventory (eligibility-independent); result
-    causality uses exact numeric structural positions.
+    schema-evidenced call inventory (eligibility- and family-
+    independent); result causality uses exact numeric structural
+    positions.
+
+    Complete-inventory bound law: ``max_commands`` is enforced against
+    **all** relevant schema-position call records (supported,
+    unsupported, opaque ``custom_tool_call`` and missing/empty/malformed
+    IDs) and ``max_outputs`` against **all** relevant result records
+    (including invalid IDs), before any identity map or typed
+    diagnostic is retained or built.  Over-bound input yields the fixed
+    non-acquiring ``OVER_BOUND`` record — never a truncated inventory
+    from which an earlier chain acquires while a later collision is
+    missed.  The scan itself is bounded by the existing ``max_items``
+    item bound before any record is retained.  For explicit endpoint
+    selection only the selected domain is inspected and contributes;
+    the mixed and legacy no-selection shapes inspect both present
+    containers (bounded across the inspected domains).
 
     ``selected_endpoint`` scopes observation to one container (an
     explicit validated endpoint or an unambiguously inferred envelope);
@@ -1350,37 +1475,103 @@ def observe_reads(
     ``ENDPOINT_UNSUPPORTED``).
     """
 
-    responses_records, chat_records = _call_records(payload)
-    responses_calls, chat_calls = _call_entries(payload, bounds, responses_records, chat_records)
-    responses_outputs, chat_outputs = _result_entries(payload)
-    over_commands = len(responses_calls) + len(chat_calls) > bounds.max_commands
-    over_outputs = (
-        sum(len(v) for v in responses_outputs.values()) + sum(len(v) for v in chat_outputs.values())
-        > bounds.max_outputs
-    )
-    if over_commands or over_outputs:
+    input_items = payload.get("input")
+    input_items = input_items if isinstance(input_items, list) else None
+    messages = payload.get("messages")
+    messages = messages if isinstance(messages, list) else None
+
+    # Scope the inspected containers to the selected domain(s): an
+    # explicit endpoint contributes its own domain only; the other
+    # container is neither scanned nor counted.
+    if selected_endpoint == "responses":
+        resp_items, chat_msgs = input_items, None
+    elif selected_endpoint == "chat":
+        resp_items, chat_msgs = None, messages
+    else:
+        resp_items, chat_msgs = input_items, messages
+
+    # The complete-inventory scan is bounded by the existing item bound
+    # before any record is retained: an over-long inspected container is
+    # a fixed non-acquiring OVER_BOUND.
+    if (resp_items is not None and len(resp_items) > bounds.max_items) or (
+        chat_msgs is not None and len(chat_msgs) > bounds.max_items
+    ):
         return (
             (),
             (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
         )
 
+    responses_records, chat_records = _call_records(resp_items, chat_msgs)
+    (
+        responses_outputs,
+        responses_defects,
+        chat_outputs,
+        chat_defects,
+    ) = _result_entries(resp_items, chat_msgs)
+
+    # The bounds are decided on the complete relevant inventory (every
+    # schema-position call record, every result record including ID
+    # defects) before any identity map or diagnostic is built.
+    command_total = len(responses_records) + len(chat_records)
+    output_total = (
+        sum(len(v) for v in responses_outputs.values())
+        + len(responses_defects)
+        + sum(len(v) for v in chat_outputs.values())
+        + len(chat_defects)
+    )
+    if command_total > bounds.max_commands or output_total > bounds.max_outputs:
+        return (
+            (),
+            (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
+        )
+
+    responses_calls, chat_calls = _call_entries(payload, bounds, responses_records, chat_records)
+
     plan: tuple[PlanEndpoint, ...]
     if selected_endpoint == "responses":
-        plan = (("responses", responses_calls, responses_records, responses_outputs),)
+        plan = (
+            (
+                "responses",
+                responses_calls,
+                responses_records,
+                responses_outputs,
+                responses_defects,
+            ),
+        )
     elif selected_endpoint == "chat":
-        plan = (("chat", chat_calls, chat_records, chat_outputs),)
+        plan = (
+            (
+                "chat",
+                chat_calls,
+                chat_records,
+                chat_outputs,
+                chat_defects,
+            ),
+        )
     else:
         # No selected domain (legacy direct callers): both containers.
         plan = (
-            ("responses", responses_calls, responses_records, responses_outputs),
-            ("chat", chat_calls, chat_records, chat_outputs),
+            (
+                "responses",
+                responses_calls,
+                responses_records,
+                responses_outputs,
+                responses_defects,
+            ),
+            (
+                "chat",
+                chat_calls,
+                chat_records,
+                chat_outputs,
+                chat_defects,
+            ),
         )
 
     observations: list[ReadObservation] = []
     unpaired: list[UnpairedRecord] = []
-    for endpoint, calls, records, outputs in plan:
+    for endpoint, calls, records, outputs, defects in plan:
         endpoint_observations, endpoint_unpaired = _pair_endpoint(
-            endpoint, calls, records, outputs, context, bounds, suppress_acquisition
+            endpoint, calls, records, outputs, defects, context, bounds, suppress_acquisition
         )
         observations.extend(endpoint_observations)
         unpaired.extend(endpoint_unpaired)
