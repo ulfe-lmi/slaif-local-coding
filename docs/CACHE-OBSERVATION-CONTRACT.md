@@ -1676,20 +1676,36 @@ non-default DOCKER_CONTEXT) refuses BEFORE any mutation, and no
 endpoint value (URL, credential, context name) is ever echoed.
 
 The ONE bounded local rehearsal (only at the committed/pushed
-reviewed head, fresh owned roots) is `NOT RUN` at this source
-commit: it runs once after this commit through the full
-prepare -> Python rehearsal -> finish lifecycle and leaves no
-prepared container, supervisor, listener, key file or owned
-image; its actual measured facts, failures and cleanup outcomes
-are recorded in the immutable round report (the later doc pass
-binds the measured source/facts and final provenance).  CI
-remains Python-only with the ten existing required checks (no
-new job; the pinned public Codex binary is fetched and hashed
-statically in the R `cache-native-fixture` job and is NEVER
-EXECUTED there — including help/version — preserving the static
-acquisition and the RIGHT-only startup law).  No native launch,
-no worker suspension, no protected service or profile change:
-the handoff-preparation qualification stays `PENDING` strategic
+reviewed head, fresh owned roots) ran EXACTLY ONCE, bound to
+implementation head `2a9c44e2ee327b965828bafdfcaf444abc3a581c`
+(source inputs `54ef177`), and PASSED through the full
+prepare -> Python rehearsal -> finish lifecycle: the exact CID
+was registered BEFORE start and the same CID bound across all
+phases (alive through preparation, the diagnostic consume and
+quiesce/freeze/export, with its final absence verified only
+during terminal teardown, after the export); the Python
+stand-in consume admitted the one valid diagnostic request
+(the missing and wrong variants refused), returned the fixed
+final text with no tools and no issued calls, and finish
+quiesced closed-pass with the retained 2991-byte export bound
+to the decoded payload.
+Teardown left no prepared container, supervisor, listener, key
+file or owned image (container and image removals
+`absent-verified`, zero descendants, sentinel survived, owner
+converged without its backstop), and the non-resettable ledger
+recorded 5 API requests (3 admitted, 2 refused), 34 docker
+admissions, 0 refusals and 23763 bytes drained/retained.  The
+measured evidence (restricted-permission JSON) is preserved
+with the round; the immutable round report records the
+measured facts, the preserved pre-rehearsal CI failures and
+all disclosed deviations.  CI remains Python-only with the ten
+existing required checks (no new job; the pinned public Codex
+binary is fetched and hashed statically in the R
+`cache-native-fixture` job and is NEVER EXECUTED there —
+including help/version — preserving the static acquisition and
+the RIGHT-only startup law).  No native launch, no worker
+suspension, no protected service or profile change: the
+handoff-preparation qualification stays `PENDING` strategic
 review of the actual outcomes, and D09 (genuine native
 capture/collector) remains `NOT RUN`.
 

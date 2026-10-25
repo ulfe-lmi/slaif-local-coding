@@ -104,12 +104,13 @@ documented default unix socket, DOCKER_HOST pinned to that
 verified socket in a frozen once-per-owner child environment,
 explicit remote selections refused before any mutation) and the
 one order-bound local rehearsal with the same reviewed
-confinement (`NOT RUN` at this source commit; it runs once at
-the committed/pushed head leaving no prepared container,
-supervisor, listener, key file or owned image) — no native
-launch, no worker suspension, no protected service or profile
-change (`native_started` / `worker_stopped` / `codex_invoked`
-false throughout; actual measured facts in the immutable round
+confinement (ran EXACTLY ONCE, bound to implementation head
+`2a9c44e2ee327b965828bafdfcaf444abc3a581c` with source inputs `54ef177`,
+PASSED, leaving no prepared container, supervisor, listener,
+key file or owned image) — no native launch, no worker
+suspension, no protected service or profile change
+(`native_started` / `worker_stopped` / `codex_invoked` false
+throughout; actual measured facts in the immutable round
 report): the serial foreground handoff itself remains a later
 separately authorized order, and D09 remains `NOT RUN`.
 Detailed round history is in [the stage

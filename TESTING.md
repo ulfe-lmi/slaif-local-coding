@@ -565,7 +565,6 @@ baseline with real retained-evidence validation) and public
 main refusals (missing state, expired anchor before IO).  Fake
 Docker/socket/time/identity seams plus tiny exact-owned Python
 children only; no docker daemon, namespace or syscall probe, no
-children only; no docker daemon, namespace or syscall probe, no
 secrets forwarded to the fixture, and no Codex binary executed
 in tests/CI — the pinned public binary is fetched and hashed
 statically in the R `cache-native-fixture` job and is NEVER
