@@ -485,3 +485,30 @@ jobs:
             --adapter-port 18031 \
             --fake-port 18033 \
             --registry-port 18040
+
+  # Order 017-p: disposable-runner-only containment capability proof.
+  # The runner's own entry guard refuses any context that is not both
+  # GITHUB_ACTIONS=true and RUNNER_ENVIRONMENT=github-hosted (a
+  # self-hosted runner is refused); no secrets are forwarded to the
+  # fixture (the job maps no secrets and the runner accepts no
+  # credentials).  It
+  # builds the digest-pinned fixture image and drives the bounded
+  # confinement scenarios (success, deliberate fail, hang parent-death)
+  # under --network none, read-only rootfs, dedicated nonroot uid,
+  # cap-drop ALL, no-new-privileges, explicit seccomp=builtin and
+  # bounded memory/pids/CPU/tmpfs, then proves the token-bound
+  # descendant termination and verified image removal.  No genuine
+  # client, model, GPU or gateway activity: this is the containment
+  # capability proof, not genuine native-client qualification (D09
+  # remains NOT RUN).
+  cache-native-containment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Containment capability proof (disposable runner only)
+        run: |
+          python3 scripts/cache_native_containment_ci.py \
+            --repo . \
+            --work "$RUNNER_TEMP/slaif-containment-017p"

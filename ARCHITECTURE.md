@@ -54,9 +54,9 @@ state, fixed enums, counts, locations and digests remain visible) —
 the D06/D07/D08 finite read plans,
 the D07 literal-loop slice, and the public D10 composition matrix
 with the pure D09 unsupported/partial negative matrix (rounds 017-b
-through 017-o corrected that surface's bounded proof findings,
-pairing identity, inventory boundaries and private-ID
-representations); the offline, opt-in,
+through 017-p corrected that surface's bounded proof findings,
+pairing identity, inventory boundaries, private-ID
+representations and the per-nested-container scan guard); the offline, opt-in,
 fail-closed process-capture
 utility (`scripts/real_client_capture.py`) exists for independent
 strategic review — inert (not active in the adapter), hard-capped,

@@ -62,6 +62,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import pytest
 import tracemalloc
 from typing import Any
 
@@ -1690,3 +1691,184 @@ class TestInventoryAllocationAndIdRepresentation:
         assert '"mismatched_call_id"' in repr(mismatched)
         assert '"observer_version"' in repr(report)
         assert '"input_fingerprint"' in repr(report)
+
+
+class TestNestedScanBounds:
+    """017-p: per-container ``max_items`` bound on nested ``tool_calls``.
+
+    - each inspected assistant ``tool_calls`` list is individually
+      length-tested against ``max_items`` BEFORE it is iterated (counting
+      every raw entry regardless of schema, type or ID); ``max_items`` is
+      a per-container bound, never a total across all lists — the
+      at-limit nested list (4 entries + tool result under ``max_items`` 4)
+      still earns the useful read;
+    - one-over nested arrays (unknown/non-schema entries, with or without
+      a valid call inside) are the fixed single non-acquiring
+      ``OVER_BOUND`` — no truncated-prefix acquisition;
+    - non-assistant ``tool_calls`` fields and the ignored domain under
+      explicit endpoint selection remain uninspected; mixed input keeps
+      the fixed ``OVER_BOUND`` priority;
+    - malformed JSON ``type`` fields (list/dict/null/number) never crash
+      and are safely ignored while the valid read is still earned;
+    - the early-work claim is proven with measured bounded allocation on
+      a large prebuilt nested list (no fragile time/RSS-total assertions,
+      no full-payload fingerprinting dependency).
+    """
+
+    _CEILING = 2 * 1024 * 1024  # generous regression ceiling (bytes)
+
+    @staticmethod
+    def _noise() -> dict[str, Any]:
+        return {"opaque": True}
+
+    @staticmethod
+    def _cc_tool(call_id: str = "valid") -> dict[str, Any]:
+        tool: dict[str, Any] = {
+            "type": "function",
+            "function": {"name": "exec_command", "arguments": json.dumps({"cmd": "cat A.md"})},
+        }
+        tool["id"] = call_id
+        return tool
+
+    @staticmethod
+    def _assistant(tools: list[dict[str, Any]]) -> dict[str, Any]:
+        return {"role": "assistant", "tool_calls": tools}
+
+    @staticmethod
+    def _run_bounded(
+        payload: dict[str, Any],
+        bounds: ObservationBounds,
+        endpoint: str | None = None,
+    ) -> Any:
+        before = copy.deepcopy(payload)
+        report = observe_request(payload, context=_CTX, bounds=bounds, endpoint=endpoint)
+        assert payload == before, "observer mutated its input"
+        return report
+
+    def test_nested_at_limit_useful(self) -> None:
+        bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
+        messages = [self._assistant([self._noise(), self._noise(), self._noise(), self._cc_tool()]), _cresult("valid", _wrapper())]
+        report = self._run_bounded({"messages": messages}, bound)
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert report.unpaired == ()
+
+    def test_nested_one_over_non_schema_over_bound(self) -> None:
+        bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
+        payload = {
+            "messages": [
+                self._assistant([self._noise(), self._noise(), self._noise(), self._noise(), self._noise()]),
+                _ccall("valid"),
+                _cresult("valid", _wrapper()),
+            ]
+        }
+        report = self._run_bounded(payload, bound)
+        assert report.reads == ()
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_nested_one_over_with_valid_call_no_truncated_prefix(self) -> None:
+        bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
+        tools = [self._noise(), self._noise(), self._cc_tool(), self._noise(), self._noise()]
+        payload = {
+            "messages": [self._assistant(tools), _cresult("valid", _wrapper())]
+        }
+        report = self._run_bounded(payload, bound)
+        assert report.reads == ()  # the in-list valid call never acquires
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    def test_explicit_selected_domain_ignores_nested_overflow(self) -> None:
+        bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
+        overflow = self._assistant([self._noise() for _ in range(5)])
+        report = self._run_bounded(
+            {"input": [_rcall("valid"), _rresult("valid", _wrapper())], "messages": [overflow]},
+            bound,
+            endpoint="responses",
+        )
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+        assert report.unpaired == ()
+
+    def test_mixed_nested_overflow_fixed_over_bound(self) -> None:
+        bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
+        overflow = self._assistant([self._noise() for _ in range(5)])
+        report = self._run_bounded(
+            {"input": [_rcall("valid"), _rresult("valid", _wrapper())], "messages": [overflow]},
+            bound,
+        )
+        assert report.reads == ()
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+
+    @pytest.mark.parametrize("bad_type", [[], {}, None, 1], ids=["list", "dict", "null", "number"])
+    def test_malformed_nested_types_ignored_and_safe(self, bad_type: Any) -> None:
+        tool = self._cc_tool()
+        tool["type"] = bad_type
+        payload = {
+            "messages": [
+                self._assistant([tool, self._cc_tool()]),
+                _cresult("valid", _wrapper()),
+            ]
+        }
+        report = self._run_bounded(payload, ObservationBounds())
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+
+    def test_non_assistant_tool_calls_uninspected(self) -> None:
+        bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
+        payload = {
+            "messages": [
+                {"role": "user", "tool_calls": [self._noise() for _ in range(50)]},
+                _ccall("valid"),
+                _cresult("valid", _wrapper()),
+            ]
+        }
+        report = self._run_bounded(payload, bound)
+        complete = _complete(report)
+        assert len(complete) == 1
+        _assert_exact_read(complete[0])
+
+    def test_per_container_not_total_across_lists(self) -> None:
+        # Outer messages list: 4 entries; each nested tool_calls list: 2.
+        # 8 inspected entries in total — a total-across-lists reading of
+        # max_items would OVER_BOUND here; the per-container law observes
+        # both lists normally.
+        bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
+        payload = {
+            "messages": [
+                self._assistant([self._cc_tool("one"), self._noise()]),
+                self._assistant([self._cc_tool("two"), self._noise()]),
+                _cresult("one", _wrapper()),
+                _cresult("two", _wrapper()),
+            ]
+        }
+        report = self._run_bounded(payload, bound)
+        complete = _complete(report)
+        assert len(complete) == 2  # 2 per nested list, at-limit individually
+        for obs in complete:
+            _assert_exact_read(obs)
+
+    def test_nested_over_bound_early_work_measured(self) -> None:
+        big = 50_000
+        bound = ObservationBounds(max_items=1024, max_commands=1, max_outputs=1)
+        payload = {"messages": [self._assistant([self._noise() for _ in range(big)])]}
+        before = copy.deepcopy(payload)
+        tracemalloc.start()
+        try:
+            report = observe_request(payload, context=_CTX, bounds=bound, endpoint="chat")
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        assert payload == before, "observer mutated its input"
+        assert report.reads == ()
+        assert [(u.location, u.limitation) for u in report.unpaired] == [
+            ("$", Limitation.OVER_BOUND)
+        ]
+        assert peak < self._CEILING, peak

@@ -640,10 +640,18 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
   collision is missed, and never argument/wrapper parsing or
   identity maps for an already over-bound request.  The inspected
   containers are additionally bounded by the existing `max_items`
-  item bound.  At exactly the bound, the full inventory is retained
-  and paired normally (the useful unknown+valid within-limit control
-  holds; there is no blanket reject-all).  For **explicit** endpoint
-  selection only the selected domain is inspected and contributes to
+  item bound — a **per-container** law (round 017-p): each inspected
+  outer `input`/`messages` list AND each inspected assistant
+  `tool_calls` list is individually length-tested against
+  `max_items` **before** it is iterated, parsed or retained,
+  counting every raw entry regardless of schema, type or ID (the
+  nested length test is O(1) per list; the list contents are never
+  touched by the bound decision).  `max_items` is never a total
+  across lists: an at-limit nested list still passes and observes
+  normally (the useful unknown+valid within-limit control holds;
+  there is no blanket reject-all).  Non-assistant `tool_calls`
+  fields are uninspected.  For **explicit** endpoint selection only
+  the selected domain is inspected and contributes to
   the counts (the other container is neither scanned nor counted);
   mixed input (and the legacy no-selection shape) is bounded across
   the inspected domains and remains non-acquiring under the existing
@@ -794,7 +802,10 @@ tool (`unsupported_tool`,
 chars, 32 operands, 256 path bytes, 128 outputs, 1,000,000 output chars, 8
 wrapper header lines, 128 tools) bounds every scan; the complete
 call/result inventory is bounded by `max_items` per inspected
-container before any record is retained, and `max_commands` /
+container — outer `input`/`messages` lists and, since round 017-p,
+each nested assistant `tool_calls` list individually, by an O(1)
+length test before any iteration, parsing or retention — before any
+record is retained, and `max_commands` /
 `max_outputs` are enforced on the **complete** relevant inventory
 (all schema-position call records and all result records, including
 invalid IDs) before any identity map or diagnostic is built (section
@@ -1121,6 +1132,71 @@ retained the record lists and location strings before the bound
 check — from 017-o the bound is decided before any retention.  D09
 multi-chunk/process association remains `NOT RUN`; no v1 runtime
 claim.
+Round 017-p extends the same inert surface in two bounded parts (no
+capture utility/child modification, no actual capture, no process
+collector).  (1) Per-nested-container scan guard: `observe_reads`
+now length-tests each inspected assistant `tool_calls` list against
+the existing `max_items` item bound BEFORE it is iterated, parsed
+or retained — counting every raw entry regardless of schema, type
+or ID — so an over-limit nested list is the fixed non-acquiring
+`OVER_BOUND`, and `max_items` is explicitly a **per-container**
+bound (never a total across lists): an at-limit nested list passes
+and observes normally, and non-assistant `tool_calls` fields are
+uninspected.  The 017-o structural no-retention preflight remains
+the retention proof; the 2 MiB allocation regression ceiling at
+inventory budget one remains supplementary (a generous regression
+ceiling — not a scan-count oracle, not a new runtime setting, and
+no total-RSS guarantee).  The public regression proof
+(at-limit useful read, one-over with and without a valid call,
+selected-domain scoping, mixed over-bound, malformed nested types,
+non-assistant uninspected, per-container-not-total) is earned in
+`tests/test_bundle_d10_matrix.py::TestNestedScanBounds`.  (2)
+Disposable-CI containment capability (a D10 prerequisite, still
+`NOT RUN`): `scripts/cache_native_containment_probe.py` (an
+in-container stdlib probe emitting a closed JSON pass record —
+dedicated nonroot uid/gid with no supplementary groups, all-zero
+capability fields, no-new-privs, seccomp filter mode, private
+pid/mnt/ipc/uts/net against the shared user namespace, parent proc
+and sentinel absence, private-loopback-only interfaces with echo,
+parent listener unreachable, read-only rootfs denial, explicit rw
+bounded tmpfs roots, exact memory/swap/pids/writable-storage
+limits, keyring syscall denial (x86_64 `add_key`=248,
+`request_key`=249 four-argument, `keyctl`=250 unknown command —
+expecting EPERM), and a child deadline kill) and
+`scripts/cache_native_containment_ci.py` (a host-side runner that
+refuses every non-disposable-CI context): the digest-pinned
+byte-identical-base fixture image, create-before-start ownership
+(bare 64-hex CID registered before any start), the exact
+confinement surface (`--network none`, read-only rootfs, dedicated
+nonroot uid, cap-drop ALL, no-new-privileges, explicit
+`seccomp=builtin`, bounded memory with no swap, pids 64, 1 CPU,
+explicit tmpfs roots), closed inspection extraction (the actual
+`ReadonlyRootfs` field plus the exact default runtime identity),
+the ordered parent-death proof (a live owned descendant bound to a
+per-run token is positively observed exactly once BEFORE the
+registered container is killed, its disappearance and the
+container's verified absence are required AFTER, and the unrelated
+parent-owned sentinel must survive; a vanished-entry /proc scan is
+never conflated with absence and any other read error fails the
+scan), bounded capture (the pipe is owned by the reader thread
+alone, a leader exit with a held pipe converges by the exact owned
+group kill after a bounded grace, a failed capture is the fixed
+closed state `output-read-failed` — never an empty-success output
+or an uncaught thread exception), verified image removal (the
+result-checked `rmi` plus an authoritative absence query; cleanup
+failures stay visible even when a primary check also failed), and a
+fresh owned 0700 scratch root validated as-given (no symlink or
+`..` alias laundering of a pre-existing target).  Forty-two public
+orchestration tests (`tests/test_cache_native_containment_ci.py` —
+fake docker emulation plus tiny real owned children only; no docker
+daemon, namespace or syscall probe) and the new
+`cache-native-containment` CI job (disposable `ubuntu-latest`
+runner, stdlib only, no secrets forwarded to the fixture — the job
+maps no secrets and the runner accepts no credentials —
+`persist-credentials: false`)
+carry the local and remote halves.  This capability proof is NOT
+genuine native-client qualification: no genuine client, model, GPU
+or gateway activity; D09 remains `NOT RUN`; no v1 runtime claim.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 

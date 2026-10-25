@@ -378,6 +378,56 @@ unchanged inputs; no shell/filesystem/network oracle or new
 dependency. No actual client, provider session, or model call is
 made; the actual capture and process/chunk collector remain `NOT
 RUN`.
+Round 017-p extends the same inert surface in two bounded parts.
+First, the per-nested-container scan guard: each inspected
+assistant `tool_calls` list is length-tested against the existing
+`max_items` item bound before it is iterated, parsed or retained
+(O(1) per list; `max_items` is per-container, never a total across
+lists — an at-limit nested list observes normally), with the public
+proof in `tests/test_bundle_d10_matrix.py::TestNestedScanBounds`
+(at-limit useful read, one-over with/without a valid call,
+selected-domain scoping, mixed over-bound, malformed nested types,
+non-assistant uninspected, per-container-not-total).  Second, the
+disposable-CI containment capability (D10 prerequisite; still `NOT
+RUN`): `scripts/cache_native_containment_probe.py` (in-container
+stdlib probe, closed JSON pass record: dedicated nonroot identity,
+all-zero capabilities, no-new-privs, seccomp filter mode, private
+pid/mnt/ipc/uts/net against the shared user namespace, parent
+sentinel absence, private loopback echo, parent listener
+unreachable, read-only rootfs, explicit bounded tmpfs roots, exact
+memory/swap/pids/writable-storage limits, keyring syscall denial —
+x86_64 `add_key`=248, `request_key`=249 (four arguments),
+`keyctl`=250 unknown command, expecting EPERM — and child deadline
+kill) and `scripts/cache_native_containment_ci.py` (host-side
+runner whose entry guard refuses any context that is not both
+`GITHUB_ACTIONS=true` and `RUNNER_ENVIRONMENT=github-hosted`):
+digest-pinned byte-identical-base fixture image, create-before-start
+ownership (bare 64-hex CID), closed inspection extraction (actual
+`ReadonlyRootfs` field plus exact default runtime identity), the
+ordered parent-death proof (token-bound live owned descendant
+positively observed exactly once before container teardown, its
+disappearance and the container's verified absence after, unrelated
+parent sentinel surviving), bounded capture (reader-thread-owned
+pipe; held-pipe convergence by exact owned group kill after a
+bounded grace; failed capture is the fixed closed state
+`output-read-failed`, never an empty-success output or an uncaught
+thread exception), verified image removal (result-checked `rmi`
+plus a successful authoritative query reporting no such
+image/object — a daemon/query failure is a distinct unverified
+state, never conflated with absence; cleanup failures stay visible
+even when a primary check also failed) and a fresh owned 0700
+scratch root validated as-given (no symlink or `..` alias
+laundering of a pre-existing target).  The public orchestration
+suite `tests/test_cache_native_containment_ci.py` (42 tests —
+fake docker emulation plus tiny real owned children only; no docker
+daemon, namespace or syscall probe) covers these contracts locally;
+the remote proof is the `cache-native-containment` job on a
+disposable `ubuntu-latest` hosted runner (stdlib only, no secrets
+forwarded to the fixture — the job maps no secrets and the runner
+accepts no credentials — fresh owned work root under the
+documented `RUNNER_TEMP`).  No genuine client, model, GPU or
+gateway activity: this capability proof does not qualify a genuine
+native client; D09 remains `NOT RUN`; no v1 runtime claim.
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
@@ -423,6 +473,7 @@ the protected model host. CI owns the canonical executions:
 | `docker` | Fresh built image, actual platform/dependency/wheel identity, signed ingress, readiness, hardening, lifecycle and teardown. |
 | `operator-session` | Documented pull-based operator lifecycle against a synthetic registry and fake upstream. |
 | `docker-published` | Authenticated pull and qualification of the recorded immutable digest after publication. |
+| `cache-native-containment` | Disposable hosted-runner containment capability proof: pinned-base fixture image, explicit confinement surface (network none, read-only rootfs, nonroot uid, cap-drop ALL, no-new-privileges, seccomp=builtin, bounded memory/pids/CPU/tmpfs), ordered token-bound parent-death proof, verified image removal. No secrets forwarded; D09 remains `NOT RUN`. |
 
 Before an image is published, `docker-published` reports an explicit
 prepublication `NOT RUN` for image qualification while recording registry facts.

@@ -1530,7 +1530,13 @@ def observe_reads(
     earlier chain acquires while a later collision is missed, and
     never argument/wrapper parsing or identity maps for an already
     over-bound request.  The inspected containers are additionally
-    bounded by the existing ``max_items`` item bound.  For explicit
+    bounded by the existing ``max_items`` item bound — a **per-container**
+    law: each inspected outer ``input``/``messages`` list AND each
+    inspected assistant ``tool_calls`` list is individually
+    length-tested before it is iterated (counting every raw entry
+    regardless of schema, type or ID); ``max_items`` is never a total
+    across all lists, so an at-limit nested list still observes
+    normally.  For explicit
     endpoint selection only the selected domain is inspected and
     contributes; the mixed and legacy no-selection shapes inspect both
     present containers (bounded across the inspected domains).
@@ -1568,6 +1574,30 @@ def observe_reads(
             (),
             (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
         )
+
+    # Per-container nested item bound: every inspected assistant
+    # ``tool_calls`` list is length-tested against the same ``max_items``
+    # item bound BEFORE it is iterated, parsed or retained — counting
+    # every raw entry regardless of schema, type or ID.  The length test
+    # is O(1) per nested list; the list contents are never touched here.
+    # ``max_items`` is a per-container bound, never a total across lists:
+    # an at-limit nested list passes and observes normally.  Non-assistant
+    # ``tool_calls`` fields are uninspected, and the ignored domain under
+    # explicit endpoint selection is already scoped to ``None`` above.
+    if chat_msgs is not None:
+        for message in chat_msgs:
+            if not isinstance(message, dict) or message.get("role") != "assistant":
+                continue
+            tool_calls = message.get("tool_calls")
+            if isinstance(tool_calls, list) and len(tool_calls) > bounds.max_items:
+                return (
+                    (),
+                    (
+                        UnpairedRecord(
+                            location="$", call_id="", limitation=Limitation.OVER_BOUND
+                        ),
+                    ),
+                )
 
     # Complete-inventory preflight: the declared limits are decided
     # while streaming the complete relevant inventory (every
