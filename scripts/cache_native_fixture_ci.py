@@ -1753,6 +1753,103 @@ _STANDIN_FAIL_REASONS = frozenset(
     }
 )
 _STANDIN_DETAIL: str | None = None
+# Closed failure diagnostics for the disposable job log: EXACTLY ONE
+# fixed stage token and (on the closed validation category) the
+# model's fixed-format field message — no tracebacks, no raw
+# exceptions, no measured values, no other record content.  The
+# stage set is closed: the fixed phase tokens below plus the model's
+# closed scenario names (set while the scenario loop runs).
+_STAGE: str = "start"
+# The stage of the ORIGINAL in-flight failure, preserved separately
+# from _STAGE: the cleanup umbrella always moves _STAGE to
+# "cleanup", and the original failure must not be misattributed to
+# it.  "cleanup" is reported only for failures that occurred in the
+# cleanup path itself (or when no earlier stage is attributable).
+_FAILURE_STAGE: str | None = None
+_FAILURE_STAGES: tuple[str, ...] = (
+    "start",
+    "work-root",
+    "artifact",
+    "build-context",
+    "collision",
+    "preflight",
+    "pull",
+    "build",
+    "sentinels",
+    "teardown",
+    "publish",
+    "cleanup",
+)
+
+
+# Closed admission for the model's fixed-format validation messages
+# on the job log: EXACT known category/field combinations only.
+# The category is a finite tuple, the field must be a member of the
+# model's closed VALIDATION_FIELD_UNIVERSE (finite, explicit — a
+# regex-shaped match is NEVER a waiver for arbitrary field text),
+# and the fixed output is reconstructed, not echoed.  Anything
+# else — including a canary or an oversized field — stays generic.
+_MODEL_FIELD_CATEGORIES: tuple[str, ...] = (
+    "state",
+    "bound",
+    "identity",
+    "set",
+    "type",
+    "enum",
+)
+_MODEL_VALIDATION_FIXED = frozenset(
+    {
+        "closed record field set mismatch",
+        "closed record schema tag unknown",
+        "closed record schema tag mismatch",
+        "closed record must be an object",
+        "budget bound exceeded: issued_calls",
+        "budget bound exceeded: lifetime deadline",
+        "budget bound exceeded: lifetime_seconds",
+        "budget bound exceeded: output_bytes",
+    }
+)
+_MODEL_FIELD_MSG_RE = re.compile(
+    r"^closed record field (" + "|".join(_MODEL_FIELD_CATEGORIES) + r") invalid: ([a-z0-9_-]+)$"
+)
+_MODEL_DIGEST_MSG_RE = re.compile(r"^closed record digest invalid: ([a-z0-9_-]+)$")
+
+
+def _model_validation_reason(exc: BaseException) -> str:
+    """Map a closed-record validation rejection to its fixed-format
+    field message ONLY for the exact known category/field
+    combinations: fixed no-field forms by exact membership, and
+    field forms reconstructed from the closed category plus a field
+    that is a member of the model's closed field universe."""
+    msg = str(exc)
+    if msg in _MODEL_VALIDATION_FIXED:
+        return msg
+    m = _MODEL_FIELD_MSG_RE.fullmatch(msg)
+    if m is not None and m.group(2) in model.VALIDATION_FIELD_UNIVERSE:
+        return f"closed record field {m.group(1)} invalid: {m.group(2)}"
+    m = _MODEL_DIGEST_MSG_RE.fullmatch(msg)
+    if m is not None and m.group(1) in model.VALIDATION_FIELD_UNIVERSE:
+        return f"closed record digest invalid: {m.group(1)}"
+    return "record-validation"
+
+
+def _failure_payload(reason: str, stage: str, detail: str | None = None) -> dict[str, object]:
+    """The closed failure record for the job log.  ``reason`` is a
+    fixed token (runner FixtureError token, the model's fixed-format
+    validation message, ``deadline-expired`` or ``internal``);
+    ``stage`` one closed stage token; ``detail`` ONLY the
+    allowlisted stand-in fail token (absent otherwise)."""
+    if stage not in _FAILURE_STAGES and stage not in model.SCENARIO_NAMES:
+        raise FixtureError("diagnostic-stage")
+    payload: dict[str, object] = {
+        "schema": SCHEMA,
+        "status": "fail",
+        "reason": reason,
+        "stage": stage,
+    }
+    if detail is not None:
+        payload["detail"] = detail
+    return payload
 
 
 def _standin_fail_reason(output: bytes) -> str | None:
@@ -2781,11 +2878,13 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
 
     repo = Path(repo)
     work = Path(work)
-    global _STANDIN_DETAIL
+    global _FAILURE_STAGE, _STAGE, _STANDIN_DETAIL
     _SC_FACTS.clear()
     _SC_EXPORT.clear()
     _SC_TEARDOWN.clear()
     _STANDIN_DETAIL = None
+    _STAGE = "start"
+    _FAILURE_STAGE = None
 
     # -- ONE shared non-resettable run deadline (host + in-container) --
     deadline = _RunDeadline(time.monotonic() + TOTAL_ANCHOR_SECONDS)
@@ -2886,6 +2985,7 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
             #    this point on: EVERY later failure path converges
             #    through the cleanup umbrella that destroys exactly
             #    this registered fresh root) --
+            _STAGE = "work-root"
             _create_work_root(work)
             work_root_owned = True
             context = _owned_subdir(work, "context")
@@ -2893,10 +2993,12 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
 
             # -- Public pinned artifact (size+digest verified,
             #    bounded; LICENSE and NOTICE byte-identity verified) --
+            _STAGE = "artifact"
             artifact = fetch_public_artifact(artifact_dir, deadline)
 
             # -- Build context: Dockerfile + sources + binary +
             #    license + notice (every copy byte-verified) --
+            _STAGE = "build-context"
             (context / "Dockerfile").write_bytes(dockerfile_bytes)
             for name in (
                 "cache_native_fixture_model.py",
@@ -2928,6 +3030,7 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
 
             # -- Pre-existing image collision: never adopt, never
             #    overwrite (verified absence or fixed failure) --
+            _STAGE = "collision"
             probe = guarded(
                 ["docker", "inspect", "--format", "{{.Id}}", owned_image_tag], _QUERY_TIMEOUT
             )
@@ -2940,13 +3043,16 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
 
             # -- Engine preflight (through the guard): version +
             #    seccomp + runtime identity, reviewed bare-name query
+            _STAGE = "preflight"
             engine_version, runtime_name, runtime_version = _engine_preflight(guarded)
 
             # -- Build the fixture image (pinned base, public pull) --
+            _STAGE = "pull"
             result = guarded(["docker", "pull", PINNED_BASE], PULL_TIMEOUT)
             if result.returncode != 0:
                 raise FixtureError("pull-failed")
             build_attempted = True
+            _STAGE = "build"
             result = guarded(
                 ["docker", "build", "-t", owned_image_tag, str(context)], BUILD_TIMEOUT
             )
@@ -2963,6 +3069,7 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
 
             # -- Owned synthetic parent sentinels (no real parent
             #    data), inside the cleanup umbrella.
+            _STAGE = "sentinels"
             sentinels = _owned_subdir(work, "sentinels")
             sentinel_file = sentinels / "parent-sentinel-file"
             sentinel_fd = os.open(sentinel_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -2979,6 +3086,7 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
             run_token = uuid.uuid4().hex
 
             for index, (name, _required) in enumerate(model.REQUIRED_SCENARIOS):
+                _STAGE = name
                 # PRE-WORK: the scenario's closed worst-case wire
                 # bound must fit the REMAINING API budgets before
                 # any of its work may start (an over-budget scenario
@@ -3042,7 +3150,15 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
             verify_no_leftovers(guarded, IMAGE_NAME)
         except FixtureError as exc:
             cleanup_error = exc
+            _FAILURE_STAGE = _STAGE
         finally:
+            # Preserve the ORIGINAL failure's stage before the
+            # umbrella moves to "cleanup" (a failure that occurred in
+            # the scenario phase must not be reported as cleanup).
+            primary = sys.exc_info()[1]
+            if primary is not None and _FAILURE_STAGE is None:
+                _FAILURE_STAGE = _STAGE
+            _STAGE = "cleanup"
             # Teardown/cleanup for EVERY path (success, scenario
             # failure, setup failure, deadline expiry): the explicit
             # one-time bounded grace, then every INDEPENDENT owned
@@ -3116,6 +3232,17 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
                 if sentinel_process.poll() is None:
                     cleanup_failures.append("sentinel-cleanup-failed")
 
+            # A failure RAISED BY the cleanup path itself (distinct
+            # from the preserved primary and from the recorded
+            # cleanup_failures list) is a cleanup failure: its stage
+            # is "cleanup".
+            if (
+                sys.exc_info()[1] is not None
+                and sys.exc_info()[1] is not primary
+                and _FAILURE_STAGE is None
+            ):
+                _FAILURE_STAGE = "cleanup"
+
             # A non-FixtureError in flight (e.g. a cancelled host /
             # KeyboardInterrupt) is PRESERVED — never replaced, and
             # never swallowed into a success by the publish path —
@@ -3139,6 +3266,7 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
         # -- teardown-verified, THEN publish (phase order) ------------
         # Descendants negative-after: no fixture-uid process remains
         # in the host /proc after the exact-owned sweep.
+        _STAGE = "teardown"
         if (
             _count_fixture_uid_processes(CONTROLLER_UID) != 0
             or _count_fixture_uid_processes(SUBJECT_UID) != 0
@@ -3278,6 +3406,7 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
         model.validate_ci_summary(summary)
 
         # Atomic 0700/0600 publication (0600 BEFORE any write).
+        _STAGE = "publish"
         publish_dir = _owned_subdir(work, "publish")
         artifact_file = publish_dir / "selected-evidence.json"
         tmp_file = publish_dir / "selected-evidence.json.tmp"
@@ -3366,17 +3495,27 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.repo), Path(args.work), _real_execute, evidence_out=args.evidence_out
         )
     except FixtureError as exc:
-        payload: dict[str, object] = {
-            "schema": SCHEMA,
-            "status": "fail",
-            "reason": str(exc),
-        }
-        if _STANDIN_DETAIL is not None:
-            payload["detail"] = _STANDIN_DETAIL
-        print(json.dumps(payload))
+        # Report the ORIGINAL failure's stage (preserved separately
+        # from _STAGE, which the cleanup umbrella always advances to
+        # "cleanup"); fall back to the current stage when no original
+        # failure stage is attributable.
+        stage = _FAILURE_STAGE if _FAILURE_STAGE is not None else _STAGE
+        print(json.dumps(_failure_payload(str(exc), stage, _STANDIN_DETAIL)))
+        return 1
+    except model.FixtureError as exc:
+        # Closed-record validation rejection: the model's fixed-format
+        # field message is a known validation-field category (closed
+        # vocabulary, no measured values) — named, never raw.
+        stage = _FAILURE_STAGE if _FAILURE_STAGE is not None else _STAGE
+        print(json.dumps(_failure_payload(_model_validation_reason(exc), stage)))
+        return 1
+    except _OwnedTimeout:
+        stage = _FAILURE_STAGE if _FAILURE_STAGE is not None else _STAGE
+        print(json.dumps(_failure_payload("deadline-expired", stage)))
         return 1
     except Exception:
-        print(json.dumps({"schema": SCHEMA, "status": "fail", "reason": "internal"}))
+        stage = _FAILURE_STAGE if _FAILURE_STAGE is not None else _STAGE
+        print(json.dumps(_failure_payload("internal", stage)))
         return 1
     print(json.dumps(result, sort_keys=True))
     return 0

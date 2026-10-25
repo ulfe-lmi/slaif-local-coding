@@ -690,6 +690,31 @@ _CI_SUMMARY_FIELDS = frozenset(
     }
 )
 
+# Closed universe of the field vocabulary the fixed-format
+# validation messages may reference: the union of EVERY closed
+# record field set plus the fixed identity-check labels used in
+# identity/bound message text.  The host runner's diagnostic
+# channel admits a model validation message ONLY when its field is
+# a member of this universe (finite, explicit — no arbitrary
+# field text).
+VALIDATION_FIELD_UNIVERSE = frozenset(
+    _ARTIFACT_FIELDS
+    | _EXEC_FIELDS
+    | _DIAGNOSTIC_FIELDS
+    | _QUIESCE_FIELDS
+    | _SNAPSHOT_FIELDS
+    | _TEARDOWN_FIELDS
+    | _PUBLISH_FIELDS
+    | _PROFILE_FIELDS
+    | _CI_SUMMARY_FIELDS
+    | {
+        "api_identity",
+        "bytes_identity",
+        "name-count-identity",
+        "outcome_identity",
+    }
+)
+
 
 def validate_artifact_record(record: dict) -> None:
     """Exact public artifact identity record.

@@ -921,7 +921,12 @@ class TestMeasureMounts:
         real_lstat = standin.os.lstat
 
         def lstat(path: str) -> Any:
-            return nodes.get(path, real_lstat(path))
+            # LAZY branch: a fake node must never touch the host.
+            # (dict.get evaluates its default eagerly, which would
+            # lstat host paths that do not exist on a CI VM.)
+            if path in nodes:
+                return nodes[path]
+            return real_lstat(path)
 
         monkeypatch.setattr(standin, "os", SimpleNamespace(lstat=lstat, statvfs=standin.os.statvfs))
 

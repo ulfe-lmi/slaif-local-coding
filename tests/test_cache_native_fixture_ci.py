@@ -313,6 +313,7 @@ class FixtureFakeDocker:
         export_mutate: Any = None,
         rm_fail: str = "none",
         standin_fail: tuple[str, str | None] | None = None,
+        measure_overrides: dict[str, Any] | None = None,
     ) -> None:
         assert image_absence in ("absent", "query-failed", "present")
         # The export-fail and quiesce-fail SCENARIOS are modeled by
@@ -345,6 +346,7 @@ class FixtureFakeDocker:
         self.export_mutate = export_mutate
         self.rm_fail = rm_fail
         self.standin_fail = standin_fail
+        self.measure_overrides = measure_overrides
         self.built = False
         self.image_removed = False
         self.calls: list[list[str]] = []
@@ -570,6 +572,8 @@ class FixtureFakeDocker:
             assert "SLAIF_FIXTURE_TMPFS_SPECS" in env
             assert "SLAIF_FIXTURE_PRESENCE_SHA256" in env
             line = _exec_measurement_record()
+            if self.measure_overrides is not None:
+                line.update(self.measure_overrides)
         elif mode == "pty":
             assert itty, "the pty scenario must attach through -it"
             assert len(env.get("SLAIF_RUN_TOKEN", "")) == 32
@@ -1503,6 +1507,212 @@ def test_main_closed_record_without_detail(monkeypatch: Any, capsys: Any) -> Non
     assert rc == 1
     assert out["reason"] == "exec-measurement-failed"
     assert "detail" not in out
+
+
+def test_main_validation_failure_names_stage_and_field_category(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    monkeypatch.setattr(fci, "_STAGE", "exec-21002-measurement")
+    monkeypatch.setattr(fci, "_FAILURE_STAGE", None)
+
+    def boom(repo: Any, work: Any, executor: Any, evidence_out: Any = None) -> Any:
+        raise fci.model.FixtureError("closed record field state invalid: mounts_scanned")
+
+    monkeypatch.setattr(fci, "run", boom)
+    rc = fci.main(["--repo", ".", "--work", "/nonexistent-work-root-017r"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out == {
+        "schema": fci.SCHEMA,
+        "status": "fail",
+        "reason": "closed record field state invalid: mounts_scanned",
+        "stage": "exec-21002-measurement",
+    }
+
+
+def test_main_internal_failure_carries_stage_never_raw(monkeypatch: Any, capsys: Any) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    monkeypatch.setattr(fci, "_STAGE", "build")
+    monkeypatch.setattr(fci, "_FAILURE_STAGE", None)
+
+    def boom(repo: Any, work: Any, executor: Any, evidence_out: Any = None) -> Any:
+        raise RuntimeError("sensitive raw text that must never reach the log")
+
+    monkeypatch.setattr(fci, "run", boom)
+    rc = fci.main(["--repo", ".", "--work", "/nonexistent-work-root-017r"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out == {
+        "schema": fci.SCHEMA,
+        "status": "fail",
+        "reason": "internal",
+        "stage": "build",
+    }
+    assert "sensitive raw text" not in capsys.readouterr().out
+
+
+def test_main_owned_timeout_is_deadline_category(monkeypatch: Any, capsys: Any) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    monkeypatch.setattr(fci, "_STAGE", "pull")
+    monkeypatch.setattr(fci, "_FAILURE_STAGE", None)
+
+    def boom(repo: Any, work: Any, executor: Any, evidence_out: Any = None) -> Any:
+        raise fci._OwnedTimeout(["docker", "pull", "pinned"], 600.0, b"")
+
+    monkeypatch.setattr(fci, "run", boom)
+    rc = fci.main(["--repo", ".", "--work", "/nonexistent-work-root-017r"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out == {
+        "schema": fci.SCHEMA,
+        "status": "fail",
+        "reason": "deadline-expired",
+        "stage": "pull",
+    }
+
+
+def test_main_reports_original_stage_not_cleanup(monkeypatch: Any, capsys: Any) -> None:
+    # The real run() flow: the primary fails at its own stage, the
+    # cleanup umbrella then advances _STAGE to "cleanup"; the closed
+    # record must still carry the ORIGINAL stage.
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+
+    def boom(repo: Any, work: Any, executor: Any, evidence_out: Any = None) -> Any:
+        monkeypatch.setattr(fci, "_STAGE", "exec-21002-measurement")
+        monkeypatch.setattr(fci, "_FAILURE_STAGE", "exec-21002-measurement")
+        monkeypatch.setattr(fci, "_STAGE", "cleanup")
+        raise fci.model.FixtureError("closed record field state invalid: mounts_scanned")
+
+    monkeypatch.setattr(fci, "run", boom)
+    rc = fci.main(["--repo", ".", "--work", "/nonexistent-work-root-017r"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out == {
+        "schema": fci.SCHEMA,
+        "status": "fail",
+        "reason": "closed record field state invalid: mounts_scanned",
+        "stage": "exec-21002-measurement",
+    }
+
+
+def test_main_validation_canary_stays_generic(monkeypatch: Any, capsys: Any) -> None:
+    # Unknown/canary model exception text is NEVER propagated: only
+    # the exact closed category/field shapes are admitted.
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    monkeypatch.setattr(fci, "_STAGE", "exec-21002-measurement")
+    monkeypatch.setattr(fci, "_FAILURE_STAGE", None)
+
+    def boom(repo: Any, work: Any, executor: Any, evidence_out: Any = None) -> Any:
+        raise fci.model.FixtureError(
+            "closed record field state invalid: mounts_scanned;canary raw text"
+        )
+
+    monkeypatch.setattr(fci, "run", boom)
+    rc = fci.main(["--repo", ".", "--work", "/nonexistent-work-root-017r"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out == {
+        "schema": fci.SCHEMA,
+        "status": "fail",
+        "reason": "record-validation",
+        "stage": "exec-21002-measurement",
+    }
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "closed record field state invalid: mounts_scanned",
+        "closed record field type invalid: writable_mounts",
+        "closed record field set invalid: namespaces",
+        "closed record field enum invalid: scenarios",
+        "closed record field identity invalid: writable_mounts",
+        "closed record field bound invalid: api_requests",
+        "closed record field set mismatch",
+        "closed record schema tag unknown",
+        "closed record schema tag mismatch",
+        "closed record digest invalid: export_sha256",
+        "closed record must be an object",
+        "budget bound exceeded: issued_calls",
+        "budget bound exceeded: output_bytes",
+        "closed record field state invalid: name-count-identity",
+        "closed record field state invalid: api_identity",
+        "closed record field set invalid: controller_ledger",
+    ],
+)
+def test_model_validation_reason_admits_closed_shapes(msg: str) -> None:
+    assert fci._model_validation_reason(fci.model.FixtureError(msg)) == msg
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        "closed record field state invalid: mounts_scanned;extra",
+        "closed record field state invalid: MOUNTS_SCANNED",
+        "closed record field weird invalid: mounts_scanned",
+        "closed record field state invalid: name-count-identity extra",
+        # Crafted-prefix canaries: closed shape, UNKNOWN field —
+        # the field vocabulary is finite and explicit, never
+        # regex-shaped.
+        "closed record field state invalid: synthetic-private-canary",
+        "closed record digest invalid: synthetic-private-canary",
+        # Oversized field text is rejected even in closed shape.
+        "closed record field state invalid: " + "x" * 100000,
+        "arbitrary raw text",
+        "",
+    ],
+)
+def test_model_validation_reason_generic_for_unknown(msg: str) -> None:
+    assert fci._model_validation_reason(fci.model.FixtureError(msg)) == "record-validation"
+
+
+def test_run_model_validation_failure_preserves_scenario_stage(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    # ACTUAL path: the 21002 stand-in emits a closed record whose
+    # counters are incoherent (data mounts + aliases > scanned); the
+    # model rejects it, the failure travels through the cleanup
+    # umbrella, and the ORIGINAL scenario stage — not "cleanup" — is
+    # preserved for the closed diagnostic.
+    fake = FixtureFakeDocker(measure_overrides={"mounts_scanned": 1})
+    repo, work, evidence_out = _setup(tmp_path, monkeypatch, fake)
+    with pytest.raises(fci.model.FixtureError, match="mounts_scanned"):
+        fci.run(repo, work, fake)
+    assert fci._FAILURE_STAGE == "exec-21002-measurement"
+    assert fci._STAGE == "cleanup"
+
+
+@pytest.mark.parametrize("stage", ["", "unknown-stage", "scenarios", "exec-21002-measurement "])
+def test_failure_payload_stage_admission_closed(stage: str) -> None:
+    with pytest.raises(fci.FixtureError, match="diagnostic-stage"):
+        fci._failure_payload("internal", stage)
+
+
+def test_failure_payload_admits_every_closed_stage() -> None:
+    stages = list(fci._FAILURE_STAGES) + list(fci.model.SCENARIO_NAMES)
+    for stage in stages:
+        payload = fci._failure_payload("internal", stage)
+        assert payload == {
+            "schema": fci.SCHEMA,
+            "status": "fail",
+            "reason": "internal",
+            "stage": stage,
+        }
+
+
+def test_failure_payload_detail_only_when_admitted_token_present() -> None:
+    without = fci._failure_payload("exec-measurement-failed", "exec-21002-measurement")
+    assert "detail" not in without
+    with_detail = fci._failure_payload(
+        "exec-measurement-failed", "exec-21002-measurement", "unlisted-writable-mount"
+    )
+    assert with_detail["detail"] == "unlisted-writable-mount"
 
 
 def test_run_setup_failure_no_build_no_image_removal_attempted(

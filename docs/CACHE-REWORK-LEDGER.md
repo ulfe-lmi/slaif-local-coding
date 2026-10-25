@@ -491,12 +491,18 @@ link/foreign-owned paths refused).  Public local proof:
 `tests/test_cache_native_fixture.py` (196 tests),
 `tests/test_cache_native_fixture_controller.py` (33),
 `tests/test_cache_native_fixture_standin.py` (76),
-`tests/test_cache_native_fixture_ci.py` (181 — FakeDocker
+`tests/test_cache_native_fixture_ci.py` (218 — FakeDocker
 orchestration with its named failure paths, the one-shot
 host-cancellation and cleanup-timeout sweep tests, actual-path
 capture tests, actual-path loopback wire tests, protected
 publication fault tests, actual archive/fetch helper negatives
-against small synthetic bytes and fake HTTP; no
+against small synthetic bytes and fake HTTP, and the runner's
+closed failure diagnostic (one closed stage token — the original
+failure's stage, preserved separately from the cleanup stage —
+plus a closed-record validation rejection mapped only through the
+model's finite field universe, owned timeouts named
+"deadline-expired", all other escapes "internal"; no raw
+exception/record/traceback reaches the job log); no
 docker daemon, namespace or syscall probe locally; no secrets
 forwarded to the fixture).  Remote proof: the
 `cache-native-fixture` job on a disposable `ubuntu-latest` hosted

@@ -470,7 +470,7 @@ path; the exact SIGTERM/si_code/flags send ABI; the declared
 closed failure when the pidfd API is unavailable; and the
 owned stop with unrelated survival through the recorded fake
 signal) and
-`tests/test_cache_native_fixture_ci.py` (181 tests — closed
+`tests/test_cache_native_fixture_ci.py` (218 tests — closed
 command grammar including the create-argv/allowlist lockstep
 with the explicit `--shm-size` bound, host ledger with distinct
 measured quantities and pre-work reservations, timed-out-capture
@@ -500,7 +500,17 @@ archive/fetch/extraction helper negatives against small synthetic
 bytes and fake HTTP, and the closed stand-in fail-token channel
 (an allowlist-only detail on the fixed scenario failure record,
 scoped to the run that observed it; unknown, malformed or missing
-child tokens stay generic and raw output never propagates)) cover
+child tokens stay generic and raw output never propagates), and
+the runner's closed failure diagnostic (tested through main)
+carries exactly one closed stage token — the ORIGINAL failure's
+stage, preserved separately from the cleanup umbrella's "cleanup"
+stage — and maps a closed-record validation rejection only
+through the model's finite field universe (closed category plus
+field membership, reconstructed output; unknown or oversized
+field text stays generic "record-validation"), with owned
+timeouts named "deadline-expired" and all other escapes
+"internal" plus stage; no raw exception, record or traceback
+ever reaches the job log)) cover
 these contracts locally; no test
 launches docker, a container, a namespace or the native binary
 (no secrets are forwarded to the fixture: the job maps no secrets

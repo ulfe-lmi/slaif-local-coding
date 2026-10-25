@@ -449,7 +449,7 @@ def _unesc_mountinfo(value: str) -> str:
     return value.replace("\\040", " ").replace("\\011", "\t").replace("\\013", "\n")
 
 
-def measure_mounts(specs: list[tuple[str, int, int, int]]) -> tuple[list[dict], int]:
+def measure_mounts(specs: list[tuple[str, int, int, int]]) -> tuple[list[dict], int, int]:
     """RECONCILED writable-data inventory from the ACTUAL mount table.
 
     The table input is BOUNDED before retention (finite chunk/byte/
@@ -460,8 +460,10 @@ def measure_mounts(specs: list[tuple[str, int, int, int]]) -> tuple[list[dict], 
     budgets plus the daemon's explicitly bounded /dev/shm); anything
     else is an unlisted writable data mount: fail-closed.  Every
     documented root must be observed as an rw mount, and each is
-    measured (lstat/statvfs).  Returns the ordered data entries and
-    the number of COMPLETE table records scanned."""
+    measured (lstat/statvfs).  Returns the ordered data entries,
+    the number of COMPLETE table records scanned, and the count of
+    the strictly-evidenced masked /dev/null file aliases (device
+    surface, never writable data)."""
     # Closed finite input bounds (local: the selected-AST probe's
     # fixed context carries no new names).
     chunk_bytes = 65536
