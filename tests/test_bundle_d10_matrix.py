@@ -62,9 +62,10 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-import pytest
 import tracemalloc
 from typing import Any
+
+import pytest
 
 from slaif_local_coding.constitution.bundles import (
     EMPTY_SOURCE_SHA256,
@@ -1747,7 +1748,10 @@ class TestNestedScanBounds:
 
     def test_nested_at_limit_useful(self) -> None:
         bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
-        messages = [self._assistant([self._noise(), self._noise(), self._noise(), self._cc_tool()]), _cresult("valid", _wrapper())]
+        messages = [
+            self._assistant([self._noise(), self._noise(), self._noise(), self._cc_tool()]),
+            _cresult("valid", _wrapper()),
+        ]
         report = self._run_bounded({"messages": messages}, bound)
         complete = _complete(report)
         assert len(complete) == 1
@@ -1758,7 +1762,9 @@ class TestNestedScanBounds:
         bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
         payload = {
             "messages": [
-                self._assistant([self._noise(), self._noise(), self._noise(), self._noise(), self._noise()]),
+                self._assistant(
+                    [self._noise(), self._noise(), self._noise(), self._noise(), self._noise()]
+                ),
                 _ccall("valid"),
                 _cresult("valid", _wrapper()),
             ]
@@ -1772,9 +1778,7 @@ class TestNestedScanBounds:
     def test_nested_one_over_with_valid_call_no_truncated_prefix(self) -> None:
         bound = ObservationBounds(max_items=4, max_commands=2, max_outputs=2)
         tools = [self._noise(), self._noise(), self._cc_tool(), self._noise(), self._noise()]
-        payload = {
-            "messages": [self._assistant(tools), _cresult("valid", _wrapper())]
-        }
+        payload = {"messages": [self._assistant(tools), _cresult("valid", _wrapper())]}
         report = self._run_bounded(payload, bound)
         assert report.reads == ()  # the in-list valid call never acquires
         assert [(u.location, u.limitation) for u in report.unpaired] == [

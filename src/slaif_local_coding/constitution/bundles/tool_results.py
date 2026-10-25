@@ -1592,11 +1592,7 @@ def observe_reads(
             if isinstance(tool_calls, list) and len(tool_calls) > bounds.max_items:
                 return (
                     (),
-                    (
-                        UnpairedRecord(
-                            location="$", call_id="", limitation=Limitation.OVER_BOUND
-                        ),
-                    ),
+                    (UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),),
                 )
 
     # Complete-inventory preflight: the declared limits are decided

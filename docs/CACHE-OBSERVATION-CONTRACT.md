@@ -1151,8 +1151,14 @@ no total-RSS guarantee).  The public regression proof
 selected-domain scoping, mixed over-bound, malformed nested types,
 non-assistant uninspected, per-container-not-total) is earned in
 `tests/test_bundle_d10_matrix.py::TestNestedScanBounds`.  (2)
-Disposable-CI containment capability (a D10 prerequisite, still
-`NOT RUN`): `scripts/cache_native_containment_probe.py` (an
+Disposable-CI containment capability (a D10 prerequisite; the
+first remote job run at the previously published head `ec08a1b`
+failed `runtime-invalid` and this round corrects the runtime-shape
+handling — the capability qualification is `PENDING` strategic
+review, with the exact execution outcomes/SHAs in the immutable
+round report
+`oap/reports/017-p-observation-native-fixture-prerequisites.md`):
+`scripts/cache_native_containment_probe.py` (an
 in-container stdlib probe emitting a closed JSON pass record —
 dedicated nonroot uid/gid with no supplementary groups, all-zero
 capability fields, no-new-privs, seccomp filter mode, private
@@ -1187,7 +1193,8 @@ result-checked `rmi` plus an authoritative absence query; cleanup
 failures stay visible even when a primary check also failed), and a
 fresh owned 0700 scratch root validated as-given (no symlink or
 `..` alias laundering of a pre-existing target).  Forty-two public
-orchestration tests (`tests/test_cache_native_containment_ci.py` —
+orchestration tests, now Sixty-one
+(`tests/test_cache_native_containment_ci.py` —
 fake docker emulation plus tiny real owned children only; no docker
 daemon, namespace or syscall probe) and the new
 `cache-native-containment` CI job (disposable `ubuntu-latest`

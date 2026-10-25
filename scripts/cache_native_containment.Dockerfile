@@ -16,4 +16,8 @@ RUN groupadd --gid "${SLAIF_PROBE_GID}" --system slaifprobe \
 
 COPY cache_native_containment_probe.py /opt/slaif-containment-probe.py
 USER slaifprobe
+# Backstop for the probe's flushed-record law: non-TTY stdout is
+# block-buffered, so the exact record must reach the pipe before the
+# finite hang hold (the probe also flushes explicitly).
+ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["/usr/local/bin/python3", "/opt/slaif-containment-probe.py"]

@@ -14,8 +14,10 @@ identities for PID/mount/IPC/UTS/net/user/cgroup compared against
 the disposable parent's identities (supplied as synthetic constants
 by the runner), the private loopback, absent parent sentinels,
 read-only root versus owned writable tmpfs roots, the exact cgroup
-memory/PID limits, and empirical keyring-syscall denial with
-harmless invalid-argument probes.
+memory/PID limits, the measured swap allowance with its closed
+source enum (a missing or underivable measurement is never a
+measured zero), and empirical keyring-syscall denial with harmless
+invalid-argument probes.
 
 Keyring probe law: the reviewed x86_64 ABI
 (arch/x86/include/asm/unistd_64.h, verified against
@@ -42,6 +44,11 @@ PID1 termination, the descendant and the exact container gone
 afterward, and the unrelated parent-owned sentinel surviving.
 Every deadline is finite: loss of the host controller cannot
 leave an indefinitely running owned container.
+The pass record is written through ``emit_record``, which flushes
+the exact line to the pipe BEFORE the finite hold begins: non-TTY
+stdout is block-buffered, so an unflushed record would remain
+inside PID1 until the host kill and the host's bounded partial
+capture would see nothing.
 
 The probe prints exactly ONE closed-schema JSON line (a pass record,
 or a fail record naming the failed check enums) and exits 0 (pass),
@@ -284,6 +291,56 @@ _DESCENDANT_TOKEN_RE = re.compile(r"^[0-9a-f]{32}$")
 _HANG_DESCENDANTS: list[subprocess.Popen[bytes]] = []
 
 
+#: cgroup v1 controllers surface the kernel's unlimited page-counter
+#: limit (PAGE_COUNTER_MAX, 0x7FFFFFFFFFFFF000) as this value
+#: instead of the string "max".
+_V1_UNLIMITED = 0x7FFFFFFFFFFFF000  # 9223372036854771712
+
+
+def emit_record(record: dict[str, object], *, sort_keys: bool = False) -> str:
+    """Write the exact closed record line and flush it to the pipe.
+
+    The hang scenario keeps PID1 alive for a finite hold after
+    emission, so the record must be flushed before the hold begins
+    (see the module lifecycle law).  Returns the exact line.
+    """
+    line = json.dumps(record, sort_keys=sort_keys) + "\n"
+    sys.stdout.write(line)
+    sys.stdout.flush()
+    return line
+
+
+def _swap_limit(
+    cgroup_version: str, memory_raw: str | None, swap_raw: str | None
+) -> tuple[str, int]:
+    """Derive the measured effective swap allowance from raw cgroup facts.
+
+    Returns ``(source, allowance)`` where source is the closed enum
+    ``v2-swap-max`` | ``v1-memsw-combined`` | ``missing`` and
+    allowance is -1 for a measured UNLIMITED value or a finite byte
+    count.  v2's ``memory.swap.max`` is the swap-only limit; v1's
+    ``memory.memsw.limit_in_bytes`` is the COMBINED memory+swap
+    limit, so the v1 allowance is memsw minus the memory limit.
+    A missing or underivable measurement is NEVER a measured zero:
+    it reports source ``missing`` and the caller's swap_disabled
+    check fails closed on it.
+    """
+    if cgroup_version == "v2":
+        if swap_raw is None:
+            return "missing", 0
+        if swap_raw == "max":
+            return "v2-swap-max", -1
+        return "v2-swap-max", int(swap_raw)
+    if swap_raw is None:
+        return "missing", 0
+    memsw = _V1_UNLIMITED if swap_raw == "max" else int(swap_raw)
+    if memory_raw is None or memory_raw == "max" or int(memory_raw) >= _V1_UNLIMITED:
+        return "missing", 0  # not derivable: fail closed
+    if memsw >= _V1_UNLIMITED:
+        return "v1-memsw-combined", -1  # measured unlimited
+    return "v1-memsw-combined", max(0, memsw - int(memory_raw))
+
+
 def _spawn_hang_descendant(token: str) -> int:
     if not _DESCENDANT_TOKEN_RE.fullmatch(token):
         raise ProbeError("invalid-descendant-token")
@@ -299,11 +356,11 @@ def _spawn_hang_descendant(token: str) -> int:
 def main() -> int:
     mode = os.environ.get(PROBE_MODE_ENV, _MODE_SUCCESS)
     if mode not in _MODES:
-        print(json.dumps({"schema": SCHEMA, "status": "fail", "failed": ["invalid_mode"]}))
+        emit_record({"schema": SCHEMA, "status": "fail", "failed": ["invalid_mode"]})
         return 1
     uname = platform.uname()
     if uname.system != "Linux" or uname.machine != "x86_64":
-        print(json.dumps({"schema": SCHEMA, "status": "fail", "failed": ["platform"]}))
+        emit_record({"schema": SCHEMA, "status": "fail", "failed": ["platform"]})
         return 1
 
     checks: dict[str, bool] = {}
@@ -366,18 +423,34 @@ def main() -> int:
 
         cgroup_version = "v2" if os.path.isfile("/sys/fs/cgroup/memory.max") else "v1"
         memory_raw = _cgroup_value("memory.max") or _cgroup_value("memory.limit_in_bytes")
-        swap_raw = _cgroup_value("memory.swap.max") or _cgroup_value("memory.memsw.limit_in_bytes")
+        # The swap fact comes from the controller matching the
+        # detected version (no cross-version fallback): see
+        # ``_swap_limit`` for the v2 swap-only versus v1 combined
+        # memsw distinction.
+        swap_raw = (
+            _cgroup_value("memory.swap.max")
+            if cgroup_version == "v2"
+            else _cgroup_value("memory.memsw.limit_in_bytes")
+        )
         pids_raw = _cgroup_value("pids.max")
         measured["memory_limit_bytes"] = (
             int(memory_raw) if memory_raw and memory_raw != "max" else 0
         )
-        measured["swap_limit_bytes"] = int(swap_raw) if swap_raw and swap_raw != "max" else 0
+        measured["swap_limit_source"], measured["swap_limit_bytes"] = _swap_limit(
+            cgroup_version, memory_raw, swap_raw
+        )
         measured["pids_limit"] = int(pids_raw) if pids_raw and pids_raw != "max" else 0
         storage_bytes, counted_mounts = _writable_tmpfs_bytes(writable_mounts)
         measured["writable_storage_bytes"] = storage_bytes
         measured["writable_mount_count"] = counted_mounts
         checks["memory_limit_exact"] = measured["memory_limit_bytes"] == expected_memory
-        checks["swap_disabled"] = measured["swap_limit_bytes"] == 0
+        # A missing or underivable swap measurement is NOT a measured
+        # zero: the check passes only on a measured finite value of
+        # exactly 0 from a source matching the cgroup version.
+        checks["swap_disabled"] = (
+            measured["swap_limit_source"] in ("v2-swap-max", "v1-memsw-combined")
+            and measured["swap_limit_bytes"] == 0
+        )
         checks["pids_limit_exact"] = measured["pids_limit"] == expected_pids
         checks["writable_storage_limit_exact"] = measured[
             "writable_storage_bytes"
@@ -424,12 +497,12 @@ def main() -> int:
         with open(PROBE_PATH, "rb") as handle:
             probe_digest = hashlib.sha256(handle.read()).hexdigest()
     except Exception:
-        print(json.dumps({"schema": SCHEMA, "status": "fail", "failed": ["internal"]}))
+        emit_record({"schema": SCHEMA, "status": "fail", "failed": ["internal"]})
         return 1
 
     failed = sorted(name for name, ok in checks.items() if not ok)
     if failed:
-        print(json.dumps({"schema": SCHEMA, "status": "fail", "failed": failed}))
+        emit_record({"schema": SCHEMA, "status": "fail", "failed": failed})
         return 3 if mode == _MODE_FAIL else 1
 
     record = {
@@ -453,7 +526,7 @@ def main() -> int:
         # it kills the registered container.
         record["descendant_pid"] = _spawn_hang_descendant(descendant_token)
         record["descendant_token"] = descendant_token
-    print(json.dumps(record, sort_keys=True))
+    emit_record(record, sort_keys=True)
     if mode == _MODE_FAIL:
         return 3
     if mode == _MODE_HANG:

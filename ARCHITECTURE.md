@@ -56,7 +56,18 @@ the D07 literal-loop slice, and the public D10 composition matrix
 with the pure D09 unsupported/partial negative matrix (rounds 017-b
 through 017-p corrected that surface's bounded proof findings,
 pairing identity, inventory boundaries, private-ID
-representations and the per-nested-container scan guard); the offline, opt-in,
+representations and the per-nested-container scan guard; 017-p
+also lands a Python-only disposable-CI containment capability
+(`scripts/cache_native_containment_probe.py` plus
+`scripts/cache_native_containment_ci.py`, with the
+`cache-native-containment` job as the remote proof): digest-pinned
+fixture image under explicit confinement, ordered token-bound
+parent-death proof, bounded capture, verified image removal —
+the first remote run at the previously published head `ec08a1b`
+failed `runtime-invalid` and this round corrects the runtime-shape
+handling, so the capability qualification is `PENDING` strategic
+review (capability proof only: no genuine client/model/GPU/gateway
+activity); the offline, opt-in,
 fail-closed process-capture
 utility (`scripts/real_client_capture.py`) exists for independent
 strategic review — inert (not active in the adapter), hard-capped,

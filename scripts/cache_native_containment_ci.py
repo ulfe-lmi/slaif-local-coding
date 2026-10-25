@@ -160,6 +160,7 @@ EXPECTED_CHECKS = frozenset(
 EXPECTED_MEASURED = (
     "memory_limit_bytes",
     "swap_limit_bytes",
+    "swap_limit_source",
     "pids_limit",
     "writable_storage_bytes",
     "writable_mount_count",
@@ -304,6 +305,15 @@ def validate_probe_record(
         value = measured[name]
         if not isinstance(value, int) or isinstance(value, bool) or value != expected:
             raise ContainmentError(f"probe-measured-mismatch:{name}")
+    # The swap fact must be a MEASURED finite value whose source
+    # matches the record's cgroup version: v2 swap-only
+    # (memory.swap.max) or v1 combined memsw (memsw - memory).  A
+    # missing/underivable measurement is a fixed failure here, never
+    # a measured zero.
+    swap_source = measured["swap_limit_source"]
+    expected_swap_source = "v2-swap-max" if data["cgroup_version"] == "v2" else "v1-memsw-combined"
+    if not isinstance(swap_source, str) or swap_source != expected_swap_source:
+        raise ContainmentError("probe-measured-mismatch:swap_limit_source")
     if expected_mode == "hang":
         pid = data["descendant_pid"]
         if not isinstance(pid, int) or isinstance(pid, bool) or pid < 1:
@@ -817,15 +827,28 @@ def run(
     except ValueError:
         raise ContainmentError("runtime-invalid") from None
     runtime_entry = runtimes.get(default_runtime) if isinstance(runtimes, dict) else None
-    runtime_path = runtime_entry.get("Path") if isinstance(runtime_entry, dict) else None
-    if (
-        not isinstance(runtime_path, str)
-        or not _RUNTIME_PATH_RE.fullmatch(runtime_path)
-        or ".." in runtime_path.split("/")
+    # Moby serializes Runtimes with the lowercase ``path`` field
+    # (api/types/system/runtime.go, omitempty).  daemon/info_unix.go's
+    # fillPlatformInfo fills it from daemon/runtime_unix.go's
+    # stockRuntimes(), where the stock runc entry's path is the bare
+    # name "runc" (defaultRuntimeName): the REAL stock shape is a
+    # bare token, not an absolute path.  An empty path (other
+    # entries) is likewise resolved through the standard PATH.  A
+    # non-empty daemon-declared absolute path is shape-validated
+    # ONLY and never executed; anything else fails closed.
+    runtime_path = runtime_entry.get("path") if isinstance(runtime_entry, dict) else None
+    if not isinstance(runtime_path, str):
+        raise ContainmentError("runtime-invalid")
+    if runtime_path and not (
+        _RUNTIME_NAME_RE.fullmatch(runtime_path)
+        or (_RUNTIME_PATH_RE.fullmatch(runtime_path) and ".." not in runtime_path.split("/"))
     ):
         raise ContainmentError("runtime-invalid")
+    # The version query is bound to the reviewed bare name (grammar
+    # validated above) resolved through the runner's standard PATH —
+    # a daemon-supplied executable path is never executed.
     version_line = (
-        _query(executor, [runtime_path, "--version"]).decode("ascii", "replace").splitlines()
+        _query(executor, [default_runtime, "--version"]).decode("ascii", "replace").splitlines()
     )
     version_match = _RUNTIME_VERSION_RE.fullmatch(version_line[0].strip() if version_line else "")
     if version_match is None or version_match.group("name") != default_runtime:

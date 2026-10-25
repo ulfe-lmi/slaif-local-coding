@@ -388,8 +388,14 @@ proof in `tests/test_bundle_d10_matrix.py::TestNestedScanBounds`
 (at-limit useful read, one-over with/without a valid call,
 selected-domain scoping, mixed over-bound, malformed nested types,
 non-assistant uninspected, per-container-not-total).  Second, the
-disposable-CI containment capability (D10 prerequisite; still `NOT
-RUN`): `scripts/cache_native_containment_probe.py` (in-container
+disposable-CI containment capability (D10 prerequisite; the first
+remote job run at the previously published head `ec08a1b` failed
+`runtime-invalid` and this round corrects the runtime-shape
+handling — the capability qualification is `PENDING` strategic
+review, with the exact execution outcomes/SHAs in the immutable
+round report
+`oap/reports/017-p-observation-native-fixture-prerequisites.md`):
+`scripts/cache_native_containment_probe.py` (in-container
 stdlib probe, closed JSON pass record: dedicated nonroot identity,
 all-zero capabilities, no-new-privs, seccomp filter mode, private
 pid/mnt/ipc/uts/net against the shared user namespace, parent
@@ -418,7 +424,7 @@ state, never conflated with absence; cleanup failures stay visible
 even when a primary check also failed) and a fresh owned 0700
 scratch root validated as-given (no symlink or `..` alias
 laundering of a pre-existing target).  The public orchestration
-suite `tests/test_cache_native_containment_ci.py` (42 tests —
+suite `tests/test_cache_native_containment_ci.py` (61 tests —
 fake docker emulation plus tiny real owned children only; no docker
 daemon, namespace or syscall probe) covers these contracts locally;
 the remote proof is the `cache-native-containment` job on a

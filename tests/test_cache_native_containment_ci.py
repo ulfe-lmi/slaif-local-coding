@@ -27,6 +27,7 @@ import io
 import json
 import os
 import re
+import select
 import shutil
 import stat
 import subprocess
@@ -35,6 +36,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -50,8 +52,26 @@ cci = importlib.util.module_from_spec(spec)
 sys.modules["cache_native_containment_ci"] = cci
 spec.loader.exec_module(cci)
 
+# The probe is imported (never executed) for the pure controls over
+# its emission and swap-derivation code.
+probe_spec = importlib.util.spec_from_file_location("slaif_containment_probe", PROBE)
+assert probe_spec is not None and probe_spec.loader is not None
+probe = importlib.util.module_from_spec(probe_spec)
+sys.modules["slaif_containment_probe"] = probe
+probe_spec.loader.exec_module(probe)
 
-def _valid_probe_record(digest: str, mode: str, token: str | None = None) -> dict:
+
+@dataclass(frozen=True)
+class ExecResult:
+    """Closed bounded result, structurally identical to the runner's
+    ``ExecResult`` dataclass (the runner module is loaded from a file
+    path and is not visible to mypy)."""
+
+    returncode: int
+    output: bytes
+
+
+def _valid_probe_record(digest: str, mode: str, token: str | None = None) -> dict[str, object]:
     record = {
         "schema": cci.PROBE_SCHEMA,
         "status": "pass",
@@ -63,7 +83,12 @@ def _valid_probe_record(digest: str, mode: str, token: str | None = None) -> dic
         "kernel_release": "6.8.0-100-generic",
         "probe_source_sha256": digest,
         "checks": {name: True for name in cci.EXPECTED_CHECKS},
-        "measured": dict(cci._EXPECTED_MEASURED_VALUES),
+        "measured": {
+            **dict(cci._EXPECTED_MEASURED_VALUES),
+            # Measured finite zero from the v2 swap-only controller,
+            # matching the record's cgroup_version above.
+            "swap_limit_source": "v2-swap-max",
+        },
     }
     if mode == "hang":
         # Live owned descendant facts: container-internal pid plus the
@@ -73,7 +98,7 @@ def _valid_probe_record(digest: str, mode: str, token: str | None = None) -> dic
     return record
 
 
-def _host_config(exit_code: int) -> dict:
+def _host_config(exit_code: int) -> dict[str, object]:
     return {
         "NetworkMode": "none",
         "ReadonlyRootfs": True,
@@ -100,8 +125,6 @@ class FakeDocker:
     assumptions.
     """
 
-    RUNTIME_PATH = "/usr/bin/runc"
-
     def __init__(
         self,
         probe_digest: str,
@@ -109,7 +132,13 @@ class FakeDocker:
         *,
         default_runtime: str = "runc",
         runtime_version_line: str = "runc version 1.2.3",
+        # Real Moby shape (daemon/runtime_unix.go stockRuntimes via
+        # daemon/info_unix.go fillPlatformInfo): the stock runc
+        # entry's lowercase ``path`` is the bare name "runc"; other
+        # entries may carry an empty path or an absolute path.
+        runtimes_path: str = "runc",
         runtimes_entry: bool = True,
+        runtimes_payload: dict[str, object] | None = None,
         container_runtime: str = "runc",
         rmi_rc: int = 0,
         after_rmi_state: str = "absent",
@@ -126,6 +155,8 @@ class FakeDocker:
         self.hang = hang
         self.default_runtime = default_runtime
         self.runtime_version_line = runtime_version_line
+        self.runtimes_path = runtimes_path
+        self.runtimes_payload = runtimes_payload
         self.runtimes_entry = runtimes_entry
         self.container_runtime = container_runtime
         self.rmi_rc = rmi_rc
@@ -151,65 +182,65 @@ class FakeDocker:
     def _mode_of(self, container_id: str) -> str:
         return self._name_of(container_id).split("-017p-")[1].split("-")[0]
 
-    def __call__(self, argv: list[str], timeout: float) -> cci.ExecResult:
+    def __call__(self, argv: list[str], timeout: float) -> ExecResult:
         self.calls.append(list(argv))
-        if argv[0] == self.RUNTIME_PATH:
+        # The runner's only non-docker query is the bare reviewed
+        # name: a daemon-declared path argv would fall through to the
+        # closed-surface assertion below and fail the test loudly.
+        if argv[0] == self.default_runtime:
             assert argv[1:] == ["--version"]
-            return cci.ExecResult(0, (self.runtime_version_line + "\nspec: 1.0.2-dev\n").encode())
+            return ExecResult(0, (self.runtime_version_line + "\nspec: 1.0.2-dev\n").encode())
         assert argv[0] == "docker"
         cmd = argv[1:]
         sub = cmd[0]
         if sub == "version":
-            return cci.ExecResult(0, b"27.1.1\n")
+            return ExecResult(0, b"27.1.1\n")
         if sub == "info":
             fmt = cmd[cmd.index("--format") + 1]
             if fmt == "{{range .SecurityOptions}}{{.}} {{end}}":
-                return cci.ExecResult(0, b"name=seccomp name=cgroupns\n")
+                return ExecResult(0, b"name=seccomp name=cgroupns\n")
             if fmt == "{{.DefaultRuntime}}":
-                return cci.ExecResult(0, (self.default_runtime + "\n").encode())
+                return ExecResult(0, (self.default_runtime + "\n").encode())
             if fmt == "{{json .Runtimes}}":
-                if self.runtimes_entry:
-                    payload = {
-                        self.default_runtime: {
-                            "Path": self.RUNTIME_PATH,
-                            "Args": [],
-                        }
-                    }
+                if self.runtimes_payload is not None:
+                    payload = self.runtimes_payload
+                elif self.runtimes_entry:
+                    payload = {self.default_runtime: {"path": self.runtimes_path}}
                 else:
-                    payload = {"other": {"Path": "/usr/bin/other", "Args": []}}
-                return cci.ExecResult(0, (json.dumps(payload) + "\n").encode())
+                    payload = {"other": {"path": "/usr/bin/other"}}
+                return ExecResult(0, (json.dumps(payload) + "\n").encode())
             raise AssertionError(f"unexpected info format: {fmt}")
         if sub == "pull":
-            return cci.ExecResult(0, b"pulled\n")
+            return ExecResult(0, b"pulled\n")
         if sub == "build":
-            return cci.ExecResult(0, b"built\n")
+            return ExecResult(0, b"built\n")
         if sub == "inspect":
             fmt = cmd[cmd.index("--format") + 1]
             target = cmd[-1]
             if fmt == "{{.Id}}" and target == cci.IMAGE_NAME:
-                return cci.ExecResult(0, (self.image_id + "\n").encode())
+                return ExecResult(0, (self.image_id + "\n").encode())
             if fmt == "{{.HostConfig.Runtime}}":
-                return cci.ExecResult(0, (self.container_runtime + "\n").encode())
+                return ExecResult(0, (self.container_runtime + "\n").encode())
             if fmt == "{{json .HostConfig}}":
                 exit_code = 0 if self._mode_of(target) == "success" else 3
-                return cci.ExecResult(0, (json.dumps(_host_config(exit_code)) + "\n").encode())
+                return ExecResult(0, (json.dumps(_host_config(exit_code)) + "\n").encode())
             if fmt == "{{json .Config}}":
-                return cci.ExecResult(0, b'{"User": "21001:21001"}\n')
+                return ExecResult(0, b'{"User": "21001:21001"}\n')
             if fmt == "{{json .State}}":
                 exit_code = 0 if self._mode_of(target) == "success" else 3
                 state = {"ExitCode": exit_code, "Running": False}
-                return cci.ExecResult(0, (json.dumps(state) + "\n").encode())
+                return ExecResult(0, (json.dumps(state) + "\n").encode())
             raise AssertionError(f"unexpected inspect format: {fmt}")
         if sub == "create":
             name = cmd[cmd.index("--name") + 1]
             if name in self.by_name:
-                return cci.ExecResult(1, b"name already in use\n")
+                return ExecResult(1, b"name already in use\n")
             cid = self._new_cid()
             self.by_name[name] = cid
             for item in cmd:
                 if item.startswith("SLAIF_PROBE_DESCENDANT_TOKEN="):
                     self.seen_tokens[name] = item.split("=", 1)[1]
-            return cci.ExecResult(0, (cid + "\n").encode())
+            return ExecResult(0, (cid + "\n").encode())
         if sub == "start":
             cid = cmd[cmd.index("-a") + 1] if "-a" in cmd else cmd[-1]
             mode = self._mode_of(cid)
@@ -227,49 +258,49 @@ class FakeDocker:
                 raise exc
             record = _valid_probe_record(self.probe_digest, mode)
             line = (json.dumps(record) + "\n").encode()
-            return cci.ExecResult(0 if mode == "success" else 3, line)
+            return ExecResult(0 if mode == "success" else 3, line)
         if sub == "ps":
             flt = cmd[cmd.index("--filter") + 1]
             if flt.startswith("name="):
-                cid = self.by_name.get(flt[5:])
-                if cid is not None and cid not in self.removed:
-                    return cci.ExecResult(0, (cid + "\n").encode())
-                return cci.ExecResult(0, b"")
+                found = self.by_name.get(flt[5:])
+                if found is not None and found not in self.removed:
+                    return ExecResult(0, (found + "\n").encode())
+                return ExecResult(0, b"")
             if flt.startswith("id="):
                 target = flt[3:]
                 if target in self.by_name.values() and target not in self.removed:
-                    return cci.ExecResult(0, (target + "\n").encode())
-                return cci.ExecResult(0, b"")
+                    return ExecResult(0, (target + "\n").encode())
+                return ExecResult(0, b"")
             if flt.startswith("ancestor="):
                 leftovers = [c for c in self.by_name.values() if c not in self.removed]
-                return cci.ExecResult(0, "".join(c + "\n" for c in leftovers).encode())
+                return ExecResult(0, "".join(c + "\n" for c in leftovers).encode())
             raise AssertionError(f"unexpected filter: {flt}")
         if sub == "rm":
             cid = cmd[2]
             if cid in self.removed:
-                return cci.ExecResult(1, b"no such container\n")
+                return ExecResult(1, b"no such container\n")
             if self._mode_of(cid) == "hang" and self.on_hang_rm is not None:
                 # Model the daemon killing the container's PID1 + group:
                 # the test-owned real descendant is killed and reaped
                 # before rm returns, so post-termination scans are exact.
                 self.on_hang_rm()
             self.removed.add(cid)
-            return cci.ExecResult(0, (cid + "\n").encode())
+            return ExecResult(0, (cid + "\n").encode())
         if sub == "rmi":
             if self.rmi_rc == 0 and self.after_rmi_state == "absent":
                 self.image_removed = True
-            return cci.ExecResult(self.rmi_rc, (self.image_id + "\n").encode())
+            return ExecResult(self.rmi_rc, (self.image_id + "\n").encode())
         if sub == "image":
             assert cmd[1] == "inspect"
             if self.after_rmi_state == "present":
-                return cci.ExecResult(0, b"[]\n")
+                return ExecResult(0, b"[]\n")
             if self.after_rmi_state == "query-failed":
-                return cci.ExecResult(
+                return ExecResult(
                     1,
                     b"Cannot connect to the Docker daemon at "
                     b"unix:///var/run/docker.sock. Is the docker daemon running?\n",
                 )
-            return cci.ExecResult(1, b"Error: No such object: " + self.image_id.encode() + b"\n")
+            return ExecResult(1, b"Error: No such object: " + self.image_id.encode() + b"\n")
         raise AssertionError(f"unexpected docker command: {cmd}")
 
 
@@ -517,34 +548,34 @@ def test_build_run_conf_argv_confinement_surface() -> None:
 
 
 def test_cleanup_distinguishes_query_failure_and_absence() -> None:
-    def query_failed(argv: list[str], timeout: float) -> cci.ExecResult:
-        return cci.ExecResult(1, b"")
+    def query_failed(argv: list[str], timeout: float) -> ExecResult:
+        return ExecResult(1, b"")
 
     with pytest.raises(cci.ContainmentError, match="cleanup-query-failed"):
         cci.cleanup_container(query_failed, "c" * 64)
 
-    def rm_fails(argv: list[str], timeout: float) -> cci.ExecResult:
+    def rm_fails(argv: list[str], timeout: float) -> ExecResult:
         if argv[1] == "ps":
-            return cci.ExecResult(0, b"c" * 64 + b"\n")
-        return cci.ExecResult(1, b"denied\n")
+            return ExecResult(0, b"c" * 64 + b"\n")
+        return ExecResult(1, b"denied\n")
 
     with pytest.raises(cci.ContainmentError, match="cleanup-failed"):
         cci.cleanup_container(rm_fails, "c" * 64)
 
-    def absent_noop(argv: list[str], timeout: float) -> cci.ExecResult:
-        return cci.ExecResult(0, b"")
+    def absent_noop(argv: list[str], timeout: float) -> ExecResult:
+        return ExecResult(0, b"")
 
     cci.cleanup_container(absent_noop, "c" * 64)  # verified absence: no-op
 
 
 def test_leftover_detection_semantics() -> None:
-    def clean(argv: list[str], timeout: float) -> cci.ExecResult:
-        return cci.ExecResult(0, b"")
+    def clean(argv: list[str], timeout: float) -> ExecResult:
+        return ExecResult(0, b"")
 
     cci.verify_no_leftovers(clean, cci.IMAGE_NAME)
 
-    def leftover(argv: list[str], timeout: float) -> cci.ExecResult:
-        return cci.ExecResult(0, b"deadbeef\n")
+    def leftover(argv: list[str], timeout: float) -> ExecResult:
+        return ExecResult(0, b"deadbeef\n")
 
     with pytest.raises(cci.ContainmentError, match="leftover-container"):
         cci.verify_no_leftovers(leftover, cci.IMAGE_NAME)
@@ -554,7 +585,7 @@ def test_leftover_detection_semantics() -> None:
 
 
 def test_main_refuses_non_ci_context(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     rc = cci.main(["--repo", str(tmp_path), "--work", str(tmp_path / "w")])
@@ -564,7 +595,7 @@ def test_main_refuses_non_ci_context(
 
 
 def test_main_refuses_non_hosted_ci_context(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # GITHUB_ACTIONS alone is not the hosted-disposable claim:
     # self-hosted runners (or any other environment value) are refused.
@@ -667,7 +698,7 @@ def test_run_dockerfile_base_must_match_repo(tmp_path: Path) -> None:
 # -- full orchestration with fake docker ---------------------------------------
 
 
-def _spawn_run_descendant(token: str) -> subprocess.Popen:
+def _spawn_run_descendant(token: str) -> subprocess.Popen[bytes]:
     """A real tiny owned descendant carrying the token-bound marker.
 
     Waits until it is observable in /proc (uid + exact token) so the
@@ -691,7 +722,7 @@ def _spawn_run_descendant(token: str) -> subprocess.Popen:
     raise AssertionError("descendant child not observable in time")
 
 
-def _kill_child(child: subprocess.Popen) -> None:
+def _kill_child(child: subprocess.Popen[bytes]) -> None:
     try:
         child.kill()
         child.wait(timeout=5)
@@ -715,7 +746,10 @@ def test_run_full_success_fake_docker(tmp_path: Path) -> None:
     assert summary["image_removed"] is True
     assert summary["descendant_terminated"] is True
     assert summary["checks"] == {name: True for name in cci.EXPECTED_CHECKS}
-    assert summary["measured"] == dict(cci._EXPECTED_MEASURED_VALUES)
+    assert summary["measured"] == {
+        **dict(cci._EXPECTED_MEASURED_VALUES),
+        "swap_limit_source": "v2-swap-max",
+    }
     assert summary["python_version"] == "3.12.12"
     assert summary["kernel_release"] == "6.8.0-100-generic"
     assert summary["engine_version"] == "27.1.1"
@@ -872,14 +906,22 @@ def test_run_image_absence_query_failure_fails(tmp_path: Path) -> None:
 def test_run_runtime_identity_failures(tmp_path: Path) -> None:
     repo = _make_repo(tmp_path)
     digest = hashlib.sha256((repo / "scripts" / PROBE.name).read_bytes()).hexdigest()
-    cases = (
+    cases: tuple[tuple[dict[str, object], str], ...] = (
         ({"runtime_version_line": "runc version not-a-version"}, "runtime-version-invalid"),
         ({"runtime_version_line": "crun version 1.18"}, "runtime-version-invalid"),
         ({"runtimes_entry": False}, "runtime-invalid"),
         ({"default_runtime": "Runc"}, "runtime-invalid"),
+        # The real Moby field is lowercase ``path`` (stock value: the
+        # bare name "runc"): the fabricated uppercase "Path" shape and
+        # any non-bare/non-absolute shape must fail closed.
+        ({"runtimes_payload": {"runc": {"Path": "runc"}}}, "runtime-invalid"),
+        ({"runtimes_payload": {"runc": {}}}, "runtime-invalid"),
+        ({"runtimes_payload": {"runc": {"path": 5}}}, "runtime-invalid"),
+        ({"runtimes_payload": {"runc": {"path": "usr/bin/runc"}}}, "runtime-invalid"),
+        ({"runtimes_payload": {"runc": {"path": "/usr/../bin/runc"}}}, "runtime-invalid"),
     )
     for index, (kwargs, reason) in enumerate(cases):
-        fake = FakeDocker(digest, **kwargs)
+        fake = FakeDocker(digest, **kwargs)  # type: ignore[arg-type]
         with pytest.raises(cci.ContainmentError, match=reason):
             cci.run(repo, tmp_path / f"work-runtime-{index}", fake.__call__)
 
@@ -890,3 +932,142 @@ def test_run_container_runtime_mismatch_fails(tmp_path: Path) -> None:
     fake = FakeDocker(digest, container_runtime="crun")
     with pytest.raises(cci.ContainmentError, match="inspect-mismatch:Runtime"):
         cci.run(repo, tmp_path / "work", fake.__call__)
+
+
+@pytest.mark.parametrize(
+    "runtimes_path",
+    ["", "/usr/bin/runc"],
+    ids=["empty-path-bare-name", "absolute-path-shape-only"],
+)
+def test_run_runtime_non_stock_path_shapes_accepted(tmp_path: Path, runtimes_path: str) -> None:
+    # Both real supported shapes beyond the stock bare "runc": an
+    # empty path and a non-empty absolute path.  The absolute path is
+    # shape-validated ONLY and never executed: the version query
+    # stays the bare reviewed name through the standard PATH (a path
+    # argv would trip the fake's closed-surface assertion).
+    repo = _make_repo(tmp_path)
+    digest = hashlib.sha256((repo / "scripts" / PROBE.name).read_bytes()).hexdigest()
+    token = uuid.uuid4().hex
+    child = _spawn_run_descendant(token)
+    fake = FakeDocker(digest, runtimes_path=runtimes_path, on_hang_rm=lambda: _kill_child(child))
+    try:
+        summary = cci.run(
+            repo, tmp_path / "work", fake.__call__, descendant_uid=os.getuid(), hang_token=token
+        )
+    finally:
+        _kill_child(child)
+    assert summary["runtime_name"] == "runc"
+    assert summary["runtime_version"] == "1.2.3"
+    assert [c for c in fake.calls if c and c[-1] == "--version"] == [["runc", "--version"]]
+
+
+# -- probe pure controls: flush-before-hold and measured swap ----------
+
+
+@pytest.mark.parametrize(
+    ("version", "memory_raw", "swap_raw", "expected"),
+    [
+        ("v2", "536870912", None, ("missing", 0)),
+        ("v2", "536870912", "0", ("v2-swap-max", 0)),
+        ("v2", "536870912", "1048576", ("v2-swap-max", 1048576)),
+        ("v2", "536870912", "max", ("v2-swap-max", -1)),
+        ("v1", "536870912", None, ("missing", 0)),
+        ("v1", "536870912", "536870912", ("v1-memsw-combined", 0)),
+        ("v1", "536870912", "1073741824", ("v1-memsw-combined", 536870912)),
+        ("v1", "536870912", "9223372036854771712", ("v1-memsw-combined", -1)),
+        ("v1", "9223372036854771712", "1073741824", ("missing", 0)),
+        ("v1", "max", "1073741824", ("missing", 0)),
+    ],
+    ids=[
+        "v2-missing-is-not-zero",
+        "v2-measured-zero",
+        "v2-positive",
+        "v2-unlimited",
+        "v1-missing-is-not-zero",
+        "v1-combined-equals-memory",
+        "v1-combined-above-memory",
+        "v1-combined-unlimited",
+        "v1-memory-unlimited-not-derivable",
+        "v1-memory-max-not-derivable",
+    ],
+)
+def test_probe_swap_limit_derivation(
+    version: str, memory_raw: str | None, swap_raw: str | None, expected: tuple[str, int]
+) -> None:
+    # A missing or underivable measurement is never a measured zero
+    # that could satisfy swap_disabled; the closed source enum names
+    # the controller the value came from (v2 swap-only versus v1
+    # combined memsw).
+    assert probe._swap_limit(version, memory_raw, swap_raw) == expected
+
+
+@pytest.mark.parametrize(
+    ("cgroup_version", "source"),
+    [
+        ("v2", "v1-memsw-combined"),  # version/source mismatch
+        ("v2", "missing"),  # not measured: never a pass
+        ("v1", "v2-swap-max"),
+        ("v1", "missing"),
+        ("v2", 0),  # non-string source
+    ],
+)
+def test_validate_probe_record_swap_source_closed(cgroup_version: str, source: object) -> None:
+    record = _valid_probe_record("c" * 64, "success")
+    measured: dict[str, object] = dict(cci._EXPECTED_MEASURED_VALUES)
+    measured["swap_limit_source"] = source
+    record["cgroup_version"] = cgroup_version
+    record["measured"] = measured
+    with pytest.raises(cci.ContainmentError, match="probe-measured-mismatch:swap_limit_source"):
+        cci.validate_probe_record(record, "c" * 64, "success")
+
+
+def test_validate_probe_record_v1_measured_swap_accepted() -> None:
+    # v1 keeps its correct combined-memsw derivation when the source
+    # matches the record's cgroup version and the measured allowance
+    # is a finite zero.
+    record = _valid_probe_record("c" * 64, "success")
+    measured: dict[str, object] = dict(cci._EXPECTED_MEASURED_VALUES)
+    measured["swap_limit_source"] = "v1-memsw-combined"
+    record["cgroup_version"] = "v1"
+    record["measured"] = measured
+    assert cci.validate_probe_record(record, "c" * 64, "success") is record
+
+
+def test_probe_emit_publishes_record_before_child_exit() -> None:
+    # The probe's OWN emission path through a real block-buffered
+    # stdout pipe: the parent must observe the exact complete record
+    # line while the child is still alive (its finite hold after
+    # emission) — publication strictly before exit, which is what
+    # the host-timeout partial capture depends on.  Pure owned-pipe
+    # control: no Docker, no keyring, no namespaces.
+    record = {
+        "schema": probe.SCHEMA,
+        "status": "pass",
+        "mode": "hang",
+        "descendant_pid": 7,
+        "descendant_token": "ab" * 16,
+    }
+    driver = (
+        "import importlib.util, sys, time\n"
+        f"spec = importlib.util.spec_from_file_location('slaif_probe', r'{PROBE}')\n"
+        "assert spec is not None and spec.loader is not None\n"
+        "slaif_probe = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(slaif_probe)\n"
+        f"slaif_probe.emit_record({record!r}, sort_keys=True)\n"
+        "time.sleep(30)\n"
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", driver], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+    )
+    assert proc.stdout is not None
+    try:
+        ready, _, _ = select.select([proc.stdout], [], [], 10.0)
+        assert ready, "record not published while the child is still alive"
+        line = proc.stdout.readline()
+        assert json.loads(line.decode("utf-8")) == record
+        assert line.endswith(b"\n")
+        assert proc.poll() is None, "child exited: publication is not proven before exit"
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=10)
