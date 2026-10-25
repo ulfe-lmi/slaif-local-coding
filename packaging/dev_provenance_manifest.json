@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 190,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "29c7941550df75314251f7a7678888577e96eb220369ccb9be8852d220b19435",
-      "size_bytes": 811381
+      "sha256": "b6412dcb7c31dc4ba3ce71aa95eb9ae99b959a93b441fb2e4fa2fd64a1eeb47f",
+      "size_bytes": 813044
     },
     "wheel": {
       "entry_count": 37,
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "017-r",
-  "qualification_label": "development-source-709296b32fe4e63493a098ccc7c0bc787345f350; not a release candidate; not released",
+  "qualification_label": "development-source-b0d21d95e5d256981f946715acc3d5f248fd4a85; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "709296b32fe4e63493a098ccc7c0bc787345f350",
+  "source_commit": "b0d21d95e5d256981f946715acc3d5f248fd4a85",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -51,7 +51,7 @@
     "docs/ADAPTER-CONFIGURATION.md": "8da874d2036eb9de2ff99c1e9e195d856061bae5dcdeb030d766d6f6268a9e8f",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "aa13596f4efbd9f77ff637fd6af459a9e16e8ef69856e040edccbede3acedf23",
     "docs/CACHE-OBSERVATION-CONTRACT.md": "d798fbacb54a315cdb4141be5756093d2eb6320e5306766bdda2ef1e1fb76f46",
-    "docs/CACHE-REWORK-LEDGER.md": "7774d50a163b2e3c351d82ce5709d360ae2aba2208185eea57fb702fa4d9090c",
+    "docs/CACHE-REWORK-LEDGER.md": "ef18532f666304fc1696a34c2a3b24664db18a7888cd35e3b6d6e19e162f11ad",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
@@ -176,9 +176,9 @@
     "tests/test_cache.py": "a64ab61bceda3c4a81945080c53c5bbe9769711dba572dcd3e2894628c544ee7",
     "tests/test_cache_native_containment_ci.py": "f22ac96341b2dda30a7f08b7ef725cd91d4f26285629dee700a09bd7f66bad09",
     "tests/test_cache_native_fixture.py": "717a323c1c5891236b3b8301eafbec4540c61dd67ad73f93deb3747fb49308af",
-    "tests/test_cache_native_fixture_ci.py": "ded6b361c058b2b0eb69053eeea13d1b7ba633c9a8dadd56134f514f30e89840",
+    "tests/test_cache_native_fixture_ci.py": "9d4dc7a0f718ac5510c3e72d3c89de98ec5cdd30a9228b6ff705e64f875f99fd",
     "tests/test_cache_native_fixture_controller.py": "3c162c9cfcf3722f8a4067349167f5fac19a3ec96e155e36264a1346a94d9d04",
-    "tests/test_cache_native_fixture_standin.py": "e4a44705e70aace1f760526e1c6e2999854448d24bd943594ae97549cd974c27",
+    "tests/test_cache_native_fixture_standin.py": "0ef1ab5682048740d769a89ca5156deb0ed33afcae307b288f651730bb9f1a86",
     "tests/test_capture_helper.py": "92222840bc226051bfe8aa1f07eff422e86a99c4540c67f2428ce00e75472f91",
     "tests/test_capture_tool_types.py": "716ba13b6cffe27f27a69e3c7734ae619e55f37f7730859f9b657a35d98162d9",
     "tests/test_codex_namespace_tool_envelope.py": "4a1b42f8ecc2117017ce66a9707fc2429c2113a86203f42176d6aa6d6fb917fb",
