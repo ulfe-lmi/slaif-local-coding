@@ -170,7 +170,7 @@ def _exec_measurement_record() -> dict[str, Any]:
     }
 
 
-def _local_payload(wire_requests: int, position: int | None, diagnostic: dict) -> bytes:
+def _local_payload(wire_requests: int, position: int | None, diagnostic: dict[str, Any]) -> bytes:
     """The closed selected payload frame the controller exports for
     a MEASURED one-shot diagnostic state: the diagnostic scenario
     ISSUES NOTHING (empty issued_calls) and the controller's OWN
@@ -199,7 +199,7 @@ def _local_payload(wire_requests: int, position: int | None, diagnostic: dict) -
 
 
 def _local_selected_payload(
-    wire_requests: int, position: int = 0, diagnostic: dict | None = None
+    wire_requests: int, position: int = 0, diagnostic: dict[str, Any] | None = None
 ) -> bytes:
     """The OBSERVED (diagnostic-consumed) selected payload.  The
     default is the S python rehearsal's fixed single-source
@@ -286,9 +286,9 @@ class LocalFakeDocker:
         standin_fail: tuple[str, str | None] | None = None,
         observe_wire: int | None = None,
         create_fail_rc: int = 0,
-        observe_states: list[dict] | None = None,
-        export_state: dict | None = None,
-        export_diagnostic: dict | None = None,
+        observe_states: list[dict[str, Any]] | None = None,
+        export_state: dict[str, Any] | None = None,
+        export_diagnostic: dict[str, Any] | None = None,
         export_payload: bytes | None = None,
         diagnostic_position: int = 0,
         daemon_name: str | None = None,
@@ -318,16 +318,17 @@ class LocalFakeDocker:
         self.diagnostic_observed = False
         self.image_tag_inspects = 0
         self.env_file_path: str | None = None
-        self.state_at_create: dict | None = None
-        self.state_at_start: dict | None = None
+        self.state_at_create: dict[str, Any] | None = None
+        self.state_at_start: dict[str, Any] | None = None
         self.build_gate: threading.Event | None = None
 
     def _result(self, rc: int, out: bytes) -> Any:
         return fci.ExecResult(rc, out, len(out))
 
-    def _read_state(self) -> dict:
+    def _read_state(self) -> dict[str, Any]:
         path = Path(self._state_path)
-        return json.loads(path.read_bytes().decode("ascii"))
+        state: dict[str, Any] = json.loads(path.read_bytes().decode("ascii"))
+        return state
 
     # the control dir is wired in by the test before any command
     _state_path: str = ""
@@ -716,8 +717,10 @@ def _start_owner(paths: dict[str, Any], fake: LocalFakeDocker, **owner_kwargs: A
     pytest.fail("owner never published its initial state")
 
 
-def _client(control: Path, command: str, run_id: str, timeout: float = 120.0) -> dict:
-    return flocal._control_client(control, command, run_id, timeout)
+def _client(control: Path, command: str, run_id: str, timeout: float = 120.0) -> dict[str, Any]:
+    response = flocal._control_client(control, command, run_id, timeout)
+    assert isinstance(response, dict)
+    return response
 
 
 def _join(
@@ -742,9 +745,9 @@ def _join(
         pytest.fail("owner thread did not converge after bounded abort")
 
 
-def _read_evidence(evidence: Path) -> dict:
+def _read_evidence(evidence: Path) -> dict[str, Any]:
     raw = evidence.read_bytes()
-    record = json.loads(raw.decode("ascii"))
+    record: dict[str, Any] = json.loads(raw.decode("ascii"))
     flocal.validate_local_evidence(record)
     return record
 
@@ -1504,14 +1507,15 @@ def test_finish_unobserved_variant_composition(tmp_path: Path, monkeypatch: Any)
     assert not paths["control"].exists()
 
 
-def _external_diagnostic() -> dict:
+def _external_diagnostic() -> dict[str, Any]:
     # A DISTINCT closed metadata diagnostic: the subject's own
     # tool-bearing request through the actual R single-source
     # derivation — never the python rehearsal's empty-tools
     # metadata.
-    return model.bounds_diagnostic(
+    value: dict[str, Any] = model.bounds_diagnostic(
         fixture_standin._fixed_request(fixture_standin._synthetic_tools())
     )
+    return value
 
 
 def test_finish_external_variant_composition(tmp_path: Path, monkeypatch: Any) -> None:
@@ -1664,7 +1668,7 @@ def test_pass_evidence_summary_bound_to_payload(tmp_path: Path, monkeypatch: Any
     #     both reject it
     python_payload = _local_selected_payload(3)
 
-    def swap_payload(r):
+    def swap_payload(r: dict[str, Any]) -> None:
         digest = hashlib.sha256(python_payload).hexdigest()
         r["export"]["sha256"] = digest
         r["export"]["bytes"] = len(python_payload)
@@ -1683,7 +1687,7 @@ def _stub_control_root(base: Path, name: str) -> Path:
     return root
 
 
-def _stub_control_response(command: str, run_id: str) -> dict:
+def _stub_control_response(command: str, run_id: str) -> dict[str, Any]:
     details = {
         "prepare": {
             "cid": "a" * 64,
@@ -1712,7 +1716,9 @@ def _stub_control_response(command: str, run_id: str) -> dict:
     }
 
 
-def _listen_once(root: Path, handler: Any, budget: float = 10.0):
+def _listen_once(
+    root: Path, handler: Any, budget: float = 10.0
+) -> tuple[threading.Thread, threading.Event]:
     """ONE accepted connection on the protected root, driven by the
     handler over the real (loopback) socket under a FINITE fixture
     budget: the accept and every handler read are deadline-bounded
@@ -1754,7 +1760,7 @@ def _listen_once(root: Path, handler: Any, budget: float = 10.0):
     return thread, ready
 
 
-def _read_request_line(conn: socket.socket) -> dict:
+def _read_request_line(conn: socket.socket) -> dict[str, Any]:
     data = b""
     while b"\n" not in data:
         chunk = conn.recv(65536)
@@ -1763,7 +1769,8 @@ def _read_request_line(conn: socket.socket) -> dict:
         data += chunk
         if len(data) > 8192:
             raise OSError("overbound request")
-    return json.loads(data.decode("ascii"))
+    request: dict[str, Any] = json.loads(data.decode("ascii"))
+    return request
 
 
 def test_control_client_refuses_untrusted_socket_modes(tmp_path: Path) -> None:
@@ -1881,10 +1888,11 @@ def test_control_root_destroy_failure_forbids_pass(tmp_path: Path, monkeypatch: 
     paths = _setup(tmp_path, monkeypatch, fake)
     real_destroy = fci._destroy_owned_work_root
 
-    def gated_destroy(path, *args, **kwargs):
+    def gated_destroy(path: object, *args: Any, **kwargs: Any) -> bool:
         if str(path) == str(paths["control"]):
             return False
-        return real_destroy(path, *args, **kwargs)
+        result: bool = real_destroy(path, *args, **kwargs)
+        return result
 
     monkeypatch.setattr(fci, "_destroy_owned_work_root", gated_destroy)
     owner, thread, run_id = _start_owner(paths, fake)
@@ -2069,7 +2077,9 @@ def test_local_bound_executor_freezes_env_once_per_owner(monkeypatch: Any) -> No
     child (no per-call rebuild).  No real executor runs."""
     captured: dict[str, object] = {}
 
-    def fake_real_execute(argv: list[str], timeout: float, pty: bool = False, env=None) -> Any:
+    def fake_real_execute(
+        argv: list[str], timeout: float, pty: bool = False, env: dict[str, str] | None = None
+    ) -> Any:
         captured["argv"] = argv
         captured["env"] = env
         return fci.ExecResult(0, b"", 0)
@@ -2079,6 +2089,7 @@ def test_local_bound_executor_freezes_env_once_per_owner(monkeypatch: Any) -> No
     bound = flocal._local_bound_executor()
     bound(["docker", "info"], 5.0)
     env = captured["env"]
+    assert isinstance(env, dict)
     assert env["DOCKER_HOST"] == flocal._LOCAL_DOCKER_ENDPOINT_PIN
     assert "DOCKER_CONTEXT" not in env
     assert env["PATH"] == "/usr/bin:/bin"
@@ -2126,12 +2137,12 @@ def test_validate_subject_facts_closed_contract() -> None:
     reject(lambda f: f.__setitem__("cpu_limit", True))  # bool limit
     reject(lambda f: f.__setitem__("swap_source", "bogus-source"))
 
-    def drop_mount(f):
+    def drop_mount(f: dict[str, Any]) -> None:
         f["writable_mounts"] = [m for m in f["writable_mounts"] if m["root"] != "/tmp"]
 
     reject(drop_mount)  # missing required root
 
-    def foreign_mount(f):
+    def foreign_mount(f: dict[str, Any]) -> None:
         f["writable_mounts"] = f["writable_mounts"] + [
             {
                 "root": "/mnt",
@@ -2144,7 +2155,7 @@ def test_validate_subject_facts_closed_contract() -> None:
 
     reject(foreign_mount)  # unconfigured root
 
-    def dup_mount(f):
+    def dup_mount(f: dict[str, Any]) -> None:
         f["writable_mounts"] = f["writable_mounts"] + [
             {
                 "root": "/tmp",
@@ -2157,28 +2168,28 @@ def test_validate_subject_facts_closed_contract() -> None:
 
     reject(dup_mount)  # duplicate root
 
-    def shm_oversize(f):
+    def shm_oversize(f: dict[str, Any]) -> None:
         for m in f["writable_mounts"]:
             if m["root"] == "/dev/shm":
                 m["size_bytes"] = 128 * 1024 * 1024
 
     reject(shm_oversize)  # beyond the explicit SHM bound
 
-    def ctl_wrong_size(f):
+    def ctl_wrong_size(f: dict[str, Any]) -> None:
         for m in f["writable_mounts"]:
             if m["root"] == "/run/slaif-ctl":
                 m["size_bytes"] = 32 * 1024 * 1024
 
     reject(ctl_wrong_size)  # configured size mismatch
 
-    def ctl_wrong_mode(f):
+    def ctl_wrong_mode(f: dict[str, Any]) -> None:
         for m in f["writable_mounts"]:
             if m["root"] == "/run/slaif-ctl":
                 m["mode"] = 0o755
 
     reject(ctl_wrong_mode)  # closed mode set
 
-    def ctl_foreign_owner(f):
+    def ctl_foreign_owner(f: dict[str, Any]) -> None:
         for m in f["writable_mounts"]:
             if m["root"] == "/run/slaif-ctl":
                 m["uid"] = 0
@@ -2189,7 +2200,7 @@ def test_validate_subject_facts_closed_contract() -> None:
     reject(lambda f: f.__setitem__("masked_null_aliases", 14))  # 4 + 14 > 13
     reject(lambda f: f.__setitem__("extra_key", 1))  # closed key set
 
-    def drop_key(f):
+    def drop_key(f: dict[str, Any]) -> None:
         f.pop("swap_source")
 
     reject(drop_key)
@@ -2224,7 +2235,7 @@ class _FakeDriverProc:
         poll_rc: int | None,
         wait_rc: int = 0,
         wait_timeout: bool = False,
-        stream=None,
+        stream: Any = None,
         poll_sequence: list[int | None] | None = None,
     ) -> None:
         self.pid = pid
@@ -2247,6 +2258,7 @@ class _FakeDriverProc:
     def wait(self, timeout: float | None = None) -> int | None:
         self.wait_calls.append(timeout)
         if self._wait_timeout:
+            assert timeout is not None
             raise subprocess.TimeoutExpired(cmd="owner", timeout=timeout)
         self.returncode = self._wait_rc
         return self._wait_rc
@@ -2330,7 +2342,7 @@ def test_driver_capture_cap_fault_forbids_pass(tmp_path: Path, monkeypatch: Any)
     proc = _FakeDriverProc(pid=1, poll_rc=None, wait_rc=0, stream=stream)
     monkeypatch.setattr(flocal.subprocess, "Popen", lambda argv, **kw: proc)
 
-    def fake_client(control_dir, command, run_id, timeout):
+    def fake_client(control_dir: Path, command: str, run_id: str, timeout: float) -> dict[str, Any]:
         return {
             "record": flocal.CONTROL_RECORD,
             "ok": True,
@@ -2362,7 +2374,9 @@ class _FakeClock:
         self.now += seconds
 
 
-def _driver_boundary_setup(tmp_path: Path, monkeypatch: Any, proc: _FakeDriverProc):
+def _driver_boundary_setup(
+    tmp_path: Path, monkeypatch: Any, proc: _FakeDriverProc
+) -> tuple[Path, Path]:
     """Shared fake-clock driver boundary: END 1100 + the real 600
     grace = patience 1700; each of the four commands consumes 200
     fake seconds, so the final wait begins at 1800 — the approved
@@ -2375,7 +2389,7 @@ def _driver_boundary_setup(tmp_path: Path, monkeypatch: Any, proc: _FakeDriverPr
     monkeypatch.setattr(flocal.time, "sleep", clock.sleep)
     monkeypatch.setattr(flocal.subprocess, "Popen", lambda argv, **kw: proc)
 
-    def fake_client(control_dir, command, run_id, timeout):
+    def fake_client(control_dir: Path, command: str, run_id: str, timeout: float) -> dict[str, Any]:
         clock.now += 200.0
         return {
             "record": flocal.CONTROL_RECORD,
@@ -2466,14 +2480,16 @@ def test_driver_valid_baseline_passes_with_real_evidence(tmp_path: Path, monkeyp
         paths["evidence"],
     )
 
-    def popen(argv, **kw):
+    def popen(argv: list[str], **kw: Any) -> _FakeDriverProc:
         assert argv == expected_argv  # the SEALED owner launch form
         return proc
 
     monkeypatch.setattr(flocal.subprocess, "Popen", popen)
     commands: list[str] = []
 
-    def fake_client(control_dir, command, run_id_bound, timeout):
+    def fake_client(
+        control_dir: Path, command: str, run_id_bound: str, timeout: float
+    ) -> dict[str, Any]:
         commands.append(command)
         return {
             "record": flocal.CONTROL_RECORD,
@@ -2533,7 +2549,7 @@ def test_driver_held_reader_forbids_pass(tmp_path: Path, monkeypatch: Any) -> No
     proc = _FakeDriverProc(pid=1, poll_rc=None, wait_rc=0, stream=stream)
     monkeypatch.setattr(flocal.subprocess, "Popen", lambda argv, **kw: proc)
 
-    def fake_client(control_dir, command, run_id, timeout):
+    def fake_client(control_dir: Path, command: str, run_id: str, timeout: float) -> dict[str, Any]:
         return {
             "record": flocal.CONTROL_RECORD,
             "ok": True,
@@ -2566,7 +2582,7 @@ def test_driver_read_error_fault_forbids_pass(tmp_path: Path, monkeypatch: Any) 
     proc = _FakeDriverProc(pid=1, poll_rc=None, wait_rc=0, stream=_ReadErrorDriverStream())
     monkeypatch.setattr(flocal.subprocess, "Popen", lambda argv, **kw: proc)
 
-    def fake_client(control_dir, command, run_id, timeout):
+    def fake_client(control_dir: Path, command: str, run_id: str, timeout: float) -> dict[str, Any]:
         return {
             "record": flocal.CONTROL_RECORD,
             "ok": True,
