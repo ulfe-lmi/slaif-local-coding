@@ -72,10 +72,22 @@ CTL_PROC1_ENVIRON = "/proc/1/environ"
 SUBJ_DIR = os.environ.get("SLAIF_SUBJ_DIR", "/run/slaif-subj")
 SUBJ_CODEX_HOME = f"{SUBJ_DIR}/codex-home"
 SUBJ_CREDENTIAL = f"{SUBJ_DIR}/credential"
+SUBJ_WORKDIR = f"{SUBJ_DIR}/work"
 PROVIDER_HOST = "127.0.0.1"
 
 SUBJECT_UID = 21002
-MODES = ("measure", "pty", "success", "fail", "hang", "output-cap", "stop-owned", "diagnostic")
+MODES = (
+    "measure",
+    "pty",
+    "success",
+    "fail",
+    "hang",
+    "output-cap",
+    "stop-owned",
+    "diagnostic",
+    "auth-binding",
+    "observe",
+)
 NS_NAMES = ("pid", "mnt", "ipc", "uts", "net", "user")
 
 # Reviewed x86_64 syscall numbers (arch/x86/include/asm/unistd_64.h,
@@ -873,6 +885,45 @@ def pty_mode() -> int:
             return fail("model-import")
         except fixture_model.FixtureError:
             return fail("profile-schema")
+        # Closed environment-handoff proof for the future native
+        # attach: the protected host env file delivers ONLY the
+        # synthetic CODEX_HOME and the generated fake-provider
+        # variable.  The value is compared against the subject-owned
+        # credential file (same closed run-token derivation) and is
+        # NEVER emitted.  Absent environment (hosted CI path) is a
+        # truthful false, not a failure here.
+        env_home = os.environ.get("CODEX_HOME")
+        env_key = os.environ.get("SLAIF_SYNTHETIC_API_KEY")
+        handoff = False
+        if (
+            env_home == SUBJ_CODEX_HOME
+            and isinstance(env_key, str)
+            and re.fullmatch(r"slaif-synthetic-[0-9a-f]{32}", env_key)
+        ):
+            # Bounded comparison: the credential is a known finite
+            # length (16-char synthetic prefix + 32 hex); read at most
+            # that plus one and require the exact length, so a
+            # subject-writable oversized file can never be slurped.
+            try:
+                with open(SUBJ_CREDENTIAL, "rb") as handle:
+                    observed = handle.read(len(env_key) + 1)
+                handoff = len(observed) == len(env_key) and observed == env_key.encode("ascii")
+            except OSError:
+                handoff = False
+        # Concrete subject-owned synthetic workspace for the later
+        # foreground attach's explicit exec workdir: created by the
+        # SUBJECT (21002) in its private tmpfs, exact ownership
+        # re-measured, closed facts only.
+        if os.path.islink(SUBJ_WORKDIR) or os.path.exists(SUBJ_WORKDIR):
+            raise StandinError("workspace-path-exists")
+        os.makedirs(SUBJ_WORKDIR, mode=0o700)
+        os.chmod(SUBJ_WORKDIR, 0o700)
+        ws = os.lstat(SUBJ_WORKDIR)
+        workspace = {
+            "path": SUBJ_WORKDIR,
+            "mode": stat_mod.S_IMODE(ws.st_mode),
+            "uid": ws.st_uid,
+        }
         emit(
             {
                 "record": "slaif-fixture-standin-v1",
@@ -883,6 +934,8 @@ def pty_mode() -> int:
                 "term_rows": size[0],
                 "term_cols": size[1],
                 "terminal_properties_closed_only": True,
+                "env_handoff_verified": handoff,
+                "workspace": workspace,
                 "profile": profile,
             }
         )
@@ -917,7 +970,12 @@ def _remaining(deadline: float) -> float:
     return left
 
 
-def _provider_post(path: str, payload: dict, deadline: float) -> tuple[int, str, bytes]:
+def _provider_post(
+    path: str,
+    payload: dict,
+    deadline: float,
+    authorization: str | None = None,
+) -> tuple[int, str, bytes]:
     """One bounded POST against the real provider route.  Returns the
     ASSERTED (status, content_type, body): the response Content-Length
     is checked BEFORE any body read (an overbound or missing frame is
@@ -925,6 +983,9 @@ def _provider_post(path: str, payload: dict, deadline: float) -> tuple[int, str,
     verifies the exact expected status and wire content type so a
     wrong-status fixed JSON body cannot masquerade as the declared
     outcome."""
+    headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
+    if authorization is not None:
+        headers["Authorization"] = authorization
     _remaining(deadline)
     timeout = max(0.05, min(2.0, _remaining(deadline)))
     conn = http.client.HTTPConnection(
@@ -935,8 +996,39 @@ def _provider_post(path: str, payload: dict, deadline: float) -> tuple[int, str,
             "POST",
             path,
             body=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+            headers=headers,
         )
+        response = conn.getresponse()
+        content_type = (response.getheader("Content-Type") or "").strip()
+        length = response.getheader("Content-Length")
+        if length is None or not length.isdigit():
+            raise StandinError("response-unframed")
+        if int(length) > _RESPONSE_CAP:
+            raise StandinError("response-overbound")
+        body = response.read()
+        if len(body) != int(length):
+            raise StandinError("response-truncated")
+        _remaining(deadline)
+        return response.status, content_type, body
+    finally:
+        conn.close()
+
+
+def _provider_get(path: str, deadline: float) -> tuple[int, str, bytes]:
+    """One bounded GET against a closed provider status route.
+    Returns the ASSERTED (status, content_type, body) with the same
+    closed framing law as the POST path: the Content-Length is
+    checked BEFORE any body read, an overbound or missing frame is
+    a failure, and the caller verifies the exact expected status
+    and wire content type."""
+    headers = {"Accept": "application/json"}
+    _remaining(deadline)
+    timeout = max(0.05, min(2.0, _remaining(deadline)))
+    conn = http.client.HTTPConnection(
+        PROVIDER_HOST, env_int("SLAIF_FIXTURE_PORT", 18443), timeout=timeout
+    )
+    try:
+        conn.request("GET", path, headers=headers)
         response = conn.getresponse()
         content_type = (response.getheader("Content-Type") or "").strip()
         length = response.getheader("Content-Length")
@@ -1353,6 +1445,129 @@ def diagnostic_mode() -> int:
         return fail(closed_reason(exc))
 
 
+def auth_binding_mode() -> int:
+    """Closed local (017-s) controller auth-binding proof: against
+    the ACTUAL loopback provider the subject verifies the three
+    closed auth outcomes -- the valid synthetic bearer is admitted
+    (200, answering the no-tools diagnostic with the fixed
+    assistant final text -- the valid POST CONSUMES the one-shot
+    diagnostic), a same-length WRONG bearer is refused (401), and
+    a MISSING header is refused (401).  Only closed booleans and
+    counts are emitted; the credential value is never emitted,
+    logged or retained.  The controller must be constructed with
+    the same run token bound (local container only); the hosted CI
+    path never runs this mode and keeps its auth-less semantics."""
+    deadline = _absolute_deadline()
+    try:
+        if os.getuid() != SUBJECT_UID:
+            return fail("identity-not-subject")
+        token = env_str("SLAIF_RUN_TOKEN")
+        if not re.fullmatch(r"[0-9a-f]{32}", token):
+            return fail("run-token-invalid")
+        credential = "slaif-synthetic-" + hashlib.sha256(token.encode()).hexdigest()[:32]
+        wrong = credential[:-1] + ("0" if credential[-1] != "0" else "1")
+        payload = _fixed_request([])
+        valid_status, valid_ct, valid_body = _provider_post(
+            "/v1/responses", payload, deadline, authorization="Bearer " + credential
+        )
+        wrong_status, _, _ = _provider_post(
+            "/v1/responses", payload, deadline, authorization="Bearer " + wrong
+        )
+        missing_status, _, _ = _provider_post("/v1/responses", payload, deadline)
+        diagnostic_response = "unverified"
+        if valid_status == 200 and valid_ct == "text/event-stream":
+            # The admitted valid POST is the ACTUAL no-tools
+            # diagnostic: its single output item must be the fixed
+            # assistant final text with no tool call (measured
+            # closed shape; no raw content retained).
+            parsed = _parse_sse(valid_body, expect_items=1)
+            items = parsed["items"]
+            if len(items) == 1:
+                item = items[0]
+                if item.get("type") != "message" or item.get("role") != "assistant":
+                    return fail("diagnostic-item")
+                final_text_ok = False
+                for content in item.get("content") or []:
+                    if (
+                        isinstance(content, dict)
+                        and content.get("type") == "output_text"
+                        and content.get("text") == FIXED_FINAL_TEXT
+                    ):
+                        final_text_ok = True
+                if final_text_ok:
+                    diagnostic_response = "fixed-final-text-no-tools"
+                else:
+                    return fail("diagnostic-text-mismatch")
+            else:
+                return fail("diagnostic-item-count")
+        emit(
+            {
+                "record": "slaif-fixture-standin-v1",
+                "status": "pass",
+                "mode": "auth-binding",
+                "uid": os.getuid(),
+                "valid_admitted": valid_status == 200,
+                "wrong_refused": wrong_status == 401,
+                "missing_refused": missing_status == 401,
+                "diagnostic_response": diagnostic_response,
+                "requests": 3,
+                "attempts": 3,
+            }
+        )
+        return 0
+    except (StandinError, OSError, ValueError, http.client.HTTPException) as exc:
+        return fail(closed_reason(exc))
+
+
+def observe_mode() -> int:
+    """Closed NON-CONSUMING observation of the actual controller
+    state (local 017-s lifecycle observe): one GET /state reports
+    the declared scenario, the controller's own cumulative request
+    count and the one-shot diagnostic state as closed values.  This
+    command makes NO model POST: it never consumes the diagnostic,
+    never advances scenario or exporter state, and the host treats
+    it as an observation command, not a provider API request
+    (the measured controller counter is a separate actual fact,
+    never inferred from a host charge delta)."""
+    deadline = _absolute_deadline()
+    try:
+        if os.getuid() != SUBJECT_UID:
+            return fail("identity-not-subject")
+        status, content_type, body = _provider_get("/state", deadline)
+        if status != 200 or content_type != "application/json":
+            return fail("observe-wire")
+        try:
+            record = json.loads(body.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return fail("provider-json")
+        if (
+            not isinstance(record, dict)
+            or set(record) != {"record", "scenario", "wire_requests", "diagnostic"}
+            or record["record"] != "slaif-fixture-state-v1"
+            or record["scenario"] not in ("diagnostic", "tool-cycle")
+            or not isinstance(record["wire_requests"], int)
+            or isinstance(record["wire_requests"], bool)
+            or not (0 <= record["wire_requests"] <= 512)
+            or record["diagnostic"] not in ("unobserved", "observed")
+        ):
+            return fail("observe-shape")
+        emit(
+            {
+                "record": "slaif-fixture-standin-v1",
+                "status": "pass",
+                "mode": "observe",
+                "uid": os.getuid(),
+                "scenario": record["scenario"],
+                "wire_requests": record["wire_requests"],
+                "diagnostic_state": record["diagnostic"],
+                "raw_content_retained": False,
+            }
+        )
+        return 0
+    except (StandinError, OSError, ValueError, http.client.HTTPException) as exc:
+        return fail(closed_reason(exc))
+
+
 def _proc_starttime(pid: int) -> int:
     with open(f"/proc/{pid}/stat", "rb") as handle:
         data = handle.read(4096)
@@ -1547,6 +1762,8 @@ def main(argv: list[str]) -> int:
         "output-cap": output_cap_mode,
         "stop-owned": stop_owned_mode,
         "diagnostic": diagnostic_mode,
+        "auth-binding": auth_binding_mode,
+        "observe": observe_mode,
     }
     return modes[argv[2]]()
 

@@ -470,9 +470,13 @@ path; the exact SIGTERM/si_code/flags send ABI; the declared
 closed failure when the pidfd API is unavailable; and the
 owned stop with unrelated survival through the recorded fake
 signal) and
-`tests/test_cache_native_fixture_ci.py` (218 tests — closed
+`tests/test_cache_native_fixture_ci.py` (219 tests — closed
 command grammar including the create-argv/allowlist lockstep
-with the explicit `--shm-size` bound, host ledger with distinct
+with the explicit `--shm-size` bound and the bound-child env
+regression (an explicit child environment reaches the child on
+the normal pipe path and the owned PTY path alike, and the
+default keeps inheriting the ambient environment), host
+ledger with distinct
 measured quantities and pre-work reservations, timed-out-capture
 drained accounting, over-bound /proc scan rejection, the actual
 HostConfig schema verification — the real SecurityOpt string
@@ -529,6 +533,40 @@ gateway activity: this preparation does not qualify a genuine
 native client, D09 remains `NOT RUN`, and the handoff-preparation
 qualification is `PENDING` strategic review of the actual job
 outcome; no v1 runtime claim.
+Round 017-s adds the local fixture preparation suite
+`tests/test_cache_native_fixture_local.py` (48 tests —
+order-bound opt-in versus the hosted-only guard and one-attempt
+admission; the single-owner protected lifecycle prepare /
+observe / rehearse / finish / abort through the real control
+client (fresh 0600 socket in the 0700 control root, exact
+run-id binding, closed response records, absolute client
+budget, foreign-run/missing-state/overbound refusals);
+variant-aware finish compositions (python-rehearsal, unobserved,
+external) with the retained summary bound to the decoded
+payload and cross-variant forgery negatives; the curated
+subject-facts closed contract; the section-2 verified local
+endpoint binding (explicit remote DOCKER_HOST or foreign
+DOCKER_CONTEXT refused before any mutation, the daemon's own
+default context admitted with the read-only daemon-name
+corroboration as the first docker action, a foreign daemon name
+closed-refused with the measured one admission, a missing or
+non-socket verified path refused before any docker command, and
+the once-per-owner frozen child environment with DOCKER_HOST
+pinned to the verified local socket surviving later
+HOME/DOCKER_CONFIG/DOCKER_CONTEXT drift); driver composition
+negatives (same-session refusal, startup wait timeout,
+capture-cap fault, final-wait expiry refusing before a
+blocking wait, held reader and read-error faults, valid
+baseline with real retained-evidence validation) and public
+main refusals (missing state, expired anchor before IO).  Fake
+Docker/socket/time/identity seams plus tiny exact-owned Python
+children only; no docker daemon, namespace or syscall probe, no
+children only; no docker daemon, namespace or syscall probe, no
+secrets forwarded to the fixture, and no Codex binary executed
+in tests/CI — the pinned public binary is fetched and hashed
+statically in the R `cache-native-fixture` job and is NEVER
+EXECUTED there, including help/version, per the RIGHT-only
+startup law.)
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

@@ -70,8 +70,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import os
+import re
 import socket
 import stat as stat_mod
 import struct
@@ -103,6 +105,7 @@ ORIGINALS_COUNT = 3
 FIXED_FINAL_TEXT = "slaif fixed final text"
 ROUTE_HEALTH = "/healthz"
 ROUTE_RESPONSES = "/v1/responses"
+ROUTE_STATE = "/state"
 READ_CHUNK_BYTES = 65536
 READ_TIMEOUT_SECONDS = 2.0
 
@@ -212,7 +215,7 @@ def verify_controller_owned() -> None:
 # -- bounded exact HTTP request grammar ----------------------------------------
 def _parse_request(
     conn: socket.socket, ledger_lock: threading.Lock, ledger: model.FixtureLedger
-) -> tuple[str, str, bytes]:
+) -> tuple[str, str, bytes, str | None]:
     """Exact supported HTTP grammar: one request line, closed method
     and version, single nonconflicting Content-Length, no
     Transfer-Encoding, complete body proof, per-read deadline and
@@ -276,7 +279,7 @@ def _parse_request(
     if method == "GET":
         if length_raw is not None and length_raw != "0":
             raise ControllerError("length")
-        return method, path, b""
+        return method, path, b"", headers.get("authorization")
     if length_raw is None or not length_raw.isdigit():
         raise ControllerError("length")
     length = int(length_raw)
@@ -291,7 +294,7 @@ def _parse_request(
         body += chunk
     if len(body) != length:
         raise ControllerError("request-overbound")
-    return method, path, body
+    return method, path, body, headers.get("authorization")
 
 
 def _final_message() -> dict:
@@ -345,11 +348,29 @@ class Provider:
         scenario: str = "diagnostic",
         originals_dir: str = CTL_ORIGINALS_DIR,
         exporter_uid: int | None = None,
+        auth_token: str | None = None,
     ):
         if scenario not in ("diagnostic", "tool-cycle"):
             raise ControllerError("scenario-invalid")
         self.scenario = scenario
         self.originals_dir = originals_dir
+        # Closed local (017-s) synthetic auth binding: when a 32-hex
+        # token is bound, EVERY POST on /v1/responses must carry
+        # exactly ``Bearer <synthetic_credential(token)>`` where the
+        # credential uses the same closed derivation as the subject's
+        # synthetic credential file.  Hosted CI never binds a token:
+        # with ``auth_expected`` None the path is unchanged and the
+        # Authorization header (if any) is discarded, never logged,
+        # never exported, never reflected.  A present-but-malformed
+        # token fails closed at construction.
+        if auth_token is None:
+            self.auth_expected: str | None = None
+        else:
+            if not isinstance(auth_token, str) or not re.fullmatch(r"[0-9a-f]{32}", auth_token):
+                raise ControllerError("auth-token-invalid")
+            self.auth_expected = (
+                "slaif-synthetic-" + hashlib.sha256(auth_token.encode("ascii")).hexdigest()[:32]
+            )
         # The synthetic snapshot record states the exporter uid the
         # closed record law requires.  Production records the actual
         # controller process uid (os.getuid(); the main() guard makes
@@ -454,7 +475,7 @@ class Provider:
         try:
             with self.ledger_lock:
                 self.ledger.require_within_deadline()
-            method, path, body = self._read_with_deadline(conn)
+            method, path, body, auth = self._read_with_deadline(conn)
             position: int | None = None
             if method == "POST" and path == ROUTE_RESPONSES:
                 # Allocate the immutable causal request position
@@ -463,7 +484,7 @@ class Provider:
                 # used as causal identity.
                 with self.ledger_lock:
                     position = self.ledger.record_request() - 1
-            status, content_type, payload = self._route(method, path, body, position)
+            status, content_type, payload = self._route(method, path, body, position, auth)
             if len(payload) > RESPONSE_CAP_BYTES:
                 raise ControllerError("response-overbound")
             header = (
@@ -491,14 +512,49 @@ class Provider:
             except OSError:
                 pass
 
+    def _state_body(self) -> bytes:
+        """Closed NON-CONSUMING status record (local 017-s observe):
+        the declared scenario, the controller's OWN cumulative
+        request count and the one-shot diagnostic state.  This
+        command is NOT a model POST: it allocates no causal
+        position, consumes nothing, advances no scenario or
+        exporter state, and charges no provider request budget."""
+        with self.ledger_lock:
+            requests = self.ledger.requests
+        record = {
+            "record": "slaif-fixture-state-v1",
+            "scenario": self.scenario,
+            "wire_requests": requests,
+            "diagnostic": "unobserved" if self.diagnostic is None else "observed",
+        }
+        return json.dumps(record, sort_keys=True, separators=(",", ":")).encode("ascii")
+
     # -- routing (real wire shape) ------------------------------------------
     def _route(
-        self, method: str, path: str, body: bytes, position: int | None
+        self,
+        method: str,
+        path: str,
+        body: bytes,
+        position: int | None,
+        auth: str | None = None,
     ) -> tuple[str, str, bytes]:
         if method == "GET" and path == ROUTE_HEALTH:
             return "200 OK", "application/json", HEALTH_BODY
+        if method == "GET" and path == ROUTE_STATE:
+            return "200 OK", "application/json", self._state_body()
         if method != "POST" or path != ROUTE_RESPONSES or position is None:
             return self._error("route")
+        # Closed local synthetic auth binding (017-s): checked BEFORE
+        # any semantic step, so a refused authorization can never
+        # observe or advance the scenario.  The comparison is a
+        # constant-time compare of the exact expected header value;
+        # the raw header is never logged, exported or reflected.
+        if self.auth_expected is not None:
+            if not isinstance(auth, str):
+                return self._auth_refused()
+            expected = "Bearer " + self.auth_expected
+            if not hmac.compare_digest(auth.encode("ascii", "replace"), expected.encode("ascii")):
+                return self._auth_refused()
         try:
             payload = json.loads(body.decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
@@ -730,6 +786,16 @@ class Provider:
             {"error": {"message": message, "type": "invalid_request_error", "code": code}}
         ).encode()
         return "400 Bad Request", "application/json", body
+
+    def _auth_refused(self) -> tuple[str, str, bytes]:
+        """Fixed closed 401 for the local synthetic auth binding:
+        no header value, reason detail or echo of any kind."""
+        body = (
+            b'{"error":{"code":"invalid-authorization",'
+            b'"message":"authorization is not valid",'
+            b'"type":"authentication_error"}}'
+        )
+        return "401 Unauthorized", "application/json", body
 
     # -- quiesce (ordered, measured, final) ---------------------------------
     def quiesce(self, peer_pid: int | None, subject_scan=None, tools_scan=None) -> dict:
@@ -1088,7 +1154,18 @@ def main() -> int:
         ledger.set_deadline(min(deadline, ledger.budgets.lifetime_seconds))
         ledger_lock = threading.Lock()
         registry = model.IssuedRegistry(ledger.budgets.max_requests)
-        provider = Provider(port, ledger, registry, ledger_lock, scenario=scenario)
+        # Local 017-s synthetic auth binding: the host selects it via
+        # the container environment (absent on the hosted CI path).
+        # A present-but-malformed token fails closed above.
+        auth_token = os.environ.get("SLAIF_FIXTURE_AUTH_TOKEN")
+        provider = Provider(
+            port,
+            ledger,
+            registry,
+            ledger_lock,
+            scenario=scenario,
+            auth_token=auth_token,
+        )
         exporter = Exporter(provider, ledger, ledger_lock, mode)
         # Seed the fixed originals BEFORE ownership verification.
         provider.seed_originals()

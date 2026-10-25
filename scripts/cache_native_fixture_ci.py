@@ -119,7 +119,7 @@ import threading
 import time
 import urllib.request
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
@@ -396,7 +396,9 @@ def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
             pass
 
 
-def _real_execute(argv: list[str], timeout: float, pty: bool = False) -> ExecResult:
+def _real_execute(
+    argv: list[str], timeout: float, pty: bool = False, env: Mapping[str, str] | None = None
+) -> ExecResult:
     """Run an argv list with bounded output capture and owned-group
     cleanup (the reviewed P pipe/reader design).
 
@@ -424,12 +426,13 @@ def _real_execute(argv: list[str], timeout: float, pty: bool = False) -> ExecRes
         len(argv) >= 3 and argv[0] == "docker" and argv[1] == "exec" and "-it" in argv
     )
     if use_pty:
-        return _real_execute_pty(argv, timeout)
+        return _real_execute_pty(argv, timeout, env)
     proc = subprocess.Popen(
         argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         start_new_session=True,
+        env=env if env is not None else os.environ,
     )
     assert proc.stdout is not None
     pipe = proc.stdout
@@ -491,7 +494,9 @@ def _real_execute(argv: list[str], timeout: float, pty: bool = False) -> ExecRes
     return ExecResult(returncode, data, total)
 
 
-def _real_execute_pty(argv: list[str], timeout: float) -> ExecResult:
+def _real_execute_pty(
+    argv: list[str], timeout: float, env: Mapping[str, str] | None = None
+) -> ExecResult:
     """The owned host-side PTY seam: the child's stdio is an
     allocated terminal with the fixed closed size, so ``docker
     exec -it`` is a real attachment even though the GitHub step
@@ -512,6 +517,7 @@ def _real_execute_pty(argv: list[str], timeout: float) -> ExecResult:
             stdout=slave,
             stderr=slave,
             start_new_session=True,
+            env=env if env is not None else os.environ,
         )
     except BaseException:
         os.close(slave)
@@ -603,6 +609,8 @@ _STANDIN_MODES = (
     "output-cap",
     "stop-owned",
     "diagnostic",
+    "auth-binding",
+    "observe",
 )
 _INSPECT_FORMATS = frozenset(
     {
@@ -622,6 +630,7 @@ _INFO_FORMATS = frozenset(
         "{{range .SecurityOptions}}{{.}} {{end}}",
         "{{.DefaultRuntime}}",
         "{{json .Runtimes}}",
+        "{{.Name}}",
     }
 )
 _ENV_KEY_RE = re.compile(r"^SLAIF_(?:FIXTURE_|HANG_|STOP_|RUN_)[A-Z0-9_]{1,64}$")
@@ -642,7 +651,30 @@ _NAME_PATTERN = (
     r")-\d+-\d+-[0-9a-f]{8}"
 )
 _NAME_RE = re.compile(r"^" + _NAME_PATTERN + r"$")
-_LABEL_RE = re.compile(r"^slaif-owned-fixture-017r=[0-9a-f]{32}$")
+# The order-bound local 017-s rehearsal container namespace (a
+# SEPARATE closed slug enumeration; the hosted R pattern above is
+# unchanged and the focused lockstep test still binds it to the
+# model scenario names).
+# The plain slugs compose with the SAME name template as the hosted
+# path (``slaif-fixture-<prefix>-<slug>-<pid>-<index>-<hex8>`` with
+# prefix 017s) — the round tag appears exactly once, and the closed
+# enumeration is the complete set of names the local 017-s rehearsal
+# may ever create (arbitrary or double-prefixed names are refused).
+LOCAL_SCENARIO_SLUGS = (
+    "controller",
+    "subject",
+    "pty",
+    "auth",
+    "success",
+    "prepared",
+)
+_LOCAL_NAME_PATTERN = (
+    r"slaif-fixture-017s-(?:" + "|".join(LOCAL_SCENARIO_SLUGS) + r")-\d+-\d+-[0-9a-f]{8}"
+)
+_LOCAL_NAME_RE = re.compile(r"^" + _LOCAL_NAME_PATTERN + r"$")
+# Ownership label: the round namespace is closed to the two exact
+# fixture rounds that may create containers through this runner.
+_LABEL_RE = re.compile(r"^slaif-owned-fixture-017[rs]=[0-9a-f]{32}$")
 
 
 def _is_cid(value: str) -> bool:
@@ -659,6 +691,7 @@ def _match_docker_ps(argv: list[str]) -> bool:
         and argv[:4] == ["docker", "ps", "-aq", "--filter"]
         and (
             re.fullmatch(r"name=" + _NAME_PATTERN, argv[4])
+            or re.fullmatch(r"name=" + _LOCAL_NAME_PATTERN, argv[4])
             or re.fullmatch(r"id=[0-9a-f]{64}", argv[4])
             or argv[4] == f"ancestor={IMAGE_NAME}"
         )
@@ -687,7 +720,9 @@ def _match_docker_create(argv: list[str]) -> bool:
     if len(argv) < 4 or argv[:2] != ["docker", "create"]:
         return False
     i = 2
-    if argv[i] != "--name" or not _NAME_RE.fullmatch(argv[i + 1]):
+    if argv[i] != "--name" or not (
+        _NAME_RE.fullmatch(argv[i + 1]) or _LOCAL_NAME_RE.fullmatch(argv[i + 1])
+    ):
         return False
     i += 2
     if argv[i] != "--label" or not _LABEL_RE.fullmatch(argv[i + 1]):
@@ -787,7 +822,10 @@ def _match_docker_rmi(argv: list[str]) -> bool:
 
 def _match_docker_exec(argv: list[str]) -> bool:
     """The exec boundary: optional PTY, the exact fixture uid pair,
-    closed env keys/values, the exact registered CID, and ONLY the
+    closed env keys/values, an OPTIONAL single ``--env-file <path>``
+    admitted only when that exact path is bound for the run via
+    ``bind_env_files`` (the hosted CI path binds nothing, so its
+    behavior is unchanged), the exact registered CID, and ONLY the
     fixed fixture python entry points (controller probe, stand-in
     modes, export client).  No shell, no arbitrary program."""
     if len(argv) < 5 or argv[:2] != ["docker", "exec"]:
@@ -795,18 +833,27 @@ def _match_docker_exec(argv: list[str]) -> bool:
     i = 2
     if argv[i] == "-it":
         i += 1
-    if argv[i] != "--user" or argv[i + 1] not in (
-        f"{CONTROLLER_UID}:{CONTROLLER_UID}",
-        f"{SUBJECT_UID}:{SUBJECT_UID}",
+    if (
+        i + 1 >= len(argv)
+        or argv[i] != "--user"
+        or argv[i + 1]
+        not in (
+            f"{CONTROLLER_UID}:{CONTROLLER_UID}",
+            f"{SUBJECT_UID}:{SUBJECT_UID}",
+        )
     ):
         return False
     i += 2
-    while i < len(argv) and argv[i] == "-e":
+    while i + 1 < len(argv) and argv[i] == "-e":
         key, sep, value = argv[i + 1].partition("=")
         if not sep or not _ENV_KEY_RE.fullmatch(key) or not _ENV_VALUE_RE.fullmatch(value):
             return False
         i += 2
-    if not _is_cid(argv[i]):
+    if i < len(argv) and argv[i] == "--env-file":
+        if i + 1 >= len(argv) or argv[i + 1] not in _ENV_FILE_BIND:
+            return False
+        i += 2
+    if i >= len(argv) or not _is_cid(argv[i]):
         return False
     tail = argv[i + 1 :]
     probe = (
@@ -849,6 +896,35 @@ _ARGV_MATCHERS = (
     _match_docker_exec,
     _match_runtime_version,
 )
+
+
+# -- protected environment-file handoff binding (objective 017-s) ----------
+# The exec allowlist admits a SINGLE ``--env-file <path>`` argument only
+# when that exact path was bound for the run via bind_env_files().  The
+# hosted CI path never binds, so its accepted argv set is unchanged; the
+# local rehearsal binds its one protected generated env file (0600 under
+# a 0700 root) and transfers ONLY the synthetic CODEX_HOME plus the
+# generated fake-provider variable through it -- never via argv.
+_ENV_FILE_BIND: frozenset[str] = frozenset()
+
+
+def bind_env_files(paths: set[str]) -> None:
+    """Bind the exact protected env-file paths this run may pass to
+    ``docker exec --env-file``.  Paths must be absolute, syntactically
+    clean (no NUL, no ``..`` component) and bounded.  The bind is
+    run-scoped module state: an unbound or differently-spelled path is
+    refused by the guard exactly like any other untrusted argv."""
+    global _ENV_FILE_BIND
+    for path in paths:
+        if (
+            not isinstance(path, str)
+            or not path.startswith("/")
+            or "\x00" in path
+            or len(path) > 4096
+            or ".." in path.split("/")
+        ):
+            raise FixtureError("env-file-untrusted")
+    _ENV_FILE_BIND = frozenset(paths)
 
 
 # -- host ledger (non-resettable, shared with the shared deadline) ----------
@@ -1058,6 +1134,33 @@ def verify_no_leftovers(executor: Executor, image_ref: str) -> None:
         raise FixtureError("leftover-query-failed")
     if result.output.strip():
         raise FixtureError("leftover-container")
+
+
+def remove_owned_image_exact(
+    executor: Executor, image_id: str, cleanup_failures: list[str]
+) -> str | None:
+    """Remove the EXACT registered owned image id and verify the
+    outcome.  Returns None when the removal command itself failed
+    (recorded as ``image-rmi-failed``; the caller's state is left
+    unchanged) and otherwise the CLOSED post-removal state:
+    ``absent-verified`` (a SUCCESSFUL query that reports no such
+    image), ``present-unexpected`` (still present after a claimed
+    removal) or ``query-failed-unverified`` (no authoritative
+    missing-object marker — a daemon/query failure is NEVER verified
+    absence).  Shared by the hosted CI run and the order-bound local
+    017-s rehearsal so the verified-absence semantics cannot drift."""
+    rmi = executor(["docker", "rmi", image_id], _QUERY_TIMEOUT)
+    if rmi.returncode != 0:
+        cleanup_failures.append("image-rmi-failed")
+        return None
+    inspect_result = executor(["docker", "image", "inspect", image_id], _QUERY_TIMEOUT)
+    if inspect_result.returncode == 0:
+        cleanup_failures.append("image-still-present")
+        return "present-unexpected"
+    if _NO_SUCH_OBJECT_RE.search(inspect_result.output.decode("ascii", "replace")):
+        return "absent-verified"
+    cleanup_failures.append("image-absence-unverified")
+    return "query-failed-unverified"
 
 
 def parent_namespace_ids() -> dict[str, str]:
@@ -1475,6 +1578,77 @@ def build_run_conf_argv(
     return argv
 
 
+FIXTURE_BUILD_SOURCES = (
+    "cache_native_fixture_model.py",
+    "cache_native_fixture_controller.py",
+    "cache_native_fixture_standin.py",
+    "cache_native_fixture_export_client.py",
+)
+
+
+def prepare_build_context(
+    repo: Path,
+    artifact_dir: Path,
+    context: Path,
+    dockerfile_bytes: bytes,
+    artifact: dict[str, object],
+) -> None:
+    """The reviewed allowlisted build context: the pinned-base
+    Dockerfile bytes, the four fixture sources, the verified public
+    binary, and the public LICENSE/NOTICE identities -- every copy
+    re-hashed AFTER writing.  ``context`` and ``artifact_dir`` must
+    already be fresh owned subdirectories of the registered work
+    root.  Shared by the hosted CI run and the order-bound local
+    017-s rehearsal so the local build context cannot drift from the
+    reviewed one."""
+    (context / "Dockerfile").write_bytes(dockerfile_bytes)
+    for name in FIXTURE_BUILD_SOURCES:
+        src = (repo / "scripts" / name).read_bytes()
+        (context / name).write_bytes(src)
+        if sha256_file(context / name) != hashlib.sha256(src).hexdigest():
+            raise FixtureError("context-mismatch")
+    shutil.copyfile(artifact_dir / model.ARTIFACT_BINARY_NAME, context / model.ARTIFACT_BINARY_NAME)
+    if sha256_file(context / model.ARTIFACT_BINARY_NAME) != artifact["binary_sha256"]:
+        raise FixtureError("context-mismatch")
+    shutil.copyfile(artifact_dir / "LICENSE", context / "codex-0.164.0-license.txt")
+    if sha256_file(context / "codex-0.164.0-license.txt") != artifact["license_sha256"]:
+        raise FixtureError("context-mismatch")
+    shutil.copyfile(artifact_dir / "NOTICE", context / "codex-0.164.0-notice.txt")
+    if sha256_file(context / "codex-0.164.0-notice.txt") != artifact["notice_sha256"]:
+        raise FixtureError("context-mismatch")
+
+
+def verify_dockerfile_base(repo) -> bytes:
+    """The reviewed Dockerfile base check (shared by the hosted CI
+    run and the order-bound local 017-s rehearsal): exactly one
+    FROM, digest-pinned to the reviewed Python 3.12 base literal,
+    and the same embedded literal present in the repository
+    Dockerfile (byte-identity, not transcription).  Returns the
+    fixture Dockerfile bytes for the build context."""
+    from pathlib import Path
+
+    repo = Path(repo)
+    dockerfile_path = repo / "scripts" / "cache_native_fixture.Dockerfile"
+    if not dockerfile_path.is_file():
+        raise FixtureError("dockerfile-missing")
+    dockerfile_bytes = dockerfile_path.read_bytes()
+    base_literal = b"python:3.12-slim-bookworm@sha256:"
+    embedded = [
+        line.split(b"FROM ", 1)[1].strip()
+        for line in dockerfile_bytes.splitlines()
+        if line.startswith(b"FROM ")
+    ]
+    if len(embedded) != 1 or not embedded[0].startswith(base_literal):
+        raise FixtureError("dockerfile-base-unpinned")
+    digest_hex = embedded[0].split(b"@sha256:")[1].decode("ascii")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest_hex):
+        raise FixtureError("dockerfile-base-unpinned")
+    reference = (repo / "Dockerfile").read_bytes()
+    if embedded[0] not in reference:
+        raise FixtureError("dockerfile-base-mismatch")
+    return dockerfile_bytes
+
+
 def _engine_preflight(executor: Executor) -> tuple[str, str, str]:
     """Engine version + explicit seccomp + reviewed runtime identity
     (closed bounded queries only — never raw inspect/env dumps; the
@@ -1598,14 +1772,36 @@ def _standin_env(
     return env
 
 
-def _new_container(executor: Executor, index: int, scenario: str, env: dict[str, str]) -> str:
+def _new_container(
+    executor: Executor,
+    index: int,
+    scenario: str,
+    env: dict[str, str],
+    prefix: str = "017r",
+    on_intent: Callable[[str], None] | None = None,
+) -> str:
     """Fresh name + ownership label; pre-existing collision is a
     fixed failure (never adopted); the ACTUAL returned bare 64-hex
-    CID is validated and registered as owned BEFORE any start."""
-    name = f"slaif-fixture-017r-{scenario}-{os.getpid()}-{index}-{uuid.uuid4().hex[:8]}"
-    label = f"slaif-owned-fixture-017r={uuid.uuid4().hex}"
+    CID is validated and registered as owned BEFORE any start.
+    ``prefix`` is the CLOSED container namespace (the hosted R
+    scenario slugs under 017r; the order-bound local 017-s slugs
+    under 017s) — both are admitted by the guard grammar, and the
+    exact name is collision-checked before create.
+    ``on_intent`` (optional; local 017-s only) is invoked with the
+    exact fresh create name AFTER the collision check and BEFORE
+    the docker create, so the owner can persist the exact fresh
+    ownership intent before the external mutation (the create/
+    response gap is then recoverable data, never an adopted
+    resource); hosted callers pass None and the command sequence
+    is unchanged."""
+    if prefix not in ("017r", "017s"):
+        raise FixtureError("container-namespace-untrusted")
+    name = f"slaif-fixture-{prefix}-{scenario}-{os.getpid()}-{index}-{uuid.uuid4().hex[:8]}"
+    label = f"slaif-owned-fixture-{prefix}={uuid.uuid4().hex}"
     if _ps_filter(executor, f"name={name}") != "absent":
         raise FixtureError("name-collision")
+    if on_intent is not None:
+        on_intent(name)
     result = executor(build_run_conf_argv(IMAGE_NAME, name, label, env), RUN_TIMEOUT)
     if result.returncode != 0:
         raise FixtureError("create-failed")
@@ -1637,6 +1833,32 @@ def _exec(
     for key in sorted(env):
         argv += ["-e", f"{key}={env[key]}"]
     argv += [container_id] + tail
+    return executor(argv, timeout)
+
+
+def _exec_env_file(
+    executor: Executor,
+    container_id: str,
+    uid: int,
+    tail: list[str],
+    env: dict[str, str],
+    env_file: str,
+    timeout: float = RUN_TIMEOUT,
+    pty: bool = False,
+) -> ExecResult:
+    """Exec with the protected generated env file: the file PATH is
+    bound for the run (bind_env_files) and admitted by the closed
+    guard grammar; the file's VALUES never appear on argv.  Closed
+    fixture-internal variables may still be passed via -e."""
+    if env_file not in _ENV_FILE_BIND:
+        raise FixtureError("env-file-unbound")
+    argv = ["docker", "exec"]
+    if pty:
+        argv += ["-it"]
+    argv += ["--user", f"{uid}:{uid}"]
+    for key in sorted(env):
+        argv += ["-e", f"{key}={env[key]}"]
+    argv += ["--env-file", env_file, container_id] + tail
     return executor(argv, timeout)
 
 
@@ -2162,18 +2384,47 @@ _SCENARIO_HTTP_WORST: dict[str, tuple[int, int]] = {
 }
 
 
-def _sc_controller_measurement(executor, index, env_base, created, ledger) -> str:
-    env = dict(env_base)
-    env["SLAIF_FIXTURE_MODE"] = "main"
-    env["SLAIF_FIXTURE_SCENARIO"] = "diagnostic"
-    cid = _new_container(executor, index, "controller-measurement", env)
+def prepare_container(
+    executor,
+    index,
+    scenario,
+    env,
+    created,
+    ledger,
+    prefix: str = "017r",
+    on_registered: Callable[[str], None] | None = None,
+    on_intent: Callable[[str], None] | None = None,
+) -> str:
+    """The shared scenario preparation: fresh owned name/label, the
+    ACTUAL returned CID validated and registered BEFORE any start,
+    then start + controller readiness.  Identical command sequence to
+    the pre-split scenarios; ``prefix`` selects the closed container
+    namespace (hosted 017r scenarios vs order-bound local 017s).
+    ``on_registered`` (optional; local 017-s only) is invoked with
+    the ACTUAL returned CID AFTER it is registered as owned and
+    BEFORE any start, so the caller can persist exact ownership
+    before the external mutation; hosted callers pass None and the
+    command sequence is unchanged.  ``on_intent`` (optional; local
+    017-s only) is invoked with the exact fresh create name AFTER
+    the collision check and BEFORE docker create, so the fresh
+    ownership intent is persisted before the external mutation;
+    hosted callers pass None."""
+    cid = _new_container(executor, index, scenario, env, prefix, on_intent=on_intent)
     created.append(cid)
+    if on_registered is not None:
+        on_registered(cid)
     _start_container(executor, cid)
     _controller_ready(executor, cid, ledger)
-    # Actual inspection of the declared confinement on the exact CID:
-    # the real log-driver field (never docker logs), the controller
-    # identity, and the full host/config confinement including the
-    # absence of any host mounts.
+    return cid
+
+
+def measure_controller_confinement_on(executor, cid) -> dict[str, str]:
+    """NON-CONSUMING controller-side confinement inspection on an
+    already-prepared exact CID (local 017-s prepared target): the
+    same closed confinement proof as the hosted measurement (the
+    real log-driver field, the controller identity, the full
+    host/config confinement including the absence of any host
+    mounts) WITHOUT the consuming diagnostic POST."""
     _inspect_closed(executor, cid, "{{.HostConfig.LogConfig.Type}}", "none")
     _inspect_closed(executor, cid, "{{.Config.User}}", f"{CONTROLLER_UID}:{CONTROLLER_UID}")
     host_config = json.loads(
@@ -2187,9 +2438,78 @@ def _sc_controller_measurement(executor, index, env_base, created, ledger) -> st
         )
     )
     _verify_confinement(host_config, config)
-    # The default no-tools diagnostic is ACTUALLY exercised on the
-    # live wire (health-only readiness does not count): one request,
-    # fixed assistant final text, no tool call.
+    return {
+        "log_config": "none",
+        "config_user": f"{CONTROLLER_UID}:{CONTROLLER_UID}",
+    }
+
+
+def observe_controller_on(executor, cid, env_base, ledger) -> dict[str, object]:
+    """Bounded trusted NON-CONSUMING observation of the ACTUAL
+    controller state on an already-prepared exact CID (local 017-s
+    lifecycle observe): the stand-in under 21002 reads the closed
+    /state record (declared scenario, the controller's own
+    cumulative request count, the one-shot diagnostic state).  It
+    makes no model POST and consumes the diagnostic never; the
+    host does not charge the provider API budgets for an
+    observation command, and the measured controller counters are
+    reported as separate actual facts (a zero host-charge delta
+    does not by itself prove zero provider traffic)."""
+    result = _exec(
+        executor,
+        cid,
+        SUBJECT_UID,
+        ["python3", STANDIN_PATH, "--mode", "observe"],
+        dict(env_base),
+    )
+    if result.returncode != 0:
+        _note_standin_detail(result)
+        raise FixtureError("observe-failed")
+    record = _standin_record(
+        result.output,
+        "observe",
+        frozenset({"scenario", "wire_requests", "diagnostic_state", "raw_content_retained"}),
+    )
+    if record["raw_content_retained"] is not False:
+        raise FixtureError("observe-record-state")
+    if (
+        not isinstance(record["wire_requests"], int)
+        or isinstance(record["wire_requests"], bool)
+        or record["wire_requests"] < 0
+    ):
+        raise FixtureError("observe-record-state")
+    if record["scenario"] not in ("diagnostic", "tool-cycle") or record["diagnostic_state"] not in (
+        "unobserved",
+        "observed",
+    ):
+        raise FixtureError("observe-record-state")
+    return {
+        "scenario": record["scenario"],
+        "wire_requests": record["wire_requests"],
+        "diagnostic_state": record["diagnostic_state"],
+    }
+
+
+def measure_controller_on(executor, cid, env_base, ledger) -> dict[str, object]:
+    """Controller-side measurement on an already-prepared exact CID:
+    actual inspection of the declared confinement (the real
+    log-driver field, never docker logs; the controller identity; the
+    full host/config confinement including the absence of any host
+    mounts) plus the ACTUAL no-tools diagnostic on the live wire
+    (one request, fixed assistant final text, no tool call)."""
+    _inspect_closed(executor, cid, "{{.HostConfig.LogConfig.Type}}", "none")
+    _inspect_closed(executor, cid, "{{.Config.User}}", f"{CONTROLLER_UID}:{CONTROLLER_UID}")
+    host_config = json.loads(
+        _query(executor, ["docker", "inspect", "--format", "{{json .HostConfig}}", cid]).decode(
+            "ascii", "replace"
+        )
+    )
+    config = json.loads(
+        _query(executor, ["docker", "inspect", "--format", "{{json .Config}}", cid]).decode(
+            "ascii", "replace"
+        )
+    )
+    _verify_confinement(host_config, config)
     result = _exec(
         executor,
         cid,
@@ -2215,22 +2535,18 @@ def _sc_controller_measurement(executor, index, env_base, created, ledger) -> st
         int(record["requests"]),
         int(record["attempts"]) - int(record["requests"]),
     )
-    _SC_FACTS["controller-measurement"] = {
+    return {
         "requests": record["requests"],
         "attempts": record["attempts"],
     }
-    cleanup_container(executor, cid)
-    return "completed"
 
 
-def _sc_exec_measurement(executor, index, env_base, created, parent, ledger) -> str:
-    env = dict(env_base)
-    env["SLAIF_FIXTURE_MODE"] = "main"
-    env["SLAIF_FIXTURE_SCENARIO"] = "tool-cycle"
-    cid = _new_container(executor, index, "exec-21002-measurement", env)
-    created.append(cid)
-    _start_container(executor, cid)
-    _controller_ready(executor, cid, ledger)
+def measure_subject_on(executor, cid, env, parent, ledger) -> dict[str, object]:
+    """Subject-side (exec as 21002) measurement on an already-
+    prepared exact CID: the stand-in's closed measurement record,
+    model-validated against fresh budgets.  ``env`` is the container
+    environment (including the scenario marker) exactly as the
+    pre-split scenario built it."""
     measure_env = _standin_env(env, *parent)
     measure_env["SLAIF_FIXTURE_TMPFS_SPECS"] = TMPFS_SPEC_ENV
     measure_env["SLAIF_FIXTURE_EXPECTED_CPU"] = str(model.CPU_LIMIT)
@@ -2243,11 +2559,10 @@ def _sc_exec_measurement(executor, index, env_base, created, parent, ledger) -> 
         raise FixtureError("exec-measurement-failed")
     record = _parse_closed_record(result.output)
     model.validate_exec_measurement(record, model.FixtureBudgets())
-    # Closed facts retained for the runner facts line (measured,
-    # never raw): swap source, the keyring denial errnos and the
-    # reconciled writable-data facts (carried closed into the CI
-    # summary — the measured mount table facts, not an argv claim).
-    _SC_FACTS["exec-21002-measurement"] = {
+    # Closed facts (measured, never raw): swap source, the keyring
+    # denial errnos and the reconciled writable-data facts (the
+    # measured mount table facts, not an argv claim).
+    return {
         "swap_source": record["swap_source"],
         "uid": record["uid"],
         "gid": record["gid"],
@@ -2260,23 +2575,46 @@ def _sc_exec_measurement(executor, index, env_base, created, parent, ledger) -> 
         "mounts_scanned": record["mounts_scanned"],
         "masked_null_aliases": record["masked_null_aliases"],
     }
-    cleanup_container(executor, cid)
-    return "completed"
 
 
-def _sc_pty_attach(executor, index, env_base, created, run_token: str, ledger) -> str:
-    env = dict(env_base)
-    env["SLAIF_FIXTURE_MODE"] = "main"
-    env["SLAIF_FIXTURE_SCENARIO"] = "tool-cycle"
-    cid = _new_container(executor, index, "pty-attach", env)
-    created.append(cid)
-    _start_container(executor, cid)
-    _controller_ready(executor, cid, ledger)
+def pty_attach_on(
+    executor,
+    cid,
+    env_base,
+    run_token: str,
+    ledger,
+    env_file: str | None = None,
+) -> dict[str, object]:
+    """PTY/interactive attachment proof on an already-prepared exact
+    CID (the exact future native attachment path): stdin must be a
+    TTY, closed terminal size facts, the fresh synthetic CODEX_HOME +
+    separate early-beta profile validated against the closed model
+    profile schema.  ``env_file`` (local 017-s only; the hosted CI
+    path passes None) additionally transfers the protected generated
+    env file through the bound ``--env-file`` grammar -- its values
+    never appear on argv -- and the stand-in reports the closed
+    ``env_handoff_verified`` boolean for it."""
     pty_env = dict(env_base)
     pty_env["SLAIF_RUN_TOKEN"] = run_token
-    result = _exec(
-        executor, cid, SUBJECT_UID, ["python3", STANDIN_PATH, "--mode", "pty"], pty_env, pty=True
-    )
+    if env_file is None:
+        result = _exec(
+            executor,
+            cid,
+            SUBJECT_UID,
+            ["python3", STANDIN_PATH, "--mode", "pty"],
+            pty_env,
+            pty=True,
+        )
+    else:
+        result = _exec_env_file(
+            executor,
+            cid,
+            SUBJECT_UID,
+            ["python3", STANDIN_PATH, "--mode", "pty"],
+            pty_env,
+            env_file,
+            pty=True,
+        )
     if result.returncode != 0:
         _note_standin_detail(result)
         raise FixtureError("pty-attach-failed")
@@ -2284,11 +2622,30 @@ def _sc_pty_attach(executor, index, env_base, created, run_token: str, ledger) -
         result.output,
         "pty",
         frozenset(
-            {"pty_attached", "term_rows", "term_cols", "terminal_properties_closed_only", "profile"}
+            {
+                "pty_attached",
+                "term_rows",
+                "term_cols",
+                "terminal_properties_closed_only",
+                "env_handoff_verified",
+                "workspace",
+                "profile",
+            }
         ),
     )
     if record["pty_attached"] is not True or record["terminal_properties_closed_only"] is not True:
         raise FixtureError("pty-record-state")
+    if not isinstance(record["env_handoff_verified"], bool):
+        raise FixtureError("pty-record-state")
+    workspace = record["workspace"]
+    if (
+        not isinstance(workspace, dict)
+        or set(workspace) != {"path", "mode", "uid"}
+        or workspace["path"] != "/run/slaif-subj/work"
+        or workspace["mode"] != 0o700
+        or workspace["uid"] != SUBJECT_UID
+    ):
+        raise FixtureError("pty-workspace-state")
     for key in ("term_rows", "term_cols"):
         if not isinstance(record[key], int) or isinstance(record[key], bool) or record[key] < 0:
             raise FixtureError("pty-record-state")
@@ -2304,11 +2661,53 @@ def _sc_pty_attach(executor, index, env_base, created, run_token: str, ledger) -
         or profile["env_key_name"] != "SLAIF_SYNTHETIC_API_KEY"
     ):
         raise FixtureError("profile-record-state")
-    _SC_FACTS["pty-attach"] = {
+    return {
         "pty_attached": True,
         "profile_file": profile["profile_file"],
         "profile_sha256": profile["profile_sha256"],
         "profile_table_used": False,
+        "env_handoff_verified": record["env_handoff_verified"],
+        "workspace": {
+            "path": workspace["path"],
+            "mode": workspace["mode"],
+            "uid": workspace["uid"],
+        },
+    }
+
+
+def _sc_controller_measurement(executor, index, env_base, created, ledger) -> str:
+    env = dict(env_base)
+    env["SLAIF_FIXTURE_MODE"] = "main"
+    env["SLAIF_FIXTURE_SCENARIO"] = "diagnostic"
+    cid = prepare_container(executor, index, "controller-measurement", env, created, ledger)
+    _SC_FACTS["controller-measurement"] = measure_controller_on(executor, cid, env_base, ledger)
+    cleanup_container(executor, cid)
+    return "completed"
+
+
+def _sc_exec_measurement(executor, index, env_base, created, parent, ledger) -> str:
+    env = dict(env_base)
+    env["SLAIF_FIXTURE_MODE"] = "main"
+    env["SLAIF_FIXTURE_SCENARIO"] = "tool-cycle"
+    cid = prepare_container(executor, index, "exec-21002-measurement", env, created, ledger)
+    _SC_FACTS["exec-21002-measurement"] = measure_subject_on(executor, cid, env, parent, ledger)
+    cleanup_container(executor, cid)
+    return "completed"
+
+
+def _sc_pty_attach(executor, index, env_base, created, run_token: str, ledger) -> str:
+    env = dict(env_base)
+    env["SLAIF_FIXTURE_MODE"] = "main"
+    env["SLAIF_FIXTURE_SCENARIO"] = "tool-cycle"
+    cid = prepare_container(executor, index, "pty-attach", env, created, ledger)
+    facts = pty_attach_on(executor, cid, env_base, run_token, ledger)
+    # The hosted CI summary keeps its exact R closed fact shape: the
+    # local-only env-handoff boolean is retained for the local caller,
+    # never published into the hosted record.
+    _SC_FACTS["pty-attach"] = {
+        key: value
+        for key, value in facts.items()
+        if key not in ("env_handoff_verified", "workspace")
     }
     cleanup_container(executor, cid)
     return "completed"
@@ -2318,10 +2717,25 @@ def _sc_synthetic_success(executor, index, env_base, created, ledger) -> str:
     env = dict(env_base)
     env["SLAIF_FIXTURE_MODE"] = "main"
     env["SLAIF_FIXTURE_SCENARIO"] = "tool-cycle"
-    cid = _new_container(executor, index, "synthetic-success", env)
-    created.append(cid)
-    _start_container(executor, cid)
-    _controller_ready(executor, cid, ledger)
+    cid = prepare_container(executor, index, "synthetic-success", env, created, ledger)
+    facts, payload, quiesce_record, descendants_before = synthetic_success_on(
+        executor, cid, env_base, ledger
+    )
+    cleanup_container(executor, cid)
+    _SC_FACTS["synthetic-success"] = facts
+    _SC_EXPORT["payload"] = payload
+    _SC_EXPORT["quiesce_record"] = quiesce_record
+    _SC_TEARDOWN["cid"] = cid
+    _SC_TEARDOWN["descendants_before"] = descendants_before
+    return "completed"
+
+
+def synthetic_success_on(executor, cid, env_base, ledger):
+    """The full wire + quiesce + export + host revalidation +
+    teardown-prep sequence on an already-prepared exact CID
+    (container stays alive; the caller owns its removal).  Returns
+    (closed facts, export payload bytes, quiesce record,
+    descendants-before count)."""
     # -- the stand-in drives the REAL controller wire (2 requests) --
     result = _exec(
         executor, cid, SUBJECT_UID, ["python3", STANDIN_PATH, "--mode", "success"], dict(env_base)
@@ -2456,8 +2870,7 @@ def _sc_synthetic_success(executor, index, env_base, created, ledger) -> str:
     )
     # -- exact CID/descendant teardown VERIFIED, then publish --
     descendants_before = _descendant_count(executor, cid)
-    cleanup_container(executor, cid)
-    _SC_FACTS["synthetic-success"] = {
+    facts = {
         "issued_count": len(issued),
         "export_sha256": hashlib.sha256(payload).hexdigest(),
         "quiesce": "closed-pass",
@@ -2467,11 +2880,7 @@ def _sc_synthetic_success(executor, index, env_base, created, ledger) -> str:
         "controller_ledger_requests": snapshot["controller_ledger"]["requests"],
         "retained_capture_bytes": len(payload),
     }
-    _SC_EXPORT["payload"] = payload
-    _SC_EXPORT["quiesce_record"] = quiesce_record
-    _SC_TEARDOWN["cid"] = cid
-    _SC_TEARDOWN["descendants_before"] = descendants_before
-    return "completed"
+    return facts, payload, quiesce_record, descendants_before
 
 
 def _sc_synthetic_fail(executor, index, env_base, created, ledger) -> str:
@@ -2898,24 +3307,7 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
     guarded = _guarded_execute(executor, deadline, ledger)
 
     # -- Reviewed Dockerfile base (byte-identical to the repo base) --
-    dockerfile_path = repo / "scripts" / "cache_native_fixture.Dockerfile"
-    if not dockerfile_path.is_file():
-        raise FixtureError("dockerfile-missing")
-    dockerfile_bytes = dockerfile_path.read_bytes()
-    base_literal = b"python:3.12-slim-bookworm@sha256:"
-    embedded = [
-        line.split(b"FROM ", 1)[1].strip()
-        for line in dockerfile_bytes.splitlines()
-        if line.startswith(b"FROM ")
-    ]
-    if len(embedded) != 1 or not embedded[0].startswith(base_literal):
-        raise FixtureError("dockerfile-base-unpinned")
-    digest_hex = embedded[0].split(b"@sha256:")[1].decode("ascii")
-    if not re.fullmatch(r"[0-9a-f]{64}", digest_hex):
-        raise FixtureError("dockerfile-base-unpinned")
-    reference = (repo / "Dockerfile").read_bytes()
-    if embedded[0] not in reference:
-        raise FixtureError("dockerfile-base-mismatch")
+    dockerfile_bytes = verify_dockerfile_base(repo)
 
     # -- Static NO-codex proof (sources + workflow fixture job) ------
     _static_no_codex_invocation(repo)
@@ -2953,19 +3345,9 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
         still-present and daemon/query-failure are DISTINCT recorded
         cleanup failures (a failed query is never verified absence)."""
         nonlocal image_state
-        rmi = guarded(["docker", "rmi", image_id], _QUERY_TIMEOUT)
-        if rmi.returncode != 0:
-            cleanup_failures.append("image-rmi-failed")
-            return
-        inspect_result = guarded(["docker", "image", "inspect", image_id], _QUERY_TIMEOUT)
-        if inspect_result.returncode == 0:
-            cleanup_failures.append("image-still-present")
-            image_state = "present-unexpected"
-        elif _NO_SUCH_OBJECT_RE.search(inspect_result.output.decode("ascii", "replace")):
-            image_state = "absent-verified"
-        else:
-            cleanup_failures.append("image-absence-unverified")
-            image_state = "query-failed-unverified"
+        state = remove_owned_image_exact(guarded, image_id, cleanup_failures)
+        if state is not None:
+            image_state = state
 
     def _record_sweep_failure(where: str, exc: Exception) -> None:
         """Record an HONEST unverified cleanup outcome.  A timed-out
@@ -3002,28 +3384,7 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
             # -- Build context: Dockerfile + sources + binary +
             #    license + notice (every copy byte-verified) --
             _STAGE = "build-context"
-            (context / "Dockerfile").write_bytes(dockerfile_bytes)
-            for name in (
-                "cache_native_fixture_model.py",
-                "cache_native_fixture_controller.py",
-                "cache_native_fixture_standin.py",
-                "cache_native_fixture_export_client.py",
-            ):
-                src = (repo / "scripts" / name).read_bytes()
-                (context / name).write_bytes(src)
-                if sha256_file(context / name) != hashlib.sha256(src).hexdigest():
-                    raise FixtureError("context-mismatch")
-            shutil.copyfile(
-                artifact_dir / model.ARTIFACT_BINARY_NAME, context / model.ARTIFACT_BINARY_NAME
-            )
-            if sha256_file(context / model.ARTIFACT_BINARY_NAME) != artifact["binary_sha256"]:
-                raise FixtureError("context-mismatch")
-            shutil.copyfile(artifact_dir / "LICENSE", context / "codex-0.164.0-license.txt")
-            if sha256_file(context / "codex-0.164.0-license.txt") != artifact["license_sha256"]:
-                raise FixtureError("context-mismatch")
-            shutil.copyfile(artifact_dir / "NOTICE", context / "codex-0.164.0-notice.txt")
-            if sha256_file(context / "codex-0.164.0-notice.txt") != artifact["notice_sha256"]:
-                raise FixtureError("context-mismatch")
+            prepare_build_context(repo, artifact_dir, context, dockerfile_bytes, artifact)
 
             env_base = {
                 "SLAIF_FIXTURE_DEADLINE_ABS": repr(deadline.anchor),

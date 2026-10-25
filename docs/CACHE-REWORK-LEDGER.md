@@ -513,6 +513,77 @@ provider session or model call; it earned no format or process
 acquisition; the handoff-preparation qualification is `PENDING`
 strategic review of the actual job outcome; D09 remains `NOT
 RUN`/deferred; no v1 runtime claim.
+Stage 017-s lands the local fixture preparation and one
+bounded Python-only local rehearsal on the live host (the
+order-bound local authority of its section 2: only the already
+available Docker daemon and exact freshly owned fixture
+resources; no install/start/restart/reconfigure of Docker, no
+groups, packages, security, network or daemon-default changes,
+no protected-service touch, no privileged or host namespaces;
+fake tests remain the primary verification layer) — a
+repo-owned stdlib-only preparer/supervisor
+(`scripts/cache_native_fixture_local.py`) reusing R's validated
+image/model/controller/exporter/stand-in, guarded executor,
+measured confinement, single run deadline and ledger, artifact
+acquisition and ownership helpers (no copy of the CI runner, no
+general framework).  One long-lived non-Codex Python fixture
+owner (the supervisor) owns every Docker operation through the
+closed guarded executor, the exact registry (CID registered
+BEFORE start, image identity, build intent, env file), the
+single 1800 s END anchor plus one bounded 600 s cleanup grace,
+the non-resettable ledger and the final evidence; a thin CLI
+caller drives the protected bounded prepare / observe /
+rehearse / finish / abort lifecycle over a 0600 socket in a
+protected 0700 control root outside the disposable work root,
+so a caller death, second phase or new directory cannot stop,
+reset or re-admit the run (the owner converges its own
+exact-owned cleanup on its own remaining budgets; container
+termination is by docker on the exact registered CID only, no
+host PID signalling).  Section 2 verified local endpoint
+binding: the documented default unix socket (`/var/run/
+docker.sock`) is verified read-only by lstat (must exist as a
+socket file; never connected), corroborated by the
+daemon-declared name equal to this host's hostname through the
+pinned bound executor; every run Docker child inherits a
+FROZEN once-per-owner environment with DOCKER_HOST pinned to
+that verified socket and the overriding context selection
+removed (a stored currentContext or later HOME/DOCKER_CONFIG/
+DOCKER_CONTEXT drift cannot redirect a later action); an
+explicit remote selection refuses before any mutation and no
+endpoint value is ever echoed.  Prepare measures the same
+reviewed confinement as R and verifies the env-file handoff
+(0600 under 0700, exact two synthetic keys, removed on every
+path) and the PTY attach with zero wire; rehearsal consumes the
+one-shot diagnostic with the existing Python stand-in under
+21002; finish is variant-aware (python-rehearsal / unobserved /
+external) with the retained summary bound to the decoded
+payload; `native_started` / `worker_stopped` / `codex_invoked`
+stay false throughout.  The ONE rehearsal is `NOT RUN` at this
+source commit: it runs once at the committed/pushed reviewed
+head with fresh owned roots and leaves no prepared container,
+supervisor, listener, key file or owned image; its actual
+measured facts and cleanup outcomes are recorded in the
+immutable round report (the later doc pass binds the measured
+source/facts and final provenance).  Public local proof:
+`tests/test_cache_native_fixture_local.py` (48 tests —
+order-bound opt-in vs hosted-only guard and one-attempt
+admission, the single-owner protected lifecycle, variant-aware
+finish compositions with the summary bound to the decoded
+payload and forgery negatives, the curated subject-facts closed
+contract, the section-2 endpoint binding, driver composition
+negatives and public main refusals; fake Docker/socket/time/
+identity seams plus tiny exact-owned Python children only; no
+docker daemon, namespace or syscall probe; no secrets
+forwarded to the fixture).  CI remains Python-only with the ten
+existing required checks (no new job; the pinned public Codex
+binary is fetched and hashed statically in the R
+`cache-native-fixture` job and is NEVER EXECUTED there —
+including help/version — per the RIGHT-only startup law).
+017-s performs no native launch, no worker
+suspension, no protected service or profile change; the
+handoff-preparation qualification stays `PENDING` strategic
+review of the actual outcomes; D09 remains `NOT RUN`/deferred;
+no v1 runtime claim.
 Objective 016 (the architecture/documentation and
 development-state stage) is accepted and merged as PR #24, merge
 `96c790423f6f0097a56a0b12bacda8a9b6da6aba`. Do not read a row in this

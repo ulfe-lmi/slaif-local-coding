@@ -1611,6 +1611,84 @@ review of the actual R job outcome, and D09 (genuine native
 capture/collector) remains `NOT RUN` until a later order executes
 this runbook and records actual measurements.
 
+### 11d. Round 017-s: local fixture preparation and one Python-only
+rehearsal (no D-syntax change)
+
+Round 017-s lands the repo-owned stdlib-only local
+preparer/supervisor `scripts/cache_native_fixture_local.py`,
+reusing R's validated image/model/controller/exporter/stand-in,
+the guarded executor, measured confinement, single run deadline
+and ledger, artifact acquisition and ownership helpers — no
+copy of the CI runner and no general framework.  The distinct
+explicit local entry (`rehearsal`) carries the order-bound opt-in
+(literal `017-s` + literal bound head, verified read-only against
+the bound repository) and fresh protected work/evidence roots.
+
+One long-lived non-Codex Python fixture owner (the supervisor)
+owns every Docker operation through the closed guarded executor,
+the exact resource registry (CID registered BEFORE start, image
+identity, build intent, env file), the single 1800 s END anchor
+plus one bounded 600 s cleanup grace, the non-resettable ledger
+and the final evidence.  A thin CLI caller drives the protected
+bounded lifecycle prepare / observe / rehearse / finish / abort
+over a 0600 socket in a protected 0700 control root OUTSIDE the
+disposable work root (state/abort files 0600): a caller death,
+second phase or new directory cannot stop, reset or re-admit the
+run; the owner converges its own exact-owned cleanup on its own
+remaining budgets (SIGTERM and KeyboardInterrupt converge through
+the same path), and container termination is by docker on the
+exact registered CID only (no host PID signalling).  Prepare
+measures the same reviewed confinement as R (21001 controller
+PID1, 21002 subject, network none, read-only rootfs, cap-drop
+ALL, no-new-privileges/builtin seccomp, private pid/mnt/ipc/uts/
+net, 1 GiB/CPU 1/PIDs 96/swap 0, three configured 64 MiB
+writable-data mounts plus the daemon's /dev/shm bounded to
+64 MiB — four mounts, 256 MiB effective total — log-driver
+none),
+verifies the env-file handoff (0600 under 0700, exact two
+synthetic keys, removed on every path) and the PTY attach with
+zero wire, and observes the closed controller state
+non-consuming; the pure attach plan (exactly `codex --yolo
+--profile early-beta`, `executed: false`) is inert and is never
+executed in S.  Rehearsal consumes the one-shot diagnostic with
+the existing Python stand-in under 21002; finish is
+variant-aware (python-rehearsal / unobserved / external) with
+the retained summary bound to the decoded payload, and
+`native_started` / `worker_stopped` / `codex_invoked` stay
+false throughout.
+
+Section 2 (verified local endpoint binding): the narrow
+supported local endpoint is the documented default unix socket
+(`/var/run/docker.sock`), verified read-only by lstat (it must
+exist as a socket file; never connected), corroborated by the
+daemon-declared name equal to this host's hostname through the
+pinned bound executor.  EVERY run Docker child inherits a
+FROZEN once-per-owner environment in which DOCKER_HOST is
+pinned to that verified socket and the overriding context
+selection is removed, so a stored currentContext or later
+HOME/DOCKER_CONFIG/DOCKER_CONTEXT drift cannot redirect a later
+action; an explicit remote selection (non-blank DOCKER_HOST or a
+non-default DOCKER_CONTEXT) refuses BEFORE any mutation, and no
+endpoint value (URL, credential, context name) is ever echoed.
+
+The ONE bounded local rehearsal (only at the committed/pushed
+reviewed head, fresh owned roots) is `NOT RUN` at this source
+commit: it runs once after this commit through the full
+prepare -> Python rehearsal -> finish lifecycle and leaves no
+prepared container, supervisor, listener, key file or owned
+image; its actual measured facts, failures and cleanup outcomes
+are recorded in the immutable round report (the later doc pass
+binds the measured source/facts and final provenance).  CI
+remains Python-only with the ten existing required checks (no
+new job; the pinned public Codex binary is fetched and hashed
+statically in the R `cache-native-fixture` job and is NEVER
+EXECUTED there — including help/version — preserving the static
+acquisition and the RIGHT-only startup law).  No native launch,
+no worker suspension, no protected service or profile change:
+the handoff-preparation qualification stays `PENDING` strategic
+review of the actual outcomes, and D09 (genuine native
+capture/collector) remains `NOT RUN`.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

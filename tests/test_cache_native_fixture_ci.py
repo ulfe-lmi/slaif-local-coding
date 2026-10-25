@@ -583,6 +583,8 @@ class FixtureFakeDocker:
                 term_rows=fci.PTY_ROWS,
                 term_cols=fci.PTY_COLS,
                 terminal_properties_closed_only=True,
+                env_handoff_verified=False,
+                workspace={"path": "/run/slaif-subj/work", "mode": 0o700, "uid": 21002},
                 profile=_profile_record(),
             )
         elif mode == "success":
@@ -3082,6 +3084,46 @@ def test_real_execute_pty_held_pipe_converges_bounded(tmp_path: Path, monkeypatc
     assert result.output.startswith(b"slaif-pty-held-partial")
     assert result.drained_bytes >= len(result.output)
     _assert_test_owned_holder_gone(pidfile)
+
+
+def test_real_execute_bound_env_reaches_child_on_both_paths(monkeypatch: Any) -> None:
+    """Shared executor env semantics: the explicit child environment
+    reaches the child on the NORMAL pipe path and the OWNED PTY path
+    alike (the local owner's frozen pinned snapshot relies on this),
+    and env=None keeps inheriting the ambient os.environ (the hosted
+    runner behavior is unchanged).  No Docker is involved."""
+    marker = "SLAIF_ENV_BOUND_MARKER"
+    probe = [
+        sys.executable,
+        "-c",
+        f"import os;print(os.environ.get('{marker}','MISSING'))",
+    ]
+    monkeypatch.setenv(marker, "ambient")
+    result = fci._real_execute(probe, 15.0)
+    assert result.returncode == 0
+    assert result.output.strip() == b"ambient"
+    bound_env = dict(os.environ)
+    bound_env[marker] = "bound"
+    result = fci._real_execute(probe, 15.0, env=bound_env)
+    assert result.returncode == 0
+    assert result.output.strip() == b"bound"
+    result = fci._real_execute_pty(probe, 15.0, env=bound_env)
+    assert result.returncode == 0
+    assert b"bound" in result.output
+    # a variable present in the ambient environment but ABSENT from
+    # the explicit snapshot must not leak into the child
+    drop_probe = [
+        sys.executable,
+        "-c",
+        "import os;print(os.environ.get('SLAIF_ENV_DROP_CHECK','MISSING'))",
+    ]
+    monkeypatch.setenv("SLAIF_ENV_DROP_CHECK", "present")
+    dropped = dict(os.environ)
+    del dropped["SLAIF_ENV_DROP_CHECK"]
+    result = fci._real_execute(drop_probe, 15.0, env=dropped)
+    assert result.output.strip() == b"MISSING"
+    result = fci._real_execute_pty(drop_probe, 15.0, env=dropped)
+    assert b"MISSING" in result.output
 
 
 def test_real_execute_capture_read_error_fails_closed(monkeypatch: Any) -> None:
