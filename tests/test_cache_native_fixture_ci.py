@@ -260,7 +260,10 @@ def _host_config() -> dict[str, Any]:
         "NanoCpus": fci.NANOCPUS,
         "MemorySwap": fci.MEMORY_BYTES,
         "PidsLimit": fci.PIDS_LIMIT,
-        "Devices": None,
+        # ACTUAL daemon shape: absent device mappings serialize as an
+        # empty (non-nil) list, not null (docker CLI create request
+        # carries deviceMappings := []container.DeviceMapping{}).
+        "Devices": [],
         "Ulimits": [],
         "Tmpfs": {
             "/run/slaif-ctl": "rw,nosuid,size=65536k,uid=21001,gid=21001,mode=700",
@@ -998,6 +1001,26 @@ def test_verify_confinement_rejects_drift(mutate: Any) -> None:
 
 def test_verify_confinement_accepts_exact() -> None:
     fci._verify_confinement(_host_config(), _config_json())
+
+
+@pytest.mark.parametrize("key", ["Binds", "Devices", "VolumesFrom", "DeviceRequests"])
+@pytest.mark.parametrize("absent", [None, []])
+def test_verify_confinement_absent_state_null_or_empty(key: Any, absent: Any) -> None:
+    # Both Go slice JSON shapes are the absent state (see the
+    # runner's schema note): null (nil slice) and [] (non-nil empty
+    # slice sent by the docker CLI) must both pass.
+    host = _host_config()
+    host[key] = absent
+    fci._verify_confinement(host, _config_json())
+
+
+@pytest.mark.parametrize("key", ["Binds", "Devices", "VolumesFrom", "DeviceRequests"])
+@pytest.mark.parametrize("bad", ["bogus", 0, True, {"x": 1}])
+def test_verify_confinement_absent_state_wrong_type_rejected(key: Any, bad: Any) -> None:
+    host = _host_config()
+    host[key] = bad
+    with pytest.raises(fci.FixtureError, match=f"confinement-value:{key}"):
+        fci._verify_confinement(host, _config_json())
     config = _config_json()
     config["User"] = "0:0"
     with pytest.raises(fci.FixtureError, match="confinement-user"):
@@ -2278,15 +2301,82 @@ def test_retain_evidence_symlinked_ancestor_refused(tmp_path: Path) -> None:
     assert not (real / "selected-evidence.json").exists()
 
 
-def test_retain_evidence_foreign_owned_parent_refused(tmp_path: Path, monkeypatch: Any) -> None:
+def test_retain_evidence_foreign_owned_ancestry_refused(tmp_path: Path, monkeypatch: Any) -> None:
+    # Simulated foreign uid: the real-uid pytest ancestry is then an
+    # arbitrary FOREIGN (non-root) owner — never trusted (owner-
+    # write could rename/swap the protected leaf), so the refusal
+    # fires at the first foreign ancestor, before the immediate-
+    # parent check.
     work = tmp_path / "work-root"
     parent = tmp_path / "out"
     parent.mkdir()
-    monkeypatch.setattr(fci.os, "getuid", lambda: os.getuid() + 7)
+    real_uid = os.getuid()
+    monkeypatch.setattr(fci.os, "getuid", lambda: real_uid + 7)
     dest = parent / "selected-evidence.json"
-    with pytest.raises(fci.FixtureError, match="evidence-parent-untrusted"):
+    with pytest.raises(fci.FixtureError, match="evidence-ancestor-untrusted"):
         fci._retain_evidence(dest, EVIDENCE_PAYLOAD, EVIDENCE_DIGEST, work)
     _no_tmp_left(parent)
+
+
+def test_retain_evidence_current_uid_0755_traversal_ancestor_admitted(
+    tmp_path: Path,
+) -> None:
+    # Current-uid ordinary traversal ancestry (0755, not
+    # group/other-writable) is admitted — 0700 is demanded only on
+    # the private leaf and on state created by this invocation.
+    work = tmp_path / "work-root"
+    home = tmp_path / "home755"
+    home.mkdir()
+    os.chmod(home, 0o755)
+    dest = home / "evidence-dir" / "selected-evidence.json"
+    result = fci._retain_evidence(dest, EVIDENCE_PAYLOAD, EVIDENCE_DIGEST, work)
+    assert result == str(dest)
+    assert stat.S_IMODE(dest.lstat().st_mode) == 0o600
+    assert stat.S_IMODE(dest.parent.lstat().st_mode) == 0o700
+    _no_tmp_left(dest.parent)
+
+
+@pytest.mark.parametrize("mode", [0o775, 0o777, 0o755 | stat.S_IWGRP])
+def test_retain_evidence_current_uid_writable_ancestor_refused(tmp_path: Path, mode: Any) -> None:
+    # A current-uid ancestor that is group/other-writable is
+    # untrusted (group members could rename/swap the protected
+    # leaf): refused, nothing written.
+    work = tmp_path / "work-root"
+    bad = tmp_path / "writable755"
+    bad.mkdir()
+    os.chmod(bad, mode)
+    dest = bad / "selected-evidence.json"
+    with pytest.raises(fci.FixtureError, match="evidence-ancestor-untrusted"):
+        fci._retain_evidence(dest, EVIDENCE_PAYLOAD, EVIDENCE_DIGEST, work)
+    assert not dest.exists()
+
+
+@pytest.mark.parametrize(
+    "mode,owner,self_uid,trusted",
+    [
+        # current-uid traversal ancestry
+        (0o755, 1000, 1000, True),
+        (0o700, 1000, 1000, True),
+        (0o775, 1000, 1000, False),  # current-uid group-writable
+        (0o777, 1000, 1000, False),  # current-uid world-writable
+        (0o644, 1000, 1000, False),  # current-uid non-traversable
+        # root-owned explicitly trusted system ancestry
+        (0o755, 0, 1000, True),  # /, /home, /usr
+        (0o1777, 0, 1000, True),  # /tmp: sticky shared temp
+        (0o1755, 0, 1000, True),  # sticky, no writable classes
+        (0o777, 0, 1000, False),  # root world-writable sticky-less
+        (0o775, 0, 1000, False),  # root group-writable sticky-less
+        (0o700, 0, 1000, False),  # root-owned, other cannot traverse
+        # arbitrary foreign (non-root) owners are never trusted
+        (0o755, 1001, 1000, False),  # foreign owner can rename/swap
+        (0o1777, 1001, 1000, False),  # owner controls its sticky dir
+        (0o700, 1001, 1000, False),  # foreign, non-traversable
+    ],
+)
+def test_existing_ancestor_trusted_matrix(
+    mode: Any, owner: Any, self_uid: Any, trusted: Any
+) -> None:
+    assert fci._existing_ancestor_trusted(mode, owner, self_uid) is trusted
 
 
 def test_retain_evidence_traversal_component_refused(tmp_path: Path) -> None:

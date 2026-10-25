@@ -19,6 +19,7 @@ import json
 import os
 import signal
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -954,3 +955,46 @@ class TestProfileRecord:
         assert record["credential_sha256"] != record["base_config_sha256"]
         assert oct(record["codex_home_mode"]) == "0o700"
         assert oct(record["profile_mode"]) == "0o600"
+
+    def test_synthetic_templates_disable_optional_external_controls(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        # review 24: the required optional plugin-sync/update/
+        # telemetry controls of the exact pinned public 0.164.0
+        # config schema must be present in the FRESH synthetic
+        # templates (pure template assertion; nothing is
+        # launched).
+        monkeypatch.setenv("SLAIF_SUBJ_DIR", str(tmp_path))
+        monkeypatch.setenv("SLAIF_FIXTURE_PORT", "18443")
+        monkeypatch.setattr(model, "SUBJECT_UID", os.getuid())
+        _set_module_attr(standin, "SUBJ_DIR", str(tmp_path))
+        _set_module_attr(standin, "SUBJ_CODEX_HOME", f"{tmp_path}/codex-home")
+        _set_module_attr(standin, "SUBJ_CREDENTIAL", f"{tmp_path}/credential")
+        standin.create_synthetic_profile("run-token-017r")
+        base = tomllib.loads((tmp_path / "codex-home" / "config.toml").read_text())
+        assert base["check_for_update_on_startup"] is False
+        assert base["analytics"] == {"enabled": False}
+        assert base["otel"] == {
+            "exporter": "none",
+            "trace_exporter": "none",
+            "metrics_exporter": "none",
+        }
+        # features.plugins defaults to TRUE at the pinned commit:
+        # the explicit false is what disables plugin
+        # synchronization.
+        assert base["features"] == {
+            "plugins": False,
+            "remote_plugin": False,
+            "recommended_plugins": False,
+            "plugin_hooks": False,
+        }
+        assert base["history"] == {"persistence": "none"}
+        # no legacy profile selector/table in the base: the
+        # pinned loader rejects them together with --profile.
+        assert "profile" not in base and "profiles" not in base
+        profile = tomllib.loads((tmp_path / "codex-home" / "early-beta.config.toml").read_text())
+        assert profile == {
+            "model": "slaif-synthetic-model",
+            "approval_policy": "never",
+            "sandbox_mode": "danger-full-access",
+        }

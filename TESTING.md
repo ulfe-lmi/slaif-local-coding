@@ -440,7 +440,7 @@ bounded diagnostic traversal), the 21001 controller/issued
 registry, the 21002 stand-in subject and the 21001 exporter client,
 the distinct fixture image, and the host runner that drives ten
 fresh-container scenarios on disposable GitHub-hosted CI only.
-The public suite `tests/test_cache_native_fixture.py` (188
+The public suite `tests/test_cache_native_fixture.py` (191
 tests — pure phase/budget/schema/selection validation, bounded
 diagnostic traversal, closed record validators including the
 pinned public LICENSE/NOTICE byte identities, the reconciled
@@ -450,7 +450,7 @@ separation),
 `tests/test_cache_native_fixture_controller.py` (33 tests —
 request/issuance causality, strict-after-result positions,
 quiesce/export frames over the real socket),
-`tests/test_cache_native_fixture_standin.py` (68 tests — the
+`tests/test_cache_native_fixture_standin.py` (69 tests — the
 exact reviewed keyring/ABI/caps/namespace/EROFS/CPU surface,
 bounded metadata diagnostic, hang/stop-owned records, the
 reconciled writable-data mount inventory from the actual
@@ -463,14 +463,17 @@ path; the exact SIGTERM/si_code/flags send ABI; the declared
 closed failure when the pidfd API is unavailable; and the
 owned stop with unrelated survival through the recorded fake
 signal) and
-`tests/test_cache_native_fixture_ci.py` (132 tests — closed
+`tests/test_cache_native_fixture_ci.py` (174 tests — closed
 command grammar including the create-argv/allowlist lockstep
 with the explicit `--shm-size` bound, host ledger with distinct
 measured quantities and pre-work reservations, timed-out-capture
 drained accounting, over-bound /proc scan rejection, the actual
 HostConfig schema verification — the real SecurityOpt string
-list, ShmSize, Mounts/DeviceRequests absence — with the
-invented legacy keys consistency-checked when present, the full
+list, ShmSize, and the null-or-empty Binds/Devices/
+VolumesFrom/DeviceRequests absence grammar (daemon
+serialization: nil→null, empty list→[]) — non-empty values
+remain denied — with the invented legacy keys
+consistency-checked when present, the full
 FakeDocker orchestration with its named failure paths (preflight
 runtime refusal, image collision/absence-unverified, sentinel
 death, descendant leftovers, export SHA mismatch, malformed or

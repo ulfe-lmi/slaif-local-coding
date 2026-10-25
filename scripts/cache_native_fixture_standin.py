@@ -638,9 +638,36 @@ def create_synthetic_profile(run_token: str) -> dict:
     os.makedirs(SUBJ_CODEX_HOME, mode=0o700, exist_ok=True)
     os.chmod(SUBJ_CODEX_HOME, 0o700)
     port = env_int("SLAIF_FIXTURE_PORT", 18443)
+    # The required startup controls of the exact pinned public
+    # 0.164.0 config schema (codex-rs/core/config.schema.json at
+    # 6aaac694803004a63c6f393d153c96d22521a6b9): no startup update
+    # check, analytics disabled, all OTEL exporters off, plugin
+    # synchronization/remote plugins/recommended plugins/plugin
+    # hooks off (features.plugins defaults to TRUE at this commit,
+    # so it must be set explicitly), and nonessential history off.
+    # These are fixture-only settings of a disposable synthetic
+    # profile — no native behavior claim, and the actual offered
+    # native tool modes are preserved (no unified_exec/code-mode
+    # swap).
     base = (
         'model_provider = "slaif_synthetic_provider"\n'
         'model = "slaif-synthetic-model"\n'
+        "\n"
+        "check_for_update_on_startup = false\n"
+        "\n"
+        "[analytics]\n"
+        "enabled = false\n"
+        "\n"
+        "[otel]\n"
+        'exporter = "none"\n'
+        'trace_exporter = "none"\n'
+        'metrics_exporter = "none"\n'
+        "\n"
+        "[features]\n"
+        "plugins = false\n"
+        "remote_plugin = false\n"
+        "recommended_plugins = false\n"
+        "plugin_hooks = false\n"
         "\n"
         "[model_providers.slaif_synthetic_provider]\n"
         'name = "slaif synthetic loopback provider"\n'

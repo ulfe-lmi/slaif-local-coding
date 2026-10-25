@@ -1794,10 +1794,6 @@ def _verify_confinement(host_config: object, config: object) -> None:
         "UsernsMode": "",
         "IpcMode": "private",
         "PidMode": "",
-        "Binds": None,
-        "Devices": None,
-        "VolumesFrom": None,
-        "DeviceRequests": None,
         # The explicitly bounded /dev/shm (shared reviewed constant).
         "ShmSize": SHM_SIZE_BYTES,
     }
@@ -1806,6 +1802,24 @@ def _verify_confinement(host_config: object, config: object) -> None:
             raise FixtureError(f"confinement-missing:{key}")
         if host_config[key] != value:
             raise FixtureError(f"confinement-value:{key}")
+    # Go JSON semantics on the ACTUAL inspect output (moby
+    # api/types/container/hostconfig.go, v28.5.1: HostConfig embeds
+    # Resources; none of these four carries omitempty): the key is
+    # ALWAYS present; a nil slice serializes as JSON null, while the
+    # docker CLI sends a non-nil EMPTY slice for absent device
+    # mappings (cli command/container/opts.go:
+    # `deviceMappings := []container.DeviceMapping{}`), which the
+    # daemon persists and re-serializes as [].  Both the null and the
+    # empty-list shape are the ABSENT state; any configured (non-
+    # empty) entry — or any other non-absent type — is a
+    # confinement violation.  The device/bind denial is preserved.
+    for key in ("Binds", "Devices", "VolumesFrom", "DeviceRequests"):
+        if key not in host_config:
+            raise FixtureError(f"confinement-missing:{key}")
+        value = host_config[key]
+        if value is not None:
+            if not isinstance(value, list) or len(value) != 0:
+                raise FixtureError(f"confinement-value:{key}")
     # The ACTUAL official representation of the security options is
     # HostConfig.SecurityOpt, the list of strings exactly as
     # configured: the no-new-privileges and builtin-seccomp proofs
@@ -2442,6 +2456,34 @@ def _sc_controller_crash(executor, index, env_base, created, ledger) -> str:
 
 
 # -- the run ---------------------------------------------------------------------
+def _existing_ancestor_trusted(mode: int, owner_uid: int, self_uid: int) -> bool:
+    """The explicit trust rule for an EXISTING intermediate evidence
+    ancestor (protected-path convention, review 23):
+
+    - current-uid ancestry: ordinary home/traversal directories need
+      not all be 0700 — admitted when not group/other-writable and
+      owner-traversable (0700 is demanded on the private leaf and on
+      the state this invocation creates, never on pre-existing
+      shared traversal);
+    - root-owned ancestry: the explicitly trusted system ancestry
+      (/, /home, /usr, ...); a root-owned writable shared root is
+      admitted only with the sticky bit (the POSIX /tmp convention —
+      sticky protects entries from other unprivileged users, not
+      from the directory owner, so owner identity is what matters);
+    - arbitrary foreign (non-root) owners: never trusted — owner-
+      write remains set, so the owner can rename/swap entries, and
+      the owner also controls a sticky directory.
+    """
+    if owner_uid == self_uid:
+        return not (mode & (stat.S_IWGRP | stat.S_IWOTH)) and bool(mode & stat.S_IXUSR)
+    if owner_uid == 0:
+        if not mode & stat.S_IXOTH:
+            return False
+        writable = mode & (stat.S_IWGRP | stat.S_IWOTH)
+        return not writable or bool(mode & stat.S_ISVTX)
+    return False
+
+
 def _retain_evidence(dest, payload: bytes, digest: str, work) -> str:
     """Atomically retain the published 0600 evidence at an explicit
     protected destination OUTSIDE the disposable work root: the
@@ -2452,10 +2494,18 @@ def _retain_evidence(dest, payload: bytes, digest: str, work) -> str:
     The destination and every ancestor are validated AS GIVEN (no
     lexical ``.``/``..`` folding, no symlink resolution before the
     walk, the same protected-path convention as the work root): a
-    traversal component, a link alias or a foreign-owned ancestor
-    is refused, and no pre-existing untrusted object is ever
-    adopted or chmod'd (a missing parent chain is created fresh
-    0700 by this invocation).  The destination must not lie inside
+    traversal component, a link alias, a current-uid
+    group/other-writable intermediate ancestor, a non-root-owned
+    (arbitrary foreign) ancestor, or a root-owned sticky-less
+    writable / non-traversable ancestor is refused; current-uid
+    non-writable traversal ancestry (ordinary 0755 home/work
+    directories) and root-owned system ancestry (0755, or writable
+    WITH the sticky bit — the POSIX /tmp convention) are admitted
+    without any chmod or runner-ownership demand, while 0700 is
+    demanded on the private leaf and on every component this
+    invocation creates; no pre-existing untrusted object is ever
+    adopted and no pre-existing state is ever chmod'd (a missing
+    parent chain is created fresh 0700 by this invocation).  The destination must not lie inside
     the disposable work root (such a copy would be destroyed with
     the scratch and reported retained dishonestly), and an existing
     final destination is refused, never overwritten.  The bytes go
@@ -2490,13 +2540,20 @@ def _retain_evidence(dest, payload: bytes, digest: str, work) -> str:
     for part in dest.parts[1:-1]:
         candidate = current / part
         # AS-GIVEN alias check on every level (a link anywhere in the
-        # chain launders the validated path).  A pre-existing
-        # intermediate ancestor (e.g. a root-owned system directory)
-        # must be a real directory; ownership and the 0700 mode are
-        # demanded where this invocation creates state — the
-        # directories it creates (0700 by construction) and the
-        # immediate parent (checked below), which alone gate the
-        # 0600 file.
+        # chain launders the validated path).  Then the EXPLICIT
+        # trust rule for pre-existing intermediate ancestors
+        # (_existing_ancestor_trusted): current-uid traversal
+        # ancestry (ordinary home/work directories, e.g. the hosted
+        # /home/runner/work/_temp chain) is admitted when not
+        # group/other-writable — 0700 is demanded only on the
+        # private leaf and on state this invocation creates;
+        # root-owned ancestry is the explicitly trusted system
+        # ancestry (a root-owned writable shared root admitted only
+        # with the sticky bit, the POSIX /tmp convention); arbitrary
+        # foreign (non-root) owners are never trusted because
+        # owner-write lets them rename/swap entries (and they
+        # control their own sticky directory).  No pre-existing
+        # state is ever chmod'd.
         if candidate.is_symlink():
             raise FixtureError("evidence-path-untrusted")
         if candidate.exists() and not candidate.is_dir():
@@ -2506,7 +2563,11 @@ def _retain_evidence(dest, payload: bytes, digest: str, work) -> str:
             os.chmod(candidate, stat.S_IRWXU)
             st = candidate.lstat()
             if stat.S_IMODE(st.st_mode) != stat.S_IRWXU or st.st_uid != os.getuid():
-                raise FixtureError("evidence-parent-untrusted")
+                raise FixtureError("evidence-ancestor-untrusted")
+        else:
+            st = candidate.lstat()
+            if not _existing_ancestor_trusted(stat.S_IMODE(st.st_mode), st.st_uid, os.getuid()):
+                raise FixtureError("evidence-ancestor-untrusted")
         current = candidate
     parent = dest.parent
     st = parent.lstat()

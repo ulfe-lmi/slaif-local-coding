@@ -453,7 +453,9 @@ surface (three owned tmpfs budgets, 192 MiB total, plus the
 daemon's /dev/shm explicitly bounded to 64 MiB — 256 MiB
 effective total; the old three-roots/192 MiB-only claim does not
 apply), `--log-driver none` verified by inspection of the actual
-HostConfig schema (ShmSize, Mounts, DeviceRequests); the 21002
+HostConfig schema (ShmSize, and the null-or-empty
+Binds/Devices/VolumesFrom/DeviceRequests absence grammar,
+non-empty values still denied); the 21002
 subject measures its own identity, capability sets, namespace
 comparison, loopback-only reachability, the reviewed keyring-denial
 ABI, effective resource bounds and the reconciled writable-data
@@ -482,10 +484,10 @@ cleanup is exact-owned with honest unverified states, verified
 scratch-root destruction, and atomic no-overwrite evidence
 publication (concurrent destination preserved, inside-work and
 link/foreign-owned paths refused).  Public local proof:
-`tests/test_cache_native_fixture.py` (188 tests),
+`tests/test_cache_native_fixture.py` (191 tests),
 `tests/test_cache_native_fixture_controller.py` (33),
-`tests/test_cache_native_fixture_standin.py` (68),
-`tests/test_cache_native_fixture_ci.py` (132 — FakeDocker
+`tests/test_cache_native_fixture_standin.py` (69),
+`tests/test_cache_native_fixture_ci.py` (174 — FakeDocker
 orchestration with its named failure paths, the one-shot
 host-cancellation and cleanup-timeout sweep tests, actual-path
 capture tests, actual-path loopback wire tests, protected

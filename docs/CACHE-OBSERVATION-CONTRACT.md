@@ -1459,14 +1459,23 @@ Step 2 — stop only the verified worker job (later order only):
    never B's group, never a pattern).
 4. Verify the stop before proceeding: the state of EVERY
    intended member of group `G` (as enumerated in step 1) is `T`
-   in its own `/proc/PID/stat` — W's stopped state alone does not
-   prove the rest of the group is stopped; a fresh field-8 read
-   of `/proc/W/stat` still reports the foreground tpgid `G` (a
-   stopped foreground job remains the TTY's foreground group); B
-   is at its prompt again; the separately grouped owned sessions
-   are still idle/terminated; and the unrelated parent-owned
-   sentinel (and any other-repository process) is verified still
-   running.
+   in its own `/proc/PID/stat` — the stopped STATE is the stop
+   proof (W's pgrp remains `G` while stopped; a stopped
+   foreground job does NOT remain the TTY's foreground group).
+   Once every intended member is `T`, interactive Bash reclaims
+   the terminal for its own process group before presenting its
+   prompt (glibc job control: the shell regains terminal control
+   for its own group via `tcsetpgrp`; GNU Bash Job Control
+   Basics), so the foreground verification is: B is at its prompt
+   again with state `R`/`S`, and the TTY foreground (field 8,
+   tpgid, of `/proc/B/stat`) equals B's OWN verified pgrp (field
+   5 of `/proc/B/stat`).  Do NOT require the impossible `F == G`
+   after Bash has reclaimed foreground, and do NOT read W's
+   field 8 as stop proof (after reclamation it reflects B's
+   group, not the stopped job's).  The separately grouped owned
+   sessions are still idle/terminated; and the unrelated
+   parent-owned sentinel (and any other-repository process) is
+   verified still running.
 
 Step 3 — fixture container and the 21002 environment handoff
 (later order only):
@@ -1484,11 +1493,29 @@ synthetic state the R pty-attach scenario already exercises:
   `CODEX_HOME`;
 - the base `config.toml` (0600) pointing the client at the private
   loopback fake provider only (the 21001 controller endpoint on
-  127.0.0.1, `wire_api = "responses"`, history persistence off);
+  127.0.0.1, `wire_api = "responses"`, history persistence off)
+  plus the required optional controls of the exact pinned 0.164.0
+  config schema (verified at
+  `6aaac694803004a63c6f393d153c96d22521a6b9`, no native
+  download/execution): `check_for_update_on_startup = false`,
+  `analytics.enabled = false`, all three OTEL exporters
+  (`exporter`/`trace_exporter`/`metrics_exporter`) set to
+  `"none"`, and the plugin synchronization/remote-plugin/
+  recommended-plugins/plugin-hooks feature booleans set to
+  `false` — `features.plugins` defaults to TRUE at that commit,
+  so it is set explicitly; the actual offered native tool modes
+  are preserved (no `unified_exec`/code-mode swap).
+  `history.persistence = "none"` is not proof that every rollout/
+  log file vanishes: unavoidable native transient state remains
+  private bounded tmpfs, destroyed with the exact fixture;
 - the SEPARATE `early-beta.config.toml` (0600) — official 0.164.0
-  profile semantics: `--profile early-beta` overlays
-  `CODEX_HOME/early-beta.config.toml`, not a `[profiles.NAME]`
-  table;
+  profile semantics verified at the exact pinned loader:
+  `--profile early-beta` loads `CODEX_HOME/early-beta.config.toml`
+  as a second user layer ON TOP of the base `config.toml` (the
+  profile needs only overrides), never a `[profiles.NAME]`
+  table; a base config containing a legacy `profile = "..."`
+  selector or `[profiles.NAME]` table is rejected by that
+  loader;
 - the generated fake provider credential (0600 file, a fresh value
   derived from the run token; the base config's `env_key` names
   the environment variable the client reads it from).
