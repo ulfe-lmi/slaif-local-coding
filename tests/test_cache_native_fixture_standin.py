@@ -18,9 +18,11 @@ import importlib.util
 import json
 import os
 import signal
+import stat
 import sys
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, NoReturn
 
 import pytest
@@ -753,9 +755,11 @@ class TestStopperIdentity:
 # -- reconciled writable-data inventory from the actual mount table ------
 
 
-def _mountinfo_line(root: str, fstype: str = "tmpfs", rw: bool = True, major: str = "0:45") -> str:
+def _mountinfo_line(
+    root: str, fstype: str = "tmpfs", rw: bool = True, major: str = "0:45", src_root: str = "/"
+) -> str:
     opts = "rw,nosuid,nodev" if fstype == "tmpfs" and rw else "rw,nosuid" if rw else "ro,nosuid"
-    return f"42 41 {major} / {root} {opts} - {fstype} none rw,seclabel"
+    return f"42 41 {major} {src_root} {root} {opts} - {fstype} none rw,seclabel"
 
 
 class TestMeasureMounts:
@@ -805,7 +809,9 @@ class TestMeasureMounts:
             _mountinfo_line(str(tmp_path / "shm")),
         ]
         self._table(tmp_path, lines, monkeypatch)
-        mounts, scanned = standin.measure_mounts(self._specs(dirs))
+        mounts, scanned, masked = standin.measure_mounts(self._specs(dirs))
+        # Baseline table: no masked /dev/null file aliases present.
+        assert masked == 0
         assert scanned == len(lines)
         assert [m["root"] for m in mounts] == sorted(
             [str(dirs[0]), str(dirs[1]), str(dirs[2]), str(tmp_path / "shm")]
@@ -895,6 +901,132 @@ class TestMeasureMounts:
         )
         self._table(tmp_path, lines, monkeypatch)
         with pytest.raises(StandinError, match="mountinfo-oversized"):
+            standin.measure_mounts(self._specs(dirs))
+
+    # -- masked /dev/null file aliases (runc maskPaths) -----------------
+    # The default profile bind-masks selected procfs/sysfs FILES with
+    # the /dev/null character device; those rw tmpfs aliases are a
+    # device surface, admitted only under the strictly-evidenced
+    # closed identity (source-root /null, narrow known-default path,
+    # exact chr 1:3 node) and counted, never treated as data.
+
+    @staticmethod
+    def _chr_node(major: int = 1, minor: int = 3) -> Any:
+        return SimpleNamespace(
+            st_mode=stat.S_IFCHR | 0o666, st_rdev=os.makedev(major, minor), st_uid=0, st_gid=0
+        )
+
+    @staticmethod
+    def _fake_node_os(monkeypatch: Any, nodes: dict[str, Any]) -> None:
+        real_lstat = standin.os.lstat
+
+        def lstat(path: str) -> Any:
+            return nodes.get(path, real_lstat(path))
+
+        monkeypatch.setattr(standin, "os", SimpleNamespace(lstat=lstat, statvfs=standin.os.statvfs))
+
+    def test_masked_null_file_alias_admitted_and_counted(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        dirs = self._dirs(tmp_path)
+        lines = [
+            _mountinfo_line("/", "overlay", rw=False),
+            _mountinfo_line("/proc", "proc"),
+            _mountinfo_line("/dev", "tmpfs"),
+            _mountinfo_line("/proc/kcore", src_root="/null"),
+            _mountinfo_line(str(dirs[0])),
+            _mountinfo_line(str(dirs[1])),
+            _mountinfo_line(str(dirs[2])),
+            _mountinfo_line(str(tmp_path / "shm")),
+        ]
+        self._table(tmp_path, lines, monkeypatch)
+        self._fake_node_os(monkeypatch, {"/proc/kcore": self._chr_node()})
+        mounts, scanned, masked = standin.measure_mounts(self._specs(dirs))
+        assert masked == 1
+        assert scanned == len(lines)
+        assert "/proc/kcore" not in {m["root"] for m in mounts}
+
+    def test_masked_null_thermal_alias_admitted(self, tmp_path: Path, monkeypatch: Any) -> None:
+        dirs = self._dirs(tmp_path)
+        thermal = "/sys/devices/system/cpu/cpu0/thermal_throttle"
+        lines = [_mountinfo_line(str(d)) for d in dirs[:3]] + [
+            _mountinfo_line(str(tmp_path / "shm")),
+            _mountinfo_line(thermal, src_root="/null"),
+        ]
+        self._table(tmp_path, lines, monkeypatch)
+        self._fake_node_os(monkeypatch, {thermal: self._chr_node()})
+        mounts, scanned, masked = standin.measure_mounts(self._specs(dirs))
+        assert masked == 1
+        assert thermal not in {m["root"] for m in mounts}
+
+    @pytest.mark.parametrize(
+        ("nodes", "why"),
+        [
+            (
+                {
+                    "/proc/kcore": SimpleNamespace(
+                        st_mode=stat.S_IFCHR | 0o660, st_rdev=os.makedev(1, 5), st_uid=0, st_gid=0
+                    )
+                },
+                "wrong character device (1:5, not null)",
+            ),
+            (
+                {
+                    "/proc/kcore": SimpleNamespace(
+                        st_mode=stat.S_IFREG | 0o644, st_rdev=0, st_uid=0, st_gid=0
+                    )
+                },
+                "regular file node",
+            ),
+            (
+                {
+                    "/proc/kcore": SimpleNamespace(
+                        st_mode=stat.S_IFDIR | 0o755, st_rdev=0, st_uid=0, st_gid=0
+                    )
+                },
+                "directory node",
+            ),
+            (
+                {
+                    "/proc/kcore": SimpleNamespace(
+                        st_mode=stat.S_IFCHR | 0o666, st_rdev=os.makedev(1, 3), st_uid=0, st_gid=0
+                    )
+                },
+                "node exists but path is unreviewed",
+            ),
+        ],
+        ids=["wrong-device", "regular-file", "directory", "unreviewed-path"],
+    )
+    def test_masked_alias_identity_negatives_fail_closed(
+        self, tmp_path: Path, monkeypatch: Any, nodes: Any, why: str
+    ) -> None:
+        dirs = self._dirs(tmp_path)
+        mountpoint = "/proc/kcore"
+        if why.startswith("node exists but path"):
+            mountpoint = "/proc/kcore-alias"  # unreviewed path: never admitted
+        lines = [_mountinfo_line(str(d)) for d in dirs[:3]] + [
+            _mountinfo_line(str(tmp_path / "shm")),
+            _mountinfo_line(mountpoint, src_root="/null"),
+        ]
+        self._table(tmp_path, lines, monkeypatch)
+        self._fake_node_os(monkeypatch, nodes)
+        with pytest.raises(StandinError, match="unlisted-writable-mount"):
+            standin.measure_mounts(self._specs(dirs))
+
+    def test_masked_alias_wrong_source_root_fails_closed(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        # A bind of some OTHER device (source-root /zero) over a
+        # known-default path with a chr 1:3 node is NOT the reviewed
+        # /dev/null mask: the source identity must bind.
+        dirs = self._dirs(tmp_path)
+        lines = [_mountinfo_line(str(d)) for d in dirs[:3]] + [
+            _mountinfo_line(str(tmp_path / "shm")),
+            _mountinfo_line("/proc/kcore", src_root="/zero"),
+        ]
+        self._table(tmp_path, lines, monkeypatch)
+        self._fake_node_os(monkeypatch, {"/proc/kcore": self._chr_node()})
+        with pytest.raises(StandinError, match="unlisted-writable-mount"):
             standin.measure_mounts(self._specs(dirs))
 
     def test_oversized_byte_count_fails_closed(self, tmp_path: Path, monkeypatch: Any) -> None:

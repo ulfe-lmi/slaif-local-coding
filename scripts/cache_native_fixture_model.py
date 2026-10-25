@@ -92,6 +92,12 @@ SHM_MODE = 0o1777
 # configured budgets (192 MiB cap) plus the explicitly bounded
 # /dev/shm (64 MiB).
 WRITABLE_DATA_TOTAL_MAX_BYTES = TMPFS_BUDGET_TOTAL_MAX_BYTES + SHM_SIZE_BYTES
+# The closed mount-table record cap: the stand-in scanner rejects a
+# mountinfo table with more complete records than this, so a measured
+# ``mounts_scanned`` can never exceed it, and the documented data
+# mounts plus the masked /dev/null aliases are a subset of the
+# scanned records.
+MOUNTINFO_SCANNER_MAX_RECORDS = 512
 # The fixed seeded original count: shared by the controller seeder,
 # the snapshot record, the export client's closed proof and the host
 # runner's independent revalidation (one closed constant, one fact).
@@ -574,6 +580,7 @@ _EXEC_FIELDS = frozenset(
         "denied",
         "host_isolation",
         "mounts_scanned",
+        "masked_null_aliases",
     }
 )
 _DIAGNOSTIC_FIELDS = frozenset(
@@ -773,6 +780,10 @@ def validate_exec_measurement(record: dict, budgets: FixtureBudgets) -> None:
     configured[SHM_MOUNT] = (SHM_SIZE_BYTES, *SHM_OWNER)
     if _int_field(record, "mounts_scanned") < 1:
         raise FixtureError("closed record field state invalid: mounts_scanned")
+    # Masked /dev/null file aliases (runc maskPaths): the strictly
+    # evidenced device-surface count — counted, never writable data.
+    if _int_field(record, "masked_null_aliases") < 0:
+        raise FixtureError("closed record field state invalid: masked_null_aliases")
     mounts = record["writable_mounts"]
     if not isinstance(mounts, list) or len(mounts) == 0:
         raise FixtureError("closed record field state invalid: writable_mounts")
@@ -820,6 +831,16 @@ def validate_exec_measurement(record: dict, budgets: FixtureBudgets) -> None:
     data_total = sum(_int_field(entry, "size_bytes") for entry in mounts)
     if data_total > WRITABLE_DATA_TOTAL_MAX_BYTES:
         raise FixtureError("closed record field state invalid: writable_mounts")
+    # Coherent finite table relation: the documented data mounts and
+    # the masked /dev/null aliases are distinct records WITHIN the
+    # scanned mount table, and the table itself is bounded by the
+    # stand-in scanner's closed record cap.
+    if (
+        len(mounts) + _int_field(record, "masked_null_aliases")
+        > _int_field(record, "mounts_scanned")
+        or _int_field(record, "mounts_scanned") > MOUNTINFO_SCANNER_MAX_RECORDS
+    ):
+        raise FixtureError("closed record field state invalid: mounts_scanned")
     _bool_field(record, "rootfs_readonly", True)
     if _int_field(record, "controller_pid1_uid") != CONTROLLER_UID:
         raise FixtureError("closed record field identity invalid: controller_pid1_uid")

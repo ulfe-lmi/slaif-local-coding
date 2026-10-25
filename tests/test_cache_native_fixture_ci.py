@@ -182,6 +182,7 @@ def _exec_measurement_record() -> dict[str, Any]:
             },
         ],
         "mounts_scanned": 13,
+        "masked_null_aliases": 0,
         "rootfs_readonly": True,
         "controller_pid1_uid": fci.CONTROLLER_UID,
         "private_pid1_exempt": True,

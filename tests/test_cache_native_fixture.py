@@ -115,6 +115,7 @@ def exec_measurement(budgets: Any = None) -> dict[str, Any]:
         "pids_limit": budgets.pids_limit,
         "writable_mounts": mounts,
         "mounts_scanned": 13,
+        "masked_null_aliases": 2,
         "rootfs_readonly": True,
         "controller_pid1_uid": 21001,
         "private_pid1_exempt": True,
@@ -620,6 +621,41 @@ class TestExecMeasurement:
         record["mounts_scanned"] = 0
         with pytest.raises(FixtureError):
             model.validate_exec_measurement(record, model.FixtureBudgets())
+
+    def test_masked_null_aliases_missing_or_negative_rejected(self) -> None:
+        record = exec_measurement()
+        del record["masked_null_aliases"]
+        with pytest.raises(FixtureError):
+            model.validate_exec_measurement(record, model.FixtureBudgets())
+        record = exec_measurement()
+        record["masked_null_aliases"] = -1
+        with pytest.raises(FixtureError):
+            model.validate_exec_measurement(record, model.FixtureBudgets())
+
+    @pytest.mark.parametrize(
+        ("mounts_scanned", "masked_null_aliases", "why"),
+        [
+            (1, 0, "scanned below the data-mount count"),
+            (4, 1, "data mounts plus aliases exceed scanned"),
+            (513, 0, "scanned above the closed scanner record cap"),
+        ],
+        ids=["below-data-count", "aliases-over-scanned", "over-scanner-cap"],
+    )
+    def test_mounts_scanned_incoherent_relation_rejected(
+        self, mounts_scanned: int, masked_null_aliases: int, why: str
+    ) -> None:
+        record = exec_measurement()
+        record["mounts_scanned"] = mounts_scanned
+        record["masked_null_aliases"] = masked_null_aliases
+        with pytest.raises(FixtureError, match="mounts_scanned"):
+            model.validate_exec_measurement(record, model.FixtureBudgets())
+
+    def test_mounts_scanned_and_aliases_bool_rejected(self) -> None:
+        for key in ("mounts_scanned", "masked_null_aliases"):
+            record = exec_measurement()
+            record[key] = True
+            with pytest.raises(FixtureError):
+                model.validate_exec_measurement(record, model.FixtureBudgets())
 
     @pytest.mark.parametrize("mode", [0o755, 0o777, 0o1777, 0])
     def test_controller_mount_mode_strict(self, mode: Any) -> None:

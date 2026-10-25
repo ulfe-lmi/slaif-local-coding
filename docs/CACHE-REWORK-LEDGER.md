@@ -462,7 +462,11 @@ ABI, effective resource bounds and the reconciled writable-data
 inventory from its ACTUAL mount table (bounded table input;
 kernel virtual/device classes distinct from writable data; an
 unlisted writable data mount or a missing documented root fails
-closed).  The public pinned Codex 0.164.0 musl archive
+closed; the masked /dev/null file aliases of runc's maskPaths
+are admitted only on the exact source-root file identity, the
+narrow known-default path and the chr 1:3 device, counted as
+device surface, never writable data).  The public pinned Codex
+0.164.0 musl archive
 (`rust-v0.164.0`, OpenAI commit
 `6aaac694803004a63c6f393d153c96d22521a6b9`, SHA256
 `90dd0b03b28afcb7fa733a4f73b413db2916a47347efd43fb669cc1c774ee8e4`,
@@ -484,9 +488,9 @@ cleanup is exact-owned with honest unverified states, verified
 scratch-root destruction, and atomic no-overwrite evidence
 publication (concurrent destination preserved, inside-work and
 link/foreign-owned paths refused).  Public local proof:
-`tests/test_cache_native_fixture.py` (191 tests),
+`tests/test_cache_native_fixture.py` (196 tests),
 `tests/test_cache_native_fixture_controller.py` (33),
-`tests/test_cache_native_fixture_standin.py` (69),
+`tests/test_cache_native_fixture_standin.py` (76),
 `tests/test_cache_native_fixture_ci.py` (181 — FakeDocker
 orchestration with its named failure paths, the one-shot
 host-cancellation and cleanup-timeout sweep tests, actual-path

@@ -2158,6 +2158,7 @@ def _sc_exec_measurement(executor, index, env_base, created, parent, ledger) -> 
         "cpu_limit": record["cpu_limit"],
         "writable_mounts": record["writable_mounts"],
         "mounts_scanned": record["mounts_scanned"],
+        "masked_null_aliases": record["masked_null_aliases"],
     }
     cleanup_container(executor, cid)
     return "completed"

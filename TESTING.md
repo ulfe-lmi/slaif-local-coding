@@ -440,21 +440,28 @@ bounded diagnostic traversal), the 21001 controller/issued
 registry, the 21002 stand-in subject and the 21001 exporter client,
 the distinct fixture image, and the host runner that drives ten
 fresh-container scenarios on disposable GitHub-hosted CI only.
-The public suite `tests/test_cache_native_fixture.py` (191
+The public suite `tests/test_cache_native_fixture.py` (196
 tests — pure phase/budget/schema/selection validation, bounded
 diagnostic traversal, closed record validators including the
 pinned public LICENSE/NOTICE byte identities, the reconciled
 writable-data closed record including the explicitly bounded
-/dev/shm, issued-registry binding and numerical process
+/dev/shm, the coherent finite mount-table relation (documented
+data mounts plus masked /dev/null aliases are distinct records
+within the scanned table, bounded by the closed scanner record
+cap), issued-registry binding and numerical process
 separation),
 `tests/test_cache_native_fixture_controller.py` (33 tests —
 request/issuance causality, strict-after-result positions,
 quiesce/export frames over the real socket),
-`tests/test_cache_native_fixture_standin.py` (69 tests — the
+`tests/test_cache_native_fixture_standin.py` (76 tests — the
 exact reviewed keyring/ABI/caps/namespace/EROFS/CPU surface,
 bounded metadata diagnostic, hang/stop-owned records, the
 reconciled writable-data mount inventory from the actual
 mount table — bounded input, virtual/device classes distinct,
+the masked /dev/null file aliases of runc's maskPaths admitted
+only on the exact source-root file identity, the narrow
+known-default path and the chr 1:3 device (counted as device
+surface, never writable data),
 fail-closed on unlisted writable data or missing documented
 roots — and the eight-test stopper identity suite: vanished,
 self and unverified targets are never signalled; pidfd-open

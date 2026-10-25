@@ -414,6 +414,36 @@ _DEVICE_TMPFS_ROOT = "/dev"
 # focused unit tests can point it at an owned directory).
 _SHM_ROOT = "/dev/shm"
 
+# The default profile masks SELECTED procfs/sysfs FILES by bind-
+# mounting the /dev/null character device over them (moby v28.5.1
+# oci/defaults.go default masked paths; runc v1.5.2 maskPaths: a
+# FILE gets a plain MS_BIND of the verified /dev/null, a DIRECTORY
+# gets a read-only tmpfs).  The file aliases therefore appear in
+# the ACTUAL mount table as rw mounts backed by the /dev tmpfs — a
+# device surface, never writable data.  They are admitted only
+# under the strictly-evidenced closed identity: the source-root
+# file identity inside the /dev tmpfs (/null), the NARROW
+# known-default file-mask path set, and the exact character device
+# type + major 1/minor 3 on the node itself (the same identity
+# runc's verifyDevNull/isDevNull enforces before masking).  A wrong
+# device, a regular file, a directory, or an unreviewed path is
+# never admitted: the scan stays fail-closed.  (The directory masks
+# are ro tmpfs and never reach the rw data check.)
+_MASKED_NULL_SOURCE_ROOT = "/null"
+_MASKED_NULL_FILE_PATHS = frozenset(
+    {
+        "/proc/interrupts",
+        "/proc/kcore",
+        "/proc/keys",
+        "/proc/latency_stats",
+        "/proc/timer_list",
+        "/proc/timer_stats",
+        "/proc/sched_debug",
+    }
+)
+_MASKED_NULL_THERMAL_RE = re.compile(r"^/sys/devices/system/cpu/cpu[0-9]+/thermal_throttle$")
+_NULL_DEVICE_RDEV = os.makedev(1, 3)
+
 
 def _unesc_mountinfo(value: str) -> str:
     return value.replace("\\040", " ").replace("\\011", "\t").replace("\\013", "\n")
@@ -466,6 +496,28 @@ def measure_mounts(specs: list[tuple[str, int, int, int]]) -> tuple[list[dict], 
     documented: set[str] = {root for root, _s, _u, _g in specs}
     documented.add(_SHM_ROOT)
     observed: dict[str, str] = {}
+    masked_null_aliases = 0
+
+    def _masked_null_alias(src_root: str, mountpoint: str) -> bool:
+        """The runc maskPaths file mask, proved element by element
+        on the exact node: source-root file identity, narrow
+        known-default path, and the exact chr 1:3 device (an OSError
+        on the node is inconclusive, never an admission)."""
+        if src_root != _MASKED_NULL_SOURCE_ROOT:
+            return False
+        if (
+            mountpoint not in _MASKED_NULL_FILE_PATHS
+            and _MASKED_NULL_THERMAL_RE.fullmatch(mountpoint) is None
+        ):
+            return False
+        try:
+            node = os.lstat(mountpoint)
+        except OSError:
+            return False
+        if not stat_mod.S_ISCHR(node.st_mode):
+            return False
+        return node.st_rdev == _NULL_DEVICE_RDEV
+
     for line in lines:
         head, sep, tail = line.partition(" - ")
         if not sep:
@@ -473,6 +525,7 @@ def measure_mounts(specs: list[tuple[str, int, int, int]]) -> tuple[list[dict], 
         fields = head.split()
         if len(fields) < 6:
             raise StandinError("mountinfo-malformed")
+        src_root = _unesc_mountinfo(fields[3])
         root = _unesc_mountinfo(fields[4])
         options = fields[5].split(",")
         fstype = tail.split(" ")[0]
@@ -486,7 +539,10 @@ def measure_mounts(specs: list[tuple[str, int, int, int]]) -> tuple[list[dict], 
             if root == _DEVICE_TMPFS_ROOT:
                 continue  # daemon device surface, not data
             if root not in documented:
-                raise StandinError("unlisted-writable-mount")
+                if not _masked_null_alias(src_root, root):
+                    raise StandinError("unlisted-writable-mount")
+                masked_null_aliases += 1
+                continue
         else:
             raise StandinError("unlisted-writable-mount")
         observed[root] = fstype
@@ -508,7 +564,7 @@ def measure_mounts(specs: list[tuple[str, int, int, int]]) -> tuple[list[dict], 
                 "mode": stat_mod.S_IMODE(st.st_mode),
             }
         )
-    return mounts, len(lines)
+    return mounts, len(lines), masked_null_aliases
 
 
 def measure_rootfs_readonly(probe_path: str) -> bool:
@@ -737,8 +793,10 @@ def measure_mode() -> int:
         # Reconciled writable-data inventory from the ACTUAL mount
         # table: configured budgets + explicitly bounded /dev/shm,
         # fail-closed on any unlisted writable data mount.  The
-        # scanned-record count proves the scan happened.
-        writable_mounts, mounts_scanned = measure_mounts(specs)
+        # scanned-record count proves the scan happened; the
+        # strictly-evidenced masked /dev/null file aliases (runc
+        # maskPaths) are counted, never counted as data.
+        writable_mounts, mounts_scanned, masked_null_aliases = measure_mounts(specs)
         record = {
             "record": "slaif-fixture-exec-measurement-v1",
             "uid": os.getuid(),
@@ -757,6 +815,7 @@ def measure_mode() -> int:
             "pids_limit": cgroup_pids(),
             "writable_mounts": writable_mounts,
             "mounts_scanned": mounts_scanned,
+            "masked_null_aliases": masked_null_aliases,
             "rootfs_readonly": measure_rootfs_readonly(
                 env_str("SLAIF_FIXTURE_RO_PROBE_PATH", "/opt/slaif-fixture/.ro-probe")
             ),
