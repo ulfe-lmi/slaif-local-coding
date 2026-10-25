@@ -487,7 +487,7 @@ link/foreign-owned paths refused).  Public local proof:
 `tests/test_cache_native_fixture.py` (191 tests),
 `tests/test_cache_native_fixture_controller.py` (33),
 `tests/test_cache_native_fixture_standin.py` (69),
-`tests/test_cache_native_fixture_ci.py` (174 — FakeDocker
+`tests/test_cache_native_fixture_ci.py` (181 — FakeDocker
 orchestration with its named failure paths, the one-shot
 host-cancellation and cleanup-timeout sweep tests, actual-path
 capture tests, actual-path loopback wire tests, protected

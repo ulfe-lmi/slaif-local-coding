@@ -311,6 +311,7 @@ class FixtureFakeDocker:
         rmi_rc: int = 0,
         export_mutate: Any = None,
         rm_fail: str = "none",
+        standin_fail: tuple[str, str | None] | None = None,
     ) -> None:
         assert image_absence in ("absent", "query-failed", "present")
         # The export-fail and quiesce-fail SCENARIOS are modeled by
@@ -342,6 +343,7 @@ class FixtureFakeDocker:
         self.rmi_rc = rmi_rc
         self.export_mutate = export_mutate
         self.rm_fail = rm_fail
+        self.standin_fail = standin_fail
         self.built = False
         self.image_removed = False
         self.calls: list[list[str]] = []
@@ -541,6 +543,19 @@ class FixtureFakeDocker:
 
     def _standin_exec(self, mode: str, itty: bool, env: dict[str, str], uid: str) -> Any:
         assert uid == f"{fci.SUBJECT_UID}:{fci.SUBJECT_UID}"
+        if self.standin_fail is not None and self.standin_fail[0] == mode:
+            if self.standin_fail[1] is None:
+                # No closed record at all (crash-like): the runner
+                # must stay generic, never invent a child cause.
+                return self._result(2, b"")
+            fail_line = {
+                "record": "slaif-fixture-standin-v1",
+                "status": "fail",
+                "reason": self.standin_fail[1],
+            }
+            return self._result(
+                2, (json.dumps(fail_line, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            )
         line = None
         if mode == "diagnostic":
             line = _standin_record(
@@ -1345,6 +1360,148 @@ def test_run_rmi_failure_recorded_and_no_publish(tmp_path: Path, monkeypatch: An
     assert set(fake.by_name.values()) == fake.removed
     assert not evidence_out.exists()
     assert not work.exists()
+
+
+# -- closed stand-in failure reason channel ------------------------------------
+# The stand-in's own closed fail token (strict allowlist) may reach
+# the runner's closed CI record; unknown/malformed/missing tokens
+# stay generic.  Raw output is never propagated.
+
+
+def _standin_fail_output(reason: str) -> bytes:
+    return (
+        json.dumps(
+            {"record": "slaif-fixture-standin-v1", "status": "fail", "reason": reason},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode()
+
+
+def test_standin_fail_reason_allowlist() -> None:
+    # Known closed tokens are admitted; the LAST closed fail record
+    # wins when several appear.
+    assert (
+        fci._standin_fail_reason(_standin_fail_output("unlisted-writable-mount"))
+        == "unlisted-writable-mount"
+    )
+    assert (
+        fci._standin_fail_reason(
+            _standin_fail_output("cpu-mismatch") + _standin_fail_output("swap-missing")
+        )
+        == "swap-missing"
+    )
+    # Unknown token: generic.
+    assert fci._standin_fail_reason(_standin_fail_output("totally-unknown-token")) is None
+    # Malformed / truncated record: generic.
+    assert (
+        fci._standin_fail_reason(
+            b'{"record": "slaif-fixture-standin-v1", "status": "fail", "reason": "cpu-mism'
+        )
+        is None
+    )
+    # Another record type (the 21001 controller probe): generic.
+    assert (
+        fci._standin_fail_reason(
+            b'{"record": "slaif-fixture-ctl-probe-v1",'
+            b' "status": "fail", "reason": "cpu-mismatch"}\n'
+        )
+        is None
+    )
+    # Non-fail status: generic.
+    assert (
+        fci._standin_fail_reason(
+            b'{"record": "slaif-fixture-standin-v1", "status": "pass", "reason": "cpu-mismatch"}\n'
+        )
+        is None
+    )
+    # Empty / non-ASCII output: generic.
+    assert fci._standin_fail_reason(b"") is None
+    assert fci._standin_fail_reason(b"\xff\xfe") is None
+
+
+def test_run_measure_failure_retains_closed_detail(tmp_path: Path, monkeypatch: Any) -> None:
+    fake = FixtureFakeDocker(standin_fail=("measure", "unlisted-writable-mount"))
+    repo, work, evidence_out = _setup(tmp_path, monkeypatch, fake)
+    monkeypatch.setattr(fci, "_STANDIN_DETAIL", None)
+    with pytest.raises(fci.FixtureError, match="exec-measurement-failed"):
+        fci.run(repo, work, fake)
+    # The fixed scenario reason stays primary; the child's closed
+    # token is retained separately for the job log.
+    assert fci._STANDIN_DETAIL == "unlisted-writable-mount"
+    assert not evidence_out.exists()
+    assert not work.exists()
+
+
+def test_run_measure_unknown_token_stays_generic(tmp_path: Path, monkeypatch: Any) -> None:
+    fake = FixtureFakeDocker(standin_fail=("measure", "totally-unknown-token"))
+    repo, work, _ = _setup(tmp_path, monkeypatch, fake)
+    monkeypatch.setattr(fci, "_STANDIN_DETAIL", None)
+    with pytest.raises(fci.FixtureError, match="exec-measurement-failed"):
+        fci.run(repo, work, fake)
+    assert fci._STANDIN_DETAIL is None
+    assert not work.exists()
+
+
+def test_standin_detail_does_not_carry_across_runs(tmp_path: Path, monkeypatch: Any) -> None:
+    # First run: the measure child emits a closed fail token.
+    fake1 = FixtureFakeDocker(standin_fail=("measure", "unlisted-writable-mount"))
+    repo, work, _ = _setup(tmp_path, monkeypatch, fake1)
+    monkeypatch.setattr(fci, "_STANDIN_DETAIL", None)
+    with pytest.raises(fci.FixtureError, match="exec-measurement-failed"):
+        fci.run(repo, work, fake1)
+    assert fci._STANDIN_DETAIL == "unlisted-writable-mount"
+    # Second run: an unrelated failure with NO stand-in record must
+    # NOT inherit the first run's token (per-run scoping, proven
+    # without any monkeypatch clear between the runs).
+    fake2 = FixtureFakeDocker(build_rc=1)
+    with pytest.raises(fci.FixtureError, match="build-failed"):
+        fci.run(repo, work, fake2)
+    assert fci._STANDIN_DETAIL is None
+
+
+def test_run_measure_without_closed_record_stays_generic(tmp_path: Path, monkeypatch: Any) -> None:
+    fake = FixtureFakeDocker(standin_fail=("measure", None))
+    repo, work, _ = _setup(tmp_path, monkeypatch, fake)
+    monkeypatch.setattr(fci, "_STANDIN_DETAIL", None)
+    with pytest.raises(fci.FixtureError, match="exec-measurement-failed"):
+        fci.run(repo, work, fake)
+    assert fci._STANDIN_DETAIL is None
+    assert not work.exists()
+
+
+def test_main_closed_record_includes_standin_detail(monkeypatch: Any, capsys: Any) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    monkeypatch.setattr(fci, "_STANDIN_DETAIL", "cpu-mismatch")
+
+    def boom(repo: Any, work: Any, executor: Any, evidence_out: Any = None) -> Any:
+        raise fci.FixtureError("exec-measurement-failed")
+
+    monkeypatch.setattr(fci, "run", boom)
+    rc = fci.main(["--repo", ".", "--work", "/nonexistent-work-root-017r"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["schema"] == fci.SCHEMA
+    assert out["reason"] == "exec-measurement-failed"
+    assert out["detail"] == "cpu-mismatch"
+
+
+def test_main_closed_record_without_detail(monkeypatch: Any, capsys: Any) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("RUNNER_ENVIRONMENT", "github-hosted")
+    monkeypatch.setattr(fci, "_STANDIN_DETAIL", None)
+
+    def boom(repo: Any, work: Any, executor: Any, evidence_out: Any = None) -> Any:
+        raise fci.FixtureError("exec-measurement-failed")
+
+    monkeypatch.setattr(fci, "run", boom)
+    rc = fci.main(["--repo", ".", "--work", "/nonexistent-work-root-017r"])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert out["reason"] == "exec-measurement-failed"
+    assert "detail" not in out
 
 
 def test_run_setup_failure_no_build_no_image_removal_attempted(

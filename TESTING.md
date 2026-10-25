@@ -463,7 +463,7 @@ path; the exact SIGTERM/si_code/flags send ABI; the declared
 closed failure when the pidfd API is unavailable; and the
 owned stop with unrelated survival through the recorded fake
 signal) and
-`tests/test_cache_native_fixture_ci.py` (174 tests — closed
+`tests/test_cache_native_fixture_ci.py` (181 tests — closed
 command grammar including the create-argv/allowlist lockstep
 with the explicit `--shm-size` bound, host ledger with distinct
 measured quantities and pre-work reservations, timed-out-capture
@@ -490,7 +490,11 @@ actual-path loopback wire tests, protected atomic evidence
 publication including the commit-boundary
 concurrent-destination control, and the actual
 archive/fetch/extraction helper negatives against small synthetic
-bytes and fake HTTP) cover these contracts locally; no test
+bytes and fake HTTP, and the closed stand-in fail-token channel
+(an allowlist-only detail on the fixed scenario failure record,
+scoped to the run that observed it; unknown, malformed or missing
+child tokens stay generic and raw output never propagates)) cover
+these contracts locally; no test
 launches docker, a container, a namespace or the native binary
 (no secrets are forwarded to the fixture: the job maps no secrets
 and the runner accepts no credentials).  The remote proof is the

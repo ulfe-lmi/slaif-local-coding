@@ -80,7 +80,12 @@ grammar, exact fixture python/script/probe entry points, reviewed
 runtime --version), its output captured BOUNDED with exact owned
 process-group cleanup (the reviewed P pipe/reader design), and only
 closed records reach the workflow log — never raw container output,
-env dumps, TUI content or exception strings.  NO Codex binary is
+env dumps, TUI content or exception strings.  On a scenario
+failure the closed workflow record carries the fixed reason and,
+only when the stand-in itself emitted a closed fail record, that
+child's own closed fail token (admitted by explicit allowlist
+membership; unknown, malformed or missing tokens stay generic) — a
+single fixed token, never raw output.  NO Codex binary is
 invoked anywhere in R (not even --help): the allowlist admits no
 native executable path or shell launch form, and the workflow
 fixture job and the fixture sources are statically asserted free of
@@ -1648,6 +1653,145 @@ def _parse_closed_record(output: bytes) -> dict[str, object]:
     return record
 
 
+# -- Closed stand-in failure reason channel -----------------------------------
+# When a scenario's stand-in exec exits nonzero, the stand-in has
+# (by its closed-record law) already emitted its own fixed reason
+# token on the captured stdout.  The runner may carry exactly one
+# such token — admitted ONLY by explicit allowlist membership —
+# into the runner's closed CI record, so the disposable job log can
+# reveal the child cause.  Unknown, malformed or missing tokens
+# stay generic (reason only); raw output is never propagated.
+_STANDIN_RECORD = "slaif-fixture-standin-v1"
+_STANDIN_FAIL_REASONS = frozenset(
+    {
+        "capabilities-unreadable",
+        "cpu-mismatch",
+        "cpu-unlimited",
+        "cpu-unreadable",
+        "denial-inconclusive",
+        "denial-unexpected",
+        "diagnostic-item",
+        "diagnostic-item-count",
+        "diagnostic-text-mismatch",
+        "diagnostic-wire",
+        "error-wire",
+        "expected-unissued",
+        "expected-writable-mount-missing",
+        "filesystem",
+        "final-item-type",
+        "final-role",
+        "final-text-mismatch",
+        "final-tools-present",
+        "hang-child-not-reaped",
+        "hang-token-invalid",
+        "identity-not-subject",
+        "issue-arguments",
+        "issue-identity",
+        "issue-item",
+        "issue-missing",
+        "issue-wire",
+        "memory-missing-or-unlimited",
+        "mode-invalid",
+        "model-import",
+        "mount-not-directory",
+        "mountinfo-malformed",
+        "mountinfo-oversized",
+        "mountinfo-unreadable",
+        "namespace-invalid",
+        "namespace-unreadable",
+        "no-libc",
+        "parent-namespace-invalid",
+        "pids-missing-or-unlimited",
+        "platform-not-x86_64",
+        "presence-unverified",
+        "profile-path-exists",
+        "profile-schema",
+        "provider-json",
+        "provider-protocol",
+        "provider-socket",
+        "provider-timeout",
+        "provider-unicode",
+        "pty-not-attached",
+        "response-overbound",
+        "response-truncated",
+        "response-unframed",
+        "ro-probe-exists",
+        "rootfs-proof-inconclusive",
+        "rootfs-writable",
+        "run-token-invalid",
+        "self-deadline",
+        "self-deadline-expired",
+        "self-deadline-invalid",
+        "sse-created-shape",
+        "sse-duplicate",
+        "sse-empty",
+        "sse-event-empty",
+        "sse-event-mismatch",
+        "sse-event-unknown",
+        "sse-incomplete",
+        "sse-item-count",
+        "sse-item-mismatch",
+        "sse-item-role",
+        "sse-item-shape",
+        "sse-item-unknown",
+        "sse-order",
+        "sse-output-mismatch",
+        "sse-response-id",
+        "sse-status",
+        "standin-failure",
+        "stop-identity-invalid",
+        "stop-not-confirmed",
+        "stop-pidfd-unavailable",
+        "stop-target-absent",
+        "stop-token-invalid",
+        "swap-derivation-invalid",
+        "swap-missing",
+        "swap-nonzero",
+        "swap-unlimited",
+        "unlisted-writable-mount",
+        "use-wire",
+    }
+)
+_STANDIN_DETAIL: str | None = None
+
+
+def _standin_fail_reason(output: bytes) -> str | None:
+    """The LAST closed stand-in fail token on the captured output,
+    admitted only by explicit allowlist membership; an unknown
+    token, a malformed or truncated record, another record type, a
+    non-fail status, or non-ASCII bytes all stay generic (None)."""
+    try:
+        text = output.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    detail = None
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if obj.get("record") != _STANDIN_RECORD or obj.get("status") != "fail":
+            continue
+        reason = obj.get("reason")
+        if isinstance(reason, str) and reason in _STANDIN_FAIL_REASONS:
+            detail = reason
+    return detail
+
+
+def _note_standin_detail(result: ExecResult) -> None:
+    """Retain the child's closed fail token for the runner's closed
+    record (called only on a stand-in exec failure)."""
+    global _STANDIN_DETAIL
+    detail = _standin_fail_reason(result.output)
+    if detail is not None:
+        _STANDIN_DETAIL = detail
+
+
 def _controller_ready(executor: Executor, container_id: str, ledger: _RunLedger) -> int:
     """The fixed 21001 in-container probe (closed expected object:
     PID1 uid, health, exact controller-root facts, exact owned
@@ -1957,6 +2101,7 @@ def _sc_controller_measurement(executor, index, env_base, created, ledger) -> st
         dict(env_base),
     )
     if result.returncode != 0:
+        _note_standin_detail(result)
         raise FixtureError("diagnostic-failed")
     record = _standin_record(
         result.output,
@@ -1997,6 +2142,7 @@ def _sc_exec_measurement(executor, index, env_base, created, parent, ledger) -> 
         executor, cid, SUBJECT_UID, ["python3", STANDIN_PATH, "--mode", "measure"], measure_env
     )
     if result.returncode != 0:
+        _note_standin_detail(result)
         raise FixtureError("exec-measurement-failed")
     record = _parse_closed_record(result.output)
     model.validate_exec_measurement(record, model.FixtureBudgets())
@@ -2031,6 +2177,7 @@ def _sc_pty_attach(executor, index, env_base, created, run_token: str, ledger) -
         executor, cid, SUBJECT_UID, ["python3", STANDIN_PATH, "--mode", "pty"], pty_env, pty=True
     )
     if result.returncode != 0:
+        _note_standin_detail(result)
         raise FixtureError("pty-attach-failed")
     record = _standin_record(
         result.output,
@@ -2079,6 +2226,7 @@ def _sc_synthetic_success(executor, index, env_base, created, ledger) -> str:
         executor, cid, SUBJECT_UID, ["python3", STANDIN_PATH, "--mode", "success"], dict(env_base)
     )
     if result.returncode != 0:
+        _note_standin_detail(result)
         raise FixtureError("synthetic-success-failed")
     record = _standin_record(
         result.output,
@@ -2327,6 +2475,7 @@ def _sc_synthetic_hang(executor, index, env_base, created, sentinel_process, led
         executor, cid, SUBJECT_UID, ["python3", STANDIN_PATH, "--mode", "stop-owned"], stop_env
     )
     if stop_result.returncode != 0:
+        _note_standin_detail(stop_result)
         raise FixtureError("stop-owner-failed")
     stop_record = _standin_record(
         stop_result.output,
@@ -2371,6 +2520,7 @@ def _sc_output_cap(executor, index, env_base, created, ledger) -> str:
         dict(env_base),
     )
     if result.returncode != 0:
+        _note_standin_detail(result)
         raise FixtureError("output-cap-failed")
     # The finite bounded capture was HIT: the stand-in flushed the
     # closed record first, then emitted filler past the cap.
@@ -2630,9 +2780,11 @@ def run(repo, work, executor, evidence_out=None) -> dict[str, object]:
 
     repo = Path(repo)
     work = Path(work)
+    global _STANDIN_DETAIL
     _SC_FACTS.clear()
     _SC_EXPORT.clear()
     _SC_TEARDOWN.clear()
+    _STANDIN_DETAIL = None
 
     # -- ONE shared non-resettable run deadline (host + in-container) --
     deadline = _RunDeadline(time.monotonic() + TOTAL_ANCHOR_SECONDS)
@@ -3213,7 +3365,14 @@ def main(argv: list[str] | None = None) -> int:
             Path(args.repo), Path(args.work), _real_execute, evidence_out=args.evidence_out
         )
     except FixtureError as exc:
-        print(json.dumps({"schema": SCHEMA, "status": "fail", "reason": str(exc)}))
+        payload: dict[str, object] = {
+            "schema": SCHEMA,
+            "status": "fail",
+            "reason": str(exc),
+        }
+        if _STANDIN_DETAIL is not None:
+            payload["detail"] = _STANDIN_DETAIL
+        print(json.dumps(payload))
         return 1
     except Exception:
         print(json.dumps({"schema": SCHEMA, "status": "fail", "reason": "internal"}))
