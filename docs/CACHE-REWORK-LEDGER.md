@@ -567,9 +567,11 @@ supervisor, listener, key file or owned image; its actual
 measured facts and cleanup outcomes are recorded in the
 immutable round report (the later doc pass binds the measured
 source/facts and final provenance).  Public local proof:
-`tests/test_cache_native_fixture_local.py` (48 tests —
-order-bound opt-in vs hosted-only guard and one-attempt
-admission, the single-owner protected lifecycle, variant-aware
+`tests/test_cache_native_fixture_local.py` (49 tests —
+order-bound opt-in vs the production hosted-env guard (ambient
+GITHUB_ACTIONS refused at construction with no attempt recorded)
+and one-attempt admission, the single-owner protected lifecycle,
+variant-aware
 finish compositions with the summary bound to the decoded
 payload and forgery negatives, the curated subject-facts closed
 contract, the section-2 endpoint binding, driver composition

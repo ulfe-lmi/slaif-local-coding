@@ -536,9 +536,11 @@ with the recorded wording limitations), and the serial
 foreground handoff itself remains a later separately authorized
 order; no v1 runtime claim.
 Round 017-s adds the local fixture preparation suite
-`tests/test_cache_native_fixture_local.py` (48 tests —
-order-bound opt-in versus the hosted-only guard and one-attempt
-admission; the single-owner protected lifecycle prepare /
+`tests/test_cache_native_fixture_local.py` (49 tests —
+order-bound opt-in versus the production hosted-env guard
+(ambient GITHUB_ACTIONS refused at construction with no attempt
+recorded) and one-attempt admission; the single-owner protected
+lifecycle prepare /
 observe / rehearse / finish / abort through the real control
 client (fresh 0600 socket in the 0700 control root, exact
 run-id binding, closed response records, absolute client

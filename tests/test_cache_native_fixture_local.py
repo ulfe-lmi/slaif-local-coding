@@ -678,6 +678,11 @@ def _setup(
     # leak into the local owner's section-2 verification
     for var in flocal._LOCAL_ENDPOINT_SELECTION_VARS:
         monkeypatch.delenv(var, raising=False)
+    # hermetic local environment: the disposable hosted runner's
+    # ambient GITHUB_ACTIONS must not reach the local owner's
+    # production hosted-env guard (the explicit hosted-refusal
+    # negative test sets it back on purpose)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     # hermetic narrow local socket: a bound (closed) AF_UNIX file the
     # owner may lstat read-only (no Docker call, no listener)
     sock = socket.socket(socket.AF_UNIX)
@@ -1219,6 +1224,32 @@ def test_optin_refusals_record_no_attempt(tmp_path: Path, monkeypatch: Any) -> N
     # head mismatch: the bound head is literal and must equal HEAD
     paths = _setup(tmp_path / "c", monkeypatch, LocalFakeDocker())
     assert _optin_refusal(paths, bind_head="e" * 40) == "local-head-mismatch"
+
+
+def test_hosted_env_refused_before_any_mutation(tmp_path: Path, monkeypatch: Any) -> None:
+    """The PRODUCTION hosted-env guard (not a test stand-in): the
+    disposable hosted runner's ambient GITHUB_ACTIONS=true refuses
+    the local owner at construction, before any attempt record,
+    workspace, control root or docker call; the refusal is
+    read-only and records nothing."""
+    fake = LocalFakeDocker()
+    paths = _setup(tmp_path, monkeypatch, fake)
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    with pytest.raises(flocal.FixtureError) as exc:
+        flocal.LocalFixtureOwner(
+            paths["repo"],
+            paths["work"],
+            paths["evidence"],
+            HEAD,
+            paths["control"],
+            git_runner=paths["git_runner"],
+            executor=fake,
+        )
+    assert str(exc.value) == "local-hosted-env"
+    assert not os.path.exists(paths["repo"] / ".oap-local")
+    assert not paths["work"].exists()
+    assert not paths["control"].exists()
+    assert fake.calls == []
 
 
 def test_second_admitted_attempt_refused(tmp_path: Path, monkeypatch: Any) -> None:
@@ -2617,12 +2648,20 @@ def test_public_main_client_missing_state(tmp_path: Path, capsys: Any) -> None:
     assert record["detail"] is None
 
 
-def test_public_main_client_expired_anchor_refuses_before_io(tmp_path: Path, capsys: Any) -> None:
+def test_public_main_client_expired_anchor_refuses_before_io(
+    tmp_path: Path, monkeypatch: Any, capsys: Any
+) -> None:
     """An ALREADY-ELAPSED owner END+grace anchor is refused BEFORE
     any IO with the exact run identity preserved (the budget is
-    never refreshed for a dead anchor)."""
+    never refreshed for a dead anchor).  A deterministic fake clock
+    proves the elapsed state: a fresh runner's short system uptime
+    must never change the premise."""
     control = _stub_control_root(tmp_path, "main-expired")
-    _fake_owner_state(control, "9" * 32, max(1.0, time.monotonic() - 2000.0))
+    # fixed anchor 1000 + the real 600 grace; the clock is already
+    # at 3000, so END+grace (1600) is 1400 s behind BEFORE any IO
+    _fake_owner_state(control, "9" * 32, 1000.0)
+    clock = _FakeClock(now=3000.0)
+    monkeypatch.setattr(flocal.time, "monotonic", clock.monotonic)
     rc = flocal.main(["client", "--control-dir", str(control), "--command", "observe"])
     record = json.loads(capsys.readouterr().out)
     assert rc == 1
