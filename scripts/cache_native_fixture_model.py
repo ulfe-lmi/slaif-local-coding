@@ -763,7 +763,19 @@ def validate_exec_measurement(record: dict, budgets: FixtureBudgets) -> None:
     if _int_field(record, "gid") != SUBJECT_UID:
         raise FixtureError("closed record field identity invalid: gid")
     groups = record["groups"]
-    if not isinstance(groups, list) or len(groups) != 0:
+    # Measured group membership: on Linux getgroups() MAY include
+    # the effective gid (the actual array is measured, not assumed),
+    # so the ONLY group sets that add no privilege for the confined
+    # subject are the empty list and the subject's own primary gid
+    # ALONE.  Elements must be exact integers (bool and numeric
+    # float equality are not gids); root, foreign, mixed, duplicate,
+    # float, bool, string or negative entries all fail closed (two
+    # finite variants — no arbitrary nonempty-group waiver).
+    if (
+        not isinstance(groups, list)
+        or any(isinstance(g, bool) or not isinstance(g, int) for g in groups)
+        or groups not in ([], [SUBJECT_UID])
+    ):
         raise FixtureError("closed record field state invalid: groups")
     caps = record["capabilities"]
     if not isinstance(caps, dict) or set(caps) != set(CAPABILITY_SETS):

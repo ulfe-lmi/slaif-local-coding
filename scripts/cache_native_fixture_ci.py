@@ -2249,6 +2249,9 @@ def _sc_exec_measurement(executor, index, env_base, created, parent, ledger) -> 
     # summary — the measured mount table facts, not an argv claim).
     _SC_FACTS["exec-21002-measurement"] = {
         "swap_source": record["swap_source"],
+        "uid": record["uid"],
+        "gid": record["gid"],
+        "groups": record["groups"],
         "keyring_errno": record["keyring_errno"],
         "memory_limit_bytes": record["memory_limit_bytes"],
         "pids_limit": record["pids_limit"],

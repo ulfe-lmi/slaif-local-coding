@@ -440,7 +440,7 @@ bounded diagnostic traversal), the 21001 controller/issued
 registry, the 21002 stand-in subject and the 21001 exporter client,
 the distinct fixture image, and the host runner that drives ten
 fresh-container scenarios on disposable GitHub-hosted CI only.
-The public suite `tests/test_cache_native_fixture.py` (196
+The public suite `tests/test_cache_native_fixture.py` (207
 tests — pure phase/budget/schema/selection validation, bounded
 diagnostic traversal, closed record validators including the
 pinned public LICENSE/NOTICE byte identities, the reconciled

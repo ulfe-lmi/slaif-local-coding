@@ -532,10 +532,47 @@ class TestExecMeasurement:
         with pytest.raises(FixtureError):
             model.validate_exec_measurement(record, model.FixtureBudgets())
 
-    def test_supplementary_groups_rejected(self) -> None:
+    def test_own_primary_gid_group_variant_admitted(self) -> None:
+        # getgroups() MAY include the effective gid: the subject's
+        # own primary gid ALONE adds no privilege and is a valid
+        # measured variant (alongside the empty list).
         record = exec_measurement()
-        record["groups"] = [21002]
-        with pytest.raises(FixtureError):
+        record["groups"] = [model.SUBJECT_UID]
+        model.validate_exec_measurement(record, model.FixtureBudgets())
+
+    @pytest.mark.parametrize(
+        "groups",
+        [
+            [0],  # root
+            [21001],  # foreign (controller) gid
+            [21003],  # foreign (other) gid
+            [model.SUBJECT_UID, 0],  # mixed with root
+            [model.SUBJECT_UID, 21001],  # mixed with foreign
+            [model.SUBJECT_UID, model.SUBJECT_UID],  # duplicate
+            [True],  # bool, not an int gid
+            [model.SUBJECT_UID + 0.0],  # float: numeric equality is not a gid
+            ["21002"],  # string, not an int gid
+            [-1],  # negative
+            21002,  # not a list at all
+        ],
+        ids=[
+            "root",
+            "controller-gid",
+            "other-gid",
+            "mixed-root",
+            "mixed-foreign",
+            "duplicate",
+            "bool",
+            "float-primary",
+            "string",
+            "negative",
+            "not-a-list",
+        ],
+    )
+    def test_privilege_adding_group_variants_rejected(self, groups: Any) -> None:
+        record = exec_measurement()
+        record["groups"] = groups
+        with pytest.raises(FixtureError, match="groups"):
             model.validate_exec_measurement(record, model.FixtureBudgets())
 
     def test_unfiltered_seccomp_rejected(self) -> None:

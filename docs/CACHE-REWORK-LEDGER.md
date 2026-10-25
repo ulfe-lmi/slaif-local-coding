@@ -488,7 +488,7 @@ cleanup is exact-owned with honest unverified states, verified
 scratch-root destruction, and atomic no-overwrite evidence
 publication (concurrent destination preserved, inside-work and
 link/foreign-owned paths refused).  Public local proof:
-`tests/test_cache_native_fixture.py` (196 tests),
+`tests/test_cache_native_fixture.py` (207 tests),
 `tests/test_cache_native_fixture_controller.py` (33),
 `tests/test_cache_native_fixture_standin.py` (76),
 `tests/test_cache_native_fixture_ci.py` (218 — FakeDocker
