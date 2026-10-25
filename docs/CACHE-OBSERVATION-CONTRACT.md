@@ -1309,12 +1309,14 @@ or a link/foreign-owned path is refused).
 The Python-only disposable-CI capability is the first bounded slice
 of the later native evidence: actual hosted execution of the
 fixture (image build, ten scenarios, exact teardown, selected
-evidence publication) is the `cache-native-fixture` job; its
-qualification of the serial handoff preparation remains `PENDING`
-strategic review of the actual job outcome, and D09 (genuine
-native capture/collector) remains `NOT RUN` in R.  No product
-parser, source or legacy runtime behavior changed; the fixture is
-not imported into the adapter path.
+evidence publication) is the `cache-native-fixture` job; the
+bounded 017-r fixture preparation is accepted (strategic decision
+at head `2ce9dcd`, with the recorded wording limitations), the
+serial foreground handoff itself remains a later separately
+authorized order, and D09 (genuine native capture/collector)
+remains `NOT RUN` in R.  No product parser, source or legacy
+runtime behavior changed; the fixture is not imported into the
+adapter path.
 
 ### 11b. Required-syntax matrix (handoff 6.2 literals and D01-D10, as of 017-r)
 
@@ -1606,10 +1608,12 @@ both `GITHUB_ACTIONS=true` and `RUNNER_ENVIRONMENT=github-
 hosted`; that guard must never be spoofed to run the CI entry
 locally — local execution is only this separately authorized
 foreground sequence.  It grants no capability verdict: the
-handoff-preparation qualification stays `PENDING` strategic
-review of the actual R job outcome, and D09 (genuine native
-capture/collector) remains `NOT RUN` until a later order executes
-this runbook and records actual measurements.
+bounded 017-r fixture preparation is accepted (strategic
+decision at head `2ce9dcd`, with the recorded wording
+limitations), the serial foreground handoff itself remains a
+later separately authorized order, and D09 (genuine native
+capture/collector) remains `NOT RUN` until a later order
+executes this runbook and records actual measurements.
 
 ### 11d. Round 017-s: local fixture preparation and one Python-only
 rehearsal (no D-syntax change)

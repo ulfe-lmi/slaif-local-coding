@@ -530,9 +530,11 @@ to 64 MiB (256 MiB effective total), verified on the runner side
 from the actual HostConfig and measured back by the subject from
 its actual mount table.  No genuine client, model, GPU or
 gateway activity: this preparation does not qualify a genuine
-native client, D09 remains `NOT RUN`, and the handoff-preparation
-qualification is `PENDING` strategic review of the actual job
-outcome; no v1 runtime claim.
+native client, D09 remains `NOT RUN`; the bounded 017-r fixture
+preparation is accepted (strategic decision at head `2ce9dcd`,
+with the recorded wording limitations), and the serial
+foreground handoff itself remains a later separately authorized
+order; no v1 runtime claim.
 Round 017-s adds the local fixture preparation suite
 `tests/test_cache_native_fixture_local.py` (48 tests —
 order-bound opt-in versus the hosted-only guard and one-attempt

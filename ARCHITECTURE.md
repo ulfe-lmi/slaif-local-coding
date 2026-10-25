@@ -83,36 +83,36 @@ scenarios driven by a Python-only disposable-CI
 `cache-native-fixture` job; the public 0.164.0 musl artifact is
 fetched, digest-verified and statically hashed — including the
 pinned public LICENSE/NOTICE retention — but never executed): the
-handoff-preparation qualification is `PENDING` strategic review of
-the actual job outcome, and D09 remains `NOT RUN`. The remaining
-017-s further lands the local fixture preparation and one
-bounded Python-only local rehearsal (repo-owned stdlib-only
-preparer/supervisor `scripts/cache_native_fixture_local.py`):
-one long-lived non-Codex Python fixture owner behind the
-protected bounded prepare/observe/rehearse/finish/abort
-lifecycle (single RAM run context, one non-resettable 1800 s
-anchor plus one bounded 600 s cleanup grace, exact CID
-registration before start, protected control root outside the
-disposable work root), the section-2 verified local endpoint
-binding (read-only lstat of the documented default unix socket,
-DOCKER_HOST pinned to that verified socket in a frozen
-once-per-owner child environment, explicit remote selections
-refused before any mutation) and the one order-bound local
-rehearsal with the same reviewed confinement (`NOT RUN` at
-this source commit; it runs once at the committed/pushed head
-leaving no prepared container, supervisor, listener, key file
-or owned image) — no native launch, no worker suspension, no
-protected service or profile change (`native_started` /
-`worker_stopped` / `codex_invoked` false throughout; actual
-measured facts in the immutable round report): the
-handoff-preparation qualification stays `PENDING` strategic
-review of the actual outcomes, and D09 remains `NOT RUN`. The
-remaining
+bounded 017-r fixture preparation is accepted (strategic
+decision at head `2ce9dcd`, with the recorded wording
+limitations), and D09 remains `NOT RUN`. The remaining
 D09 actual-trace/
 multi-chunk process-completion and process/chunk collector gap stays
 with a later same-PR suffix (a later exact order may authorize one
 bounded reviewed actual capture, then the process/chunk collector,
-subject to review). Detailed round history is in [the stage
+subject to review). 017-s further lands the local fixture
+preparation and one bounded Python-only local rehearsal
+(repo-owned stdlib-only preparer/supervisor
+`scripts/cache_native_fixture_local.py`): one long-lived
+non-Codex Python fixture owner behind the protected bounded
+prepare/observe/rehearse/finish/abort lifecycle (single RAM run
+context, one non-resettable 1800 s anchor plus one bounded 600 s
+cleanup grace, exact CID registration before start, protected
+control root outside the disposable work root), the section-2
+verified local endpoint binding (read-only lstat of the
+documented default unix socket, DOCKER_HOST pinned to that
+verified socket in a frozen once-per-owner child environment,
+explicit remote selections refused before any mutation) and the
+one order-bound local rehearsal with the same reviewed
+confinement (`NOT RUN` at this source commit; it runs once at
+the committed/pushed head leaving no prepared container,
+supervisor, listener, key file or owned image) — no native
+launch, no worker suspension, no protected service or profile
+change (`native_started` / `worker_stopped` / `codex_invoked`
+false throughout; actual measured facts in the immutable round
+report): the serial foreground handoff itself remains a later
+separately authorized order, and D09 remains `NOT RUN`.
+Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation
 contract](docs/CACHE-OBSERVATION-CONTRACT.md); no v1 runtime
