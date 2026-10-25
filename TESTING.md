@@ -434,6 +434,77 @@ accepts no credentials — fresh owned work root under the
 documented `RUNNER_TEMP`).  No genuine client, model, GPU or
 gateway activity: this capability proof does not qualify a genuine
 native client; D09 remains `NOT RUN`; no v1 runtime claim.
+Round 017-r adds the serial right-pane native fixture preparation:
+the typed fixture model (phases, budgets, closed record schemas,
+bounded diagnostic traversal), the 21001 controller/issued
+registry, the 21002 stand-in subject and the 21001 exporter client,
+the distinct fixture image, and the host runner that drives ten
+fresh-container scenarios on disposable GitHub-hosted CI only.
+The public suite `tests/test_cache_native_fixture.py` (188
+tests — pure phase/budget/schema/selection validation, bounded
+diagnostic traversal, closed record validators including the
+pinned public LICENSE/NOTICE byte identities, the reconciled
+writable-data closed record including the explicitly bounded
+/dev/shm, issued-registry binding and numerical process
+separation),
+`tests/test_cache_native_fixture_controller.py` (33 tests —
+request/issuance causality, strict-after-result positions,
+quiesce/export frames over the real socket),
+`tests/test_cache_native_fixture_standin.py` (68 tests — the
+exact reviewed keyring/ABI/caps/namespace/EROFS/CPU surface,
+bounded metadata diagnostic, hang/stop-owned records, the
+reconciled writable-data mount inventory from the actual
+mount table — bounded input, virtual/device classes distinct,
+fail-closed on unlisted writable data or missing documented
+roots — and the eight-test stopper identity suite: vanished,
+self and unverified targets are never signalled; pidfd-open
+before verification and signal; the descriptor closed on every
+path; the exact SIGTERM/si_code/flags send ABI; the declared
+closed failure when the pidfd API is unavailable; and the
+owned stop with unrelated survival through the recorded fake
+signal) and
+`tests/test_cache_native_fixture_ci.py` (132 tests — closed
+command grammar including the create-argv/allowlist lockstep
+with the explicit `--shm-size` bound, host ledger with distinct
+measured quantities and pre-work reservations, timed-out-capture
+drained accounting, over-bound /proc scan rejection, the actual
+HostConfig schema verification — the real SecurityOpt string
+list, ShmSize, Mounts/DeviceRequests absence — with the
+invented legacy keys consistency-checked when present, the full
+FakeDocker orchestration with its named failure paths (preflight
+runtime refusal, image collision/absence-unverified, sentinel
+death, descendant leftovers, export SHA mismatch, malformed or
+prefix-missing quiesce, crash-code mismatch, leftover container,
+deadline expiry converging through cleanup, one-shot host
+cancellation preserving the KeyboardInterrupt while cleanup runs
+to completion, cleanup failure exposed on the preserved
+cancellation, and a timed-out cleanup operation charging its
+measured drained bytes once while later independent cleanup
+continues), the actual-path capture tests (same-group held pipe
+convergence, escaped holder's fixed failure with exact test-owned
+reap, PTY held pipe, and the read-error fixed state), the
+actual-path loopback wire tests, protected atomic evidence
+publication including the commit-boundary
+concurrent-destination control, and the actual
+archive/fetch/extraction helper negatives against small synthetic
+bytes and fake HTTP) cover these contracts locally; no test
+launches docker, a container, a namespace or the native binary
+(no secrets are forwarded to the fixture: the job maps no secrets
+and the runner accepts no credentials).  The remote proof is the
+`cache-native-fixture` job (stdlib only, fresh owned work root
+and evidence destination under the documented `RUNNER_TEMP`); the
+public pinned Codex 0.164.0 musl archive is fetched,
+size+digest-verified, bounded-extracted and statically hashed in
+CI — it is NEVER executed there.  The fixture confinement bounds
+the reconciled writable-data surface explicitly: three owned
+tmpfs budgets (192 MiB total) plus the daemon's /dev/shm bounded
+to 64 MiB (256 MiB effective total), verified on the runner side
+from the actual HostConfig and measured back by the subject from
+its actual mount table.  No genuine client, model, GPU or
+gateway activity: this preparation does not qualify a genuine
+native client, D09 remains `NOT RUN`, and the handoff-preparation
+qualification is `PENDING` strategic review of the actual job
+outcome; no v1 runtime claim.
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

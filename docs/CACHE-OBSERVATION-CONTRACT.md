@@ -1205,6 +1205,385 @@ carry the local and remote halves.  This capability proof is NOT
 genuine native-client qualification: no genuine client, model, GPU
 or gateway activity; D09 remains `NOT RUN`; no v1 runtime claim.
 
+### 11a. Round 017-r: serial right-pane native fixture preparation
+(inertia and limits; no D-syntax change)
+
+Round 017-r lands the reviewed fixture prerequisite for the later
+human-authorized serial foreground handoff.  It is a **small inert
+preparation**: repo-owned stdlib-only fixture modules
+(`scripts/cache_native_fixture_model.py` — the typed
+phase/budget/closed-schema model; `cache_native_fixture_controller.py`
+— the in-container 21001 PID1 fake provider/issued-registry
+controller; `cache_native_fixture_standin.py` — the 21002
+Python stand-in subject; `cache_native_fixture_export_client.py` —
+the protected 21001 exporter client), a distinct fixture image
+(`scripts/cache_native_fixture.Dockerfile`) and the host runner
+`scripts/cache_native_fixture_ci.py` that drives ten fresh-container
+scenarios on disposable GitHub-hosted CI only (the new
+`cache-native-fixture` job, Python-only; no job or test line
+invokes the native binary — asserted statically).  The phase model
+is explicit and derived from measurement: prepared -> measured ->
+synthetic scenarios -> quiesced -> frozen selected snapshot ->
+teardown-verified -> publication.
+
+Confinement (measured, never inferred from argv): dedicated
+nonprivileged controller/exporter UID/GID 21001 (controller is
+PID1) and native-subject UID/GID 21002; `--network none` private
+loopback, read-only rootfs, cap-drop ALL, the actual SecurityOpt
+no-new-privileges/builtin-seccomp strings, private
+pid/mount/ipc/uts/net, no caller-configured host bind
+mounts/devices (the daemon's standard tmpfs facts — e.g. the
+bounded /dev/shm — stay distinct from caller mounts); finite
+documented limits sized for an eventual native Rust client
+(memory 1 GiB, swap 0, CPUs 1, PIDs 96, the reconciled
+writable-data surface: distinct tmpfs budgets totaling 192 MiB
+plus the daemon's /dev/shm explicitly bounded to 64 MiB — 256 MiB
+effective total, verified from the actual HostConfig ShmSize);
+`--log-driver none` verified by actual inspection.  The 21002 exec
+subject measures its OWN uid/gid/groups, all capability sets,
+NoNewPrivs, seccomp, namespace comparison against the disposable
+parent, loopback-only reachability, the reviewed harmless
+keyring-denial ABI, the effective memory/swap/pids bounds and the
+reconciled writable-data inventory from its ACTUAL mount table
+(bounded table input; kernel virtual/device filesystems a distinct
+class; an unlisted writable data mount or a missing documented
+root fails closed); controller-private paths/sockets are
+denial-proven from 21002.  Scenarios: controller
+measurement, 21002 exec measurement, PTY attachment through the
+owned host-side seam (the later native attach point), synthetic
+success/fail/hang tool cycles against the fixed loopback provider,
+bounded output cap, failed export, failed quiesce and controller
+crash — with an unrelated parent-owned sentinel that must survive.
+
+Public pinned artifact (static preparation only, never executed in
+R): the legitimate Codex 0.164.0 Linux x86_64 musl release archive
+(tag `rust-v0.164.0`, OpenAI commit
+`6aaac694803004a63c6f393d153c96d22521a6b9`, archive SHA256
+`90dd0b03b28afcb7fa733a4f73b413db2916a47347efd43fb669cc1c774ee8e4`,
+114,979,035 bytes) is fetched with bounded reads, its complete
+size+digest verified BEFORE extraction, and then only the single
+expected regular executable member is extracted (no symlink,
+hardlink, path-escape, extra/duplicate or empty member; decompressed
+size bounded to a reviewed finite ceiling).  The pinned public
+LICENSE (10,926 bytes) and NOTICE (242 bytes — the Ratatui-derived
+MIT credit the pinned upstream publishes) are fetched with the same
+bounded reads and their full byte identity (size, closed markers,
+exact sha256) verified before they enter the build context; both are
+installed immutably (root-owned 0444) alongside the 0555 binary PATH
+entry.  Signature verification was not performed: `NOT RUN`.
+
+Accounting is one non-resettable host ledger shared with the single
+run deadline: distinct measured quantities stay distinct (host
+command admissions/refusals; drained vs retained bytes — a
+timed-out capture is charged its measured drained total before the
+scenario consumes the timeout, so a hang emitting discarded output
+cannot skip the output budget; provider requests that received a
+response — a refused call is still a request — vs client wire
+attempts vs admitted/refused outcomes vs readiness polling); each
+scenario's closed worst-case wire bound is checked against the
+REMAINING budgets by a sequential PRE-WORK bound check before its
+work may start (the check compares the current counters plus the
+scenario's closed worst case with the remaining caps; it stores no
+held amount — measured scenario charges accumulate instead), so an
+over-budget scenario never begins; each scenario's measured facts
+are then charged at scenario end with all validation before any
+counter mutation (no reset, refund or re-budgeting), and a failed
+or unknown phase aborts the run closed — its unmeasured wire work
+is never silently re-budgeted.  The
+post-teardown /proc scan uses a closed listing bound: a complete
+listing at the bound counts, an over-bound listing is rejected
+before any presence/absence claim (never silently truncated into a
+false absence), and a vanished entry is expected churn.  Cleanup is
+exact-owned and honest: the verified-absent-before-build fresh tag
+is never adopted; a missed build-ID discovery recovers the exact id
+from the owned tag under the single bounded cleanup grace (an
+unresolvable ownership is a recorded unverified failure, never a
+silent skip); the fresh owned scratch root is destroyed last and the
+destruction is verified (a failed destruction is exposed on the
+preserved primary failure); the retained evidence is published
+atomically no-overwrite (same-directory 0600 temp, full digest
+before the atomic link commit — a concurrent destination is
+preserved, never overwritten; a destination inside the scratch root
+or a link/foreign-owned path is refused).
+
+The Python-only disposable-CI capability is the first bounded slice
+of the later native evidence: actual hosted execution of the
+fixture (image build, ten scenarios, exact teardown, selected
+evidence publication) is the `cache-native-fixture` job; its
+qualification of the serial handoff preparation remains `PENDING`
+strategic review of the actual job outcome, and D09 (genuine
+native capture/collector) remains `NOT RUN` in R.  No product
+parser, source or legacy runtime behavior changed; the fixture is
+not imported into the adapter path.
+
+### 11b. Required-syntax matrix (handoff 6.2 literals and D01-D10, as of 017-r)
+
+R changes no D-syntax surface (no parser or observation change this
+round); the states below are the carried P/Q states, mapped to the
+ACTUAL test assertions (the exact node IDs are the runnable proof;
+where a class is named, the full node list is in
+`docs/CACHE-REWORK-LEDGER.md`).  Statuses: `EARNED` = acquisition
+under the named typed slice; `RECOGNIZED-ONLY` = parsed/typed with
+the stated limitation, no acquisition; `UNSUPPORTED` = typed
+unsupported, non-acquiring; `NOT RUN` = no measurement earned.
+
+Handoff 6.2 literals:
+
+| Handoff 6.2 literal | Status | Actual evidence (exact node) |
+| --- | --- | --- |
+| `cat A.md` | EARNED | tests/test_bundle_read_grammar.py::TestSupportedForms::test_single_relative_operand; tests/test_bundle_tool_results.py::TestWholeBundles::test_single_complete_read |
+| `cat /work/A.md` | EARNED | tests/test_bundle_read_grammar.py::TestSupportedForms::test_absolute_workspace_operands; tests/test_bundle_client_paths.py::TestAbsolutePaths::test_simple_absolute_under_workspace |
+| `cd /work && cat A.md B.md` | EARNED | tests/test_bundle_compound_reads.py::TestLiteralCdTransitions (class); tests/test_bundle_read_grammar.py::TestSupportedForms::test_two_operands_in_order |
+| `cat A.md && cat B.md` | EARNED | tests/test_bundle_compound_reads.py::TestChainedReadPlans (all-cat `&&` plans: one ordered bundle, order/duplicate preservation) |
+| `ls -la /work && cat /work/A.md` | UNSUPPORTED (ls read) / RECOGNIZED-ONLY (requested member) | the `ls` family is a typed NON-ACQUIRING read: tests/test_bundle_compound_reads.py::TestPlanNegatives::test_ls_family_is_not_a_read_and_mixes_output asserts `COMMAND_UNSUPPORTED` + `OUTER_BOUNDARY_UNPROVEN` (requested A exists as finite parsed data; nothing is proven), and ::TestMixedOutputNegatives::test_ls_family_exit_zero_is_not_support asserts `UNSUPPORTED`, no digest, no proven members and non-removable even with global exit 0; the earned D06 slice is the all-cat chained plans and outer-label regions, which do not earn the ls form |
+| `for f in A.md B.md; do echo "=== $f ==="; cat "$f"; done` | RECOGNIZED-ONLY (labeled unguarded loop) | membership is finite parsed data (variable/list/echo/cat kinds, members A.md B.md) with the exact typed limitations `LOOP_ITERATION_UNPROVEN` + `OUTER_BOUNDARY_UNPROVEN` and no bundle digest: tests/test_bundle_literal_loops.py::TestHumanForms::test_unguarded_echo_form_membership_is_recognized; recognized membership is not proven execution and is not removable at composition: ::TestHumanForms::test_unguarded_echo_form_is_not_removable_at_composition; the EARNED loop slice is the guarded echoless form (::TestHumanForms::test_guarded_echoless_forms_are_earned, ::test_guarded_loop_is_one_complete_ordered_bundle, ::test_guarded_template_loop_proves_ordered_policy_files) |
+| `for d in alpha beta; do cat "policies/$d/AGENTS.md"; done` | RECOGNIZED-ONLY (unguarded template loop) | membership is finite parsed data with `LOOP_ITERATION_UNPROVEN` (recognized requested membership, not proven execution): tests/test_bundle_literal_loops.py::TestHumanForms::test_unguarded_template_form_membership_is_recognized; non-removable at composition: ::TestHumanForms::test_unguarded_template_form_is_not_removable_at_composition; the EARNED slice requires the exact per-iteration `\|\| exit 1` guard (contract section 4b) |
+
+D01-D10 criterion-by-criterion (actual module/test, exact earned
+slice versus remaining gap):
+
+| D | Criterion (handoff) | Earned slice (actual proof) | Remaining gap |
+| --- | --- | --- | --- |
+| D01 | Valid automatic `AGENTS.md` message + environment metadata | exact source extraction, environment excluded, directory scope, CRLF bytes exact: tests/test_bundle_root_envelopes.py::TestCanonicalSanitizedFixture::test_real_format_canonical_fixture_parses_with_exact_bytes, ::test_adjacent_environment_tail, ::test_newline_separated_environment_tail, ::test_separate_item_environment_is_excluded, ::test_crlf_envelope_preserves_crlf_content_bytes; 017-b ::TestLabelByteBound | strategic acceptance PENDING |
+| D02 | Fake marker in assistant text/tool description; malformed or duplicate envelope | no false root / typed occurrences: tests/test_bundle_root_envelopes.py::TestNoAuthorityWithoutEnvelope::test_assistant_envelope_never_creates_root, ::test_marker_prose_at_later_offset_is_not_a_root, ::test_tool_output_envelope_is_not_a_root, ::test_unclosed_tail_is_typed, ::test_nested_duplicate_opening_marker_is_typed, ::test_duplicate_closing_tag_in_tail_is_typed, ::test_invalid_labels_and_delimiters_are_typed, ::test_valid_root_coexists_with_observable_malformed_occurrence | strategic acceptance PENDING |
+| D03 | Single relative/absolute workspace `cat` | tests/test_bundle_read_grammar.py::TestSupportedForms::test_single_relative_operand, ::test_dash_dash_separator, ::test_absolute_workspace_operands; tests/test_bundle_client_paths.py::TestAbsolutePaths::test_simple_absolute_under_workspace, ::TestMalformedUnicodeAndSpaces; tests/test_bundle_tool_results.py::TestWholeBundles::test_single_complete_read, ::test_empty_file_is_complete_empty_version, ::test_unicode_crlf_bytes_are_exact | strategic acceptance PENDING |
+| D04 | `/work-other`, traversal, unknown root, quoted `cat`, heredoc write | conservative typed non-acquisition (sibling prefix outside, traversal typed, unknown root unproven, quoted literal per convention, URL/query never mapped): tests/test_bundle_client_paths.py::TestAbsolutePaths::test_sibling_prefix_is_outside, ::test_lexical_dotdot_escaping_is_traversal, ::test_outside_absolute_path, ::test_absolute_with_unknown_workspace, ::test_relative_without_workspace_is_unproven, ::test_relative_traversal_escape, ::test_fully_quoted_literal_operand_under_no_spaces_convention, ::test_url_fragment_is_literal_never_stripped, ::test_query_syntax_is_never_mapped_to_the_plain_file; tests/test_bundle_read_grammar.py::TestSafeNegatives::test_unsupported_shapes_are_typed_never_complete, ::test_no_expansion_no_evaluation | strategic acceptance PENDING |
+| D05 | `cat A.md B.md` without internal separators | tests/test_bundle_read_grammar.py::TestSupportedForms::test_two_operands_in_order, ::test_repeated_operand_preserves_order; tests/test_bundle_tool_results.py::TestWholeBundles::test_two_members_without_separators_is_one_ordered_bundle (one complete two-member bundle; no fabricated individual hashes) | strategic acceptance PENDING |
+| D06 | Chained reads with `ls`, labels and unrelated output | all-cat `&&` plans and outer-label/outer-region composition: tests/test_bundle_compound_reads.py::TestChainedReadPlans, ::TestEchoOuterBoundaries, ::TestOuterRegionComposition, ::TestOuterSourceRegions — this slice does NOT earn the `ls` form (see the ls+cat literal row above: `ls` is typed unsupported, non-acquiring) | the ls+cat required-syntax variant remains pending scope audit; strategic acceptance PENDING |
+| D07 | Literal loop, supported wildcard evidence, explicit `workdir`/`cd` | guarded echoless loop forms (one complete ordered bundle; ordered policy files; per-call workdir; absolute template): tests/test_bundle_literal_loops.py::TestHumanForms::test_guarded_echoless_forms_are_earned, ::test_guarded_loop_is_one_complete_ordered_bundle, ::test_guarded_template_loop_proves_ordered_policy_files, ::test_per_call_workdir_resolves_expanded_relative_members; literal `cd`: tests/test_bundle_compound_reads.py::TestLiteralCdTransitions — this slice does NOT earn the literal unguarded/labeled human forms (typed `LOOP_ITERATION_UNPROVEN`/`OUTER_BOUNDARY_UNPROVEN`, recognized membership non-removable) or wildcard membership (`GLOB_UNPROVEN`) | the unguarded/labeled loop required-syntax variants remain pending scope audit; strategic acceptance PENDING |
+| D08 | Read succeeds/later fails; earlier fails/later succeeds | per-read evidence distinguished from global exit as CONSERVATIVE uncertainty: tests/test_bundle_compound_reads.py::TestPerReadVersusGlobalExit (a nonzero chain proves NO read and no digest — requested members preserved, wrapper status recorded; earlier-failure/later-success, truncated chain, process-running, malformed-Unicode, chat composition, mixed suppression) — these negatives prove conservative uncertainty, NOT per-read completion where no completion evidence exists | strategic acceptance PENDING |
+| D09 | Truncation, partial `head`/`sed`, missing output, multi-chunk process | typed partial/truncation UNSUPPORTED/unsupported negatives only: tests/test_bundle_d10_matrix.py::TestUnsupportedAndPartialMatrix (command substitution `$()`/backticks, partial `head`/`sed`, known truncated/missing/running/unknown wrappers — never complete whole-file acquisitions) | `NOT RUN`: genuine multi-chunk process completion and the process/chunk association remain for a later same-PR suffix (a later exact order may authorize one bounded reviewed actual capture, then the process/chunk collector) |
+| D10 | Duplicate/mismatched call IDs, command substitution, unexecuted branch; wire-family inventory | eligibility-independent call-ID inventory, structural-position causality, the composition matrix, the unsupported/partial matrix and the wire-family/inventory bounds: tests/test_bundle_d10_matrix.py::TestIdentityConflictPrecedesEligibility, ::TestStructuralCausality, ::TestD10MatrixComposition, ::TestUnsupportedAndPartialMatrix, ::TestWireFamilyInventoryAndBounds, ::TestInventoryAllocationAndIdRepresentation | strategic acceptance PENDING |
+
+`head`/`tail`/`sed`/pipes/glob/Python-reader families remain typed
+per actual evidence (partial/truncated typed, glob
+`GLOB_UNPROVEN`, substitution typed) — no blanket earnings claim,
+and no negative test is upgraded into a positive acquisition claim.
+
+### 11c. Serial foreground handoff runbook (order 017-r section 5 —
+preparation only; no execution in R)
+
+This runbook is the explicit order-section-5 deliverable: the
+concrete future sequence that preserves the existing coding worker
+in the SAME right-pane Bash job/TTY.  It grants NO execution: R
+performs no stop, no resume, no local Docker and no native launch;
+a later active order must authorize the execution and record the
+actual local measurements before any step below is taken.  The
+unimplemented local preparer (local build/start of this exact
+fixture) and the environment handoff helper are explicit later
+execution gates, not claimed runnable or qualified paths.
+
+Fixed invariants (re-verified before every step, never assumed):
+
+- The worker is restored through the verified existing Bash job:
+  no `codex resume`, no replacement/restarted Codex startup, no
+  CI/background/native instance, no profile change.  The native
+  argv stays exactly `codex --yolo --profile early-beta`.
+- No Bash job number is assumed, no Ctrl-Z-on-raw-terminal is
+  assumed, no stopping signal's effect is assumed (the later order
+  selects and verifies the actual stopping signal for this CLI),
+  and the coding tool's subprocesses are NOT assumed to share the
+  parent's PGID: every identity is read from the live process
+  table and controlling-terminal metadata and cross-checked; any
+  mismatch aborts the sequence with no signal sent.
+- Only the exact verified process group is ever signaled (the
+  verified NEGATIVE group ID, never PID 0 or -1, never the parent
+  Bash's group, never a name/UID pattern); no cleanup/restart of
+  other repositories.
+
+Step 1 — read-only discovery of W/B/G and the foreground boundary
+(no signal, and no `jobs` in B: B cannot run its job builtins
+while its foreground worker owns the TTY):
+
+1. Discover the RIGHT pane's TTY path from the pane whose command
+   is the coding worker (pane identity by command, not by assumed
+   pane or job number).
+2. Find the worker main PID `W` as the process on that TTY whose
+   argv is exactly the allowed startup argv
+   (`codex --yolo --profile early-beta`).
+3. Read `/proc/W/stat`: field 4 (ppid) must be the pane's
+   interactive Bash `B` (verified by its command/image, not by
+   name pattern); field 5 (pgrp) is the worker group `G`; field 7
+   (ctty) and `/proc/W/fd/0` must be the RIGHT pane TTY.
+4. B's own process group (field 5 of `/proc/B/stat`) must DIFFER
+   from `G`: a foreground job runs in its own group; if `G`
+   equals B's group, the identity is not the expected one —
+   abort.
+5. Read the foreground process group `F` from read-only process
+   metadata: field 8 (tpgid) of `/proc/W/stat` — the TTY's
+   foreground group as reported in the worker's own stat — must
+   equal `G`; cross-check with the read-only
+   `ps -p W -o pid,ppid,pgid,tpgid,sid,tty,stat,comm` record (and
+   B's own ppid/sid).  Do NOT issue an external `TIOCGPGRP` ioctl
+   on the pane's slave TTY: from a session that does not control
+   that slave it fails closed with ENOTTY (Linux `tty_jobctrl.c`,
+   `tiocgpgrp`), and the runbook never acquires or steals a
+   controlling terminal to make an external ioctl work.  Values
+   observed at review time (particular PIDs, tty names, session
+   IDs) are observation-time facts, never hardcoded future
+   identities.  The requirement `F == G` means the worker's group
+   is B's current foreground job.
+6. Complete group membership: scan `/proc` read-only and
+   enumerate EVERY actual process whose pgrp equals `G` (field 5
+   of `/proc/PID/stat`); each member must be verified as an
+   intended member of the worker job (the worker itself or one of
+   its tool subprocesses) — enumerating W's descendants alone does
+   NOT enumerate every member of G.  Separately, enumerate W's
+   descendants that sit in their OWN distinct groups (owned
+   background tool sessions) and verify each is idle or
+   terminated at this boundary: stopping group `G` does not stop
+   separately grouped tool processes, so a surviving non-idle
+   separately grouped owned session aborts the sequence (the
+   unrelated sentinel's survival alone does NOT prove the
+   complete target membership).
+7. Clean no-mutation boundary: `W` must be at the idle OAP
+   control wait (a descendant `oap_fifo.py wait` argv is
+   observable) with no in-flight command, commit, push or
+   publication.  Record the repository branch/head read-only for
+   the post-restore comparison.  If any identity disagrees,
+   STOP — no signal is sent.
+
+Step 2 — stop only the verified worker job (later order only):
+
+1. Re-verify W, B, G, `F == G` and the step-6 grouping exactly as
+   discovered (any drift aborts).
+2. The later order selects and verifies the actual stopping
+   signal for this CLI (SIGTSTP is the candidate); do not assume
+   a raw-terminal Ctrl-Z and do not assume a catchable signal
+   necessarily stops the CLI.
+3. Signal ONLY the exact verified group, expressed with the
+   verified NEGATIVE group ID and an option terminator:
+   `kill -s TSTP -- "-${G}"` — valid only once the checks above
+   have established `G > 1` and the exact intended group
+   membership (Linux `kill(2)` semantics; never PID 0 or -1,
+   never B's group, never a pattern).
+4. Verify the stop before proceeding: the state of EVERY
+   intended member of group `G` (as enumerated in step 1) is `T`
+   in its own `/proc/PID/stat` — W's stopped state alone does not
+   prove the rest of the group is stopped; a fresh field-8 read
+   of `/proc/W/stat` still reports the foreground tpgid `G` (a
+   stopped foreground job remains the TTY's foreground group); B
+   is at its prompt again; the separately grouped owned sessions
+   are still idle/terminated; and the unrelated parent-owned
+   sentinel (and any other-repository process) is verified still
+   running.
+
+Step 3 — fixture container and the 21002 environment handoff
+(later order only):
+
+The fixture container (this R image; controller/exporter 21001 as
+PID1; private loopback provider; the owned bounded tmpfs budgets;
+`--log-driver none`) is built and started locally only under the
+later order.  A Python-only setup exec as 21002 then creates the
+fresh owned files in the subject's owned tmpfs (the
+`/run/slaif-subj` budget, 0700, uid/gid 21002), from reviewed
+templates, never copied from any host profile, config or key — the
+synthetic state the R pty-attach scenario already exercises:
+
+- `codex-home` (0700, uid 21002) as the fresh synthetic
+  `CODEX_HOME`;
+- the base `config.toml` (0600) pointing the client at the private
+  loopback fake provider only (the 21001 controller endpoint on
+  127.0.0.1, `wire_api = "responses"`, history persistence off);
+- the SEPARATE `early-beta.config.toml` (0600) — official 0.164.0
+  profile semantics: `--profile early-beta` overlays
+  `CODEX_HOME/early-beta.config.toml`, not a `[profiles.NAME]`
+  table;
+- the generated fake provider credential (0600 file, a fresh value
+  derived from the run token; the base config's `env_key` names
+  the environment variable the client reads it from).
+
+This runbook names only paths, owners, modes and the variable
+name; it never reproduces config or credential contents, and no
+host profile, key or home content is copied or printed.
+
+Environment handoff law: an environment assignment made only
+inside a terminated Python stand-in (or any prior exec) is NOT
+automatically inherited by a later `docker exec`, and a later
+exec does not inherit container PID1's runtime environment
+either.  The foreground attach must therefore supply the
+selecting environment explicitly on the exec invocation itself —
+`-e CODEX_HOME=/run/slaif-subj/codex-home` plus the provider key
+variable (its value loaded from the owned 0600 credential file by
+the 21002 setup step, never printed) — so the later 21002 native
+process provably receives the fresh synthetic `CODEX_HOME`, the
+separate early-beta profile and the generated fake credential
+from the owned tmpfs, and nothing else: no real key, provider,
+home or profile forwarding.
+
+Step 4 — bind the stopped job, then foreground the one native
+subject:
+
+1. NOW that B has regained the foreground, run B's REAL `jobs -l`
+   and bind the now-stopped job by W/G (the listed job line whose
+   PID matches the verified worker group leader; its state must
+   be stopped).  Let `J` be the ACTUAL numeric job field of that
+   verified line — taken from this listing, never assumed and
+   never read from a new shell.
+2. From B, run the owned attach in the foreground: `docker exec
+   -it --user 21002:21002 <verified CID> codex --yolo --profile
+   early-beta` with the explicit `-e` wiring from step 3.  `-it`
+   uses the same owned host-side PTY seam the R pty-attach
+   scenario demonstrated with its Python stand-in; that scenario
+   is prerequisite proof of the seam (a real owned PTY allocated
+   to the exec child), NOT the measured identity, TTY or
+   capability properties of the later native process — the
+   native subject's own measurements happen in the later order
+   and are never labeled as already performed by the stand-in.
+   `--user 21002:21002` keeps the subject under the dedicated
+   confinement identity.  The run is bounded by an explicit wall
+   deadline recorded in the later order; on deadline the owned
+   exact-CID/owned-image teardown applies.  A native version
+   observed during this run may be correlated against the pinned
+   public archive digest; no path here invokes the binary for a
+   version check, and the CI job still invokes no native binary.
+
+Step 5 — teardown, export, restore:
+
+1. On subject completion (or bounded deadline): quiesce the exact
+   owned client/tool processes and the provider's admitted
+   sockets/handlers, freeze the CLOSED selected snapshot, retrieve
+   it over the protected 21001 exporter channel while the
+   container still exists, validate the closed schema/counts/
+   digests on the host, then verify exact CID/image/descendant
+   teardown and publish only after verified cleanup (the R
+   teardown-before-publication law; a failed quiesce cannot be
+   called completed).
+2. Return foreground to the SAME worker: re-run `jobs -l` in B,
+   confirm the bound job is still the stopped worker (PID group
+   G, state stopped), and restore it with the actual shell job
+   expansion of the re-verified numeric ID — `fg "%${J}"` (the
+   verified line `[1]+  Stopped  ...` yields `J=1`, i.e. the
+   command `fg "%1"`); a literal `%J` is a different job spec and
+   is never used, nor is any assumed number.
+3. Restoration checks: `W` is running again on the SAME TTY and
+   resumes its OAP control wait (no restart, no replacement); the
+   branch/head recorded in step 1 is unchanged (read-only
+   comparison).  The stopped worker performed no mutation, and
+   the subject container has no host bind mount, so no concurrent
+   coding mutation was possible — both facts are verified, not
+   assumed.
+4. Failure checks (fail closed): if the stop, the attach or the
+   subject run cannot be verified, the sequence stops — owned
+   exact-CID/owned-image cleanup first, then the verified-job
+   restore, then a truthful record of the actual state.  If the
+   bound job no longer verifies as the stopped worker, it is not
+   restored as if it were the worker; the sequence stops and
+   records the actual state.  The worker is never left stopped
+   and no replacement worker is started; any residual uncertainty
+   is recorded, not papered over.
+
+What this runbook is NOT: it is not the hosted-CI execution
+path.  The R runner entry guard refuses any context that is not
+both `GITHUB_ACTIONS=true` and `RUNNER_ENVIRONMENT=github-
+hosted`; that guard must never be spoofed to run the CI entry
+locally — local execution is only this separately authorized
+foreground sequence.  It grants no capability verdict: the
+handoff-preparation qualification stays `PENDING` strategic
+review of the actual R job outcome, and D09 (genuine native
+capture/collector) remains `NOT RUN` until a later order executes
+this runbook and records actual measurements.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

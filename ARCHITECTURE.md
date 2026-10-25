@@ -76,7 +76,16 @@ input-gated (the generated startup readiness is `not_ready`;
 caller-supplied `ready`/authorization records can launch the bound
 stand-in through the public API) — so it performs no actual
 capture, no process collector, and no model call, and no format or
-process acquisition is earned. The remaining D09 actual-trace/
+process acquisition is earned. 017-r further lands the serial
+right-pane native fixture preparation (typed phase/budget model,
+distinct 21001/21002 confinement fixture image, ten fresh-container
+scenarios driven by a Python-only disposable-CI
+`cache-native-fixture` job; the public 0.164.0 musl artifact is
+fetched, digest-verified and statically hashed — including the
+pinned public LICENSE/NOTICE retention — but never executed): the
+handoff-preparation qualification is `PENDING` strategic review of
+the actual job outcome, and D09 remains `NOT RUN`. The remaining
+D09 actual-trace/
 multi-chunk process-completion and process/chunk collector gap stays
 with a later same-PR suffix (a later exact order may authorize one
 bounded reviewed actual capture, then the process/chunk collector,

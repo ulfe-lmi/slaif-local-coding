@@ -512,3 +512,31 @@ jobs:
           python3 scripts/cache_native_containment_ci.py \
             --repo . \
             --work "$RUNNER_TEMP/slaif-containment-017p"
+
+  # 017-r: serial right-pane native fixture capability proof (Python
+  # only, disposable runner only).  Fetches the pinned public 0.164.0
+  # musl artifact (size+digest verified before bounded extraction of
+  # the single regular executable), builds the digest-pinned fixture
+  # image and drives ten fresh-container scenarios under --network
+  # none, read-only rootfs, dedicated nonroot uids, cap-drop ALL,
+  # no-new-privileges, explicit seccomp=builtin and bounded
+  # memory(no-swap)/pids/CPU/tmpfs: the actual no-tools diagnostic,
+  # the 21002 measurement, the real host-side PTY attachment seam,
+  # controller-owned issuance with the measured aggregate ledger,
+  # verified descendant termination, bounded output capture and
+  # verified image removal.  The native binary is NEVER invoked (not
+  # even --help): this is the Python-only disposable-CI capability
+  # proof, not genuine native-client qualification (D09 remains NOT
+  # RUN).  No secrets are forwarded to the fixture.
+  cache-native-fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fixture capability proof (disposable runner only)
+        run: |
+          python3 scripts/cache_native_fixture_ci.py \
+            --repo . \
+            --work "$RUNNER_TEMP/slaif-fixture-017r" \
+            --evidence-out "$RUNNER_TEMP/slaif-fixture-017r-evidence/selected-evidence.json"
