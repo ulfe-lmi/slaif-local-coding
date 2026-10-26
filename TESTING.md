@@ -570,6 +570,72 @@ in tests/CI — the pinned public binary is fetched and hashed
 statically in the R `cache-native-fixture` job and is NEVER
 EXECUTED there, including help/version, per the RIGHT-only
 startup law.)
+Round 017-t adds the order-binding and native-handoff
+preparation-contract suites
+`tests/test_cache_native_fixture_binding.py` (45 tests —
+valid active-order/source resolution strictly read-only,
+foreign/malformed/duplicate/dirty/mismatched binding
+refusals, the closed git grammar, the stable per-order
+one-attempt namespaces across head/directory/phase changes,
+the preserved exhausted 017-s record (historical schema,
+never rewritten) and shared-schema/malformed/untrusted
+refusals) and
+`tests/test_cache_native_fixture_native_prep.py` (117 tests —
+closed /proc parsers; worker/Bash group facts with bounded
+membership, separately grouped tool sessions and the never-
+guessed job; the subject-identity law (exact CID/UID/GID/
+groups/argv/binary/birth/PTY, with the expected-PTY
+provenance — native qualification requires an actually
+bound, matched, nonzero expected PTY, and an unobserved
+expectation or a measured tty0 subject is never ready) with
+wrong-identity and vanished negatives; the independently
+measured same-job restoration matrix; the owner-final-facts
+closed parser; the closed verdict composition where
+unknown/unobserved/incomplete facts never become ready/pass
+and caller-authored flags are refused, where a historical
+S-scope owner record decodes and validates as its own scope
+but can never qualify a native-ready composition (the
+closed `owner-scope-not-native` refusal), where an honest
+started-but-not-ready native-owner record never becomes
+ready, and where the owner's registered artifact binary
+must equal the measured subject executable; the native-owner evidence
+producer that invokes the owned finish/export/teardown
+measurement seam, validates the FULL measured export
+payload with the actual shared export validator,
+recomputes the export digest itself, and binds the measured
+teardown to the exact immutable order/source-head/run/CID/
+image/binary context (closed six-key measured context;
+incomplete, contradicting or forged contexts are closed
+refusals; the image id admits only the bare digest or the
+actual measured `sha256:<digest>` form, the typed fact
+normalized to the bare digest; the consumer validates the
+exact closed record key sets, top level and nested, and
+unknown or missing fields are closed non-echoing refusals); the real owned measurement
+adapter, whose native started/ready facts derive ONLY from
+the public workflow's measured pre-teardown subject receipt
+(a caller flag or a run with no measured subject can never
+mint them); the public prepare/observe/finalize workflow
+where registration collects before recording, prepopulated
+records are not workflow evidence, and finalize binds a
+native-owner record to the immutable workflow binding's
+order, literal source head and run and the retained subject
+receipt to that same run; plus the full public lifecycle
+positives — including the REAL owner finish/export/
+teardown code driven with fake platform operations over
+ONE coupled fake process world (the workflow measures the
+native subject while the same CID is alive, records the
+stop, the exact CID removal updates the same world to
+absent, and the same worker is restored before finalize) —
+and the cross-context refusal contrasts).  Pure/fake seams
+plus tiny exact-owned Python children for the real /proc
+mechanics only (each exact-owned child is killed by the
+test's own cleanup if still alive; no signal to the real
+worker/Bash group or any unrelated process, no container,
+no native binary); a static AST law proves the preparation
+module imports no subprocess/signal/pty surface and
+contains no host-signal call.  Software preparation is
+INERT: these tests earn no native, worker-stop, Docker or
+handoff qualification.
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

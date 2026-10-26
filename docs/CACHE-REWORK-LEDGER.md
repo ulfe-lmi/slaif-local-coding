@@ -591,6 +591,76 @@ suspension, no protected service or profile change; the
 handoff-preparation qualification stays `PENDING` strategic
 review of the actual outcomes; D09 remains `NOT RUN`/deferred;
 no v1 runtime claim.
+Stage 017-t finalizes the S evidence record (the one
+auxiliary-log mode repair and the four immutable-report
+clarifications recorded in the new T report; the S/R/Q/P
+reports are never edited) and lands the INERT native-
+handoff preparation boundary for the later separately
+activated RIGHT-pane native handoff.  Two repo-owned
+stdlib-only modules: the typed immutable order/run binding
+(`scripts/cache_native_fixture_binding.py`) — one explicit
+opted-in run bound, before any mutation, to the exact active
+order ID, its unique committed immutable order file, the
+literal committed source head, the repository identity
+(owner/repo; the origin URL is never retained or echoed,
+private endpoints refused) and a module-minted run identity;
+strictly read-only resolution, no GitHub/network call, no
+authority minted from source parsing; per-order stable
+one-attempt namespaces in which a changed head/directory/
+phase never resets the attempt, with the historical
+exhausted 017-s record preserved in its exact schema — and
+the versioned read-only native-handoff preparation contract
+(`scripts/cache_native_fixture_native_prep.py`,
+`slaif-native-handoff-prep-v1`) — fixture-owner facts kept
+separate from external-native facts, the closed subject-
+identity law (exact registered CID, UID/GID 21002 with the
+closed group law, argv exactly `codex --yolo --profile
+early-beta`, pinned binary identity, birth bound, expected
+PTY), read-only worker/Bash group facts (complete bounded
+pgrp membership, separately grouped owned tool sessions,
+job J never guessed, tty foreground a read-only
+observation, no signal of any kind), the separately measured
+stop and restoration phases kept distinct (the recorded stop:
+worker T, Bash running, G differing from B's group, all
+observed G members stopped, foreground observed back on
+B's group after Bash reclaimed the TTY; restoration: the
+same worker running again with the observed foreground back
+on its own group G, measured against that recorded stop),
+closed verdict composition (unknown/unobserved/incomplete never
+ready/pass; caller-authored ready/status/flag JSON
+refused; the historical S-scope owner record decodes
+and validates as its own scope but can never qualify a
+native-ready composition), the native-owner evidence
+producer (`slaif-native-owner-evidence-v1`) that invokes
+the owned finish/export/teardown measurement seam,
+validates the FULL measured export payload with the
+actual shared export validator, recomputes the export
+digest itself, and binds the measured teardown to the
+exact immutable order/source-head/run/CID/image/binary
+context (closed six-key measured context; the image id
+admits only the bare digest or the actual measured
+`sha256:<digest>` form), the real owned measurement
+adapter whose native facts derive only from the public
+workflow's measured pre-teardown subject receipt, and the
+public prepare/observe/finalize workflow that invokes the
+collectors itself before recording (no constructor- or
+prepopulated-record evidence, no CLI entry; finalize
+binds a native-owner record to the immutable workflow
+binding's order, literal source head and run, and the
+retained subject receipt to that same run).  Public
+proof: 162 pure/fake plus tiny exact-owned Python child
+tests (`tests/test_cache_native_fixture_binding.py`, 45;
+`tests/test_cache_native_fixture_native_prep.py`, 117);
+no test signals any process other than its own exact-
+owned children (killed by the test's own cleanup if still
+alive), and a static AST law proves no
+subprocess/signal/pty surface in the preparation module.  017-t performs no
+native launch (including help/version), no worker
+suspension, no local Docker operation and no new rehearsal
+(the S admission stays consumed); the software preparation
+is INERT and the later serial native handoff remains a
+separately authorized order; D09 remains `NOT RUN`/deferred;
+no v1 runtime claim.
 Objective 016 (the architecture/documentation and
 development-state stage) is accepted and merged as PR #24, merge
 `96c790423f6f0097a56a0b12bacda8a9b6da6aba`. Do not read a row in this
@@ -710,7 +780,7 @@ drafts until activated.
 | Objective | PR branch | Deliverable and gate | Status in this round |
 |---|---|---|---|
 | 016 | `oap/016-cache-rework-contracts` | Commit unchanged human handoff; reconcile both architectures, root/strategic agent law, security/testing/configuration docs; publish the plan and this stage ledger; establish the separate current-development provenance contract (development-state artifact validation under the intact RC10 publication freeze). No adapter-runtime implementation claim. | Merged (PR #24; merge `96c790423f6f0097a56a0b12bacda8a9b6da6aba`; accepted) |
-| 017 | `oap/017-cache-read-observation` | Versioned pure root/read/result/span evidence and real-format synthetic fixtures: D01–D10, Unicode/CRLF, bounds, no shell execution. Preserve legacy detector until integration. | In progress (017-a..017-c published but not accepted; 017-b corrected findings A-E; 017-c corrected literal-grammar/endpoint proof; 017-d corrects the root-domain prerequisite as an independent commit and earns D06/D07/D08 finite read plans in the inert module `compound_reads.py`; 017-e corrects echo option semantics and plan-grammar identity on the same inert surface; 017-f earns the bounded pure literal-loop slice; 017-g corrects the loop word/separator law on the same inert surface; 017-h interrupted (PARTIAL, non-delivery, no repo change, nothing earned); 017-i lands the offline opt-in fail-closed process-capture utility for independent strategic review (inert; actual-client path input-gated — generated readiness `not_ready`, caller-supplied records can launch the bound stand-in; no actual capture/collector/model call); 017-j repairs that utility's selection/privacy/ownership/resource boundaries per independent review (issued binding, lossless byte-verified synthetic text in selection schema v2, serialized-byte cap, centralized request budget, bounded preflight, no-mutation directory guards, closed metadata schemas, descendant deadline; still inert, no actual capture/collector/model call, no format or process acquisition); 017-k repairs that utility's second-review boundaries (RUNTIME issued-registry binding with preloaded/anticipated/forged-call negatives, finalization quiesce with frozen-snapshot validation, all-method/error-path budget accounting, faithful generated-readiness round-trips, typed non-echoing malformed-Unicode rejection; still inert, no actual capture/collector/model call, no format or process acquisition); 017-l repairs the two remaining offline capture boundaries (owned admitted request sockets closed by effective shutdown at quiesce with honest incomplete-teardown outcome; immutable pre-launch original-seed verification with child-mutated/unseeded negatives; still inert, no actual capture/collector/model call, no format or process acquisition); 017-m repairs the per-request pure read-observation identity/causality pairing (eligibility-independent call-ID inventory so unknown/ineligible same-ID conflicts cannot disappear through filtering; missing/empty/malformed IDs observable without invention; results attach only when their exact numeric structural position follows the matching call's — never lexical IDs or JSONPath string sorting; pre-call results typed `PRE_CALL_RESULT` non-removable) and earns the public D10 composition matrix plus the pure D09 unsupported/partial negative matrix (tests/test_bundle_d10_matrix.py; D10 now `PENDING` acceptance, D09 multi-chunk process completion still `NOT RUN`/deferred — the D09 partial negatives are not multi-chunk evidence); 017-n completes the wire-family/complete-inventory/result-ID inventory repairs (Responses `custom_tool_call` identity joins the call inventory as bookkeeping only; `max_commands`/`max_outputs` bound the complete relevant inventory, fixed non-acquiring `OVER_BOUND`, selected-domain scoping; absent/null/empty/non-string result IDs typed `MISSING_RESULT_ID`/`MALFORMED_RESULT_ID` non-echoing; tests/test_bundle_d10_matrix.py::TestWireFamilyInventoryAndBounds); 017-o enforces those complete-inventory bounds before retention (no-retention streaming preflight stops at the first exceeded limit; 2 MiB allocation regression ceiling on large prebuilt inventories at limit one) and earns the non-echoing private-ID representation (internal IDs stay exact and usable; operational `str`/`repr` of report/read/unpaired use the fixed `<private-id>` placeholder; tests/test_bundle_d10_matrix.py::TestInventoryAllocationAndIdRepresentation); 017-p enforces the per-nested-container `max_items` scan guard (O(1) pre-iteration length test per inspected assistant `tool_calls` list; tests/test_bundle_d10_matrix.py::TestNestedScanBounds) and lands the disposable-CI containment capability (probe + runner + `cache-native-containment` job; ordered token-bound parent-death proof; verified image removal; 61 orchestration tests; no secrets forwarded to the fixture); still inert, no actual capture/collector/model call, no format or process acquisition; all `PENDING` acceptance; D09 (multi-chunk process completion and the process/chunk association) remains for a later same-PR suffix — a later exact order may authorize one bounded reviewed actual capture, then the process/chunk collector).  017-r lands the serial right-pane native fixture preparation (bounded R accepted at head `2ce9dcd`, wording limitations recorded; the serial foreground handoff itself remains a later separately authorized order); 017-s lands the local fixture preparation and one bounded Python-only local rehearsal (the ONE rehearsal ran EXACTLY ONCE at implementation head `2a9c44e` with source inputs `54ef177`, PASS; facts in the immutable round report) |
+| 017 | `oap/017-cache-read-observation` | Versioned pure root/read/result/span evidence and real-format synthetic fixtures: D01–D10, Unicode/CRLF, bounds, no shell execution. Preserve legacy detector until integration. | In progress (017-a..017-c published but not accepted; 017-b corrected findings A-E; 017-c corrected literal-grammar/endpoint proof; 017-d corrects the root-domain prerequisite as an independent commit and earns D06/D07/D08 finite read plans in the inert module `compound_reads.py`; 017-e corrects echo option semantics and plan-grammar identity on the same inert surface; 017-f earns the bounded pure literal-loop slice; 017-g corrects the loop word/separator law on the same inert surface; 017-h interrupted (PARTIAL, non-delivery, no repo change, nothing earned); 017-i lands the offline opt-in fail-closed process-capture utility for independent strategic review (inert; actual-client path input-gated — generated readiness `not_ready`, caller-supplied records can launch the bound stand-in; no actual capture/collector/model call); 017-j repairs that utility's selection/privacy/ownership/resource boundaries per independent review (issued binding, lossless byte-verified synthetic text in selection schema v2, serialized-byte cap, centralized request budget, bounded preflight, no-mutation directory guards, closed metadata schemas, descendant deadline; still inert, no actual capture/collector/model call, no format or process acquisition); 017-k repairs that utility's second-review boundaries (RUNTIME issued-registry binding with preloaded/anticipated/forged-call negatives, finalization quiesce with frozen-snapshot validation, all-method/error-path budget accounting, faithful generated-readiness round-trips, typed non-echoing malformed-Unicode rejection; still inert, no actual capture/collector/model call, no format or process acquisition); 017-l repairs the two remaining offline capture boundaries (owned admitted request sockets closed by effective shutdown at quiesce with honest incomplete-teardown outcome; immutable pre-launch original-seed verification with child-mutated/unseeded negatives; still inert, no actual capture/collector/model call, no format or process acquisition); 017-m repairs the per-request pure read-observation identity/causality pairing (eligibility-independent call-ID inventory so unknown/ineligible same-ID conflicts cannot disappear through filtering; missing/empty/malformed IDs observable without invention; results attach only when their exact numeric structural position follows the matching call's — never lexical IDs or JSONPath string sorting; pre-call results typed `PRE_CALL_RESULT` non-removable) and earns the public D10 composition matrix plus the pure D09 unsupported/partial negative matrix (tests/test_bundle_d10_matrix.py; D10 now `PENDING` acceptance, D09 multi-chunk process completion still `NOT RUN`/deferred — the D09 partial negatives are not multi-chunk evidence); 017-n completes the wire-family/complete-inventory/result-ID inventory repairs (Responses `custom_tool_call` identity joins the call inventory as bookkeeping only; `max_commands`/`max_outputs` bound the complete relevant inventory, fixed non-acquiring `OVER_BOUND`, selected-domain scoping; absent/null/empty/non-string result IDs typed `MISSING_RESULT_ID`/`MALFORMED_RESULT_ID` non-echoing; tests/test_bundle_d10_matrix.py::TestWireFamilyInventoryAndBounds); 017-o enforces those complete-inventory bounds before retention (no-retention streaming preflight stops at the first exceeded limit; 2 MiB allocation regression ceiling on large prebuilt inventories at limit one) and earns the non-echoing private-ID representation (internal IDs stay exact and usable; operational `str`/`repr` of report/read/unpaired use the fixed `<private-id>` placeholder; tests/test_bundle_d10_matrix.py::TestInventoryAllocationAndIdRepresentation); 017-p enforces the per-nested-container `max_items` scan guard (O(1) pre-iteration length test per inspected assistant `tool_calls` list; tests/test_bundle_d10_matrix.py::TestNestedScanBounds) and lands the disposable-CI containment capability (probe + runner + `cache-native-containment` job; ordered token-bound parent-death proof; verified image removal; 61 orchestration tests; no secrets forwarded to the fixture); still inert, no actual capture/collector/model call, no format or process acquisition; all `PENDING` acceptance; D09 (multi-chunk process completion and the process/chunk association) remains for a later same-PR suffix — a later exact order may authorize one bounded reviewed actual capture, then the process/chunk collector).  017-r lands the serial right-pane native fixture preparation (bounded R accepted at head `2ce9dcd`, wording limitations recorded; the serial foreground handoff itself remains a later separately authorized order); 017-s lands the local fixture preparation and one bounded Python-only local rehearsal (the ONE rehearsal ran EXACTLY ONCE at implementation head `2a9c44e` with source inputs `54ef177`, PASS; facts in the immutable round report); 017-t finalizes the S evidence record and lands the inert native-handoff preparation contract (typed order/run binding with per-order stable one-attempt namespaces preserving the exhausted 017-s record; versioned read-only native preparation/evidence contract — owner/native fact separation, closed subject-identity law bound to the registered CID/21002/exact argv/pinned binary, independently measured same-job restoration law, closed verdict composition (a historical S-scope owner record never qualifies native-ready; an honest started-but-not-ready record never becomes ready; the owner's registered artifact must equal the measured subject executable; the visible handoff requires an actually bound, matched, nonzero expected PTY), the native-owner evidence producer with full shared-payload validation, digest recomputation, measured-context binding and exact closed record key sets, the real owned measurement adapter, and the public prepare/observe/finalize workflow with no CLI whose finalize binds the owner record and retained subject receipt to the immutable order/source-head/run binding; 162 pure/fake plus tiny exact-owned Python child tests; software preparation INERT — no native launch, no worker stop, no local Docker, no rehearsal; the later serial native handoff remains a separately authorized order) |
 | 018 | `oap/018-cache-graph-bundles` | Typed namespace/file/edge/bundle versions, recursive graph, lean/greedy admission, overlap/replay invalidation: G01–G05, C01/C02/C04–C06, S01. | Planned (inert draft) |
 | 019 | `oap/019-cache-ram-state` | RAM session ownership/indexes, explicit capacity/backpressure, async single-flight and lifecycle: C03, M01/M04/M05; zero filesystem hot lookup. | Planned (inert draft) |
 | 020 | `oap/020-cache-session-recovery` | Protected exact-original atomic checkpoints, locks and lazy per-session restart rebuilding: M02–M04, corrupt/torn/foreign/config-mismatch negatives. | Planned (inert draft) |

@@ -1709,6 +1709,240 @@ handoff-preparation qualification stays `PENDING` strategic
 review of the actual outcomes, and D09 (genuine native
 capture/collector) remains `NOT RUN`.
 
+### 11e. Round 017-t: evidence finalization and inert native-handoff
+preparation (no D-syntax change)
+
+Round 017-t finalizes the S evidence record and lands the
+REUSABLE, INERT preparation boundary for the later separately
+activated RIGHT-pane native handoff.  It performs NO native
+launch (including help/version), NO worker stop, NO local
+Docker operation and NO new rehearsal; the S admission remains
+consumed and the S/R/Q/P reports remain immutable.
+
+Order/run binding (`scripts/cache_native_fixture_binding.py`):
+the smallest typed immutable binding a later fixture
+preparation needs — one explicit opted-in run bound, before
+any mutation, to the exact active order ID (bounded OAP
+grammar), its UNIQUE committed immutable order file (exactly
+one `<ID>-*.md` in the bound source tree; disk bytes equal
+the committed bytes), the literal committed source head (HEAD
+equals it, clean worktree), the repository identity
+(`owner/repo` parsed from the plain-HTTPS GitHub origin form;
+the URL is never retained or echoed, private endpoints
+refused) and a module-minted 32-hex run identity (never a
+caller value).  Resolution is strictly read-only, makes no
+GitHub/network call and mints no authority: publication/
+review stays the separate strategic pre-execution gate, and
+source parsing never invents permission from prose.  Each
+order id gets its own stable one-attempt
+`.oap-local/<order-id>/` namespace (atomic O_EXCL claim; a
+changed head, directory or phase within the order NEVER
+resets it); the historical 017-s record keeps its exact
+schema and exhausted state.
+
+Native-handoff preparation contract
+(`scripts/cache_native_fixture_native_prep.py`, closed schema
+`slaif-native-handoff-prep-v1`): small READ-ONLY collection /
+validation seams for the LATER native path.  Fixture-owner
+facts and external-native facts stay SEPARATE: the owner's
+retained evidence (its own closed 017-s record: exact CID,
+verified teardown, sentinel survival, export sha, and its
+`codex_invoked` / `worker_stopped` / `native_*` flags — the
+closed safety facts of the WHOLE historical S rehearsal run:
+a full-rehearsal-scope statement that that run never invoked
+Codex, never stopped the worker and never started a native
+subject; NOT an owner-processes-only claim, and the new
+native schema is separate, never an owner-only
+reinterpretation of those flags) is parsed into typed
+`OwnerFinalFacts` under the historical S schema; the native
+subject is a distinct measured `SubjectIdentity`; the overall verdict is composed AFTER the
+owner's own export/teardown finished (teardown-before-
+restore ordering; nothing keeps the container alive until
+restoration, nothing deadlocks finish on the stopped
+worker).  No record can therefore claim "Codex was never
+invoked" while a foreground native subject actually ran.
+
+The closed identity laws the later native pass must satisfy
+(finalized from this code, not prose):
+
+- subject identity is adopted from the EXACT registered CID
+  only (`source: cid-registered`); a host UID/name-only
+  process or a caller-supplied bare PID is never proof;
+  UID/GID exactly 21002 with the closed group law (empty, or
+  the own primary 21002 — strict integers only); argv
+  EXACTLY `codex --yolo --profile early-beta` (value AND
+  recomputed digest); the pinned binary sha256 bound to the
+  expectation; the birth bound (`/proc` start_time at or
+  after the ticks measured at run admission — an unobserved
+  bound is incomplete, never ready) and the expected-PTY
+  provenance (the identity records whether the expected
+  PTY was actually bound — a strict NONZERO int — and
+  matched; an unobserved expected PTY or a measured tty0
+  subject is `pty_matched` false and can never qualify
+  native-ready, while legitimate no-TTY process parsing
+  stays a separate capability);
+- worker/Bash group facts are collected READ-ONLY: worker W,
+  parent Bash B, pgrp G, session/TTY relation, complete
+  bounded G membership (capped enumeration), separately
+  grouped owned tool sessions distinguished, the actual Bash
+  job J NEVER guessed, and the tty foreground pgrp a read-
+  only observation (None = unobserved, never assumed); this
+  round never signals W/G/B or changes foreground;
+- the worker stop and same-job restoration are measured
+  INDEPENDENTLY of the owner as two distinct phases: the
+  RECORDED stop is the stable stopped phase — the worker W
+  observed in state T, its parent Bash B running, G differing
+  from B's group, every other observed G member stopped, and
+  the tty foreground observed back on B's group (Bash
+  reclaimed the TTY; G does not hold the foreground while
+  stopped) — a separately recorded event, never re-derived
+  from a later snapshot; RESTORATION is measured AGAINST
+  that receipt and holds only for the RUNNING phase: the
+  same worker (pid, birth, group G, session, TTY) running
+  again with the observed foreground back on G — a worker
+  still stopped, a missing recorded stop, an unobserved or
+  contradicting foreground, or a vanished process is
+  honestly unknown, never restored;
+- the verdict composes only typed measured records (or an
+  explicit None): a caller-authored ready/status/flag JSON
+  is a closed refusal; unknown/unobserved/incomplete facts
+  can never be ready/pass, with the closed 15-reason
+  vocabulary (no-owner-final / owner-teardown-unverified /
+  owner-subject-context-mismatch / owner-subject-binary-
+  mismatch / owner-native-unready / owner-scope-not-native /
+  no-native-identity / subject-start-unbound /
+  subject-pty-unmatched / subject-cid-unscoped /
+  subject-binary-unmeasured / subject-absence-unverified /
+  no-restoration / worker-stop-unmeasured /
+  same-job-restore-unmeasured).
+  A historical S-scope owner record decodes and validates
+  under its own closed schema, but it can NEVER qualify a
+  native-ready composition (the closed
+  `owner-scope-not-native` refusal), and its flags are
+  never relabeled as native facts.  An honest
+  started-but-not-ready native-owner record (a truthful
+  `native_ready` false) parses but never becomes ready
+  (`owner-native-unready`), and the owner's registered
+  artifact binary must equal the retained measured
+  subject's executable identity (`owner-subject-binary-
+  mismatch`) — same CID/run strings cannot substitute for
+  exact executable agreement;
+- the public prepare / observe / finalize workflow invokes
+  the collectors itself before recording measured state — a
+  constructor or manually prepopulated record is not
+  workflow evidence; there is no CLI entry, so the runtime
+  CLI cannot accept a fabricated collector result (injection
+  is in-process, trusted fake tests only); malformed,
+  mismatched, vanished, reused/incomparable or unreadable
+  identities yield closed non-echoing refusals; no raw
+  cmdline, environment, API/schema/body/TUI/history is
+  retained or exported (the exact pinned argv only, where
+  the contract requires it).  `finalize` binds the owner
+  record's run id to the workflow's registered run, and a
+  native-owner record must additionally equal the
+  immutable workflow binding's order, literal source head
+  and run, with the retained pre-teardown subject receipt
+  bound to that same run — order/head/run mismatches are
+  closed refusals (prep-owner-order-mismatch /
+  prep-owner-head-mismatch / prep-owner-run-mismatch /
+  prep-subject-run-mismatch); a historical S-scope record
+  is not order/head-checked there and never becomes ready;
+
+Native-owner evidence producer (closed schema
+`slaif-native-owner-evidence-v1`): the explicit
+measurement-to-record boundary for a LATER native-owner
+run.  It invokes the owned finish/export/teardown
+measurement seam (the closed read-only method set over the
+completed owner's measured state — a None is unmeasured
+and a closed refusal, never a default), validates the
+FULL measured export payload with the ACTUAL shared export
+validator (the same closed quiesce/snapshot/diagnostic/
+originals law the R/S finish path applies to its host
+revalidation — a recomputed digest alone proves framing
+integrity, never payload validity), recomputes the export
+digest from the measured payload bytes ITSELF (a supplied
+digest is never trusted), and only then emits the closed
+record from the closed teardown facts (present-before /
+absent-after on the exact CID and image, zero
+descendants, sentinel survival, native started — a run
+that never started native is out of this producer's
+scope).  The consumer validates the EXACT closed record
+grammar — the exact top-level key set and the exact
+nested object key sets; unknown, missing, or non-mapping
+fields are closed non-echoing refusals before the record
+is used, and no unknown field or value is echoed or
+retained.  The measured image id admits only the bare
+64-hex digest or the actual measured `sha256:<digest>`
+form; the typed fact is the normalized bare digest.  A
+measurement that exposes the closed six-key measured
+context (order, source head, run, CID, image, binary)
+must bind it EXACTLY to the expected immutable order/run
+binding — an incomplete (None), extra-key, or
+contradicting context is a closed non-echoing refusal,
+never a silent skip to caller strings.  The produced
+record must round-trip the closed consumer validation
+before it is returned (producer/consumer agreement is
+enforced, never assumed).  The real owned measurement
+adapter (`OwnedOwnerMeasurement`) reads the completed
+fixture owner's closed attribute seam (no platform
+operation is re-invoked) and derives the run's native
+started/ready facts ONLY from the public workflow's
+measured pre-teardown subject receipt: a run with no
+measured subject (the historical S scope) has no measured
+native start, and a caller flag never mints one.  A
+subject whose expected PTY was never bound (unobserved
+expectation or measured tty0) — or whose measured binary
+contradicts the owner's own registered artifact — is
+honestly started-but-NOT-ready.  The historical S record
+is never relabeled or derived into this scope.
+
+Public local proof: `tests/test_cache_native_fixture_binding.
+py` (45 tests) and `tests/test_cache_native_fixture_native_
+prep.py` (117 tests) — valid active-order/source binding
+(strictly read-only), foreign/malformed/duplicate/dirty/
+mismatched binding refusals, stable attempts across
+head/directory/phase changes, the preserved exhausted 017-s
+record (historical schema, never rewritten) with shared-
+schema/malformed/untrusted refusals, the closed git grammar
+and bounded reads; registration collects before recording,
+valid positive baselines plus wrong executable/argv/UID/
+GID/groups/CID/run/start/TTY/foreground/restoration and
+unknown/vanished negatives, no readiness from fabricated
+flags, the native-owner producer (full shared-payload
+validation, measured-context binding with forged/incomplete
+negatives, the closed image-id forms, unmeasured/
+contradicted teardown refusals), the owned adapter whose
+native facts derive only from the public receipt (no-
+receipt refusal, started-but-not-ready honesty, incomplete
+measured-context refusals), the verdict's S-scope
+`owner-scope-not-native` refusal, the finalize binding law
+(order/head/run/source-head and subject-receipt run
+mismatches refused) with the full public lifecycle
+positives — including the REAL owner finish/export/
+teardown code driven with fake platform operations over
+ONE coupled fake process world (the workflow measures the
+native subject while the same CID is alive, records the
+stop, the exact CID removal updates the same world to
+absent, and the same worker is restored before finalize) —
+and cross-context refusal contrasts, bounded
+enumeration/capture/diagnostics, and no signals or Codex
+subprocess calls (static AST law).  The
+real /proc mechanics are proven with tiny EXACT-OWNED
+Python children only (each exact-owned child is killed
+by the test's own cleanup if still alive; the absent-pid
+closed negative uses the same real table); no test signals
+the real worker/Bash group or any unrelated process.
+
+The later execution contract is finalized from this code:
+the serial foreground handoff still requires its own
+separately activated order (human/strategic authorization,
+RIGHT-pane manual foreground boundary), the exact pinned
+attach argv (inert attach plan unchanged), the verified
+local endpoint binding, that order's own one-attempt
+admission namespace, and the measured verdict above.  D09
+(genuine native formats/collector) remains `NOT RUN`; no v1
+runtime claim.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

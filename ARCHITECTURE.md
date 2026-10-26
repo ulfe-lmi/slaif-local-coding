@@ -113,6 +113,32 @@ suspension, no protected service or profile change
 throughout; actual measured facts in the immutable round
 report): the serial foreground handoff itself remains a later
 separately authorized order, and D09 remains `NOT RUN`.
+017-t finalizes the S evidence record and further lands the
+inert native-handoff preparation boundary (typed immutable
+order/run binding with per-order stable one-attempt
+namespaces preserving the exhausted 017-s record, plus the
+versioned read-only native preparation/evidence contract —
+owner/native fact separation, the closed subject-identity
+law bound to the exact registered CID/21002/exact argv/
+pinned binary, independently measured same-job restoration,
+closed verdict composition where a historical S-scope owner
+record can never qualify native-ready, an honest
+started-but-not-ready record never becomes ready, the
+owner's registered artifact must equal the measured
+subject executable, and the visible handoff requires an
+actually bound, matched, nonzero expected PTY, the
+native-owner evidence producer (full shared-payload
+validation, digest recomputation, measured-context
+binding, closed image-id forms, exact closed record key
+sets), the real owned measurement adapter, and the public
+prepare/observe/finalize workflow with no CLI, no
+fabricated flags and the owner/subject run bound to the
+immutable order/source-head/run binding; 162 pure/fake plus
+tiny exact-owned Python child tests): no native launch, no
+worker stop, no local Docker operation, no new rehearsal
+(the S admission stays consumed); the later serial native
+handoff remains a separately authorized order, and D09
+remains `NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

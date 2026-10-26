@@ -1552,6 +1552,23 @@ class LocalFixtureOwner:
         self.export_payload: bytes | None = None
         self.export_sha = ""
         self.descendants_before = 0
+        # The SEPARATELY STORED measured teardown facts (the
+        # verification itself is unchanged): the 017-t
+        # native-owner preparation adapter reads these
+        # measured values — it never re-queries the
+        # platform.
+        self.teardown_container_absent: bool | None = None
+        self.teardown_descendants_after: int | None = None
+        # NOTE (017-t): the run's native_started/native_ready
+        # facts are NOT owner state — the owner never launches
+        # or measures a native subject.  They are measured by
+        # the PUBLIC native-handoff workflow's subject
+        # collector (the retained pre-teardown identity) and
+        # reach the native-owner producer through that
+        # measured receipt, never through a caller flag write.
+        # The historical S scope's closed whole-run
+        # native_started/native_ready flags live in its own
+        # evidence record and keep their original meaning.
         self.phases_completed: set[str] = set()
         self.work_root_owned = False
         self.state_path: Path | None = None
@@ -2086,6 +2103,7 @@ class LocalFixtureOwner:
         self.descendants_before = ci._descendant_count(self.guarded, cid)
         ci.cleanup_container(self.guarded, cid)
         _require_absent(self.guarded, cid)
+        self.teardown_container_absent = True
         ci.verify_no_leftovers(self.guarded, ci.IMAGE_NAME)
         if self.image_id is None and self.build_attempted:
             # The collision probe proved the exact tag ABSENT before
@@ -2110,6 +2128,7 @@ class LocalFixtureOwner:
             or ci._count_fixture_uid_processes(ci.SUBJECT_UID) != 0
         ):
             raise FixtureError("descendant-leftover")
+        self.teardown_descendants_after = 0
         self._phase_done("teardown")
 
     # -- the single exact-owned cleanup umbrella ---------------------------------------
