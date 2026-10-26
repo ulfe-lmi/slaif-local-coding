@@ -580,16 +580,20 @@ one-attempt namespaces across head/directory/phase changes,
 the preserved exhausted 017-s record (historical schema,
 never rewritten) and shared-schema/malformed/untrusted
 refusals) and
-`tests/test_cache_native_fixture_native_prep.py` (117 tests —
+`tests/test_cache_native_fixture_native_prep.py` (124 tests —
 closed /proc parsers; worker/Bash group facts with bounded
-membership, separately grouped tool sessions and the never-
-guessed job; the subject-identity law (exact CID/UID/GID/
+membership tri-stated row by row (only verified-gone churn
+ignored; unreadable still-existing or capability-less
+inventory refused, never skipped), separately grouped tool
+sessions and the never-guessed job; the subject-identity law (exact CID/UID/GID/
 groups/argv/binary/birth/PTY, with the expected-PTY
 provenance — native qualification requires an actually
 bound, matched, nonzero expected PTY, and an unobserved
 expectation or a measured tty0 subject is never ready) with
 wrong-identity and vanished negatives; the independently
-measured same-job restoration matrix; the owner-final-facts
+measured same-job restoration matrix (a refused stop can
+never later claim a recorded stop or restoration); the
+owner-final-facts
 closed parser; the closed verdict composition where
 unknown/unobserved/incomplete facts never become ready/pass
 and caller-authored flags are refused, where a historical

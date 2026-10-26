@@ -1783,20 +1783,30 @@ The closed identity laws the later native pass must satisfy
   stays a separate capability);
 - worker/Bash group facts are collected READ-ONLY: worker W,
   parent Bash B, pgrp G, session/TTY relation, complete
-  bounded G membership (capped enumeration), separately
-  grouped owned tool sessions distinguished, the actual Bash
-  job J NEVER guessed, and the tty foreground pgrp a read-
-  only observation (None = unobserved, never assumed); this
-  round never signals W/G/B or changes foreground;
+  bounded G membership (capped enumeration, tri-stated row by
+  row — only an independently VERIFIED-gone listed entry may
+  be ignored; an unreadable still-existing or unprovable
+  entry cannot be classified as a non-member and is a closed
+  `prep-group-incomplete` refusal, never a silently skipped
+  row), separately grouped owned tool sessions distinguished,
+  the actual Bash job J NEVER guessed, and the tty
+  foreground pgrp a read-only observation (None = unobserved,
+  never assumed); this round never signals W/G/B or changes
+  foreground;
 - the worker stop and same-job restoration are measured
   INDEPENDENTLY of the owner as two distinct phases: the
   RECORDED stop is the stable stopped phase — the worker W
   observed in state T, its parent Bash B running, G differing
-  from B's group, every other observed G member stopped, and
-  the tty foreground observed back on B's group (Bash
-  reclaimed the TTY; G does not hold the foreground while
-  stopped) — a separately recorded event, never re-derived
-  from a later snapshot; RESTORATION is measured AGAINST
+  from B's group, every other observed G member stopped
+  (each listed row tri-stated through the bounded absence
+  seam — only an independently VERIFIED-gone entry may be
+  ignored; an unreadable still-existing or unprovable entry
+  cannot establish nonmembership or a complete G and is a
+  closed refusal, never a silently skipped row), and the tty
+  foreground observed back on B's group (Bash reclaimed the
+  TTY; G does not hold the foreground while stopped) — a
+  separately recorded event, never re-derived from a later
+  snapshot; RESTORATION is measured AGAINST
   that receipt and holds only for the RUNNING phase: the
   same worker (pid, birth, group G, session, TTY) running
   again with the observed foreground back on G — a worker
@@ -1898,7 +1908,7 @@ is never relabeled or derived into this scope.
 
 Public local proof: `tests/test_cache_native_fixture_binding.
 py` (45 tests) and `tests/test_cache_native_fixture_native_
-prep.py` (117 tests) — valid active-order/source binding
+prep.py` (124 tests) — valid active-order/source binding
 (strictly read-only), foreign/malformed/duplicate/dirty/
 mismatched binding refusals, stable attempts across
 head/directory/phase changes, the preserved exhausted 017-s
@@ -1924,14 +1934,41 @@ ONE coupled fake process world (the workflow measures the
 native subject while the same CID is alive, records the
 stop, the exact CID removal updates the same world to
 absent, and the same worker is restored before finalize) —
-and cross-context refusal contrasts, bounded
-enumeration/capture/diagnostics, and no signals or Codex
-subprocess calls (static AST law).  The
+and cross-context refusal contrasts, the complete-group
+tri-state law (complete observed group, running-member
+refusal, verified-gone churn tolerated, unreadable
+still-existing or capability-less inventory refused at
+prepare/observe/stop without minting a baseline, stop or
+restoration, and the membership cap unaffected by verified
+churn), bounded enumeration/capture/diagnostics, and no
+signals or Codex subprocess calls (static AST law).  The
 real /proc mechanics are proven with tiny EXACT-OWNED
 Python children only (each exact-owned child is killed
 by the test's own cleanup if still alive; the absent-pid
 closed negative uses the same real table); no test signals
 the real worker/Bash group or any unrelated process.
+
+Round 017-u repairs the complete-inventory law
+demonstrated by the review-11 public group-readability
+probe (3/4 at the T source): the T implementation skipped
+every None stat as a raced-away non-member in BOTH the
+initial group inventory and the complete-stop predicate, so
+a stat-unreadable PID whose entry positively still existed
+silently minted a complete stop receipt.  The repaired law
+tri-states each listed row through the bounded read-only
+absence seam (its historical `pid_present` contract: True =
+verified absent, False = exists, None = unknown; missing
+capability or unreadable presence evidence stays unknown,
+never verified gone): only an independently verified-gone
+entry may be ignored (bounded churn law); an unreadable
+still-existing or unprovable entry is a closed non-echoing
+refusal (`prep-group-incomplete` in the inventory,
+`prep-stop-unobserved` in the stop predicate); a failed
+initial prepare/observe mints no baseline or admission and a
+refused stop can never later claim a recorded stop or
+restoration.  The unchanged four-case probe passes 4/4 at
+the repaired source; the original 13 preparation probes,
+frozen 21 and installed 27 retain their earned scope.
 
 The later execution contract is finalized from this code:
 the serial foreground handoff still requires its own

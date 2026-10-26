@@ -200,6 +200,7 @@ def _normalize_image_id(image_id: str) -> str:
 PREP_REASONS = frozenset(
     {
         "prep-binding-invalid",
+        "prep-group-incomplete",
         "prep-proc-overbound",
         "prep-proc-unreadable",
         "prep-stat-malformed",
@@ -626,10 +627,16 @@ def collect_worker_group(
     kind).  Vanished processes and W/B relation violations are
     closed refusals: B must be a verified bash with W as its
     direct child in the same session on the same TTY, with
-    birth recorded for both.  Tool-session provenance comes
-    only from MEASURED worker ancestry or a separately
-    registered exact pid+birth mapping (``registered_owners``);
-    membership and tool-session enumeration are bounded."""
+    birth recorded for both.  The bounded listing is tri-
+    stated row by row: only an independently VERIFIED-gone
+    entry may be ignored (bounded churn law); an unreadable
+    still-existing or unprovable entry cannot be classified
+    as a non-member, so the inventory is a closed
+    ``prep-group-incomplete`` refusal, never a silently
+    skipped row.  Tool-session provenance comes only from
+    MEASURED worker ancestry or a separately registered exact
+    pid+birth mapping (``registered_owners``); membership and
+    tool-session enumeration are bounded."""
     if not _is_pid(worker_pid):
         raise FixtureError("prep-worker-invalid")
     if foreground_pgrp is not None and not _is_pid(foreground_pgrp):
@@ -680,7 +687,17 @@ def collect_worker_group(
     for pid in table.list_pids():
         raw = table.stat(pid)
         if raw is None:
-            continue  # raced away: not a member
+            # A None stat does NOT prove the entry is gone:
+            # tri-state it through the bounded absence seam.
+            # Only an independently VERIFIED-gone entry may
+            # be ignored (bounded churn law); an unreadable
+            # still-existing or unprovable entry cannot
+            # establish nonmembership, so the inventory
+            # cannot claim completeness — a closed non-
+            # echoing refusal, never a silently skipped row.
+            if _verified_absence(table, pid) is not True:
+                raise FixtureError("prep-group-incomplete")
+            continue
         entry = parse_proc_stat(raw.decode("ascii", "replace"))
         if entry.pgrp == group:
             members.append(GroupMember(entry.pid, entry.state, entry.tty))
@@ -1472,14 +1489,20 @@ def collect_stop_observation(table: ProcTable, worker_pid: object, bash_pid: obj
         raise FixtureError("prep-stop-unobserved")
     # the COMPLETE stop: every other observed member of G is
     # stopped too (an unstopped G member is a partial stop,
-    # not the recorded stable phase); a raced-away pid is not
-    # a member, a malformed G-member row is not an established
-    # stop
+    # not the recorded stable phase); a listed entry with a
+    # None stat is tri-stated through the bounded absence
+    # seam — only an independently VERIFIED-gone entry may be
+    # ignored (bounded churn law); an unreadable still-
+    # existing or unprovable entry cannot establish
+    # nonmembership or a complete G; a malformed G-member row
+    # is not an established stop
     for pid in table.list_pids():
         if pid == w.pid:
             continue  # verified T above
         raw = table.stat(pid)
         if raw is None:
+            if _verified_absence(table, pid) is not True:
+                raise FixtureError("prep-stop-unobserved")
             continue
         try:
             entry = parse_proc_stat(raw.decode("ascii", "replace"))

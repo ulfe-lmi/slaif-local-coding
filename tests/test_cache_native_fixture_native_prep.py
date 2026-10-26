@@ -2513,3 +2513,278 @@ def test_prep_reasons_closed_vocabulary() -> None:
     tokens = set(re.findall(r'FixtureError\("(prep-[a-z0-9-]+)"\)', source))
     assert tokens
     assert tokens <= set(fp.PREP_REASONS)
+
+
+# -- complete-group observation: vanished vs unreadable (017-u) --------------------
+
+
+class _TriStateTable(FakeTable):
+    """A listed pid whose stat read returns None while the entry
+    itself tri-states: still existing (pid_present False),
+    independently verified gone (True), or unknown (absent set).
+    ``hidden`` pids stay in the (possibly stale) listing."""
+
+    def __init__(self, procs: dict[int, dict[str, Any]]) -> None:
+        super().__init__(procs)
+        self.hidden: set[int] = set()
+
+    def stat(self, pid: int) -> bytes | None:
+        if pid in self.hidden:
+            return None
+        return super().stat(pid)
+
+    def list_pids(self) -> list[int]:
+        result = super().list_pids()
+        for pid in sorted(self.hidden):
+            if pid not in result:
+                result.append(pid)
+        return result
+
+
+class _CapabilityLessTable:
+    """The historical table shape WITHOUT the pid_present
+    capability: a None stat cannot be tri-stated at all, so
+    presence is an unknown, never a verified absence."""
+
+    def __init__(self, procs: dict[int, dict[str, Any]], hidden: set[int]) -> None:
+        self._procs = procs
+        self._hidden = hidden
+
+    def stat(self, pid: int) -> bytes | None:
+        if pid in self._hidden:
+            return None
+        p = self._procs.get(pid)
+        return p["stat"].encode("ascii") if p else None
+
+    def cmdline(self, pid: int) -> bytes | None:
+        p = self._procs.get(pid)
+        return p["cmdline"] if p else None
+
+    def status(self, pid: int) -> bytes | None:
+        p = self._procs.get(pid)
+        return p["status"] if p else None
+
+    def list_pids(self) -> list[int]:
+        result = sorted(self._procs)
+        for pid in sorted(self._hidden):
+            if pid not in result:
+                result.append(pid)
+        return result
+
+
+def _group_readability_world() -> tuple[dict[int, dict[str, Any]], _TriStateTable]:
+    """The right-pane job (Bash 40 / worker 50) with ONE extra
+    G member (51) and no subject — the public group/stop flow."""
+    table, procs = _lifecycle_table()
+    procs.pop(60)
+    t = _TriStateTable(procs)
+    return procs, t
+
+
+def _group_member(state: str) -> dict[str, Any]:
+    return subject_proc(
+        51, state=state, ppid=50, pgrp=50, session=99, tty=TTYS, tpgid=40, uid=1000, gid=1000
+    )
+
+
+def test_public_stop_tri_state_matrix() -> None:
+    # complete observed stopped group: the stop is recorded
+    procs, t = _group_readability_world()
+    procs[51] = _group_member("S")
+    flow = _workflow(t, with_subject=False)
+    flow.prepare()
+    procs[50] = _worker_proc("T", tpgid=40)
+    procs[51] = _group_member("T")
+    assert flow.record_stop() is not None
+
+    # a running G member: the stable stop is not established
+    procs2, t2 = _group_readability_world()
+    procs2[51] = _group_member("S")
+    flow2 = _workflow(t2, with_subject=False)
+    flow2.prepare()
+    procs2[50] = _worker_proc("T", tpgid=40)
+    procs2[51] = _group_member("S")
+    with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+        flow2.record_stop()
+
+    # stale-listed but independently VERIFIED-gone member:
+    # tolerated under the bounded churn law
+    procs3, t3 = _group_readability_world()
+    procs3[51] = _group_member("S")
+    flow3 = _workflow(t3, with_subject=False)
+    flow3.prepare()
+    procs3[50] = _worker_proc("T", tpgid=40)
+    del procs3[51]
+    t3.hidden.add(51)
+    assert t3.pid_present(51) is True  # verified gone despite stale listing
+    assert flow3.record_stop() is not None
+
+    # unreadable stat with a POSITIVELY still-existing entry:
+    # the complete stop can never be minted
+    procs4, t4 = _group_readability_world()
+    procs4[51] = _group_member("S")
+    flow4 = _workflow(t4, with_subject=False)
+    flow4.prepare()
+    procs4[50] = _worker_proc("T", tpgid=40)
+    t4.hidden.add(51)
+    assert t4.pid_present(51) is False  # entry still exists, not raced away
+    with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+        flow4.record_stop()
+    # the failed event recorded NOTHING: a second call re-measures
+    assert flow4._stop_receipt is None
+
+
+def test_worker_group_tri_state_inventory() -> None:
+    # fully observed group: complete bounded membership
+    procs, t = _group_readability_world()
+    procs[51] = _group_member("S")
+    facts = fp.collect_worker_group(t, 50, 40, 40)
+    assert sorted(m.pid for m in facts.members) == [50, 51]
+
+    # unreadable still-existing entry: the inventory is a closed
+    # refusal, never a silently truncated listing
+    t.hidden.add(51)
+    with pytest.raises(fci.FixtureError, match="prep-group-incomplete"):
+        fp.collect_worker_group(t, 50, 40, 40)
+
+    # stale-listed but verified-gone entry: tolerated, not a member
+    del procs[51]
+    t2 = _TriStateTable(procs)
+    t2.hidden.add(51)
+    facts2 = fp.collect_worker_group(t2, 50, 40, 40)
+    assert [m.pid for m in facts2.members] == [50]
+
+
+def test_unreadable_initial_prepare_refused_then_recovered() -> None:
+    procs, t = _group_readability_world()
+    procs[51] = _group_member("S")
+    t.hidden.add(51)
+    flow = _workflow(t, with_subject=False)
+    with pytest.raises(fci.FixtureError, match="prep-group-incomplete"):
+        flow.prepare()
+    # the failed prepare minted no baseline or admission
+    with pytest.raises(fci.FixtureError, match="prep-not-prepared"):
+        flow.observe()
+    with pytest.raises(fci.FixtureError, match="prep-not-prepared"):
+        flow.record_stop()
+    # the same workflow is fully usable once the inventory is
+    # completely observed
+    t.hidden.clear()
+    first = flow.prepare()
+    assert first is not None
+    procs[50] = _worker_proc("T", tpgid=40)
+    procs[51] = _group_member("T")
+    assert flow.record_stop() is not None
+
+
+def test_repeated_prepare_and_observe_failure_preserve_baseline() -> None:
+    procs, t = _group_readability_world()
+    procs[51] = _group_member("S")
+    flow = _workflow(t, with_subject=False)
+    first = flow.prepare()
+    # break the inventory AFTER a valid prepare
+    t.hidden.add(51)
+    with pytest.raises(fci.FixtureError, match="prep-group-incomplete"):
+        flow.prepare()
+    with pytest.raises(fci.FixtureError, match="prep-group-incomplete"):
+        flow.observe()
+    # the frozen baseline and last valid observation survive:
+    # once the group is completely observed again, the SAME
+    # worker job is still the bound baseline
+    t.hidden.clear()
+    again = flow.observe()
+    assert json.dumps(again, sort_keys=True) == json.dumps(first, sort_keys=True)
+    assert flow._baseline is not None
+    assert flow._baseline.worker_pid == 50
+    assert flow._baseline.worker_start_time == 500
+
+
+def test_capability_less_table_never_mints_completeness() -> None:
+    # a healthy listing with the capability absent still works:
+    # the tri-state seam is only consulted for None stats
+    procs, _ = _group_readability_world()
+    procs[51] = _group_member("S")
+    healthy = _CapabilityLessTable(procs, set())
+    flow = fp.NativeHandoffWorkflow(
+        _binding(),
+        healthy,
+        worker_pid=50,
+        bash_pid=40,
+        subject_pid=None,
+        expectation=None,
+        owner_run_id=RUN,
+        tty_foreground_pgrp=50,
+    )
+    flow.prepare()
+    procs[50] = _worker_proc("T", tpgid=40)
+    procs[51] = _group_member("T")
+    assert flow.record_stop() is not None
+
+    # an unreadable listed entry with NO presence capability:
+    # unknown, never a verified absence — both the inventory
+    # and the complete stop refuse
+    unreadable = _CapabilityLessTable(procs, {51})
+    with pytest.raises(fci.FixtureError, match="prep-group-incomplete"):
+        fp.collect_worker_group(unreadable, 50, 40, 40)
+    procs2, _2 = _group_readability_world()
+    procs2[51] = _group_member("T")
+    procs2[50] = _worker_proc("T", tpgid=40)
+    stop_table = _CapabilityLessTable(procs2, {51})
+    with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+        fp.collect_stop_observation(stop_table, 50, 40)
+
+
+def test_failed_stop_cannot_claim_restoration() -> None:
+    procs, t = _group_readability_world()
+    procs[51] = _group_member("S")
+    flow = _workflow(t, with_subject=False)
+    flow.prepare()
+    # the stop is refused: an unreadable still-existing member
+    procs[50] = _worker_proc("T", tpgid=40)
+    t.hidden.add(51)
+    with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+        flow.record_stop()
+    # a later RUNNING snapshot (foreground back on G) cannot claim
+    # restoration from the failed event
+    t.hidden.clear()
+    procs[50] = _worker_proc("S", tpgid=50)
+    procs[51] = _group_member("S")
+    verdict = flow.finalize(None)
+    assert verdict.ready is False
+    assert "worker-stop-unmeasured" in verdict.reasons
+    # a later GENUINELY observed stable stop is a distinct event
+    procs[50] = _worker_proc("T", tpgid=40)
+    procs[51] = _group_member("T")
+    receipt = flow.record_stop()
+    assert receipt is not None
+    # and the restored phase measured against THAT receipt holds
+    procs[50] = _worker_proc("S", tpgid=50)
+    procs[51] = _group_member("S")
+    facts = fp.collect_restoration(t, 50, 40, 50, stop_receipt=receipt)
+    assert facts.stop_recorded is True
+    assert facts.restored is True
+
+
+def test_membership_cap_unaffected_by_verified_churn() -> None:
+    def member(pid: int) -> dict[str, Any]:
+        return subject_proc(
+            pid, state="S", ppid=50, pgrp=50, session=99, tty=TTYS, tpgid=50, uid=1000, gid=1000
+        )
+
+    # at-limit (worker + 255 members = _MEMBERSHIP_MAX) plus
+    # verified-gone churn entries: complete, churn not counted
+    procs: dict[int, dict[str, Any]] = {
+        40: bash_proc(40, state="S", pgrp=40),
+        50: _worker_proc("S", tpgid=50),
+    }
+    for i in range(fp._MEMBERSHIP_MAX - 1):
+        procs[1000 + i] = member(1000 + i)
+    t = _TriStateTable(procs)
+    t.hidden.update({9000, 9001})  # stale-listed, verified gone
+    facts = fp.collect_worker_group(t, 50, 40, 40)
+    assert len(facts.members) == fp._MEMBERSHIP_MAX
+
+    # one-over the bound (with the same churn): closed refusal
+    procs[1500] = member(1500)
+    with pytest.raises(fci.FixtureError, match="prep-proc-overbound"):
+        fp.collect_worker_group(t, 50, 40, 40)

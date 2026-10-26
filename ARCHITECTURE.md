@@ -133,12 +133,26 @@ binding, closed image-id forms, exact closed record key
 sets), the real owned measurement adapter, and the public
 prepare/observe/finalize workflow with no CLI, no
 fabricated flags and the owner/subject run bound to the
-immutable order/source-head/run binding; 162 pure/fake plus
+immutable order/source-head/run binding; 169 pure/fake plus
 tiny exact-owned Python child tests): no native launch, no
 worker stop, no local Docker operation, no new rehearsal
 (the S admission stays consumed); the later serial native
 handoff remains a separately authorized order, and D09
-remains `NOT RUN`.
+remains `NOT RUN`. 017-u continues the same inert
+preparation and repairs the complete-inventory law
+(review 11: a stat-unreadable but positively still-existing
+PID was silently skipped and minted a complete stop
+receipt) — every listed process row is now tri-stated
+through the bounded read-only absence seam (only an
+independently verified-gone entry may be ignored, the
+bounded churn law; an unreadable still-existing or
+unprovable entry is a closed non-echoing refusal, never a
+silently skipped listing row, and can never establish
+nonmembership, a complete group or a complete stop; a
+failed initial prepare/observe mints no baseline and a
+refused stop can never later claim a recorded stop or
+restoration), with the unchanged four-case group-
+readability probe passing 4/4 at the repaired source.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation
