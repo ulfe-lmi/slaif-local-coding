@@ -114,6 +114,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cache_native_fixture_binding as oap_binding  # noqa: E402
 import cache_native_fixture_ci as ci  # noqa: E402
 import cache_native_fixture_export_client as fixture_export  # noqa: E402
 import cache_native_fixture_model as model  # noqa: E402
@@ -122,6 +123,14 @@ import cache_native_fixture_standin as fixture_standin  # noqa: E402
 FixtureError = ci.FixtureError
 
 SCHEMA = "slaif-017s-local-evidence-v1"
+# The DISTINCT native-scope owner terminal record for NEW-ORDER
+# (017-v onward) bound runs: the same measured owner state,
+# cleanup and publication as the S record, but WITHOUT the
+# historical S whole-run false assertions (a native run never
+# asserts them) and a distinct scope — the S rehearsal record
+# keeps its S meaning and is never relabeled or doubled.
+NATIVE_OWNER_RUN_EVIDENCE_SCHEMA = "slaif-native-owner-run-evidence-v1"
+NATIVE_OWNER_RUN_SCOPE = "native-owner-run"
 STATE_SCHEMA = "slaif-017s-owner-state-v1"
 ADMISSION_SCHEMA = "slaif-017s-admission-v1"
 ORDER_ID = "017-s"
@@ -193,6 +202,8 @@ _ADMISSION_STATUSES = ("running", "pass", "fail", "aborted")
 _LOCAL_REASONS = frozenset(
     {
         "local-hosted-env",
+        "local-binding-invalid",
+        "local-bounded-admission-missing",
         "local-deadline-offset-invalid",
         "local-bind-head-invalid",
         "local-head-mismatch",
@@ -210,6 +221,7 @@ _LOCAL_REASONS = frozenset(
         "local-attempt-exhausted",
         "local-rehearsal-exists",
         "local-run-token-invalid",
+        "native-owner-run-evidence-invalid",
         "local-env-untrusted",
         "local-env-exists",
         "local-env-remove-failed",
@@ -1454,6 +1466,7 @@ class LocalFixtureOwner:
         git_runner: Callable[[list[str]], bytes] | None = None,
         executor=None,
         deadline_offset: float = 0.0,
+        binding: object = None,
     ) -> None:
         if os.environ.get("GITHUB_ACTIONS") == "true":
             raise FixtureError("local-hosted-env")
@@ -1484,7 +1497,50 @@ class LocalFixtureOwner:
         # query: SIGTERM and SIGINT both converge through the same
         # exact-owned cleanup (never a new experiment).
         signal.signal(signal.SIGTERM, self._termination_handler)
-        self.optin = verify_local_optin(self.repo, bind_head, git_runner)
+        # Authority selection: the S default (no binding) keeps
+        # the historical order-bound opt-in UNCHANGED.  A
+        # verified OrderRunBinding selects the authority of its
+        # OWN order: the 017-s binding keeps the historical S
+        # opt-in unchanged, and a NEW-order binding selects the
+        # distinct native authority path — the ACTUAL resolver
+        # re-validates the real repository context READ-ONLY
+        # against the frozen binding (committed and disk active,
+        # unique committed order file and its bytes, repository
+        # identity, head, clean worktree): nothing is written,
+        # no authority is minted (the resolver's fresh run id
+        # is discarded), no active/S constant changes, no
+        # runtime-global monkeypatch, no second owner.  A
+        # bound run must carry a LIVE bound admission in that
+        # order's stable namespace BEFORE adoption — a bare
+        # caller run id can never skip or bypass the order's
+        # one-attempt law (an exhausted, missing or foreign
+        # admission is a closed refusal).
+        self._native_binding: oap_binding.OrderRunBinding | None = None
+        if binding is None:
+            self.optin = verify_local_optin(self.repo, bind_head, git_runner)
+        elif isinstance(binding, oap_binding.OrderRunBinding):
+            record = oap_binding.read_admission_record(self.repo, binding.order_id)
+            live = any(
+                entry["run_id"] == binding.run_id and entry["status"] == "running"
+                for entry in record["attempts"]
+            )
+            if not live:
+                raise FixtureError("local-bounded-admission-missing")
+            if binding.order_id == oap_binding._S_ORDER_ID:
+                self.optin = verify_local_optin(self.repo, bind_head, git_runner)
+            else:
+                oap_binding.resolve_order_binding(
+                    self.repo, binding.order_id, bind_head, git_runner
+                )
+                self.optin = {
+                    "order": binding.order_id,
+                    "bind_head": bind_head,
+                    "head": bind_head,
+                    "order_sha256": binding.order_sha256,
+                }
+                self._native_binding = binding
+        else:
+            raise FixtureError("local-binding-invalid")
         # Second layer of the one-attempt law (defense in depth):
         # the retained evidence destination must not pre-exist.
         if self.evidence_out.exists() or self.evidence_out.is_symlink():
@@ -1493,11 +1549,24 @@ class LocalFixtureOwner:
         if executor is None:
             executor = _local_bound_executor()
         self._executor = executor
-        self.run_id = uuid.uuid4().hex
-        # The experiment boundary: the STABLE admission record is
-        # written here, before any external mutation.  A read-only
-        # opt-in refusal (above) admitted nothing.
-        _admit_attempt(self.repo, self.optin["bind_head"], self.run_id)
+        # Run identity: the historical S default mints a fresh
+        # 32-hex run id HERE and admits in the stable 017-s
+        # namespace before any external mutation.  A BOUNDED
+        # composition (order 017-v) passes the verified
+        # immutable OrderRunBinding instead: the owner adopts
+        # the binding's minted run identity (the ONE shared
+        # identity with the public native workflow) — the live
+        # bound admission was verified above, before any
+        # mutation.  No second mint, no second admission.
+        if binding is None:
+            self.run_id = uuid.uuid4().hex
+            # The experiment boundary: the STABLE admission
+            # record is written here, before any external
+            # mutation.  A read-only opt-in refusal (above)
+            # admitted nothing.
+            _admit_attempt(self.repo, self.optin["bind_head"], self.run_id)
+        else:
+            self.run_id = binding.run_id
         self.run_token = uuid.uuid4().hex
         # ONE absolute END anchor (start + 1800 s) and ONE
         # cumulative host ledger over every phase and error.
@@ -2409,16 +2478,25 @@ class LocalFixtureOwner:
             # iff cleanup is unverified.
             self._recovery_state_retained = bool(self.cleanup_failures)
             if pass_ok:
-                evidence = self._build_pass_evidence()
+                if self._native_binding is not None:
+                    evidence = self._build_native_pass_evidence()
+                else:
+                    evidence = self._build_pass_evidence()
             else:
                 if not self.failure_reason:
                     self.failure_reason = "work-cleanup-failed"
                 self.status = "failed"
-                evidence = self._build_fail_evidence(deadline_expired)
+                if self._native_binding is not None:
+                    evidence = self._build_native_fail_evidence(deadline_expired)
+                else:
+                    evidence = self._build_fail_evidence(deadline_expired)
             payload = (json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n").encode(
                 "ascii"
             )
-            validate_local_evidence(evidence)
+            if self._native_binding is not None:
+                validate_native_owner_run_evidence(evidence)
+            else:
+                validate_local_evidence(evidence)
             self._evidence_sha = hashlib.sha256(payload).hexdigest()
             ci._retain_evidence(self.evidence_out, payload, self._evidence_sha, self.work)
         except BaseException as exc:
@@ -2435,7 +2513,23 @@ class LocalFixtureOwner:
         self._outcome = (
             "pass" if pass_ok else ("aborted" if self.failure_reason == "cancelled" else "fail")
         )
-        _record_attempt(self.repo, self.run_id, self._outcome)
+        if self._native_binding is not None:
+            # The DISTINCT native terminal path over the SAME
+            # measured owner state/cleanup/publication, in the
+            # bound order's namespace: a terminal owner or
+            # publication error (fail/aborted — including a
+            # publication failure after a computed pass, which
+            # is never an admitted pass) is finalized HONESTLY
+            # now; a converged pass keeps the bound attempt
+            # RUNNING until the native publication (the terminal
+            # pass finalization follows the successful protected
+            # retention of the native run record).
+            if self._outcome != "pass":
+                oap_binding.record_order_attempt(
+                    self.repo, self._native_binding.order_id, self.run_id, self._outcome
+                )
+        else:
+            _record_attempt(self.repo, self.run_id, self._outcome)
         self._exit_code = (
             0 if self._outcome == "pass" else (130 if self._outcome == "aborted" else 1)
         )
@@ -2628,6 +2722,16 @@ class LocalFixtureOwner:
             "signature_verification": model.SIGNATURE_VERIFICATION,
         }
 
+    @property
+    def terminal_outcome(self) -> str | None:
+        """The owner's OWN terminal outcome, once its convergence
+        has completed (the same completed owner state a bounded
+        composition reads; None until the owner's own
+        convergence is final).  The same-order attempt journal
+        is the durable record, never a prerequisite for
+        deriving this outcome."""
+        return self._outcome if self._converged else None
+
     def _build_pass_evidence(self) -> dict[str, object]:
         if (
             self.export_payload is None
@@ -2790,6 +2894,43 @@ class LocalFixtureOwner:
             "ledger": _ledger_facts(self.ledger),
             **_runner_facts(),
         }
+
+    def _build_native_pass_evidence(self) -> dict[str, object]:
+        """The DISTINCT native-scope terminal record for a
+        new-order bound run: the SAME measured owner state and
+        cleanup facts as the S pass record, minus the historical
+        S whole-run false assertions (a native run that observed
+        a native subject must never assert them) and the
+        S-only CI-image comparison (out of scope for this
+        record — the measured native-owner record carries the
+        image identity)."""
+        evidence = self._build_pass_evidence()
+        for key in (
+            "native_started",
+            "worker_stopped",
+            "codex_invoked",
+            "native_ready",
+            "image_identity_vs_ci",
+        ):
+            del evidence[key]
+        assert self._native_binding is not None
+        evidence["record"] = NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
+        evidence["scope"] = NATIVE_OWNER_RUN_SCOPE
+        evidence["order"] = self._native_binding.order_id
+        return evidence
+
+    def _build_native_fail_evidence(self, deadline_expired: bool) -> dict[str, object]:
+        """The DISTINCT native-scope fail record for a new-order
+        bound run: the SAME measured facts as the S fail record,
+        minus the historical S whole-run false assertions."""
+        evidence = self._build_fail_evidence(deadline_expired)
+        for key in ("native_started", "worker_stopped", "codex_invoked", "native_ready"):
+            del evidence[key]
+        assert self._native_binding is not None
+        evidence["record"] = NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
+        evidence["scope"] = NATIVE_OWNER_RUN_SCOPE
+        evidence["order"] = self._native_binding.order_id
+        return evidence
 
 
 # -- closed evidence validation ------------------------------------------------------
@@ -3445,6 +3586,92 @@ def validate_local_evidence(record: dict) -> None:
         or supervisor["backstop"] is not False
     ):
         raise FixtureError("local-evidence-invalid")
+
+
+def validate_native_owner_run_evidence(record: dict) -> None:
+    """Closed-schema validation of the DISTINCT native-scope
+    owner terminal record (new-order bound runs): the exact key
+    set per status — the historical S whole-run false
+    assertions are NOT part of this grammar (their absence is
+    the point: a native run never asserts them) — the OAP
+    order id (any order, not fixed to 017-s), the 32-hex run
+    id, the 40-hex bound head, and the SAME closed
+    ledger/runner/phase/export/teardown law as the S record.
+    The shared measured substructures are validated by the
+    reviewed S validator over an internal S-shaped envelope
+    carrying the IDENTICAL sub-values (a validation vehicle,
+    never a retained assertion — the retained record itself
+    never carries the S whole-run false assertions or the
+    S-only CI-image comparison)."""
+    if not isinstance(record, dict):
+        raise FixtureError("native-owner-run-evidence-invalid")
+    if (
+        record.get("record") != NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
+        or record.get("scope") != NATIVE_OWNER_RUN_SCOPE
+        or record.get("status") not in ("pass", "fail")
+    ):
+        raise FixtureError("native-owner-run-evidence-invalid")
+    base_keys = {
+        "record",
+        "status",
+        "scope",
+        "order",
+        "run_id",
+        "bind_head",
+        "deadline_expired",
+        "ledger",
+        "runner_kernel",
+        "runner_arch",
+        "runner_python",
+    }
+    if record["status"] == "pass":
+        expected = base_keys | {
+            "fixture_consumed_by",
+            "prepared",
+            "phases",
+            "engine_version",
+            "runtime_name",
+            "runtime_version",
+            "base_image",
+            "image_id",
+            "image_state",
+            "artifact",
+            "teardown",
+            "attach_plan",
+            "env_file",
+            "export",
+            "supervisor",
+        }
+    else:
+        expected = base_keys | {
+            "reason",
+            "stage",
+            "cleanup_failures",
+            "phases_completed",
+            "resources",
+            "recovery_state_retained",
+        }
+    if (
+        set(record) != expected
+        or not isinstance(record["order"], str)
+        or re.fullmatch(r"^[0-9]{3}-[a-z]{1,2}$", record["order"]) is None
+        or not re.fullmatch(r"[0-9a-f]{32}", str(record["run_id"]))
+        or not re.fullmatch(r"[0-9a-f]{40}", str(record["bind_head"]))
+    ):
+        raise FixtureError("native-owner-run-evidence-invalid")
+    envelope = {key: value for key, value in record.items() if key != "scope"}
+    envelope["record"] = SCHEMA
+    envelope["order"] = ORDER_ID
+    envelope["native_started"] = False
+    envelope["worker_stopped"] = False
+    envelope["codex_invoked"] = False
+    envelope["native_ready"] = False
+    if record["status"] == "pass":
+        envelope["image_identity_vs_ci"] = False
+    try:
+        validate_local_evidence(envelope)
+    except FixtureError:
+        raise FixtureError("native-owner-run-evidence-invalid") from None
 
 
 # -- the sealed owner launch + the thin rehearsal driver ----------------------------

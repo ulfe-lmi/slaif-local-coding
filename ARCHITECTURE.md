@@ -153,6 +153,52 @@ failed initial prepare/observe mints no baseline and a
 refused stop can never later claim a recorded stop or
 restoration), with the unchanged four-case group-
 readability probe passing 4/4 at the repaired source.
+017-v materializes the small EXPLICIT public
+native-owner lifecycle composition (repo-owned
+stdlib-only `scripts/cache_native_fixture_native_
+owner.py`, `NativeOwnerRun`): the verified immutable
+order/run binding selects the authority of its OWN
+order at the REAL fixture-owner constructor (the S
+default and the historical S opt-in unchanged; a
+new-order binding requires a live bound admission in
+the order's stable one-attempt namespace before
+adoption and re-validates the real repository context
+READ-ONLY through the actual resolver; the owner
+adopts the binding's minted run identity with no
+second mint or admission; a post-admission
+constructor failure closes the same run honestly),
+ONE shared owner, RAM run context, absolute END
+anchor, ledger and cleanup grace across the bounded
+public lifecycle (start/prepare/observe/record_stop/
+register_subject/finish/abort), the public staged
+subject registration (only after prepare and the
+separately measured stop; the CURRENT stable-stop
+predicate re-verified before any identity commit; the
+frozen W/B baseline unchanged; the registered run
+immutable; a refused registration commits nothing),
+the DISTINCT native-scope owner terminal record
+(`slaif-native-owner-run-evidence-v1` — the S
+measured facts WITHOUT the historical S whole-run
+false assertions; the S record is never relabeled),
+the closed native-run terminal record
+(`slaif-native-owner-run-v1`) with its consumer's
+cross-field readiness law and the protected 0600
+atomic no-overwrite retention, and the HONEST
+publication ordering (a terminal fail/aborted
+finalized honestly at convergence; a converged pass
+keeps the bound attempt running; the protected native
+record retained FIRST and the same-order journal
+finalized ONLY THEN; a failed publication never
+leaves an admitted pass; the real finalize token
+retained in RAM only): 12 pure/fake composition tests
+driving the REAL owner finish/export/teardown code
+with fake platform operations over ONE coupled fake
+process world; no actual Docker operation, no native
+launch (including help/version), no worker stop, no
+real fixture admission in the real checkout, no host
+signal, no CLI entry; the later serial native handoff
+remains a separately authorized order, and D09
+remains `NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

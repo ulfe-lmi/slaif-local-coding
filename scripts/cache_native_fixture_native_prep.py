@@ -229,6 +229,8 @@ PREP_REASONS = frozenset(
         "prep-owner-head-mismatch",
         "prep-subject-run-mismatch",
         "prep-not-prepared",
+        "prep-subject-registered",
+        "prep-stop-not-recorded",
         "prep-verdict-input-invalid",
         "prep-stop-unobserved",
         "prep-exe-unreadable",
@@ -2518,7 +2520,15 @@ class NativeHandoffWorkflow:
     manually prepopulated record is not workflow evidence).
     prepare() and finalize() invoke the collectors themselves
     and only then record/measure state; observe() re-collects
-    non-consuming.  The workflow retains a bounded IMMUTABLE
+    non-consuming.  The actual LATER native subject is
+    registered through the public staged entry
+    register_subject() AFTER prepare (the constructor carries
+    no predicted native PID): the registration invokes the
+    collectors itself before committing any identity, and the
+    expected PTY/binary/CID/run arrive from the operator's
+    owned attach registration (the expectation), never copied
+    from the candidate's own unchecked fields.  The workflow
+    retains a bounded IMMUTABLE
     RECEIPT of the pre-teardown subject identity (the last
     identity measured while alive) and records the worker
     stop as a SEPARATE measured event (record_stop):
@@ -2580,6 +2590,13 @@ class NativeHandoffWorkflow:
     @property
     def binding(self) -> OrderRunBinding:
         return self._binding
+
+    @property
+    def stop_receipt(self) -> StopReceipt | None:
+        """The separately measured worker-stop event, or
+        None when no stop was recorded (a recorded event is
+        never re-measured or replaced)."""
+        return self._stop_receipt
 
     @property
     def subject_receipt(self) -> SubjectIdentity | None:
@@ -2670,6 +2687,84 @@ class NativeHandoffWorkflow:
             subject = None
         self._register_subject(subject)
         self._group = group
+        self._subject = subject
+        return self._snapshot()
+
+    def register_subject(
+        self,
+        subject_pid: object,
+        expectation: object,
+        *,
+        channel: CidScopedTable | None = None,
+    ) -> dict[str, object]:
+        """The PUBLIC staged registration of the actual
+        native subject that appears later (order 017-v,
+        section 4).  The constructor carries no predicted
+        native PID; this is the operator entry.  The
+        registration invokes the collectors ITSELF against
+        the read-only table (and, when the operator supplies
+        the owned attach channel, against that CID-scoped
+        channel) BEFORE committing any identity —
+        registration collects before recording, exactly as
+        prepare.  The expected PTY, binary, CID and run come
+        from the operator's OWNED attach registration
+        (the expectation) and are independently correlated
+        with the measured subject by the collector: copying
+        the candidate's own unchecked tty field (or an
+        earlier stand-in's PTY) is not proof, and a channel
+        bound to another CID refuses before any read.  A
+        REFUSED registration commits nothing — no baseline
+        replacement, no receipt, no stop — and may be
+        retried with corrected parameters.  A conflicting
+        SECOND registration of an already-registered subject
+        is a closed refusal; the retained receipt stays the
+        first measured identity."""
+        if self._subject_pid is not None or self._expectation is not None:
+            raise FixtureError("prep-subject-registered")
+        if not self._prepared:
+            raise FixtureError("prep-not-prepared")
+        # the STAGED law (order 017-v, section 4): the actual
+        # native subject is registered only AFTER the same
+        # worker's stop has been separately measured — a
+        # pre-stop registration cannot mint a receipt
+        if self._stop_receipt is None:
+            raise FixtureError("prep-stop-not-recorded")
+        # the FROZEN first-prepare W/B baseline must still be
+        # the same worker job: a substituted worker/bash (PID
+        # reuse, changed birth) after the stop is a closed
+        # refusal, never a silently adopted baseline
+        self._verify_baseline()
+        base = self._baseline
+        if base is None:
+            raise FixtureError("prep-not-prepared")
+        # the CURRENT bounded stable-stop predicate must still
+        # hold at registration: the retained stop receipt is
+        # the immutable HISTORICAL record (never replaced or
+        # re-measured into), but the phase it recorded must be
+        # the phase the world is in NOW — a resumed worker, a
+        # newly running group member, a changed foreground, or
+        # a newly unreadable positively-existing listed entry
+        # (tri-state law) means the staged registration is no
+        # longer in its stable stopped phase: a closed
+        # refusal BEFORE any identity commit.  The
+        # re-measurement is predicate-only; its receipt is
+        # discarded, never adopted.
+        collect_stop_observation(self._table, base.worker_pid, base.bash_pid)
+        if not _is_pid(subject_pid):
+            raise FixtureError("prep-subject-invalid")
+        expectation = _validate_expectation(expectation)
+        if expectation.run_id != self._binding.run_id:
+            # the registered run identity is immutable: a
+            # foreign expectation run can never register into
+            # this workflow
+            raise FixtureError("prep-subject-run-mismatch")
+        ch = self._channel if channel is None else channel
+        subject = collect_subject_identity(self._table, subject_pid, expectation, channel=ch)
+        # commit ONLY after a successful collection
+        self._subject_pid = subject.pid
+        self._expectation = expectation
+        self._channel = ch
+        self._register_subject(subject)
         self._subject = subject
         return self._snapshot()
 

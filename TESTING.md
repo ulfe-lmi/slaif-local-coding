@@ -640,6 +640,52 @@ module imports no subprocess/signal/pty surface and
 contains no host-signal call.  Software preparation is
 INERT: these tests earn no native, worker-stop, Docker or
 handoff qualification.
+Round 017-v adds the public native-owner
+composition suite `tests/test_cache_native_fixture_
+native_owner.py` (12 tests — the full public happy
+path over ONE coupled fake process world: start ->
+prepare -> held observation -> the separately
+measured stop -> the actual later subject launched
+bound to the owner's OWN registered target CID -> the
+public staged `register_subject` (collects before
+recording; the CURRENT stable-stop predicate
+re-verified before any identity commit; the frozen
+W/B baseline unchanged; the registered run immutable)
+-> `finish` driving the REAL owner finish/export/
+teardown with fake platform operations (the exact CID
+removal updates the same world to absent) -> the
+same-worker restoration -> `publish_native` retaining
+the DISTINCT native-scope terminal records (the
+owner evidence without the historical S whole-run
+false assertions; the closed
+`slaif-native-owner-run-v1` record whose attempt
+field carries the ALREADY-KNOWN journal state, never
+a predicted finalize token) with the honest
+publication ordering (the protected record retained
+FIRST, the same-order journal finalized ONLY THEN,
+the real finalize token retained in RAM only); the
+constructor's verified-binding admission law (a
+non-binding type refused, an exhausted admission
+refused before any external mutation, a stale bound
+head refused before any work); the staged
+registration negatives (pre-stop, pre-prepare,
+double-registration, resumed-worker, foreign
+expectation run); the preparation-only honest
+not-ready publication; the owner-failure honest fail
+and the abort honest `aborted` (no journal rewrite,
+no admitted pass from a failed publication); and the
+closed native-scope validator's exact key/grammar/
+ledger law with cross-scope refusals).  Fake
+git/platform/process seams and owned synthetic
+repositories only; the real backend code is imported
+and its real methods driven, the platform operations
+are faked; no actual Docker operation, no native
+launch (including help/version), no worker stop, no
+TTY/job manipulation, no real fixture admission in
+the real checkout, no host signal, no CLI entry —
+these tests earn no native, worker-stop, Docker or
+handoff qualification.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

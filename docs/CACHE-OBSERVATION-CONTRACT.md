@@ -1980,6 +1980,275 @@ admission namespace, and the measured verdict above.  D09
 (genuine native formats/collector) remains `NOT RUN`; no v1
 runtime claim.
 
+### 11f. Round 017-v: public native-owner lifecycle
+composition (fake integration only; no D-syntax change)
+
+Round 017-v materializes the small EXPLICIT operator
+composition that binds the accepted immutable order/run
+binding to the REAL fixture owner and the public staged
+native workflow as ONE coherent run
+(`scripts/cache_native_fixture_native_owner.py`,
+`NativeOwnerRun`).  It exercises that composition with
+injected FAKE external operations only (fake
+git/platform/process seams and owned synthetic
+repositories): NO actual local Docker operation, NO
+native launch (including help/version), NO worker stop,
+NO TTY/job manipulation, NO real fixture admission in
+the real checkout, NO host signal.  The real backend
+code is imported and its real methods driven; the
+platform operations are faked.  No CLI entry accepts a
+fabricated collector result, and no v1 runtime claim is
+made.
+
+Constructor and admission (the composition's entry
+law): `NativeOwnerRun` accepts ONLY a verified
+immutable `OrderRunBinding` (any other binding type is
+the closed `native-owner-binding-invalid`), and admits
+EXACTLY ONCE in that order's stable one-attempt
+namespace BEFORE any external mutation — the admission
+itself re-validates the ACTUAL repository, committed
+active/order content, literal head and repository
+identity against the frozen binding, so a stale,
+foreign or exhausted binding is a closed refusal before
+the owner exists.  The REAL `LocalFixtureOwner`
+constructor then selects the authority of the
+binding's OWN order: the historical S default (no
+binding) keeps the order-bound opt-in and the fresh
+mint + stable 017-s admission UNCHANGED; a 017-s
+binding keeps the historical S opt-in unchanged; a
+NEW-order binding requires a LIVE bound admission in
+that order's namespace before adoption (a bare caller
+run id can never skip or bypass the order's one-attempt
+law) and re-validates the real repository context
+READ-ONLY through the ACTUAL resolver (committed and
+disk active, unique committed order file and its bytes,
+repository identity, head, clean worktree — nothing
+written, no authority minted, the resolver's fresh run
+id discarded, no active/S constant changes, no
+runtime-global monkeypatch, no second owner).  The
+owner adopts the binding's minted run identity — the
+ONE shared identity with the public native workflow —
+with no second mint and no second admission.  A
+constructor failure AFTER winning the admission closes
+THAT SAME run honestly (a terminal fail record in the
+bound namespace, never an orphan running claim) and
+propagates the primary closed refusal unchanged.
+
+One shared run context: ONE owner, ONE RAM run
+context, ONE absolute END anchor (the owner's OWN
+published END anchor), ONE cumulative ledger and ONE
+bounded cleanup grace are shared across construction,
+prepare, held observation, finish/abort, evidence
+publication and attempt finalization — no second
+watchdog/owner/controller, no reset, no new budget, no
+hidden retry, no host signal.  The bounded public
+lifecycle is `start` (the owner's protected serve
+loop; the published run id MUST equal the binding's;
+an expired budget refuses BEFORE the launch) ->
+`prepare` (the owner's REAL prepare path, then the
+workflow's measured W/B birth/group/session/TTY
+baseline — no predicted native PID) -> `observe`* (the
+non-consuming held observation: the owner's closed
+controller state plus the workflow's re-collected
+read-only facts; idempotent) -> `record_stop` (the
+SEPARATELY MEASURED worker-stop event, read-only) ->
+`register_subject` (the PUBLIC staged registration of
+the actual later native subject — see below) ->
+`finish`/`abort` (the owner's REAL finish/export/
+teardown or honest abort; the composition never
+signals or kills the owner; the bounded join reaps the
+serve loop within the REMAINDER of the ONE absolute
+budget).
+
+Staged subject registration (the prep module's public
+entry, `register_subject`): the actual later native
+subject is registered only AFTER prepare AND after the
+separately measured stop (a pre-stop registration
+cannot mint a receipt); the FROZEN first-prepare W/B
+baseline must still be the same worker job (a
+substituted worker/bash after the stop is a closed
+refusal, never a silently adopted baseline); the
+CURRENT bounded stable-stop predicate is re-measured
+BEFORE any identity commit (the retained stop receipt
+is the immutable HISTORICAL record, never replaced or
+re-measured into; the re-measurement is predicate-only
+and its receipt is discarded — a resumed worker, a
+newly running group member, a changed foreground or a
+newly unreadable positively-existing listed entry
+under the tri-state law is a closed refusal outside
+its stable stopped phase); the registered run identity
+is immutable (a foreign expectation run is refused);
+the expected PTY, binary, CID and run arrive from the
+operator's OWNED attach registration and are
+independently correlated with the measured subject by
+the collector (copying the candidate's own unchecked
+fields is not proof; a channel bound to another CID
+refuses before any read); a refused registration
+commits nothing (no baseline replacement, no receipt,
+no stop); a conflicting second registration is a
+closed refusal and the retained receipt stays the
+first measured identity.
+
+Distinct native-scope owner terminal record (local
+module): a new-order bound run's converged owner
+terminal state is published as the DISTINCT closed
+record `slaif-native-owner-run-evidence-v1` / scope
+`native-owner-run` — the SAME measured owner state,
+cleanup and publication facts as the S record, but
+WITHOUT the historical S whole-run false assertions
+(`native_started` / `worker_stopped` / `codex_invoked`
+/ `native_ready` — a native run that observed a native
+subject must never assert them) and without the S-only
+CI-image comparison (the measured native-owner record
+carries the image identity).  The closed validator
+(`validate_native_owner_run_evidence`, fixed token
+`native-owner-run-evidence-invalid`) enforces the
+exact key set per status, the OAP order id (any
+order, not fixed to 017-s), the 32-hex run id and the
+40-hex bound head, and validates the shared measured
+substructures with the reviewed S validator over an
+internal S-shaped envelope carrying the IDENTICAL
+sub-values (a validation vehicle only — the retained
+record itself never carries the S whole-run false
+assertions).  The historical S rehearsal record keeps
+its exact schema, scope and S meaning and is never
+relabeled, derived or doubled.
+
+Native-run terminal record (closed schema
+`slaif-native-owner-run-v1`, scope
+`native-owner-run`): the composition's own terminal
+record for the run — the immutable binding record (in
+the binding module's own closed grammar: OAP order
+id, 40-hex source head, 32-hex run id, sha256
+digests), the owner's closed terminal outcome
+(pass/fail/aborted), the ALREADY-KNOWN journal state
+(see below), the measured subject/stop booleans, the
+measured native-owner record (produced through the
+EXISTING producer/consumer ONLY where its measured
+prerequisites hold — a pass-converged owner, the
+retained pre-teardown subject receipt, the recorded
+stop, and the owner's own registered CID/image/
+binary context; an unmeasured component is a closed
+honest refusal, never a caller-chosen string; the
+producer is never fed fabricated starts) or its
+closed refusal, and the closed verdict (ready boolean
++ reasons from the closed verdict vocabulary).  The
+consumer (`parse_native_run_record`) validates the
+exact top-level key set, the closed outcome/attempt
+vocabularies as CLOSED STRINGS first (a non-string or
+unhashable value is a typed refusal, never an untyped
+error), the closed booleans, the binding grammar, and
+— when present — a native_record that passes the
+ACTUAL native-owner consumer validation AND is bound
+to the OUTER binding (its measured order/head/run
+identity must equal the outer binding's — a foreign
+nested identity is a contradiction); a refusal
+forbids a measured native record and any readiness; a
+ready verdict requires EVERY measured prerequisite
+(the owner's converged pass, the measured subject, the
+recorded stop, the measured native record with its own
+ready fact, no refusal).  Unknown, missing or
+non-mapping fields are closed non-echoing refusals.
+Retention is the reviewed protected 0600 atomic
+no-overwrite seam (destination and every ancestor
+validated as given; the commit is an atomic
+no-overwrite LINK; the bytes are digest-verified
+before the commit and the retained object
+re-verified; a pre-existing destination or same-name
+temporary file is crashed/foreign state — refused,
+never unlinked or adopted; the composition's evidence
+root must be outside the owner's disposable work
+root).
+
+Honest publication ordering (the owner's cleanup/
+export outcome stays DISTINCT from the full handoff
+qualification): the owner's convergence measures and
+retains the DISTINCT owner-phase outcome read from the
+SAME completed owner state (the same-order attempt
+journal is the durable record, NOT a prerequisite for
+deriving the outcome — no circular journal
+dependency).  A terminal owner or publication error
+(fail/aborted — including a publication failure after
+a computed pass, which is never an admitted pass) is
+finalized HONESTLY at convergence in the bound
+order's namespace; a converged pass KEEPS the bound
+attempt RUNNING.  `publish_native` then (1) reads the
+owner's terminal outcome from the completed owner
+state, (2) builds the record from that state and the
+measured verdict, with the `attempt` field carrying
+the ALREADY-KNOWN journal state — the pending
+`running` state on the pass path (the terminal pass
+finalization follows the successful protected
+publication) and `terminal-preserved` for an
+already-final terminal outcome — never a predicted
+finalize token, (3) retains the protected native
+record FIRST (a failed native publication closes the
+still-pending bound attempt as a fail and the refusal
+propagates — a failed publication never leaves an
+admitted pass), and (4) ONLY THEN finalizes the
+same-order journal (terminal pass on success;
+terminal fail/aborted as an honest idempotent no-op).
+The REAL returned finalize token is retained in
+RAM/result (`finalize_attempt`, idempotent; it
+refuses before a successful publication) and the
+immutable retained evidence is never rewritten to
+insert it.  The owner's historical S-scope record
+keeps its S meaning; the verdict is composed AFTER
+the owner's teardown and the independently measured
+same-worker restoration (the operator restores the
+same job before publication), with the subject's
+post-teardown ABSENCE verified on the read-only
+table.
+
+Public local proof: `tests/test_cache_native_fixture_
+native_owner.py` (12 tests) — the full public happy
+path (start -> prepare -> observe -> the separately
+measured stop -> the actual later subject launched
+bound to the owner's OWN registered target CID ->
+`register_subject` -> observe -> `finish` driving the
+REAL owner finish/export/teardown with fake platform
+operations over ONE coupled fake process world, the
+exact CID removal updating the same world to absent
+-> the same-worker restoration -> `publish_native`;
+the retained native-scope owner evidence carries NO
+historical S whole-run false assertions, the journal
+admission runs running->pass, the retained record's
+attempt field carries the pending `running` state,
+the finalize token is `finalized`, the measured
+native facts are bound to the order/head/run, the
+verdict is ready, and the retained file is 0600) and
+the closed negatives: a non-binding constructor
+refusal (no work directory created), an exhausted
+admission (a second verified binding is refused
+before any external mutation, the retained record
+unchanged, no executor action), a stale bound head
+(refused before any work, evidence or executor
+action), a pre-stop registration refusal, a
+pre-prepare registration refusal, a double-
+registration and resumed-worker refusal, a foreign
+expectation run refusal, a preparation-only honest
+not-ready publication (the attempt stays `running`,
+the verdict is not ready, closed reasons), an
+owner-failure honest fail (the native-scope fail
+record, the journal `fail`, and the refused
+not-prepared publication — no journal rewrite) and an
+abort honest `aborted` (the attempt recorded
+`terminal-preserved`, the owner evidence
+`reason=cancelled`), plus the closed native-scope
+validator (accepts the native fail record; refuses
+the S schema, the S whole-run false-flag presence, a
+bad OAP order grammar, a bad head, an unknown key, a
+broken ledger law and an unknown reason).  The real
+backend code stays unexecuted against any real
+backend: the platform operations are faked; no
+actual Docker operation, no native launch (including
+help/version), no worker stop, no TTY/job
+manipulation, no real fixture admission in the real
+checkout, no host signal, and no CLI entry.  The
+later serial native handoff remains a separately
+authorized order; D09 remains `NOT RUN`; no v1
+runtime claim.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family
