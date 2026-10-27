@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 195,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "b80a3541eba91eac621b3e94809026ee07345f73217ec42351caaba25cfe9d8e",
-      "size_bytes": 935454
+      "sha256": "a7993074bb743803d9477ee389767084d9a42cf1fe905ee6c32bd9faff244e09",
+      "size_bytes": 935914
     },
     "wheel": {
       "entry_count": 37,
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "016-b",
-  "qualification_label": "development-source-d868b6ef88bf2c683f907f9ec29e78ddfbb11b1d; not a release candidate; not released",
+  "qualification_label": "development-source-6c3bd80f0c0b81935b08f245e5e0b937cd37c615; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "d868b6ef88bf2c683f907f9ec29e78ddfbb11b1d",
+  "source_commit": "6c3bd80f0c0b81935b08f245e5e0b937cd37c615",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -50,8 +50,8 @@
     "config/adapter.gateway-integrated.template.toml": "14357037ab96029ed510d0d491f10a9e7b51586d0f7b9b4842ac3d9937e74afb",
     "docs/ADAPTER-CONFIGURATION.md": "8da874d2036eb9de2ff99c1e9e195d856061bae5dcdeb030d766d6f6268a9e8f",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "aa13596f4efbd9f77ff637fd6af459a9e16e8ef69856e040edccbede3acedf23",
-    "docs/CACHE-OBSERVATION-CONTRACT.md": "42c47ea13795d73ca4852ea3c187a6b31c363a30d680ee9433c8cde78ee05df4",
-    "docs/CACHE-REWORK-LEDGER.md": "307103f86f55c2e1e915d4ce373f2136f713da90e1861e5d9a13d279fabc5f48",
+    "docs/CACHE-OBSERVATION-CONTRACT.md": "9765a71e140ca8601f225b1f548a34f9a9f68a7b1d57b63ee15e50750eebe49a",
+    "docs/CACHE-REWORK-LEDGER.md": "1e0dec7d2f1a9c860042858f3e27f7d07e7b5dbd014380b260a3da67dc9fc9c2",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
