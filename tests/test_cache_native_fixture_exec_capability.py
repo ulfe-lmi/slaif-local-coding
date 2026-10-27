@@ -55,9 +55,7 @@ stl = _load_test_module("oap_x_stl", REPO_ROOT / "tests" / "test_cache_native_fi
 stp = _load_test_module(
     "oap_x_stp", REPO_ROOT / "tests" / "test_cache_native_fixture_native_prep.py"
 )
-stu = _load_test_module(
-    "oap_x_stu", REPO_ROOT / "tests" / "test_cache_native_fixture_owner_uid.py"
-)
+stu = _load_test_module("oap_x_stu", REPO_ROOT / "tests" / "test_cache_native_fixture_owner_uid.py")
 
 #: The ACTUAL Popen, captured before any test patches the shared
 #: subprocess module (a per-call capture would chain fakes across
@@ -1173,8 +1171,7 @@ def _driver_run(
         state = (
             bootstrap_state_factory(proc.pid)
             if bootstrap_state_factory is not None
-            else
-            bootstrap_state
+            else bootstrap_state
             if bootstrap_state is not None
             else _faithful_v1_state(stage["run_id"], proc.pid, anchor)
         )
@@ -2968,12 +2965,7 @@ AB_ENTRY = fxc._SEALED_ENTRIES[AB_ORDER_ID]
 AB_RECORD_TAG = "slaif-017ab-owner-uid-exec-capability-v1"
 
 CODE_CHILD_EXIT_1 = "import sys\nsys.exit(1)\n"
-CODE_SLEEP_2S_EXIT_1 = (
-    "import time\n"
-    "time.sleep(2.0)\n"
-    "import sys\n"
-    "sys.exit(1)\n"
-)
+CODE_SLEEP_2S_EXIT_1 = "import time\ntime.sleep(2.0)\nimport sys\nsys.exit(1)\n"
 
 
 class _AAWorldChannel:
@@ -3008,11 +3000,14 @@ class _AAWorldChannel:
 
     def _member(self, pid: int) -> dict[str, Any] | None:
         if pid == stu.CTL_PID:
-            return self._world.controller
+            m: dict[str, Any] | None = self._world.controller
+            return m
         if pid == stu.SUBJ_PID:
-            return self._world.subject
+            m = self._world.subject
+            return m
         if pid == stu.WORKER_PID:
-            return self._world.worker
+            m = self._world.worker
+            return m
         return None
 
     def cgroup_scope(self, pid: int) -> str | None:
@@ -3125,9 +3120,10 @@ def _ab_pre_inventory(ctx: dict[str, Any], channel: Any) -> list[dict[str, objec
     exist yet — it is never hidden to claim freshness)."""
     top = stl._client(ctx["control"], "top", ctx["run_id"])
     assert top["ok"] is True, top
-    return fxc.discover_inventory(
+    rows: list[dict[str, object]] = fxc.discover_inventory(
         channel, ctx["proc_root"], list(top["detail"]["pids"]), token=None
     )
+    return rows
 
 
 def _ab_post_capability(
@@ -3154,9 +3150,7 @@ def _ab_post_capability(
     assert corr == "correlated" and subject is not None
     pid = int(subject["pid"])
     birth = int(subject["birth"])
-    measured = fxc.measure_live_subject(
-        channel, pid, birth, token=token, expected_subject=expected
-    )
+    measured = fxc.measure_live_subject(channel, pid, birth, token=token, expected_subject=expected)
     # every scoped exe access observed the ALIVE subject (a
     # post-exit capture could never earn this)
     assert channel.exe_accesses and all(channel.exe_accesses)
@@ -3211,7 +3205,8 @@ def _ab_coupled_terminal(
 
     class _CoupledReader:
         def is_alive(self) -> bool:
-            return ctx["thread"].is_alive()
+            alive: bool = ctx["thread"].is_alive()
+            return alive
 
         def join(self, timeout: float) -> None:
             ctx["thread"].join(min(float(timeout), 0.1))
@@ -3226,7 +3221,7 @@ def _ab_coupled_terminal(
         entry=AB_ENTRY,
     )
     patience_abs = float(ctx["state"]["end_anchor"]) + flocal.CLEANUP_GRACE_SECONDS
-    return fxc._terminal(
+    terminal_record: dict[str, object] = fxc._terminal(
         ctx["repo"],
         _CoupledProc(),
         _CoupledReader(),
@@ -3240,6 +3235,7 @@ def _ab_coupled_terminal(
         finalize_pass=True,
         entry=AB_ENTRY,
     )
+    return terminal_record
 
 
 def test_ab_terminal_coupled_public_owner_measures_before_finish(
@@ -3288,15 +3284,11 @@ def test_ab_terminal_coupled_public_owner_measures_before_finish(
         assert finished["detail"]["outcome"] == "pass", finished
         stu._join_owner(ctx["thread"], control=ctx["control"], run_id=ctx["run_id"])
         assert ctx["owner"].terminal_outcome == "pass"
-        result = _ab_coupled_terminal(
-            ctx, capability, record_out=base / "ab-capability.json"
-        )
+        result = _ab_coupled_terminal(ctx, capability, record_out=base / "ab-capability.json")
     finally:
         if ctx["thread"].is_alive():
-            stu._join_owner(
-                ctx["thread"], control=ctx["control"], run_id=ctx["run_id"]
-            )
-    record = result
+            stu._join_owner(ctx["thread"], control=ctx["control"], run_id=ctx["run_id"])
+    record: dict[str, Any] = result
     assert record["status"] == "pass"
     assert record["reason"] is None
     assert record["order"] == AB_ORDER_ID
@@ -3308,10 +3300,7 @@ def test_ab_terminal_coupled_public_owner_measures_before_finish(
     assert record["reader_state"] == "drained"
     assert record["capture_state"] == "drained"
     assert record["evidence_state"] == "verified-pass"
-    assert (
-        record["evidence_sha256"]
-        == hashlib.sha256(ctx["evidence"].read_bytes()).hexdigest()
-    )
+    assert record["evidence_sha256"] == hashlib.sha256(ctx["evidence"].read_bytes()).hexdigest()
     assert record["retention"] == "retained"
     assert record["finalize"] == "finalized"
     cap = record["capability"]
@@ -3368,7 +3357,6 @@ def _ab_stage1_owner_pass(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[s
     ctx = _ab_owner_prepared(base, monkeypatch)
     world = ctx["paths"]["world"]
     state_bytes: bytes
-    ok = False
     try:
         held = stl._client(ctx["control"], "hold", ctx["run_id"])
         assert held["ok"] is True, held
@@ -3377,7 +3365,6 @@ def _ab_stage1_owner_pass(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[s
         state_bytes = (ctx["control"] / flocal._CONTROL_STATE_NAME).read_bytes()
         detail = stu._drive_finish(ctx["paths"], ctx["run_id"])
         assert detail["outcome"] == "pass", detail
-        ok = True
     finally:
         stu._join_owner(ctx["thread"], control=ctx["control"], run_id=ctx["run_id"])
     assert ctx["owner"].terminal_outcome == "pass"
@@ -3407,7 +3394,7 @@ def _ab_bootstrap_state(stage: dict[str, Any], pid: int, anchor: float) -> dict[
     pid and a fresh END anchor (the real child does this in the child
     itself): the DISTINCT identity-bearing tag and the full binding
     and identity are preserved byte-for-byte."""
-    state = json.loads(stage["state_bytes"].decode("ascii"))
+    state: dict[str, Any] = json.loads(stage["state_bytes"].decode("ascii"))
     state["pid"] = pid
     state["end_anchor"] = anchor
     return state
@@ -3473,10 +3460,7 @@ def test_ab_full_positive_driver_retains_ab_record_before_pass_finalization(
     # the ADOPTED frozen identity: byte-for-byte the owner's OWN
     # protected AB state substructure (the terminal cross-checked
     # the owner's retained evidence identity against it)
-    assert (
-        record["identity"]
-        == json.loads(stage["state_bytes"].decode("ascii"))["identity"]
-    )
+    assert record["identity"] == json.loads(stage["state_bytes"].decode("ascii"))["identity"]
     assert record["identity"]["subject_uid"] == stu.SUBJ_UID
     assert record["identity"]["subject_gid"] == stu.SUBJ_GID
     assert record["identity"]["subject_groups"] == [stu.SUBJ_GID]
@@ -3648,9 +3632,7 @@ def test_ab_driver_refuses_tampered_state_identity(
     assert not out["record_out"].exists()
 
 
-def test_x_driver_refuses_ab_state_grammar(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_x_driver_refuses_ab_state_grammar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The v1 grammar is never widened: the historical X entry reads
     its state under the STRICT 12-key v1 form, so an AB-published
     (identity-bearing) state is an unreadable state for the X
@@ -3765,10 +3747,7 @@ def test_ab_driver_identity_mismatch_refused(
     assert cap["subject"] is None
     # the ADOPTED identity is retained on the fail record (the
     # refusal happened AFTER the adoption — the honest fact)
-    assert (
-        record["identity"]
-        == json.loads(stage["state_bytes"].decode("ascii"))["identity"]
-    )
+    assert record["identity"] == json.loads(stage["state_bytes"].decode("ascii"))["identity"]
     assert record["finalize"] == "finalized"
     assert record["retention"] == "retained"
     assert _journal_for(stage["repo"], AB_ORDER_ID) == [
@@ -3822,9 +3801,7 @@ def test_ab_terminal_refused_retention_preserves_original(
         result = _ab_coupled_terminal(ctx, capability, record_out=dest)
     finally:
         if ctx["thread"].is_alive():
-            stu._join_owner(
-                ctx["thread"], control=ctx["control"], run_id=ctx["run_id"]
-            )
+            stu._join_owner(ctx["thread"], control=ctx["control"], run_id=ctx["run_id"])
     assert result["status"] == "fail"
     assert result["reason"] == "cap-record-retention"
     assert result["retention"] == "refused"
@@ -3857,14 +3834,10 @@ def test_ab_terminal_unverified_finalize_preserves_running(
             return "record-unreadable" if args[-1] == "pass" else original_finalize(*args)
 
         monkeypatch.setattr(fxc.oap_binding, "record_order_attempt", unverified)
-        result = _ab_coupled_terminal(
-            ctx, capability, record_out=base / "ab-capability.json"
-        )
+        result = _ab_coupled_terminal(ctx, capability, record_out=base / "ab-capability.json")
     finally:
         if ctx["thread"].is_alive():
-            stu._join_owner(
-                ctx["thread"], control=ctx["control"], run_id=ctx["run_id"]
-            )
+            stu._join_owner(ctx["thread"], control=ctx["control"], run_id=ctx["run_id"])
     assert result["status"] == "fail"
     assert result["reason"] == "local-driver-finalize"
     assert result["retention"] == "retained"
@@ -3903,9 +3876,7 @@ def test_ab_capability_record_closed_cohesion() -> None:
         "subject_uid": stu.SUBJ_UID,
         "subject_gid": stu.SUBJ_GID,
         "subject_groups": [stu.SUBJ_GID],
-        "profile_data_sha256": hashlib.sha256(
-            stu.fi.encode_description(description)
-        ).hexdigest(),
+        "profile_data_sha256": hashlib.sha256(stu.fi.encode_description(description)).hexdigest(),
     }
     cap = {
         "cid": "c" * 64,
@@ -3945,9 +3916,7 @@ def test_ab_capability_record_closed_cohesion() -> None:
         entry=entry,
     )
     x_entry = fxc._SEALED_ENTRIES[X_ORDER_ID]
-    x_record = fxc._driver_record(
-        "fail", "local-driver-startup", bind_head="e" * 40, entry=x_entry
-    )
+    x_record = fxc._driver_record("fail", "local-driver-startup", bind_head="e" * 40, entry=x_entry)
     cases: list[tuple[str, dict[str, object], Any, bool]] = [
         # the pre-state startup FAIL honestly carries both unknowns
         ("prestate-failure-unknown-identity-positive", pre, entry, True),
@@ -4105,9 +4074,9 @@ def test_ab_sealed_child_cli_own_collection(
                 state = flocal._state_record(control, entry_order=AB_ORDER_ID)
                 if state is not None:
                     observed["state"] = state
-                    observed["journal_running"] = fb.read_admission_record(
-                        repo, AB_ORDER_ID
-                    )["attempts"]
+                    observed["journal_running"] = fb.read_admission_record(repo, AB_ORDER_ID)[
+                        "attempts"
+                    ]
                     break
                 time.sleep(0.1)
             if "state" in observed:

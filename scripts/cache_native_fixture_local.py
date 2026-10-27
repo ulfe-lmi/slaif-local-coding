@@ -119,10 +119,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_native_fixture_binding as oap_binding  # noqa: E402
 import cache_native_fixture_ci as ci  # noqa: E402
 import cache_native_fixture_export_client as fixture_export  # noqa: E402
-import cache_native_fixture_model as model  # noqa: E402
 import cache_native_fixture_identity as fidentity  # noqa: E402
-import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
+import cache_native_fixture_model as model  # noqa: E402
 import cache_native_fixture_native_prep as fixture_prep  # noqa: E402
+import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
 import cache_native_fixture_standin as fixture_standin  # noqa: E402
 
 FixtureError = ci.FixtureError
@@ -960,7 +960,7 @@ def _abort_requested(path: Path, run_id: str) -> bool:
 # -- closed owner state file (0600 under 0700) -------------------------------------
 def _identity_substructure_law(
     identity: object,
-) -> tuple[int, int, tuple[int, ...], "fidentity.FixtureIdentityDescription"] | None:
+) -> tuple[int, int, tuple[int, ...], fidentity.FixtureIdentityDescription] | None:
     """The shared closed structural law of the AB frozen owner
     identity substructure (the identity-bearing owner STATE, the
     AB owner-run EVIDENCE and the AB driver RECORD all carry this
@@ -1725,7 +1725,7 @@ class OwnerIdentityContext:
     drift.
     """
 
-    profile: "rprofile.RuntimeProfile"
+    profile: rprofile.RuntimeProfile
     fingerprint: str
     subject_uid: int
     subject_gid: int
@@ -1769,7 +1769,7 @@ class LocalFixtureOwner:
         executor=None,
         deadline_offset: float = 0.0,
         binding: object = None,
-        identity_reader: "fidentity.IdentityReader | None" = None,
+        identity_reader: fidentity.IdentityReader | None = None,
         proc_root: Path | None = None,
     ) -> None:
         if os.environ.get("GITHUB_ACTIONS") == "true":
@@ -1918,7 +1918,7 @@ class LocalFixtureOwner:
         # composition closes the SAME already-won attempt
         # honestly (no second mint, no adopted journal, no
         # re-resolution).
-        self.identity_reader: "fidentity.IdentityReader | None" = identity_reader
+        self.identity_reader: fidentity.IdentityReader | None = identity_reader
         self._owner_context: OwnerIdentityContext | None = None
         if binding is not None and binding.order_id == rprofile.AB_ORDER_ID:
             reader = (
@@ -2165,9 +2165,7 @@ class LocalFixtureOwner:
         if status is not None:
             self.status = status
         try:
-            _write_state(
-                self.state_path, self._state_dict(), ab=self._owner_context is not None
-            )
+            _write_state(self.state_path, self._state_dict(), ab=self._owner_context is not None)
         except FixtureError:
             pass
 
@@ -2182,9 +2180,7 @@ class LocalFixtureOwner:
             raise FixtureError("local-state-missing")
         if status is not None:
             self.status = status
-        _write_state(
-            self.state_path, self._state_dict(), ab=self._owner_context is not None
-        )
+        _write_state(self.state_path, self._state_dict(), ab=self._owner_context is not None)
 
     def _cid_registered(self, cid: str) -> None:
         """The shared helper's registration callback: the exact
@@ -2291,9 +2287,7 @@ class LocalFixtureOwner:
             # the frozen profile DATA bytes (the closed canonical
             # Z record) plus the inert identity module in the
             # build context; every copy re-hashed AFTER writing.
-            dockerfile_bytes = ci.verify_dockerfile_base(
-                self.repo, rprofile.OWNER_DOCKERFILE_NAME
-            )
+            dockerfile_bytes = ci.verify_dockerfile_base(self.repo, rprofile.OWNER_DOCKERFILE_NAME)
             ci.prepare_build_context(
                 self.repo,
                 self._artifact_dir,
@@ -2480,7 +2474,11 @@ class LocalFixtureOwner:
         # CID: the prepared-unconsumed claim is OBSERVED, never
         # inferred from a host charge delta.
         observed = ci.observe_controller_on(
-            self.guarded, cid, env_base, self.ledger, profile=ctx.profile if ctx is not None else None
+            self.guarded,
+            cid,
+            env_base,
+            self.ledger,
+            profile=ctx.profile if ctx is not None else None,
         )
         if (
             observed["wire_requests"] != 0
@@ -2512,9 +2510,7 @@ class LocalFixtureOwner:
             self.target_cid,
             self.env_base,
             self.ledger,
-            profile=self._owner_context.profile
-            if self._owner_context is not None
-            else None,
+            profile=self._owner_context.profile if self._owner_context is not None else None,
         )
 
     def hold_start(self) -> str:
@@ -2753,9 +2749,7 @@ class LocalFixtureOwner:
             cid,
             self.env_base,
             self.ledger,
-            profile=self._owner_context.profile
-            if self._owner_context is not None
-            else None,
+            profile=self._owner_context.profile if self._owner_context is not None else None,
         )
         self.ledger.reserve_http(2, 2)
         export_result = ci._exec(
@@ -2885,7 +2879,7 @@ class LocalFixtureOwner:
         return (parsed.start_time, uid)
 
     def _owned_member_frame(
-        self, pid: int, table: "fixture_prep.RealCidScopedTable"
+        self, pid: int, table: fixture_prep.RealCidScopedTable
     ) -> tuple[int, int] | None:
         """The PRE-removal CID-ATTESTED, STABLE lifetime frame of
         one listed PID: the registered-CID channel reads the
@@ -2983,9 +2977,7 @@ class LocalFixtureOwner:
         if self.sentinel is None or self.sentinel.poll() is not None:
             raise FixtureError("sentinel-process-died")
         self.sentinel_survived = True
-        if (
-            ci._count_fixture_uid_processes(ci.CONTROLLER_UID) != 0
-        ):
+        if ci._count_fixture_uid_processes(ci.CONTROLLER_UID) != 0:
             raise FixtureError("descendant-leftover")
         if self._owner_context is None:
             # The historical original law: the fixed subject UID

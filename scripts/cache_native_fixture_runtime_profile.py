@@ -124,9 +124,7 @@ _ENTRY_PROFILES_LITERAL: dict[str, str] = {
 # The immutable canonical entry mapping: no per-owner or caller
 # mutation of the selection table is possible (the literal stays
 # private; the public name is the read-only view).
-ENTRY_PROFILES: types.MappingProxyType[str, str] = types.MappingProxyType(
-    _ENTRY_PROFILES_LITERAL
-)
+ENTRY_PROFILES: types.MappingProxyType[str, str] = types.MappingProxyType(_ENTRY_PROFILES_LITERAL)
 
 
 def entry_profile_name(order_id: object) -> str:
@@ -350,9 +348,7 @@ def owner_runtime_profile(description: object) -> RuntimeProfile:
     )
 
 
-def entry_runtime_profile(
-    order_id: object, description: object | None = None
-) -> RuntimeProfile:
+def entry_runtime_profile(order_id: object, description: object | None = None) -> RuntimeProfile:
     """The closed selection for ONE sealed entry.
 
     Original entries always return the fixed original view and

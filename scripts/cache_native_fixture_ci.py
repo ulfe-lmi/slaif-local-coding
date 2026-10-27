@@ -159,7 +159,7 @@ TMPFS_SPEC_ENV = ",".join(
 )
 
 
-def owner_tmpfs_budgets(profile: "rprofile.RuntimeProfile") -> tuple[tuple[str, int, int, int], ...]:
+def owner_tmpfs_budgets(profile: rprofile.RuntimeProfile) -> tuple[tuple[str, int, int, int], ...]:
     """The owner-variant tmpfs budgets: the SAME closed mounts,
     sizes and modes, with the subject-owned mounts owned by the
     frozen profile's exact INDEPENDENT subject UID/GID (the
@@ -176,20 +176,18 @@ def owner_tmpfs_budgets(profile: "rprofile.RuntimeProfile") -> tuple[tuple[str, 
     return tuple(budgets)
 
 
-def owner_tmpfs_specs(profile: "rprofile.RuntimeProfile") -> dict[str, str]:
+def owner_tmpfs_specs(profile: rprofile.RuntimeProfile) -> dict[str, str]:
     """The owner-variant create ``--tmpfs`` spec strings (the SAME
     closed spec grammar as the module constant, the frozen
     subject-owned identities)."""
     return {
-        mount: (
-            f"rw,nosuid,size={size // 1024}k,uid={uid},gid={gid},mode={oct(mode)[2:]}"
-        )
+        mount: (f"rw,nosuid,size={size // 1024}k,uid={uid},gid={gid},mode={oct(mode)[2:]}")
         for mount, size, uid, gid in owner_tmpfs_budgets(profile)
         for mode in (_TMPFS_MODES[mount],)
     }
 
 
-def owner_tmpfs_spec_env(profile: "rprofile.RuntimeProfile") -> str:
+def owner_tmpfs_spec_env(profile: rprofile.RuntimeProfile) -> str:
     """The owner-variant ``SLAIF_FIXTURE_TMPFS_SPECS`` closed value
     (the stand-in measures the ACTUAL mount table against this
     exact closed spec)."""
@@ -197,6 +195,8 @@ def owner_tmpfs_spec_env(profile: "rprofile.RuntimeProfile") -> str:
         f"{mount}:{size}:{uid}:{gid}"
         for mount, size, uid, gid in sorted(owner_tmpfs_budgets(profile))
     )
+
+
 # The daemon's default shared-memory mount is subject-writable, so
 # it is explicitly bounded (never left to the daemon default) and
 # measured back by the subject (model.SHM_SIZE_BYTES, 64 MiB).
@@ -894,7 +894,6 @@ def _original_tmpfs_expected() -> frozenset[str]:
 _match_docker_create = _make_docker_create_matcher(_original_tmpfs_expected())
 
 
-
 def _match_docker_start(argv: list[str]) -> bool:
     return len(argv) == 3 and argv[:2] == ["docker", "start"] and _is_cid(argv[2])
 
@@ -990,8 +989,7 @@ def _make_docker_exec_matcher(subject_user: str):
             return False
         tail = argv[i + 1 :]
         probe = (
-            len(tail)
-            == 3
+            len(tail) == 3
             and tail[0] == "python3"
             and tail[1] == "-c"
             and tail[2] == CONTROLLER_PROBE
@@ -1074,7 +1072,7 @@ _ARGV_MATCHERS = (
 )
 
 
-def _make_docker_build_matcher(profile: "rprofile.RuntimeProfile"):
+def _make_docker_build_matcher(profile: rprofile.RuntimeProfile):
     """The owner-variant build form for one frozen validated
     profile: the historical ``docker build -t`` head plus the
     EXACT closed build-arg sequence of the profile (the fixed
@@ -1095,7 +1093,7 @@ def _make_docker_build_matcher(profile: "rprofile.RuntimeProfile"):
     return match
 
 
-def _owner_argv_matchers(profile: "rprofile.RuntimeProfile") -> tuple:
+def _owner_argv_matchers(profile: rprofile.RuntimeProfile) -> tuple:
     """The owner-scoped guarded-argv set for ONE frozen runtime
     profile: the SAME closed matchers as the original guard for
     every command whose form is profile-independent, and the
@@ -1764,7 +1762,10 @@ def fetch_public_artifact(dest_dir, deadline: _RunDeadline) -> dict[str, object]
 
 # -- exact confinement create-argv (no shell, no host mounts, no secrets) -------
 def build_run_conf_argv(
-    image_ref: str, name: str, owned_label: str, env: dict[str, str],
+    image_ref: str,
+    name: str,
+    owned_label: str,
+    env: dict[str, str],
     tmpfs_specs: dict[str, str] | None = None,
 ) -> list[str]:
     """The exact confinement create-argv: controller UID 21001 as
@@ -1874,9 +1875,7 @@ def prepare_build_context(
             raise FixtureError("context-mismatch")
 
 
-def verify_dockerfile_base(
-    repo, dockerfile_name: str = "cache_native_fixture.Dockerfile"
-) -> bytes:
+def verify_dockerfile_base(repo, dockerfile_name: str = "cache_native_fixture.Dockerfile") -> bytes:
     """The reviewed Dockerfile base check (shared by the hosted CI
     run and the order-bound local 017-s rehearsal): exactly one
     FROM, digest-pinned to the reviewed Python 3.12 base literal,
@@ -2065,9 +2064,7 @@ def _new_container(
         raise FixtureError("name-collision")
     if on_intent is not None:
         on_intent(name)
-    result = executor(
-        build_run_conf_argv(IMAGE_NAME, name, label, env, tmpfs_specs), RUN_TIMEOUT
-    )
+    result = executor(build_run_conf_argv(IMAGE_NAME, name, label, env, tmpfs_specs), RUN_TIMEOUT)
     if result.returncode != 0:
         raise FixtureError("create-failed")
     container_id = result.output.decode("ascii", "replace").strip()
@@ -2849,7 +2846,7 @@ def measure_controller_confinement_on(
 
 
 def observe_controller_on(
-    executor, cid, env_base, ledger, profile: "rprofile.RuntimeProfile | None" = None
+    executor, cid, env_base, ledger, profile: rprofile.RuntimeProfile | None = None
 ) -> dict[str, object]:
     """Bounded trusted NON-CONSUMING observation of the ACTUAL
     controller state on an already-prepared exact CID (local 017-s
@@ -2999,7 +2996,7 @@ def measure_subject_on_profile(
     env,
     parent,
     ledger,
-    profile: "rprofile.RuntimeProfile",
+    profile: rprofile.RuntimeProfile,
 ) -> dict[str, object]:
     """Subject-side measurement on the owner-UID variant: the SAME
     closed stand-in measurement as :func:`measure_subject_on`,
@@ -3044,7 +3041,7 @@ def pty_attach_on(
     run_token: str,
     ledger,
     env_file: str | None = None,
-    profile: "rprofile.RuntimeProfile | None" = None,
+    profile: rprofile.RuntimeProfile | None = None,
 ) -> dict[str, object]:
     """PTY/interactive attachment proof on an already-prepared exact
     CID (the exact future native attachment path): stdin must be a

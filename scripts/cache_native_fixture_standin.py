@@ -876,9 +876,7 @@ def _parse_identity_profile(raw: bytes) -> str | None:
     other value, malformed grammar or encoding is a closed
     refusal.  The content is never imported or executed.
     """
-    match = re.fullmatch(
-        rb'SLAIF_FIXTURE_IDENTITY_PROFILE = "([a-z0-9-]+)"\n', raw
-    )
+    match = re.fullmatch(rb'SLAIF_FIXTURE_IDENTITY_PROFILE = "([a-z0-9-]+)"\n', raw)
     if match is None:
         raise StandinError("identity-profile-grammar")
     value = match.group(1).decode("ascii")
@@ -941,11 +939,10 @@ def _expected_subject_pair() -> tuple[int, int] | None:
         desc = fixture_identity.decode_description(raw)
     except ValueError:
         raise StandinError("profile-data-invalid") from None
-    if (
-        desc.profile != fixture_identity.PROFILE_OWNER_UID
-        or (desc.controller_uid, desc.controller_gid)
-        != (fixture_identity.CONTROLLER_UID, fixture_identity.CONTROLLER_GID)
-    ):
+    if desc.profile != fixture_identity.PROFILE_OWNER_UID or (
+        desc.controller_uid,
+        desc.controller_gid,
+    ) != (fixture_identity.CONTROLLER_UID, fixture_identity.CONTROLLER_GID):
         raise StandinError("profile-data-invalid")
     return (desc.subject_uid, desc.subject_gid)
 
@@ -968,7 +965,9 @@ def _subject_identity_refusal(uid_only: bool) -> str | None:
     if expected is None:
         if os.getuid() != SUBJECT_UID:
             return "identity-not-subject"
-        return None if uid_only else ("identity-not-subject" if os.getgid() != SUBJECT_UID else None)
+        if uid_only:
+            return None
+        return "identity-not-subject" if os.getgid() != SUBJECT_UID else None
     return None if (os.getuid(), os.getgid()) == expected else "identity-not-subject"
 
 

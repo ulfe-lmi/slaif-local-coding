@@ -1033,11 +1033,10 @@ def quiesce_subject_uid() -> int:
         desc = fixture_identity.decode_description(raw)
     except ValueError:
         raise ControllerError("quiesce-data-invalid") from None
-    if (
-        desc.profile != fixture_identity.PROFILE_OWNER_UID
-        or (desc.controller_uid, desc.controller_gid)
-        != (fixture_identity.CONTROLLER_UID, fixture_identity.CONTROLLER_GID)
-    ):
+    if desc.profile != fixture_identity.PROFILE_OWNER_UID or (
+        desc.controller_uid,
+        desc.controller_gid,
+    ) != (fixture_identity.CONTROLLER_UID, fixture_identity.CONTROLLER_GID):
         raise ControllerError("quiesce-data-invalid")
     return desc.subject_uid
 

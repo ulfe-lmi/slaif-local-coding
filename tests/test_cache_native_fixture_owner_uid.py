@@ -74,7 +74,9 @@ def _load_test_module(name: str, path: Path) -> Any:
 
 
 stl = _load_test_module("oap_aa_stl", REPO_ROOT / "tests" / "test_cache_native_fixture_local.py")
-stp = _load_test_module("oap_aa_stp", REPO_ROOT / "tests" / "test_cache_native_fixture_native_prep.py")
+stp = _load_test_module(
+    "oap_aa_stp", REPO_ROOT / "tests" / "test_cache_native_fixture_native_prep.py"
+)
 
 fci = sys.modules["cache_native_fixture_ci"]
 fb = sys.modules["cache_native_fixture_binding"]
@@ -89,6 +91,7 @@ S_ORDER_NAME = Path(stl.ORDER_PATH).name
 
 
 # -- fake proc frames (production readers over a synthetic root) -----------------
+
 
 def _write_proc_entry(
     root: Path,
@@ -113,6 +116,7 @@ def _write_proc_entry(
 
 
 # -- the fake exact-CID process world ---------------------------------------------
+
 
 class _World:
     """The fake exact-CID process world of the owner-UID variant:
@@ -186,7 +190,8 @@ class _World:
 
 # -- the fake docker over the world -------------------------------------------------
 
-def _aa_description() -> fi.FixtureIdentityDescription:
+
+def _aa_description() -> Any:
     return fi.FixtureIdentityDescription(
         profile=fi.PROFILE_OWNER_UID,
         controller_uid=fi.CONTROLLER_UID,
@@ -202,13 +207,11 @@ def _owner_tmpfs_dict() -> dict[str, str]:
     # create --tmpfs specs the production owner sends (the closed
     # spec grammar with octal modes and the frozen subject-owned
     # identities), never a re-derivation with its own formatting.
-    return dict(
-        fci.owner_tmpfs_specs(frp.owner_runtime_profile(_aa_description()))
-    )
+    return dict(fci.owner_tmpfs_specs(frp.owner_runtime_profile(_aa_description())))
 
 
 def _owner_exec_measurement_record() -> dict[str, Any]:
-    record = stl._exec_measurement_record()
+    record: dict[str, Any] = stl._exec_measurement_record()
     record["record"] = model.SCHEMA_EXEC_MEASUREMENT_V2
     record["uid"] = SUBJ_UID
     record["gid"] = SUBJ_GID
@@ -221,7 +224,7 @@ def _owner_exec_measurement_record() -> dict[str, Any]:
 
 
 def _owner_profile_record() -> dict[str, Any]:
-    record = stl._profile_record()
+    record: dict[str, Any] = stl._profile_record()
     record["record"] = model.SCHEMA_PROFILE_V2
     record["codex_home_uid"] = SUBJ_UID
     return record
@@ -308,9 +311,11 @@ class AAFakeDocker(stl.LocalFakeDocker):  # type: ignore[name-defined,misc]
                 "hold",
                 "--hold-token",
             ]
-            if len(argv) != 12 or argv[3:11] != expected or re.fullmatch(
-                r"[0-9a-f]{32}", argv[11]
-            ) is None:
+            if (
+                len(argv) != 12
+                or argv[3:11] != expected
+                or re.fullmatch(r"[0-9a-f]{32}", argv[11]) is None
+            ):
                 return self._result(125, b"exec-refused\n")
             self.hold_calls.append(argv[11])
             self._world.subject = {"cgroup": self._world.cid}
@@ -392,6 +397,7 @@ class AAFakeDocker(stl.LocalFakeDocker):  # type: ignore[name-defined,misc]
             "active_connections": 0,
             "residual_writers": 0,
         }
+
     def _owner_exec(self, argv: list[str]) -> Any:
         cmd = argv[1:]
         i = 1
@@ -414,7 +420,12 @@ class AAFakeDocker(stl.LocalFakeDocker):  # type: ignore[name-defined,misc]
         i += 1
         tail = cmd[i:]
         assert fci._is_cid(cid)
-        if len(tail) == 4 and tail[0] == "python3" and tail[1] == fci.STANDIN_PATH and tail[2] == "--mode":
+        if (
+            len(tail) == 4
+            and tail[0] == "python3"
+            and tail[1] == fci.STANDIN_PATH
+            and tail[2] == "--mode"
+        ):
             return self._owner_standin_exec(tail[3], itty, env, env_file)
         raise AssertionError(f"unexpected owner exec tail: {tail}")
 
@@ -491,6 +502,7 @@ class AAFakeDocker(stl.LocalFakeDocker):  # type: ignore[name-defined,misc]
 
 
 # -- the synthetic 017-ab repository + hermetic seams -------------------------------
+
 
 def _ab_git_fixture(base: Path) -> tuple[Path, str]:
     """A REAL synthetic git repository committing the CANONICAL
@@ -687,7 +699,8 @@ def _drive_prepare_hold(paths: dict[str, Any], run_id: str) -> dict[str, Any]:
 def _drive_finish(paths: dict[str, Any], run_id: str) -> dict[str, Any]:
     finished = stl._client(paths["control"], "finish", run_id)
     assert finished["ok"] is True, finished
-    return finished["detail"]
+    detail: dict[str, Any] = finished["detail"]
+    return detail
 
 
 # -- Part A: the narrow lifetime-frame boundaries -----------------------------------
@@ -731,18 +744,26 @@ class _ScriptedChannel:
 
 
 def _stat_bytes(pid: int, start: int) -> bytes:
-    return stp.stat_line(pid, "python3", start=start).encode("ascii")
+    raw: bytes = stp.stat_line(pid, "python3", start=start).encode("ascii")
+    return raw
 
 
 def _status_bytes(uid: int, gid: int, groups: tuple[int, ...]) -> bytes:
-    return stp.status_bytes(uid, gid, groups)
+    raw: bytes = stp.status_bytes(uid, gid, groups)
+    return raw
 
 
 def test_owned_frame_stable_positive(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=FRAME_CID,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=FRAME_CID,
     )
     table = fp.RealCidScopedTable(FRAME_CID, root=root)
     assert _FrameHarness(root)._owned_member_frame(42, table) == (123, SUBJ_UID)
@@ -751,8 +772,14 @@ def test_owned_frame_stable_positive(tmp_path: Path) -> None:
 def test_owned_frame_out_of_scope_refused(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="worker", start=123, uid=SUBJ_UID, gid=SUBJ_UID,
-        groups=(), cgroup=None,
+        root,
+        42,
+        comm="worker",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_UID,
+        groups=(),
+        cgroup=None,
     )
     table = fp.RealCidScopedTable(FRAME_CID, root=root)
     assert _FrameHarness(root)._owned_member_frame(42, table) is None
@@ -768,8 +795,14 @@ def test_owned_frame_no_entry_refused(tmp_path: Path) -> None:
 def test_owned_frame_cgroup_missing_refused(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=FRAME_CID,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=FRAME_CID,
     )
     (root / "42" / "cgroup").unlink()
     table = fp.RealCidScopedTable(FRAME_CID, root=root)
@@ -779,8 +812,14 @@ def test_owned_frame_cgroup_missing_refused(tmp_path: Path) -> None:
 def test_owned_frame_overbound_stat_refused(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=FRAME_CID,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=FRAME_CID,
     )
     (root / "42" / "stat").write_text(
         stp.stat_line(42, "python3", start=123) + " " + "x" * 8300, encoding="ascii"
@@ -843,8 +882,14 @@ def test_owned_frame_scripted_pid_mismatch_refused() -> None:
 def test_member_lifetime_positive(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=None,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=None,
     )
     assert _FrameHarness(root)._member_lifetime(42) == (123, SUBJ_UID)
 
@@ -858,8 +903,14 @@ def test_member_lifetime_gone(tmp_path: Path) -> None:
 def test_member_lifetime_status_vanished_unverified(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=None,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=None,
     )
     (root / "42" / "status").unlink()
     assert _FrameHarness(root)._member_lifetime(42) is None
@@ -868,8 +919,14 @@ def test_member_lifetime_status_vanished_unverified(tmp_path: Path) -> None:
 def test_member_lifetime_stat_unreadable_unverified(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=None,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=None,
     )
     os.chmod(root / "42" / "stat", 0)
     # EACCES is never conflated with verified-gone.
@@ -879,8 +936,14 @@ def test_member_lifetime_stat_unreadable_unverified(tmp_path: Path) -> None:
 def test_member_lifetime_overbound_stat_refused(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=None,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=None,
     )
     (root / "42" / "stat").write_text(
         stp.stat_line(42, "python3", start=123) + " " + "x" * 8300, encoding="ascii"
@@ -892,8 +955,14 @@ def test_member_lifetime_overbound_stat_refused(tmp_path: Path) -> None:
 def test_member_lifetime_overbound_status_refused(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=None,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=None,
     )
     (root / "42" / "status").write_bytes(b"Name:\tpython3\n" + b"x" * 9000)
     assert _FrameHarness(root)._member_lifetime(42) is None
@@ -902,8 +971,14 @@ def test_member_lifetime_overbound_status_refused(tmp_path: Path) -> None:
 def test_member_lifetime_pid_mismatch_refused(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=None,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=None,
     )
     (root / "42" / "stat").write_text(stp.stat_line(43, "python3", start=123), encoding="ascii")
     assert _FrameHarness(root)._member_lifetime(42) is None
@@ -912,8 +987,14 @@ def test_member_lifetime_pid_mismatch_refused(tmp_path: Path) -> None:
 def test_member_lifetime_malformed_stat_refused(tmp_path: Path) -> None:
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=SUBJ_UID, gid=SUBJ_GID,
-        groups=(SUBJ_GID,), cgroup=None,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=None,
     )
     (root / "42" / "stat").write_text(b"not a stat line".decode("ascii"), encoding="ascii")
     assert _FrameHarness(root)._member_lifetime(42) is None
@@ -925,17 +1006,22 @@ def test_member_lifetime_same_birth_changed_uid_reports_frame(tmp_path: Path) ->
     # is the teardown law (covered by the lifecycle test).
     root = tmp_path / "proc"
     _write_proc_entry(
-        root, 42, comm="python3", start=123, uid=21002, gid=21002,
-        groups=(21002,), cgroup=None,
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=21002,
+        gid=21002,
+        groups=(21002,),
+        cgroup=None,
     )
     assert _FrameHarness(root)._member_lifetime(42) == (123, 21002)
 
 
 # -- Part B: the public owner lifecycle (useful 1001:1002) ---------------------------
 
-def test_lifecycle_owner_uid_positive(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+
+def test_lifecycle_owner_uid_positive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The full useful owner-UID positive over the fake platform:
     the REAL owner (own collection/derivation, frozen context,
     owner-scoped guard, v2 record law) drives prepare -> hold ->
@@ -953,7 +1039,6 @@ def test_lifecycle_owner_uid_positive(
     binding = _admit_ab(paths["repo"], paths["head"])
     owner, thread = _start_owner(paths, binding, _reader)
     run_id = binding.run_id
-    ok = False
     try:
         # The frozen context: independent uid/gid, never uid:uid.
         ctx = owner._owner_context
@@ -963,7 +1048,7 @@ def test_lifecycle_owner_uid_positive(
         assert ctx.subject_groups == (SUBJ_GID,)
         assert ctx.order_id == AB_ORDER_ID
         assert ctx.bind_head == paths["head"]
-        detail = _drive_prepare_hold(paths, run_id)
+        _drive_prepare_hold(paths, run_id)
         # The finite hold elapses in CONTAINER time before finish:
         # the subject exits naturally (absence only — no exit
         # code or cause) BEFORE the export's quiesce measures it.
@@ -975,7 +1060,6 @@ def test_lifecycle_owner_uid_positive(
         assert not (paths["proc_root"] / str(SUBJ_PID) / "stat").is_file()
         finished = _drive_finish(paths, run_id)
         assert finished["outcome"] == "pass", finished
-        ok = True
     finally:
         _join_owner(thread, control=paths["control"], run_id=run_id)
     assert owner.terminal_outcome == "pass"
@@ -1150,9 +1234,7 @@ def test_lifecycle_teardown_contradictory_frame(
     )
 
 
-def test_lifecycle_teardown_recycled_pass(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_lifecycle_teardown_recycled_pass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # A DIFFERENT birth at the same PID after removal: ONLY a
     # changed birth proves PID reuse — the owned member is gone
     # and the occupant is a different process, never mislabeled,
@@ -1231,9 +1313,7 @@ def test_lifecycle_pre_teardown_raced_member(
     assert (paths["proc_root"] / str(WORKER_PID) / "stat").is_file()
 
 
-def test_lifecycle_identity_drift_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_lifecycle_identity_drift_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The owner's OWN collection freezes the context at
     # construction; a changed host identity at actual use (the
     # bounded current-ID coherence read) is a closed refusal
@@ -1241,7 +1321,10 @@ def test_lifecycle_identity_drift_refused(
     paths = _aa_setup(tmp_path, monkeypatch)
     binding = _admit_ab(paths["repo"], paths["head"])
     holder = {"ids": (SUBJ_UID, SUBJ_UID, SUBJ_UID, SUBJ_GID, SUBJ_GID, SUBJ_GID)}
-    reader = lambda: holder["ids"]
+
+    def reader() -> tuple[int, int, int, int, int, int]:
+        return holder["ids"]
+
     owner, thread = _start_owner(paths, binding, reader)
     run_id = binding.run_id
     try:
@@ -1275,7 +1358,10 @@ def test_lifecycle_identity_drift_after_hold_refused(
     paths = _aa_setup(tmp_path, monkeypatch)
     binding = _admit_ab(paths["repo"], paths["head"])
     holder = {"ids": (SUBJ_UID, SUBJ_UID, SUBJ_UID, SUBJ_GID, SUBJ_GID, SUBJ_GID)}
-    reader = lambda: holder["ids"]
+
+    def reader() -> tuple[int, int, int, int, int, int]:
+        return holder["ids"]
+
     owner, thread = _start_owner(paths, binding, reader)
     run_id = binding.run_id
     try:
@@ -1363,6 +1449,7 @@ def test_lifecycle_guard_refuses_foreign_exec_user(
 
 # -- Part C: the closed AB terminal evidence validator ------------------------------
 
+
 def _ab_identity() -> dict[str, Any]:
     desc = _aa_description()
     return {
@@ -1396,9 +1483,7 @@ def _fail_substructure() -> dict[str, Any]:
         # The closed phase tokens actually completed BEFORE the
         # failing teardown stage (``finish`` is phase-done before
         # teardown; teardown/publish are the unfinished tail):
-        "phases_completed": sorted(
-            p for p in flocal._PHASES if p not in ("teardown", "publish")
-        ),
+        "phases_completed": sorted(p for p in flocal._PHASES if p not in ("teardown", "publish")),
         "resources": {
             "containers": [],
             "create_intent": None,
@@ -1471,7 +1556,7 @@ def test_ab_evidence_tamper_refusals() -> None:
     cases.append(("missing-marker", no_marker))
     extra = _ab_fail_record(extra_key=1)
     cases.append(("extra-key", extra))
-    for name, record in cases:
+    for _name, record in cases:
         with pytest.raises(FixtureError):
             flocal.validate_ab_owner_run_evidence(record)
 
@@ -1529,8 +1614,8 @@ def _ctl_resolution_case(
         )
 
     class Reader(io.BytesIO):
-        def read(self, n: int = -1) -> bytes:
-            if n < 0:
+        def read(self, n: int | None = -1) -> bytes:
+            if n is None or n < 0:
                 raise AssertionError("unbounded read")
             return super().read(n)
 
@@ -1723,20 +1808,14 @@ def test_controller_quiesce_accounting_owner_corrupted_fails_closed(
         ),
         (
             "mode-unknown-value",
-            {
-                fctl.IDENTITY_PROFILE_FILE: (
-                    b'SLAIF_FIXTURE_IDENTITY_PROFILE = "foreign"\n'
-                )
-            },
+            {fctl.IDENTITY_PROFILE_FILE: (b'SLAIF_FIXTURE_IDENTITY_PROFILE = "foreign"\n')},
             "quiesce-profile-unknown",
             {},
             False,
         ),
         (
             "mode-extra-statement",
-            {
-                fctl.IDENTITY_PROFILE_FILE: owner_marker + b'print("no")\n'
-            },
+            {fctl.IDENTITY_PROFILE_FILE: owner_marker + b'print("no")\n'},
             "quiesce-profile-grammar",
             {},
             False,
@@ -1745,20 +1824,14 @@ def test_controller_quiesce_accounting_owner_corrupted_fails_closed(
             "mode-eacces-is-not-absence",
             {fctl.PROFILE_DATA_PATH: valid_data},
             "quiesce-profile-lookup",
-            {
-                fctl.IDENTITY_PROFILE_FILE: PermissionError(
-                    errno.EACCES, "synthetic denied"
-                )
-            },
+            {fctl.IDENTITY_PROFILE_FILE: PermissionError(errno.EACCES, "synthetic denied")},
             False,
         ),
         (
             "mode-eio-is-not-absence",
             {fctl.PROFILE_DATA_PATH: valid_data},
             "quiesce-profile-lookup",
-            {
-                fctl.IDENTITY_PROFILE_FILE: OSError(errno.EIO, "synthetic I/O failure")
-            },
+            {fctl.IDENTITY_PROFILE_FILE: OSError(errno.EIO, "synthetic I/O failure")},
             False,
         ),
         (
@@ -1871,20 +1944,18 @@ def test_runtime_profile_closed_construction() -> None:
     for fn in (groups_owned, argv_owned, bytes_owned):
         fn()
 
-    class _NoIteration(list):
-        def __iter__(self):
+    class _NoIteration(list[object]):
+        def __iter__(self) -> Any:
             raise AssertionError("copied-before-bound")
 
     # the bound is enforced BEFORE the copy (no iteration happens)
     _aa_profile_refused(
         lambda: _aa_profile_clone(prof, expected_groups=_NoIteration([SUBJ_GID, 1003]))
     )
-    _aa_profile_refused(
-        lambda: _aa_profile_clone(prof, build_args=_NoIteration([None] * 4097))
-    )
+    _aa_profile_refused(lambda: _aa_profile_clone(prof, build_args=_NoIteration([None] * 4097)))
 
     # -- the complete field/profile/consistency law ------------------
-    for name, changes in (
+    for _name, changes in (
         ("unknown-profile", {"profile": "other"}),
         ("boolean-uid", {"subject_uid": True}),
         ("root-uid", {"subject_uid": 0}),
@@ -1906,9 +1977,7 @@ def test_runtime_profile_closed_construction() -> None:
 
     # -- the closed entry selection law --------------------------------
     _aa_profile_refused(lambda: frp.entry_runtime_profile("017-aa"))
-    _aa_profile_refused(
-        lambda: frp.entry_runtime_profile("017-s", fi.original_fixture_identity())
-    )
+    _aa_profile_refused(lambda: frp.entry_runtime_profile("017-s", fi.original_fixture_identity()))
     _aa_profile_refused(
         lambda: frp.entry_runtime_profile(AB_ORDER_ID, fi.original_fixture_identity())
     )
