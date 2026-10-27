@@ -786,9 +786,63 @@ are not one full sealed-real-owner end-to-end test. Pure/fake platform
 seams plus tiny exact-owned Python children (each exact-owned child is
 cleaned up by the test's own bounded cleanup if still alive; no signal
 to any real worker, Bash group or unrelated process; no container of any
-kind). The actual outcome of the ONE authorized attempt is NOT RUN at
-this source; it is bound to the tested committed literal head and
-recorded in the immutable round report; D09 remains NOT RUN; no v1
+kind). The actual outcome of the ONE authorized attempt RAN
+EXACTLY ONCE at literal implementation head
+`e5215ce1a96b4dbecdcca5157b6a21ef30a6b1da` (run
+`9fd5cf1d95924a47b8bf53e8624242a5`): a terminal FAIL at
+prepare-target with `controller-not-ready` and `capability`
+null — no complete preparation, hold, subject identity or
+executable result (neither a readable nor an unreadable
+executable was established); the admission is terminal fail
+and is never reset, retried or relabeled; the measured
+outcome is recorded in the immutable round report. D09
+remains NOT RUN; no v1 runtime claim.
+
+Round 017-y adds the closed readiness diagnosis and the
+second explicit sealed entry to the capability driver
+(order 017-y, record `slaif-017y-exec-capability-driver-v1`
+paired ONLY with order 017-y; the historical S/X entries,
+record/order pairs and the consumed X namespace unchanged):
+on a nonzero bounded readiness exec, ONLY the fixed probe's
+own exact finite closed failure record refines the original
+`controller-not-ready` category as `controller-not-ready:<cause>`
+(the fixed measured causes `uid-not-21001`, `pid1-uid`,
+`health-unreachable`; a missing, malformed, multiple/duplicate,
+foreign, over-bound or contradictory output is the fixed
+unknown; a raw exception or Docker failure is never a measured
+cause; no raw output is ever persisted); the readiness failure
+path records NO readiness-poll count (an unmeasured quantity,
+never a claim of zero actual readiness polls); and the ONE
+conditional bounded lifecycle query (issued only when the
+readiness exec produced no closed record: exactly one
+allowlisted read-only `docker inspect` of the single finite
+fact `.State.Status` on the SAME registered CID, charged to
+the SAME owner ledger/END — only the closed line `exited`
+refines to `controller-not-ready:container-exited`; any other
+status, any other output shape and EVERY query failure
+(including a bounded timeout and a transport failure) stay
+honestly unknown — query failure is NOT absence).  Ten
+focused tests were added across the three fixture suites
+(`tests/test_cache_native_fixture_ci.py` now 224 — the
+`prepare_container`-level lifecycle increment with physically
+coherent fake capture quantities driving the REAL guard/
+ledger/deadline; `tests/test_cache_native_fixture_local.py`
+now 50 — the closed reason vocabulary;
+`tests/test_cache_native_fixture_exec_capability.py` now 38 —
+the Y sealed-entry positive through the public driver code
+with the matching Y record retained FIRST and only then the
+pass finalization, the cross-entry/caller-created descriptor
+refusals, the distinct-namespace refusal (an X running journal
+never adopted by the Y driver, the X attempt left exactly as
+the owner left it) and the public CLI entry selection).
+Same seams and law as 017-x: fake git/platform/process seams
+and owned synthetic repositories only; no actual Docker
+operation, no native launch (including help/version), no
+worker stop, no TTY/job manipulation, no real fixture
+admission in the real checkout, no host signal.  The ONE
+separately bound 017-y attempt is bound to the tested
+committed literal head and its measured outcome is recorded
+in the immutable round report; D09 remains NOT RUN; no v1
 runtime claim.
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned

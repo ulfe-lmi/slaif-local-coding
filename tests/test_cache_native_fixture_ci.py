@@ -3136,3 +3136,219 @@ def test_real_execute_capture_read_error_fails_closed(monkeypatch: Any) -> None:
     monkeypatch.setattr(fci, "read_bounded_output", boom)
     with pytest.raises(fci.FixtureError, match="output-read-failed"):
         fci._real_execute([sys.executable, "-c", "pass"], 5.0)
+
+
+# ---------------------------------------------------------------------------
+# 017-y closed readiness diagnosis: the ONE conditional bounded
+# lifecycle query of the SAME registered CID (ci.prepare_container).
+# A nonzero readiness exec WITHOUT the probe's exact closed failure
+# record (the fixed unknown) triggers exactly one allowlisted
+# read-only ``docker inspect`` of the single finite fact
+# .State.Status; only the closed line ``exited`` refines the
+# original controller-not-ready category, and every other
+# interpretation — another status, another shape, a query failure —
+# stays the original fixed unknown (query failure is NOT absence).
+# ---------------------------------------------------------------------------
+
+
+class _LifecycleDocker:
+    """The exact closed prepare_container command sequence with
+    configurable readiness/lifecycle outcomes (synthetic platform;
+    the guarded-executor allowlist is modeled by the closed
+    dispatch — any other argv is a test failure, never a silent
+    skip)."""
+
+    def __init__(
+        self,
+        *,
+        probe_rc: int,
+        probe_output: bytes,
+        lifecycle_rc: int,
+        lifecycle_output: bytes,
+        lifecycle_exc: BaseException | None = None,
+    ) -> None:
+        self.probe_rc = probe_rc
+        self.probe_output = probe_output
+        self.lifecycle_rc = lifecycle_rc
+        self.lifecycle_output = lifecycle_output
+        self.lifecycle_exc = lifecycle_exc
+        self.calls: list[list[str]] = []
+        self.lifecycle_calls: list[list[str]] = []
+
+    @property
+    def cid(self) -> str:
+        return "b" * 64
+
+    def _result(self, rc: int, payload: bytes) -> Any:
+        # the fake's capture quantities are physically coherent:
+        # the drained total is the ACTUAL payload length, so the
+        # SAME-ledger assertions below prove real measured
+        # quantities (never a fabricated constant)
+        return fci.ExecResult(rc, payload, len(payload))
+
+    def __call__(self, argv: list[str], timeout: float) -> Any:
+        self.calls.append(list(argv))
+        assert argv[0] == "docker"
+        cmd = argv[1:]
+        if cmd[0] == "ps":
+            assert cmd[1:3] == ["-aq", "--filter"]
+            assert cmd[3].startswith("name=slaif-fixture-017s-")
+            return self._result(0, b"")
+        if cmd[0] == "create":
+            name = cmd[cmd.index("--name") + 1]
+            assert name.startswith("slaif-fixture-017s-")
+            assert cmd[-1] == fci.IMAGE_NAME
+            return self._result(0, (self.cid + "\n").encode())
+        if cmd[0] == "start":
+            assert cmd[1] == self.cid
+            return self._result(0, b"")
+        if cmd[0] == "exec":
+            assert cmd[1] == "--user"
+            assert cmd[2] == f"{fci.CONTROLLER_UID}:{fci.CONTROLLER_UID}"
+            assert cmd[3] == self.cid
+            assert cmd[4:7] == ["python3", "-c", fci.CONTROLLER_PROBE]
+            return self._result(self.probe_rc, self.probe_output)
+        if cmd[:2] == ["inspect", "--format"]:
+            # the ONE closed lifecycle fact: the single status line
+            # of the SAME registered CID (never the full State)
+            assert cmd[2] == "{{.State.Status}}"
+            assert cmd[3] == self.cid
+            self.lifecycle_calls.append(list(argv))
+            if self.lifecycle_exc is not None:
+                raise self.lifecycle_exc
+            return self._result(self.lifecycle_rc, self.lifecycle_output)
+        raise AssertionError(f"unexpected docker command: {cmd}")
+
+
+def _lifecycle_reason(fake: _LifecycleDocker) -> tuple[str, Any]:
+    """Drive the REAL prepare_container (017s local namespace)
+    through the SAME real guarded executor the owner uses (the
+    guard enforces the allowlist and charges the SAME run
+    ledger/deadline); return the closed reason (``pass`` on
+    success) and that ledger."""
+    ledger = fci._RunLedger(fci.model.FixtureBudgets())
+    deadline = fci._RunDeadline(time.monotonic() + 300.0)
+    guarded = fci._guarded_execute(fake, deadline, ledger)
+    created: list[str] = []
+    try:
+        fci.prepare_container(guarded, 0, "prepared", {}, created, ledger, prefix="017s")
+    except fci.FixtureError as exc:
+        return str(exc), ledger
+    return "pass", ledger
+
+
+def test_prepare_readiness_lifecycle_exited_refines_closed_token() -> None:
+    # the exited controller: a nonzero readiness exec with NO
+    # closed probe record + the closed lifecycle line ``exited``
+    # refines the original category with the finite selected fact
+    fake = _LifecycleDocker(
+        probe_rc=1, probe_output=b"", lifecycle_rc=0, lifecycle_output=b"exited\n"
+    )
+    reason, ledger = _lifecycle_reason(fake)
+    assert reason == "controller-not-ready:container-exited"
+    # exactly ONE bounded lifecycle query, allowlisted, of the
+    # SAME registered CID, issued AFTER the nonzero readiness exec
+    assert len(fake.lifecycle_calls) == 1
+    assert fake.lifecycle_calls[0] == [
+        "docker",
+        "inspect",
+        "--format",
+        "{{.State.Status}}",
+        fake.cid,
+    ]
+    exec_index = next(i for i, c in enumerate(fake.calls) if c[1] == "exec")
+    assert fake.calls.index(fake.lifecycle_calls[0]) > exec_index
+    # the SAME owner ledger charged the query: admissions before
+    # work (ps, create, start, exec, inspect), the output after
+    assert ledger.admissions == 5
+    assert ledger.bytes_retained == len(fake.cid + "\n") + len(b"exited\n")
+    # the failure path records NO healthz count — an unrecorded
+    # quantity, never a claim of zero actual readiness requests
+    assert ledger.healthz_attempts == 0
+
+
+def test_prepare_readiness_lifecycle_query_failure_stays_unknown() -> None:
+    # query failure is NOT absence: the query was attempted
+    # honestly (one bounded call) and its failure keeps the
+    # original fixed-unknown generic token
+    fake = _LifecycleDocker(
+        probe_rc=1,
+        probe_output=b"",
+        lifecycle_rc=1,
+        lifecycle_output=b"Error: No such object: " + b"b" * 64 + b"\n",
+    )
+    reason, _ledger = _lifecycle_reason(fake)
+    assert reason == "controller-not-ready"
+    assert len(fake.lifecycle_calls) == 1
+
+
+def test_prepare_readiness_lifecycle_transport_failures_stay_unknown() -> None:
+    # a bounded deadline timeout (already charged to the SAME
+    # ledger by the guarded executor) and a transport OSError are
+    # query failures: UNKNOWN, never absence — the original
+    # fixed-unknown generic token is preserved (no reset/refund)
+    timeout = fci._OwnedTimeout(["docker"], 60.0, b"", drained_bytes=0)
+    for exc in (timeout, OSError("synthetic query setup failure")):
+        fake = _LifecycleDocker(
+            probe_rc=1,
+            probe_output=b"",
+            lifecycle_rc=0,
+            lifecycle_output=b"",
+            lifecycle_exc=exc,
+        )
+        reason, ledger = _lifecycle_reason(fake)
+        assert reason == "controller-not-ready", exc
+        # the query was attempted honestly (one bounded call)
+        assert len(fake.lifecycle_calls) == 1
+        # the SAME ledger was charged before the failure escaped
+        # the guard (ps, create, start, exec admitted; the
+        # timeout case charges its drained total)
+        assert ledger.admissions >= 4
+        assert ledger.healthz_attempts == 0
+
+
+def test_prepare_readiness_lifecycle_non_exited_or_malformed_stays_unknown() -> None:
+    # any other status, any other output shape (missing trailing
+    # line, a second line, wrong case, non-ASCII) is the fixed
+    # unknown — never a refinement, never an invented cause
+    for output in (
+        b"running\n",
+        b"created\n",
+        b"paused\n",
+        b"exited",
+        b"EXITED\n",
+        b"exited \n",
+        b"exited\nexited\n",
+        b"\xffexited\n",
+    ):
+        fake = _LifecycleDocker(
+            probe_rc=1, probe_output=b"", lifecycle_rc=0, lifecycle_output=output
+        )
+        reason, _ledger = _lifecycle_reason(fake)
+        assert reason == "controller-not-ready", output
+        assert len(fake.lifecycle_calls) == 1
+
+
+def test_prepare_readiness_closed_probe_cause_skips_lifecycle_query() -> None:
+    # a MEASURED closed probe cause is carried as-is: the probe
+    # ran in-container, so the conditional lifecycle query is
+    # NEVER issued (the container was demonstrably alive)
+    for cause in ("health-unreachable", "uid-not-21001", "pid1-uid"):
+        line = (
+            json.dumps(
+                {
+                    "record": "slaif-fixture-ctl-probe-v1",
+                    "status": "fail",
+                    "reason": cause,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("ascii")
+        fake = _LifecycleDocker(
+            probe_rc=2, probe_output=line, lifecycle_rc=0, lifecycle_output=b"exited\n"
+        )
+        reason, _ledger = _lifecycle_reason(fake)
+        assert reason == f"controller-not-ready:{cause}"
+        assert fake.lifecycle_calls == []

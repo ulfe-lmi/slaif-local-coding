@@ -293,11 +293,44 @@ measures the scoped read BEFORE the owner finish; the terminal
 publication orderings) — over fake platform seams plus tiny exact-owned
 Python children: a useful fake proof of the named mechanisms, not one
 full sealed-real-owner end-to-end test. The actual outcome of the ONE
-authorized bounded Python-only attempt is NOT RUN at this source; it is
-bound to the tested committed literal head and its measured outcome is
-recorded in the immutable round report. No native launch, no worker
-stop, no host signal; the later serial native handoff remains a
-separately authorized order, and D09 remains `NOT RUN`.
+authorized bounded Python-only attempt RAN EXACTLY ONCE at literal
+implementation head `e5215ce1a96b4dbecdcca5157b6a21ef30a6b1da` (run
+`9fd5cf1d95924a47b8bf53e8624242a5`): a terminal FAIL at prepare-target with `controller-not-ready`, `capability` null — no complete preparation, hold, subject identity or executable result (neither a readable nor an unreadable executable was established); the admission is terminal fail and is never reset, retried or relabeled; the
+measured outcome is recorded in the immutable round report. No native
+launch, no worker stop, no host signal; the later serial native
+handoff remains a separately authorized order, and D09 remains `NOT
+RUN`.
+017-y adds the closed readiness diagnosis to that driver and the
+SECOND explicit sealed entry (order 017-y, closed record
+`slaif-017y-exec-capability-driver-v1` paired ONLY with order 017-y;
+the historical S/X entries and the consumed X namespace unchanged): on
+a nonzero bounded readiness exec, ONLY the fixed probe's own exact
+finite closed failure record refines the original `controller-not-ready`
+category (`controller-not-ready:<cause>` — the fixed measured causes
+`uid-not-21001`, `pid1-uid`, `health-unreachable`; a missing,
+malformed, multiple/duplicate, foreign, over-bound or contradictory
+output is the fixed unknown; a raw exception or Docker failure is
+never a measured cause; no raw output is ever persisted); the
+readiness failure path records NO readiness-poll count (an unmeasured
+quantity, never a claim of zero actual readiness polls); and the ONE
+conditional bounded lifecycle query (issued only when the readiness
+exec produced no closed record — exactly one allowlisted read-only
+`docker inspect` of the single finite fact `.State.Status` on the SAME
+registered CID, charged to the SAME owner ledger/END — only the closed
+line `exited` refines to `controller-not-ready:container-exited`, and
+any other status, any other output shape and EVERY query failure
+(including a bounded timeout and a transport failure) stay honestly
+unknown: a query failure is NOT absence); a retained capability record
+is valid ONLY under its canonical sealed entry (caller-created
+descriptors and cross-entry pairs are closed refusals), and the
+terminal retention/qualification propagates the entry through both the
+pass and fail paths, the matching record retained FIRST and only then
+the pass finalization. Ten focused tests were added across the three
+fixture suites (ci 224, local 50, exec_capability 38); the ONE
+separately bound 017-y attempt is bound to the tested committed
+literal head and its measured outcome is recorded in the immutable
+round report. No native launch, no worker stop, no host signal; D09
+remains `NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

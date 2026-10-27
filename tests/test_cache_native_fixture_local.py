@@ -2672,3 +2672,18 @@ def test_public_main_client_expired_anchor_refuses_before_io(
     assert record["detail"] is None
     # the refusal happened before any control IO
     assert not (control / flocal._CONTROL_SOCK_NAME).exists()
+
+
+def test_y_readiness_lifecycle_reason_closed_vocabulary() -> None:
+    # 017-y: the closed readiness-diagnosis refinements are members
+    # of the owner-evidence closed reason vocabulary; the original
+    # generic token and its relation are preserved
+    for token in (
+        "controller-not-ready",
+        "controller-not-ready:uid-not-21001",
+        "controller-not-ready:pid1-uid",
+        "controller-not-ready:health-unreachable",
+        "controller-not-ready:container-exited",
+    ):
+        assert token in flocal._CI_REASONS
+        assert token in flocal._FAILURE_REASONS

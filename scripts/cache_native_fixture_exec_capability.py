@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""The 017-x live Python executable capability driver.
+"""The sealed-entry Python executable capability driver.
 
-ONE bounded outcome (order 017-x): with a REAL finite Python-only
-fixture, determine whether the existing unprivileged host CID
-channel can measure the CURRENT executable of an actual
-UID/GID 21002 process WHILE IT IS ALIVE.  A measured
-unknown/refusal is a useful diagnostic result — never a
-native-ready or whole-017 success claim.
+Each SEALED entry is ONE bounded outcome for ONE exact order
+namespace.  The historical 017-x entry (the live Python executable
+capability, already CONSUMED by its one actual attempt) and the
+017-y entry (the closed readiness diagnosis plus the ONE separately
+bound Python-only capability attempt of order 017-y) share the SAME
+reviewed owner, ledger, END, discovery, measurement and terminal
+publication law — no second orchestration stack, no copied
+lifecycle.  A measured unknown/refusal is a useful diagnostic
+result — never a native-ready or whole-017 success claim.
 
 Closed scope:
 
@@ -124,6 +127,60 @@ FixtureError = ci.FixtureError
 ORDER_ID = "017-x"
 ORDER_PATH = "oap/orders/017-x-live-python-executable-capability.md"
 DRIVER_RECORD = "slaif-017x-exec-capability-driver-v1"
+
+
+class _SealedEntry:
+    """ONE explicit sealed entry: the exact order id, the unique
+    committed order path at the bound head and the DISTINCT closed
+    driver-record tag.  A record is paired ONLY with its entry's
+    order (the validator checks both); Y evidence is never labeled
+    X and a foreign record is never adopted as this run."""
+
+    __slots__ = ("order_id", "order_path", "record_tag")
+
+    def __init__(self, order_id: str, order_path: str, record_tag: str) -> None:
+        self.order_id = order_id
+        self.order_path = order_path
+        self.record_tag = record_tag
+
+
+# The explicit sealed entries (historical S and X semantics are
+# unchanged; 017-y is the ONE new entry of its order).
+_SEALED_ENTRIES: dict[str, _SealedEntry] = {
+    "017-x": _SealedEntry("017-x", ORDER_PATH, DRIVER_RECORD),
+    "017-y": _SealedEntry(
+        "017-y",
+        "oap/orders/017-y-readiness-diagnosis-and-executable-capability.md",
+        "slaif-017y-exec-capability-driver-v1",
+    ),
+}
+
+#: The default entry (the historical 017-x path) — every pre-017-y
+#: call site keeps its original X meaning byte-for-byte.
+_ENTRY_X = _SEALED_ENTRIES["017-x"]
+
+#: The CLOSED canonical sealed-entry triples the record/admission
+#: CONSUMERS trust.  A caller may construct arbitrary _SealedEntry
+#: fixtures (tests do), but a consumer — record validation,
+#: admission verification, terminal journal finalization — must be
+#: byte-equal to one of these known (order id, order path, record
+#: tag) triples: retention/qualification never accepts a
+#: caller-created pair expectation, and a retained record is valid
+#: only under its canonical entry.
+_CANONICAL_SEALED_TRIPLES: frozenset[tuple[str, str, str]] = frozenset(
+    (e.order_id, e.order_path, e.record_tag) for e in _SEALED_ENTRIES.values()
+)
+
+
+def _require_canonical_entry(entry: _SealedEntry) -> _SealedEntry:
+    """The closed consumer gate: the entry descriptor must be
+    byte-equal to a known canonical sealed entry; a caller-created
+    pair (any other order id, path or record tag, including a
+    known order paired with the WRONG tag) is refused."""
+    if (entry.order_id, entry.order_path, entry.record_tag) not in _CANONICAL_SEALED_TRIPLES:
+        raise FixtureError("cap-sealed-entry")
+    return entry
+
 
 #: The subject identity (the reviewed container uid/gid).
 SUBJECT_UID = model.SUBJECT_UID  # 21002
@@ -460,18 +517,21 @@ def _driver_record(
     owner_exit: int | None = None,
     evidence_sha256: str | None = None,
     capability: dict[str, object] | None = None,
+    entry: _SealedEntry = _ENTRY_X,
 ) -> dict[str, object]:
     """The driver's CLOSED result record.  The terminal composition
     adds the separate cleanup/exit/evidence/finalization FACTS
     (the ``terminal_command`` / ``evidence_state`` / ``reader_state``
     / ``finalize`` / ``retention`` keys) without ever overwriting
     the PRIMARY phase ``reason``; the closed validator below
-    accepts exactly this shape."""
+    accepts exactly this shape.  The record tag and order are
+    paired to the entry (the historical X call sites keep the X
+    entry by default, byte-for-byte)."""
     return {
-        "record": DRIVER_RECORD,
+        "record": entry.record_tag,
         "status": status,
         "reason": reason,
-        "order": ORDER_ID,
+        "order": entry.order_id,
         "bind_head": bind_head,
         "run_id": run_id,
         "owner_exit": owner_exit,
@@ -486,7 +546,7 @@ def _driver_record(
     }
 
 
-def _validate_capability_record(record: object) -> None:
+def _validate_capability_record(record: object, entry: _SealedEntry = _ENTRY_X) -> None:
     """The closed capability-record grammar (the retained record is
     closed, not free-form): the exact key set, the fixed tags and
     grammars, and the process/executable STATE COHERENCE (a
@@ -495,6 +555,10 @@ def _validate_capability_record(record: object) -> None:
     process identity implies an observed subject).  Retention
     refuses any record outside this grammar — never a weaker
     schema."""
+    # the CLOSED consumer gate FIRST: a caller-created entry
+    # descriptor (any non-canonical order/path/tag triple) is
+    # refused before any field is trusted
+    _require_canonical_entry(entry)
     if not isinstance(record, dict):
         raise FixtureError("cap-record-schema")
     expected = {
@@ -516,9 +580,9 @@ def _validate_capability_record(record: object) -> None:
     }
     if (
         set(record) != expected
-        or record["record"] != DRIVER_RECORD
+        or record["record"] != entry.record_tag
         or record["status"] not in ("pass", "fail")
-        or record["order"] != ORDER_ID
+        or record["order"] != entry.order_id
         or not isinstance(record["bind_head"], str)
         or re.fullmatch(r"[0-9a-f]{40}", record["bind_head"]) is None
         or (
@@ -694,8 +758,11 @@ def build_channel(cid: str, remaining: float) -> fp.CidScopedTable:
     )
 
 
-def _retain_record(record: dict[str, object], record_out: Path) -> None:
-    """The protected capability-record retention: the closed
+def _retain_record(
+    record: dict[str, object], record_out: Path, entry: _SealedEntry = _ENTRY_X
+) -> None:
+    """The protected capability-record retention for the SEALED
+    entry: the closed
     record grammar is validated FIRST, then the reviewed
     protected-path/atomic-no-overwrite publisher is REUSED as the
     single implementation (ancestors validated as given — no
@@ -714,13 +781,18 @@ def _retain_record(record: dict[str, object], record_out: Path) -> None:
     any launch (the retained record must outlive the scratch
     root), so the publisher here sees only destinations outside
     the work root."""
-    _validate_capability_record(record)
+    # the record's tag/order are validated AGAINST the entry
+    # (the gate refuses a caller-created descriptor FIRST); the
+    # historical X call sites keep the X entry by default
+    _validate_capability_record(record, entry)
     payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
     digest = hashlib.sha256(payload).hexdigest()
     ci._retain_evidence(record_out, payload, digest)
 
 
-def _verify_bound_admission(repo: Path, bind_head: str, run_id: str) -> None:
+def _verify_bound_admission(
+    repo: Path, bind_head: str, run_id: str, entry: _SealedEntry = _ENTRY_X
+) -> None:
     """The driver's binding verification (VERIFICATION, never
     adoption): the sealed child owns resolve+admit — the
     driver's closed protected reads must agree that the owner's
@@ -729,7 +801,8 @@ def _verify_bound_admission(repo: Path, bind_head: str, run_id: str) -> None:
     missing, foreign, terminal, or an extra attempt — is a
     closed refusal: an arbitrary running journal entry is never
     adopted, no run id is replaced, and no admission is weakened."""
-    record = oap_binding.read_admission_record(repo, ORDER_ID)
+    _require_canonical_entry(entry)
+    record = oap_binding.read_admission_record(repo, entry.order_id)
     attempts = record["attempts"]
     if (
         len(attempts) != 1
@@ -750,8 +823,11 @@ def run_exec_capability(
     channel_factory: Callable[[str, float], fp.CidScopedTable] | None = None,
     proc_root: Path | None = None,
     record_out: Path | None = None,
+    entry: _SealedEntry = _ENTRY_X,
 ) -> dict[str, object]:
-    """The ONE bounded 017-x capability experiment: SEALED-launch
+    """The ONE bounded capability experiment of the sealed entry
+    (the historical 017-x entry by default; 017-y under its own
+    entry): SEALED-launch
     the bound owner (the child owns resolve+admit of the order's
     ONE attempt), verify the closed protected outputs, then drive
     prepare -> hold -> finish with the host-side bounded exact-CID
@@ -769,6 +845,11 @@ def run_exec_capability(
     evidence_out = Path(evidence_out)
     root = Path(proc_root) if proc_root is not None else Path("/proc")
     factory = channel_factory if channel_factory is not None else build_channel
+    # the CLOSED consumer gate at the public entry: a caller-created
+    # pair expectation is refused BEFORE any launch, command or
+    # mutation (the factory may construct fixtures; the driver never
+    # adopts them)
+    _require_canonical_entry(entry)
 
     # -- the capability-record destination (read-only preflight) --
     # The retained record must OUTLIVE the disposable work root: a
@@ -794,7 +875,9 @@ def run_exec_capability(
         except ValueError:
             pass
         else:
-            return _driver_record("fail", "record-out-inside-work", bind_head=bind_head)
+            return _driver_record(
+                "fail", "record-out-inside-work", bind_head=bind_head, entry=entry
+            )
 
     # -- the fresh protected bootstrap (startup authority, layer 1) --
     # The control root is owned by THIS run's sealed child: the
@@ -803,7 +886,7 @@ def run_exec_capability(
     # never adopted: no child is launched, no command is issued,
     # no journal entry is mutated.
     if control_dir.exists() or control_dir.is_symlink():
-        return _driver_record("fail", "local-control-exists", bind_head=bind_head)
+        return _driver_record("fail", "local-control-exists", bind_head=bind_head, entry=entry)
 
     # -- the sealed owner launch (the same independence law) ------------------
     argv = flocal._owner_argv(
@@ -813,7 +896,10 @@ def run_exec_capability(
         work,
         control_dir,
         evidence_out,
-        order=flocal.X_ORDER_ID,
+        # The SEALED entry's order id: the historical 017-x entry
+        # keeps the 017-x sealed child; 017-y admits in its OWN
+        # distinct namespace (no adoption of the consumed X one).
+        order=entry.order_id,
     )
     captured: bytearray = bytearray()
     captured_total = 0
@@ -832,7 +918,7 @@ def run_exec_capability(
             start_new_session=True,
         )
     except OSError:
-        return _driver_record("fail", "local-driver-launch", bind_head=bind_head)
+        return _driver_record("fail", "local-driver-launch", bind_head=bind_head, entry=entry)
 
     def _capture() -> None:
         nonlocal captured_total
@@ -874,7 +960,12 @@ def run_exec_capability(
     def _startup_record(reason: str, owner_exit: int | None) -> dict[str, object]:
         settled = _settled()
         record = _driver_record(
-            "fail", reason, bind_head=bind_head, run_id=None, owner_exit=owner_exit
+            "fail",
+            reason,
+            bind_head=bind_head,
+            run_id=None,
+            owner_exit=owner_exit,
+            entry=entry,
         )
         # the ACTUAL reader state (the bounded settle did drain the
         # output when the child exited; a still-running child leaves
@@ -945,7 +1036,7 @@ def run_exec_capability(
     # (the sealed child minted and admitted it; the driver only
     # verifies the closed protected outputs).
     try:
-        _verify_bound_admission(repo, bind_head, run_id)
+        _verify_bound_admission(repo, bind_head, run_id, entry)
     except FixtureError as exc:
         return _startup_record(str(exc), _reap_bounded())
     if proc.poll() is None:
@@ -1150,7 +1241,12 @@ def run_exec_capability(
     except FixtureError as exc:
         reason = str(exc)
         record = _driver_record(
-            "fail", reason, bind_head=bind_head, run_id=run_id, capability=capability
+            "fail",
+            reason,
+            bind_head=bind_head,
+            run_id=run_id,
+            capability=capability,
+            entry=entry,
         )
         # The owner's OWN bounded terminal command (never a host
         # signal): a capability-phase failure before the finish
@@ -1170,10 +1266,13 @@ def run_exec_capability(
             abort=not finish_issued,
             finalize_pass=False,
             capture_state=lambda: capture_state_box[0],
+            entry=entry,
         )
 
     # -- the truthful closed conclusion (determination in ``capability``) -----
-    record = _driver_record("pass", None, bind_head=bind_head, run_id=run_id, capability=capability)
+    record = _driver_record(
+        "pass", None, bind_head=bind_head, run_id=run_id, capability=capability, entry=entry
+    )
     return _terminal(
         repo,
         proc,
@@ -1187,6 +1286,7 @@ def run_exec_capability(
         abort=False,
         finalize_pass=True,
         capture_state=lambda: capture_state_box[0],
+        entry=entry,
     )
 
 
@@ -1204,6 +1304,7 @@ def _terminal(
     abort: bool,
     finalize_pass: bool,
     capture_state: str | Callable[[], str] = "drained",
+    entry: _SealedEntry = _ENTRY_X,
 ) -> dict[str, object]:
     """The driver's terminal composition on the SAME one END+grace
     anchor, as ONE coherent ordered transition:
@@ -1247,6 +1348,11 @@ def _terminal(
        terminal finalization (an unverified token never returns a
        qualified success).  An already-exited distinction never
        authorizes a pass over missing or unverified evidence."""
+    # the CLOSED consumer gate BEFORE any terminal journal write:
+    # finalization/retention never accepts a caller-created pair
+    # expectation (a foreign order id would mint a foreign journal
+    # entry)
+    _require_canonical_entry(entry)
     # -- 1. the terminal command is issued FIRST (before any join) --
     terminal_command = "none"
     if abort and patience_abs - time.monotonic() > 0:
@@ -1311,7 +1417,7 @@ def _terminal(
                 raise FixtureError("local-driver-evidence")
             flocal.validate_native_owner_run_evidence(evidence)
             if (
-                evidence.get("order") != ORDER_ID
+                evidence.get("order") != entry.order_id
                 or str(evidence.get("run_id")) != str(run_id)
                 or evidence.get("bind_head") != record.get("bind_head")
             ):
@@ -1372,7 +1478,7 @@ def _terminal(
             qualified = False
         else:
             try:
-                _retain_record(record, record_out)
+                _retain_record(record, record_out, entry)
                 record["retention"] = "retained"
             except FixtureError:
                 record["retention"] = "refused"
@@ -1380,7 +1486,7 @@ def _terminal(
                 qualified = False
         if qualified:
             try:
-                token = oap_binding.record_order_attempt(repo, ORDER_ID, run_id, "pass")
+                token = oap_binding.record_order_attempt(repo, entry.order_id, run_id, "pass")
             except (FixtureError, OSError):
                 token = "failed"
             record["finalize"] = token
@@ -1406,7 +1512,7 @@ def _terminal(
     )
     if record["status"] == "fail" and not post_retention_unverified:
         try:
-            token = oap_binding.record_order_attempt(repo, ORDER_ID, run_id, "fail")
+            token = oap_binding.record_order_attempt(repo, entry.order_id, run_id, "fail")
         except (FixtureError, OSError):
             token = "failed"
         if record["finalize"] == "not-attempted":
@@ -1417,7 +1523,7 @@ def _terminal(
         and record["retention"] == "not-requested"
     ):
         try:
-            _retain_record(record, record_out)
+            _retain_record(record, record_out, entry)
             record["retention"] = "retained"
         except FixtureError:
             record["retention"] = "refused"
@@ -1428,7 +1534,8 @@ def _terminal(
 def main(argv: list[str] | None = None) -> int:
     """The driver's THIN public entry: ONE closed subcommand
     (``capability``) with the EXPLICIT opt-in (the bound order id
-    must be ``017-x``), the exact active/order/literal-head
+    must be a SEALED ENTRY id — the historical ``017-x`` or the
+    new ``017-y``), the exact active/order/literal-head
     binding and the closed result record printed as the single
     stdout line.  This is not a general command runner: no other
     subcommand, flag or value form is accepted."""
@@ -1437,7 +1544,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("capability")
-    p.add_argument("--order", help="the bound order id (must be 017-x)")
+    p.add_argument(
+        "--order",
+        help="the bound order id (a sealed entry: 017-x or 017-y)",
+    )
     p.add_argument("--bind-head", help="literal 40-hex source head")
     p.add_argument("--repo", help="repository checkout root")
     p.add_argument("--work", help="fresh owned disposable work root")
@@ -1450,9 +1560,10 @@ def main(argv: list[str] | None = None) -> int:
         "destination)",
     )
     args = parser.parse_args(argv)
+    entry = _SEALED_ENTRIES.get(args.order or "", _ENTRY_X)
     if (
         args.command != "capability"
-        or args.order != ORDER_ID
+        or args.order not in _SEALED_ENTRIES
         or not args.bind_head
         or not args.repo
         or not args.work
@@ -1462,7 +1573,7 @@ def main(argv: list[str] | None = None) -> int:
     ):
         print(
             json.dumps(
-                _driver_record("fail", "local-args-invalid", bind_head="0" * 40),
+                _driver_record("fail", "local-args-invalid", bind_head="0" * 40, entry=entry),
                 sort_keys=True,
             )
         )
@@ -1475,13 +1586,14 @@ def main(argv: list[str] | None = None) -> int:
             args.control_dir,
             args.evidence_out,
             record_out=Path(args.record_out),
+            entry=entry,
         )
     except KeyboardInterrupt:
-        summary = _driver_record("fail", "cancelled", bind_head=args.bind_head)
+        summary = _driver_record("fail", "cancelled", bind_head=args.bind_head, entry=entry)
     except FixtureError as exc:
-        summary = _driver_record("fail", str(exc), bind_head=args.bind_head)
+        summary = _driver_record("fail", str(exc), bind_head=args.bind_head, entry=entry)
     except Exception:
-        summary = _driver_record("fail", "internal", bind_head=args.bind_head)
+        summary = _driver_record("fail", "internal", bind_head=args.bind_head, entry=entry)
     print(json.dumps(summary, sort_keys=True))
     return 0 if summary["status"] == "pass" else 1
 

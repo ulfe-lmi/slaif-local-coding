@@ -143,6 +143,15 @@ ACTIVE_EXPECTED = b"017-s\n"
 # a constructor failure AFTER the won admission closes the SAME
 # attempt honestly).
 X_ORDER_ID = "017-x"
+# The 017-y capability order: the SECOND explicit sealed entry
+# (order 017-y readiness diagnosis and one separately bound
+# Python-only capability attempt).  Its SEALED child owns
+# resolve+admit ONCE in the DISTINCT 017-y namespace before any
+# external work; the historical S rehearsal and the CONSUMED 017-x
+# entry/namespace/records are unchanged and never adopted.  The
+# owner mechanism, ledger, END and publication law are the SAME
+# reviewed ones (no second orchestration stack).
+Y_ORDER_ID = "017-y"
 # The R CI-measured built-image identity (immutable R report fact at
 # 2ce9dcd): the local rebuild records whether it matches.
 R_CI_IMAGE_ID = "sha256:331e1a70ec585f6fb1494c8486faf77fb1e624cf5f0f5765f7c5bab83a92de94"
@@ -355,6 +364,26 @@ _CI_REASONS = frozenset(
         "container-namespace-untrusted",
         "start-failed",
         "controller-not-ready",
+        # 017-y closed readiness-diagnosis REFINEMENTS of the
+        # controller-not-ready category: the ONLY closed facts the
+        # fixed in-container readiness probe can measure on a
+        # nonzero bounded readiness exec.  A missing/malformed/
+        # duplicate/foreign/over-bound/contradictory probe output
+        # keeps the original generic token (the fixed unknown);
+        # these never widen the success schema or the confinement
+        # law, and the original token keeps its original meaning.
+        "controller-not-ready:uid-not-21001",
+        "controller-not-ready:pid1-uid",
+        "controller-not-ready:health-unreachable",
+        # 017-y closed readiness-diagnosis lifecycle REFINEMENT:
+        # a nonzero readiness exec without the probe's closed
+        # record is followed by the ONE conditional bounded
+        # allowlisted query of the SAME registered CID
+        # (.State.Status only); exactly the closed ``exited``
+        # line refines the category.  Any other status, any
+        # other shape and every query failure (query failure is
+        # NOT absence) keep the original generic token.
+        "controller-not-ready:container-exited",
         "controller-measurement-mismatch",
         "inspect-mismatch:{{.HostConfig.LogConfig.Type}}",
         "inspect-mismatch:{{.Config.User}}",
@@ -4169,7 +4198,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command in ("owner", "rehearsal"):
         if (
-            args.order not in (ORDER_ID, X_ORDER_ID)
+            args.order not in (ORDER_ID, X_ORDER_ID, Y_ORDER_ID)
             or not args.bind_head
             or not args.repo
             or not args.work

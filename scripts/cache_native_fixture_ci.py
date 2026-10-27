@@ -244,6 +244,66 @@ EXPECTED_CTL_PROBE = {
 _SC_FACTS: dict[str, dict[str, object]] = {}
 _SC_EXPORT: dict[str, object] = {}
 _SC_TEARDOWN: dict[str, object] = {}
+
+
+# The closed readiness DIAGNOSIS (order 017-y): on a nonzero
+# bounded readiness exec, carry ONLY the probe's own exact finite
+# closed failure record — if and only if it is exactly one
+# fixed-shape record with one of the probe's fixed measured
+# causes — as a REFINEMENT of the original ``controller-not-ready``
+# category (``controller-not-ready:<cause>``).  Every other shape
+# (missing, malformed, multiple/duplicate, foreign, over-bound or
+# contradictory) stays the fixed UNKNOWN: the original generic
+# token.  No raw output is ever persisted or propagated; the scan
+# is in-memory over the already-captured bounded bytes, exactly
+# like the stand-in fail-token channel.
+def _controller_probe_fail_reason(output: bytes) -> str | None:
+    """The ONE closed controller-readiness failure record on a
+    nonzero bounded readiness exec (order 017-y).  The ENTIRE
+    bounded output must be EXACTLY ONE complete strict record:
+    strict ASCII, exactly one line, a strict JSON object (duplicate
+    keys refused) with exactly the probe's closed fail key set, the
+    fixed probe tag, a fail status and one of the probe's fixed
+    measured causes.  Anything less or more — a raw prefix/suffix,
+    any extra line (malformed, foreign, contradictory or duplicate
+    record), non-ASCII bytes, an unknown reason, or a non-fail
+    status — is the fixed UNKNOWN: the caller keeps the original
+    generic ``controller-not-ready``.  No line is skipped or
+    trusted in isolation; the scan is in-memory over the
+    already-captured bounded bytes, and no raw output is ever
+    persisted or propagated."""
+    try:
+        text = output.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    if not text.endswith("\n") or "\n" in text[:-1] or not text[:-1]:
+        return None
+
+    def _reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        seen: set[str] = set()
+        for key, _value in pairs:
+            if key in seen:
+                raise ValueError("duplicate key")
+            seen.add(key)
+        return dict(pairs)
+
+    try:
+        obj = json.loads(text[:-1], object_pairs_hook=_reject_duplicate_keys)
+    except ValueError:
+        return None
+    if (
+        not isinstance(obj, dict)
+        or set(obj) != {"record", "status", "reason"}
+        or obj.get("record") != "slaif-fixture-ctl-probe-v1"
+        or obj.get("status") != "fail"
+    ):
+        return None
+    reason = obj.get("reason")
+    if isinstance(reason, str) and reason in ("uid-not-21001", "pid1-uid", "health-unreachable"):
+        return reason
+    return None
+
+
 # Fixed in-container probe (executed as 21001, argv-based python -c;
 # emits exactly one closed JSON line, no raw content).
 CONTROLLER_PROBE = r"""
@@ -620,6 +680,13 @@ _INSPECT_FORMATS = frozenset(
         "{{.Id}}",
         "{{.HostConfig.LogConfig.Type}}",
         "{{.Config.User}}",
+        # the closed readiness diagnosis (017-y): the single
+        # finite lifecycle fact selected by the ONE conditional
+        # bounded query of the SAME registered CID after a
+        # nonzero readiness exec without the probe's closed
+        # failure record (the .State.Status line only — never
+        # the full State object, its exit code or any log)
+        "{{.State.Status}}",
     }
 )
 # The engine preflight's closed query vocabulary (exact operation
@@ -2144,6 +2211,20 @@ def _controller_ready(executor: Executor, container_id: str, ledger: _RunLedger)
     existence of every denied target) must match EXACTLY."""
     result = _exec(executor, container_id, CONTROLLER_UID, ["python3", "-c", CONTROLLER_PROBE], {})
     if result.returncode != 0:
+        # Closed readiness diagnosis (017-y): the only closed fact
+        # carried from a nonzero readiness exec is the probe's own
+        # exact finite closed failure record, as a REFINEMENT of the
+        # original controller-not-ready category; anything else is
+        # the fixed unknown (the original generic token).  The
+        # readiness request/time/output already charged the SAME
+        # ledger and END above; a raw exception or Docker failure is
+        # not one of the measured causes.
+        # The failure path records NO healthz count — that is an
+        # unrecorded quantity, never a claim of zero actual
+        # readiness requests.
+        cause = _controller_probe_fail_reason(result.output)
+        if cause is not None:
+            raise FixtureError(f"controller-not-ready:{cause}")
         raise FixtureError("controller-not-ready")
     record = _parse_closed_record(result.output)
     # The closed static object must match EXACTLY; the readiness
@@ -2164,6 +2245,58 @@ def _controller_ready(executor: Executor, container_id: str, ledger: _RunLedger)
         raise FixtureError("controller-measurement-mismatch")
     ledger.charge_healthz(attempts)
     return attempts
+
+
+#: The single finite lifecycle fact selected by the closed
+#: readiness diagnosis (017-y): the container's own
+#: ``.State.Status`` line (never the full State object).
+_LIFECYCLE_STATUS_FORMAT = "{{.State.Status}}"
+
+
+def _controller_lifecycle_exited(executor: Executor, container_id: str) -> bool | None:
+    """The ONE conditional bounded lifecycle query of the closed
+    readiness diagnosis (order 017-y): issued ONLY after a
+    nonzero bounded readiness exec whose output is NOT the
+    probe's exact closed failure record (the probe may have
+    failed before it ran, e.g. the container already exited).
+    Exactly one allowlisted read-only ``docker inspect`` of the
+    SAME already-registered CID selects the single finite fact
+    ``.State.Status`` — no raw logs, no error text, no full
+    State export, no broad process/container listing, no
+    subject/PID oracle.  It runs through the SAME guarded
+    executor, so the SAME owner ledger charges the admission
+    before the work and the output after, clamped by the SAME
+    bounded query deadline of the run's END.  Honest
+    interpretation: exactly the closed line ``exited`` is the
+    finite selected fact (True); any other status, any other
+    output shape and EVERY query failure (a nonzero exit, an
+    over-bound or unparseable output, a bounded ``_OwnedTimeout``
+    — already charged to the SAME ledger by the guarded executor
+    before it is re-raised — and a transport ``OSError``) is
+    UNKNOWN (None) — query failure is NOT absence, the SAME
+    ledger/END charges are preserved with no reset or refund, and
+    the caller keeps the original fixed-unknown generic
+    ``controller-not-ready`` token (its first cause is preserved,
+    never erased).  Only these concrete query failures are
+    closed; KeyboardInterrupt and other cancellation are NOT
+    caught here and propagate unchanged."""
+    try:
+        raw = _query(
+            executor,
+            ["docker", "inspect", "--format", _LIFECYCLE_STATUS_FORMAT, container_id],
+        )
+    except FixtureError:
+        return None
+    except (_OwnedTimeout, OSError):
+        # a bounded deadline timeout (charged already) or a
+        # transport failure: the query outcome is UNKNOWN — the
+        # original readiness cause is preserved by the caller
+        return None
+    try:
+        text = raw.decode("ascii")
+    except UnicodeDecodeError:
+        return None
+    return text == "exited\n"
 
 
 def _inspect_closed(executor: Executor, container_id: str, field: str, expected: str) -> None:
@@ -2441,7 +2574,27 @@ def prepare_container(
     if on_registered is not None:
         on_registered(cid)
     _start_container(executor, cid)
-    _controller_ready(executor, cid, ledger)
+    try:
+        _controller_ready(executor, cid, ledger)
+    except FixtureError as exc:
+        # Closed readiness diagnosis (order 017-y): when the
+        # nonzero readiness exec produced NO closed probe record
+        # (the fixed unknown — the probe may never have run, e.g.
+        # the container already exited), exactly ONE conditional
+        # bounded lifecycle query of the SAME registered CID
+        # selects the single finite fact (.State.Status) and
+        # refines the original category.  A measured closed
+        # probe cause, any other status, any other output shape
+        # and every query failure (query failure is NOT absence)
+        # keep the original fixed-unknown token; the actual
+        # first cause is preserved through abort/cleanup/
+        # publication.  No raw output is ever persisted.
+        if (
+            str(exc) == "controller-not-ready"
+            and _controller_lifecycle_exited(executor, cid) is True
+        ):
+            raise FixtureError("controller-not-ready:container-exited") from exc
+        raise
     return cid
 
 

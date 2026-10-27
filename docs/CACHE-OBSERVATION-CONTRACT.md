@@ -1279,7 +1279,26 @@ timed-out capture is charged its measured drained total before the
 scenario consumes the timeout, so a hang emitting discarded output
 cannot skip the output budget; provider requests that received a
 response — a refused call is still a request — vs client wire
-attempts vs admitted/refused outcomes vs readiness polling); each
+attempts vs admitted/refused outcomes vs readiness polling); a
+readiness FAILURE records no readiness-poll count at all — that
+is an UNMEASURED quantity and is never to be read as a claim of
+zero actual readiness polls (any count that is reported is
+measured, strictly typed and bounded by the probe's own closed
+window); and when a nonzero bounded readiness exec produces no
+closed probe failure record, the closed readiness diagnosis
+(017-y) may issue the ONE conditional bounded read-only
+lifecycle query of the SAME already-registered CID (exactly one
+allowlisted `docker inspect` selecting the single finite fact
+`.State.Status` — never the full State object, logs or any
+listing), which is charged to this same ledger and clamped by
+this same deadline before and after the work: only the closed
+line `exited` refines the original `controller-not-ready`
+category (`controller-not-ready:container-exited`), and any
+other status, any other output shape and every query failure
+(including a bounded timeout and a transport failure) stay
+honestly UNKNOWN — a query failure is NOT absence and the
+original fixed-unknown cause is preserved through
+abort/cleanup/publication); each
 scenario's closed worst-case wire bound is checked against the
 REMAINING budgets by a sequential PRE-WORK bound check before its
 work may start (the check compares the current counters plus the
@@ -2526,10 +2545,41 @@ end-to-end test. Pure/fake platform seams plus tiny exact-owned Python
 children (each exact-owned child is cleaned up by the test's own bounded
 cleanup if still alive; no signal to any real worker, Bash group or
 unrelated process; no container of any kind). The actual outcome of the
-ONE authorized attempt is NOT RUN at this source; it is bound to the
-tested committed literal head and recorded in the immutable round
-report; no native launch, no worker stop, no host signal; D09 remains
-NOT RUN; no v1 runtime claim.
+ONE authorized attempt RAN EXACTLY ONCE at literal implementation
+head `e5215ce1a96b4dbecdcca5157b6a21ef30a6b1da` (run
+`9fd5cf1d95924a47b8bf53e8624242a5`): a terminal FAIL at prepare-target with `controller-not-ready`, `capability` null — no complete preparation, hold, subject identity or executable result (neither a readable nor an unreadable executable was established); the admission is terminal fail and is never reset, retried or relabeled; the
+measured outcome is recorded in the immutable round report. Round
+017-y adds the closed readiness diagnosis and the second explicit
+sealed entry (order 017-y, record `slaif-017y-exec-capability-driver-v1`
+paired ONLY with order 017-y; the historical S/X entries unchanged):
+on a nonzero bounded readiness exec, ONLY the fixed probe's own exact
+finite closed failure record refines the original `controller-not-ready`
+category (`controller-not-ready:<cause>`; the fixed measured causes
+`uid-not-21001`, `pid1-uid`, `health-unreachable`; a missing,
+malformed, multiple/duplicate, foreign, over-bound or contradictory
+output is the fixed unknown; a raw exception or Docker failure is
+never a measured cause; no raw output is ever persisted); the
+readiness failure path records NO readiness-poll count (an unmeasured
+quantity, never a claim of zero actual readiness polls — see the
+ledger quantity law above); and the ONE conditional bounded lifecycle
+query (only when the readiness exec produced no closed record: exactly
+one allowlisted read-only `docker inspect` of the single finite fact
+`.State.Status` on the SAME registered CID, charged to the SAME owner
+ledger/END — only the closed line `exited` refines to
+`controller-not-ready:container-exited`, and any other status, any
+other output shape and EVERY query failure (including a bounded
+timeout and a transport failure) stay honestly unknown — a query
+failure is NOT absence); a retained capability record is valid ONLY
+under its canonical sealed entry (caller-created descriptors and
+cross-entry pairs are closed refusals), and the terminal
+retention/qualification propagates the entry through both the pass
+and fail paths, the matching record retained FIRST and only then the
+pass finalization. Ten focused tests were added across the three
+fixture suites (ci 224, local 50, exec_capability 38); the ONE
+separately bound 017-y attempt is bound to the tested committed
+literal head and its measured outcome is recorded in the immutable
+round report; no native launch, no worker stop, no host signal; D09
+remains NOT RUN; no v1 runtime claim.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 

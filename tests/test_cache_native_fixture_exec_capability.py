@@ -33,6 +33,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO_ROOT / "scripts"
 X_ORDER_ID = "017-x"
 X_ORDER_NAME = "017-x-live-python-executable-capability.md"
+# the 017-y sealed entry (the closed readiness diagnosis plus the
+# ONE separately bound Python-only capability attempt of order
+# 017-y; the historical X entry/namespace/records are unchanged)
+Y_ORDER_ID = "017-y"
 SUBJECT = 21002
 CID = "f" * 64
 TOKEN = "1" * 32
@@ -603,15 +607,17 @@ def test_numeric_hold_token_never_coerced() -> None:
         flocal._validate_control_response(response(b"1" * 32), "hold")
 
 
-def _x_git_fixture(base: Path) -> tuple[Path, str]:
-    """A REAL synthetic git repository committing the X order:
-    actual git history so the public CLI's real read-only git
-    path (never a fake runner) verifies the bound literal head,
-    the committed active and the unique committed order bytes.
-    The S-shaped checkout content (the fixture sources, the
-    Dockerfile and the CI workflow) is copied and committed too,
-    exactly as the S synthetic repository carries it; the stable
-    admission namespace is excluded from git status."""
+def _sealed_git_fixture(base: Path, order: str, order_bytes: bytes) -> tuple[Path, str]:
+    """A REAL synthetic git repository committing the SEALED
+    ENTRY's order: actual git history so the public CLI's real
+    read-only git path (never a fake runner) verifies the bound
+    literal head, the committed active and the unique committed
+    order bytes.  The S-shaped checkout content (the fixture
+    sources, the Dockerfile and the CI workflow) is copied and
+    committed too, exactly as the S synthetic repository carries
+    it; the stable admission namespace is excluded from git
+    status.  Exactly ONE order file of the entry's pattern is
+    committed, so the real resolver's uniqueness check holds."""
     root = base / "repo"
     root.mkdir(parents=True)
 
@@ -640,16 +646,18 @@ def _x_git_fixture(base: Path) -> tuple[Path, str]:
         (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_bytes()
     )
     # the S-shaped committed context: the historical S order plus
-    # the unique X order, with oap/active selecting 017-x
+    # the unique sealed-entry order, with oap/active selecting
+    # that entry's order id
+    order_name = Path(fxc._SEALED_ENTRIES[order].order_path).name
     (root / "oap" / "orders").mkdir(parents=True)
     (root / "oap" / "orders" / S_ORDER_NAME).write_bytes(stl.ORDER_PATH.read_bytes())
-    (root / "oap" / "orders" / X_ORDER_NAME).write_bytes(b"# synthetic X order (fake seam only)\n")
-    (root / "oap" / "active").write_bytes(X_ORDER_ID.encode("ascii") + b"\n")
+    (root / "oap" / "orders" / order_name).write_bytes(order_bytes)
+    (root / "oap" / "active").write_bytes(order.encode("ascii") + b"\n")
     git(
         "add",
         "oap/active",
         f"oap/orders/{S_ORDER_NAME}",
-        f"oap/orders/{X_ORDER_NAME}",
+        f"oap/orders/{order_name}",
     )
     git("add", "scripts", "Dockerfile", ".github")
     git(
@@ -665,6 +673,20 @@ def _x_git_fixture(base: Path) -> tuple[Path, str]:
     )
     head = git("rev-parse", "HEAD").decode("ascii").strip()
     return root, head
+
+
+def _x_git_fixture(base: Path) -> tuple[Path, str]:
+    """The historical 017-x sealed-entry repository fixture (the
+    exact original synthetic order content, byte-for-byte)."""
+    return _sealed_git_fixture(base, X_ORDER_ID, b"# synthetic X order (fake seam only)\n")
+
+
+def _y_git_fixture(base: Path) -> tuple[Path, str]:
+    """The 017-y sealed-entry repository fixture (the unique
+    committed 017-y order, oap/active selecting 017-y; the
+    historical X order is NOT committed, so no X namespace
+    exists in this synthetic repository at all)."""
+    return _sealed_git_fixture(base, Y_ORDER_ID, b"# synthetic 017-y order (fake seam only)\n")
 
 
 def test_public_cli_child_owned_resolve_admit(
@@ -976,20 +998,27 @@ class _ErrStream:
 
 
 def _journal(repo: Path) -> list[dict[str, Any]]:
-    record = fb.read_admission_record(repo, X_ORDER_ID)
+    return _journal_for(repo, X_ORDER_ID)
+
+
+def _journal_for(repo: Path, order: str) -> list[dict[str, Any]]:
+    record = fb.read_admission_record(repo, order)
     attempts: list[dict[str, Any]] = record["attempts"]
     return attempts
 
 
-def _stage1_owner_pass(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+def _stage1_owner_pass_entry(
+    base: Path, monkeypatch: pytest.MonkeyPatch, order: str
+) -> dict[str, Any]:
     """Stage 1 (scripted unit): the REAL owner over the fake
     platform converges to a pass and retains its bound native
-    evidence; the bound attempt is left RUNNING for the driver's
-    terminal finalization (the distinct native law).  Bounded
-    exact-owned convergence on every path (pass or fail)."""
-    repo, head = _x_git_fixture(base)
-    binding = fb.resolve_order_binding(repo, X_ORDER_ID, head)
-    fb.admit_order_attempt(repo, X_ORDER_ID, binding)
+    evidence in the SEALED ENTRY's namespace; the bound attempt
+    is left RUNNING for the driver's terminal finalization (the
+    distinct native law).  Bounded exact-owned convergence on
+    every path (pass or fail)."""
+    repo, head = (_x_git_fixture if order == X_ORDER_ID else _y_git_fixture)(base)
+    binding = fb.resolve_order_binding(repo, order, head)
+    fb.admit_order_attempt(repo, order, binding)
     run_id = binding.run_id
     world = _World()
     docker = XFakeDocker(world)
@@ -1026,7 +1055,7 @@ def _stage1_owner_pass(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str,
     finally:
         _join_owner(thread, control=control, run_id=run_id)
     assert owner.terminal_outcome == "pass"
-    assert _journal(repo) == [{"head": head, "run_id": run_id, "status": "running"}]
+    assert _journal_for(repo, order) == [{"head": head, "run_id": run_id, "status": "running"}]
     return {
         "repo": repo,
         "head": head,
@@ -1036,6 +1065,11 @@ def _stage1_owner_pass(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str,
         "state_bytes": state_bytes,
         "world": world,
     }
+
+
+def _stage1_owner_pass(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """The historical 017-x stage 1 (the original X entry)."""
+    return _stage1_owner_pass_entry(base, monkeypatch, X_ORDER_ID)
 
 
 def _driver_run(
@@ -1050,6 +1084,7 @@ def _driver_run(
     err_stream: bool = False,
     bootstrap_state: dict[str, Any] | None = None,
     child_bootstraps: bool = True,
+    entry_order: str = X_ORDER_ID,
 ) -> dict[str, Any]:
     """Stage 2 (scripted unit): the REAL driver over the fake
     platform.  The fake sealed child is a real exact-owned process
@@ -1062,7 +1097,8 @@ def _driver_run(
     state with the child's own pid (the real owner does this in
     the child itself).  The exact-owned test child is reaped by
     this helper on every path (never name-matched, never
-    signalled)."""
+    signalled).  ``entry_order`` selects the SEALED entry the
+    driver runs under (the historical 017-x entry by default)."""
     base.mkdir(parents=True, exist_ok=True)
     os.chmod(base, 0o700)  # the protected record-parent root
     control = base / "control"
@@ -1078,7 +1114,7 @@ def _driver_run(
     factory_calls: list[tuple[str, float]] = []
 
     def fake_popen(argv: list[str], **kwargs: Any) -> Any:
-        assert "owner" in argv and X_ORDER_ID in argv
+        assert "owner" in argv and entry_order in argv
         assert kwargs.get("start_new_session") is True
         env = dict(os.environ)
         env["X_ABORT_FLAG"] = str(converge_flag)
@@ -1138,6 +1174,7 @@ def _driver_run(
             channel_factory=factory,
             proc_root=proc_root,
             record_out=record_out,
+            entry=fxc._SEALED_ENTRIES[entry_order],
         )
         elapsed = time.monotonic() - started
     finally:
@@ -2644,3 +2681,217 @@ def test_driver_record_out_inside_work_refused_before_launch(
         assert record["reason"] == "record-out-inside-work"
         assert not (base / "control").exists()  # no bootstrap surface
         assert not (base / "work").exists()  # no scratch root created
+
+
+# ---------------------------------------------------------------------------
+# 017-y sealed entry: the DISTINCT namespace of the closed readiness
+# diagnosis plus the ONE separately bound Python-only capability
+# attempt.  The historical X entry/namespace/records are unchanged;
+# Y evidence is never labeled X and a foreign record is never
+# adopted as this run.
+# ---------------------------------------------------------------------------
+
+
+def test_y_full_positive_driver_retains_y_record_before_pass_finalization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The 017-y scripted driver positive through the public code:
+    the real owner converges in the DISTINCT 017-y namespace, the
+    real driver runs under the Y sealed entry, and the matching Y
+    protected record is retained FIRST (tag/order paired to the
+    entry) and only then the same-attempt terminal finalization.
+    The retained record bytes are IMMUTABLE at retention time; the
+    historical X namespace never exists in this synthetic
+    repository, so no X journal entry can be adopted."""
+    stage = _stage1_owner_pass_entry(tmp_path / "y-positive", monkeypatch, Y_ORDER_ID)
+    base = tmp_path / "y-positive-run"
+    flag = base / "converge-flag"
+    out = _driver_run(
+        base,
+        monkeypatch,
+        stage,
+        client=_happy_client(stage, base / "proc", flag, base / "evidence.json"),
+        converge_flag=flag,
+        entry_order=Y_ORDER_ID,
+    )
+    record = out["record"]
+    assert record["status"] == "pass"
+    assert record["reason"] is None
+    assert record["order"] == Y_ORDER_ID
+    assert record["record"] == "slaif-017y-exec-capability-driver-v1"
+    assert record["run_id"] == stage["run_id"]
+    assert record["retention"] == "retained"
+    assert record["finalize"] == "finalized"
+    # the retained record is IMMUTABLE at retention time and
+    # paired to the Y entry (the W ordering; no X label anywhere)
+    payload = json.loads(out["record_out"].read_bytes())
+    assert payload["order"] == Y_ORDER_ID
+    assert payload["record"] == "slaif-017y-exec-capability-driver-v1"
+    assert payload == {
+        **record,
+        "retention": "not-requested",
+        "finalize": "not-attempted",
+    }
+    assert stat.S_IMODE(out["record_out"].stat().st_mode) == 0o600
+    # the ONE Y admission: the driver's terminal finalization is
+    # the ONLY terminal journal entry, in the 017-y namespace
+    assert _journal_for(stage["repo"], Y_ORDER_ID) == [
+        {"head": stage["head"], "run_id": stage["run_id"], "status": "pass"}
+    ]
+    # the historical X namespace was never admitted in this
+    # repository — nothing is adopted or reconstructed
+    assert _journal_for(stage["repo"], X_ORDER_ID) == []
+    assert out["elapsed"] < 60.0
+
+
+def test_retain_record_cross_entry_refused(tmp_path: Path) -> None:
+    """The closed record-pair law: a retained record is valid
+    ONLY under its canonical entry.  The canonical X and Y pairs
+    pass; a Y record under the X entry, an X record under the Y
+    entry, and any caller-created descriptor (a known order
+    paired with the wrong tag, or an unknown order/tag) are
+    refused BEFORE any destination is touched."""
+    cap = fxc._SEALED_ENTRIES
+
+    def canonical(order: str, dest: Path) -> None:
+        record = fxc._driver_record(
+            "pass", None, bind_head="1" * 40, run_id="1" * 32, entry=cap[order]
+        )
+        fxc._retain_record(record, dest, cap[order])
+        kept = json.loads(dest.read_bytes())
+        assert kept["order"] == order
+
+    canonical(X_ORDER_ID, tmp_path / "x.json")
+    canonical(Y_ORDER_ID, tmp_path / "y.json")
+
+    # Y record presented under the X entry: schema refusal, no file
+    y_record = fxc._driver_record(
+        "pass", None, bind_head="1" * 40, run_id="1" * 32, entry=cap[Y_ORDER_ID]
+    )
+    with pytest.raises(fxc.FixtureError, match="cap-record-schema"):
+        fxc._retain_record(y_record, tmp_path / "cross-1.json", cap[X_ORDER_ID])
+    assert not (tmp_path / "cross-1.json").exists()
+
+    # X record presented under the Y entry: schema refusal, no file
+    x_record = fxc._driver_record(
+        "pass", None, bind_head="1" * 40, run_id="1" * 32, entry=cap[X_ORDER_ID]
+    )
+    with pytest.raises(fxc.FixtureError, match="cap-record-schema"):
+        fxc._retain_record(x_record, tmp_path / "cross-2.json", cap[Y_ORDER_ID])
+    assert not (tmp_path / "cross-2.json").exists()
+
+    # a caller-created descriptor (a known order paired with the
+    # WRONG tag, and an unknown order/tag) is refused before any
+    # field is trusted — even for a record it would otherwise
+    # "accept"
+    foreign = fxc._SealedEntry(
+        Y_ORDER_ID, cap[Y_ORDER_ID].order_path, "slaif-017x-exec-capability-driver-v1"
+    )
+    with pytest.raises(fxc.FixtureError, match="cap-sealed-entry"):
+        fxc._retain_record(y_record, tmp_path / "cross-3.json", foreign)
+    unknown = fxc._SealedEntry("017-z", "oap/orders/017-z.md", "synthetic-foreign")
+    with pytest.raises(fxc.FixtureError, match="cap-sealed-entry"):
+        fxc._retain_record(y_record, tmp_path / "cross-4.json", unknown)
+    assert not (tmp_path / "cross-3.json").exists()
+    assert not (tmp_path / "cross-4.json").exists()
+
+
+def test_y_driver_refuses_foreign_x_running_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Distinct namespaces: the driver under the Y entry never
+    adopts the historical X running journal entry — the bound
+    verification reads the 017-y namespace (absent here) and the
+    launch is refused before any owner-side command (closed
+    cap-binding-mismatch, no Y journal entry minted)."""
+    stage = _stage1_owner_pass(tmp_path / "y-xstage", monkeypatch)
+    base = tmp_path / "y-xstage-run"
+    flag = base / "converge-flag"
+    out = _driver_run(
+        base,
+        monkeypatch,
+        stage,
+        client=_happy_client(stage, base / "proc", flag, base / "evidence.json"),
+        converge_flag=flag,
+        entry_order=Y_ORDER_ID,
+    )
+    record = out["record"]
+    assert record["status"] == "fail"
+    assert record["reason"] == "cap-binding-mismatch"
+    assert record["order"] == Y_ORDER_ID
+    # the X attempt is left EXACTLY as the real owner left it
+    # (running) — never closed, replaced or relabeled by the Y
+    # driver; and the Y namespace stays empty
+    assert _journal_for(stage["repo"], X_ORDER_ID) == [
+        {"head": stage["head"], "run_id": stage["run_id"], "status": "running"}
+    ]
+    assert _journal_for(stage["repo"], Y_ORDER_ID) == []
+
+
+def test_public_cli_entry_selection(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The public CLI entry selection: 017-y is a SEALED ENTRY id
+    (the run is driven under the Y entry with its own order
+    argv), the historical 017-x default keeps its exact meaning,
+    and an unknown order id is a closed argument refusal BEFORE
+    any run (no launch, no adoption)."""
+    captured: dict[str, Any] = {}
+
+    def fake_run(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        captured.update({"called": True, "entry": kwargs.get("entry")})
+        record: dict[str, Any] = fxc._driver_record(
+            "pass", None, bind_head="2" * 40, run_id="2" * 32, entry=kwargs["entry"]
+        )
+        return record
+
+    monkeypatch.setattr(fxc, "run_exec_capability", fake_run)
+    base_args = [
+        "capability",
+        "--bind-head",
+        "2" * 40,
+        "--repo",
+        str(tmp_path / "repo"),
+        "--work",
+        str(tmp_path / "work"),
+        "--control-dir",
+        str(tmp_path / "control"),
+        "--evidence-out",
+        str(tmp_path / "evidence.json"),
+        "--record-out",
+        str(tmp_path / "record.json"),
+    ]
+
+    def run_main(order: str | None) -> dict[str, Any]:
+        argv = list(base_args)
+        if order is not None:
+            argv += ["--order", order]
+        import io
+
+        text = io.StringIO()
+        with contextlib.redirect_stdout(text):
+            rc = fxc.main(argv)
+        assert rc == (0 if order in ("017-x", "017-y") else 1)
+        record: dict[str, Any] = json.loads(text.getvalue())
+        return record
+
+    # 017-y: the sealed entry is selected and the run is driven
+    # under it (the owner argv carries the Y order id)
+    record = run_main("017-y")
+    assert record["status"] == "pass"
+    assert record["order"] == Y_ORDER_ID
+    assert record["record"] == "slaif-017y-exec-capability-driver-v1"
+    assert captured["entry"] is fxc._SEALED_ENTRIES[Y_ORDER_ID]
+
+    # 017-x: the historical default meaning, byte-for-byte
+    captured.clear()
+    record = run_main("017-x")
+    assert record["status"] == "pass"
+    assert record["order"] == X_ORDER_ID
+    assert record["record"] == "slaif-017x-exec-capability-driver-v1"
+    assert captured["entry"] is fxc._SEALED_ENTRIES[X_ORDER_ID]
+
+    # an unknown order id: closed argument refusal, NO run
+    captured.clear()
+    record = run_main("017-z")
+    assert record["status"] == "fail"
+    assert record["reason"] == "local-args-invalid"
+    assert "called" not in captured
