@@ -241,6 +241,63 @@ no real fixture admission in the real checkout, no
 host signal, no CLI entry; the later serial
 native handoff remains a separately authorized
 order, and D09 remains `NOT RUN`.
+017-x executes the ONE bounded outcome the earlier native-preparation
+rounds left to a separately authorized order: with a REAL finite Python-
+only fixture, determine whether the existing unprivileged host CID
+channel — the order prose `HostCidScopedTable`, which names the existing
+`RealCidScopedTable` channel, a naming clarification only — can measure
+the CURRENT executable of an actual UID/GID 21002 process WHILE IT IS
+ALIVE (repo-owned stdlib-only driver
+`scripts/cache_native_fixture_exec_capability.py`, closed record
+`slaif-017x-exec-capability-driver-v1`): the SEALED bound child owns
+resolve+admit ONCE before any external work (the driver only verifies
+the child's closed protected outputs — never re-resolves, re-mints,
+adopts or replaces a run id; an exhausted running journal is refused,
+never adopted or reconstructed); the fresh protected bootstrap startup
+authority (a pre-existing control root is a prior/foreign owner's
+surface, never adopted — no command, no journal mutation — and the
+published state is bound to the actual still-live child PID); the
+prepare -> hold -> finish lifecycle over ONE shared owner/run/ledger/END
+issues the ONE closed detached stand-in hold exec (UID/GID 21002 on the
+held prepared exact CID, the issued 32-hex run marker on argv, ONE
+subject start INCLUDING failed starts); the bounded exact-CID discovery
+(the owner's guarded `top` is the closed membership authority — every
+query charges the same ledger/deadline, at most 96 rows, host /proc
+never enumerated, per-attested-pid in-scope verification with tri-state
+absent vs closed refusal, the issued-marker kernel-cmdline correlation
+FRESH against the pre-launch inventory); the scoped current-executable
+read (16 MiB / 10 s clamped at measurement to the same remaining owner
+END intersected with the issued hold's finite lifetime, birth-bound,
+before/after frame law; an unreadable or absent executable is a closed
+unknown, never an artifact-hash fallback); the honest `verified-gone`
+(absence only, never an exit code or termination cause); the owner's own
+bounded abort on any pre-finish failure (never a host signal) with the
+retained terminal evidence validated bound to this exact attempt; the
+budget is the owner's published END plus one cleanup grace (an expired
+budget refuses before any blocking wait); and the W-order publication
+(the bound verified owner evidence retained first, the driver's
+protected capability record second — `--record-out` required by the CLI
+preflight and outside the work root (a closed
+read-only refusal before any launch) — and the
+verified same-attempt terminal finalization only
+on the real `finalized` token; a refusal closes
+fail with no journal pass
+and no fresh-path retry): a driver pass is a closed truthful conclusion
+in which an unknown or a refusal is a useful diagnostic, never
+readiness. 34 focused tests in three distinct layers — the real CLI
+admission grammar (including the child-owned resolve+admit law), the
+scripted driver bootstrap over an ACTUAL launched Python child (startup
+authority, the scripted full positive, the full-driver refusals), and
+the in-process real public-owner measurements (the coupled positive
+measures the scoped read BEFORE the owner finish; the terminal
+publication orderings) — over fake platform seams plus tiny exact-owned
+Python children: a useful fake proof of the named mechanisms, not one
+full sealed-real-owner end-to-end test. The actual outcome of the ONE
+authorized bounded Python-only attempt is NOT RUN at this source; it is
+bound to the tested committed literal head and its measured outcome is
+recorded in the immutable round report. No native launch, no worker
+stop, no host signal; the later serial native handoff remains a
+separately authorized order, and D09 remains `NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

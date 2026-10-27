@@ -742,73 +742,54 @@ the real checkout, no host signal, no CLI entry —
 no native, worker-stop, Docker or handoff
 qualification is earned.
 
-Round 017-x adds the live Python executable
-capability suite `tests/test_cache_native_
-fixture_exec_capability.py` (33 tests — the
-full coupled public-owner fake lifecycle
-positive (the sealed child owns resolve+admit
-once; prepare -> hold -> finish over ONE
-shared owner/run/ledger/END; the issued
-closed detached hold; bounded exact-CID
-discovery through the owner's guarded `top`;
-the issued-marker kernel-cmdline correlation;
-the scoped current-executable read MEASURED
-BEFORE the owner finish; the subject's
-natural bounded exit; the honest
-`verified-gone`; the W-order publication);
-the sealed-child admission law (the child's
-closed protected outputs verified; an
-exhausted running journal refused — never
-adopted or reconstructed); the startup
-authority (a pre-existing control root
-refused before any launch — a prior/foreign
-owner's surface never adopted, no command,
-no journal mutation; the published state
-bound to the actual still-live child PID);
-the closed grammar of the guarded `top`
-inventory (default and real header forms,
-exactly one verified PID column, the 96-row
-bound, duplicate/malformed/overbound
-refusals); the correlation controls (FRESH
-vs pre-launch; ambiguous, duplicate and
-identity-mismatch refused); the scoped-read
-law (a readable coherent identity with an
-absent executable is `unknown`, never an
-artifact-hash fallback; a reused PID/birth
-mismatch refused before any exe read; frame
-races and a vanished subject refused); the
-tri-state discovery contrast (verified
-absent vs foreign-scope
-`cap-inventory-unverified`); the failed
-sealed startup with the child's closed
-reason adopted (owner fail, no commands,
-journal unmutated, no retention); the
-capture cap and read-error full-driver
-refusals (the reader's live state read
-after drain; the primary preserved); the
-expired-budget refusal before any blocking
-wait; the owner's own bounded abort with
-cleanup-failure and unrelated-survival
-refusals (`container-cleanup-unverified`,
-`sentinel-process-died`); and the terminal
-publication orderings — the bound verified
-evidence first, a refusal closed `fail`
-with no journal pass and no fresh-path
-retry, and the post-retention unverified/
-raced finalization preserved).  Pure/fake
-platform seams plus tiny exact-owned Python
-children (each exact-owned child is cleaned
-up by the test's own bounded cleanup if
-still alive; no signal to any real worker,
-Bash group or unrelated process; no
-container of any kind).  These tests earn
-no native, worker-stop, Docker or handoff
-qualification; ONE bounded actual Python-
-only attempt is authorized at the tested
-committed literal head, with its measured
-outcome recorded in the immutable round
-report; D09 remains NOT RUN; no v1 runtime
-claim.
+Round 017-x adds the live Python executable capability suite
+`tests/test_cache_native_fixture_exec_capability.py` (34 tests in three
+distinct layers, not conflated: (1) the REAL CLI admission tests (the
+closed `main()` grammar — one subcommand, the bound order, `--record-
+out` required by the preflight; invalid forms refused before any launch)
+plus the child-owned resolve+admit law (the sealed child admits ONCE; a
+post-admission constructor failure closes the same won attempt; an
+exhausted running journal is refused, never adopted or reconstructed);
+(2) the scripted driver bootstrap tests (the real driver launches an
+ACTUAL exact-owned Python child — the fake owner side bootstraps the
+fresh protected control root and publishes the closed state with the
+child's own pid, so the driver's startup verification and owner wait
+observe a live owner exactly as the real composition does: the pre-
+existing-control-root refusal before any launch, the foreign-prior-owner
+state refusal (no command, no journal mutation), the scripted full
+positive measuring the subject WHILE ALIVE, and the full-driver refusals
+— failed sealed startup with the child's closed reason adopted, failed
+hold, capture cap, read error (the live reader state read after drain,
+the primary preserved), expired budget before any blocking wait,
+ambiguous/duplicate/identity-mismatch candidates, foreign/S-scope
+evidence never adopted); and (3) the in-process real public-owner tests
+(the REAL `LocalFixtureOwner` public interface and the driver terminal
+are driven in-process with fake platform operations: the coupled
+positive measures the scoped read BEFORE the owner finish, the abort
+convergence, the retention and finalize orderings — the bound verified
+evidence first, refusals closed `fail` without journal pass, the post-
+retention unverified/raced finalization preserved — plus the cleanup-
+failure and unrelated-survival refusals and the record-out-inside-work
+read-only preflight refusal, for absolute and relative work/destination
+forms). Across these layers the shared closed law is proven: the guarded
+`top` inventory grammar (default and real header forms, exactly one
+verified PID column, the 96-row bound, duplicate/malformed/overbound
+refusals), the issued-marker correlation controls (FRESH vs pre-launch;
+ambiguous, duplicate and identity-mismatch refused), the scoped-read law
+(a readable coherent identity with an absent executable is `unknown`,
+never an artifact-hash fallback; a reused PID/birth mismatch refused
+before any exe read; frame races and a vanished subject refused), and
+the tri-state discovery absent-versus-foreign-scope contrast. These
+compositions are useful FAKE proof of the named mechanisms — the actual
+Docker operations and the fixture image are faked in every test; they
+are not one full sealed-real-owner end-to-end test. Pure/fake platform
+seams plus tiny exact-owned Python children (each exact-owned child is
+cleaned up by the test's own bounded cleanup if still alive; no signal
+to any real worker, Bash group or unrelated process; no container of any
+kind). The actual outcome of the ONE authorized attempt is NOT RUN at
+this source; it is bound to the tested committed literal head and
+recorded in the immutable round report; D09 remains NOT RUN; no v1
+runtime claim.
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in

@@ -72,6 +72,11 @@ Closed scope:
   expired budget refuses before any blocking wait, and the
   already-exited distinction never authorizes a pass over
   missing or unverified evidence).
+- The capability-record destination is checked READ-ONLY
+  before anything else: a --record-out at or under the
+  disposable work root is a closed refusal (the retained record
+  must outlive the scratch root — it must not be destroyed with
+  it, nor recreate it after the owner's teardown).
 - On a verified owner PASS the driver finalizes the bound
   attempt's terminal pass with the W publication ordering: the
   validated protected owner evidence first, then the driver's
@@ -703,7 +708,12 @@ def _retain_record(record: dict[str, object], record_out: Path) -> None:
     temporary, so the final path is either absent or the verified
     committed file).  The retention refusal is closed and honest:
     the caller reports it, never silently drops the record, and
-    never retries a fresh path."""
+    never retries a fresh path.  The disposable work root is NOT
+    a destination of this retention: the driver's read-only
+    preflight refuses a record destination at or under it BEFORE
+    any launch (the retained record must outlive the scratch
+    root), so the publisher here sees only destinations outside
+    the work root."""
     _validate_capability_record(record)
     payload = (json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
     digest = hashlib.sha256(payload).hexdigest()
@@ -759,6 +769,32 @@ def run_exec_capability(
     evidence_out = Path(evidence_out)
     root = Path(proc_root) if proc_root is not None else Path("/proc")
     factory = channel_factory if channel_factory is not None else build_channel
+
+    # -- the capability-record destination (read-only preflight) --
+    # The retained record must OUTLIVE the disposable work root: a
+    # destination at or under it would be destroyed with the scratch
+    # (or worse, recreate the destroyed root after the owner's
+    # teardown) and reported retained dishonestly.  The refusal is
+    # closed and read-only, BEFORE any launch, command or mutation.
+    # This preflight is the driver's enforcement of the work-root
+    # boundary for its own record: both paths are normalized to
+    # absolute LEXICAL paths with the same cwd convention as the
+    # publisher (no symlink or alias resolution), so a relative
+    # work and/or destination cannot bypass the comparison.  The
+    # standalone retention contract of the publisher (explicitly
+    # owned destinations, no work root known to the caller) is
+    # unchanged.
+    if record_out is not None:
+        _dest = Path(record_out)
+        if not _dest.is_absolute():
+            _dest = Path(os.getcwd()) / _dest
+        _work = work if work.is_absolute() else Path(os.getcwd()) / work
+        try:
+            _dest.relative_to(_work)
+        except ValueError:
+            pass
+        else:
+            return _driver_record("fail", "record-out-inside-work", bind_head=bind_head)
 
     # -- the fresh protected bootstrap (startup authority, layer 1) --
     # The control root is owned by THIS run's sealed child: the

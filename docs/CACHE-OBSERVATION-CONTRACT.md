@@ -2470,8 +2470,12 @@ authorizes a pass over missing or unverified evidence.
 the driver retains the validated protected owner evidence FIRST, then
 retains its own protected capability record (the reviewed protected-
 path/atomic-no-overwrite retention; `--record-out` is REQUIRED by the
-CLI preflight, so the ONE qualification attempt is never admitted
-without its retention destination), and only then performs the verified
+CLI preflight — so the ONE qualification attempt is never
+admitted without its retention destination — and a
+destination at or under the disposable work root is a
+closed READ-ONLY refusal before any launch (the
+retained record must outlive the scratch root), and
+only then performs the verified
 same-attempt terminal finalization (the real `finalized` token is
 required; an unverified token never returns a qualified success). A
 refusal closes the returned record as `fail` with NO journal pass and NO
@@ -2479,35 +2483,53 @@ fresh-path retry. A driver `pass` is a closed truthful conclusion: an
 unknown or a refusal is a useful diagnostic, never readiness.
 
 Public local proof: `tests/test_cache_native_fixture_exec_capability.py`
-(33 tests — the full coupled public-owner fake lifecycle positive with
-the scoped read MEASURED BEFORE the owner finish; the sealed-child
-admission law (the child's closed protected outputs verified; an
-exhausted running journal refused, never adopted or reconstructed); the
-fresh-bootstrap and foreign-prior-owner startup authority refusals (no
-command, no journal mutation); the closed grammar of the guarded `top`
-inventory (default and real header forms, exactly one verified PID
-column, the 96-row bound, duplicate/malformed/overbound refusals); the
-issued-marker correlation controls (FRESH vs pre-launch; ambiguous,
-duplicate and identity-mismatch refused); the scoped-read law (a
-readable coherent identity with an absent executable is `unknown`, never
-an artifact-hash fallback; a reused PID/birth mismatch refused before
-any exe read; a frame race and a vanished subject refused); the tri-
-state discovery absent-versus-foreign-scope contrast; the failed sealed
-startup with the child's closed reason adopted; the capture cap and
-read-error full-driver refusals (the reader's live state read after
-drain; the primary preserved); the expired-budget refusal before any
-blocking wait; the owner's bounded abort with cleanup-failure and
-unrelated-survival refusals; and the terminal publication orderings —
-the bound verified evidence first, refusals closed `fail` without
-journal pass, the post-retention unverified/raced finalization
-preserved). Pure/fake platform seams plus tiny exact-owned Python
+(34 tests) covers three DISTINCT layers, not conflated: (1) the REAL CLI
+admission tests (the closed `main()` grammar — the one subcommand, the
+bound order, `--record-out` REQUIRED by the preflight; invalid forms
+refused before any launch) plus the child-owned resolve+admit law (the
+sealed child admits ONCE; a post-admission constructor failure closes
+the same won attempt; an exhausted running journal is refused, never
+adopted or reconstructed); (2) the scripted driver bootstrap tests (the
+real driver launches an ACTUAL exact-owned Python child — the fake owner
+side bootstraps the fresh protected control root and publishes the
+closed state with the child's own pid, so the driver's startup
+verification and owner wait observe a live owner exactly as the real
+composition does: the pre-existing-control-root refusal before any
+launch, the foreign-prior-owner state refusal (no command, no journal
+mutation), the scripted full positive measuring the subject WHILE ALIVE,
+and the full-driver refusals — the failed sealed startup with the
+child's closed reason adopted, the failed hold, the capture cap, the
+read error (the live reader state read after drain, the primary
+preserved), the expired budget before any blocking wait, the
+ambiguous/duplicate/identity-mismatch candidates, and the
+foreign/S-scope evidence never adopted); and (3) the in-process real
+public-owner tests (the REAL `LocalFixtureOwner` public interface and
+the driver terminal are driven in-process with fake platform operations:
+the coupled positive measures the scoped read BEFORE the owner finish,
+the abort convergence, the retention and finalize orderings — the bound
+verified evidence first, refusals closed `fail` without journal pass,
+the post-retention unverified/raced finalization preserved — plus the
+cleanup-failure and unrelated-survival refusals and the record-out-
+inside-work read-only preflight refusal). Across these layers the shared
+closed law is proven: the guarded `top` inventory grammar (default and
+real header forms, exactly one verified PID column, the 96-row bound,
+duplicate/malformed/overbound refusals), the issued-marker correlation
+controls (FRESH vs pre-launch; ambiguous, duplicate and identity-
+mismatch refused), the scoped-read law (a readable coherent identity
+with an absent executable is `unknown`, never an artifact-hash fallback;
+a reused PID/birth mismatch refused before any exe read; a frame race
+and a vanished subject refused), and the tri-state discovery absent-
+versus-foreign-scope contrast. These compositions are USEFUL FAKE PROOF
+of the named mechanisms — the actual Docker operations and the fixture
+image are faked in every test; they are not one full sealed-real-owner
+end-to-end test. Pure/fake platform seams plus tiny exact-owned Python
 children (each exact-owned child is cleaned up by the test's own bounded
 cleanup if still alive; no signal to any real worker, Bash group or
-unrelated process; no container of any kind). ONE bounded actual Python-
-only attempt is authorized at the tested committed literal head, with
-its measured outcome recorded in the immutable round report; no native
-launch, no worker stop, no host signal; D09 remains NOT RUN; no v1
-runtime claim.
+unrelated process; no container of any kind). The actual outcome of the
+ONE authorized attempt is NOT RUN at this source; it is bound to the
+tested committed literal head and recorded in the immutable round
+report; no native launch, no worker stop, no host signal; D09 remains
+NOT RUN; no v1 runtime claim.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 

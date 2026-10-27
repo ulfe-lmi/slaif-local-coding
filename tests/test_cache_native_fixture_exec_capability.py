@@ -1912,13 +1912,24 @@ def test_driver_expired_budget_refuses_before_blocking_wait(
         calls.append(command)
         raise AssertionError("expired budget: no control I/O may be issued")
 
+    # deterministic expired anchor: the published anchor must be
+    # POSITIVE (the closed state grammar) yet expired (anchor +
+    # grace < now).  A real-clock relative anchor cannot satisfy
+    # both on a fresh runner with low monotonic() uptime (a
+    # negative anchor would be rejected as malformed state and the
+    # driver would time out in the startup loop instead); pin the
+    # driver's own clock far past a small positive anchor so the
+    # expired state is proven BEFORE any I/O regardless of the
+    # runner's uptime.
+    fake_now = 1.0e9
+    monkeypatch.setattr(fxc.time, "monotonic", lambda: fake_now)
     out = _driver_run(
         base,
         monkeypatch,
         stage,
         client=refuse_client,
         converge_flag=base / "converge-flag",
-        end_anchor=time.monotonic() - 700.0,
+        end_anchor=1.0,
     )
     assert calls == []
     record = out["record"]
@@ -2581,3 +2592,55 @@ def test_driver_main_closed_grammar(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert line2["status"] == "fail"
     assert line2["reason"] == "local-args-invalid"
     assert launched == []
+
+
+def test_driver_record_out_inside_work_refused_before_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A --record-out at or UNDER the disposable work root is a
+    closed READ-ONLY refusal before any launch, command or
+    mutation — for absolute AND relative work/destination forms
+    (the same lexical cwd convention as the publisher, no symlink
+    resolution): the retained record must outlive the scratch
+    root — it must not be destroyed with it, nor recreate the
+    destroyed root after the owner's teardown."""
+
+    def _refuse(*a: Any, **k: Any) -> Any:
+        raise AssertionError("no launch may happen for this refusal")
+
+    monkeypatch.setattr(fxc.subprocess, "Popen", _refuse)
+    cases = [
+        ("under", "work/record.json", False),
+        ("work-itself", "work", False),
+        ("relative", "work/record.json", True),
+    ]
+    for name, rel, chdir in cases:
+        base = tmp_path / f"base-{name}"
+        base.mkdir()
+        os.chmod(base, 0o700)
+        if chdir:
+            monkeypatch.chdir(base)
+            repo: Any = "repo"
+            work: Any = "work"
+            control: Any = "control"
+            evidence: Any = "evidence.json"
+            record_out_arg: Any = rel
+        else:
+            repo = tmp_path / "repo"
+            work = base / "work"
+            control = base / "control"
+            evidence = base / "evidence.json"
+            record_out_arg = base / rel
+        record = fxc.run_exec_capability(
+            repo,
+            "f" * 40,
+            work,
+            control,
+            evidence,
+            record_out=record_out_arg,
+        )
+        assert record["record"] == fxc.DRIVER_RECORD
+        assert record["status"] == "fail"
+        assert record["reason"] == "record-out-inside-work"
+        assert not (base / "control").exists()  # no bootstrap surface
+        assert not (base / "work").exists()  # no scratch root created
