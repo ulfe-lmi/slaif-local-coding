@@ -655,11 +655,19 @@ def test_origin_drift_before_owner_construction_refused_and_terminal_fail(
     construction is compared against the ORIGINAL frozen
     binding (not re-resolved and discarded) — the refused
     constructor closes that SAME attempt honestly with a
-    terminal fail and performs no external action."""
+    terminal fail and performs no external action. This
+    constructs the owner directly (not through ``_run``), so
+    the test applies the same local-environment isolation as
+    ``_hermetic``: the production hosted-runner guard and the
+    caller endpoint selectors are test-local refusals of the
+    ambient environment, never a production waiver."""
     repo = _v_repo(tmp_path / "repo")
     base_git = _v_git_runner(repo)
     reads = [0]
     external: list[bool] = []
+    for var in flocal._LOCAL_ENDPOINT_SELECTION_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
 
     def git(args: list[str], cwd: Path) -> bytes:
         if args == ["remote", "get-url", "origin"]:
