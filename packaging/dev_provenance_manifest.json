@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "016-b",
-  "qualification_label": "development-source-f3c022b063ca6195b25802b8fac28fbcd0c4aa89; not a release candidate; not released",
+  "qualification_label": "development-source-d868b6ef88bf2c683f907f9ec29e78ddfbb11b1d; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "f3c022b063ca6195b25802b8fac28fbcd0c4aa89",
+  "source_commit": "d868b6ef88bf2c683f907f9ec29e78ddfbb11b1d",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
