@@ -839,7 +839,21 @@ Same seams and law as 017-x: fake git/platform/process seams
 and owned synthetic repositories only; no actual Docker
 operation, no native launch (including help/version), no
 worker stop, no TTY/job manipulation, no real fixture
-admission in the real checkout, no host signal.  The actual outcome of the ONE separately bound 017-y attempt RAN EXACTLY ONCE at literal implementation head `35a3bcd7322535dd4a699efc53c0c1c62d4c942e` (run `fbe526a3290d465298bc8da61ef2a304`): a closed driver PASS with the complete preparation, confinement and Python-PTY phases; the subject uniquely identified and measured from the exact-CID inventory (UID/GID/groups 21002, birth-bound) and exited on its own finite hold (`verified-gone`, absence only) while the current executable remained the closed UNKNOWN (no digest; not native readiness and no proven kernel/errno cause); the admission is terminal pass and is never reset, retried or relabeled; the measured outcome is recorded in the immutable round report; D09 remains NOT RUN; no v1
+admission in the real checkout, no host signal.  The actual
+outcome of the ONE separately bound 017-y attempt RAN EXACTLY
+ONCE at literal implementation head
+`35a3bcd7322535dd4a699efc53c0c1c62d4c942e` (run
+`fbe526a3290d465298bc8da61ef2a304`): a closed driver PASS
+with the complete preparation, confinement and Python-PTY
+phases; the subject uniquely identified and measured from
+the exact-CID inventory (UID/GID/groups 21002, birth-bound),
+then observed `verified-gone` after the bounded hold
+(absence only — never an exit code or termination cause),
+while the current executable remained the closed UNKNOWN (no
+digest; not native readiness and no proven kernel/errno
+cause); the admission is terminal pass and is never reset,
+retried or relabeled; the measured outcome is recorded in
+the immutable round report; D09 remains NOT RUN; no v1
 runtime claim.
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
