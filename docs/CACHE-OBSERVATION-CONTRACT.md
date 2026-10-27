@@ -2685,6 +2685,151 @@ containment/current-exe qualification under a later exact order.
   frozen development gate at the literal committed head; D09
   remains NOT RUN; no v1 runtime delivery.
 
+### 11j. Round 017-aa: owner-UID fixture integration
+(software-only; the integrated path is INACTIVE and unqualified)
+
+017-aa threads the inert 017-z owner-UID identity contract
+through the REAL existing fixture owner, its prepared
+image/exec/measurement/control/evidence path and the Python
+capability driver. No real local Docker/fixture/owner startup,
+admission, native/extra Codex, worker stop, signal, TTY handoff
+or model/Gateway call occurs in this round; the standard
+existing CI jobs remain under their ORIGINAL default scope.
+
+- ONE canonical future sealed entry, fixed now but INACTIVE:
+  `017-ab` (exact unique future order path
+  `oap/orders/017-ab-owner-uid-python-capability-qualification.md`,
+  driver record `slaif-017ab-owner-uid-exec-capability-v1`,
+  selecting ONLY `slaif-fixture-identity-owner-uid-v1`). It is
+  not an activated AB order: AA never creates its real order,
+  never changes `oap/active` to it, never admits it and never
+  launches its owner. Actual repository-context validation
+  refuses the entry under AA-active state BEFORE any external
+  fixture work or admission, proven over hermetic synthetic
+  repositories and active/orders/admissions — never the real
+  checkout.
+- The SEALED child retains sole resolve+admit ownership. AFTER
+  its ORIGINAL verified order/run wins admission, the REAL
+  owner collects the host owner IDs through the ONE raw read
+  seam (production: direct bounded OS reads; tests: the
+  faithful narrow fake seam) and derives its description with
+  the Z production collector/derivation: each
+  real/effective/saved UID and GID triple equal, nonroot,
+  strict finite Linux IDs 1..4294967294, distinct from
+  controller 21001. A post-admission collection/constructor
+  failure closes the SAME already-won attempt honestly before
+  any external fixture work; an exhausted or foreign journal is
+  never reconstructed or adopted, no run is re-minted and no
+  binding is resolved and discarded. No process may be
+  started merely to collect host IDs, and a caller-supplied
+  description, fingerprint or ready flag is NEVER accepted —
+  only this own collection/derivation feeds the context.
+- ONE immutable owner context: the canonical profile
+  description's fingerprint, the frozen INDEPENDENT subject
+  identity (UID and GID are separate — the useful fake positive
+  is 1001/1002), the closed runtime profile view and the
+  ORIGINAL verified order/head/run/admission binding. It is
+  revalidated at actual use through a bounded current-ID
+  coherence read that may COMPARE but never rebase or silently
+  re-freeze after drift; a drifted or unreadable context is a
+  closed refusal.
+- Image/subject execution: the explicit owner-profile
+  Dockerfile variant uses ONLY the frozen validated IDs, the
+  same pinned base and the immutable native
+  artifact/LICENSE/NOTICE, with the same confinement; the
+  original Dockerfile defaults remain fixed-21002. The
+  small root-owned immutable fixed-path profile DATA file
+  baked into the image is not host authority: missing,
+  unknown, mismatched or unsafe profile data under the new
+  path fails closed and never falls back to original, and new
+  semantics are never selected merely because an env var or an
+  arbitrary file is present. Public copied fixture modules and
+  the profile DATA are explicitly readable by
+  controller/subject and immutable inside the image, even
+  when the protected host build context is 077/0600. The
+  owner-scoped guarded executor admits only the canonical
+  profile's exact UID:GID and fixed Python commands/flags/CID;
+  the original guard defaults are unchanged.
+- Expected effective groups remain exactly the primary GID: an
+  empty supplementary array or own primary GID alone adds no
+  privilege; foreign/duplicate/root/boolean/float/string
+  groups are refused, and no supplementary membership is
+  invented from the primary GID.
+- DISTINCT versioned records: identity-bearing owner state
+  `slaif-017ab-owner-state-v1` (the old 12-key v1 state form
+  is byte-for-byte unchanged and rejects identity-bearing
+  records); owner-run evidence
+  `slaif-017ab-owner-run-evidence-v1` (scope
+  `slaif-017ab-owner-uid-scope`; the SAME measured owner
+  state/cleanup/publication facts plus the frozen identity
+  substructure — re-derived through the production codec and
+  re-hashed, so retained identity is closed data integrity,
+  never a measured-authority claim — and the
+  exact-CID-membership teardown marker); the AB driver
+  record; and the subject measurement/synthetic-profile
+  records take the DISTINCT new tags
+  `slaif-fixture-exec-measurement-v2` and
+  `slaif-fixture-profile-v2` (each tag refuses its v1
+  counterpart and vice versa): the SAME closed facts and
+  error law measured under the frozen owner-profile subject
+  through the shared profile-independent structural core,
+  which is reused ONLY with its unchanged closed meaning
+  (only the expected subject identity differs), while the
+  strict original identity-v1 wrappers keep the fixed-21002
+  subject law and refuse the v2 tag and every other
+  subject.  The old v1 tags/consumers stay strictly
+  fixed-21002: a new profile record with the same numeric
+  21002 tuple stays isolated, and measured 1001-class facts
+  are validated as-is, NEVER normalized to 21002.
+- CRITICAL cleanup law: the owner-UID descendant and cleanup
+  proof is EXACT registered-CID plus owned PID/birth lifetime
+  membership with tri-stated post-removal verification. The
+  original global controller/subject UID teardown scans are
+  NEVER substituted with the host owner's UID (that would
+  include the worker/owner/unrelated host processes): no
+  UID-only membership or zero-global-UID claim. Unknown or
+  unreadable still-existing entries stay unverified, never
+  silently ignored.
+- A post-admission startup refusal (control-root creation or
+  the bounded socket bind) routes through the SAME single
+  owner convergence as every terminal path: the already-won
+  attempt closes terminal honestly (no retry, no remint), the
+  owned partial control root is disposed through the same
+  exact-ownership law, a pre-existing foreign control root is
+  never adopted or deleted, and the thin CLI keeps the same
+  closed startup record and exit code.
+- Budget/END isolation: one absolute END, one cumulative
+  ledger, one cleanup grace across the whole owner lifecycle;
+  the capability read keeps the X/Y law (16 MiB/10 s clamped
+  at measurement to the SAME remaining owner END intersected
+  with the issued hold's finite lifetime; unknown executable
+  remains unknown with no digest — never an artifact-hash
+  fallback).
+- Original preservation: the S/X/Y entries, sealed pairs,
+  defaults, record meanings, consumed namespaces and actual
+  records are unchanged; the original fixed-21002 path
+  remains the current qualified fixture default.
+- Verification scope: fake platform operations in three
+  distinct honest layers — the coupled public-owner terminal
+  layer runs over ONE coherent coupled process/resource
+  world, while the scripted driver bootstrap and the
+  in-process sealed-CLI own-collection are their own distinct
+  layers — useful fake proof, NOT one sealed-real-owner
+  end-to-end qualification; the `017-ab` entry is INACTIVE,
+  so no actual AB fixture operation may ever run in this
+  round. The new helper
+  `scripts/cache_native_fixture_runtime_profile.py` and the
+  owner Dockerfile are repository-only under the existing
+  artifact policy (excluded from BOTH the wheel and the sdist
+  source-input maps; their bytes are bound separately by the
+  committed Git/source-A identity and the clean-archive
+  helper-byte check); the development provenance input map
+  gains the new TEST input
+  `tests/test_cache_native_fixture_owner_uid.py` only (its
+  measured count is reported at the gate). D09 remains NOT
+  RUN; no native-ready, actual containment/current-exe or v1
+  runtime claim.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

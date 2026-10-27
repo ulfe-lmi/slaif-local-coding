@@ -893,6 +893,105 @@ model/Gateway or live fixture is invoked; no
 `.oap-local/017-z` root is created; D09 remains NOT RUN; no v1
 runtime claim.
 
+Round 017-aa integrates the inert 017-z owner-UID identity
+contract through the real fixture owner and the Python
+capability driver (software-only; the integrated path stays
+input-gated and UNQUALIFIED until a later actual order — no
+actual local Docker/fixture/owner startup, admission,
+native/extra Codex, worker stop, signal, TTY handoff or
+model/Gateway call in AA; the standard existing CI jobs remain
+under their original default scope): the new suite
+`tests/test_cache_native_fixture_owner_uid.py` (40 tests)
+covers the closed runtime-profile view and immutable owner-UID
+data laws — direct pure-data constructor cases (caller
+group/argv/bytes alias ownership, bounded lengths checked
+before any copy, complete field/exec-user/build-arg/profile-data
+consistency with fixed errors) and the v2
+reserved-controller-ID negatives, alongside the coupled
+real-validator cases (no mutable alias escapes into the frozen
+view, no oversized caller vector copied); the real
+build context/Dockerfile owner variant (frozen validated IDs
+only, same pinned base and immutable artifact/LICENSE/NOTICE,
+root-owned immutable profile DATA baked into the image,
+explicit readable/immutable module and DATA bytes under the
+077/0600 host build context; original defaults fixed-21002
+unchanged; missing/unknown/mismatched/unsafe profile data
+fails closed, never falls back to original, and new semantics
+are never selected merely from env-var or file presence); the
+owner-scoped guarded executor (the canonical profile's exact
+INDEPENDENT UID:GID and fixed Python commands/flags/CID;
+useful 1001/1002 positive; wrong UID OR GID, reserved
+controller identity, root and out-of-range IDs refused);
+subject tmpfs/home/workspace ownership; controller subject
+accounting; stand-in measurements/PTY; host exact-CID
+discovery/frame checks (exact registered-CID membership with
+owned PID/birth lifetime frames — the original global
+controller/subject UID teardown scans are never substituted
+with the host owner's UID; unknown/unreadable still-existing
+entries stay unverified); and the DISTINCT versioned AB
+records (identity-bearing owner state
+`slaif-017ab-owner-state-v1` with the full original
+order/head/run binding; the old 12-key v1 state form
+byte-for-byte unchanged and rejecting identity-bearing
+records; owner-run evidence
+`slaif-017ab-owner-run-evidence-v1` with the frozen identity
+substructure and the exact-CID-membership teardown marker;
+the AB driver record; the subject measurement/profile
+records on the DISTINCT tags
+`slaif-fixture-exec-measurement-v2`/`slaif-fixture-profile-v2`
+over the shared profile-independent structural core with its
+unchanged closed meaning, the strict original identity-v1
+wrappers keeping the fixed-21002 law; measured 1001-class
+facts validated as-is, never normalized to 21002).  The exec-capability suite
+grows to 52 tests (14 new): the canonical `017-ab` sealed
+entry over hermetic synthetic repositories — the coupled
+public-owner terminal positive (prepare -> hold -> scoped
+live-exe MEASURED with a synthetic bounded digest -> finish
+-> the actual `_terminal` under the AB entry, the matching AB
+record retained FIRST and only then the same-attempt pass
+finalization, the frozen owner identity cross-checked against
+the driver's adopted expectation); the full positive (retained
+owner evidence then driver record then same-attempt
+finalization); the separate scripted
+unknown-executable-still-qualified positive (closed UNKNOWN
+executable state, no digest, coherent measured frame); the
+driver
+startup refusals (drifted state binding, tampered state
+identity, X-entry vs AB-state grammar, identity mismatch
+with abort); the retention refusal and unverified-finalize
+preservations; the closed-cohesion record law (an AB
+`pass` requires adopted identity plus an actual capability
+result — UNKNOWN executable remains valid; a pre-state
+startup `fail` may honestly carry both unknowns; the old X/Y
+grammar is never widened); the AB entry refused under
+AA-active state before fixture work/admission; the in-process
+sealed-CLI own-collection (real public main() on the test's
+main thread, honest scope: not an actual subprocess — the
+sealed child's OWN collection equals the production
+derivation over the actual host identity triple; the bounded
+abort converges the same attempt as the documented
+`aborted`/exit-130); the startup-refusal convergence
+(a forced control-socket bind failure or a pre-existing
+foreign control root routes through the SAME single owner
+convergence: the already-won attempt closes `fail`, the
+retained AB fail evidence validates, the owned partial
+control root is disposed, the foreign root preserved
+byte/inode/mode, and the thin CLI keeps the same closed
+startup record and exit code); and the second-admission
+exhaustion refusal.  These compositions are useful FAKE proof
+in three distinct honest layers (coupled public-owner
+terminal, scripted driver bootstrap, in-process sealed-CLI)
+— NOT one sealed-real-owner end-to-end test, and the
+`017-ab` entry is INACTIVE, so no actual AB fixture
+operation may ever run in AA.  The original S/X/Y entries,
+sealed pairs, defaults and consumed namespaces are unchanged
+(ci 224, local 50, native_prep 124, standin 102, identity 48
+retain their recorded checkpoints).  No actual Docker
+operation, no native launch (including help/version), no
+worker stop, no TTY/job manipulation, no real fixture
+admission in the real checkout, no host signal; D09 remains
+NOT RUN; no v1 runtime claim.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

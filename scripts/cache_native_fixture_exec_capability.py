@@ -120,6 +120,7 @@ import cache_native_fixture_ci as ci  # noqa: E402
 import cache_native_fixture_local as flocal  # noqa: E402
 import cache_native_fixture_model as model  # noqa: E402
 import cache_native_fixture_native_prep as fp  # noqa: E402
+import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
 import cache_native_fixture_standin as standin  # noqa: E402
 
 FixtureError = ci.FixtureError
@@ -152,6 +153,18 @@ _SEALED_ENTRIES: dict[str, _SealedEntry] = {
         "017-y",
         "oap/orders/017-y-readiness-diagnosis-and-executable-capability.md",
         "slaif-017y-exec-capability-driver-v1",
+    ),
+    # The canonical INACTIVE future entry (017-aa order): a
+    # distinct driver-record tag selecting ONLY the owner-UID
+    # profile.  Registering it is NOT activating it: under the
+    # current active order the real repository-context validation
+    # refuses 017-ab before external fixture work or admission;
+    # the hermetic synthetic repositories are the only contexts
+    # where the AB entry resolves.
+    "017-ab": _SealedEntry(
+        rprofile.AB_ORDER_ID,
+        rprofile.AB_ORDER_PATH,
+        rprofile.AB_DRIVER_RECORD,
     ),
 }
 
@@ -342,6 +355,8 @@ def correlate_subject(
     pre_rows: list[dict[str, object]],
     post_rows: list[dict[str, object]],
     token: str,
+    *,
+    expected_subject: tuple[int, int, tuple[int, ...]] | None = None,
 ) -> tuple[dict[str, object] | None, str]:
     """The issued-marker correlation: the subject is the EXACTLY
     ONE post row in the exact closed hold form (this token) that
@@ -350,9 +365,28 @@ def correlate_subject(
     ``not-observed`` (retry within the bounded window); more than
     one is ``ambiguous`` (a closed refusal — the driver never
     silently selects the first candidate); a candidate that does
-    not carry the subject identity law is a closed refusal."""
+    not carry the subject identity law is a closed refusal.
+
+    ``expected_subject`` carries the FROZEN owner identity the
+    canonical 017-ab entry adopted from the owner's own
+    protected state (the closed structural law — never
+    caller-authored): ``(uid, gid, groups)`` where the third
+    member is the expected EFFECTIVE groups (the structural law
+    fixes it to exactly the primary GID).  The raw measured
+    supplementary vector law is independent of that: the closed
+    subject form carries either the EMPTY supplementary vector
+    or exactly the primary GID — a foreign, duplicate or other
+    vector is refused.  The default (``None``) keeps the
+    historical fixed-21002 law byte-for-byte for the X/Y
+    entries; the physical owner-UID facts are validated as-is,
+    NEVER normalized to 21002."""
     if not re.fullmatch(r"[0-9a-f]{32}", token):
         raise FixtureError("cap-token-invalid")
+    if expected_subject is None:
+        expected_uid, expected_gid = SUBJECT_UID, SUBJECT_UID
+    else:
+        expected_uid, expected_gid, _expected_groups = expected_subject
+    group_law = ((), (expected_gid,))
     pre_pids = {row["pid"] for row in pre_rows}
     candidates = [
         row for row in post_rows if row["closed_hold_form"] is True and row["pid"] not in pre_pids
@@ -362,9 +396,9 @@ def correlate_subject(
     if len(candidates) > 1:
         return None, "ambiguous"
     row = candidates[0]
-    if row["uid"] != SUBJECT_UID or row["gid"] != SUBJECT_UID:
+    if row["uid"] != expected_uid or row["gid"] != expected_gid:
         return None, "identity-mismatch"
-    if tuple(row["groups"]) not in ((), (SUBJECT_UID,)):
+    if tuple(row["groups"]) not in group_law:
         return None, "groups-law"
     return row, "correlated"
 
@@ -395,6 +429,7 @@ def measure_live_subject(
     discovered_birth: int,
     *,
     token: str,
+    expected_subject: tuple[int, int, tuple[int, ...]] | None = None,
 ) -> dict[str, object]:
     """The scoped current-executable measurement with the frame
     law: BEFORE and AFTER the executable read, the (pid, birth)
@@ -408,7 +443,24 @@ def measure_live_subject(
     the process identity still measured.  The channel's bounded
     read budget (at most 16 MiB and at most 10 s, further capped
     by the SAME remaining owner budget at construction) applies
-    to the executable read itself."""
+    to the executable read itself.
+
+    ``expected_subject`` threads the FROZEN 017-ab owner
+    identity (the closed structural law from the owner's own
+    protected state) into the pre- and post-read frame law; the
+    default keeps the historical fixed-21002 law byte-for-byte
+    (the owner-UID facts are validated as-is, never normalized
+    to 21002).  The raw supplementary vector law is the SAME
+    closed form as the correlation: the empty vector or exactly
+    the primary GID (the third member of the frozen tuple is the
+    expected EFFECTIVE groups — exactly the primary GID by the
+    structural law — and is not itself the set of allowed raw
+    vectors)."""
+    if expected_subject is None:
+        expected_uid, expected_gid = SUBJECT_UID, SUBJECT_UID
+    else:
+        expected_uid, expected_gid, _expected_groups = expected_subject
+    group_law = ((), (expected_gid,))
     try:
         ps, argv, uid, gid, groups = _scoped_identity(channel, pid)
     except FixtureError:
@@ -419,9 +471,9 @@ def measure_live_subject(
         }
     if (
         ps.start_time != discovered_birth
-        or uid != SUBJECT_UID
-        or gid != SUBJECT_UID
-        or tuple(groups) not in ((), (SUBJECT_UID,))
+        or uid != expected_uid
+        or gid != expected_gid
+        or tuple(groups) not in group_law
         or len(argv) != len(_HOLD_FORM_HEAD) + 1
         or argv[: len(_HOLD_FORM_HEAD)] != _HOLD_FORM_HEAD
         or argv[-1] != token
@@ -517,6 +569,7 @@ def _driver_record(
     owner_exit: int | None = None,
     evidence_sha256: str | None = None,
     capability: dict[str, object] | None = None,
+    identity: dict[str, object] | None = None,
     entry: _SealedEntry = _ENTRY_X,
 ) -> dict[str, object]:
     """The driver's CLOSED result record.  The terminal composition
@@ -526,8 +579,14 @@ def _driver_record(
     the PRIMARY phase ``reason``; the closed validator below
     accepts exactly this shape.  The record tag and order are
     paired to the entry (the historical X call sites keep the X
-    entry by default, byte-for-byte)."""
-    return {
+    entry by default, byte-for-byte).  ``identity`` carries the
+    FROZEN owner identity the canonical 017-ab entry adopted from
+    the owner's own protected state (the SAME closed substructure
+    the AB state/evidence carry — None for the X/Y entries, which
+    never carry it; a retained AB record binds its measured
+    subject to this retained identity, never to a caller-authored
+    expectation)."""
+    record = {
         "record": entry.record_tag,
         "status": status,
         "reason": reason,
@@ -544,6 +603,19 @@ def _driver_record(
         "finalize": "not-attempted",
         "retention": "not-requested",
     }
+    # The DISTINCT closed key sets per entry: the X/Y entries
+    # keep the historical key set byte-for-byte (a caller attempt
+    # to attach an owner identity to an X/Y record is a closed
+    # producer refusal — the old grammar is never widened); the
+    # canonical AB entry carries the historical keys PLUS the
+    # identity (None BEFORE the owner state is adopted — a useful
+    # closed fact on startup failures — and the frozen substructure
+    # after).
+    if entry.order_id == rprofile.AB_ORDER_ID:
+        record["identity"] = identity
+    elif identity is not None:
+        raise FixtureError("cap-record-identity")
+    return record
 
 
 def _validate_capability_record(record: object, entry: _SealedEntry = _ENTRY_X) -> None:
@@ -579,7 +651,8 @@ def _validate_capability_record(record: object, entry: _SealedEntry = _ENTRY_X) 
         "retention",
     }
     if (
-        set(record) != expected
+        set(record)
+        != (expected | {"identity"} if entry.order_id == rprofile.AB_ORDER_ID else expected)
         or record["record"] != entry.record_tag
         or record["status"] not in ("pass", "fail")
         or record["order"] != entry.order_id
@@ -633,7 +706,38 @@ def _validate_capability_record(record: object, entry: _SealedEntry = _ENTRY_X) 
         or record["retention"] not in ("not-requested", "retained", "refused")
     ):
         raise FixtureError("cap-record-schema")
+    # the entry-aware frozen-identity law: the closed key sets
+    # above already keep the X/Y records byte-for-byte the
+    # historical form (no identity key at all — the old grammar
+    # is never widened); the canonical AB entry carries the SAME
+    # closed substructure its state/evidence carry, closed-
+    # validated here by the shared structural core (None before
+    # the owner state is adopted; a valid caller-authored copy is
+    # still only data — the driver's adoption from the owner's
+    # own protected state is what binds it, and the terminal
+    # cross-checks the owner's retained evidence identity against
+    # it).
+    identity = record.get("identity")
+    if (
+        entry.order_id == rprofile.AB_ORDER_ID
+        and identity is not None
+        and flocal._identity_substructure_law(identity) is None
+    ):
+        raise FixtureError("cap-record-schema")
     cap = record["capability"]
+    # the AB pass coherence: a RETAINED AB pass is the qualified
+    # determination of the canonical entry — it must carry the
+    # ADOPTED frozen identity AND the actual capability result
+    # (an unknown current executable is still a valid useful
+    # result; a missing capability or identity is not).  The
+    # pre-state startup FAIL may honestly carry both unknowns
+    # (the refusal happened before any adoption or measurement).
+    if (
+        entry.order_id == rprofile.AB_ORDER_ID
+        and record["status"] == "pass"
+        and (identity is None or cap is None)
+    ):
+        raise FixtureError("cap-record-state")
     if cap is None:
         return
     if (
@@ -697,10 +801,20 @@ def _validate_capability_record(record: object, entry: _SealedEntry = _ENTRY_X) 
     # the state coherence: the digest grammar agrees with the
     # measured executable state (a measured digest implies the
     # process identity was measured AND an observed subject), the
-    # subject identity law (fixed 21002 uid/gid, the closed group
-    # law, positive pid, non-negative birth, the registered CID
-    # bound) and the inventory bounds (at most 96 rows; an
-    # observed subject implies a non-empty post inventory).
+    # ENTRY-AWARE subject identity law (the X/Y entries keep the
+    # fixed 21002 uid/gid byte-for-byte; the AB entry binds the
+    # measured subject to the RETAINED frozen identity — the
+    # physical 1001-class facts are validated as-is, never
+    # normalized to 21002 — with the SAME raw supplementary
+    # vector law: the empty vector or exactly the primary GID; an
+    # AB record without the retained identity can never carry a
+    # measured subject), positive pid, non-negative birth, the
+    # registered CID bound) and the inventory bounds (at most 96
+    # rows; an observed subject implies a non-empty post
+    # inventory).
+    ab_entry = entry.order_id == rprofile.AB_ORDER_ID
+    if ab_entry and identity is None and subject is not None:
+        raise FixtureError("cap-record-state")
     if (
         (cap["executable"] == "measured") != (cap["executable_sha256"] is not None)
         or (cap["executable"] == "measured" and cap["process_identity"] != "measured")
@@ -711,9 +825,23 @@ def _validate_capability_record(record: object, entry: _SealedEntry = _ENTRY_X) 
             and (
                 subject["pid"] <= 0
                 or subject["birth"] < 0
-                or subject["uid"] != SUBJECT_UID
-                or subject["gid"] != SUBJECT_UID
-                or tuple(subject["groups"]) not in ((), (SUBJECT_UID,))
+                or (
+                    ab_entry
+                    and (
+                        subject["uid"] != identity["subject_uid"]
+                        or subject["gid"] != identity["subject_gid"]
+                        or tuple(subject["groups"])
+                        not in ((), (identity["subject_gid"],))
+                    )
+                )
+                or (
+                    not ab_entry
+                    and (
+                        subject["uid"] != SUBJECT_UID
+                        or subject["gid"] != SUBJECT_UID
+                        or tuple(subject["groups"]) not in ((), (SUBJECT_UID,))
+                    )
+                )
             )
         )
         or (
@@ -978,7 +1106,7 @@ def run_exec_capability(
     while time.monotonic() < end:
         if proc.poll() is not None:
             break
-        state = flocal._state_record(control_dir)
+        state = flocal._state_record(control_dir, entry_order=entry.order_id)
         if state is not None:
             run_id = str(state["run_id"])
             break
@@ -1008,7 +1136,7 @@ def run_exec_capability(
         except (ValueError, IndexError):
             pass
         return _startup_record(reason, owner_exit)
-    state = flocal._state_record(control_dir)
+    state = flocal._state_record(control_dir, entry_order=entry.order_id)
     if state is None:
         return _startup_record("local-driver-startup", _reap_bounded())
     # -- startup authority (layer 2): bind the published state to the
@@ -1046,6 +1174,37 @@ def run_exec_capability(
             independent = False
         if not independent:
             return _startup_record("local-driver-independence", proc.poll())
+
+    # -- the entry's frozen subject expectation -------------------------------
+    # The X/Y entries keep the historical fixed-21002 law (their
+    # state is the strict 12-key v1 form — no identity exists to
+    # adopt, and the reader's tag law already refused any other
+    # form).  The canonical 017-ab entry adopts the FROZEN owner
+    # identity from the owner's OWN protected AB state (the closed
+    # structural law re-applied here — the reader's validation is
+    # not this consumer's trust), and the state's full ORIGINAL
+    # binding must agree with THIS driver's launch and admission:
+    # the canonical entry, the literal bound head, the admitted run
+    # (verified above).  A mismatch is a closed startup refusal —
+    # no command is issued, no abort is sent, and the journal is
+    # never mutated for a foreign or drifted state.  The adopted
+    # expectation is preserved through the capability phase, the
+    # retained record and the terminal composition (the terminal
+    # cross-checks the owner's retained evidence identity against
+    # it).
+    ab_identity: dict[str, object] | None = None
+    expected_subject: tuple[int, int, tuple[int, ...]] | None = None
+    if entry.order_id == rprofile.AB_ORDER_ID:
+        if (
+            state.get("order") != entry.order_id
+            or state.get("bind_head") != bind_head
+        ):
+            return _startup_record("local-driver-state-binding", _reap_bounded())
+        law = flocal._identity_substructure_law(state.get("identity"))
+        if law is None:
+            return _startup_record("local-driver-state-identity", _reap_bounded())
+        expected_subject = law[:3]
+        ab_identity = state["identity"]
 
     # The driver's WHOLE command/wait/measurement budget is the
     # owner's OWN published END anchor plus the owner's own single
@@ -1168,7 +1327,9 @@ def run_exec_capability(
         correlation_state = "not-observed"
         while True:
             post_rows = _bounded_inventory(hold_token)
-            subject, correlation_state = correlate_subject(pre_rows, post_rows, hold_token)
+            subject, correlation_state = correlate_subject(
+                pre_rows, post_rows, hold_token, expected_subject=expected_subject
+            )
             if subject is not None or correlation_state == "ambiguous":
                 break
             if time.monotonic() >= scan_end:
@@ -1205,7 +1366,11 @@ def run_exec_capability(
             raise FixtureError("local-driver-patience")
         measure_channel = factory(cid, measure_remaining)
         measured = measure_live_subject(
-            measure_channel, int(subject["pid"]), int(subject["birth"]), token=hold_token
+            measure_channel,
+            int(subject["pid"]),
+            int(subject["birth"]),
+            token=hold_token,
+            expected_subject=expected_subject,
         )
         # -- bounded natural-exit observation ---------------------------------
         subject_exit = wait_natural_exit(
@@ -1246,6 +1411,7 @@ def run_exec_capability(
             bind_head=bind_head,
             run_id=run_id,
             capability=capability,
+            identity=ab_identity,
             entry=entry,
         )
         # The owner's OWN bounded terminal command (never a host
@@ -1271,7 +1437,13 @@ def run_exec_capability(
 
     # -- the truthful closed conclusion (determination in ``capability``) -----
     record = _driver_record(
-        "pass", None, bind_head=bind_head, run_id=run_id, capability=capability, entry=entry
+        "pass",
+        None,
+        bind_head=bind_head,
+        run_id=run_id,
+        capability=capability,
+        identity=ab_identity,
+        entry=entry,
     )
     return _terminal(
         repo,
@@ -1410,18 +1582,41 @@ def _terminal(
     if evidence is not None:
         cap = record.get("capability")
         try:
-            if (
-                not isinstance(evidence, dict)
-                or evidence.get("record") != flocal.NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
-            ):
-                raise FixtureError("local-driver-evidence")
-            flocal.validate_native_owner_run_evidence(evidence)
+            if entry.order_id == rprofile.AB_ORDER_ID:
+                # The DISTINCT AB owner-run evidence (the AB record
+                # tag, the canonical AB order, the identity
+                # substructure and the exact-CID teardown proof —
+                # the shared measured substructures run the SAME
+                # private structural core with the AB expectations
+                # wired through, never normalized to 21002).
+                if (
+                    not isinstance(evidence, dict)
+                    or evidence.get("record") != flocal.AB_OWNER_RUN_EVIDENCE_SCHEMA
+                ):
+                    raise FixtureError("local-driver-evidence")
+                flocal.validate_ab_owner_run_evidence(evidence)
+            else:
+                # the historical native-scope law, byte-for-byte
+                if (
+                    not isinstance(evidence, dict)
+                    or evidence.get("record") != flocal.NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
+                ):
+                    raise FixtureError("local-driver-evidence")
+                flocal.validate_native_owner_run_evidence(evidence)
             if (
                 evidence.get("order") != entry.order_id
                 or str(evidence.get("run_id")) != str(run_id)
                 or evidence.get("bind_head") != record.get("bind_head")
             ):
                 raise FixtureError("local-driver-evidence")
+            if entry.order_id == rprofile.AB_ORDER_ID:
+                # the SAME frozen context end-to-end: the owner's
+                # RETAINED evidence identity must be the driver's
+                # ADOPTED expectation byte-for-byte (a divergent
+                # identity is not this run's evidence)
+                adopted = record.get("identity")
+                if adopted is None or evidence.get("identity") != adopted:
+                    raise FixtureError("local-driver-evidence")
             if isinstance(cap, dict) and cap.get("cid") is not None:
                 prepared = evidence.get("prepared")
                 if isinstance(prepared, dict) and prepared.get("cid") != cap["cid"]:
@@ -1534,11 +1729,12 @@ def _terminal(
 def main(argv: list[str] | None = None) -> int:
     """The driver's THIN public entry: ONE closed subcommand
     (``capability``) with the EXPLICIT opt-in (the bound order id
-    must be a SEALED ENTRY id — the historical ``017-x`` or the
-    new ``017-y``), the exact active/order/literal-head
-    binding and the closed result record printed as the single
-    stdout line.  This is not a general command runner: no other
-    subcommand, flag or value form is accepted."""
+    must be a SEALED ENTRY id — the historical ``017-x``, the new
+    ``017-y`` or the canonical INACTIVE ``017-ab``), the exact
+    active/order/literal-head binding and the closed result record
+    printed as the single stdout line.  This is not a general
+    command runner: no other subcommand, flag or value form is
+    accepted."""
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -1546,7 +1742,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("capability")
     p.add_argument(
         "--order",
-        help="the bound order id (a sealed entry: 017-x or 017-y)",
+        help="the bound order id (a sealed entry: 017-x, 017-y or 017-ab)",
     )
     p.add_argument("--bind-head", help="literal 40-hex source head")
     p.add_argument("--repo", help="repository checkout root")

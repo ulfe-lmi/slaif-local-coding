@@ -83,6 +83,32 @@ SUBJ_WORKDIR = f"{SUBJ_DIR}/work"
 PROVIDER_HOST = "127.0.0.1"
 
 SUBJECT_UID = 21002
+# The baked closed profile DATA file of the owner-UID image variant
+# (017-aa): present ONLY in that image (baked immutable, root-owned
+# 0444 on the read-only rootfs) and the bounded subject-identity
+# record of the owner mode.  Its presence or absence NEVER selects
+# the identity mode — that binding is the explicit image-owned
+# mode-constant file below.
+PROFILE_DATA_PATH = "/opt/slaif-fixture/fixture-identity.json"
+# The EXPLICIT image-owned identity-mode CONSTANT file (generated
+# ONLY by the owner-variant Dockerfile as a closed single-constant
+# Python source, root-owned 0444 on the read-only rootfs): an
+# immutable image fact — NOT runtime-overridable (the host neither
+# passes nor creates it; the guarded exec env is the closed set).
+# Its absence is the ORIGINAL default: the fixed-21002 law applies
+# byte-for-byte even if an arbitrary file sits at the DATA path.
+# The exact closed owner value selects the owner-UID law (which
+# then REQUIRES the bounded immutable DATA file and never falls
+# back); the explicit original value is the original law; any other
+# value, malformed content or non-immutable file state fails
+# closed.  The file is Parsed as closed content — never imported
+# or executed.
+IDENTITY_PROFILE_FILE = "/opt/slaif-fixture/identity_profile.py"
+IDENTITY_PROFILE_OWNER = "slaif-fixture-identity-owner-uid-v1"
+IDENTITY_PROFILE_ORIGINAL = "slaif-fixture-identity-original-v1"
+# Bounded content cap for the mode-constant file (cap+1 reads: an
+# overbound file is refused WITHOUT being fully read).
+IDENTITY_PROFILE_FILE_MAX_BYTES = 128
 # The 017-x hard finite hold bound: the subject holds AT MOST this
 # many seconds (further capped by the shared self-deadline backstop)
 # so a host-side observer can measure its CURRENT executable while
@@ -709,14 +735,17 @@ def measure_host_isolation() -> dict[str, bool]:
     }
 
 
-def create_synthetic_profile(run_token: str) -> dict:
+def create_synthetic_profile(run_token: str, v2: bool = False) -> dict:
     """Fresh owned synthetic CODEX_HOME + SEPARATE early-beta profile
     file (official 0.164.0 docs: --profile NAME overlays
     CODEX_HOME/NAME.config.toml, not a [profiles.NAME] table),
     entirely in the subject private tmpfs.  Only the exact supported
     0.164.0 provider/config schema is used (env_key pattern; the
     generated fake credential is a 0600 file, never the profile
-    value).  Only closed identity facts are returned."""
+    value).  Only closed identity facts are returned.  ``v2`` (the
+    owner-UID variant only) emits the same closed facts under the
+    v2 profile-record tag; the default keeps the original record
+    byte-for-byte."""
     import hashlib
 
     os.makedirs(SUBJ_CODEX_HOME, mode=0o700, exist_ok=True)
@@ -782,7 +811,7 @@ def create_synthetic_profile(run_token: str) -> dict:
             handle.write(content)
         os.chmod(path, 0o600)
     return {
-        "record": "slaif-fixture-profile-v1",
+        "record": "slaif-fixture-profile-v2" if v2 else "slaif-fixture-profile-v1",
         "codex_home_mode": stat_mod.S_IMODE(os.lstat(SUBJ_CODEX_HOME).st_mode),
         "codex_home_uid": os.lstat(SUBJ_CODEX_HOME).st_uid,
         "base_config_sha256": hashlib.sha256(base.encode()).hexdigest(),
@@ -798,10 +827,161 @@ def create_synthetic_profile(run_token: str) -> dict:
     }
 
 
+def _image_identity_profile_raw() -> bytes | None:
+    """The bounded immutable read of the image-owned mode constant.
+
+    Absent file: None (the original default — the original image
+    never bakes it).  ABSENCE is verified ENOENT ONLY: any other
+    lookup failure (EACCES, EIO, ...) is a fixed closed refusal —
+    a failed lookup must never silently choose the original.
+    Present file: the lstat facts are verified FIRST (regular
+    file, no link, root-owned, mode 0444 — the in-image immutable
+    state; anything else is a closed refusal), then the content
+    is read with a cap+1 bound (an overbound file is refused,
+    never fully read).
+    """
+    try:
+        st = os.lstat(IDENTITY_PROFILE_FILE)
+    except OSError as exc:
+        if exc.errno != errno_mod.ENOENT:
+            raise StandinError("identity-profile-lookup") from None
+        return None
+    if (
+        not stat_mod.S_ISREG(st.st_mode)
+        or st.st_uid != 0
+        or st.st_gid != 0
+        or stat_mod.S_IMODE(st.st_mode) != 0o444
+    ):
+        raise StandinError("identity-profile-state")
+    if st.st_size > IDENTITY_PROFILE_FILE_MAX_BYTES:
+        raise StandinError("identity-profile-size")
+    try:
+        with open(IDENTITY_PROFILE_FILE, "rb") as handle:
+            raw = handle.read(IDENTITY_PROFILE_FILE_MAX_BYTES + 1)
+    except OSError:
+        raise StandinError("identity-profile-unreadable") from None
+    if len(raw) > IDENTITY_PROFILE_FILE_MAX_BYTES:
+        raise StandinError("identity-profile-size")
+    return raw
+
+
+def _parse_identity_profile(raw: bytes) -> str | None:
+    """The closed single-constant content law (pure, no FS).
+
+    The content must be exactly one line of the closed grammar
+    (a fixed name, `` = ``, the quoted closed value, one trailing
+    newline); the closed values are the two canonical profile
+    names: the owner value selects the owner-UID mode, the
+    original value the original mode (like an absent file); any
+    other value, malformed grammar or encoding is a closed
+    refusal.  The content is never imported or executed.
+    """
+    match = re.fullmatch(
+        rb'SLAIF_FIXTURE_IDENTITY_PROFILE = "([a-z0-9-]+)"\n', raw
+    )
+    if match is None:
+        raise StandinError("identity-profile-grammar")
+    value = match.group(1).decode("ascii")
+    if value == IDENTITY_PROFILE_OWNER:
+        return "owner"
+    if value == IDENTITY_PROFILE_ORIGINAL:
+        return None
+    raise StandinError("identity-profile-unknown")
+
+
+def _expected_subject_pair() -> tuple[int, int] | None:
+    """The closed in-image subject identity expectation.
+
+    The mode is bound by the EXPLICIT image-owned generated
+    mode-constant file (immutable root-owned 0444 content, parsed
+    never executed): an absent file or the explicit original value
+    keeps the historical fixed-21002 law byte-for-byte, ignoring
+    any file at the DATA path (the original default — a file's
+    presence NEVER selects the mode).  The exact closed owner
+    value REQUIRES the bounded immutable DATA file — non-immutable
+    DATA state (link/missing/wrong owner/mode), oversize, malformed
+    or unknown-profile DATA fails closed, there is NEVER a
+    fallback to the original profile.  Non-immutable mode-file
+    state, overbound or malformed content and unknown values fail
+    closed.  The expected subject is the DATA's INDEPENDENT
+    (uid, gid) pair.
+    """
+    raw_mode = _image_identity_profile_raw()
+    mode = None if raw_mode is None else _parse_identity_profile(raw_mode)
+    if mode != "owner":
+        return None
+    try:
+        import cache_native_fixture_identity as fixture_identity
+    except ImportError:
+        raise StandinError("profile-data-module") from None
+    try:
+        st = os.lstat(PROFILE_DATA_PATH)
+    except OSError as exc:
+        if exc.errno != errno_mod.ENOENT:
+            raise StandinError("profile-data-lookup") from None
+        raise StandinError("profile-data-missing") from None
+    if (
+        not stat_mod.S_ISREG(st.st_mode)
+        or st.st_uid != 0
+        or st.st_gid != 0
+        or stat_mod.S_IMODE(st.st_mode) != 0o444
+    ):
+        raise StandinError("profile-data-state")
+    max_bytes = fixture_identity.MAX_RECORD_BYTES
+    if st.st_size > max_bytes:
+        raise StandinError("profile-data-size")
+    try:
+        with open(PROFILE_DATA_PATH, "rb") as handle:
+            raw = handle.read(max_bytes + 1)
+    except OSError:
+        raise StandinError("profile-data-unreadable") from None
+    if len(raw) > max_bytes:
+        raise StandinError("profile-data-size")
+    try:
+        desc = fixture_identity.decode_description(raw)
+    except ValueError:
+        raise StandinError("profile-data-invalid") from None
+    if (
+        desc.profile != fixture_identity.PROFILE_OWNER_UID
+        or (desc.controller_uid, desc.controller_gid)
+        != (fixture_identity.CONTROLLER_UID, fixture_identity.CONTROLLER_GID)
+    ):
+        raise StandinError("profile-data-invalid")
+    return (desc.subject_uid, desc.subject_gid)
+
+
+def _subject_identity_refusal(uid_only: bool) -> str | None:
+    """The closed subject identity law at ONE check site.
+
+    Returns None when the law holds, else the fixed refusal token
+    (never raises).  In the original mode (absent image-owned
+    marker) the historical law is byte-for-byte the original
+    (uid-only sites keep checking uid only).  In the owner-UID
+    mode the subject must be EXACTLY the frozen independent
+    (uid, gid) pair at every site — UID and GID are never assumed
+    equal.
+    """
+    try:
+        expected = _expected_subject_pair()
+    except StandinError as exc:
+        return closed_reason(exc)
+    if expected is None:
+        if os.getuid() != SUBJECT_UID:
+            return "identity-not-subject"
+        return None if uid_only else ("identity-not-subject" if os.getgid() != SUBJECT_UID else None)
+    return None if (os.getuid(), os.getgid()) == expected else "identity-not-subject"
+
+
 def measure_mode() -> int:
     try:
-        # Early identity prerequisite: the subject measures as 21002.
-        if os.getuid() != SUBJECT_UID or os.getgid() != SUBJECT_UID:
+        # Early identity prerequisite: the subject measures as the
+        # closed in-image expectation (original: the fixed 21002
+        # pair, byte-for-byte).
+        expected = _expected_subject_pair()
+        if expected is None:
+            if os.getuid() != SUBJECT_UID or os.getgid() != SUBJECT_UID:
+                return fail("identity-not-subject")
+        elif (os.getuid(), os.getgid()) != expected:
             return fail("identity-not-subject")
         status = self_status()
         specs = [
@@ -826,7 +1006,13 @@ def measure_mode() -> int:
         # maskPaths) are counted, never counted as data.
         writable_mounts, mounts_scanned, masked_null_aliases = measure_mounts(specs)
         record = {
-            "record": "slaif-fixture-exec-measurement-v1",
+            # v2: the same closed facts measured under the frozen
+            # owner-profile subject; v1 stays byte-for-byte.
+            "record": (
+                "slaif-fixture-exec-measurement-v2"
+                if expected is not None
+                else "slaif-fixture-exec-measurement-v1"
+            ),
             "uid": os.getuid(),
             "gid": os.getgid(),
             "groups": list(os.getgroups()),
@@ -876,7 +1062,14 @@ def pty_mode() -> int:
     against the closed model profile schema BEFORE the record is
     published."""
     try:
-        if os.getuid() != SUBJECT_UID:
+        try:
+            expected = _expected_subject_pair()
+        except StandinError as exc:
+            return fail(closed_reason(exc))
+        if expected is None:
+            if os.getuid() != SUBJECT_UID:
+                return fail("identity-not-subject")
+        elif (os.getuid(), os.getgid()) != expected:
             return fail("identity-not-subject")
         if not sys.stdin.isatty():
             return fail("pty-not-attached")
@@ -890,11 +1083,14 @@ def pty_mode() -> int:
         token = env_str("SLAIF_RUN_TOKEN")
         if not re.fullmatch(r"[0-9a-f]{32}", token):
             return fail("run-token-invalid")
-        profile = create_synthetic_profile(token)
+        profile = create_synthetic_profile(token, v2=expected is not None)
         try:
             import cache_native_fixture_model as fixture_model
 
-            fixture_model.validate_profile_record(profile)
+            if expected is None:
+                fixture_model.validate_profile_record(profile)
+            else:
+                fixture_model.validate_profile_record_v2(profile, expected[0])
         except ImportError:
             return fail("model-import")
         except fixture_model.FixtureError:
@@ -1473,8 +1669,9 @@ def auth_binding_mode() -> int:
     path never runs this mode and keeps its auth-less semantics."""
     deadline = _absolute_deadline()
     try:
-        if os.getuid() != SUBJECT_UID:
-            return fail("identity-not-subject")
+        refusal = _subject_identity_refusal(True)
+        if refusal is not None:
+            return fail(refusal)
         token = env_str("SLAIF_RUN_TOKEN")
         if not re.fullmatch(r"[0-9a-f]{32}", token):
             return fail("run-token-invalid")
@@ -1545,8 +1742,9 @@ def observe_mode() -> int:
     never inferred from a host charge delta)."""
     deadline = _absolute_deadline()
     try:
-        if os.getuid() != SUBJECT_UID:
-            return fail("identity-not-subject")
+        refusal = _subject_identity_refusal(True)
+        if refusal is not None:
+            return fail(refusal)
         status, content_type, body = _provider_get("/state", deadline)
         if status != 200 or content_type != "application/json":
             return fail("observe-wire")
@@ -1726,8 +1924,9 @@ def stop_owned_mode() -> int:
     (pid + starttime + token identity in this private PID namespace,
     uid == own uid).  Degraded evidence fails closed; no host UID,
     no name or pattern kill, no broad substring scan as ownership."""
-    if os.getuid() != SUBJECT_UID:
-        return fail("identity-not-subject")
+    refusal = _subject_identity_refusal(True)
+    if refusal is not None:
+        return fail(refusal)
     token = env_str("SLAIF_STOP_TOKEN")
     if not re.fullmatch(r"[0123456789abcdef]{32}", token):
         return fail("stop-token-invalid")
@@ -1798,8 +1997,9 @@ def hold_mode(argv_token: str | None = None) -> int:
     that.  Every pre-hold failure is a closed non-echoing refusal;
     nothing holds before the identity, token and anchor are all
     verified."""
-    if os.getuid() != SUBJECT_UID or os.getgid() != SUBJECT_UID:
-        return fail("identity-not-subject")
+    refusal = _subject_identity_refusal(False)
+    if refusal is not None:
+        return fail(refusal)
     try:
         if argv_token is not None:
             # The issued marker is bound on the kernel cmdline

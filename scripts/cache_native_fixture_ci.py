@@ -128,6 +128,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_native_fixture_controller as fixture_controller  # noqa: E402
 import cache_native_fixture_export_client as fixture_export  # noqa: E402
 import cache_native_fixture_model as model  # noqa: E402
+import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
 import cache_native_fixture_standin as fixture_standin  # noqa: E402
 
 SCHEMA = "slaif-cache-native-fixture-ci-v1"
@@ -156,6 +157,46 @@ TMPFS_TOTAL_BYTES = sum(size for _m, size, _u, _g in model.DEFAULT_TMPFS_BUDGETS
 TMPFS_SPEC_ENV = ",".join(
     f"{mount}:{size}:{uid}:{gid}" for mount, size, uid, gid in sorted(model.DEFAULT_TMPFS_BUDGETS)
 )
+
+
+def owner_tmpfs_budgets(profile: "rprofile.RuntimeProfile") -> tuple[tuple[str, int, int, int], ...]:
+    """The owner-variant tmpfs budgets: the SAME closed mounts,
+    sizes and modes, with the subject-owned mounts owned by the
+    frozen profile's exact INDEPENDENT subject UID/GID (the
+    controller private mount stays exactly 21001/21001).  The
+    original budgets are never mutated."""
+    if profile.profile != rprofile.PROFILE_OWNER_UID:
+        raise FixtureError("tmpfs-profile-invalid")
+    budgets = []
+    for mount, size, uid, gid in model.DEFAULT_TMPFS_BUDGETS:
+        if mount == "/run/slaif-ctl":
+            budgets.append((mount, size, uid, gid))
+        else:
+            budgets.append((mount, size, profile.subject_uid, profile.subject_gid))
+    return tuple(budgets)
+
+
+def owner_tmpfs_specs(profile: "rprofile.RuntimeProfile") -> dict[str, str]:
+    """The owner-variant create ``--tmpfs`` spec strings (the SAME
+    closed spec grammar as the module constant, the frozen
+    subject-owned identities)."""
+    return {
+        mount: (
+            f"rw,nosuid,size={size // 1024}k,uid={uid},gid={gid},mode={oct(mode)[2:]}"
+        )
+        for mount, size, uid, gid in owner_tmpfs_budgets(profile)
+        for mode in (_TMPFS_MODES[mount],)
+    }
+
+
+def owner_tmpfs_spec_env(profile: "rprofile.RuntimeProfile") -> str:
+    """The owner-variant ``SLAIF_FIXTURE_TMPFS_SPECS`` closed value
+    (the stand-in measures the ACTUAL mount table against this
+    exact closed spec)."""
+    return ",".join(
+        f"{mount}:{size}:{uid}:{gid}"
+        for mount, size, uid, gid in sorted(owner_tmpfs_budgets(profile))
+    )
 # The daemon's default shared-memory mount is subject-writable, so
 # it is explicitly bounded (never left to the daemon default) and
 # measured back by the subject (model.SHM_SIZE_BYTES, 64 MiB).
@@ -783,58 +824,75 @@ def _match_docker_rm(argv: list[str]) -> bool:
     return len(argv) == 4 and argv[:3] == ["docker", "rm", "-f"] and _is_cid(argv[3])
 
 
-def _match_docker_create(argv: list[str]) -> bool:
-    if len(argv) < 4 or argv[:2] != ["docker", "create"]:
-        return False
-    i = 2
-    if argv[i] != "--name" or not (
-        _NAME_RE.fullmatch(argv[i + 1]) or _LOCAL_NAME_RE.fullmatch(argv[i + 1])
-    ):
-        return False
-    i += 2
-    if argv[i] != "--label" or not _LABEL_RE.fullmatch(argv[i + 1]):
-        return False
-    i += 2
-    fixed = (
-        ("--network", "none"),
-        ("--read-only", ""),
-        ("--user", f"{CONTROLLER_UID}:{CONTROLLER_UID}"),
-        ("--cap-drop", "ALL"),
-        ("--security-opt", "no-new-privileges:true"),
-        ("--security-opt", "seccomp=builtin"),
-        ("--log-driver", "none"),
-        ("--memory", str(MEMORY_BYTES)),
-        ("--memory-swap", str(MEMORY_BYTES)),
-        ("--pids-limit", str(PIDS_LIMIT)),
-        ("--cpus", "1"),
-        ("--shm-size", SHM_SIZE_ARG),
-    )
-    for flag, value in fixed:
-        if argv[i] != flag:
+def _make_docker_create_matcher(tmpfs_expected: frozenset[str]):
+    """The closed create form for one exact closed tmpfs spec set
+    (see the module matcher below for the fixed historical set; the
+    owner-UID variant is the SAME closed form with the frozen
+    profile's subject-owned mount specs — every other flag, the
+    controller identity and the confinement law are byte-for-byte
+    the original)."""
+
+    def match(argv: list[str]) -> bool:
+        if len(argv) < 4 or argv[:2] != ["docker", "create"]:
             return False
-        if value:
-            if i + 1 >= len(argv) or argv[i + 1] != value:
+        i = 2
+        if argv[i] != "--name" or not (
+            _NAME_RE.fullmatch(argv[i + 1]) or _LOCAL_NAME_RE.fullmatch(argv[i + 1])
+        ):
+            return False
+        i += 2
+        if argv[i] != "--label" or not _LABEL_RE.fullmatch(argv[i + 1]):
+            return False
+        i += 2
+        fixed = (
+            ("--network", "none"),
+            ("--read-only", ""),
+            ("--user", f"{CONTROLLER_UID}:{CONTROLLER_UID}"),
+            ("--cap-drop", "ALL"),
+            ("--security-opt", "no-new-privileges:true"),
+            ("--security-opt", "seccomp=builtin"),
+            ("--log-driver", "none"),
+            ("--memory", str(MEMORY_BYTES)),
+            ("--memory-swap", str(MEMORY_BYTES)),
+            ("--pids-limit", str(PIDS_LIMIT)),
+            ("--cpus", "1"),
+            ("--shm-size", SHM_SIZE_ARG),
+        )
+        for flag, value in fixed:
+            if argv[i] != flag:
+                return False
+            if value:
+                if i + 1 >= len(argv) or argv[i + 1] != value:
+                    return False
+                i += 2
+            else:
+                i += 1
+        tmpfs: set[str] = set()
+        while i < len(argv) and argv[i] == "--tmpfs":
+            if i + 1 >= len(argv) or argv[i + 1] not in tmpfs_expected:
+                return False
+            tmpfs.add(argv[i + 1])
+            i += 2
+        if tmpfs != set(tmpfs_expected):
+            return False
+        while i < len(argv) and argv[i] == "-e":
+            if i + 1 >= len(argv):
+                return False
+            key, sep, value = argv[i + 1].partition("=")
+            if not sep or not _ENV_KEY_RE.fullmatch(key) or not _ENV_VALUE_RE.fullmatch(value):
                 return False
             i += 2
-        else:
-            i += 1
-    expected_tmpfs = {f"{m}:{TMPFS_SPECS[m]}" for m in TMPFS_SPECS}
-    tmpfs: set[str] = set()
-    while i < len(argv) and argv[i] == "--tmpfs":
-        if i + 1 >= len(argv) or argv[i + 1] not in expected_tmpfs:
-            return False
-        tmpfs.add(argv[i + 1])
-        i += 2
-    if tmpfs != expected_tmpfs:
-        return False
-    while i < len(argv) and argv[i] == "-e":
-        if i + 1 >= len(argv):
-            return False
-        key, sep, value = argv[i + 1].partition("=")
-        if not sep or not _ENV_KEY_RE.fullmatch(key) or not _ENV_VALUE_RE.fullmatch(value):
-            return False
-        i += 2
-    return i + 1 == len(argv) and _is_image_ref(argv[i])
+        return i + 1 == len(argv) and _is_image_ref(argv[i])
+
+    return match
+
+
+def _original_tmpfs_expected() -> frozenset[str]:
+    return frozenset(f"{m}:{TMPFS_SPECS[m]}" for m in TMPFS_SPECS)
+
+
+_match_docker_create = _make_docker_create_matcher(_original_tmpfs_expected())
+
 
 
 def _match_docker_start(argv: list[str]) -> bool:
@@ -887,80 +945,104 @@ def _match_docker_rmi(argv: list[str]) -> bool:
     )
 
 
-def _match_docker_exec(argv: list[str]) -> bool:
-    """The exec boundary: optional PTY, the exact fixture uid pair,
-    closed env keys/values, an OPTIONAL single ``--env-file <path>``
-    admitted only when that exact path is bound for the run via
-    ``bind_env_files`` (the hosted CI path binds nothing, so its
-    behavior is unchanged), the exact registered CID, and ONLY the
-    fixed fixture python entry points (controller probe, stand-in
-    modes, export client).  No shell, no arbitrary program."""
-    if len(argv) < 5 or argv[:2] != ["docker", "exec"]:
-        return False
-    i = 2
-    if argv[i] == "-it":
-        i += 1
-    if (
-        i + 1 >= len(argv)
-        or argv[i] != "--user"
-        or argv[i + 1]
-        not in (
-            f"{CONTROLLER_UID}:{CONTROLLER_UID}",
-            f"{SUBJECT_UID}:{SUBJECT_UID}",
+def _make_docker_exec_matcher(subject_user: str):
+    """The exec boundary for one exact closed subject ``uid:gid``
+    pair: optional PTY, the controller pair OR that exact subject
+    pair, closed env keys/values, an OPTIONAL single
+    ``--env-file <path>`` admitted only when that exact path is
+    bound for the run via ``bind_env_files`` (the hosted CI path
+    binds nothing, so its behavior is unchanged), the exact
+    registered CID, and ONLY the fixed fixture python entry points
+    (controller probe, stand-in modes, export client).  No shell,
+    no arbitrary program.  The original module matcher below is the
+    factory applied to the fixed historical subject pair (byte-for-
+    byte the original accepted argv set); the owner-UID variant is
+    built from the SAME factory with the frozen profile's exact
+    ``uid:gid`` (UID and GID independent — never ``uid:uid``)."""
+
+    def match(argv: list[str]) -> bool:
+        if len(argv) < 5 or argv[:2] != ["docker", "exec"]:
+            return False
+        i = 2
+        if argv[i] == "-it":
+            i += 1
+        if (
+            i + 1 >= len(argv)
+            or argv[i] != "--user"
+            or argv[i + 1]
+            not in (
+                f"{CONTROLLER_UID}:{CONTROLLER_UID}",
+                subject_user,
+            )
+        ):
+            return False
+        i += 2
+        while i + 1 < len(argv) and argv[i] == "-e":
+            key, sep, value = argv[i + 1].partition("=")
+            if not sep or not _ENV_KEY_RE.fullmatch(key) or not _ENV_VALUE_RE.fullmatch(value):
+                return False
+            i += 2
+        if i < len(argv) and argv[i] == "--env-file":
+            if i + 1 >= len(argv) or argv[i + 1] not in _ENV_FILE_BIND:
+                return False
+            i += 2
+        if i >= len(argv) or not _is_cid(argv[i]):
+            return False
+        tail = argv[i + 1 :]
+        probe = (
+            len(tail)
+            == 3
+            and tail[0] == "python3"
+            and tail[1] == "-c"
+            and tail[2] == CONTROLLER_PROBE
         )
-    ):
-        return False
-    i += 2
-    while i + 1 < len(argv) and argv[i] == "-e":
-        key, sep, value = argv[i + 1].partition("=")
-        if not sep or not _ENV_KEY_RE.fullmatch(key) or not _ENV_VALUE_RE.fullmatch(value):
-            return False
-        i += 2
-    if i < len(argv) and argv[i] == "--env-file":
-        if i + 1 >= len(argv) or argv[i + 1] not in _ENV_FILE_BIND:
-            return False
-        i += 2
-    if i >= len(argv) or not _is_cid(argv[i]):
-        return False
-    tail = argv[i + 1 :]
-    probe = (
-        len(tail) == 3 and tail[0] == "python3" and tail[1] == "-c" and tail[2] == CONTROLLER_PROBE
-    )
-    standin = (
-        len(tail) == 4
-        and tail[0] == "python3"
-        and tail[1] == STANDIN_PATH
-        and tail[2] == "--mode"
-        and tail[3] in _STANDIN_MODES
-    )
-    export = len(tail) == 2 and tail[0] == "python3" and tail[1] == EXPORT_CLIENT_PATH
-    return probe or standin or export
+        standin = (
+            len(tail) == 4
+            and tail[0] == "python3"
+            and tail[1] == STANDIN_PATH
+            and tail[2] == "--mode"
+            and tail[3] in _STANDIN_MODES
+        )
+        export = len(tail) == 2 and tail[0] == "python3" and tail[1] == EXPORT_CLIENT_PATH
+        return probe or standin or export
+
+    return match
 
 
-def _match_docker_exec_hold(argv: list[str]) -> bool:
-    """The 017-x detached capability start: the ONE closed detached
-    exec form — ``-d`` (dispatch and return; the subject's own
-    finite hold and natural exit run without a host capture), NO
-    PTY, NO -e arguments, NO env file, the exact subject uid pair,
-    the exact registered CID, and ONLY the fixed stand-in hold
-    entry whose issued 32-hex marker is the kernel-cmdline
-    correlation identity.  No general detach, no shell, no
-    arbitrary argv."""
-    return (
-        len(argv) == 12
-        and argv[0] == "docker"
-        and argv[1] == "exec"
-        and argv[2] == "-d"
-        and argv[3] == "--user"
-        and argv[4] == f"{SUBJECT_UID}:{SUBJECT_UID}"
-        and _is_cid(argv[5])
-        and argv[6] == "python3"
-        and argv[7] == STANDIN_PATH
-        and argv[8] == "--mode"
-        and argv[9] == "hold"
-        and argv[10] == "--hold-token"
-        and re.fullmatch(r"[0-9a-f]{32}", argv[11]) is not None
-    )
+_match_docker_exec = _make_docker_exec_matcher(f"{SUBJECT_UID}:{SUBJECT_UID}")
+
+
+def _make_docker_exec_hold_matcher(subject_user: str):
+    """The detached hold form for one exact closed subject
+    ``uid:gid`` pair (the closed law of the historical form:
+    ``-d``, NO PTY, NO -e arguments, NO env file, the exact
+    registered CID, and ONLY the fixed stand-in hold entry whose
+    issued 32-hex marker is the kernel-cmdline correlation
+    identity; no general detach, no shell, no arbitrary argv).
+    The original module matcher below is the factory applied to
+    the fixed historical subject pair."""
+
+    def match(argv: list[str]) -> bool:
+        return (
+            len(argv) == 12
+            and argv[0] == "docker"
+            and argv[1] == "exec"
+            and argv[2] == "-d"
+            and argv[3] == "--user"
+            and argv[4] == subject_user
+            and _is_cid(argv[5])
+            and argv[6] == "python3"
+            and argv[7] == STANDIN_PATH
+            and argv[8] == "--mode"
+            and argv[9] == "hold"
+            and argv[10] == "--hold-token"
+            and re.fullmatch(r"[0-9a-f]{32}", argv[11]) is not None
+        )
+
+    return match
+
+
+_match_docker_exec_hold = _make_docker_exec_hold_matcher(f"{SUBJECT_UID}:{SUBJECT_UID}")
 
 
 def _match_runtime_version(argv: list[str]) -> bool:
@@ -990,6 +1072,57 @@ _ARGV_MATCHERS = (
     _match_docker_exec_hold,
     _match_runtime_version,
 )
+
+
+def _make_docker_build_matcher(profile: "rprofile.RuntimeProfile"):
+    """The owner-variant build form for one frozen validated
+    profile: the historical ``docker build -t`` head plus the
+    EXACT closed build-arg sequence of the profile (the fixed
+    profile marker and the frozen subject UID/GID values — the
+    original build argv is never accepted here and the original
+    matcher is untouched).  No caller can substitute values: the
+    closed form carries the profile's own validated integers."""
+
+    def match(argv: list[str]) -> bool:
+        return (
+            len(argv) == 11
+            and argv[:4] == ["docker", "build", "-t", IMAGE_NAME]
+            and argv[4:10] == list(profile.build_args)
+            and re.fullmatch(r"/[A-Za-z0-9._/-]{1,512}", argv[10]) is not None
+            and ".." not in argv[10].split("/")
+        )
+
+    return match
+
+
+def _owner_argv_matchers(profile: "rprofile.RuntimeProfile") -> tuple:
+    """The owner-scoped guarded-argv set for ONE frozen runtime
+    profile: the SAME closed matchers as the original guard for
+    every command whose form is profile-independent, and the
+    profile-bound variants for the three surfaces that carry the
+    subject identity (build args, exec user, detached hold user).
+    A per-owner matcher tuple — no global mutable identity
+    binding."""
+    return (
+        _match_docker_ps,
+        _match_docker_version,
+        _match_docker_info,
+        _match_docker_rm,
+        _make_docker_create_matcher(
+            frozenset(f"{m}:{spec}" for m, spec in owner_tmpfs_specs(profile).items())
+        ),
+        _match_docker_start,
+        _match_docker_wait,
+        _match_docker_pull,
+        _make_docker_build_matcher(profile),
+        _match_docker_inspect,
+        _match_docker_top,
+        _match_docker_image_inspect,
+        _match_docker_rmi,
+        _make_docker_exec_matcher(profile.exec_user),
+        _make_docker_exec_hold_matcher(profile.exec_user),
+        _match_runtime_version,
+    )
 
 
 # -- protected environment-file handoff binding (objective 017-s) ----------
@@ -1150,6 +1283,7 @@ def _guarded_execute(
     executor: Executor,
     deadline: _RunDeadline,
     ledger: _RunLedger,
+    matchers: tuple | None = None,
 ) -> Executor:
     """Runtime NO-CODEX proof: the closed allowlist is the only
     execution path, every call consumes REMAINING shared-deadline
@@ -1158,14 +1292,20 @@ def _guarded_execute(
     The ledger is REQUIRED: no host command may execute without
     being admitted (charged before work) and accounted (charged
     after); refused argv is counted as a refusal and never
-    executed."""
+    executed.  ``matchers`` (default: the module's original closed
+    set) is the OWNER-SCOPED allowlist: the original callers keep
+    the byte-for-byte original matcher tuple, and the owner-UID
+    variant passes its own per-owner tuple built from the SAME
+    closed factories (no global mutable identity binding)."""
+
+    allowed = _ARGV_MATCHERS if matchers is None else matchers
 
     def guarded(argv: list[str], timeout: float) -> ExecResult:
         for element in argv:
             if not isinstance(element, str):
                 ledger.refuse()
                 raise FixtureError("argv-untrusted")
-        if not any(matcher(argv) for matcher in _ARGV_MATCHERS):
+        if not any(matcher(argv) for matcher in allowed):
             ledger.refuse()
             raise FixtureError("argv-untrusted")
         ledger.admit()
@@ -1624,7 +1764,8 @@ def fetch_public_artifact(dest_dir, deadline: _RunDeadline) -> dict[str, object]
 
 # -- exact confinement create-argv (no shell, no host mounts, no secrets) -------
 def build_run_conf_argv(
-    image_ref: str, name: str, owned_label: str, env: dict[str, str]
+    image_ref: str, name: str, owned_label: str, env: dict[str, str],
+    tmpfs_specs: dict[str, str] | None = None,
 ) -> list[str]:
     """The exact confinement create-argv: controller UID 21001 as
     PID1, dedicated nonroot identity, all capabilities dropped,
@@ -1632,7 +1773,10 @@ def build_run_conf_argv(
     with only the owned bounded tmpfs budgets plus the explicitly
     bounded /dev/shm, private network, no host mounts/devices, and
     ``--log-driver none`` (verified by inspection, never by
-    ``docker logs``)."""
+    ``docker logs``).  ``tmpfs_specs`` (the owner-UID variant only)
+    substitutes the closed spec strings for the subject-owned
+    mounts (frozen profile identities); None keeps the module
+    constant byte-for-byte."""
     argv = [
         "docker",
         "create",
@@ -1664,8 +1808,9 @@ def build_run_conf_argv(
         "--shm-size",
         SHM_SIZE_ARG,
     ]
-    for mountpoint in sorted(TMPFS_SPECS):
-        argv += ["--tmpfs", f"{mountpoint}:{TMPFS_SPECS[mountpoint]}"]
+    specs = TMPFS_SPECS if tmpfs_specs is None else tmpfs_specs
+    for mountpoint in sorted(specs):
+        argv += ["--tmpfs", f"{mountpoint}:{specs[mountpoint]}"]
     for key in sorted(env):
         argv += ["-e", f"{key}={env[key]}"]
     argv.append(image_ref)
@@ -1686,6 +1831,7 @@ def prepare_build_context(
     context: Path,
     dockerfile_bytes: bytes,
     artifact: dict[str, object],
+    profile_data: bytes | None = None,
 ) -> None:
     """The reviewed allowlisted build context: the pinned-base
     Dockerfile bytes, the four fixture sources, the verified public
@@ -1694,7 +1840,13 @@ def prepare_build_context(
     already be fresh owned subdirectories of the registered work
     root.  Shared by the hosted CI run and the order-bound local
     017-s rehearsal so the local build context cannot drift from the
-    reviewed one."""
+    reviewed one.  ``profile_data`` (the owner-UID variant only) is
+    the closed canonical identity record bytes written as the fixed
+    profile DATA file and re-hashed AFTER writing; the owner variant
+    additionally ships the inert identity contract module (with the
+    same post-write byte check) because it is the single in-image
+    source of truth for the subject identity; None keeps the
+    original build context byte-for-byte unchanged."""
     (context / "Dockerfile").write_bytes(dockerfile_bytes)
     for name in FIXTURE_BUILD_SOURCES:
         src = (repo / "scripts" / name).read_bytes()
@@ -1710,19 +1862,35 @@ def prepare_build_context(
     shutil.copyfile(artifact_dir / "NOTICE", context / "codex-0.164.0-notice.txt")
     if sha256_file(context / "codex-0.164.0-notice.txt") != artifact["notice_sha256"]:
         raise FixtureError("context-mismatch")
+    if profile_data is not None:
+        ident_src = (repo / "scripts" / rprofile.IDENTITY_MODULE_NAME).read_bytes()
+        ident_dest = context / rprofile.IDENTITY_MODULE_NAME
+        ident_dest.write_bytes(ident_src)
+        if sha256_file(ident_dest) != hashlib.sha256(ident_src).hexdigest():
+            raise FixtureError("context-mismatch")
+        data_path = context / rprofile.PROFILE_DATA_NAME
+        data_path.write_bytes(profile_data)
+        if sha256_file(data_path) != hashlib.sha256(profile_data).hexdigest():
+            raise FixtureError("context-mismatch")
 
 
-def verify_dockerfile_base(repo) -> bytes:
+def verify_dockerfile_base(
+    repo, dockerfile_name: str = "cache_native_fixture.Dockerfile"
+) -> bytes:
     """The reviewed Dockerfile base check (shared by the hosted CI
     run and the order-bound local 017-s rehearsal): exactly one
     FROM, digest-pinned to the reviewed Python 3.12 base literal,
     and the same embedded literal present in the repository
     Dockerfile (byte-identity, not transcription).  Returns the
-    fixture Dockerfile bytes for the build context."""
+    fixture Dockerfile bytes for the build context.  The default
+    name is the ORIGINAL fixture Dockerfile (hosted CI and the
+    017-s rehearsal keep their exact reviewed input); the
+    owner-UID variant passes its own distinct file, which the
+    same base law pins."""
     from pathlib import Path
 
     repo = Path(repo)
-    dockerfile_path = repo / "scripts" / "cache_native_fixture.Dockerfile"
+    dockerfile_path = repo / "scripts" / dockerfile_name
     if not dockerfile_path.is_file():
         raise FixtureError("dockerfile-missing")
     dockerfile_bytes = dockerfile_path.read_bytes()
@@ -1873,6 +2041,7 @@ def _new_container(
     env: dict[str, str],
     prefix: str = "017r",
     on_intent: Callable[[str], None] | None = None,
+    tmpfs_specs: dict[str, str] | None = None,
 ) -> str:
     """Fresh name + ownership label; pre-existing collision is a
     fixed failure (never adopted); the ACTUAL returned bare 64-hex
@@ -1896,7 +2065,9 @@ def _new_container(
         raise FixtureError("name-collision")
     if on_intent is not None:
         on_intent(name)
-    result = executor(build_run_conf_argv(IMAGE_NAME, name, label, env), RUN_TIMEOUT)
+    result = executor(
+        build_run_conf_argv(IMAGE_NAME, name, label, env, tmpfs_specs), RUN_TIMEOUT
+    )
     if result.returncode != 0:
         raise FixtureError("create-failed")
     container_id = result.output.decode("ascii", "replace").strip()
@@ -1919,15 +2090,40 @@ def _exec(
     env: dict[str, str],
     timeout: float = RUN_TIMEOUT,
     pty: bool = False,
+    exec_user: str | None = None,
 ) -> ExecResult:
+    # The exec user: the historical callers pass the fixture uid
+    # and the closed ``uid:uid`` form is built as before; the
+    # owner-UID variant passes the frozen profile's exact
+    # independent ``uid:gid`` (never assumed equal).
+    user = _closed_exec_user(uid, exec_user)
     argv = ["docker", "exec"]
     if pty:
         argv += ["-it"]
-    argv += ["--user", f"{uid}:{uid}"]
+    argv += ["--user", user]
     for key in sorted(env):
         argv += ["-e", f"{key}={env[key]}"]
     argv += [container_id] + tail
     return executor(argv, timeout)
+
+
+def _closed_exec_user(uid: int, exec_user: str | None) -> str:
+    """The closed exec-user law: ``uid:uid`` for the historical
+    callers (byte-for-byte the original form), or the exact
+    caller-supplied ``uid:gid`` string — which is admitted only in
+    the strict closed decimal form of two independent nonroot
+    fixture IDs in the closed Linux range (fixed refusal, no
+    echo).  No other user form reaches the guarded executor from
+    this module."""
+    if exec_user is None:
+        return f"{uid}:{uid}"
+    if not re.fullmatch(r"\d{1,10}:\d{1,10}", exec_user):
+        raise FixtureError("exec-user-form")
+    left, right = (int(part) for part in exec_user.split(":"))
+    for value in (left, right):
+        if value == 0 or value > 4294967294:
+            raise FixtureError("exec-user-range")
+    return exec_user
 
 
 def _exec_env_file(
@@ -1939,17 +2135,20 @@ def _exec_env_file(
     env_file: str,
     timeout: float = RUN_TIMEOUT,
     pty: bool = False,
+    exec_user: str | None = None,
 ) -> ExecResult:
     """Exec with the protected generated env file: the file PATH is
     bound for the run (bind_env_files) and admitted by the closed
     guard grammar; the file's VALUES never appear on argv.  Closed
-    fixture-internal variables may still be passed via -e."""
+    fixture-internal variables may still be passed via -e.  The
+    ``exec_user`` law is the closed one of :func:`_exec` (the
+    owner-UID variant passes the frozen independent ``uid:gid``)."""
     if env_file not in _ENV_FILE_BIND:
         raise FixtureError("env-file-unbound")
     argv = ["docker", "exec"]
     if pty:
         argv += ["-it"]
-    argv += ["--user", f"{uid}:{uid}"]
+    argv += ["--user", _closed_exec_user(uid, exec_user)]
     for key in sorted(env):
         argv += ["-e", f"{key}={env[key]}"]
     argv += ["--env-file", env_file, container_id] + tail
@@ -2324,8 +2523,18 @@ def _descendant_count(executor: Executor, container_id: str) -> int:
     return count
 
 
-def _standin_record(output: bytes, mode: str, extra_fields: frozenset[str]) -> dict[str, object]:
-    """Closed shape check of a slaif-fixture-standin-v1 record."""
+def _standin_record(
+    output: bytes,
+    mode: str,
+    extra_fields: frozenset[str],
+    subject_uid: int = SUBJECT_UID,
+) -> dict[str, object]:
+    """Closed shape check of a slaif-fixture-standin-v1 record.
+    The historical callers keep the fixed 21002 subject law
+    (byte-for-byte the original); the owner-UID variant passes
+    the frozen profile's exact subject uid (the measured record
+    still carries the ACTUAL measured uid — this is the closed
+    identity law, not a relabeling)."""
     record = _parse_closed_record(output)
     base = {"record", "status", "mode", "uid"}
     if set(record) != base | extra_fields:
@@ -2336,7 +2545,7 @@ def _standin_record(output: bytes, mode: str, extra_fields: frozenset[str]) -> d
         or record["mode"] != mode
     ):
         raise FixtureError("standin-record-state")
-    if record["uid"] != SUBJECT_UID:
+    if record["uid"] != subject_uid:
         raise FixtureError("standin-record-identity")
     return record
 
@@ -2390,7 +2599,11 @@ def _size_to_bytes(value: str) -> int:
     return int(value[:-1]) * mult
 
 
-def _verify_confinement(host_config: object, config: object) -> None:
+def _verify_confinement(
+    host_config: object,
+    config: object,
+    tmpfs_budgets: tuple[tuple[str, int, int, int], ...] = model.DEFAULT_TMPFS_BUDGETS,
+) -> None:
     """The ACTUAL full-confinement verification on the exact CID's
     inspect output: controller identity, exact private network,
     read-only root with ONLY the owned bounded tmpfs budgets, exact
@@ -2493,15 +2706,13 @@ def _verify_confinement(host_config: object, config: object) -> None:
     if not isinstance(log_config, dict) or log_config.get("Type") != "none":
         raise FixtureError("confinement-logconfig")
     tmpfs = host_config.get("Tmpfs")
-    if not isinstance(tmpfs, dict) or set(tmpfs) != set(TMPFS_SPECS):
+    if not isinstance(tmpfs, dict) or set(tmpfs) != set(m for m, _s, _u, _g in tmpfs_budgets):
         raise FixtureError("confinement-tmpfs-set")
     for mount, spec in tmpfs.items():
         if not isinstance(spec, str):
             raise FixtureError("confinement-tmpfs-spec")
         facts = _tmpfs_spec_facts(spec)
-        mount_spec = next(
-            (size, uid, gid) for m, size, uid, gid in model.DEFAULT_TMPFS_BUDGETS if m == mount
-        )
+        mount_spec = next((size, uid, gid) for m, size, uid, gid in tmpfs_budgets if m == mount)
         if set(facts) != {"rw", "nosuid", "size", "uid", "gid", "mode"}:
             raise FixtureError("confinement-tmpfs-spec")
         if _size_to_bytes(facts["size"]) != mount_spec[0]:
@@ -2554,6 +2765,7 @@ def prepare_container(
     prefix: str = "017r",
     on_registered: Callable[[str], None] | None = None,
     on_intent: Callable[[str], None] | None = None,
+    tmpfs_specs: dict[str, str] | None = None,
 ) -> str:
     """The shared scenario preparation: fresh owned name/label, the
     ACTUAL returned CID validated and registered BEFORE any start,
@@ -2569,7 +2781,9 @@ def prepare_container(
     the collision check and BEFORE docker create, so the fresh
     ownership intent is persisted before the external mutation;
     hosted callers pass None."""
-    cid = _new_container(executor, index, scenario, env, prefix, on_intent=on_intent)
+    cid = _new_container(
+        executor, index, scenario, env, prefix, on_intent=on_intent, tmpfs_specs=tmpfs_specs
+    )
     created.append(cid)
     if on_registered is not None:
         on_registered(cid)
@@ -2598,13 +2812,19 @@ def prepare_container(
     return cid
 
 
-def measure_controller_confinement_on(executor, cid) -> dict[str, str]:
+def measure_controller_confinement_on(
+    executor,
+    cid,
+    tmpfs_budgets: tuple[tuple[str, int, int, int], ...] | None = None,
+) -> dict[str, str]:
     """NON-CONSUMING controller-side confinement inspection on an
     already-prepared exact CID (local 017-s prepared target): the
     same closed confinement proof as the hosted measurement (the
     real log-driver field, the controller identity, the full
     host/config confinement including the absence of any host
-    mounts) WITHOUT the consuming diagnostic POST."""
+    mounts) WITHOUT the consuming diagnostic POST.  ``tmpfs_budgets``
+    (the owner-UID variant only) is the closed spec of the frozen
+    subject-owned mounts; None keeps the original budgets."""
     _inspect_closed(executor, cid, "{{.HostConfig.LogConfig.Type}}", "none")
     _inspect_closed(executor, cid, "{{.Config.User}}", f"{CONTROLLER_UID}:{CONTROLLER_UID}")
     host_config = json.loads(
@@ -2617,14 +2837,20 @@ def measure_controller_confinement_on(executor, cid) -> dict[str, str]:
             "ascii", "replace"
         )
     )
-    _verify_confinement(host_config, config)
+    _verify_confinement(
+        host_config,
+        config,
+        model.DEFAULT_TMPFS_BUDGETS if tmpfs_budgets is None else tmpfs_budgets,
+    )
     return {
         "log_config": "none",
         "config_user": f"{CONTROLLER_UID}:{CONTROLLER_UID}",
     }
 
 
-def observe_controller_on(executor, cid, env_base, ledger) -> dict[str, object]:
+def observe_controller_on(
+    executor, cid, env_base, ledger, profile: "rprofile.RuntimeProfile | None" = None
+) -> dict[str, object]:
     """Bounded trusted NON-CONSUMING observation of the ACTUAL
     controller state on an already-prepared exact CID (local 017-s
     lifecycle observe): the stand-in under 21002 reads the closed
@@ -2635,12 +2861,17 @@ def observe_controller_on(executor, cid, env_base, ledger) -> dict[str, object]:
     observation command, and the measured controller counters are
     reported as separate actual facts (a zero host-charge delta
     does not by itself prove zero provider traffic)."""
+    if profile is not None and profile.profile != rprofile.PROFILE_OWNER_UID:
+        raise FixtureError("observe-profile-invalid")
+    subject_uid = profile.subject_uid if profile is not None else SUBJECT_UID
+    exec_user = profile.exec_user if profile is not None else None
     result = _exec(
         executor,
         cid,
-        SUBJECT_UID,
+        subject_uid,
         ["python3", STANDIN_PATH, "--mode", "observe"],
         dict(env_base),
+        exec_user=exec_user,
     )
     if result.returncode != 0:
         _note_standin_detail(result)
@@ -2649,6 +2880,7 @@ def observe_controller_on(executor, cid, env_base, ledger) -> dict[str, object]:
         result.output,
         "observe",
         frozenset({"scenario", "wire_requests", "diagnostic_state", "raw_content_retained"}),
+        subject_uid=subject_uid,
     )
     if record["raw_content_retained"] is not False:
         raise FixtureError("observe-record-state")
@@ -2739,9 +2971,13 @@ def measure_subject_on(executor, cid, env, parent, ledger) -> dict[str, object]:
         raise FixtureError("exec-measurement-failed")
     record = _parse_closed_record(result.output)
     model.validate_exec_measurement(record, model.FixtureBudgets())
-    # Closed facts (measured, never raw): swap source, the keyring
-    # denial errnos and the reconciled writable-data facts (the
-    # measured mount table facts, not an argv claim).
+    return _curated_subject_facts(record)
+
+
+def _curated_subject_facts(record: dict[str, object]) -> dict[str, object]:
+    """Closed facts (measured, never raw): swap source, the keyring
+    denial errnos and the reconciled writable-data facts (the
+    measured mount table facts, not an argv claim)."""
     return {
         "swap_source": record["swap_source"],
         "uid": record["uid"],
@@ -2757,6 +2993,50 @@ def measure_subject_on(executor, cid, env, parent, ledger) -> dict[str, object]:
     }
 
 
+def measure_subject_on_profile(
+    executor,
+    cid,
+    env,
+    parent,
+    ledger,
+    profile: "rprofile.RuntimeProfile",
+) -> dict[str, object]:
+    """Subject-side measurement on the owner-UID variant: the SAME
+    closed stand-in measurement as :func:`measure_subject_on`,
+    exec'd as the frozen profile's exact independent ``uid:gid``,
+    and model-validated with the EXPLICIT v2 subject-measurement
+    record bound to the frozen profile subject (UID and GID
+    independent, expected effective groups exactly the primary
+    GID; the v1 record tag and the v1 fixed-21002 consumer are
+    refused in both directions — a v1 record here is a version
+    refusal, and the v1 validator rejects any v2 tag)."""
+    measure_env = _standin_env(env, *parent)
+    measure_env["SLAIF_FIXTURE_TMPFS_SPECS"] = owner_tmpfs_spec_env(profile)
+    measure_env["SLAIF_FIXTURE_EXPECTED_CPU"] = str(model.CPU_LIMIT)
+    measure_env["SLAIF_FIXTURE_PRESENCE_SHA256"] = PRESENCE_SHA256
+    result = _exec(
+        executor,
+        cid,
+        profile.subject_uid,
+        ["python3", STANDIN_PATH, "--mode", "measure"],
+        measure_env,
+        exec_user=profile.exec_user,
+    )
+    if result.returncode != 0:
+        _note_standin_detail(result)
+        raise FixtureError("exec-measurement-failed")
+    record = _parse_closed_record(result.output)
+    if record.get("record") != model.SCHEMA_EXEC_MEASUREMENT_V2:
+        raise FixtureError("exec-measurement-version")
+    model.validate_exec_measurement_v2(
+        record,
+        model.FixtureBudgets(tmpfs_budgets=owner_tmpfs_budgets(profile)),
+        profile.subject_uid,
+        profile.subject_gid,
+    )
+    return _curated_subject_facts(record)
+
+
 def pty_attach_on(
     executor,
     cid,
@@ -2764,6 +3044,7 @@ def pty_attach_on(
     run_token: str,
     ledger,
     env_file: str | None = None,
+    profile: "rprofile.RuntimeProfile | None" = None,
 ) -> dict[str, object]:
     """PTY/interactive attachment proof on an already-prepared exact
     CID (the exact future native attachment path): stdin must be a
@@ -2773,27 +3054,38 @@ def pty_attach_on(
     path passes None) additionally transfers the protected generated
     env file through the bound ``--env-file`` grammar -- its values
     never appear on argv -- and the stand-in reports the closed
-    ``env_handoff_verified`` boolean for it."""
+    ``env_handoff_verified`` boolean for it.  ``profile`` (the
+    owner-UID variant only) execs as the frozen profile's exact
+    independent ``uid:gid`` and validates the record's subject
+    identity, workspace ownership and the EXPLICIT v2 synthetic-
+    profile record against that frozen subject; None keeps the
+    original fixed-21002 behavior byte-for-byte."""
+    if profile is not None and profile.profile != rprofile.PROFILE_OWNER_UID:
+        raise FixtureError("pty-profile-invalid")
+    subject_uid = profile.subject_uid if profile is not None else SUBJECT_UID
+    exec_user = profile.exec_user if profile is not None else None
     pty_env = dict(env_base)
     pty_env["SLAIF_RUN_TOKEN"] = run_token
     if env_file is None:
         result = _exec(
             executor,
             cid,
-            SUBJECT_UID,
+            subject_uid,
             ["python3", STANDIN_PATH, "--mode", "pty"],
             pty_env,
             pty=True,
+            exec_user=exec_user,
         )
     else:
         result = _exec_env_file(
             executor,
             cid,
-            SUBJECT_UID,
+            subject_uid,
             ["python3", STANDIN_PATH, "--mode", "pty"],
             pty_env,
             env_file,
             pty=True,
+            exec_user=exec_user,
         )
     if result.returncode != 0:
         _note_standin_detail(result)
@@ -2812,6 +3104,7 @@ def pty_attach_on(
                 "profile",
             }
         ),
+        subject_uid=subject_uid,
     )
     if record["pty_attached"] is not True or record["terminal_properties_closed_only"] is not True:
         raise FixtureError("pty-record-state")
@@ -2823,7 +3116,7 @@ def pty_attach_on(
         or set(workspace) != {"path", "mode", "uid"}
         or workspace["path"] != "/run/slaif-subj/work"
         or workspace["mode"] != 0o700
-        or workspace["uid"] != SUBJECT_UID
+        or workspace["uid"] != subject_uid
     ):
         raise FixtureError("pty-workspace-state")
     for key in ("term_rows", "term_cols"):
@@ -2834,7 +3127,10 @@ def pty_attach_on(
     if record["term_rows"] != PTY_ROWS or record["term_cols"] != PTY_COLS:
         raise FixtureError("pty-term-mismatch")
     profile = record["profile"]
-    model.validate_profile_record(profile)
+    if exec_user is None:
+        model.validate_profile_record(profile)
+    else:
+        model.validate_profile_record_v2(profile, subject_uid)
     if (
         profile["profile_table_used"] is not False
         or profile["profile_file"] != "early-beta.config.toml"

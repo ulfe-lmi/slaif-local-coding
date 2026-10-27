@@ -375,6 +375,49 @@ and revalidate the same context at use — described, not
 implemented here. 19 focused tests (48 collected cases); no
 actual fixture/Docker/admission/native work, no
 `.oap-local/017-z` root; D09 remains `NOT RUN`.
+017-aa integrates that inert owner-UID contract through the real
+fixture owner and the Python capability driver (software-only:
+the integrated path stays input-gated and UNQUALIFIED until a
+later actual order — no actual local Docker/fixture/owner
+startup, admission, native/extra Codex, worker stop, signal, TTY
+handoff or model/Gateway call in this round).  The one canonical
+future sealed entry `017-ab` (driver record
+`slaif-017ab-owner-uid-exec-capability-v1`, selecting only
+`slaif-fixture-identity-owner-uid-v1`) is defined and fixed now
+but remains INACTIVE: it is never created, activated, admitted
+or launched in this round, and actual repository-context
+validation refuses it under the active state before any external
+fixture work.  When a later order activates it, the sealed child
+keeps sole resolve+admit ownership and the real owner then
+collects and freezes its OWN eligible host IDs (its own
+real/effective/saved UID and GID observations, through the 017-z
+production collector) after its original verified order/run wins
+admission; that one immutable context is revalidated at actual
+use and never rebased after drift, and a caller-supplied
+description or ready flag never establishes measured origin.
+The frozen profile carries through the build (an explicit
+owner-variant Dockerfile using only the frozen validated IDs,
+same pinned base, same confinement, root-owned immutable profile
+DATA — failing closed, never falling back to original), build
+arguments, subject ownership, the owner-scoped guarded executor
+(exact independent UID:GID; the original fixed-21002
+defaults and every old record/semantics remain the current
+qualified path, byte-for-byte — the consumers extend only
+through the shared private structural core, the public v1
+wrappers stay strict), controller accounting, stand-in
+measurements,
+host exact-CID discovery and the distinct versioned AB
+state/evidence/driver records.  The owner-UID cleanup proof is
+exact registered-CID lifetime membership — never a host UID scan
+— and a post-admission startup refusal converges through the
+same single owner convergence as every terminal path (the
+already-won attempt closes honestly; a foreign pre-existing
+control root is never adopted or deleted).  14 new canonical-entry
+tests in the exec-capability suite (now 52) plus the new 40-test
+owner-UID suite, over fake platform operations in distinct
+honest layers — useful fake proof, not a sealed-real-owner
+end-to-end qualification; no native-ready or v1 runtime claim;
+D09 remains `NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

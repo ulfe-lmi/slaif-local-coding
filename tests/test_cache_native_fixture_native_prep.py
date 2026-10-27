@@ -1574,6 +1574,11 @@ def test_real_owner_finish_teardown_drives_producer() -> None:
     deadline = fci._RunDeadline(time.monotonic() + fci.TOTAL_ANCHOR_SECONDS)
     ledger = fci._RunLedger(budgets)
     owner = object.__new__(flocal.LocalFixtureOwner)
+    # The real __init__ always initializes this (None for the
+    # ORIGINAL non-owner-UID form; this seam is that form): set
+    # the faithful original default explicitly rather than
+    # relying on any missing-attribute fallback in production.
+    owner._owner_context = None
     owner._abort_by_caller = False
     owner.abort_path = None
     owner.state_path = None

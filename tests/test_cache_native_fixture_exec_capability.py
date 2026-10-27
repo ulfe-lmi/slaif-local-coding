@@ -55,6 +55,9 @@ stl = _load_test_module("oap_x_stl", REPO_ROOT / "tests" / "test_cache_native_fi
 stp = _load_test_module(
     "oap_x_stp", REPO_ROOT / "tests" / "test_cache_native_fixture_native_prep.py"
 )
+stu = _load_test_module(
+    "oap_x_stu", REPO_ROOT / "tests" / "test_cache_native_fixture_owner_uid.py"
+)
 
 #: The ACTUAL Popen, captured before any test patches the shared
 #: subprocess module (a per-call capture would chain fakes across
@@ -1072,6 +1075,29 @@ def _stage1_owner_pass(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str,
     return _stage1_owner_pass_entry(base, monkeypatch, X_ORDER_ID)
 
 
+def _faithful_v1_state(run_id: str, pid: int, anchor: float) -> dict[str, Any]:
+    """The FAITHFUL complete closed 12-key v1 owner state (the
+    real producer's full form — the state reader is the FULL
+    closed grammar of the tag, so a synthetic 6-key stub is not a
+    readable state): the historical fixed values of the scripted
+    fake owner side (no containers yet, no image, the fresh zero
+    ledger of the new process)."""
+    return {
+        "record": flocal.STATE_SCHEMA,
+        "run_id": run_id,
+        "pid": pid,
+        "end_anchor": anchor,
+        "phase": "start",
+        "status": "running",
+        "containers": [],
+        "create_intent": None,
+        "image_id": None,
+        "build_attempted": False,
+        "env_file": None,
+        "ledger": flocal._ledger_facts(fci._RunLedger(model.FixtureBudgets())),
+    }
+
+
 def _driver_run(
     base: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1083,6 +1109,8 @@ def _driver_run(
     end_anchor: float | None = None,
     err_stream: bool = False,
     bootstrap_state: dict[str, Any] | None = None,
+    bootstrap_state_factory: Any = None,
+    exe_digest: str | None = "a" * 64,
     child_bootstraps: bool = True,
     entry_order: str = X_ORDER_ID,
 ) -> dict[str, Any]:
@@ -1098,7 +1126,12 @@ def _driver_run(
     the child itself).  The exact-owned test child is reaped by
     this helper on every path (never name-matched, never
     signalled).  ``entry_order`` selects the SEALED entry the
-    driver runs under (the historical 017-x entry by default)."""
+    driver runs under (the historical 017-x entry by default);
+    ``bootstrap_state_factory`` (when given) builds the published
+    state from the ACTUAL child pid (the AB form carries the
+    distinct identity-bearing tag + binding); ``exe_digest``
+    selects the scoped executable result (the measured-while-
+    alive positive or the closed UNKNOWN)."""
     base.mkdir(parents=True, exist_ok=True)
     os.chmod(base, 0o700)  # the protected record-parent root
     control = base / "control"
@@ -1138,16 +1171,12 @@ def _driver_run(
         # control root and publishes the closed state (the child's
         # own pid — the real owner does this in the child itself)
         state = (
+            bootstrap_state_factory(proc.pid)
+            if bootstrap_state_factory is not None
+            else
             bootstrap_state
             if bootstrap_state is not None
-            else {
-                "record": flocal.STATE_SCHEMA,
-                "run_id": stage["run_id"],
-                "pid": proc.pid,
-                "end_anchor": anchor,
-                "phase": "start",
-                "status": "running",
-            }
+            else _faithful_v1_state(stage["run_id"], proc.pid, anchor)
         )
         control.mkdir(mode=0o700)
         state_path = control / flocal._CONTROL_STATE_NAME
@@ -1156,7 +1185,7 @@ def _driver_run(
         return proc
 
     def factory(cid: str, remaining: float) -> Any:
-        channel = _FakeChannel(cid, stage["world"], exe_digest="a" * 64)
+        channel = _FakeChannel(cid, stage["world"], exe_digest=exe_digest)
         channels.append(channel)
         factory_calls.append((cid, remaining))
         return channel
@@ -2869,7 +2898,7 @@ def test_public_cli_entry_selection(monkeypatch: pytest.MonkeyPatch, tmp_path: P
         text = io.StringIO()
         with contextlib.redirect_stdout(text):
             rc = fxc.main(argv)
-        assert rc == (0 if order in ("017-x", "017-y") else 1)
+        assert rc == (0 if order in ("017-x", "017-y", "017-ab") else 1)
         record: dict[str, Any] = json.loads(text.getvalue())
         return record
 
@@ -2880,6 +2909,16 @@ def test_public_cli_entry_selection(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert record["order"] == Y_ORDER_ID
     assert record["record"] == "slaif-017y-exec-capability-driver-v1"
     assert captured["entry"] is fxc._SEALED_ENTRIES[Y_ORDER_ID]
+
+    # 017-ab: the canonical INACTIVE future sealed entry, under its
+    # own DISTINCT record tag (the historical X/Y meanings are
+    # unchanged; registering the entry is not activating it)
+    captured.clear()
+    record = run_main("017-ab")
+    assert record["status"] == "pass"
+    assert record["order"] == AB_ORDER_ID
+    assert record["record"] == AB_RECORD_TAG
+    assert captured["entry"] is fxc._SEALED_ENTRIES[AB_ORDER_ID]
 
     # 017-x: the historical default meaning, byte-for-byte
     captured.clear()
@@ -2895,3 +2934,1437 @@ def test_public_cli_entry_selection(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert record["status"] == "fail"
     assert record["reason"] == "local-args-invalid"
     assert "called" not in captured
+
+
+# ---------------------------------------------------------------------------
+# 017-aa canonical INACTIVE future sealed entry 017-ab: the integrated
+# owner-UID path.  The REAL public owner (own host-ID collection through
+# the faithful narrow fake seam, the DISTINCT identity-bearing AB state
+# and AB owner-run evidence) and the REAL driver/terminal (the AB entry,
+# the adopted frozen identity, the closed record grammar) run over
+# injected fake platform operations only.  The X/Y entries, namespaces
+# and records stay byte-for-byte unchanged; no actual fixture,
+# admission, Docker or native work occurs in this file.
+#
+# The honest layering (each layer named; NOT one sealed-real-owner E2E
+# claim):
+#   (1) the COUPLED public-owner terminal positive: the real owner over
+#       the AA fake world, the real scoped measurement WHILE the subject
+#       is alive, and the real _terminal under the AB entry (the public
+#       lifecycle/terminal validators and constructor stay real; only
+#       platform operations and raw OS reads are faked);
+#   (2) the SCRIPTED run_exec_capability bootstrap/state-binding layer:
+#       the fake sealed child publishes the real owner's AB state (the
+#       child's own pid — startup authority), the real driver adopts the
+#       frozen identity from the owner's OWN protected state and
+#       verifies the full binding over the scripted owner-side client;
+#   (3) the SEALED-CHILD CLI own-collection positive: the real public
+#       CLI over a hermetic AB repository, with the owner's OWN direct
+#       bounded OS identity read (no caller-supplied identity).
+# ---------------------------------------------------------------------------
+
+AB_ORDER_ID = "017-ab"
+AB_ENTRY = fxc._SEALED_ENTRIES[AB_ORDER_ID]
+AB_RECORD_TAG = "slaif-017ab-owner-uid-exec-capability-v1"
+
+CODE_CHILD_EXIT_1 = "import sys\nsys.exit(1)\n"
+CODE_SLEEP_2S_EXIT_1 = (
+    "import time\n"
+    "time.sleep(2.0)\n"
+    "import sys\n"
+    "sys.exit(1)\n"
+)
+
+
+class _AAWorldChannel:
+    """The scoped channel over the AA world's proc frames: EVERY read
+    is scope-gated to the bound registered CID (a member whose frame
+    leaves the registered scope is an unknown, never a verified
+    absence), the tri-state verified absence, and the birth-bound exe
+    digest (every scoped access records whether the subject was ALIVE
+    at that instant — the measured-while-alive proof).  The subject's
+    cmdline is the ACTUAL closed hold form the owner issued (the fake
+    executor validated and recorded the exact 32-hex marker before
+    the subject existed; pre-hold there is no subject and no token).
+    The controller's cmdline is the raw-OS surface the AA fake does
+    not materialize as a file — faked here exactly as the fixture
+    container runs it."""
+
+    def __init__(
+        self,
+        world: Any,
+        proc_root: Path,
+        cid: str,
+        docker: Any,
+        *,
+        exe_digest: str | None = "b" * 64,
+    ) -> None:
+        self._world = world
+        self._proc_root = proc_root
+        self._cid = cid
+        self._docker = docker
+        self._exe_digest = exe_digest
+        self.exe_accesses: list[bool] = []
+
+    def _member(self, pid: int) -> dict[str, Any] | None:
+        if pid == stu.CTL_PID:
+            return self._world.controller
+        if pid == stu.SUBJ_PID:
+            return self._world.subject
+        if pid == stu.WORKER_PID:
+            return self._world.worker
+        return None
+
+    def cgroup_scope(self, pid: int) -> str | None:
+        m = self._member(pid)
+        if m is not None and m.get("cgroup") == self._cid:
+            return f"docker-{self._cid}.scope"
+        return None
+
+    def _raw(self, pid: int, name: str) -> bytes | None:
+        if self.cgroup_scope(pid) is None:
+            return None
+        try:
+            return (self._proc_root / str(pid) / name).read_bytes()
+        except OSError:
+            return None
+
+    def stat(self, pid: int) -> bytes | None:
+        return self._raw(pid, "stat")
+
+    def status(self, pid: int) -> bytes | None:
+        return self._raw(pid, "status")
+
+    def cmdline(self, pid: int) -> bytes | None:
+        if self.cgroup_scope(pid) is None:
+            return None
+        if pid == stu.CTL_PID:
+            return b"python3\0/opt/slaif-fixture/cache_native_fixture_controller.py\0"
+        if pid == stu.SUBJ_PID:
+            calls = self._docker.hold_calls
+            if calls:
+                return _hold_argv(calls[-1])
+            return None
+        return None
+
+    def pid_present(self, pid: int) -> bool | None:
+        try:
+            os.lstat(self._proc_root / str(pid))
+        except FileNotFoundError:
+            return True  # the entry is gone: verified absence
+        except OSError:
+            return None
+        m = self._member(pid)
+        if m is None or m.get("cgroup") != self._cid:
+            # the entry exists but is out of the registered scope
+            # (the unrelated same-UID worker): unknown, never a
+            # verified absence
+            return None
+        return False
+
+    def exe_sha256(self, pid: int, birth: int) -> str | None:
+        if pid != stu.SUBJ_PID:
+            return None
+        raw = self.stat(pid)
+        if raw is None:
+            return None
+        st = fp.parse_proc_stat(raw.decode("ascii", "replace"))
+        if st.start_time != birth:
+            raise FixtureError("prep-subject-invalid")
+        self.exe_accesses.append(self._world.subject is not None)
+        return self._exe_digest
+
+
+def _ab_owner_prepared(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Stage 1a of the canonical entry: the REAL AB owner over the AA
+    fake platform (real constructor — own host ID collection through
+    the faithful narrow fake seam — real control surface) converges
+    prepare and is PREPARED (no hold issued yet: the held subject
+    must not exist before the pre-hold inventory is captured); the
+    DISTINCT identity-bearing AB state is captured WHILE the owner
+    still serves (the bound attempt is left running).  Bounded
+    exact-owned convergence on failure paths."""
+    aa = base / "o"  # short: keep the control socket path under the AF_UNIX bound
+    aa.mkdir(parents=True, exist_ok=True)
+    os.chmod(aa, 0o700)
+    paths = stu._aa_setup(aa, monkeypatch)
+    binding = stu._admit_ab(paths["repo"], paths["head"])
+    owner, thread = stu._start_owner(paths, binding, stu._reader)
+    ok = False
+    cid: str | None = None
+    try:
+        prepared = stl._client(paths["control"], "prepare", binding.run_id)
+        assert prepared["ok"] is True, prepared
+        cid = str(prepared["detail"]["cid"])
+        assert cid == paths["world"].cid  # the world carries the ACTUAL created CID
+        state = flocal._state_record(paths["control"], entry_order=AB_ORDER_ID)
+        assert state is not None, "the real owner never published its AB state"
+        ok = True
+    finally:
+        if not ok:
+            stu._join_owner(thread, control=paths["control"], run_id=binding.run_id)
+    return {
+        "paths": paths,
+        "owner": owner,
+        "thread": thread,
+        "run_id": binding.run_id,
+        "head": paths["head"],
+        "repo": paths["repo"],
+        "cid": cid,
+        "state": state,
+        "control": paths["control"],
+        "evidence": paths["evidence"],
+        "proc_root": paths["proc_root"],
+    }
+
+
+def _ab_pre_inventory(ctx: dict[str, Any], channel: Any) -> list[dict[str, object]]:
+    """The COMPLETE pre-hold inventory under the OWNER's guarded top
+    attestation, captured BEFORE the hold is issued: the freshness
+    reference the correlation checks (the held subject does not
+    exist yet — it is never hidden to claim freshness)."""
+    top = stl._client(ctx["control"], "top", ctx["run_id"])
+    assert top["ok"] is True, top
+    return fxc.discover_inventory(
+        channel, ctx["proc_root"], list(top["detail"]["pids"]), token=None
+    )
+
+
+def _ab_post_capability(
+    ctx: dict[str, Any],
+    channel: Any,
+    pre_rows: list[dict[str, object]],
+    token: str,
+) -> dict[str, object]:
+    """The measured post-hold capability facts over the AA world: the
+    actual guarded post top (the subject is alive now), the scoped
+    live measurement of the 1001:1002 subject WHILE it is alive
+    under the FROZEN owner identity, then the subject's own finite
+    hold expiry in CONTAINER time (absence only — no exit code or
+    cause) and the bounded verified-gone observation.  No host
+    sleep: the fake container clock advances."""
+    world: Any = ctx["paths"]["world"]
+    top = stl._client(ctx["control"], "top", ctx["run_id"])
+    assert top["ok"] is True, top
+    post_rows = fxc.discover_inventory(
+        channel, ctx["proc_root"], list(top["detail"]["pids"]), token=token
+    )
+    expected = (stu.SUBJ_UID, stu.SUBJ_GID, (stu.SUBJ_GID,))
+    subject, corr = fxc.correlate_subject(pre_rows, post_rows, token, expected_subject=expected)
+    assert corr == "correlated" and subject is not None
+    pid = int(subject["pid"])
+    birth = int(subject["birth"])
+    measured = fxc.measure_live_subject(
+        channel, pid, birth, token=token, expected_subject=expected
+    )
+    # every scoped exe access observed the ALIVE subject (a
+    # post-exit capture could never earn this)
+    assert channel.exe_accesses and all(channel.exe_accesses)
+    assert measured["process_identity"] == "measured"
+    assert measured["executable"] == "measured"
+    assert measured["executable_sha256"] == "b" * 64
+    # the finite hold elapses in CONTAINER time (the subject's own
+    # natural exit: absence only, never an exit code or cause)
+    world.advance(world.HOLD_SECONDS + 1.0)
+    assert world.subject is None
+    exit_state = fxc.wait_natural_exit(channel, pid, bound=5.0)
+    assert exit_state == "verified-gone"
+    return {
+        "cid": ctx["cid"],
+        "subject": {
+            "pid": pid,
+            "birth": birth,
+            "uid": int(subject["uid"]),
+            "gid": int(subject["gid"]),
+            "groups": list(subject["groups"]),
+        },
+        "process_identity": str(measured["process_identity"]),
+        "executable": str(measured["executable"]),
+        "executable_sha256": measured["executable_sha256"],
+        "pre_inventory_rows": len(pre_rows),
+        "post_inventory_rows": len(post_rows),
+        "inventory_rows_max": fxc.INVENTORY_ROWS_MAX,
+        "subject_exit": exit_state,
+    }
+
+
+def _ab_coupled_terminal(
+    ctx: dict[str, Any], capability: dict[str, object], *, record_out: Path
+) -> dict[str, object]:
+    """The REAL _terminal under the canonical 017-ab entry over the
+    coupled composition: the owner's thread lifecycle coupled as the
+    process/reader facts (the owner is never signalled by the
+    terminal); the record carries the ADOPTED frozen identity from
+    the owner's OWN protected AB state; the SAME one END+grace
+    anchor the owner published (never a fresh budget)."""
+
+    class _CoupledProc:
+        def poll(self) -> int | None:
+            return None if ctx["thread"].is_alive() else ctx["owner"]._exit_code
+
+        def wait(self, timeout: float) -> int:
+            ctx["thread"].join(min(float(timeout), 0.2))
+            value = self.poll()
+            if value is None:
+                raise subprocess.TimeoutExpired("synthetic coupled owner", timeout)
+            return value
+
+    class _CoupledReader:
+        def is_alive(self) -> bool:
+            return ctx["thread"].is_alive()
+
+        def join(self, timeout: float) -> None:
+            ctx["thread"].join(min(float(timeout), 0.1))
+
+    record = fxc._driver_record(
+        "pass",
+        None,
+        bind_head=ctx["head"],
+        run_id=ctx["run_id"],
+        capability=capability,
+        identity=ctx["state"]["identity"],
+        entry=AB_ENTRY,
+    )
+    patience_abs = float(ctx["state"]["end_anchor"]) + flocal.CLEANUP_GRACE_SECONDS
+    return fxc._terminal(
+        ctx["repo"],
+        _CoupledProc(),
+        _CoupledReader(),
+        ctx["control"],
+        ctx["run_id"],
+        patience_abs,
+        ctx["evidence"],
+        record,
+        record_out,
+        abort=False,
+        finalize_pass=True,
+        entry=AB_ENTRY,
+    )
+
+
+def test_ab_terminal_coupled_public_owner_measures_before_finish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The coupled public-owner terminal positive of the canonical
+    017-ab entry (the honest ONE-world composition: the real owner,
+    real control, real state/evidence/retention/finalization over
+    the AA fake platform): the COMPLETE pre-hold inventory is
+    captured under the owner's guarded attestation BEFORE the hold,
+    the scoped live measurement of the 1001:1002 subject's
+    executable happens WHILE the subject is alive and BEFORE the
+    owner's own finish (every scoped exe access observes the live
+    subject), the subject's finite hold then expires in container
+    time (absence only), the owner's finish quiesce MEASURES the
+    subject gone (never a canned closure), and the REAL terminal
+    under the AB entry verifies the owner's retained AB evidence
+    against the ADOPTED frozen identity (the SAME frozen context
+    end-to-end), retains the DISTINCT AB record FIRST and only then
+    finalizes the SAME attempt on the SAME published END+grace
+    anchor.  The retained record bytes are IMMUTABLE at retention
+    time; the historical X/Y namespaces are never admitted in this
+    synthetic repository."""
+    base = tmp_path / "ac"
+    base.mkdir()
+    os.chmod(base, 0o700)  # the protected record-parent root
+    ctx = _ab_owner_prepared(base, monkeypatch)
+    world: Any = ctx["paths"]["world"]
+    channel = _AAWorldChannel(world, ctx["proc_root"], ctx["cid"], ctx["paths"]["docker"])
+    try:
+        # BEFORE the hold: the complete guarded pre inventory
+        # (the freshness reference)
+        pre_rows = _ab_pre_inventory(ctx, channel)
+        # the ONE detached capability start (the owner's own
+        # ledger/deadline)
+        held = stl._client(ctx["control"], "hold", ctx["run_id"])
+        assert held["ok"] is True, held
+        token = str(held["detail"]["hold_token"])
+        # WHILE the subject is alive: the guarded post top + the
+        # scoped live measurement
+        capability = _ab_post_capability(ctx, channel, pre_rows, token)
+        # the owner's own finish (the quiesce MEASURES the subject
+        # gone — the finite hold already expired in container time)
+        finished = stl._client(ctx["control"], "finish", ctx["run_id"])
+        assert finished["ok"] is True, finished
+        assert finished["detail"]["outcome"] == "pass", finished
+        stu._join_owner(ctx["thread"], control=ctx["control"], run_id=ctx["run_id"])
+        assert ctx["owner"].terminal_outcome == "pass"
+        result = _ab_coupled_terminal(
+            ctx, capability, record_out=base / "ab-capability.json"
+        )
+    finally:
+        if ctx["thread"].is_alive():
+            stu._join_owner(
+                ctx["thread"], control=ctx["control"], run_id=ctx["run_id"]
+            )
+    record = result
+    assert record["status"] == "pass"
+    assert record["reason"] is None
+    assert record["order"] == AB_ORDER_ID
+    assert record["record"] == AB_RECORD_TAG
+    assert record["run_id"] == ctx["run_id"]
+    assert record["bind_head"] == ctx["head"]
+    assert record["terminal_command"] == "none"
+    assert record["owner_exit"] == 0
+    assert record["reader_state"] == "drained"
+    assert record["capture_state"] == "drained"
+    assert record["evidence_state"] == "verified-pass"
+    assert (
+        record["evidence_sha256"]
+        == hashlib.sha256(ctx["evidence"].read_bytes()).hexdigest()
+    )
+    assert record["retention"] == "retained"
+    assert record["finalize"] == "finalized"
+    cap = record["capability"]
+    assert cap["cid"] == ctx["cid"]
+    assert cap["process_identity"] == "measured"
+    assert cap["executable"] == "measured"
+    assert cap["executable_sha256"] == "b" * 64
+    assert cap["subject"] == {
+        "pid": stu.SUBJ_PID,
+        "birth": stu.SUBJ_START,
+        "uid": stu.SUBJ_UID,
+        "gid": stu.SUBJ_GID,
+        "groups": [stu.SUBJ_GID],
+    }
+    assert cap["pre_inventory_rows"] == 1
+    assert cap["post_inventory_rows"] == 2
+    assert cap["subject_exit"] == "verified-gone"
+    # the SAME frozen context end-to-end: the record's retained
+    # identity is the owner's OWN frozen substructure (adopted from
+    # its protected AB state), and the terminal cross-check verified
+    # the owner's retained evidence identity against it
+    assert record["identity"] == ctx["state"]["identity"]
+    assert record["identity"]["subject_uid"] == stu.SUBJ_UID
+    assert record["identity"]["subject_gid"] == stu.SUBJ_GID
+    assert record["identity"]["subject_groups"] == [stu.SUBJ_GID]
+    # the ONE shared admission: the terminal finalization is the
+    # ONLY terminal journal entry, in the 017-ab namespace
+    assert _journal_for(ctx["repo"], AB_ORDER_ID) == [
+        {"head": ctx["head"], "run_id": ctx["run_id"], "status": "pass"}
+    ]
+    assert _journal_for(ctx["repo"], X_ORDER_ID) == []
+    assert _journal_for(ctx["repo"], Y_ORDER_ID) == []
+    # the retained record is IMMUTABLE at retention time (the later
+    # RAM finalize facts are never rewritten into the retained bytes)
+    payload = json.loads((base / "ab-capability.json").read_bytes())
+    assert payload == {
+        **record,
+        "retention": "not-requested",
+        "finalize": "not-attempted",
+    }
+    assert stat.S_IMODE((base / "ab-capability.json").stat().st_mode) == 0o600
+
+
+def _ab_stage1_owner_pass(base: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """The 017-ab stage 1 (the real owner over the AA fake
+    platform): prepare -> hold -> the subject's own finite hold
+    expiry (container time, absence only) -> finish pass; the bound
+    attempt is left RUNNING for the driver's terminal finalization
+    (the distinct native law).  The scripted stage-2 world is the
+    exec-cap world carrying the ACTUAL created CID and the 1001:1002
+    subject the owner's frozen identity adopts (a different, named
+    fake world — the two worlds are NOT conflated into one
+    sealed-real-owner E2E claim)."""
+    ctx = _ab_owner_prepared(base, monkeypatch)
+    world = ctx["paths"]["world"]
+    state_bytes: bytes
+    ok = False
+    try:
+        held = stl._client(ctx["control"], "hold", ctx["run_id"])
+        assert held["ok"] is True, held
+        world.advance(world.HOLD_SECONDS + 1.0)
+        assert world.subject is None
+        state_bytes = (ctx["control"] / flocal._CONTROL_STATE_NAME).read_bytes()
+        detail = stu._drive_finish(ctx["paths"], ctx["run_id"])
+        assert detail["outcome"] == "pass", detail
+        ok = True
+    finally:
+        stu._join_owner(ctx["thread"], control=ctx["control"], run_id=ctx["run_id"])
+    assert ctx["owner"].terminal_outcome == "pass"
+    assert _journal_for(ctx["repo"], AB_ORDER_ID) == [
+        {"head": ctx["head"], "run_id": ctx["run_id"], "status": "running"}
+    ]
+    sWorld = _World(
+        subject_uid=stu.SUBJ_UID,
+        subject_gid=stu.SUBJ_GID,
+        subject_groups=(stu.SUBJ_GID,),
+    )
+    sWorld.attach(ctx["cid"])
+    return {
+        "repo": ctx["repo"],
+        "head": ctx["head"],
+        "run_id": ctx["run_id"],
+        "cid": ctx["cid"],
+        "evidence_bytes": ctx["evidence"].read_bytes(),
+        "state_bytes": state_bytes,
+        "world": sWorld,
+    }
+
+
+def _ab_bootstrap_state(stage: dict[str, Any], pid: int, anchor: float) -> dict[str, Any]:
+    """The fake sealed child publishes the AB state captured from the
+    real owner's OWN protected control surface, with the child's own
+    pid and a fresh END anchor (the real child does this in the child
+    itself): the DISTINCT identity-bearing tag and the full binding
+    and identity are preserved byte-for-byte."""
+    state = json.loads(stage["state_bytes"].decode("ascii"))
+    state["pid"] = pid
+    state["end_anchor"] = anchor
+    return state
+
+
+def test_ab_full_positive_driver_retains_ab_record_before_pass_finalization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scripted driver unit of the canonical 017-ab entry: the real
+    run_exec_capability, with the fake sealed child publishing the
+    REAL owner's AB state bound to the ACTUAL child's pid (startup
+    authority), adopts the FROZEN owner identity from the owner's
+    OWN protected state, verifies the full ORIGINAL binding, and
+    measures the 1001:1002 subject's executable WHILE alive under
+    that adopted expectation; the run converges through the SAME
+    run identity: the DISTINCT AB record (carrying the retained
+    identity) is retained FIRST and only then the same-attempt
+    terminal finalization.  The retained record bytes are IMMUTABLE
+    at retention time; the historical X/Y namespaces are untouched."""
+    stage = _ab_stage1_owner_pass(tmp_path / "ap", monkeypatch)
+    base = tmp_path / "apr"
+    flag = base / "converge-flag"
+    out = _driver_run(
+        base,
+        monkeypatch,
+        stage,
+        client=_happy_client(stage, base / "proc", flag, base / "evidence.json"),
+        converge_flag=flag,
+        entry_order=AB_ORDER_ID,
+        bootstrap_state_factory=lambda pid: _ab_bootstrap_state(
+            stage, pid, time.monotonic() + 700.0
+        ),
+    )
+    record = out["record"]
+    assert record["status"] == "pass"
+    assert record["reason"] is None
+    assert record["order"] == AB_ORDER_ID
+    assert record["record"] == AB_RECORD_TAG
+    assert record["run_id"] == stage["run_id"]
+    assert record["bind_head"] == stage["head"]
+    assert record["terminal_command"] == "none"
+    assert record["owner_exit"] == 0
+    assert record["reader_state"] == "drained"
+    assert record["capture_state"] == "drained"
+    assert record["evidence_state"] == "verified-pass"
+    assert record["retention"] == "retained"
+    assert record["finalize"] == "finalized"
+    cap = record["capability"]
+    assert cap["cid"] == stage["cid"]
+    assert cap["process_identity"] == "measured"
+    assert cap["executable"] == "measured"
+    assert cap["executable_sha256"] == "a" * 64
+    assert cap["subject"] == {
+        "pid": 60,
+        "birth": 500,
+        "uid": stu.SUBJ_UID,
+        "gid": stu.SUBJ_GID,
+        "groups": [stu.SUBJ_GID],
+    }
+    assert cap["pre_inventory_rows"] == 1
+    assert cap["post_inventory_rows"] == 2
+    assert cap["subject_exit"] == "verified-gone"
+    # the ADOPTED frozen identity: byte-for-byte the owner's OWN
+    # protected AB state substructure (the terminal cross-checked
+    # the owner's retained evidence identity against it)
+    assert (
+        record["identity"]
+        == json.loads(stage["state_bytes"].decode("ascii"))["identity"]
+    )
+    assert record["identity"]["subject_uid"] == stu.SUBJ_UID
+    assert record["identity"]["subject_gid"] == stu.SUBJ_GID
+    assert record["identity"]["subject_groups"] == [stu.SUBJ_GID]
+    # the executable was read WHILE the subject was alive on EVERY
+    # scoped access (a post-exit capture could never earn this)
+    accesses = [flag for ch in out["channels"] for flag in ch.exe_accesses]
+    assert accesses and all(accesses)
+    # the ONE shared admission: the driver's terminal finalization
+    # is the ONLY terminal journal entry, in the 017-ab namespace
+    assert _journal_for(stage["repo"], AB_ORDER_ID) == [
+        {"head": stage["head"], "run_id": stage["run_id"], "status": "pass"}
+    ]
+    assert _journal_for(stage["repo"], X_ORDER_ID) == []
+    assert _journal_for(stage["repo"], Y_ORDER_ID) == []
+    # the retained record is IMMUTABLE at retention time
+    payload = json.loads(out["record_out"].read_bytes())
+    assert payload == {
+        **record,
+        "retention": "not-requested",
+        "finalize": "not-attempted",
+    }
+    assert stat.S_IMODE(out["record_out"].stat().st_mode) == 0o600
+    assert out["elapsed"] < 60.0
+
+
+def test_ab_unknown_executable_still_qualified_positive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The AB pass coherence positive: an UNKNOWN current executable
+    (an unreadable/absent exe link with a COHERENT measured frame)
+    is a valid useful result — the qualified AB pass retains the
+    adopted identity AND the actual capability result, with the
+    closed UNKNOWN executable state and NO digest (never a verified
+    negative, never an earned digest)."""
+    stage = _ab_stage1_owner_pass(tmp_path / "au", monkeypatch)
+    base = tmp_path / "aur"
+    flag = base / "converge-flag"
+    out = _driver_run(
+        base,
+        monkeypatch,
+        stage,
+        client=_happy_client(stage, base / "proc", flag, base / "evidence.json"),
+        converge_flag=flag,
+        entry_order=AB_ORDER_ID,
+        bootstrap_state_factory=lambda pid: _ab_bootstrap_state(
+            stage, pid, time.monotonic() + 700.0
+        ),
+        exe_digest=None,
+    )
+    record = out["record"]
+    assert record["status"] == "pass"
+    assert record["reason"] is None
+    assert record["order"] == AB_ORDER_ID
+    assert record["record"] == AB_RECORD_TAG
+    assert record["retention"] == "retained"
+    assert record["finalize"] == "finalized"
+    cap = record["capability"]
+    assert cap["process_identity"] == "measured"
+    assert cap["executable"] == "unknown"
+    assert cap["executable_sha256"] is None
+    assert cap["subject"] == {
+        "pid": 60,
+        "birth": 500,
+        "uid": stu.SUBJ_UID,
+        "gid": stu.SUBJ_GID,
+        "groups": [stu.SUBJ_GID],
+    }
+    assert cap["subject_exit"] == "verified-gone"
+    assert record["identity"]["subject_uid"] == stu.SUBJ_UID
+    assert _journal_for(stage["repo"], AB_ORDER_ID) == [
+        {"head": stage["head"], "run_id": stage["run_id"], "status": "pass"}
+    ]
+
+
+def test_ab_driver_refuses_drifted_state_binding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The full ORIGINAL binding verification: the AB state's bound
+    head must agree with THIS driver's launch — a drifted state is a
+    closed startup refusal BEFORE any command (no command is issued,
+    no abort is sent, the journal is never mutated), with the
+    pre-adoption unknown identity honestly recorded."""
+    stage = _ab_stage1_owner_pass(tmp_path / "ad", monkeypatch)
+    base = tmp_path / "adr"
+    flag = base / "converge-flag"
+
+    def refuse_client(
+        _control_dir: Any, command: str, _run_id: str, _timeout: float
+    ) -> dict[str, Any]:
+        raise AssertionError(f"drifted binding: no command may be issued, got {command}")
+
+    def drift_state(pid: int) -> dict[str, Any]:
+        state = _ab_bootstrap_state(stage, pid, time.monotonic() + 700.0)
+        state["bind_head"] = "0" * 40  # the drifted binding
+        return state
+
+    out = _driver_run(
+        base,
+        monkeypatch,
+        stage,
+        client=refuse_client,
+        converge_flag=flag,
+        entry_order=AB_ORDER_ID,
+        bootstrap_state_factory=drift_state,
+        child_code=CODE_SLEEP_2S_EXIT_1,
+    )
+    record = out["record"]
+    assert record["status"] == "fail"
+    assert record["reason"] == "local-driver-state-binding"
+    assert record["order"] == AB_ORDER_ID
+    assert record["run_id"] is None  # never adopted
+    assert record["identity"] is None  # the pre-adoption unknown
+    assert record["owner_exit"] == 1
+    assert record["terminal_command"] == "none"
+    assert record["evidence_state"] == "not-verified"
+    assert record["retention"] == "not-requested"
+    # the prior owner's bound attempt is never mutated
+    assert _journal_for(stage["repo"], AB_ORDER_ID) == [
+        {"head": stage["head"], "run_id": stage["run_id"], "status": "running"}
+    ]
+    assert not out["record_out"].exists()
+
+
+def test_ab_driver_refuses_tampered_state_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The entry-aware FULL grammar at the read boundary: a state
+    whose identity substructure fails the closed structural law
+    (the fingerprint no longer re-derives over the data) is an
+    unreadable state — the startup is a closed refusal (no command,
+    no adoption, no journal mutation)."""
+    stage = _ab_stage1_owner_pass(tmp_path / "at", monkeypatch)
+    base = tmp_path / "atr"
+    flag = base / "converge-flag"
+
+    def refuse_client(
+        _control_dir: Any, command: str, _run_id: str, _timeout: float
+    ) -> dict[str, Any]:
+        raise AssertionError(f"tampered identity: no command may be issued, got {command}")
+
+    def tamper_state(pid: int) -> dict[str, Any]:
+        state = _ab_bootstrap_state(stage, pid, time.monotonic() + 700.0)
+        fp64 = state["identity"]["fingerprint"]
+        state["identity"]["fingerprint"] = ("0" if fp64[-1] != "0" else "1") + fp64[1:]
+        return state
+
+    out = _driver_run(
+        base,
+        monkeypatch,
+        stage,
+        client=refuse_client,
+        converge_flag=flag,
+        entry_order=AB_ORDER_ID,
+        bootstrap_state_factory=tamper_state,
+        child_code=CODE_SLEEP_2S_EXIT_1,
+    )
+    record = out["record"]
+    assert record["status"] == "fail"
+    assert record["reason"] == "local-driver-startup"
+    assert record["order"] == AB_ORDER_ID
+    assert record["run_id"] is None  # never adopted
+    assert record["identity"] is None  # the pre-adoption unknown
+    assert record["owner_exit"] == 1
+    assert record["terminal_command"] == "none"
+    assert record["retention"] == "not-requested"
+    assert _journal_for(stage["repo"], AB_ORDER_ID) == [
+        {"head": stage["head"], "run_id": stage["run_id"], "status": "running"}
+    ]
+    assert not out["record_out"].exists()
+
+
+def test_x_driver_refuses_ab_state_grammar(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The v1 grammar is never widened: the historical X entry reads
+    its state under the STRICT 12-key v1 form, so an AB-published
+    (identity-bearing) state is an unreadable state for the X
+    driver — a closed startup refusal, no adoption, no command, no
+    journal mutation (the X namespace of this synthetic repository
+    was never admitted)."""
+    stage = _ab_stage1_owner_pass(tmp_path / "ax", monkeypatch)
+    base = tmp_path / "axr"
+    flag = base / "converge-flag"
+
+    def refuse_client(
+        _control_dir: Any, command: str, _run_id: str, _timeout: float
+    ) -> dict[str, Any]:
+        raise AssertionError(f"foreign grammar: no command may be issued, got {command}")
+
+    out = _driver_run(
+        base,
+        monkeypatch,
+        stage,
+        client=refuse_client,
+        converge_flag=flag,
+        entry_order=X_ORDER_ID,
+        bootstrap_state_factory=lambda pid: _ab_bootstrap_state(
+            stage, pid, time.monotonic() + 700.0
+        ),
+        child_code=CODE_SLEEP_2S_EXIT_1,
+    )
+    record = out["record"]
+    assert record["status"] == "fail"
+    assert record["reason"] == "local-driver-startup"
+    assert record["order"] == X_ORDER_ID
+    assert record["run_id"] is None  # never adopted
+    assert record["owner_exit"] == 1
+    assert record["retention"] == "not-requested"
+    # the AB attempt (the real owner's) is left exactly as the real
+    # owner left it — running — never mutated by the X driver
+    assert _journal_for(stage["repo"], AB_ORDER_ID) == [
+        {"head": stage["head"], "run_id": stage["run_id"], "status": "running"}
+    ]
+    assert _journal_for(stage["repo"], X_ORDER_ID) == []
+    assert not out["record_out"].exists()
+
+
+def test_ab_driver_identity_mismatch_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The adopted frozen expectation is enforced on the measured
+    subject: a fresh closed-form member that does NOT carry the
+    owner's 1001:1002 identity is a closed refusal after the
+    bounded scan window (shortened here only for test time — the
+    correlation law is unchanged); the same pending attempt closes
+    as fail through the exact-owned abort, the ADOPTED identity is
+    retained on the fail record, and the SAME attempt is finalized
+    as fail with its record retained."""
+    stage = _ab_stage1_owner_pass(tmp_path / "am", monkeypatch)
+    base = tmp_path / "amr"
+    world: _World = stage["world"]
+    world.subject_uid = SUBJECT
+    world.subject_gid = SUBJECT
+    world.subject_groups = (SUBJECT,)
+    flag = base / "converge-flag"
+    state = {"post_hold": False}
+
+    def client(_control_dir: Any, command: str, run_id: str, _timeout: float) -> dict[str, Any]:
+        assert run_id == stage["run_id"]
+        if command == "prepare":
+            return {
+                "ok": True,
+                "reason": None,
+                "detail": {
+                    "cid": stage["cid"],
+                    "state": "prepared",
+                    "observed": 0,
+                    "end_anchor": 1.0,
+                },
+            }
+        if command == "top":
+            pids = [1, 60] if state["post_hold"] else [1]
+            return {"ok": True, "reason": None, "detail": {"pids": pids, "rows": len(pids)}}
+        if command == "hold":
+            if not state["post_hold"]:
+                state["post_hold"] = True
+                (base / "proc" / "60").mkdir()
+                world.launch_subject(TOKEN)
+            return {"ok": True, "reason": None, "detail": {"hold_token": TOKEN}}
+        if command == "abort":
+            with contextlib.suppress(OSError):
+                flag.touch()
+            return {"ok": True, "reason": None, "detail": {"outcome": "aborted"}}
+        raise AssertionError(f"finish must never be issued, got {command}")
+
+    monkeypatch.setattr(fxc, "SUBJECT_SCAN_WINDOW_SECONDS", 0.75)
+    out = _driver_run(
+        base,
+        monkeypatch,
+        stage,
+        client=client,
+        converge_flag=flag,
+        entry_order=AB_ORDER_ID,
+        bootstrap_state_factory=lambda pid: _ab_bootstrap_state(
+            stage, pid, time.monotonic() + 700.0
+        ),
+    )
+    record = out["record"]
+    assert record["status"] == "fail"
+    assert record["reason"] == "cap-correlation-identity-mismatch"
+    assert record["order"] == AB_ORDER_ID
+    assert record["run_id"] == stage["run_id"]
+    assert record["terminal_command"] == "abort"
+    cap = record["capability"]
+    assert cap["process_identity"] == "refused"
+    assert cap["subject"] is None
+    # the ADOPTED identity is retained on the fail record (the
+    # refusal happened AFTER the adoption — the honest fact)
+    assert (
+        record["identity"]
+        == json.loads(stage["state_bytes"].decode("ascii"))["identity"]
+    )
+    assert record["finalize"] == "finalized"
+    assert record["retention"] == "retained"
+    assert _journal_for(stage["repo"], AB_ORDER_ID) == [
+        {"head": stage["head"], "run_id": stage["run_id"], "status": "fail"}
+    ]
+
+
+def _ab_drive_to_pass(ctx: dict[str, Any]) -> tuple[dict[str, object], Any]:
+    """The coupled owner-side convergence to a pass with the
+    measured capability: the COMPLETE guarded pre-hold inventory,
+    the ONE detached hold, the scoped live measurement WHILE the
+    subject is alive, the subject's own finite hold expiry in
+    container time, the owner's own guarded finish (the quiesce
+    MEASURES the subject gone), and the bounded exact-owned join.
+    Returns (capability, channel)."""
+    world: Any = ctx["paths"]["world"]
+    channel = _AAWorldChannel(world, ctx["proc_root"], ctx["cid"], ctx["paths"]["docker"])
+    pre_rows = _ab_pre_inventory(ctx, channel)
+    held = stl._client(ctx["control"], "hold", ctx["run_id"])
+    assert held["ok"] is True, held
+    token = str(held["detail"]["hold_token"])
+    capability = _ab_post_capability(ctx, channel, pre_rows, token)
+    finished = stl._client(ctx["control"], "finish", ctx["run_id"])
+    assert finished["ok"] is True, finished
+    assert finished["detail"]["outcome"] == "pass", finished
+    stu._join_owner(ctx["thread"], control=ctx["control"], run_id=ctx["run_id"])
+    assert ctx["owner"].terminal_outcome == "pass"
+    return capability, channel
+
+
+def test_ab_terminal_refused_retention_preserves_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The AB record's second publication is refused: a
+    PRE-EXISTING record destination is a closed retention refusal
+    (never an overwrite) — the qualified pass is refused, the
+    original bytes are preserved byte- and inode-for-byte, and the
+    SAME bound attempt closes as fail (no fresh-path retry, no
+    journal pass)."""
+    base = tmp_path / "ar"
+    base.mkdir()
+    os.chmod(base, 0o700)  # the protected record-parent root
+    ctx = _ab_owner_prepared(base, monkeypatch)
+    try:
+        capability, _channel = _ab_drive_to_pass(ctx)
+        dest = base / "ab-capability.json"
+        dest.write_bytes(b"preserved original\n")
+        os.chmod(dest, 0o600)
+        original = dest.read_bytes()
+        inode = dest.stat().st_ino
+        result = _ab_coupled_terminal(ctx, capability, record_out=dest)
+    finally:
+        if ctx["thread"].is_alive():
+            stu._join_owner(
+                ctx["thread"], control=ctx["control"], run_id=ctx["run_id"]
+            )
+    assert result["status"] == "fail"
+    assert result["reason"] == "cap-record-retention"
+    assert result["retention"] == "refused"
+    assert result["order"] == AB_ORDER_ID
+    assert dest.read_bytes() == original
+    assert dest.stat().st_ino == inode
+    assert _journal_for(ctx["repo"], AB_ORDER_ID) == [
+        {"head": ctx["head"], "run_id": ctx["run_id"], "status": "fail"}
+    ]
+
+
+def test_ab_terminal_unverified_finalize_preserves_running(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A post-retention UNVERIFIED finalization of the AB attempt
+    (the journal read-back cannot be verified) never returns a
+    qualified success: the retained DISTINCT AB record and its
+    ACTUAL journal facts are preserved (the running attempt is NOT
+    rewritten to fail), and the closed token is recorded on the
+    fail record."""
+    base = tmp_path / "av"
+    base.mkdir()
+    os.chmod(base, 0o700)  # the protected record-parent root
+    ctx = _ab_owner_prepared(base, monkeypatch)
+    try:
+        capability, _channel = _ab_drive_to_pass(ctx)
+        original_finalize = fxc.oap_binding.record_order_attempt
+
+        def unverified(*args: Any) -> str:
+            return "record-unreadable" if args[-1] == "pass" else original_finalize(*args)
+
+        monkeypatch.setattr(fxc.oap_binding, "record_order_attempt", unverified)
+        result = _ab_coupled_terminal(
+            ctx, capability, record_out=base / "ab-capability.json"
+        )
+    finally:
+        if ctx["thread"].is_alive():
+            stu._join_owner(
+                ctx["thread"], control=ctx["control"], run_id=ctx["run_id"]
+            )
+    assert result["status"] == "fail"
+    assert result["reason"] == "local-driver-finalize"
+    assert result["retention"] == "retained"
+    assert result["finalize"] == "record-unreadable"
+    assert result["order"] == AB_ORDER_ID
+    # the post-retention unverified finalization preserves the
+    # ACTUAL journal facts (running — never rewritten to fail)
+    assert _journal_for(ctx["repo"], AB_ORDER_ID) == [
+        {"head": ctx["head"], "run_id": ctx["run_id"], "status": "running"}
+    ]
+
+
+def test_ab_capability_record_closed_cohesion() -> None:
+    """The closed AB record grammar (data consumer only — no
+    admission claim): the entry's exact key set, the pass coherence
+    (a RETAINED AB pass needs the ADOPTED identity AND the actual
+    capability result — the unknown executable is still a valid
+    useful result; the pre-state startup FAIL may honestly carry
+    both unknowns), the post-adoption fail without measurement, and
+    the measured subject bound to the retained identity (never a
+    caller-authored expectation).  The old X grammar is never
+    widened (no identity key at all; the AB record refused under
+    it)."""
+    entry = AB_ENTRY
+    description = stu.fi.FixtureIdentityDescription(
+        profile=stu.fi.PROFILE_OWNER_UID,
+        controller_uid=21001,
+        controller_gid=21001,
+        subject_uid=stu.SUBJ_UID,
+        subject_gid=stu.SUBJ_GID,
+        subject_groups=(stu.SUBJ_GID,),
+    )
+    identity = {
+        "profile": description.profile,
+        "fingerprint": stu.fi.fingerprint_description(description),
+        "subject_uid": stu.SUBJ_UID,
+        "subject_gid": stu.SUBJ_GID,
+        "subject_groups": [stu.SUBJ_GID],
+        "profile_data_sha256": hashlib.sha256(
+            stu.fi.encode_description(description)
+        ).hexdigest(),
+    }
+    cap = {
+        "cid": "c" * 64,
+        "subject": {
+            "pid": 60,
+            "birth": 500,
+            "uid": stu.SUBJ_UID,
+            "gid": stu.SUBJ_GID,
+            "groups": [stu.SUBJ_GID],
+        },
+        "process_identity": "measured",
+        "executable": "unknown",
+        "executable_sha256": None,
+        "pre_inventory_rows": 1,
+        "post_inventory_rows": 2,
+        "inventory_rows_max": fxc.INVENTORY_ROWS_MAX,
+        "subject_exit": "verified-gone",
+    }
+    good = fxc._driver_record(
+        "pass",
+        None,
+        bind_head="e" * 40,
+        run_id="d" * 32,
+        owner_exit=0,
+        evidence_sha256="f" * 64,
+        capability=cap,
+        identity=identity,
+        entry=entry,
+    )
+    pre = fxc._driver_record("fail", "local-driver-startup", bind_head="e" * 40, entry=entry)
+    post_adoption = fxc._driver_record(
+        "fail",
+        "local-driver-patience",
+        bind_head="e" * 40,
+        run_id="d" * 32,
+        identity=identity,
+        entry=entry,
+    )
+    x_entry = fxc._SEALED_ENTRIES[X_ORDER_ID]
+    x_record = fxc._driver_record(
+        "fail", "local-driver-startup", bind_head="e" * 40, entry=x_entry
+    )
+    cases: list[tuple[str, dict[str, object], Any, bool]] = [
+        # the pre-state startup FAIL honestly carries both unknowns
+        ("prestate-failure-unknown-identity-positive", pre, entry, True),
+        # the complete pass with the UNKNOWN executable is qualified
+        ("complete-pass-unknown-executable-positive", good, entry, True),
+        # a post-adoption failure (before any measurement) carries the
+        # adopted identity and the unknown capability honestly
+        ("post-adoption-fail-unknown-capability-positive", post_adoption, entry, True),
+        (
+            "pass-without-identity-and-capability-refused",
+            {**good, "identity": None, "capability": None},
+            entry,
+            False,
+        ),
+        ("pass-without-capability-refused", {**good, "capability": None}, entry, False),
+        ("pass-without-identity-refused", {**good, "identity": None}, entry, False),
+        # an AB record never carries a measured subject without the
+        # retained identity
+        (
+            "fail-with-subject-without-identity-refused",
+            {
+                **good,
+                "status": "fail",
+                "reason": "cap-correlation-ambiguous",
+                "identity": None,
+            },
+            entry,
+            False,
+        ),
+        # the measured subject is bound to the RETAINED identity
+        (
+            "pass-with-foreign-subject-uid-refused",
+            {
+                **good,
+                "capability": {
+                    **cap,
+                    "subject": {
+                        "pid": 60,
+                        "birth": 500,
+                        "uid": 21002,
+                        "gid": stu.SUBJ_GID,
+                        "groups": [stu.SUBJ_GID],
+                    },
+                },
+            },
+            entry,
+            False,
+        ),
+        # the old grammar is never widened: the X entry carries NO
+        # identity key at all, and an AB record is refused under it
+        (
+            "x-record-with-identity-key-refused",
+            {**x_record, "identity": identity},
+            x_entry,
+            False,
+        ),
+        ("ab-record-under-x-entry-refused", good, x_entry, False),
+    ]
+    for name, record, e, expected in cases:
+        try:
+            fxc._validate_capability_record(record, e)
+            accepted = True
+        except FixtureError:
+            accepted = False
+        assert accepted == expected, f"{name}: accepted={accepted} expected={expected}"
+
+
+def test_ab_entry_refused_under_active_aa(tmp_path: Path) -> None:
+    """The canonical future 017-ab entry grants no authority under
+    the ACTIVE 017-aa order: the real public resolver refuses the
+    bound repository context BEFORE any fixture work or admission
+    (the one-attempt law is never minted for the inactive entry)."""
+    repo, _head = stu._ab_git_fixture(tmp_path / "repo")
+    (repo / "oap" / "active").write_bytes(b"017-aa\n")
+    subprocess.check_output(
+        ["git", "-C", str(repo), "add", "oap/active"], stderr=subprocess.DEVNULL
+    )
+    subprocess.check_output(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "user.name=Synthetic",
+            "-c",
+            "user.email=synthetic@example.invalid",
+            "commit",
+            "-qm",
+            "aa-active",
+        ],
+        stderr=subprocess.DEVNULL,
+    )
+    new_head = (
+        subprocess.check_output(
+            ["git", "-C", str(repo), "rev-parse", "HEAD"], stderr=subprocess.DEVNULL
+        )
+        .decode("ascii")
+        .strip()
+    )
+    with pytest.raises(FixtureError, match="bind-active-mismatch"):
+        fb.resolve_order_binding(repo, AB_ORDER_ID, new_head)
+    # no attempt was minted for the inactive entry
+    assert fb.read_admission_record(repo, AB_ORDER_ID)["attempts"] == []
+
+
+def test_ab_sealed_child_cli_own_collection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The in-process sealed-CLI path (honest scope: NOT an actual
+    subprocess — the real public main() runs on this test's main
+    thread, so the owner's own-process termination handling stays
+    real): the sealed child of the canonical 017-ab entry collects
+    the host owner IDs by its OWN direct bounded OS read (no
+    caller-supplied identity, description or ready flag) and
+    freezes the DISTINCT identity-bearing AB state — the real
+    public CLI over a hermetic AB repository admits exactly ONE
+    attempt, publishes the AB state whose identity equals the
+    production derivation over the ACTUAL host identity triple of
+    this process (here 1001/1001), and a bounded abort from the
+    client-side thread converges the SAME attempt as the
+    documented local abort (outcome/``aborted``, the fixed
+    exit-130 cancellation semantics — NOT a fail and never a
+    remint or journal reconstruction).  The owner's ONE finite END
+    is narrowed through the module constant seam (90 s) so that
+    even an undelivered abort self-converges within bounded test
+    time (no host signal, no watchdog, no second deadline); the
+    bounded client abort is issued on every path.  No external
+    fixture action may be attempted before any command."""
+    cli_root = tmp_path / "cli"
+    cli_root.mkdir()
+    os.chmod(cli_root, 0o700)
+    paths = stu._aa_setup(cli_root, monkeypatch)
+    repo, head = paths["repo"], paths["head"]
+    control = tmp_path / "control"
+    # the ONE narrowed owner END (the SAME module object the real
+    # constructor reads; a finite convergence backstop on every
+    # path, not a fresh deadline or watchdog)
+    monkeypatch.setattr(fci, "TOTAL_ANCHOR_SECONDS", 90.0)
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("external fixture action forbidden before any command")
+
+    monkeypatch.setattr(flocal, "_local_bound_executor", lambda: forbidden)
+    observed: dict[str, Any] = {}
+
+    def client_side() -> None:
+        # the bounded owned client: observe the AB state (and the
+        # ONE running attempt while it is still running), then issue
+        # the ONE abort and nothing else
+        try:
+            end = time.monotonic() + 30.0
+            while time.monotonic() < end:
+                state = flocal._state_record(control, entry_order=AB_ORDER_ID)
+                if state is not None:
+                    observed["state"] = state
+                    observed["journal_running"] = fb.read_admission_record(
+                        repo, AB_ORDER_ID
+                    )["attempts"]
+                    break
+                time.sleep(0.1)
+            if "state" in observed:
+                observed["reply"] = stl._client(
+                    control, "abort", str(observed["state"]["run_id"]), timeout=15
+                )
+        except Exception as exc:  # the bounded client never wedges the test
+            observed["error"] = exc
+
+    thread = threading.Thread(target=client_side, daemon=True)
+    thread.start()
+    rc = _cli_main(
+        monkeypatch,
+        [
+            "owner",
+            "--order",
+            AB_ORDER_ID,
+            "--bind-head",
+            head,
+            "--repo",
+            str(repo),
+            "--work",
+            str(tmp_path / "work"),
+            "--control-dir",
+            str(control),
+            "--evidence-out",
+            str(tmp_path / "evidence.json"),
+        ],
+    )
+    thread.join(30)
+    assert not thread.is_alive()
+    assert "error" not in observed, observed.get("error")
+    assert rc == 130  # the documented local-abort exit (aborted, not fail)
+    reply = observed.get("reply")
+    assert isinstance(reply, dict) and reply.get("ok") is True, reply
+    assert reply["detail"]["outcome"] == "aborted", reply
+    state = observed.get("state")
+    assert state is not None, "the sealed child never published its AB state"
+    # exactly ONE admitted attempt, still running when observed
+    assert observed["journal_running"] == [
+        {"head": head, "run_id": str(state["run_id"]), "status": "running"}
+    ]
+    # OWN collection: the identity is the production derivation over
+    # the ACTUAL host identity triple of this process
+    ruid, euid, suid = os.getresuid()
+    rgid, egid, sgid = os.getresgid()
+    expected_desc = stu.fi.derive_owner_uid_identity(
+        stu.fi.HostOwnerIds(ruid, euid, suid, rgid, egid, sgid)
+    )
+    identity = state["identity"]
+    assert identity["profile"] == expected_desc.profile
+    assert identity["subject_uid"] == expected_desc.subject_uid == os.getuid()
+    assert identity["subject_gid"] == expected_desc.subject_gid == os.getgid()
+    assert identity["subject_groups"] == list(expected_desc.subject_groups)
+    assert identity["fingerprint"] == stu.fi.fingerprint_description(expected_desc)
+    assert (
+        identity["profile_data_sha256"]
+        == hashlib.sha256(stu.fi.encode_description(expected_desc)).hexdigest()
+    )
+    assert state["order"] == AB_ORDER_ID
+    assert state["bind_head"] == head
+    # the SAME attempt converged as the documented abort (no remint,
+    # no second admission, no journal rewrite to any other status)
+    assert fb.read_admission_record(repo, AB_ORDER_ID)["attempts"] == [
+        {"head": head, "run_id": str(state["run_id"]), "status": "aborted"}
+    ]
+
+
+def test_ab_owner_startup_refusal_converges_same_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The narrow AB startup-failure regression (REAL in-process
+    public CLI + constructor/convergence over hermetic synthetic
+    AB repositories; only raw OS seams forced — no actual
+    fixture/Docker/model/Codex action, no real checkout
+    admission): a post-admission STARTUP refusal is routed
+    through the SAME single owner convergence as every terminal
+    path, so the already-won attempt is NEVER left dangling as
+    ``running``.
+
+    (1) The bounded control-socket BIND is forced to fail: the
+    closed startup record keeps the child's own reason and the
+    original rc1, the ONE attempt closes ``fail`` (no retry, no
+    remint, no journal reconstruction), the retained AB fail
+    evidence is a valid closed record carrying the frozen
+    OWN-collected identity and the ORIGINAL binding, the owned
+    partial control root is disposed through the same exact-
+    ownership law (the measured fact: it is gone), and no
+    external fixture call or global host-UID scan occurred.
+    (2) A FOREIGN pre-existing control root is never adopted or
+    deleted: the fresh-root refusal closes the SAME attempt
+    ``fail`` with valid fail evidence while the foreign root is
+    preserved byte/inode/mode/uid exactly as found."""
+    import io
+
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("external fixture action forbidden")
+
+    # -- (1) forced bind failure after admission -------------------------
+    base1 = tmp_path / "bindfail"
+    base1.mkdir()
+    os.chmod(base1, 0o700)
+    paths = stu._aa_setup(base1, monkeypatch)
+    repo, head = paths["repo"], paths["head"]
+    monkeypatch.setattr(flocal, "_local_bound_executor", lambda: forbidden)
+    real_socket = flocal.socket.socket
+
+    class _FailedBindSocket:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._inner = real_socket(*args, **kwargs)
+
+        def bind(self, _address: Any) -> None:
+            raise OSError("synthetic exact-owned control bind failure")
+
+        def close(self) -> None:
+            self._inner.close()
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(self._inner, name)
+
+    with monkeypatch.context() as socket_patch:
+        socket_patch.setattr(flocal.socket, "socket", _FailedBindSocket)
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            rc = flocal.main(
+                [
+                    "owner",
+                    "--order",
+                    AB_ORDER_ID,
+                    "--bind-head",
+                    head,
+                    "--repo",
+                    str(repo),
+                    "--work",
+                    str(paths["work"]),
+                    "--control-dir",
+                    str(paths["control"]),
+                    "--evidence-out",
+                    str(paths["evidence"]),
+                ]
+            )
+    assert rc == 1
+    startup = json.loads(captured.getvalue().strip())
+    assert startup["record"] == flocal.CONTROL_RECORD
+    assert startup["stage"] == "startup"
+    assert startup["reason"] == "local-control-unbound"
+    # the SAME already-won attempt closed honestly (never left
+    # dangling as running; no remint, no reconstruction)
+    attempts = fb.read_admission_record(repo, AB_ORDER_ID)["attempts"]
+    assert len(attempts) == 1
+    assert attempts[0]["head"] == head
+    assert attempts[0]["status"] == "fail"
+    run_id = str(attempts[0]["run_id"])
+    # the retained AB fail evidence is a valid closed record with
+    # the frozen OWN-collected identity and the ORIGINAL binding
+    evidence_path = paths["evidence"]
+    assert evidence_path.exists()
+    est = os.lstat(evidence_path)
+    assert stat.S_IMODE(est.st_mode) == 0o600 and est.st_uid == os.getuid()
+    evidence = json.loads(evidence_path.read_bytes())
+    flocal.validate_ab_owner_run_evidence(evidence)
+    assert evidence["status"] == "fail"
+    assert evidence["reason"] == "local-control-unbound"
+    assert evidence["stage"] == "start"
+    assert evidence["run_id"] == run_id
+    assert evidence["order"] == AB_ORDER_ID
+    assert evidence["bind_head"] == head
+    ruid, euid, suid = os.getresuid()
+    rgid, egid, sgid = os.getresgid()
+    expected_desc = stu.fi.derive_owner_uid_identity(
+        stu.fi.HostOwnerIds(ruid, euid, suid, rgid, egid, sgid)
+    )
+    identity = evidence["identity"]
+    assert identity["subject_uid"] == expected_desc.subject_uid == os.getuid()
+    assert identity["subject_gid"] == expected_desc.subject_gid == os.getgid()
+    assert identity["fingerprint"] == stu.fi.fingerprint_description(expected_desc)
+    # the owned PARTIAL control root is disposed (the measured
+    # fact: the fresh owned root is gone — never claimed clean by
+    # a foreign-root deletion)
+    assert not paths["control"].exists()
+    # zero external fixture calls, zero global host-UID scans
+    assert paths["uid_calls"] == []
+
+    # -- (2) a FOREIGN pre-existing control root --------------------------
+    base2 = tmp_path / "foreign"
+    base2.mkdir()
+    os.chmod(base2, 0o700)
+    paths2 = stu._aa_setup(base2, monkeypatch)
+    repo2, head2 = paths2["repo"], paths2["head"]
+    foreign = paths2["control"]
+    foreign.mkdir()
+    os.chmod(foreign, 0o700)
+    marker = foreign / "foreign-marker"
+    marker.write_bytes(b"foreign pre-existing control root\n")
+    os.chmod(marker, 0o600)
+    foreign_stat = os.lstat(foreign)
+    marker_stat = os.lstat(marker)
+    marker_bytes = marker.read_bytes()
+    monkeypatch.setattr(flocal, "_local_bound_executor", lambda: forbidden)
+    captured2 = io.StringIO()
+    with contextlib.redirect_stdout(captured2):
+        rc2 = flocal.main(
+            [
+                "owner",
+                "--order",
+                AB_ORDER_ID,
+                "--bind-head",
+                head2,
+                "--repo",
+                str(repo2),
+                "--work",
+                str(paths2["work"]),
+                "--control-dir",
+                str(foreign),
+                "--evidence-out",
+                str(paths2["evidence"]),
+            ]
+        )
+    assert rc2 == 1
+    startup2 = json.loads(captured2.getvalue().strip())
+    assert startup2["reason"] == "work-root-exists"
+    attempts2 = fb.read_admission_record(repo2, AB_ORDER_ID)["attempts"]
+    assert len(attempts2) == 1
+    assert attempts2[0]["status"] == "fail"
+    evidence2 = json.loads(paths2["evidence"].read_bytes())
+    flocal.validate_ab_owner_run_evidence(evidence2)
+    assert evidence2["status"] == "fail"
+    assert evidence2["reason"] == "work-root-exists"
+    assert evidence2["run_id"] == str(attempts2[0]["run_id"])
+    # the FOREIGN root is preserved byte/inode/mode/uid — never
+    # adopted, never deleted
+    foreign_stat_after = os.lstat(foreign)
+    marker_stat_after = os.lstat(marker)
+    assert foreign_stat_after.st_ino == foreign_stat.st_ino
+    assert stat.S_IMODE(foreign_stat_after.st_mode) == 0o700
+    assert foreign_stat_after.st_uid == os.getuid()
+    assert marker_stat_after.st_ino == marker_stat.st_ino
+    assert stat.S_IMODE(marker_stat_after.st_mode) == 0o600
+    assert marker.read_bytes() == marker_bytes
+    assert paths2["uid_calls"] == []
+
+
+def test_ab_second_admission_refused(tmp_path: Path) -> None:
+    """The one-attempt law in the 017-ab namespace (the second
+    publication is refused at admission): after ONE admitted
+    attempt (still running), a fresh resolve+admit is a closed
+    exhaustion refusal — the identity is never reconstructed or
+    re-served, no second run id is minted, and the admitted attempt
+    stays byte-identical."""
+    repo, head = stu._ab_git_fixture(tmp_path / "repo")
+    binding = fb.resolve_order_binding(repo, AB_ORDER_ID, head)
+    fb.admit_order_attempt(repo, AB_ORDER_ID, binding)
+    journal_before = fb.admission_path(repo, AB_ORDER_ID).read_bytes()
+    second = fb.resolve_order_binding(repo, AB_ORDER_ID, head)
+    with pytest.raises(FixtureError, match="bind-attempt-exhausted"):
+        fb.admit_order_attempt(repo, AB_ORDER_ID, second)
+    assert fb.admission_path(repo, AB_ORDER_ID).read_bytes() == journal_before
+    assert fb.read_admission_record(repo, AB_ORDER_ID)["attempts"] == [
+        {"head": head, "run_id": binding.run_id, "status": "running"}
+    ]

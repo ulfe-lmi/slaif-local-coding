@@ -69,6 +69,7 @@ measured readiness).
 from __future__ import annotations
 
 import base64
+import errno
 import hashlib
 import hmac
 import json
@@ -94,6 +95,28 @@ PROVIDER_HOST = "127.0.0.1"
 
 SUBJECT_UID = 21002
 CONTROLLER_UID = 21001
+
+# -- owner-UID quiesce accounting (017-aa) ----------------------------------
+# The quiesce subject is resolved from the SAME fixed in-image
+# identity facts the stand-in's closed resolution uses (the image
+# layout is the closed contract): the image-owned identity-mode
+# constant file (parsed, never executed) selects the mode, and the
+# baked closed profile DATA record (decoded with the production
+# codec, never imported) carries the frozen subject UID.  The
+# original image never bakes the marker: an ABSENT marker (or the
+# explicit original value) keeps the historical fixed-21002 quiesce
+# subject law byte-for-byte, ignoring any file at the DATA path
+# (a file's presence never selects the mode).  The explicit owner
+# marker REQUIRES the bounded immutable DATA: missing / unknown /
+# mismatched / unsafe marker or DATA fails the quiesce closed (a
+# fixed refusal, a degraded scan) — never a silent zero and NEVER
+# a fallback to the original subject.
+IDENTITY_PROFILE_FILE = "/opt/slaif-fixture/identity_profile.py"
+IDENTITY_PROFILE_FILE_MAX_BYTES = 128
+PROFILE_DATA_PATH = "/opt/slaif-fixture/fixture-identity.json"
+_QUIESCE_MODE_RE = re.compile(rb'SLAIF_FIXTURE_IDENTITY_PROFILE = "([a-z0-9-]+)"\n')
+_QUIESCE_OWNER_PROFILE = "slaif-fixture-identity-owner-uid-v1"
+_QUIESCE_ORIGINAL_PROFILE = "slaif-fixture-identity-original-v1"
 
 REQUEST_CAP_BYTES = 1024 * 1024
 HEADER_CAP_BYTES = 8192
@@ -830,7 +853,15 @@ class Provider:
         with self.lock:
             alive = [t for t in self.handlers if t.is_alive()]
             active_count = len(self.active)
-        subjects = subject_scan() if subject_scan is not None else count_uid_processes(SUBJECT_UID)
+        # The quiesce subject is resolved from the image-owned
+        # identity facts BEFORE any scan: the owner-profile image
+        # accounts its frozen independent subject UID, the original
+        # image keeps the fixed 21002 (the closed law above).  A
+        # corrupted owner image fails the quiesce closed with a
+        # fixed refusal — it never silently counts the wrong
+        # subject and never mints a false closure.
+        subject_uid = quiesce_subject_uid()
+        subjects = subject_scan() if subject_scan is not None else count_uid_processes(subject_uid)
         tools = tools_scan(peer_pid) if tools_scan is not None else count_controller_tools(peer_pid)
         if subjects < 0 or tools < 0:
             raise ControllerError("quiesce-scan-degraded")
@@ -892,6 +923,125 @@ class Provider:
 
 
 # -- bounded process scans (fail closed on degraded evidence) --------------------
+def _image_identity_profile_raw() -> bytes | None:
+    """The bounded immutable read of the image-owned mode constant.
+
+    Same closed law as the stand-in's resolution: absent file is
+    None (the original default — the original image never bakes
+    it); ABSENCE is verified ENOENT ONLY (any other lookup failure
+    is a fixed closed refusal — a failed lookup must never
+    silently choose the original); present file facts are verified
+    FIRST (regular file, no link, root-owned, mode 0444 — the
+    in-image immutable state), then the content is read with a
+    cap+1 bound (an overbound file is refused, never fully read).
+    """
+    try:
+        st = os.lstat(IDENTITY_PROFILE_FILE)
+    except OSError as exc:
+        if exc.errno != errno.ENOENT:
+            raise ControllerError("quiesce-profile-lookup") from None
+        return None
+    if (
+        not stat_mod.S_ISREG(st.st_mode)
+        or st.st_uid != 0
+        or st.st_gid != 0
+        or stat_mod.S_IMODE(st.st_mode) != 0o444
+    ):
+        raise ControllerError("quiesce-profile-state")
+    if st.st_size > IDENTITY_PROFILE_FILE_MAX_BYTES:
+        raise ControllerError("quiesce-profile-size")
+    try:
+        with open(IDENTITY_PROFILE_FILE, "rb") as handle:
+            raw = handle.read(IDENTITY_PROFILE_FILE_MAX_BYTES + 1)
+    except OSError:
+        raise ControllerError("quiesce-profile-unreadable") from None
+    if len(raw) > IDENTITY_PROFILE_FILE_MAX_BYTES:
+        raise ControllerError("quiesce-profile-size")
+    return raw
+
+
+def _parse_quiesce_profile(raw: bytes) -> str | None:
+    """The closed single-constant content law (pure, no FS).
+
+    Exactly one line of the closed grammar (a fixed name, `` = ``,
+    the quoted closed value, one trailing newline); the closed
+    values are the two canonical profile names: the owner value
+    selects the owner-UID mode, the original value the original
+    mode (like an absent file).  Any other value, malformed
+    grammar or encoding is a closed refusal.  The content is never
+    imported or executed.
+    """
+    match = _QUIESCE_MODE_RE.fullmatch(raw)
+    if match is None:
+        raise ControllerError("quiesce-profile-grammar")
+    value = match.group(1).decode("ascii")
+    if value == _QUIESCE_OWNER_PROFILE:
+        return "owner"
+    if value == _QUIESCE_ORIGINAL_PROFILE:
+        return None
+    raise ControllerError("quiesce-profile-unknown")
+
+
+def quiesce_subject_uid() -> int:
+    """The closed in-image quiesce subject UID (017-aa).
+
+    Original mode (absent image-owned marker, or the explicit
+    original value): the historical fixed 21002 — the original
+    quiesce subject law byte-for-byte.  Owner mode: the baked
+    closed profile DATA record's frozen subject UID, decoded with
+    the production codec after the bounded immutable state checks
+    (regular file, no link, root-owned, 0444, cap+1) and the
+    closed profile/controller verification.  Any missing / unknown
+    / mismatched / unsafe marker or DATA under the owner marker is
+    a fixed closed refusal — the quiesce scan then reports a
+    degraded scan, never a silent zero, and NEVER falls back to
+    the original subject.  The identity module is imported ONLY
+    in owner mode (the original image does not carry it).
+    """
+    raw_mode = _image_identity_profile_raw()
+    mode = None if raw_mode is None else _parse_quiesce_profile(raw_mode)
+    if mode != "owner":
+        return SUBJECT_UID
+    try:
+        import cache_native_fixture_identity as fixture_identity
+    except ImportError:
+        raise ControllerError("quiesce-profile-module") from None
+    try:
+        st = os.lstat(PROFILE_DATA_PATH)
+    except OSError as exc:
+        if exc.errno != errno.ENOENT:
+            raise ControllerError("quiesce-data-lookup") from None
+        raise ControllerError("quiesce-data-missing") from None
+    if (
+        not stat_mod.S_ISREG(st.st_mode)
+        or st.st_uid != 0
+        or st.st_gid != 0
+        or stat_mod.S_IMODE(st.st_mode) != 0o444
+    ):
+        raise ControllerError("quiesce-data-state")
+    max_bytes = fixture_identity.MAX_RECORD_BYTES
+    if st.st_size > max_bytes:
+        raise ControllerError("quiesce-data-size")
+    try:
+        with open(PROFILE_DATA_PATH, "rb") as handle:
+            raw = handle.read(max_bytes + 1)
+    except OSError:
+        raise ControllerError("quiesce-data-unreadable") from None
+    if len(raw) > max_bytes:
+        raise ControllerError("quiesce-data-size")
+    try:
+        desc = fixture_identity.decode_description(raw)
+    except ValueError:
+        raise ControllerError("quiesce-data-invalid") from None
+    if (
+        desc.profile != fixture_identity.PROFILE_OWNER_UID
+        or (desc.controller_uid, desc.controller_gid)
+        != (fixture_identity.CONTROLLER_UID, fixture_identity.CONTROLLER_GID)
+    ):
+        raise ControllerError("quiesce-data-invalid")
+    return desc.subject_uid
+
+
 def count_uid_processes(uid: int) -> int:
     count = 0
     try:

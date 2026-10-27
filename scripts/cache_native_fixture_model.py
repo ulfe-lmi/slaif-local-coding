@@ -61,6 +61,12 @@ SCHEMA_SNAPSHOT = "slaif-fixture-selected-snapshot-v1"
 SCHEMA_TEARDOWN = "slaif-fixture-teardown-v1"
 SCHEMA_PUBLISH = "slaif-fixture-publish-v1"
 SCHEMA_PROFILE = "slaif-fixture-profile-v1"
+# The owner-UID variant tags: the SAME closed facts measured under
+# the frozen owner-profile subject (UID and GID independent).  Each
+# v2 tag refuses its v1 counterpart and vice versa; the v1 records
+# and their fixed-21002 consumers stay byte-for-byte unchanged.
+SCHEMA_EXEC_MEASUREMENT_V2 = "slaif-fixture-exec-measurement-v2"
+SCHEMA_PROFILE_V2 = "slaif-fixture-profile-v2"
 SCHEMA_CI_SUMMARY = "slaif-cache-native-fixture-ci-summary-v1"
 
 # -- finite fixture limits (order 017-r initial fixture recommendation) ---
@@ -755,12 +761,29 @@ def validate_exec_measurement(record: dict, budgets: FixtureBudgets) -> None:
     configured writable-mount identities, and controller-private
     denial proofs where the controller-owned existence of each protected
     target is established first (ENOENT alone is not protection proof).
+    The fixed-21002 subject law stays byte-for-byte the original: the
+    closed core's identity checks refuse the v2 tag and any other
+    subject, and the v2 validator refuses this v1 tag.
     """
     _expect_tag(record, SCHEMA_EXEC_MEASUREMENT)
     _expect_field_set(record, _EXEC_FIELDS)
-    if _int_field(record, "uid") != SUBJECT_UID:
+    _validate_exec_measurement_core(record, budgets, SUBJECT_UID, SUBJECT_UID)
+
+
+def _validate_exec_measurement_core(
+    record: dict,
+    budgets: FixtureBudgets,
+    subject_uid: int,
+    subject_gid: int,
+) -> None:
+    """Shared closed structural core of the exec-measurement
+    record: the SAME complete facts and error law for the
+    fixed-21002 v1 record and the owner-UID v2 record; only the
+    expected subject identity differs (UID and GID INDEPENDENT,
+    never assumed equal)."""
+    if _int_field(record, "uid") != subject_uid:
         raise FixtureError("closed record field identity invalid: uid")
-    if _int_field(record, "gid") != SUBJECT_UID:
+    if _int_field(record, "gid") != subject_gid:
         raise FixtureError("closed record field identity invalid: gid")
     groups = record["groups"]
     # Measured group membership: on Linux getgroups() MAY include
@@ -774,7 +797,7 @@ def validate_exec_measurement(record: dict, budgets: FixtureBudgets) -> None:
     if (
         not isinstance(groups, list)
         or any(isinstance(g, bool) or not isinstance(g, int) for g in groups)
-        or groups not in ([], [SUBJECT_UID])
+        or groups not in ([], [subject_gid])
     ):
         raise FixtureError("closed record field state invalid: groups")
     caps = record["capabilities"]
@@ -882,7 +905,8 @@ def validate_exec_measurement(record: dict, budgets: FixtureBudgets) -> None:
     if _int_field(record, "controller_pid1_uid") != CONTROLLER_UID:
         raise FixtureError("closed record field identity invalid: controller_pid1_uid")
     _bool_field(record, "private_pid1_exempt", True)
-    # Host parent isolation measured FROM the 21002 exec identity: the
+    # Host parent isolation measured FROM the subject exec identity:
+    # the
     # disposable parent's proc entry, sentinel and listener must be
     # absent/unreachable inside the private namespaces.  Controller probe
     # facts alone are not proof for a different exec identity.
@@ -902,6 +926,42 @@ def validate_exec_measurement(record: dict, budgets: FixtureBudgets) -> None:
         # subject denial actual evidence rather than ENOENT fiction.
         _bool_field(entry, "present_21001", True)
         _enum_field(entry, "subject", SUBJECT_DENIAL_STATES)
+
+
+def _check_v2_subject_id(value: object, name: str) -> None:
+    """Closed v2 subject-ID expectation law: the expected UID/GID
+    arrive from the VERIFIED owner state (never from a caller
+    record); they must be strict nonroot integers inside the
+    finite Linux id range and must be DISTINCT from the reserved
+    controller identity (21001 — the same ID for the fixed
+    controller UID and GID).  A malformed or colliding
+    expectation is a fixed non-echoing refusal."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not (1 <= value <= 4294967294)
+        or value == CONTROLLER_UID
+    ):
+        raise FixtureError(f"closed record field identity invalid: {name}")
+
+
+def validate_exec_measurement_v2(
+    record: dict, budgets: FixtureBudgets, subject_uid: int, subject_gid: int
+) -> None:
+    """Closed owner-UID exec measurement record (v2).
+
+    The SAME complete actual facts as the v1 record, measured under
+    the frozen owner-profile subject (UID and GID INDEPENDENT; the
+    exec user is never assumed ``uid:uid``).  The v2 tag and the v1
+    fixed-21002 tag refuse each other; the measured identity must
+    equal the verified owner expectation, and the controller
+    identity (21001) plus every other confinement fact stay
+    fixed."""
+    _check_v2_subject_id(subject_uid, "subject_uid")
+    _check_v2_subject_id(subject_gid, "subject_gid")
+    _expect_tag(record, SCHEMA_EXEC_MEASUREMENT_V2)
+    _expect_field_set(record, _EXEC_FIELDS)
+    _validate_exec_measurement_core(record, budgets, subject_uid, subject_gid)
 
 
 def validate_metadata_diagnostic(record: dict) -> None:
@@ -1125,12 +1185,22 @@ def validate_profile_record(record: dict) -> None:
     table is explicitly not used), the credential is a restricted
     0600 file referenced by env_key (never a profile value), and all
     facts are measured closed identities (digests/modes/uid).
+    The fixed-21002 CODEX_HOME subject law stays byte-for-byte the
+    original; the v2 tag and the v1 tag refuse each other.
     """
     _expect_tag(record, SCHEMA_PROFILE)
     _expect_field_set(record, _PROFILE_FIELDS)
+    _validate_profile_record_core(record, SUBJECT_UID)
+
+
+def _validate_profile_record_core(record: dict, subject_uid: int) -> None:
+    """Shared closed structural core of the synthetic-profile
+    record: identical facts and error law for the fixed-21002 v1
+    record and the owner-UID v2 record; only the expected
+    CODEX_HOME subject uid differs."""
     if _int_field(record, "codex_home_mode") != 0o700:
         raise FixtureError("closed record field state invalid: codex_home_mode")
-    if _int_field(record, "codex_home_uid") != SUBJECT_UID:
+    if _int_field(record, "codex_home_uid") != subject_uid:
         raise FixtureError("closed record field identity invalid: codex_home_uid")
     _sha256_field(record, "base_config_sha256")
     if _int_field(record, "base_config_mode") != 0o600:
@@ -1145,6 +1215,20 @@ def validate_profile_record(record: dict) -> None:
     _sha256_field(record, "credential_sha256")
     _const_field(record, "env_key_name", _PROFILE_ENV_KEY)
     _bool_field(record, "loopback_only", True)
+
+
+def validate_profile_record_v2(record: dict, subject_uid: int) -> None:
+    """Closed owner-UID synthetic-profile record (v2).
+
+    The SAME closed synthetic CODEX_HOME + separate profile-file
+    facts as the v1 record, measured under the frozen
+    owner-profile subject (the CODEX_HOME owner must equal the
+    verified owner expectation).  The v2 tag and the v1
+    fixed-21002 tag refuse each other."""
+    _check_v2_subject_id(subject_uid, "subject_uid")
+    _expect_tag(record, SCHEMA_PROFILE_V2)
+    _expect_field_set(record, _PROFILE_FIELDS)
+    _validate_profile_record_core(record, subject_uid)
 
 
 def validate_ci_summary(record: dict) -> None:

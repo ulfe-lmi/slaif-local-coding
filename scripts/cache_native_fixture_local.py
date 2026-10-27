@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import errno
 import hashlib
 import json
 import math
@@ -111,6 +112,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -118,6 +120,9 @@ import cache_native_fixture_binding as oap_binding  # noqa: E402
 import cache_native_fixture_ci as ci  # noqa: E402
 import cache_native_fixture_export_client as fixture_export  # noqa: E402
 import cache_native_fixture_model as model  # noqa: E402
+import cache_native_fixture_identity as fidentity  # noqa: E402
+import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
+import cache_native_fixture_native_prep as fixture_prep  # noqa: E402
 import cache_native_fixture_standin as fixture_standin  # noqa: E402
 
 FixtureError = ci.FixtureError
@@ -132,6 +137,11 @@ SCHEMA = "slaif-017s-local-evidence-v1"
 NATIVE_OWNER_RUN_EVIDENCE_SCHEMA = "slaif-native-owner-run-evidence-v1"
 NATIVE_OWNER_RUN_SCOPE = "native-owner-run"
 STATE_SCHEMA = "slaif-017s-owner-state-v1"
+# The DISTINCT identity-bearing owner-state tag of the canonical
+# 017-ab entry (the AB owner publishes ONLY this form; the
+# historical v1 tag stays the strict 12-key original and rejects
+# it — explicit new versions for the new physical identity).
+AB_STATE_SCHEMA = "slaif-017ab-owner-state-v1"
 ADMISSION_SCHEMA = "slaif-017s-admission-v1"
 ORDER_ID = "017-s"
 ORDER_PATH = "oap/orders/017-s-local-fixture-preparation-and-supervision.md"
@@ -152,6 +162,25 @@ X_ORDER_ID = "017-x"
 # owner mechanism, ledger, END and publication law are the SAME
 # reviewed ones (no second orchestration stack).
 Y_ORDER_ID = "017-y"
+# The canonical FUTURE 017-ab sealed entry (INACTIVE under any
+# other active order): the ONE owner-UID capability entry.  Its
+# SEALED child owns resolve+admit ONCE in the DISTINCT 017-ab
+# namespace before any external work; the historical S/X/Y entries,
+# namespaces and records are unchanged and never adopted.  The
+# owner mechanism, ledger, END and publication law are the SAME
+# reviewed ones (no second orchestration stack).  This constant
+# names the entry; it grants NO authority — actual
+# repository-context validation refuses it before fixture work or
+# admission under any other active order.
+AB_ORDER_ID = rprofile.AB_ORDER_ID
+# The DISTINCT closed owner-UID AB terminal record (017-aa): the
+# SAME measured owner state, cleanup and publication as the
+# native-scope record, PLUS the frozen owner identity
+# substructure (the canonical profile description's measured
+# context) and the AB-only exact-CID teardown proof.  The S and
+# native-scope records keep their original meaning byte-for-byte.
+AB_OWNER_RUN_EVIDENCE_SCHEMA = rprofile.AB_OWNER_RUN_EVIDENCE_SCHEMA
+AB_OWNER_RUN_SCOPE = rprofile.AB_OWNER_RUN_SCOPE
 # The R CI-measured built-image identity (immutable R report fact at
 # 2ce9dcd): the local rebuild records whether it matches.
 R_CI_IMAGE_ID = "sha256:331e1a70ec585f6fb1494c8486faf77fb1e624cf5f0f5765f7c5bab83a92de94"
@@ -256,6 +285,22 @@ _LOCAL_REASONS = frozenset(
         "local-top-unavailable",
         "local-cleanup-unverified",
         "local-observe-unavailable",
+        # The owner-UID (AB) identity collection/derivation: the Z
+        # production reason vocabulary, prefixed, plus the
+        # same-context at-use revalidation drift token.
+        "local-identity-unsupported-platform",
+        "local-identity-id-getter-failure",
+        "local-identity-invalid-id-type",
+        "local-identity-root-id",
+        "local-identity-invalid-id-range",
+        "local-identity-uid-triple-mismatch",
+        "local-identity-gid-triple-mismatch",
+        "local-identity-controller-id-collision",
+        "local-identity-invalid-profile",
+        "local-identity-controller-mismatch",
+        "local-identity-invalid-group-vector",
+        "local-identity-invalid-subject-for-profile",
+        "local-identity-drift",
         "local-control-protocol",
         "local-control-socket-untrusted",
         "local-control-unbound",
@@ -277,6 +322,7 @@ _LOCAL_REASONS = frozenset(
         "finish-export-failed",
         "sentinel-process-died",
         "descendant-leftover",
+        "descendant-unverified",
         "export-shape",
         "export-quiesce-state",
         "export-sha-mismatch",
@@ -912,8 +958,87 @@ def _abort_requested(path: Path, run_id: str) -> bool:
 
 
 # -- closed owner state file (0600 under 0700) -------------------------------------
-def _validate_state_object(state: object, run_id: str) -> None:
-    if not isinstance(state, dict) or set(state) != {
+def _identity_substructure_law(
+    identity: object,
+) -> tuple[int, int, tuple[int, ...], "fidentity.FixtureIdentityDescription"] | None:
+    """The shared closed structural law of the AB frozen owner
+    identity substructure (the identity-bearing owner STATE, the
+    AB owner-run EVIDENCE and the AB driver RECORD all carry this
+    ONE closed six-key substructure): the exact key set, the
+    canonical owner-UID profile name, the strict nonroot finite
+    Linux IDs distinct from the controller 21001, the
+    one-element primary-GID group vector, and the 64-hex
+    canonical fingerprint and profile-DATA digest — with the
+    production codec re-deriving the canonical record from the
+    retained IDs (controller fixed 21001/21001) and both digests
+    verified against it.  Returns the frozen ``(uid, gid,
+    groups, description)`` — the re-derived canonical
+    description is included so the strict PUBLIC wrappers derive
+    their runtime profile expectations from the SAME validated
+    identity (production codec, no caller input) — or ``None``:
+    ONE shared structural core; each
+    public wrapper keeps its OWN fixed refusal token.  This is
+    closed data integrity — never a measured-authority claim
+    (a caller-authored valid substructure is still only data)."""
+    if not isinstance(identity, dict) or set(identity) != {
+        "profile",
+        "fingerprint",
+        "subject_uid",
+        "subject_gid",
+        "subject_groups",
+        "profile_data_sha256",
+    }:
+        return None
+    profile = identity["profile"]
+    fingerprint = identity["fingerprint"]
+    subject_uid = identity["subject_uid"]
+    subject_gid = identity["subject_gid"]
+    subject_groups = identity["subject_groups"]
+    profile_data_sha256 = identity["profile_data_sha256"]
+    if (
+        profile != fidentity.PROFILE_OWNER_UID
+        or not isinstance(fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+        or isinstance(subject_uid, bool)
+        or not isinstance(subject_uid, int)
+        or isinstance(subject_gid, bool)
+        or not isinstance(subject_gid, int)
+        or not (fidentity.LINUX_ID_MIN <= subject_uid <= fidentity.LINUX_ID_MAX)
+        or not (fidentity.LINUX_ID_MIN <= subject_gid <= fidentity.LINUX_ID_MAX)
+        or not isinstance(subject_groups, list)
+        or len(subject_groups) != 1
+        or isinstance(subject_groups[0], bool)
+        or not isinstance(subject_groups[0], int)
+        or subject_groups[0] != subject_gid
+        or not isinstance(profile_data_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", profile_data_sha256) is None
+    ):
+        return None
+    try:
+        description = fidentity.FixtureIdentityDescription(
+            profile=profile,
+            controller_uid=fidentity.CONTROLLER_UID,
+            controller_gid=fidentity.CONTROLLER_GID,
+            subject_uid=subject_uid,
+            subject_gid=subject_gid,
+            subject_groups=(subject_gid,),
+        )
+    except fidentity.FixtureIdentityError:
+        return None
+    if (
+        fidentity.fingerprint_description(description) != fingerprint
+        or hashlib.sha256(fidentity.encode_description(description)).hexdigest()
+        != profile_data_sha256
+    ):
+        return None
+    return (subject_uid, subject_gid, (subject_gid,), description)
+
+
+# The shared closed 12-key base of BOTH state grammars (the
+# historical v1 form is exactly these keys; the DISTINCT
+# identity-bearing AB form adds its own closed keys).
+_STATE_BASE_KEYS = frozenset(
+    {
         "record",
         "run_id",
         "pid",
@@ -926,41 +1051,47 @@ def _validate_state_object(state: object, run_id: str) -> None:
         "build_attempted",
         "env_file",
         "ledger",
-    }:
-        raise FixtureError("local-state-malformed")
-    if state["record"] != STATE_SCHEMA or state["run_id"] != run_id:
-        raise FixtureError("local-state-malformed")
-    if not re.fullmatch(r"[0-9a-f]{32}", str(state["run_id"])):
-        raise FixtureError("local-state-malformed")
+    }
+)
+
+
+def _validate_state_common_fields(state: dict, token: str) -> None:
+    """The private structural core shared by BOTH state
+    validators: the exact field laws of the shared keys (pid, END
+    anchor, phase, status, containers, create intent, image id,
+    build attempt, env file, ledger).  Each PUBLIC wrapper first
+    enforces its own tag, key set and binding/identity law with
+    its own fixed refusal token, then delegates the shared field
+    checks here (the v1 law is byte-for-byte the historical one)."""
     pid = state["pid"]
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     anchor = state["end_anchor"]
     if (
         not isinstance(anchor, (int, float))
         or isinstance(anchor, bool)
         or not (0 < float(anchor) < 1e15)
     ):
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     if state["phase"] not in _PHASES:
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     if state["status"] not in _STATE_STATUSES:
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     containers = state["containers"]
     if (
         not isinstance(containers, list)
         or len(containers) > 16
         or not all(ci._is_cid(c) for c in containers)
     ):
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     create_intent = state["create_intent"]
     if create_intent is not None and not ci._LOCAL_NAME_RE.fullmatch(str(create_intent)):
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     image_id = state["image_id"]
     if image_id is not None and not ci._IMAGE_ID_RE.fullmatch(str(image_id)):
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     if not isinstance(state["build_attempted"], bool):
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     env_file = state["env_file"]
     if env_file is not None and (
         not isinstance(env_file, str)
@@ -968,19 +1099,73 @@ def _validate_state_object(state: object, run_id: str) -> None:
         or len(env_file) > 4096
         or "\x00" in env_file
     ):
-        raise FixtureError("local-state-malformed")
+        raise FixtureError(token)
     ledger = state["ledger"]
     if (
         not isinstance(ledger, dict)
         or set(ledger) != set(_ledger_facts(ci._RunLedger(model.FixtureBudgets())))
         or any(not isinstance(v, int) or isinstance(v, bool) or v < 0 for v in ledger.values())
     ):
+        raise FixtureError(token)
+
+
+def _validate_state_object(state: object, run_id: str) -> None:
+    """The ORIGINAL closed owner-state grammar
+    (``slaif-017s-owner-state-v1``): the STRICT 12-key v1 form,
+    byte-for-byte the historical law.  The identity-bearing AB
+    state carries its OWN explicit tag (``_validate_ab_state_
+    object``): the v1 consumer rejects the new profile record —
+    a tag plus a valid data fingerprint is integrity, never
+    owner-ID origin or a widened v1 grammar."""
+    if not isinstance(state, dict) or set(state) != _STATE_BASE_KEYS:
         raise FixtureError("local-state-malformed")
+    if state["record"] != STATE_SCHEMA or state["run_id"] != run_id:
+        raise FixtureError("local-state-malformed")
+    if not re.fullmatch(r"[0-9a-f]{32}", str(state["run_id"])):
+        raise FixtureError("local-state-malformed")
+    _validate_state_common_fields(state, "local-state-malformed")
 
 
-def _write_state(path: Path, state: dict) -> None:
-    """Atomic (same-directory tmp + rename) 0600 state publish."""
-    _validate_state_object(state, str(state["run_id"]))
+def _validate_ab_state_object(state: object, run_id: str) -> None:
+    """The DISTINCT identity-bearing AB owner-state grammar
+    (``slaif-017ab-owner-state-v1``): the shared 12 keys PLUS the
+    closed AB substructure — the frozen owner identity (the
+    shared structural law) and the full ORIGINAL verified
+    order/head/run binding (the canonical AB entry, the literal
+    bound head and the admitted run id).  The tag and the data
+    fingerprint are integrity only — the binding ties this state
+    to the owner's OWN admitted attempt, and the sealed driver's
+    admission verification is what proves it; nothing here is a
+    measured-authority claim.  The old v1 tag is never widened to
+    this record, and this tag is refused by the v1 consumer."""
+    if not isinstance(state, dict) or set(state) != _STATE_BASE_KEYS | {
+        "identity",
+        "order",
+        "bind_head",
+    }:
+        raise FixtureError("local-ab-state-malformed")
+    if state["record"] != AB_STATE_SCHEMA or state["run_id"] != run_id:
+        raise FixtureError("local-ab-state-malformed")
+    if not re.fullmatch(r"[0-9a-f]{32}", str(state["run_id"])):
+        raise FixtureError("local-ab-state-malformed")
+    if state["order"] != AB_ORDER_ID:
+        raise FixtureError("local-ab-state-malformed")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(state["bind_head"])):
+        raise FixtureError("local-ab-state-malformed")
+    if _identity_substructure_law(state["identity"]) is None:
+        raise FixtureError("local-ab-state-malformed")
+    _validate_state_common_fields(state, "local-ab-state-malformed")
+
+
+def _write_state(path: Path, state: dict, *, ab: bool = False) -> None:
+    """Atomic (same-directory tmp + rename) 0600 state publish.
+    The validator follows the published FORM: the DISTINCT
+    identity-bearing AB state (``ab=True`` — the AB owner's own
+    form) is validated by the AB grammar; the original v1 form
+    keeps the strict 12-key law (the owner publishes exactly one
+    form, chosen by its OWN frozen context, never the caller's)."""
+    validator = _validate_ab_state_object if ab else _validate_state_object
+    validator(state, str(state["run_id"]))
     payload = (json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
     tmp = path.with_name(path.name + ".tmp")
     if tmp.exists() or tmp.is_symlink():
@@ -1144,12 +1329,25 @@ def _validate_control_response(response: object, command: str) -> None:
         raise FixtureError("local-control-protocol")
 
 
-def _state_record(control_dir) -> dict | None:
+def _state_record(control_dir, *, entry_order: str | None = None) -> dict | None:
     """Protected read of the owner's published state (0600 under the
-    owned 0700 control root): a CLOSED minimal check (record tag,
-    32-hex run id, positive finite END anchor, closed phase/status);
-    None when not yet published or not this uid's file — the client
-    never trusts a foreign or oversized state."""
+    owned 0700 control root): a CLOSED full check under the
+    entry's OWN strict grammar (record tag, then the complete
+    validator for that tag — exact key set, run id, END anchor,
+    phase/status, every shared field law, and for the AB form the
+    full binding/identity substructures); None when not yet
+    published or not this uid's file — the client never trusts a
+    foreign, oversized or malformed state.
+
+    The entry-aware tag law: the historical v1 tag for the original
+    entries (``entry_order`` None or a non-AB sealed entry —
+    byte-for-byte the historical meaning) and the DISTINCT
+    identity-bearing AB tag for the canonical 017-ab entry (which
+    additionally requires the full closed AB binding and identity
+    substructures).  Each entry reads ONLY its own tag: a foreign
+    tag is not this entry's state, and the v1 grammar rejects an
+    identity-bearing record (the old tag is never widened)."""
+    tag = AB_STATE_SCHEMA if entry_order == AB_ORDER_ID else STATE_SCHEMA
     root = Path(control_dir)
     try:
         rstat = os.lstat(root)
@@ -1170,18 +1368,19 @@ def _state_record(control_dir) -> dict | None:
         state = json.loads(_read_bounded(path, 8192).decode("ascii"))
     except (OSError, ValueError, UnicodeDecodeError, FixtureError):
         return None
-    if not isinstance(state, dict) or state.get("record") != STATE_SCHEMA:
+    if not isinstance(state, dict) or state.get("record") != tag:
         return None
-    if not re.fullmatch(r"[0-9a-f]{32}", str(state.get("run_id", ""))):
-        return None
-    anchor = state.get("end_anchor")
-    if (
-        not isinstance(anchor, (int, float))
-        or isinstance(anchor, bool)
-        or not (0 < float(anchor) < 1e15)
-    ):
-        return None
-    if state.get("phase") not in _PHASES or state.get("status") not in _STATE_STATUSES:
+    # the FULL closed grammar of this entry's tag (the minimal
+    # pre-checks are subsumed): extra keys, an invalid pid or
+    # ledger, a broken AB binding or identity substructure all
+    # refuse the state — the reader is a closed consumer, not a
+    # convenience parser
+    try:
+        if tag == AB_STATE_SCHEMA:
+            _validate_ab_state_object(state, str(state["run_id"]))
+        else:
+            _validate_state_object(state, str(state["run_id"]))
+    except (FixtureError, KeyError, TypeError, ValueError):
         return None
     return state
 
@@ -1509,6 +1708,35 @@ def _local_bound_executor() -> Callable[[list[str], float], ci.ExecResult]:
     return bound
 
 
+@dataclass(frozen=True)
+class OwnerIdentityContext:
+    """The ONE immutable owner-UID run context (017-aa).
+
+    Frozen at construction AFTER the bound run identity is adopted
+    and BEFORE any external fixture work, from the owner's OWN
+    collection/derivation through the Z production collector and
+    closed codec (a caller-supplied description, fingerprint or
+    ready flag can never mint it).  It carries the canonical
+    profile description's fingerprint, the frozen INDEPENDENT
+    subject identity, the closed runtime profile view, and the
+    ORIGINAL verified order/head/run/admission binding.  It is
+    revalidated at actual use (bounded current-ID coherence read)
+    and may be COMPARED, never rebased or silently re-frozen after
+    drift.
+    """
+
+    profile: "rprofile.RuntimeProfile"
+    fingerprint: str
+    subject_uid: int
+    subject_gid: int
+    subject_groups: tuple[int, ...]
+    exec_user: str
+    order_id: str
+    bind_head: str
+    run_id: str
+    profile_data_sha256: str
+
+
 class LocalFixtureOwner:
     """The ONE long-lived Python fixture owner (the supervisor): a
     single non-Codex owning actor with ONE RAM run context.  It owns
@@ -1541,6 +1769,8 @@ class LocalFixtureOwner:
         executor=None,
         deadline_offset: float = 0.0,
         binding: object = None,
+        identity_reader: "fidentity.IdentityReader | None" = None,
+        proc_root: Path | None = None,
     ) -> None:
         if os.environ.get("GITHUB_ACTIONS") == "true":
             raise FixtureError("local-hosted-env")
@@ -1561,6 +1791,11 @@ class LocalFixtureOwner:
         # the destroyed scratch when cleanup remains unverified.
         self.control_dir = Path(control_dir)
         self.control_dir_owned = False
+        # The /proc root for the owned-lifetime frame reads
+        # (production: the real /proc; the faithful narrow fake
+        # seam for tests — the SAME bounded reader law applies
+        # to both).
+        self._proc_root = Path(proc_root) if proc_root is not None else Path("/proc")
         self._control_socket: socket.socket | None = None
         self._converged = False
         self._exit_code = 1
@@ -1668,6 +1903,49 @@ class LocalFixtureOwner:
             _admit_attempt(self.repo, self.optin["bind_head"], self.run_id)
         else:
             self.run_id = binding.run_id
+        # owner-UID AB branch (the canonical future sealed entry;
+        # 017-aa): AFTER the bound run identity is adopted and
+        # BEFORE any external fixture work, the owner collects the
+        # host owner IDs through the ONE raw read seam (the
+        # faithful narrow fake seam for tests; production is the
+        # direct bounded OS read), derives the inert description
+        # with Z production code, and freezes the immutable owner
+        # context.  A caller-supplied description, fingerprint or
+        # ready flag is NEVER accepted — only this own
+        # collection/derivation feeds the context.  No process is
+        # started merely to collect host IDs.  Any failure here is
+        # a closed refusal BEFORE any mutation; the caller/serve
+        # composition closes the SAME already-won attempt
+        # honestly (no second mint, no adopted journal, no
+        # re-resolution).
+        self.identity_reader: "fidentity.IdentityReader | None" = identity_reader
+        self._owner_context: OwnerIdentityContext | None = None
+        if binding is not None and binding.order_id == rprofile.AB_ORDER_ID:
+            reader = (
+                identity_reader
+                if identity_reader is not None
+                else fidentity._default_identity_reader
+            )
+            outcome = fidentity.collect_host_owner_ids(reader)
+            if not outcome.ok:
+                raise FixtureError(f"local-identity-{outcome.reason}")
+            try:
+                description = fidentity.derive_owner_uid_identity(outcome.ids)
+            except fidentity.FixtureIdentityError as exc:
+                raise FixtureError(f"local-identity-{exc.reason}") from None
+            profile = rprofile.owner_runtime_profile(description)
+            self._owner_context = OwnerIdentityContext(
+                profile=profile,
+                fingerprint=fidentity.fingerprint_description(description),
+                subject_uid=description.subject_uid,
+                subject_gid=description.subject_gid,
+                subject_groups=description.subject_groups,
+                exec_user=profile.exec_user,
+                order_id=binding.order_id,
+                bind_head=bind_head,
+                run_id=self.run_id,
+                profile_data_sha256=hashlib.sha256(profile.profile_data).hexdigest(),
+            )
         self.run_token = uuid.uuid4().hex
         # ONE absolute END anchor (start + 1800 s) and ONE
         # cumulative host ledger over every phase and error.
@@ -1676,7 +1954,21 @@ class LocalFixtureOwner:
             time.monotonic() + ci.TOTAL_ANCHOR_SECONDS - deadline_offset
         )
         self.ledger = ci._RunLedger(self.budgets)
-        self.guarded = ci._guarded_execute(self._executor, self.deadline, self.ledger)
+        if self._owner_context is None:
+            self.guarded = ci._guarded_execute(self._executor, self.deadline, self.ledger)
+        else:
+            # The OWNER-SCOPED guarded allowlist: the SAME closed
+            # factories bound to the frozen profile (its exact
+            # independent exec user, the closed build-arg form and
+            # the owner tmpfs spec set); the original callers keep
+            # the byte-for-byte original matcher tuple.  No
+            # global mutable identity binding.
+            self.guarded = ci._guarded_execute(
+                self._executor,
+                self.deadline,
+                self.ledger,
+                matchers=ci._owner_argv_matchers(self._owner_context.profile),
+            )
         # -- run context (one RAM context) --
         self.phase = "start"
         self.status = "running"
@@ -1736,6 +2028,16 @@ class LocalFixtureOwner:
         # platform.
         self.teardown_container_absent: bool | None = None
         self.teardown_descendants_after: int | None = None
+        # The owner-UID (AB) owned-lifetime registry: the exact
+        # registered CID's member PID + birth(start_time) + uid
+        # measured BEFORE removal (the same exact-CID top
+        # channel, read-only), and the tri-stated post-removal
+        # verification result.  This is the exact-CID + owned
+        # PID/birth lifetime proof the order requires for the
+        # new profile — NOT a UID scan and NOT a count inference.
+        # The original 21002 path never populates it.
+        self.owned_members_before: tuple[tuple[int, int, int], ...] | None = None
+        self.owned_members_after: tuple[tuple[int, str], ...] | None = None
         # NOTE (017-t): the run's native_started/native_ready
         # facts are NOT owner state — the owner never launches
         # or measures a native subject.  They are measured by
@@ -1756,6 +2058,37 @@ class LocalFixtureOwner:
         self._abort_by_caller = False
         self.failure_reason = ""
         self.failure_stage = "start"
+
+    def _revalidate_identity_context(self) -> None:
+        """Re-measure the CURRENT host owner identity through the
+        SAME read seam and compare it to the FROZEN owner context
+        (the bounded current-ID coherence read at actual use): it
+        may COMPARE, but never rebase or silently re-freeze after
+        drift.  An unreadable, failed or drifted context is a
+        closed refusal — the composition closes the SAME already-
+        won attempt honestly (no fresh collection is adopted)."""
+        # Strict read: the real constructor ALWAYS initializes
+        # ``_owner_context`` (``None`` for the original form), so
+        # a missing attribute is a defective object, not a
+        # no-owner signal — the partial-object test seam must set
+        # the faithful original default explicitly.
+        ctx = self._owner_context
+        if ctx is None:
+            return
+        reader = (
+            self.identity_reader
+            if self.identity_reader is not None
+            else fidentity._default_identity_reader
+        )
+        outcome = fidentity.collect_host_owner_ids(reader)
+        if not outcome.ok:
+            raise FixtureError(f"local-identity-{outcome.reason}")
+        try:
+            current = fidentity.derive_owner_uid_identity(outcome.ids)
+        except fidentity.FixtureIdentityError:
+            raise FixtureError("local-identity-drift") from None
+        if fidentity.fingerprint_description(current) != ctx.fingerprint:
+            raise FixtureError("local-identity-drift")
 
     @staticmethod
     def _termination_handler(signum: int, frame) -> None:
@@ -1778,7 +2111,7 @@ class LocalFixtureOwner:
         self._publish_state()
 
     def _state_dict(self) -> dict:
-        return {
+        state = {
             "record": STATE_SCHEMA,
             "run_id": self.run_id,
             "pid": os.getpid(),
@@ -1792,6 +2125,32 @@ class LocalFixtureOwner:
             "env_file": str(self.env_file) if self.env_file is not None else None,
             "ledger": _ledger_facts(self.ledger),
         }
+        # The AB-only frozen owner identity (017-aa): the SAME
+        # closed substructure the AB owner-run evidence and the
+        # AB driver record carry — collected and derived by THIS
+        # owner (never caller-authored), published so the sealed
+        # driver can adopt the frozen subject expectation from
+        # the owner's own protected state.  The original form
+        # (no owner context) keeps the 12-key state byte-for-byte.
+        if self._owner_context is not None:
+            ctx = self._owner_context
+            # The DISTINCT identity-bearing AB state tag (the v1
+            # tag is never widened to the new profile record) and
+            # the full ORIGINAL verified order/head/run binding
+            # frozen with the context (tag/fingerprint alone are
+            # integrity, never owner-ID origin).
+            state["record"] = AB_STATE_SCHEMA
+            state["order"] = ctx.order_id
+            state["bind_head"] = ctx.bind_head
+            state["identity"] = {
+                "profile": ctx.profile.profile,
+                "fingerprint": ctx.fingerprint,
+                "subject_uid": ctx.subject_uid,
+                "subject_gid": ctx.subject_gid,
+                "subject_groups": list(ctx.subject_groups),
+                "profile_data_sha256": ctx.profile_data_sha256,
+            }
+        return state
 
     def _publish_state(self, status: str | None = None) -> None:
         """Best-effort phase-boundary publication (monitoring
@@ -1806,7 +2165,9 @@ class LocalFixtureOwner:
         if status is not None:
             self.status = status
         try:
-            _write_state(self.state_path, self._state_dict())
+            _write_state(
+                self.state_path, self._state_dict(), ab=self._owner_context is not None
+            )
         except FixtureError:
             pass
 
@@ -1821,7 +2182,9 @@ class LocalFixtureOwner:
             raise FixtureError("local-state-missing")
         if status is not None:
             self.status = status
-        _write_state(self.state_path, self._state_dict())
+        _write_state(
+            self.state_path, self._state_dict(), ab=self._owner_context is not None
+        )
 
     def _cid_registered(self, cid: str) -> None:
         """The shared helper's registration callback: the exact
@@ -1912,10 +2275,33 @@ class LocalFixtureOwner:
         self._phase_done("artifact")
 
         self.phase = "build-context"
-        dockerfile_bytes = ci.verify_dockerfile_base(self.repo)
-        ci.prepare_build_context(
-            self.repo, self._artifact_dir, self._context_dir, dockerfile_bytes, self.artifact
-        )
+        self._revalidate_identity_context()
+        if self._owner_context is None:
+            dockerfile_bytes = ci.verify_dockerfile_base(self.repo)
+            ci.prepare_build_context(
+                self.repo,
+                self._artifact_dir,
+                self._context_dir,
+                dockerfile_bytes,
+                self.artifact,
+            )
+        else:
+            # The owner-UID variant: the EXPLICIT owner Dockerfile
+            # (the original stays byte-for-byte the original) and
+            # the frozen profile DATA bytes (the closed canonical
+            # Z record) plus the inert identity module in the
+            # build context; every copy re-hashed AFTER writing.
+            dockerfile_bytes = ci.verify_dockerfile_base(
+                self.repo, rprofile.OWNER_DOCKERFILE_NAME
+            )
+            ci.prepare_build_context(
+                self.repo,
+                self._artifact_dir,
+                self._context_dir,
+                dockerfile_bytes,
+                self.artifact,
+                profile_data=self._owner_context.profile.profile_data,
+            )
         self._phase_done("build-context")
 
         self.phase = "pull"
@@ -1934,7 +2320,8 @@ class LocalFixtureOwner:
         if self._context_dir is None:
             raise FixtureError("internal")
         result = self.guarded(
-            ["docker", "build", "-t", ci.IMAGE_NAME, str(self._context_dir)], ci.BUILD_TIMEOUT
+            self._build_argv(),
+            ci.BUILD_TIMEOUT,
         )
         if result.returncode != 0:
             raise FixtureError("build-failed")
@@ -1951,6 +2338,17 @@ class LocalFixtureOwner:
 
         self.phase = "prepared"
         self._publish_state()
+
+    def _build_argv(self) -> list[str]:
+        """The closed build argv: the historical byte-for-byte
+        original for the original profile, and the owner-scoped
+        closed form (the SAME base/tag plus the EXACT frozen
+        profile build-arg tuple) for the owner-UID variant."""
+        argv = ["docker", "build", "-t", ci.IMAGE_NAME]
+        if self._owner_context is not None:
+            argv += list(self._owner_context.profile.build_args)
+        argv.append(str(self._context_dir))
+        return argv
 
     def _discover_image_id(self) -> str:
         image_id = (
@@ -1996,6 +2394,7 @@ class LocalFixtureOwner:
         self.env_file, self.env_file_digest = create_env_file(self._env_dir, self.run_token)
         ci.bind_env_files({str(self.env_file)})
         self._publish_state_required()
+        ctx = self._owner_context
         # The exact fresh create NAME intent is persisted in the
         # protected state BEFORE docker create, and the exact fresh
         # CID registration is persisted BEFORE any start (the shared
@@ -2012,24 +2411,42 @@ class LocalFixtureOwner:
             prefix="017s",
             on_registered=self._cid_registered,
             on_intent=self._create_intent_published,
+            tmpfs_specs=ci.owner_tmpfs_specs(ctx.profile) if ctx is not None else None,
         )
         self.target_cid = cid
         self._publish_state()
         # NON-CONSUMING confinement inspection of THIS exact CID.
-        self.confinement_facts = ci.measure_controller_confinement_on(self.guarded, cid)
-        # The 21002 exec boundary measured on THIS exact CID (no
-        # wire); the model's closed-record validation failures map
-        # to fixed tokens (no raw record content).
+        self.confinement_facts = ci.measure_controller_confinement_on(
+            self.guarded,
+            cid,
+            tmpfs_budgets=ci.owner_tmpfs_budgets(ctx.profile) if ctx is not None else None,
+        )
+        # The subject exec boundary measured on THIS exact CID (no
+        # wire): the original fixed-21002 law byte-for-byte, or the
+        # frozen profile's exact independent uid:gid with the
+        # explicit v2 closed record (v1/v2 refuse each other); the
+        # model's closed-record validation failures map to fixed
+        # tokens (no raw record content).
         assert self.parent_pid is not None and self.parent_port is not None
         assert self.sentinel_file is not None and self.parent_ns is not None
         try:
-            self.subject_facts = ci.measure_subject_on(
-                self.guarded,
-                cid,
-                env,
-                (self.parent_pid, self.parent_port, self.sentinel_file, self.parent_ns),
-                self.ledger,
-            )
+            if ctx is None:
+                self.subject_facts = ci.measure_subject_on(
+                    self.guarded,
+                    cid,
+                    env,
+                    (self.parent_pid, self.parent_port, self.sentinel_file, self.parent_ns),
+                    self.ledger,
+                )
+            else:
+                self.subject_facts = ci.measure_subject_on_profile(
+                    self.guarded,
+                    cid,
+                    env,
+                    (self.parent_pid, self.parent_port, self.sentinel_file, self.parent_ns),
+                    self.ledger,
+                    ctx.profile,
+                )
         except ValueError as exc:
             raise FixtureError(ci._model_validation_reason(exc)) from None
         # The reviewed Python PTY rehearsal with the protected
@@ -2043,6 +2460,7 @@ class LocalFixtureOwner:
                 self.run_token,
                 self.ledger,
                 env_file=str(self.env_file),
+                profile=ctx.profile if ctx is not None else None,
             )
         except ValueError as exc:
             raise FixtureError(ci._model_validation_reason(exc)) from None
@@ -2061,7 +2479,9 @@ class LocalFixtureOwner:
         # Closed NON-CONSUMING actual controller state on the exact
         # CID: the prepared-unconsumed claim is OBSERVED, never
         # inferred from a host charge delta.
-        observed = ci.observe_controller_on(self.guarded, cid, env_base, self.ledger)
+        observed = ci.observe_controller_on(
+            self.guarded, cid, env_base, self.ledger, profile=ctx.profile if ctx is not None else None
+        )
         if (
             observed["wire_requests"] != 0
             or observed["diagnostic_state"] != "unobserved"
@@ -2087,7 +2507,15 @@ class LocalFixtureOwner:
         is held (prepared, not yet finished)."""
         if self.target_cid is None or self.phase in ("teardown", "publish", "start"):
             raise FixtureError("local-observe-unavailable")
-        return ci.observe_controller_on(self.guarded, self.target_cid, self.env_base, self.ledger)
+        return ci.observe_controller_on(
+            self.guarded,
+            self.target_cid,
+            self.env_base,
+            self.ledger,
+            profile=self._owner_context.profile
+            if self._owner_context is not None
+            else None,
+        )
 
     def hold_start(self) -> str:
         """The 017-x detached capability start: ONE closed detached
@@ -2112,13 +2540,21 @@ class LocalFixtureOwner:
         self.hold_start_attempted = True
         cid = self.target_cid
         self.hold_token = self.run_token
+        self._revalidate_identity_context()
+        if self._owner_context is None:
+            exec_user = f"{ci.SUBJECT_UID}:{ci.SUBJECT_UID}"
+        else:
+            # The frozen profile's exact independent uid:gid (never
+            # uid:uid): the same identity law the stand-in enforces
+            # at every in-image check site.
+            exec_user = self._owner_context.exec_user
         result = self.guarded(
             [
                 "docker",
                 "exec",
                 "-d",
                 "--user",
-                f"{ci.SUBJECT_UID}:{ci.SUBJECT_UID}",
+                exec_user,
                 cid,
                 "python3",
                 ci.STANDIN_PATH,
@@ -2169,6 +2605,19 @@ class LocalFixtureOwner:
         if self.target_cid is None or self.phase in ("teardown", "publish", "start"):
             raise FixtureError("local-top-unavailable")
         cid = self.target_cid
+        return self._exact_cid_top_pids(cid)
+
+    def _exact_cid_top_pids(self, cid: str) -> list[int]:
+        """The bounded exact-CID top attestation core (the shared
+        measurement of ``top_pids`` and the owner-UID teardown
+        lifetime registry): ONE guarded ``docker top`` on the exact
+        registered CID, parsed under the FINITE verified header
+        forms with the closed row/bound/duplicate law.  No ``ps``
+        argument or column selection is widened; the host /proc is
+        NEVER enumerated from this channel.  The phase guard of the
+        public ``top_pids`` is the caller's concern; this core is
+        charged to the SAME owner deadline/ledger as every other
+        operation."""
         result = self.guarded(["docker", "top", cid], ci._QUERY_TIMEOUT)
         if result.returncode != 0:
             raise FixtureError("top-query-failed")
@@ -2283,6 +2732,16 @@ class LocalFixtureOwner:
         if self.target_cid is None:
             raise FixtureError("internal")
         self.phase = "finish"
+        # The FROZEN owner context is revalidated at THIS
+        # identity-bound use site as well (the bounded current-ID
+        # coherence read through the SAME seam, compared to the
+        # frozen fingerprint): it may compare, never rebase — the
+        # subject measurement, PTY and export all run as the
+        # frozen identity, so a changed host identity after the
+        # run began is a drift fact and a closed refusal (the
+        # exact-owned cleanup still converges; no ID keeps it
+        # alive or gates it).
+        self._revalidate_identity_context()
         cid = self.target_cid
         # ACTUAL closed controller state right before the export
         # (non-consuming: no model POST, no charge, no state change)
@@ -2290,7 +2749,13 @@ class LocalFixtureOwner:
         # held instance's wire history is (S Python consume, an
         # external subject, or none at all).
         self.finish_observed = ci.observe_controller_on(
-            self.guarded, cid, self.env_base, self.ledger
+            self.guarded,
+            cid,
+            self.env_base,
+            self.ledger,
+            profile=self._owner_context.profile
+            if self._owner_context is not None
+            else None,
         )
         self.ledger.reserve_http(2, 2)
         export_result = ci._exec(
@@ -2379,6 +2844,83 @@ class LocalFixtureOwner:
         self._phase_done("finish")
         self._teardown_verified()
 
+    def _member_lifetime(self, pid: int) -> tuple[int, int] | str | None:
+        """The POST-removal bounded host read of the exact owned
+        PID's lifetime frame (the reviewed /proc parsers reused
+        READ-ONLY on a single exact PID — no enumeration, no
+        signal, no privilege, no new channel): ``(birth, uid)``
+        for a complete frame, the literal ``"gone"`` ONLY for
+        verified ENOENT, and ``None`` for unreadable/unknown
+        (a present-but-degraded frame, a vanished-between-reads
+        file, or an OVER-BOUND frame: each file is read cap+1
+        and refused at cap+1, so a growing/over-bound frame is
+        never silently truncated and never misread).  An
+        unreadable listed PID is never conflated with
+        verified-gone.
+        """
+        root = self._proc_root
+        try:
+            with open(root / str(pid) / "stat", "rb") as handle:
+                raw_stat = handle.read(fixture_prep._PROC_STAT_MAX + 1)
+        except OSError as exc:
+            if exc.errno == errno.ENOENT:
+                return "gone"
+            return None
+        if len(raw_stat) > fixture_prep._PROC_STAT_MAX:
+            return None
+        try:
+            with open(root / str(pid) / "status", "rb") as handle:
+                raw_status = handle.read(fixture_prep._STATUS_MAX + 1)
+        except OSError:
+            return None
+        if len(raw_status) > fixture_prep._STATUS_MAX:
+            return None
+        try:
+            parsed = fixture_prep.parse_proc_stat(raw_stat.decode("ascii", "replace"))
+            uid, _gid, _groups = fixture_prep.parse_proc_status(raw_status)
+        except (FixtureError, ValueError, UnicodeDecodeError):
+            return None
+        if parsed.pid != pid:
+            return None
+        return (parsed.start_time, uid)
+
+    def _owned_member_frame(
+        self, pid: int, table: "fixture_prep.RealCidScopedTable"
+    ) -> tuple[int, int] | None:
+        """The PRE-removal CID-ATTESTED, STABLE lifetime frame of
+        one listed PID: the registered-CID channel reads the
+        exact PID's stat frame, then its status frame, then its
+        stat frame AGAIN — every single read gated on the PID's
+        CURRENT cgroup scope for the EXACT registered CID (the
+        over-bound/unsafe read refusal included).  The two stat
+        frames must agree on ``(pid, start_time)``: the same
+        live process observed before AND after the status read,
+        with the CID scope still holding at each instant — a
+        raced PID (exit/reuse in any read window), an exited
+        member, an out-of-scope or over-bound/unreadable frame
+        is refused, never adopted: list membership without a
+        stable combined birth/UID/CID frame is not ownership.
+        Returns ``(birth, uid)`` or ``None`` (unverified)."""
+        first_stat = table.stat(pid)
+        raw_status = table.status(pid)
+        second_stat = table.stat(pid)
+        if first_stat is None or raw_status is None or second_stat is None:
+            return None
+        try:
+            first = fixture_prep.parse_proc_stat(first_stat.decode("ascii", "replace"))
+            second = fixture_prep.parse_proc_stat(second_stat.decode("ascii", "replace"))
+            uid, _gid, _groups = fixture_prep.parse_proc_status(raw_status)
+        except (FixtureError, ValueError, UnicodeDecodeError):
+            return None
+        if first.pid != pid or second.pid != pid:
+            return None
+        # Stable combined frame: the same (pid, birth) live
+        # across the status read — an exit/reuse in the window
+        # changes the birth (or drops the scope) and is refused.
+        if first.start_time != second.start_time:
+            return None
+        return (second.start_time, uid)
+
     def _teardown_verified(self) -> None:
         self.phase = "teardown"
         if self.target_cid is None:
@@ -2387,6 +2929,38 @@ class LocalFixtureOwner:
         # Positive-before: the exact owned container still has
         # processes; negative-after: verified absent after removal.
         self.descendants_before = ci._descendant_count(self.guarded, cid)
+        if self._owner_context is not None:
+            # The owner-UID variant (017-aa): the subject UID is
+            # the HOST OWNER's own UID (the worker/owner/unrelated
+            # host processes share it), so a global owner-UID scan
+            # is FORBIDDEN.  The owned-lifetime registry is
+            # measured instead: the ACTUAL member PID +
+            # birth(start_time) + uid of the EXACT registered CID
+            # (the SAME bounded exact-CID top channel, read-only
+            # reuse, charged to the same deadline/ledger),
+            # cross-checked against that channel's count.  An
+            # unreadable or raced listed member is a closed
+            # refusal — unverified members are never silently
+            # ignored; the post-removal proof below verifies
+            # THESE owned identities tri-stated.
+            pids = self._exact_cid_top_pids(cid)
+            # The registered-CID channel attests each listed PID
+            # CURRENTLY: the per-PID cgroup scope for the exact
+            # registered CID gates the frame read, so a raced or
+            # exited PID is never adopted from list position
+            # alone (the scoped table's over-bound/unsafe read
+            # refusal is inherited by the frame read).
+            table = fixture_prep.RealCidScopedTable(cid, root=self._proc_root)
+            members: list[tuple[int, int, int]] = []
+            for pid in pids:
+                frame = self._owned_member_frame(pid, table)
+                if frame is None:
+                    raise FixtureError("descendant-unverified")
+                birth, uid = frame
+                members.append((pid, birth, uid))
+            if len(members) != self.descendants_before:
+                raise FixtureError("descendant-leftover")
+            self.owned_members_before = tuple(members)
         ci.cleanup_container(self.guarded, cid)
         _require_absent(self.guarded, cid)
         self.teardown_container_absent = True
@@ -2411,10 +2985,75 @@ class LocalFixtureOwner:
         self.sentinel_survived = True
         if (
             ci._count_fixture_uid_processes(ci.CONTROLLER_UID) != 0
-            or ci._count_fixture_uid_processes(ci.SUBJECT_UID) != 0
         ):
             raise FixtureError("descendant-leftover")
-        self.teardown_descendants_after = 0
+        if self._owner_context is None:
+            # The historical original law: the fixed subject UID
+            # (21002) is a fixture-owned host UID, so the global
+            # host scan is the closed subject proof.
+            if ci._count_fixture_uid_processes(ci.SUBJECT_UID) != 0:
+                raise FixtureError("descendant-leftover")
+            self.teardown_descendants_after = 0
+        else:
+            # Tri-stated post-removal verification of the OWNED
+            # lifetime registry, per exact owned PID (bounded host
+            # /proc read of the exact PID only — no enumeration,
+            # no UID membership, no signal), each frame compared
+            # against its CID-attested pre-removal birth frame:
+            #   verified-gone  — the proc frame is absent (verified
+            #                    ENOENT): the member is gone;
+            #   recycled       — a frame is present with a
+            #                    DIFFERENT birth: ONLY a changed
+            #                    birth proves PID reuse; the owned
+            #                    member is gone (the exact CID is
+            #                    verified absent) and the PID was
+            #                    reused; the occupant is a
+            #                    different process, never
+            #                    mislabeled as the old member,
+            #                    signalled, or counted as one;
+            #   still-existing — a frame is present with the SAME
+            #                    birth AND uid: the owned member
+            #                    is a real leftover, a closed
+            #                    refusal;
+            #   unverified     — present but unreadable/degraded/
+            #                    over-bound frame, OR the same
+            #                    birth with a CHANGED uid (a
+            #                    contradictory frame: neither the
+            #                    owned member nor a proven reuse):
+            #                    a closed refusal (never silently
+            #                    ignored, never inferred gone,
+            #                    never classified).
+            after: list[tuple[int, str]] = []
+            still_existing = 0
+            for pid, birth, uid in self.owned_members_before or ():
+                state = self._member_lifetime(pid)
+                if state == "gone":
+                    after.append((pid, "verified-gone"))
+                elif state is None:
+                    raise FixtureError("descendant-unverified")
+                else:
+                    cur_birth, cur_uid = state
+                    if cur_birth != birth:
+                        # Only a changed birth proves PID reuse:
+                        # the occupant is a different process —
+                        # never signalled, mislabeled or counted
+                        # as the old member.
+                        after.append((pid, "recycled"))
+                    elif cur_uid != uid:
+                        # Same birth, changed UID: a contradictory
+                        # frame — refused, never classified as
+                        # reuse (no birth change) and never as
+                        # the owned member (frame mismatch).
+                        raise FixtureError("descendant-unverified")
+                    else:
+                        still_existing += 1
+                        after.append((pid, "still-existing"))
+            self.owned_members_after = tuple(after)
+            if still_existing:
+                raise FixtureError("descendant-leftover")
+            # Measured: zero owned members still existing (every
+            # owned identity verified gone or recycled).
+            self.teardown_descendants_after = 0
         self._phase_done("teardown")
 
     # -- the single exact-owned cleanup umbrella ---------------------------------------
@@ -2711,7 +3350,10 @@ class LocalFixtureOwner:
                 "ascii"
             )
             if self._native_binding is not None:
-                validate_native_owner_run_evidence(evidence)
+                if self._owner_context is not None:
+                    validate_ab_owner_run_evidence(evidence)
+                else:
+                    validate_native_owner_run_evidence(evidence)
             else:
                 validate_local_evidence(evidence)
             self._evidence_sha = hashlib.sha256(payload).hexdigest()
@@ -2907,9 +3549,24 @@ class LocalFixtureOwner:
         convergence at the owner's OWN finite deadline (an idle or
         blocked client, or client disappearance, can never stop or
         reset ownership — the owner converges its exact-owned
-        cleanup on its own remaining budgets and exits)."""
-        self._init_control()
-        self._publish_state()
+        cleanup on its own remaining budgets and exits).
+
+        A post-admission STARTUP refusal (control-root creation or
+        the bounded socket bind) is routed through the SAME single
+        owner convergence as every terminal path: the already-won
+        attempt closes terminal honestly (no retry, no remint), the
+        owned partial control root is disposed through the same
+        exact-ownership law (a pre-existing foreign root is never
+        adopted or deleted — it is not this run's to destroy), and
+        the original refusal is re-raised so the thin CLI prints
+        the same closed startup record and returns the same exit
+        code."""
+        try:
+            self._init_control()
+            self._publish_state()
+        except BaseException as exc:
+            self._converge(exc)
+            raise
         try:
             while not self._converged:
                 if self._deadline_expired():
@@ -3163,7 +3820,33 @@ class LocalFixtureOwner:
         evidence["record"] = NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
         evidence["scope"] = NATIVE_OWNER_RUN_SCOPE
         evidence["order"] = self._native_binding.order_id
+        if self._owner_context is not None:
+            evidence.update(self._ab_evidence_extra())
         return evidence
+
+    def _ab_evidence_extra(self) -> dict[str, object]:
+        """The AB-only terminal record extras (017-aa): the frozen
+        owner identity substructure (the canonical profile
+        description's measured context — collected and derived by
+        THIS owner, never caller-authored) and the exact-CID
+        teardown proof marker (the owner-UID subject removal proof
+        is exact registered CID membership; the S-shaped teardown
+        dict itself stays byte-for-byte the original)."""
+        assert self._owner_context is not None
+        ctx = self._owner_context
+        return {
+            "record": AB_OWNER_RUN_EVIDENCE_SCHEMA,
+            "scope": AB_OWNER_RUN_SCOPE,
+            "identity": {
+                "profile": ctx.profile.profile,
+                "fingerprint": ctx.fingerprint,
+                "subject_uid": ctx.subject_uid,
+                "subject_gid": ctx.subject_gid,
+                "subject_groups": list(ctx.subject_groups),
+                "profile_data_sha256": ctx.profile_data_sha256,
+            },
+            "teardown_proof": "exact-cid-membership",
+        }
 
     def _build_native_fail_evidence(self, deadline_expired: bool) -> dict[str, object]:
         """The DISTINCT native-scope fail record for a new-order
@@ -3176,6 +3859,8 @@ class LocalFixtureOwner:
         evidence["record"] = NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
         evidence["scope"] = NATIVE_OWNER_RUN_SCOPE
         evidence["order"] = self._native_binding.order_id
+        if self._owner_context is not None:
+            evidence.update(self._ab_evidence_extra())
         return evidence
 
 
@@ -3214,12 +3899,21 @@ _PREPARED_DISPOSITION = {
 }
 
 
-def _validate_subject_facts(facts: object) -> None:
+def _validate_subject_facts(
+    facts: object,
+    subject_uid: int = model.SUBJECT_UID,
+    subject_gid: int = model.SUBJECT_UID,
+    tmpfs_budgets: tuple[tuple[str, int, int, int], ...] | None = None,
+) -> None:
     """Closed revalidation of the curated subject facts against the
     APPROVED R model contract (the same constants and finite laws
     ``model.validate_exec_measurement`` enforces on the full
     record): exact subject identity for uid AND gid (exact
-    integers, not numeric equality), the strict group variant law,
+    integers, not numeric equality — the fixed-21002 defaults for
+    the historical records; the owner-UID AB record passes its
+    frozen independent expectation and the owner tmpfs budget
+    through these private parameters, the public v1 law stays
+    byte-for-byte), the strict group variant law,
     the exact keyring denial errno for every probe, the exact
     configured memory/pids/cpu limits (exact integers — booleans
     and floats are not limits), the closed swap-source enum, the
@@ -3234,10 +3928,14 @@ def _validate_subject_facts(facts: object) -> None:
     contract, and no raw value is reflected."""
     if not isinstance(facts, dict) or set(facts) != _SUBJECT_FACT_KEYS:
         raise FixtureError("local-evidence-invalid")
-    budgets = model.FixtureBudgets()
-    if not _is_int(facts["uid"]) or facts["uid"] != model.SUBJECT_UID:
+    budgets = (
+        model.FixtureBudgets(tmpfs_budgets=tmpfs_budgets)
+        if tmpfs_budgets is not None
+        else model.FixtureBudgets()
+    )
+    if not _is_int(facts["uid"]) or facts["uid"] != subject_uid:
         raise FixtureError("local-evidence-invalid")
-    if not _is_int(facts["gid"]) or facts["gid"] != model.SUBJECT_UID:
+    if not _is_int(facts["gid"]) or facts["gid"] != subject_gid:
         raise FixtureError("local-evidence-invalid")
     groups = facts["groups"]
     # The strict group variant law: only [] or [the subject's own
@@ -3246,7 +3944,7 @@ def _validate_subject_facts(facts: object) -> None:
     if (
         not isinstance(groups, list)
         or not all(_is_int(g) for g in groups)
-        or groups not in ([], [ci.SUBJECT_UID])
+        or groups not in ([], [subject_gid])
     ):
         raise FixtureError("local-evidence-invalid")
     keyring = facts["keyring_errno"]
@@ -3362,7 +4060,14 @@ def _validate_prepared_entry(entry: object, consumed_by: str) -> None:
         raise FixtureError("local-evidence-invalid")
 
 
-def _validate_phases(phases: object, consumed_by: str) -> str:
+def _validate_phases(
+    phases: object,
+    consumed_by: str,
+    *,
+    subject_uid: int = ci.SUBJECT_UID,
+    subject_gid: int = ci.SUBJECT_UID,
+    tmpfs_budgets: tuple[tuple[str, int, int, int], ...] | None = None,
+) -> str:
     """Closed validation of the phase facts for the exact
     CONSUMPTION VARIANT: the S python-rehearsal record carries the
     consume phase with its exact Python-specific constants (causal
@@ -3371,7 +4076,12 @@ def _validate_phases(phases: object, consumed_by: str) -> str:
     phase and their finish facts are the ACTUAL measured closed
     observation (monotonic controller ledger, diagnostic state
     identity) — a forged or cross-variant combination can never
-    validate as pass."""
+    validate as pass.  The subject-identity expectations default
+    to the historical fixed 21002 law (the public S/native
+    wrappers pass nothing); the owner-UID AB evidence wires the
+    frozen independent subject UID/GID and owner tmpfs budgets
+    through these private parameters — measured facts are never
+    normalized to 21002."""
     if not isinstance(phases, dict):
         raise FixtureError("local-evidence-invalid")
     if consumed_by == "python-rehearsal":
@@ -3394,7 +4104,12 @@ def _validate_phases(phases: object, consumed_by: str) -> str:
         "config_user": f"{ci.CONTROLLER_UID}:{ci.CONTROLLER_UID}",
     }:
         raise FixtureError("local-evidence-invalid")
-    _validate_subject_facts(prepare["subject"])
+    _validate_subject_facts(
+        prepare["subject"],
+        subject_uid=subject_uid,
+        subject_gid=subject_gid,
+        tmpfs_budgets=tmpfs_budgets,
+    )
     pty = prepare["pty"]
     if (
         not isinstance(pty, dict)
@@ -3420,7 +4135,7 @@ def _validate_phases(phases: object, consumed_by: str) -> str:
         or set(workspace) != {"path", "mode", "uid"}
         or workspace["path"] != "/run/slaif-subj/work"
         or workspace["mode"] != 0o700
-        or workspace["uid"] != ci.SUBJECT_UID
+        or workspace["uid"] != subject_uid
     ):
         raise FixtureError("local-evidence-invalid")
     if (
@@ -3608,15 +4323,28 @@ def _validate_export(export: object, consumed_by: str, observed_wire: int) -> di
     return selected
 
 
-def validate_local_evidence(record: dict) -> None:
-    """Closed-schema validation of the local evidence record: exact
-    key sets at EVERY level, exact closed constants (the native
-    flags are ALWAYS False in S), closed phase/slug vocabulary,
-    64-hex CIDs, sha256 digests, the strict group variant law, and
-    the embedded export payload DECODED and revalidated as a closed
-    object.  No raw content, env values or exception text may
-    enter; a supervisor/owner that did not fully converge, or that
-    leaves any cleanup unverified, can never validate as pass."""
+def _validate_local_evidence_core(
+    record: dict,
+    *,
+    subject_uid: int,
+    subject_gid: int,
+    tmpfs_budgets: tuple[tuple[str, int, int, int], ...] | None,
+) -> None:
+    """The PRIVATE structural core of the S-shaped evidence
+    validation: exact key sets at EVERY level, exact closed
+    constants (the native flags are ALWAYS False in S), closed
+    phase/slug vocabulary, 64-hex CIDs, sha256 digests, the strict
+    group variant law, and the embedded export payload DECODED and
+    revalidated as a closed object.  The subject-identity
+    expectations (phase subject facts, pty workspace owner, the
+    writable-mount owner law) are the ONLY parameterized surface:
+    the historical fixed-21002 wrappers pass the original
+    constants, and the owner-UID AB evidence passes its frozen
+    independent subject UID/GID plus owner tmpfs budgets — measured
+    facts are NEVER normalized to 21002.  No raw content, env
+    values or exception text may enter; a supervisor/owner that
+    did not fully converge, or that leaves any cleanup unverified,
+    can never validate as pass."""
     if not isinstance(record, dict):
         raise FixtureError("local-evidence-invalid")
     base_keys = {
@@ -3750,7 +4478,13 @@ def validate_local_evidence(record: dict) -> None:
         raise FixtureError("local-evidence-invalid")
     if record["deadline_expired"] is not False:
         raise FixtureError("local-evidence-invalid")
-    target_cid = _validate_phases(record["phases"], record["fixture_consumed_by"])
+    target_cid = _validate_phases(
+        record["phases"],
+        record["fixture_consumed_by"],
+        subject_uid=subject_uid,
+        subject_gid=subject_gid,
+        tmpfs_budgets=tmpfs_budgets,
+    )
     _validate_prepared_entry(record["prepared"], record["fixture_consumed_by"])
     if record["prepared"]["cid"] != target_cid:
         raise FixtureError("local-evidence-invalid")
@@ -3834,6 +4568,26 @@ def validate_local_evidence(record: dict) -> None:
         raise FixtureError("local-evidence-invalid")
 
 
+def validate_local_evidence(record: dict) -> None:
+    """Closed-schema validation of the local evidence record: exact
+    key sets at EVERY level, exact closed constants (the native
+    flags are ALWAYS False in S), closed phase/slug vocabulary,
+    64-hex CIDs, sha256 digests, the strict group variant law, and
+    the embedded export payload DECODED and revalidated as a closed
+    object.  No raw content, env values or exception text may
+    enter; a supervisor/owner that did not fully converge, or that
+    leaves any cleanup unverified, can never validate as pass.
+    The historical fixed-21002 subject law is byte-for-byte the
+    original: the shared structural core is called with the
+    original constants and default tmpfs budgets."""
+    _validate_local_evidence_core(
+        record,
+        subject_uid=ci.SUBJECT_UID,
+        subject_gid=ci.SUBJECT_UID,
+        tmpfs_budgets=None,
+    )
+
+
 def validate_native_owner_run_evidence(record: dict) -> None:
     """Closed-schema validation of the DISTINCT native-scope
     owner terminal record (new-order bound runs): the exact key
@@ -3844,11 +4598,12 @@ def validate_native_owner_run_evidence(record: dict) -> None:
     id, the 40-hex bound head, and the SAME closed
     ledger/runner/phase/export/teardown law as the S record.
     The shared measured substructures are validated by the
-    reviewed S validator over an internal S-shaped envelope
-    carrying the IDENTICAL sub-values (a validation vehicle,
-    never a retained assertion — the retained record itself
-    never carries the S whole-run false assertions or the
-    S-only CI-image comparison)."""
+    private S-shaped structural core over an internal S-shaped
+    envelope carrying the IDENTICAL sub-values (a validation
+    vehicle, never a retained assertion — the retained record
+    itself never carries the S whole-run false assertions or the
+    S-only CI-image comparison), with the historical fixed-21002
+    subject law (the native scope measures the ORIGINAL subject)."""
     if not isinstance(record, dict):
         raise FixtureError("native-owner-run-evidence-invalid")
     if (
@@ -3857,6 +4612,29 @@ def validate_native_owner_run_evidence(record: dict) -> None:
         or record.get("status") not in ("pass", "fail")
     ):
         raise FixtureError("native-owner-run-evidence-invalid")
+    _native_key_grammar(record)
+    try:
+        _validate_local_evidence_core(
+            _native_s_envelope(record),
+            subject_uid=ci.SUBJECT_UID,
+            subject_gid=ci.SUBJECT_UID,
+            tmpfs_budgets=None,
+        )
+    except FixtureError:
+        raise FixtureError("native-owner-run-evidence-invalid") from None
+
+
+def _native_key_grammar(record: dict) -> None:
+    """The shared native-scope KEY GRAMMAR (distinct from the
+    S-shaped substructure law): the exact key set per status —
+    the historical S whole-run false assertions are NOT part of
+    this grammar (their absence is the point: a native run never
+    asserts them) — the OAP order id (any order, not fixed to
+    017-s), the 32-hex run id and the 40-hex bound head.  The
+    AB wrapper re-checks this grammar over its AB extras
+    stripped, but validates the substructures with its own AB
+    subject expectations, never through the fixed-21002 native
+    law."""
     base_keys = {
         "record",
         "status",
@@ -3905,6 +4683,15 @@ def validate_native_owner_run_evidence(record: dict) -> None:
         or not re.fullmatch(r"[0-9a-f]{40}", str(record["bind_head"]))
     ):
         raise FixtureError("native-owner-run-evidence-invalid")
+
+
+def _native_s_envelope(record: dict) -> dict:
+    """The internal S-shaped validation vehicle for the DISTINCT
+    native-scope record: the IDENTICAL sub-values under the S
+    record/order literals plus the S whole-run false assertions
+    (a validation vehicle, never a retained assertion — the
+    retained record itself never carries the S whole-run false
+    assertions or the S-only CI-image comparison)."""
     envelope = {key: value for key, value in record.items() if key != "scope"}
     envelope["record"] = SCHEMA
     envelope["order"] = ORDER_ID
@@ -3914,10 +4701,95 @@ def validate_native_owner_run_evidence(record: dict) -> None:
     envelope["native_ready"] = False
     if record["status"] == "pass":
         envelope["image_identity_vs_ci"] = False
+    return envelope
+
+
+def validate_ab_owner_run_evidence(record: dict) -> None:
+    """Closed-schema validation of the DISTINCT owner-UID AB terminal
+    record (017-aa): the native-scope grammar (the SAME measured
+    owner state, cleanup and publication law) PLUS exactly two
+    closed AB-only substructures under the AB record/scope tags:
+
+    * ``identity`` — the frozen owner identity substructure THIS
+      owner collected and derived (never caller-authored): the
+      canonical owner-UID profile name, the canonical description
+      fingerprint, the frozen INDEPENDENT subject UID/GID, the
+      exact one-element primary-GID group vector and the profile
+      DATA sha256.  The production codec re-derives the canonical
+      record from the retained IDs (the controller identity fixed
+      21001/21001) and must hash to the retained digest, and the
+      retained fingerprint must be its canonical fingerprint: the
+      retained identity is closed data integrity — never a
+      measured-authority claim.
+    * ``teardown_proof`` — the literal exact-CID-membership marker:
+      the owner-UID subject removal proof is EXACT registered-CID
+      lifetime membership (the owned PID/birth registry), and the
+      S-shaped teardown dict itself stays byte-for-byte the
+      original.
+
+    The order is the CANONICAL AB entry (``017-ab``) — the generic
+    new-order grammar of the native-scope record does NOT apply
+    here: an AB-tagged record of any other order id is refused.
+
+    Every shared measured substructure is then validated through
+    the SAME private S-shaped structural core over the AB extras
+    stripped — with the frozen AB subject UID/GID and the derived
+    owner tmpfs budgets wired through (the measured 1001-class
+    facts are validated as-is, NEVER normalized to 21002; the
+    public v1 S/native wrappers keep the fixed-21002 law
+    byte-for-byte)."""
+    if not isinstance(record, dict):
+        raise FixtureError("ab-owner-run-evidence-invalid")
+    if (
+        record.get("record") != AB_OWNER_RUN_EVIDENCE_SCHEMA
+        or record.get("scope") != AB_OWNER_RUN_SCOPE
+        or record.get("status") not in ("pass", "fail")
+    ):
+        raise FixtureError("ab-owner-run-evidence-invalid")
+    # The canonical AB entry ONLY: the AB-tagged grammar is the
+    # distinct owner-UID record of 017-ab, and no other order id
+    # may carry it (the native-scope generic order law is
+    # unchanged and remains the native validator's own).
+    if record.get("order") != AB_ORDER_ID:
+        raise FixtureError("ab-owner-run-evidence-invalid")
+    if record.get("teardown_proof") != "exact-cid-membership":
+        raise FixtureError("ab-owner-run-evidence-invalid")
+    identity = record.get("identity")
+    # the ONE shared structural core (state/evidence/record):
+    # the canonical profile name, the strict ID laws, the
+    # one-element primary-GID group vector and the production
+    # codec re-derivation of both digests — the public wrapper
+    # keeps its own fixed refusal token
+    law = _identity_substructure_law(identity)
+    if law is None:
+        raise FixtureError("ab-owner-run-evidence-invalid")
+    subject_uid, subject_gid, _expected_groups, description = law
+    # The shared measured substructures: the SAME native-scope
+    # key grammar (re-checked over the AB extras stripped) plus
+    # the S-shaped structural core with the AB subject
+    # expectations wired through — the owner profile view is
+    # re-derived from the retained identity (production codec, no
+    # caller input), and its owner tmpfs budgets are the closed
+    # writable-mount expectation.
+    reduced = {
+        key: value for key, value in record.items() if key not in ("identity", "teardown_proof")
+    }
+    reduced["record"] = NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
+    reduced["scope"] = NATIVE_OWNER_RUN_SCOPE
     try:
-        validate_local_evidence(envelope)
+        _native_key_grammar(reduced)
     except FixtureError:
-        raise FixtureError("native-owner-run-evidence-invalid") from None
+        raise FixtureError("ab-owner-run-evidence-invalid") from None
+    try:
+        profile_view = rprofile.owner_runtime_profile(description)
+        _validate_local_evidence_core(
+            _native_s_envelope(reduced),
+            subject_uid=subject_uid,
+            subject_gid=subject_gid,
+            tmpfs_budgets=ci.owner_tmpfs_budgets(profile_view),
+        )
+    except FixtureError:
+        raise FixtureError("ab-owner-run-evidence-invalid") from None
 
 
 # -- the sealed owner launch + the thin rehearsal driver ----------------------------
@@ -4198,7 +5070,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command in ("owner", "rehearsal"):
         if (
-            args.order not in (ORDER_ID, X_ORDER_ID, Y_ORDER_ID)
+            args.order not in (ORDER_ID, X_ORDER_ID, Y_ORDER_ID, AB_ORDER_ID)
             or not args.bind_head
             or not args.repo
             or not args.work
@@ -4235,10 +5107,11 @@ def main(argv: list[str] | None = None) -> int:
             if args.order == ORDER_ID:
                 owner = LocalFixtureOwner(repo, work, evidence_out, args.bind_head, control_dir)
             else:
-                # 017-x: the SEALED CHILD owns resolve+admit ONCE
-                # before any external work — the module-minted run
-                # identity is admitted in THIS process, so ONE
-                # identity/admission survives the process boundary.
+                # 017-x / 017-y / 017-ab: the SEALED CHILD owns
+                # resolve+admit ONCE before any external work — the
+                # module-minted run identity is admitted in THIS
+                # process, so ONE identity/admission survives the
+                # process boundary.
                 # Exhaustion is a closed REFUSAL: the one-attempt
                 # law is never bypassed by reconstructing identity
                 # from the journal, and a running attempt can never
