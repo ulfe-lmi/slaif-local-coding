@@ -2777,10 +2777,14 @@ existing CI jobs remain under their ORIGINAL default scope.
   (only the expected subject identity differs), while the
   strict original identity-v1 wrappers keep the fixed-21002
   subject law and refuse the v2 tag and every other
-  subject.  The old v1 tags/consumers stay strictly
-  fixed-21002: a new profile record with the same numeric
-  21002 tuple stays isolated, and measured 1001-class facts
-  are validated as-is, NEVER normalized to 21002.
+  subject.  The ORIGINAL identity-bearing v1
+  tags/consumers stay strictly fixed-21002: a new profile
+  record with the same numeric 21002 tuple stays isolated,
+  and measured 1001-class facts are validated as-is, NEVER
+  normalized to 21002; the generic profile-independent
+  standin/control transport v1 is retained ONLY where its
+  existing closed meaning is unchanged (no wire-tag
+  renaming).
 - CRITICAL cleanup law: the owner-UID descendant and cleanup
   proof is EXACT registered-CID plus owned PID/birth lifetime
   membership with tri-stated post-removal verification. The

@@ -1,10 +1,10 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 196,
+      "entry_count": 197,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "1c268b68fc6a1ba38cc391d60403f10b4438666ca04835378b119b6be4ea79f4",
-      "size_bytes": 944390
+      "sha256": "08f6cee46e1dc593c2e911031c697dab39e175a2fec8311f75ddd2fa5d9184db",
+      "size_bytes": 979211
     },
     "wheel": {
       "entry_count": 37,
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "016-b",
-  "qualification_label": "development-source-a7ec94b5ee79b27bce4ec2882e3cb07ae196a7f4; not a release candidate; not released",
+  "qualification_label": "development-source-b4843ce54affae81cef8791de82dbd02cd1ede4d; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "a7ec94b5ee79b27bce4ec2882e3cb07ae196a7f4",
+  "source_commit": "b4843ce54affae81cef8791de82dbd02cd1ede4d",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -50,8 +50,8 @@
     "config/adapter.gateway-integrated.template.toml": "14357037ab96029ed510d0d491f10a9e7b51586d0f7b9b4842ac3d9937e74afb",
     "docs/ADAPTER-CONFIGURATION.md": "8da874d2036eb9de2ff99c1e9e195d856061bae5dcdeb030d766d6f6268a9e8f",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "aa13596f4efbd9f77ff637fd6af459a9e16e8ef69856e040edccbede3acedf23",
-    "docs/CACHE-OBSERVATION-CONTRACT.md": "68e36b4a9519d14faeb1e56299537aede3355016efb9c9148f0e7469deca4b00",
-    "docs/CACHE-REWORK-LEDGER.md": "f5e6bfcfffee6c6c8bdcb6996e4dc7d82a209ffabd631967d4d63647dc97e1c6",
+    "docs/CACHE-OBSERVATION-CONTRACT.md": "e61e56b17ba43ece831be91e5593271c09b96f3b2dc7f8f2a26fb95541e8ec3e",
+    "docs/CACHE-REWORK-LEDGER.md": "a500234cb3e9384c008afa4928bc0d9d7c7b99d0ffe5f6f3b9854c6f01ef41e7",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
@@ -179,11 +179,12 @@
     "tests/test_cache_native_fixture_binding.py": "02d9a0f534875e9a185db0136f48fc443d262233e7c6344619c7455f10bab9f7",
     "tests/test_cache_native_fixture_ci.py": "400a36f405bc7d83401355f3a312995442a941d67f3bbc970ee99985f5f89a7c",
     "tests/test_cache_native_fixture_controller.py": "3c162c9cfcf3722f8a4067349167f5fac19a3ec96e155e36264a1346a94d9d04",
-    "tests/test_cache_native_fixture_exec_capability.py": "89f9c054f9130fb3d6ff9b8d77b6c720cf1f4d24d3062bb76be1740cabbc0c5a",
+    "tests/test_cache_native_fixture_exec_capability.py": "3801ca15d5ed0b0e7d79bbada0f2eb55f0e4f839876d10b9c9bb4ca7ecb86e9f",
     "tests/test_cache_native_fixture_identity.py": "02b268f77f7c8be3794facad210f5243c379dc02b386bc0b48bf5e90a3f2a949",
     "tests/test_cache_native_fixture_local.py": "4d3c38cdc6243e664872625329ca192a27106c72a651d02681064047e13f6510",
     "tests/test_cache_native_fixture_native_owner.py": "2b4b4786dd816a2c8edd07f95915ff046e8f8955596e2fdeb49853f8ed87e242",
-    "tests/test_cache_native_fixture_native_prep.py": "772e8a6f1823341085b4813f9793b7ace8516ebecdd7cbebc367dd853c64409b",
+    "tests/test_cache_native_fixture_native_prep.py": "ad14643cf3ed724567e6117b58771ee3730e747891c58c7762a3b081bc581ea1",
+    "tests/test_cache_native_fixture_owner_uid.py": "651152094a531731addba5f7b434227781a77a2b30cf72b92ce096ea251c360d",
     "tests/test_cache_native_fixture_standin.py": "a25eaa22d8084f2d163aa301f416cad1b8c3cbfc3ac459b6ea3928231b7924ac",
     "tests/test_capture_helper.py": "92222840bc226051bfe8aa1f07eff422e86a99c4540c67f2428ce00e75472f91",
     "tests/test_capture_tool_types.py": "716ba13b6cffe27f27a69e3c7734ae619e55f37f7730859f9b657a35d98162d9",

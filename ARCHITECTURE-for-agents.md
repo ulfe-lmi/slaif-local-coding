@@ -621,9 +621,13 @@ the subject measurement/profile records on the DISTINCT tags
 `slaif-fixture-exec-measurement-v2`/`slaif-fixture-profile-v2`
 over the shared profile-independent structural core with its
 unchanged closed meaning, the strict original identity-v1
-wrappers keeping the fixed-21002 law) — the old v1
-tags/consumers stay strictly fixed-21002 and measured
-1001-class facts are never normalized to 21002.  Expected
+wrappers keeping the fixed-21002 law) — the ORIGINAL
+identity-bearing v1 tags/consumers stay strictly
+fixed-21002 and measured 1001-class facts are never
+normalized to 21002; the generic profile-independent
+standin/control transport v1 is retained only where its
+existing closed meaning is unchanged (no wire-tag
+renaming).  Expected
 effective groups are exactly the primary GID, never host
 supplementary groups.  The owner-UID cleanup proof is exact
 registered-CID plus owned PID/birth lifetime membership with
