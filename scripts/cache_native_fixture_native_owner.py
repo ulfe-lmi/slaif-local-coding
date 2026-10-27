@@ -41,18 +41,26 @@ native registration into one coherent run:
   and failure outcomes are represented honestly, and the
   owner's historical S-scope record keeps its S meaning
   (it is never relabeled as native evidence);
-- the HONEST publication ordering: owner convergence
-  measures/retains the DISTINCT owner-phase outcome (a
-  terminal fail/aborted finalizes the bound attempt
-  honestly at convergence; a converged pass keeps it
-  RUNNING), publish_native retains the protected
-  native-run record FIRST (its attempt field carries the
-  ALREADY-KNOWN journal state, never a predicted finalize
-  token), and ONLY THEN the terminal pass finalizes the
-  same-order journal — a failed native publication never
-  leaves an admitted pass; the real finalize token is
-  retained in RAM/result, never rewritten into the
-  immutable evidence.
+- the HONEST ONE-SHOT publication transition: owner
+  convergence measures/retains the DISTINCT owner-phase
+  outcome (a terminal fail/aborted finalizes the bound
+  attempt honestly at convergence; a converged pass keeps it
+  RUNNING); once native publication for the COMPLETED owner
+  begins, the ACTUAL bound journal state is read (never
+  assumed from the outcome — the pass path requires the
+  attempt still running), the protected native-run record is
+  retained FIRST (its attempt field carries the ALREADY-KNOWN
+  journal state, never a predicted finalize token), and ONLY
+  THEN the same-order journal is finalized (the terminal pass
+  admits only the real verified finalization).  Every
+  boundary refusal — destination/writer refusal, unverified
+  or raced finalization — terminalizes the qualified attempt:
+  no fresh-path retry, no relabel, no journal reset, and an
+  unverified post-retention finalization is a closed failure
+  that preserves the retained bytes and the journal facts
+  without returning a normal qualified success; the real
+  finalize token is retained in RAM/result, never rewritten
+  into the immutable evidence.
 
 This round exercises the composition with injected FAKE
 external operations (fake git/platform/process seams and
@@ -137,8 +145,13 @@ NATIVE_OWNER_REASONS = frozenset(
         "native-owner-settle",
         "native-owner-patience",
         "native-owner-not-terminal",
+        "native-owner-registration-unmeasured",
+        "native-owner-subject-cid-mismatch",
+        "native-owner-subject-binary-mismatch",
         "native-owner-evidence-exists",
         "native-owner-evidence-env",
+        "native-owner-journal-unverified",
+        "native-owner-finalization-unverified",
         "native-owner-published",
         "native-owner-record-malformed",
         "internal",
@@ -329,6 +342,11 @@ class NativeOwnerRun:
         self._attempt_token: str | None = None
         self._outcome: str | None = None
         self._published = False
+        # the completed owner's publication is a ONE-SHOT
+        # terminal transition (order 017-w section 3): once it
+        # begins, a refusal terminalizes the qualified attempt
+        # and no later call may retry it on a fresh path
+        self._publication_attempted = False
         # 1. EXACTLY ONCE in the order's stable one-attempt
         # namespace, BEFORE any external mutation: the
         # admission re-validates the ACTUAL repository,
@@ -505,14 +523,47 @@ class NativeOwnerRun:
         channel: prep.CidScopedTable | None = None,
     ) -> dict:
         """The PUBLIC staged registration of the actual
-        later native subject (the workflow's own gates:
-        prepared, the separately measured stop recorded, the
-        CURRENT stable stopped phase still holding, the
-        frozen W/B baseline unchanged, the registered run
-        immutable, the collectors invoked before any commit)."""
-        return self._workflow.register_subject(  # type: ignore[union-attr]
-            subject_pid, expectation, channel=channel
-        )
+        later native subject.  BEFORE any staged receipt
+        commit the operator's expectation is bound to THIS
+        SAME prepared owner's measured registration (order
+        017-w section 1): the owner's own registered CID and
+        artifact binary must already be measured, and the
+        expectation must equal them exactly — a caller's
+        matching foreign expectation + foreign channel, or a
+        matching foreign expected + measured binary, cannot
+        redefine this owner's subject (the collector proves
+        agreement with the expectation, never with the
+        owner's registration); unknown or incomplete owner
+        facts close.  A refused registration commits nothing
+        (no baseline, receipt or stop change) and a later
+        genuinely matching registration within the same
+        still-valid measured phase remains possible; the
+        workflow's public staged entry then applies its own
+        gates: prepared, the separately measured stop
+        recorded, the CURRENT stable stopped phase still
+        holding, the frozen W/B baseline unchanged, the
+        registered run immutable, the collectors invoked
+        before any commit."""
+        owner = self._owner
+        workflow = self._workflow
+        if owner is None or workflow is None:
+            raise FixtureError("native-owner-not-started")
+        if isinstance(expectation, prep.SubjectExpectation):
+            artifact = owner.artifact
+            if (
+                not isinstance(owner.target_cid, str)
+                or not isinstance(artifact, dict)
+                or not isinstance(artifact.get("binary_sha256"), str)
+            ):
+                # this owner's own registration is not
+                # measured yet: no staged identity can be
+                # bound to it (never a caller-chosen context)
+                raise FixtureError("native-owner-registration-unmeasured")
+            if expectation.cid != owner.target_cid:
+                raise FixtureError("native-owner-subject-cid-mismatch")
+            if expectation.binary_sha256 != artifact["binary_sha256"]:
+                raise FixtureError("native-owner-subject-binary-mismatch")
+        return workflow.register_subject(subject_pid, expectation, channel=channel)
 
     def record_stop(self) -> prep.StopReceipt:
         """Record the SEPARATELY MEASURED worker-stop event
@@ -574,13 +625,76 @@ class NativeOwnerRun:
         )
         return self._attempt_token
 
+    def _verify_journal_for_publication(self, outcome: str) -> str:
+        """Read the ACTUAL bound journal state for this run
+        (never a hardcoded assumption from the owner
+        outcome) and return the honest ``attempt`` field the
+        record about to be retained carries:
+
+        - pass: the bound attempt must still be RUNNING —
+          the terminal pass finalization follows the
+          successful protected publication, so an early
+          finalization, an already-terminal journal or an
+          unreadable record cannot admit pass;
+        - terminal owner outcome: the journal must already
+          carry that SAME terminal outcome (recorded at
+          convergence — carried as "terminal-preserved"), or
+          still be running (finalized honestly NOW, the real
+          returned token required to be "finalized"); a
+          contradicting terminal state is a closed refusal.
+
+        The returned value is the journal state itself,
+        never a predicted finalize token."""
+        try:
+            record = oap_binding.read_admission_record(self._repo, self._binding.order_id)
+        except FixtureError:
+            raise FixtureError("native-owner-journal-unverified") from None
+        state: str | None = None
+        for entry in record["attempts"]:
+            if entry.get("run_id") == self._run_id:
+                state = entry.get("status")
+                break
+        if state is None:
+            raise FixtureError("native-owner-journal-unverified")
+        if outcome == "pass":
+            if state != "running":
+                raise FixtureError("native-owner-journal-unverified")
+            return "running"
+        if state == outcome:
+            return "terminal-preserved"
+        if state == "running":
+            token = oap_binding.record_order_attempt(
+                self._repo, self._binding.order_id, self._run_id, outcome
+            )
+            if token != "finalized":
+                raise FixtureError("native-owner-finalization-unverified")
+            return "finalized"
+        raise FixtureError("native-owner-journal-unverified")
+
+    def _close_attempt_on_publication_failure(self, outcome: str) -> None:
+        """A publication failure at the completed-run boundary
+        terminalizes the qualified attempt honestly: a
+        still-pending bound attempt is closed — as a fail for
+        an unpublished pass (a failed native publication never
+        leaves an admitted pass), as the SAME honest terminal
+        outcome for a terminal owner failure — and an
+        already-terminal journal is preserved (never rewritten,
+        never relabeled, never reset for a retry)."""
+        status = "fail" if outcome == "pass" else outcome
+        try:
+            oap_binding.record_order_attempt(
+                self._repo, self._binding.order_id, self._run_id, status
+            )
+        except FixtureError:
+            pass
+
     def publish_native(self, native_evidence_out: object) -> dict:
         """Publish the EXPLICIT native-scope terminal record
         for this run (closed schema
         ``slaif-native-owner-run-v1``, 0600 under the
         caller's protected evidence root, OUTSIDE the owner's
-        disposable work root) with the HONEST publication
-        ordering:
+        disposable work root) with the HONEST ONE-SHOT
+        publication transition (order 017-w section 3):
 
         1. the owner's terminal outcome is read from the SAME
            completed owner state (no circular journal
@@ -594,21 +708,42 @@ class NativeOwnerRun:
            recorded stop, and the owner's own registered
            CID/image/binary context) — the producer is never
            fed fabricated starts;
-        3. the ``attempt`` field carries the ALREADY-KNOWN
-           journal state, never a predicted finalize token:
-           the pass path records the PENDING "running" state
+        3. the ACTUAL bound journal state for this run is
+           read — never assumed from the outcome: the pass
+           path requires the bound attempt still RUNNING
            (the terminal pass finalization follows the
-           successful protected publication below); a
-           terminal owner outcome is already final in the
-           journal (recorded as "terminal-preserved");
-        4. the protected native record is retained FIRST; a
-           failed native publication must never leave an
-           admitted pass, so the still-pending bound attempt
-           is closed as a fail and the refusal propagates;
-        5. ONLY THEN the same-order journal is finalized: the
-           terminal pass on success, the terminal fail/
-           aborted as an honest idempotent no-op.  The REAL
-           returned finalize token is retained in RAM/result
+           successful protected publication; an early,
+           already-terminal or unreadable journal cannot
+           admit pass); a terminal owner outcome requires
+           that SAME terminal outcome already recorded
+           (carried as "terminal-preserved") or a still-
+           running attempt finalized honestly NOW with the
+           real verified token;
+        4. once the COMPLETED owner's terminal outcome is read
+           the attempt is marked PUBLICATION-ATTEMPTED: from
+           then on EVERY failure is terminal for this
+           qualified attempt and no later call (fresh path or
+           not) may create a new qualifying record, relabel
+           the attempt or reset the journal.  A PRE-RETENTION
+           failure (verdict measurement, record validation,
+           serialization, a destination or writer refusal)
+           additionally closes the still-pending attempt
+           truthfully — the primary closed refusal propagates
+           unchanged, and an unexpected serialization error
+           surfaces as the module's own "internal" token;
+        5. the protected native record is retained FIRST and
+           ONLY THEN the same-order journal is finalized:
+           the terminal pass admits ONLY the real returned
+           token "finalized"; a terminal owner outcome
+           accepts the honest idempotent tokens (already
+           final, or just finalized above).  A POST-RETENTION
+           unverified or raced finalization is a CLOSED
+           failure that preserves the immutable retained
+           bytes AND the actual journal facts as-is (the
+           journal is never overwritten, relabeled or
+           re-closed by this path) and never returns a
+           normal qualified success.  The REAL returned
+           finalize token is retained in RAM/result
            (finalize_attempt) — the immutable retained
            evidence is never rewritten to insert it.
 
@@ -624,10 +759,14 @@ class NativeOwnerRun:
         operator restores the same job before publication),
         with the subject's post-teardown ABSENCE verified on
         the read-only table."""
-        out = Path(str(native_evidence_out))
-        if out.exists() or out.is_symlink():
-            raise FixtureError("native-owner-evidence-exists")
         if self._published:
+            raise FixtureError("native-owner-published")
+        if self._publication_attempted:
+            # the completed owner's publication is a ONE-SHOT
+            # terminal transition: a failed or already
+            # published attempt never retries on a fresh path
+            # (no new qualifying record, no relabel, no
+            # journal reset)
             raise FixtureError("native-owner-published")
         owner = self._owner
         workflow = self._workflow
@@ -635,80 +774,93 @@ class NativeOwnerRun:
             raise FixtureError("native-owner-not-started")
         outcome = self.owner_outcome()
         self._outcome = outcome
-        subject = workflow.subject_receipt
-        stop_recorded = workflow.stop_receipt is not None
-        native_record: dict | None = None
-        native_refusal: str | None = None
-        if outcome == "pass" and subject is not None and stop_recorded:
-            measurement = prep.OwnedOwnerMeasurement(owner, subject=subject)
-            artifact = owner.artifact
-            if (
-                owner.target_cid is None
-                or owner.image_id is None
-                or not isinstance(artifact, dict)
-                or not isinstance(artifact.get("binary_sha256"), str)
-            ):
-                # the declared context is derived from the
-                # owner's OWN registration: an unmeasured
-                # component is a closed honest refusal,
-                # never a caller-chosen string
-                native_refusal = "prep-native-owner-context-mismatch"
-            else:
-                try:
-                    native_record = prep.produce_native_owner_record(
-                        measurement,
-                        order=self._binding.order_id,
-                        source_head=self._binding.source_head,
-                        run_id=self._run_id,
-                        cid=owner.target_cid,
-                        image_id=owner.image_id,
-                        binary_sha256=artifact["binary_sha256"],
-                    )
-                except FixtureError as exc:
-                    # the producer's closed token,
-                    # propagated, never reworded
-                    native_refusal = str(exc)
-        verdict = workflow.finalize(native_record)
-        # The ALREADY-KNOWN journal state, never a predicted
-        # finalize token (see the docstring ordering).
-        if outcome == "pass":
-            journal_state = "running"
-        else:
-            journal_state = "terminal-preserved"
-        record = {
-            "record": NATIVE_RUN_SCHEMA,
-            "scope": NATIVE_RUN_SCOPE,
-            "binding": self._binding.to_record(),
-            "owner_outcome": outcome,
-            "attempt": journal_state,
-            "subject_measured": subject is not None,
-            "stop_recorded": stop_recorded,
-            "native_record": native_record,
-            "native_refusal": native_refusal,
-            "verdict": {"ready": verdict.ready, "reasons": list(verdict.reasons)},
-        }
-        parse_native_run_record(record)
+        # The ONE-SHOT transition begins for the COMPLETED
+        # owner (see the docstring): EVERY failure from here
+        # — verdict measurement, record validation,
+        # serialization, destination/writer refusal,
+        # unverified or raced finalization — terminalizes
+        # this qualified attempt truthfully and blocks any
+        # fresh-path retry; the primary closed refusal
+        # propagates unchanged.
+        self._publication_attempted = True
         try:
-            _write_native_run_record(out, record, owner.work)
+            subject = workflow.subject_receipt
+            stop_recorded = workflow.stop_receipt is not None
+            native_record: dict | None = None
+            native_refusal: str | None = None
+            if outcome == "pass" and subject is not None and stop_recorded:
+                measurement = prep.OwnedOwnerMeasurement(owner, subject=subject)
+                artifact = owner.artifact
+                if (
+                    owner.target_cid is None
+                    or owner.image_id is None
+                    or not isinstance(artifact, dict)
+                    or not isinstance(artifact.get("binary_sha256"), str)
+                ):
+                    # the declared context is derived from
+                    # the owner's OWN registration: an
+                    # unmeasured component is a closed honest
+                    # refusal, never a caller-chosen string
+                    native_refusal = "prep-native-owner-context-mismatch"
+                else:
+                    try:
+                        native_record = prep.produce_native_owner_record(
+                            measurement,
+                            order=self._binding.order_id,
+                            source_head=self._binding.source_head,
+                            run_id=self._run_id,
+                            cid=owner.target_cid,
+                            image_id=owner.image_id,
+                            binary_sha256=artifact["binary_sha256"],
+                        )
+                    except FixtureError as exc:
+                        # the producer's closed token,
+                        # propagated, never reworded
+                        native_refusal = str(exc)
+            verdict = workflow.finalize(native_record)
+            journal_state = self._verify_journal_for_publication(outcome)
+            record = {
+                "record": NATIVE_RUN_SCHEMA,
+                "scope": NATIVE_RUN_SCOPE,
+                "binding": self._binding.to_record(),
+                "owner_outcome": outcome,
+                "attempt": journal_state,
+                "subject_measured": subject is not None,
+                "stop_recorded": stop_recorded,
+                "native_record": native_record,
+                "native_refusal": native_refusal,
+                "verdict": {"ready": verdict.ready, "reasons": list(verdict.reasons)},
+            }
+            parse_native_run_record(record)
+            _write_native_run_record(Path(str(native_evidence_out)), record, owner.work)
         except FixtureError:
-            # A failed native publication must never leave an
-            # admitted pass: close the still-pending bound
-            # attempt as a fail (a terminal owner outcome is
-            # already final — the call is an honest no-op
-            # then); the refusal propagates unchanged.
-            try:
-                oap_binding.record_order_attempt(
-                    self._repo, self._binding.order_id, self._run_id, "fail"
-                )
-            except FixtureError:
-                pass
+            # a PRE-RETENTION refusal: the primary closed
+            # refusal propagates unchanged; the still-pending
+            # attempt is closed truthfully
+            self._close_attempt_on_publication_failure(outcome)
             raise
+        except (TypeError, ValueError):
+            # an unexpected serialization/validation error
+            # closes the attempt and surfaces as the
+            # module's own closed token, never raw
+            self._close_attempt_on_publication_failure(outcome)
+            raise FixtureError("internal") from None
         # ONLY THEN finalize the same-order journal (see the
         # docstring ordering); the real token is retained in
         # RAM/result, never rewritten into the evidence.
-        self._attempt_token = oap_binding.record_order_attempt(
+        # A POST-RETENTION unverified or raced result is a
+        # closed failure that preserves the retained bytes
+        # AND the actual journal facts as-is (never a normal
+        # qualified success, never an overwrite or retry).
+        token = oap_binding.record_order_attempt(
             self._repo, self._binding.order_id, self._run_id, outcome
         )
+        if outcome == "pass":
+            if token != "finalized":
+                raise FixtureError("native-owner-finalization-unverified")
+        elif token not in ("finalized", "terminal-preserved"):
+            raise FixtureError("native-owner-finalization-unverified")
+        self._attempt_token = token
         self._published = True
         return record
 

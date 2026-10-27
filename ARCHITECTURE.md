@@ -199,6 +199,48 @@ real fixture admission in the real checkout, no host
 signal, no CLI entry; the later serial native handoff
 remains a separately authorized order, and D09
 remains `NOT RUN`.
+017-w closes the remaining same-owner coherence
+gaps (the public staged registration is bound,
+before any staged receipt commit, to THIS SAME
+prepared owner's measured registration — the
+owner's own registered CID and artifact binary
+must be measured and equal the operator's
+expectation, a matching foreign
+expectation/channel or foreign expected +
+measured binary can never redefine the owner's
+subject, a refused registration commits nothing
+and a later matching registration in the same
+still-valid phase remains possible; the actual
+repository context at the actual owner
+construction is compared with the ORIGINAL frozen
+binding through the complete revalidation seam,
+not a fresh resolution whose result is discarded —
+a post-admission identity drift is refused before
+owner adoption with the already-won attempt
+closed terminal `fail` and no external action,
+and a contradictory `bind_head` argument is
+refused; native publication for the completed
+owner is a ONE-SHOT terminal transition — the
+ACTUAL bound journal state is read, never
+assumed, the pass path requires the attempt still
+running, a pre-retention measurement/validation/
+serialization/destination failure closes the
+still-pending attempt truthfully with the primary
+closed refusal propagating unchanged (an
+unexpected serialization error surfaces as
+`internal`), the protected record is retained
+FIRST, and a post-retention unverified or raced
+finalization is a closed failure preserving the
+retained bytes and the actual journal facts as-is,
+with any fresh-path retry refused without a new
+qualifying record, relabel or journal reset): the
+composition suite grows to 19 pure/fake tests (7
+new); no actual Docker operation, no native
+launch (including help/version), no worker stop,
+no real fixture admission in the real checkout, no
+host signal, no CLI entry; the later serial
+native handoff remains a separately authorized
+order, and D09 remains `NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

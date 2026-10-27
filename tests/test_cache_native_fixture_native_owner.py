@@ -424,7 +424,9 @@ def test_register_before_prepare_refused(tmp_path: Path, monkeypatch: pytest.Mon
         min_start_time=400,
         expected_tty=stp.TTYS,
     )
-    with pytest.raises(fci.FixtureError, match="prep-not-prepared"):
+    # this owner's own registration is not measured yet: the
+    # owner-bound check closes before the workflow's phase gate
+    with pytest.raises(fci.FixtureError, match="native-owner-registration-unmeasured"):
         run.register_subject(60, expectation)
 
 
@@ -509,6 +511,354 @@ def test_foreign_run_id_expectation_refused(
         channel = stp.FakeCidScopedTable(str(run.owner.target_cid), procs, exe_digest=FAKE_BINARY)
         with pytest.raises(fci.FixtureError, match="prep-subject-run-mismatch"):
             run.register_subject(60, expectation, channel=channel)
+    finally:
+        _join_run(run)
+
+
+def _drive_to_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    docker: Any,
+    table: Any,
+    procs: dict[int, dict[str, Any]],
+) -> tuple[Any, Any, Any, Any, Any]:
+    """The full coupled positive up to the independently measured
+    same-worker restoration, ready for the publication boundary
+    under test (the same world the full lifecycle positive
+    drives)."""
+    run_holder: dict[str, Any] = {}
+
+    def executor(argv: list[str], timeout: float) -> Any:
+        run = run_holder.get("run")
+        if (
+            run is not None
+            and run.owner.target_cid is not None
+            and argv[:2] == ["docker", "rm"]
+            and argv[-1] == run.owner.target_cid
+        ):
+            procs.pop(60, None)
+        return docker(argv, timeout)
+
+    run, repo, fake, owner_evidence, control = _run(
+        tmp_path,
+        monkeypatch,
+        docker=docker,
+        executor=executor,
+        table=table,
+        procs=procs,
+    )
+    run_holder["run"] = run
+    run.start()
+    run.prepare()
+    procs[50] = stp._worker_proc("T", tpgid=40)
+    run.record_stop()
+    cid = str(run.owner.target_cid)
+    procs[60] = stp.subject_proc(60, cgroup=cid)
+    expectation = fp.SubjectExpectation(
+        cid=cid,
+        binary_sha256=FAKE_BINARY,
+        run_id=run.binding.run_id,
+        min_start_time=400,
+        expected_tty=stp.TTYS,
+    )
+    channel = stp.FakeCidScopedTable(cid, procs, exe_digest=FAKE_BINARY)
+    run.register_subject(60, expectation, channel=channel)
+    fake.diagnostic_observed = True
+    fake.wire_requests = 1
+    run.observe()
+    run.finish()
+    assert run.owner.terminal_outcome == "pass"
+    _join_run(run)
+    procs[50] = stp._worker_proc("S", tpgid=50)
+    return run, repo, fake, owner_evidence, control
+
+
+def test_foreign_owner_context_refused_then_recovered(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SAME-owner binding (order 017-w section 1): a
+    matching foreign expectation + foreign channel, and a
+    matching foreign expected + measured binary, cannot
+    redefine this owner's subject; a refused registration
+    commits nothing and a later genuinely matching
+    registration within the same still-valid measured phase
+    succeeds."""
+    table, procs = _world()
+    fake = stl.LocalFakeDocker()
+    run, _repo, _fake, _evidence, _control = _run(
+        tmp_path, monkeypatch, docker=fake, table=table, procs=procs
+    )
+    try:
+        run.start()
+        run.prepare()
+        procs[50] = stp._worker_proc("T", tpgid=40)
+        run.record_stop()
+        cid = str(run.owner.target_cid)
+        # foreign CID: the collector agrees with the foreign
+        # expectation/channel — the owner's registration does
+        # not
+        foreign_cid = "d" * 64
+        procs[60] = stp.subject_proc(60, cgroup=foreign_cid)
+        foreign_exp = fp.SubjectExpectation(
+            cid=foreign_cid,
+            binary_sha256=FAKE_BINARY,
+            run_id=run.binding.run_id,
+            min_start_time=400,
+            expected_tty=stp.TTYS,
+        )
+        with pytest.raises(fci.FixtureError, match="native-owner-subject-cid-mismatch"):
+            run.register_subject(
+                60,
+                foreign_exp,
+                channel=stp.FakeCidScopedTable(foreign_cid, procs, exe_digest=FAKE_BINARY),
+            )
+        assert run.workflow.subject_receipt is None
+        # foreign binary: matching CID, foreign expected and
+        # measured binary
+        procs[60] = stp.subject_proc(60, cgroup=cid)
+        foreign_bin_exp = fp.SubjectExpectation(
+            cid=cid,
+            binary_sha256="e" * 64,
+            run_id=run.binding.run_id,
+            min_start_time=400,
+            expected_tty=stp.TTYS,
+        )
+        with pytest.raises(fci.FixtureError, match="native-owner-subject-binary-mismatch"):
+            run.register_subject(
+                60, foreign_bin_exp, channel=stp.FakeCidScopedTable(cid, procs, exe_digest="e" * 64)
+            )
+        assert run.workflow.subject_receipt is None
+        # the later genuinely matching registration in the
+        # same still-valid measured phase succeeds
+        matching_exp = fp.SubjectExpectation(
+            cid=cid,
+            binary_sha256=FAKE_BINARY,
+            run_id=run.binding.run_id,
+            min_start_time=400,
+            expected_tty=stp.TTYS,
+        )
+        snapshot = run.register_subject(
+            60, matching_exp, channel=stp.FakeCidScopedTable(cid, procs, exe_digest=FAKE_BINARY)
+        )
+        assert snapshot["subject"] is not None
+        assert run.workflow.subject_receipt is not None
+    finally:
+        _join_run(run)
+
+
+def test_origin_drift_before_owner_construction_refused_and_terminal_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order 017-w section 2: a repository-identity drift
+    AFTER the won admission but BEFORE the actual owner
+    construction is compared against the ORIGINAL frozen
+    binding (not re-resolved and discarded) — the refused
+    constructor closes that SAME attempt honestly with a
+    terminal fail and performs no external action."""
+    repo = _v_repo(tmp_path / "repo")
+    base_git = _v_git_runner(repo)
+    reads = [0]
+    external: list[bool] = []
+
+    def git(args: list[str], cwd: Path) -> bytes:
+        if args == ["remote", "get-url", "origin"]:
+            reads[0] += 1
+            if reads[0] >= 3:
+                return b"https://github.com/other-synthetic/other.git\n"
+        return bytes(base_git(args, cwd))
+
+    def fake_exec(argv: list[str], timeout: float) -> Any:
+        external.append(True)
+        raise AssertionError("constructor must not call external platform")
+
+    binding = fb.resolve_order_binding(repo, V_ORDER_ID, HEAD, git_runner=git)
+    with pytest.raises(fci.FixtureError, match="bind-repo-identity-mismatch"):
+        fno.NativeOwnerRun(
+            binding,
+            repo,
+            tmp_path / "work",
+            tmp_path / "evidence.json",
+            tmp_path / "control",
+            git_runner=git,
+            executor=fake_exec,
+            table=stp.FakeTable({}),
+        )
+    states = [entry["status"] for entry in fb.read_admission_record(repo, V_ORDER_ID)["attempts"]]
+    assert states == ["fail"]
+    assert external == []
+    assert not (tmp_path / "work").exists()
+
+
+def test_failed_publication_terminalizes_and_blocks_fresh_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order 017-w section 3: a writer refusal at the
+    completed-run publication boundary terminalizes the
+    qualified attempt (journal fail); a later publication to
+    a FRESH path refuses without creating a new qualifying
+    record, relabeling the attempt or resetting the journal."""
+    table, procs = _world()
+    fake = stl.LocalFakeDocker()
+    run, repo, _fake, _evidence, _control = _drive_to_publication(
+        tmp_path, monkeypatch, docker=fake, table=table, procs=procs
+    )
+    try:
+        untrusted = tmp_path / "untrusted"
+        untrusted.mkdir()
+        untrusted.chmod(0o770)
+        with pytest.raises(fci.FixtureError):
+            run.publish_native(untrusted / "result.json")
+        journal = fb.read_admission_record(repo, V_ORDER_ID)
+        assert journal["attempts"][0]["status"] == "fail"
+        target = tmp_path / "native-final"
+        target.mkdir()
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run.publish_native(target / "retry.json")
+        assert not (target / "retry.json").exists()
+        # the journal stays honestly terminal-fail (no rewrite)
+        journal = fb.read_admission_record(repo, V_ORDER_ID)
+        assert journal["attempts"][0]["status"] == "fail"
+    finally:
+        _join_run(run)
+
+
+def test_unverified_finalization_cannot_return_qualified_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order 017-w section 3: a record-unreadable finalization
+    AFTER the protected retention is a closed failure — the
+    immutable retained bytes and the journal facts are
+    preserved as-is and no normal qualified success is
+    returned; the one-shot transition blocks any retry."""
+    table, procs = _world()
+    fake = stl.LocalFakeDocker()
+    run, repo, _fake, _evidence, _control = _drive_to_publication(
+        tmp_path, monkeypatch, docker=fake, table=table, procs=procs
+    )
+    try:
+        native_out = tmp_path / "evidence" / "native-run-record.json"
+        real_finalize = fb.record_order_attempt
+
+        def unreadable_finalize(owned: Any, oid: str, run_id: str, status: str) -> str:
+            if status == "pass":
+                return "record-unreadable"
+            return str(real_finalize(owned, oid, run_id, status))
+
+        monkeypatch.setattr(fb, "record_order_attempt", unreadable_finalize)
+        with pytest.raises(fci.FixtureError, match="native-owner-finalization-unverified"):
+            run.publish_native(native_out)
+        # the retained record is preserved AS IS (pending
+        # journal state at build time, never rewritten)
+        retained = json.loads(native_out.read_bytes())
+        assert retained["owner_outcome"] == "pass"
+        assert retained["attempt"] == "running"
+        # the POST-RETENTION unverified finalization preserves
+        # the actual journal fact as-is (still pending — this
+        # path never re-closes, overwrites or relabels the
+        # journal) and never a qualified pass
+        journal = fb.read_admission_record(repo, V_ORDER_ID)
+        assert journal["attempts"][0]["status"] == "running"
+        # the one-shot transition: no fresh-path retry
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run.publish_native(tmp_path / "evidence" / "retry.json")
+        assert not (tmp_path / "evidence" / "retry.json").exists()
+    finally:
+        _join_run(run)
+
+
+def test_raced_terminal_fail_cannot_return_qualified_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order 017-w section 3: a finalization that races to a
+    contradictory terminal state (fail) after the retention
+    is a closed failure — the raced journal fact is preserved
+    (never rewritten to pass) and no normal qualified
+    success is returned."""
+    table, procs = _world()
+    fake = stl.LocalFakeDocker()
+    run, repo, _fake, _evidence, _control = _drive_to_publication(
+        tmp_path, monkeypatch, docker=fake, table=table, procs=procs
+    )
+    try:
+        native_out = tmp_path / "evidence" / "native-run-record.json"
+        real_finalize = fb.record_order_attempt
+
+        def raced_finalize(owned: Any, oid: str, run_id: str, status: str) -> str:
+            if status == "pass":
+                real_finalize(owned, oid, run_id, "fail")
+            return str(real_finalize(owned, oid, run_id, status))
+
+        monkeypatch.setattr(fb, "record_order_attempt", raced_finalize)
+        with pytest.raises(fci.FixtureError, match="native-owner-finalization-unverified"):
+            run.publish_native(native_out)
+        # the raced terminal fact is preserved, never rewritten
+        journal = fb.read_admission_record(repo, V_ORDER_ID)
+        assert journal["attempts"][0]["status"] == "fail"
+        retained = json.loads(native_out.read_bytes())
+        assert retained["attempt"] == "running"
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run.publish_native(tmp_path / "evidence" / "retry.json")
+    finally:
+        _join_run(run)
+
+
+def test_completed_run_measurement_failure_closes_and_blocks_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order 017-w section 3: a verdict MEASUREMENT failure on
+    the completed run closes the qualified attempt truthfully
+    (an unpublished pass never leaves the attempt running),
+    propagates the primary closed refusal unchanged, and
+    blocks any fresh-path retry."""
+    table, procs = _world()
+    fake = stl.LocalFakeDocker()
+    run, repo, _fake, _evidence, _control = _drive_to_publication(
+        tmp_path, monkeypatch, docker=fake, table=table, procs=procs
+    )
+    try:
+
+        def broken_finalize(self: Any, owner_record: Any) -> Any:
+            raise fci.FixtureError("prep-not-prepared")
+
+        monkeypatch.setattr(fp.NativeHandoffWorkflow, "finalize", broken_finalize)
+        with pytest.raises(fci.FixtureError, match="prep-not-prepared"):
+            run.publish_native(tmp_path / "evidence" / "native-run-record.json")
+        journal = fb.read_admission_record(repo, V_ORDER_ID)
+        assert journal["attempts"][0]["status"] == "fail"
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run.publish_native(tmp_path / "evidence" / "retry.json")
+        assert not (tmp_path / "evidence" / "retry.json").exists()
+    finally:
+        _join_run(run)
+
+
+def test_publication_serialization_failure_closes_and_blocks_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order 017-w section 3: an unexpected serialization
+    error at the completed-run publication boundary closes
+    the attempt truthfully and surfaces as the module's own
+    closed "internal" token (never raw), blocking any
+    fresh-path retry."""
+    table, procs = _world()
+    fake = stl.LocalFakeDocker()
+    run, repo, _fake, _evidence, _control = _drive_to_publication(
+        tmp_path, monkeypatch, docker=fake, table=table, procs=procs
+    )
+    try:
+
+        def broken_write(path: Any, record: Any, work: Any = None) -> None:
+            raise TypeError("non-serializable record value")
+
+        monkeypatch.setattr(fno, "_write_native_run_record", broken_write)
+        with pytest.raises(fci.FixtureError, match="internal"):
+            run.publish_native(tmp_path / "evidence" / "native-run-record.json")
+        journal = fb.read_admission_record(repo, V_ORDER_ID)
+        assert journal["attempts"][0]["status"] == "fail"
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run.publish_native(tmp_path / "evidence" / "retry.json")
+        assert not (tmp_path / "evidence" / "retry.json").exists()
     finally:
         _join_run(run)
 

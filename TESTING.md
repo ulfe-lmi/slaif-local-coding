@@ -686,6 +686,62 @@ the real checkout, no host signal, no CLI entry —
 these tests earn no native, worker-stop, Docker or
 handoff qualification.
 
+Round 017-w extends that suite to 19 tests and
+adds the same-owner coherence law: the public staged
+registration is bound BEFORE any staged receipt
+commit to THIS SAME prepared owner's measured
+registration (the owner's own registered CID and
+artifact binary must already be measured and equal
+the operator's expectation — the closed
+`native-owner-registration-unmeasured` before
+prepare, `native-owner-subject-cid-mismatch` and
+`native-owner-subject-binary-mismatch`; a refused
+registration commits nothing, and a later genuinely
+matching registration in the same still-valid
+measured phase succeeds); the actual repository
+context at owner construction is compared with the
+ORIGINAL frozen binding through the complete
+frozen-context revalidation seam (not a fresh
+resolution whose result is discarded) — a
+repository-identity drift after admission is
+refused before owner adoption with the already-won
+attempt closed terminal `fail` and no external
+action, and a contradictory `bind_head` argument is
+refused before adoption; and native publication for
+the completed owner is a ONE-SHOT terminal
+transition (the transition begins at the read of
+the owner's terminal outcome; the ACTUAL bound
+journal state is read, never assumed — the pass
+path requires the attempt still running, a terminal
+owner outcome requires that same terminal state or
+a verified fresh finalization; a pre-retention
+measurement/validation/serialization/destination
+failure closes the still-pending attempt
+truthfully — the primary closed refusal propagates
+unchanged, an unexpected serialization error
+surfaces as `internal` — while a post-retention
+unverified or raced finalization is a closed
+failure that preserves the retained bytes and the
+actual journal facts as-is; a fresh-path retry
+after any publication failure refuses without a new
+qualifying record, relabel or journal reset).
+Seven new tests: the foreign-owner-context
+refusals with recovery, the origin drift before
+owner construction (terminal `fail`, no external
+action), the failed publication with the fresh-path
+retry refused (journal `fail`), the unverified
+finalization (the pending journal fact preserved),
+the raced terminal fail (the raced journal fact
+preserved), and the completed-run measurement and
+serialization failures.  Fake git/platform/process
+seams and owned synthetic repositories only; no
+actual Docker operation, no native launch
+(including help/version), no worker stop, no
+TTY/job manipulation, no real fixture admission in
+the real checkout, no host signal, no CLI entry —
+no native, worker-stop, Docker or handoff
+qualification is earned.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

@@ -2249,6 +2249,127 @@ later serial native handoff remains a separately
 authorized order; D09 remains `NOT RUN`; no v1
 runtime claim.
 
+### 11g. Round 017-w: owner-bound registration and
+terminal publication coherence (fake integration only)
+
+Round 017-w is the same-PR coherence repair of the
+public native-owner composition demonstrated
+independently after 017-v's publication; the 11f
+success-path law stays in force and this section
+records the tightened failure semantics.  As in 017-v
+the composition is exercised with injected FAKE
+external operations only (fake git/platform/process
+seams and owned synthetic repositories): NO actual
+local Docker operation, NO native launch (including
+help/version), NO worker stop, NO TTY/job
+manipulation, NO real fixture admission in the real
+checkout, NO host signal; no v1 runtime claim.
+
+(1) Owner-bound staged registration: BEFORE any
+staged receipt commit, the operator's expectation is
+bound to THIS SAME prepared owner's measured
+registration — the owner's own registered CID and
+artifact binary must already be measured, and the
+expectation must equal them exactly (closed tokens
+`native-owner-registration-unmeasured`,
+`native-owner-subject-cid-mismatch`,
+`native-owner-subject-binary-mismatch`).  A caller's
+matching foreign expectation + foreign channel, or a
+matching foreign expected + measured binary, cannot
+redefine this owner's subject — the collector proves
+agreement with the expectation, never with the
+owner's registration.  A refused registration
+commits nothing (no baseline, receipt or stop
+change), and a later genuinely matching
+registration within the same still-valid measured
+phase remains possible; the workflow's own staged
+gates (prepared, recorded stop, CURRENT stable-stop
+predicate, frozen W/B baseline, immutable run,
+collect-before-commit) are preserved unchanged.
+
+(2) Frozen-context revalidation at actual owner
+construction: the REAL owner constructor's
+new-order authority branch now compares the ACTUAL
+repository context READ-ONLY with the ORIGINAL
+immutable binding through the complete
+frozen-context revalidation seam (literal head,
+clean worktree, disk AND committed active,
+repository identity, the unique committed order
+file and its bytes) — not a fresh resolution whose
+result is discarded.  A repository-identity drift
+AFTER the won admission but BEFORE owner adoption is
+a closed refusal before any owner adoption, and the
+already-won attempt is closed honestly as a terminal
+`fail` with no external action (the composition's
+existing post-admission closure); a contradictory
+`bind_head` argument to a bound construction is a
+closed refusal before adoption.  The S default and
+the historical S opt-in are unchanged.
+
+(3) The ONE-SHOT terminal publication transition:
+once native publication for the COMPLETED owner
+begins (at the read of its terminal outcome), the
+attempt is marked publication-attempted and every
+failure is terminal for this qualified attempt — no
+fresh-path retry, no relabel, no journal reset.
+The ACTUAL bound journal state for this run is read,
+never assumed from the outcome: the pass path
+requires the bound attempt still RUNNING (an early,
+already-terminal or unreadable journal cannot admit
+pass); a terminal owner outcome requires that SAME
+terminal outcome already recorded (carried as
+`terminal-preserved`) or a still-running attempt
+finalized honestly NOW with the real verified
+token.  A PRE-RETENTION failure (verdict
+measurement, record validation, serialization, a
+destination or writer refusal) closes the
+still-pending attempt truthfully — an unpublished
+pass is closed as a `fail`, the primary closed
+refusal propagates unchanged, and an unexpected
+serialization error surfaces as the module's own
+`internal` token.  The protected native record is
+retained FIRST; ONLY THEN the same-order journal is
+finalized, and the terminal pass admits ONLY the
+real returned `finalized` token: a POST-RETENTION
+unverified (record-unreadable) or raced (contradictory
+terminal) finalization is a CLOSED failure that
+preserves the immutable retained bytes AND the
+actual journal facts as-is (the journal is never
+overwritten, re-closed or relabeled by this path)
+and never returns a normal qualified success.  The
+real finalize token stays in RAM/result
+(`finalize_attempt`), never rewritten into the
+immutable evidence.
+
+Public local proof: the composition suite grows to
+19 tests (the 017-v twelve retain their assertions,
+except the pre-prepare registration expectation,
+which now observes the owner-bound
+`native-owner-registration-unmeasured` token — a
+stronger refusal with the same commit-nothing
+semantics).  The seven new tests: the foreign-
+owner-context registration refusals (foreign CID,
+foreign binary) with the later genuinely matching
+registration recovered in the same still-valid
+phase; the origin drift before actual owner
+construction (refused with `bind-repo-identity-
+mismatch`, the already-won attempt closed terminal
+`fail`, no external action, no work directory); the
+failed publication (untrusted destination) with the
+journal closed `fail` and the FRESH-PATH retry
+refused without a new record; the unverified
+post-retention finalization (record-unreadable)
+preserving the retained bytes and the still-
+`running` journal fact; the raced post-retention
+finalization preserving the raced `fail` journal
+fact; and the completed-run measurement and
+serialization failures (closed truthfully, the
+primary token / `internal` propagating, the attempt
+closed `fail`, the retry refused).  The later
+serial native handoff remains a separately
+authorized order; D09 remains `NOT RUN`; no v1
+runtime claim.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

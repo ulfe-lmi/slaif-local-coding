@@ -1502,14 +1502,17 @@ class LocalFixtureOwner:
         # verified OrderRunBinding selects the authority of its
         # OWN order: the 017-s binding keeps the historical S
         # opt-in unchanged, and a NEW-order binding selects the
-        # distinct native authority path — the ACTUAL resolver
-        # re-validates the real repository context READ-ONLY
-        # against the frozen binding (committed and disk active,
-        # unique committed order file and its bytes, repository
-        # identity, head, clean worktree): nothing is written,
-        # no authority is minted (the resolver's fresh run id
-        # is discarded), no active/S constant changes, no
-        # runtime-global monkeypatch, no second owner.  A
+        # distinct native authority path — the complete
+        # frozen-context revalidation re-verifies the ACTUAL
+        # repository context READ-ONLY against the ORIGINAL
+        # immutable binding (literal head, clean worktree,
+        # committed and disk active, repository identity,
+        # unique committed order file and its bytes): nothing
+        # is written, no authority is minted, no second run
+        # identity is minted or adopted, no active/S constant
+        # changes, no runtime-global monkeypatch, no second
+        # owner — a context that drifted between admission and
+        # construction is a closed refusal before adoption.  A
         # bound run must carry a LIVE bound admission in that
         # order's stable namespace BEFORE adoption — a bare
         # caller run id can never skip or bypass the order's
@@ -1519,6 +1522,13 @@ class LocalFixtureOwner:
         if binding is None:
             self.optin = verify_local_optin(self.repo, bind_head, git_runner)
         elif isinstance(binding, oap_binding.OrderRunBinding):
+            # The frozen binding is the source of truth: a
+            # contradictory bind_head argument is a closed
+            # refusal BEFORE any adoption (the revalidation
+            # compares the actual context to the ORIGINAL
+            # binding, never to the argument).
+            if bind_head != binding.source_head:
+                raise FixtureError("local-binding-invalid")
             record = oap_binding.read_admission_record(self.repo, binding.order_id)
             live = any(
                 entry["run_id"] == binding.run_id and entry["status"] == "running"
@@ -1529,8 +1539,25 @@ class LocalFixtureOwner:
             if binding.order_id == oap_binding._S_ORDER_ID:
                 self.optin = verify_local_optin(self.repo, bind_head, git_runner)
             else:
-                oap_binding.resolve_order_binding(
-                    self.repo, binding.order_id, bind_head, git_runner
+                # order 017-w section 2: the complete
+                # frozen-context revalidation compares the
+                # ACTUAL repository context READ-ONLY with
+                # the ORIGINAL immutable binding (literal
+                # head, clean worktree, disk and committed
+                # active, repository identity, the unique
+                # committed order file and its bytes) — not
+                # a fresh resolution whose result would be
+                # discarded.  A drifted context between
+                # admission and owner construction is a
+                # closed refusal before any owner adoption
+                # (the composition closes the already-won
+                # attempt honestly; no second run identity
+                # is minted or adopted).
+                oap_binding._revalidate_repo_context(
+                    git_runner if git_runner is not None else oap_binding._git_default,
+                    self.repo,
+                    binding.order_id,
+                    binding,
                 )
                 self.optin = {
                     "order": binding.order_id,
