@@ -2370,6 +2370,145 @@ serial native handoff remains a separately
 authorized order; D09 remains `NOT RUN`; no v1
 runtime claim.
 
+### 11h. Round 017-x: one bounded Python-only actual
+fixture capability measurement
+
+Round 017-x executes the ONE bounded outcome the earlier native-
+preparation rounds left to a separately authorized order: with a REAL
+finite Python-only fixture, determine whether the existing unprivileged
+host CID channel can measure the CURRENT executable of an actual UID/GID
+21002 process WHILE IT IS ALIVE. The driver is repo-owned stdlib-only
+(`scripts/cache_native_fixture_exec_capability.py`; closed result record
+`slaif-017x-exec-capability-driver-v1`) and drives the REAL fixture
+owner's protected interface prepare -> hold -> finish over the SAME run,
+ledger, attempt and END (no direct-call simulation). The measurement is
+bounded and fail-closed, and its conclusion is HONEST: a measured
+unknown or a refusal is a USEFUL diagnostic result — never a native-
+ready, worker-stop or whole-017 success claim; D09 remains NOT RUN; no
+v1 runtime claim.
+
+(1) One sealed admission, owned by the child: the driver SEALED-launches
+the one bound owner (exact closed argv; the owner IS the supervisor — no
+second watchdog, no caller launch argv). The SEALED CHILD owns
+resolve+admit ONCE before any external work: the module-minted run
+identity is admitted in the child's process, and the driver only
+verifies the child's closed protected outputs (the published owner state
+and the stable admission record) — it never re-resolves, re-mints,
+adopts or replaces any run id, and a post-admission constructor failure
+closes the SAME won attempt honestly. An exhausted running journal is
+refused, never adopted or reconstructed.
+
+(2) Startup authority (fresh protected bootstrap): the control root is
+created fresh by this launch's owner at serve start. A pre-existing root
+is a prior/foreign owner's terminal/control surface and is never adopted
+— no child is launched, no command is issued, no journal is mutated. The
+published owner state is bound to the ACTUAL still-live sealed child of
+THIS launch: the state's PID must equal the still-live child PID, and a
+prior state — even with a matching run id and head — is refused before
+any command.
+
+(3) One closed detached hold, one start: the capability start is the
+owner's ONE closed detached stand-in hold exec — subject UID/GID 21002
+on the held prepared exact CID, the exact immutable stand-in path and
+mode, the issued 32-hex run-id marker on argv, bounded by the stand-in's
+own finite hold. This is the ONE subject start in the order, INCLUDING
+failed starts (a failed start consumes the one start and is a closed
+outcome, not a second opportunity); it is a fixture stand-in, never a
+Codex instance, and no native or PTY readiness is inferred from it.
+
+(4) Bounded exact-CID discovery: the AUTHORITATIVE member list comes
+from the owner's OWN guarded `top` command (every query charges the SAME
+ledger/deadline; at most the fixture pids limit of 96 rows; overflow,
+ambiguity or degradation are closed refusals). The host /proc is NEVER
+enumerated for membership: the host view is consulted per attested PID
+only, and every attested member is verified IN-SCOPE through the
+registered-CID channel before it may be a row. Churn counts as absent
+only when the channel INDEPENDENTLY verifies the PID gone; an existing-
+but-unreadable or raced member is a closed refusal, never a silent skip;
+a host PID outside the attested list is never a candidate. The subject
+is then the issued-marker kernel-cmdline correlation against the exact
+closed hold form, FRESH against the pre-launch inventory (a previous
+attachment is never adopted; ambiguous, duplicate or identity-mismatched
+candidates are refused).
+
+(5) Scoped current-executable read: the channel's read is at most 16 MiB
+and at most 10 s, further clamped at MEASUREMENT time against the SAME
+remaining owner END (cleanup grace is convergence, never fresh
+measurement) intersected with the issued hold's own finite lifetime, and
+birth-bound. PID/birth/CID/UID/GID frame checks run BEFORE AND AFTER;
+the observed identity capability and the executable capability are
+DISTINCT closed fields — one readable field does not prove the other. An
+unreadable or absent executable is a closed `unknown`, never an
+artifact-hash fallback and never a readiness claim. The order prose
+`HostCidScopedTable` names the existing `RealCidScopedTable` channel;
+the implementation, channel and seam are unchanged (a naming
+clarification only).
+
+(6) Honest termination and exact-owned removal: the subject exits 0 on
+its own finite hold, and the driver polls the channel's tri-state
+verified-absence primitive on a bounded window (no signal, no kill, no
+watchdog; the owner's exact-CID cleanup is the removal path on every
+outcome). `verified-gone` proves ABSENCE only — never an exit code or a
+termination cause; `still-present` and `unknown` stay distinct, and a
+presence is never relabeled as a termination.
+
+(7) Owner-converged failure, one END+grace budget: any capability-phase
+failure before the finish converges through the owner's OWN bounded
+abort terminal command over the protected interface (never a host
+signal; the terminal command is issued first, the owner settles and its
+output is reaped within the same budget, and the actual issuance is
+tracked, never derived). The owner's retained terminal evidence is then
+validated with the reviewed closed validator BOUND to this exact attempt
+(order, head, run and prepared CID — a valid foreign record is not this
+run's evidence). The driver's whole command/wait/measurement budget is
+the owner's published END anchor plus the owner's one allowed cleanup
+grace — the approved ONE END+grace anchor: an expired budget refuses
+before any blocking wait, and the already-exited distinction never
+authorizes a pass over missing or unverified evidence.
+
+(8) W-order publication of the closed result: on a verified owner PASS
+the driver retains the validated protected owner evidence FIRST, then
+retains its own protected capability record (the reviewed protected-
+path/atomic-no-overwrite retention; `--record-out` is REQUIRED by the
+CLI preflight, so the ONE qualification attempt is never admitted
+without its retention destination), and only then performs the verified
+same-attempt terminal finalization (the real `finalized` token is
+required; an unverified token never returns a qualified success). A
+refusal closes the returned record as `fail` with NO journal pass and NO
+fresh-path retry. A driver `pass` is a closed truthful conclusion: an
+unknown or a refusal is a useful diagnostic, never readiness.
+
+Public local proof: `tests/test_cache_native_fixture_exec_capability.py`
+(33 tests — the full coupled public-owner fake lifecycle positive with
+the scoped read MEASURED BEFORE the owner finish; the sealed-child
+admission law (the child's closed protected outputs verified; an
+exhausted running journal refused, never adopted or reconstructed); the
+fresh-bootstrap and foreign-prior-owner startup authority refusals (no
+command, no journal mutation); the closed grammar of the guarded `top`
+inventory (default and real header forms, exactly one verified PID
+column, the 96-row bound, duplicate/malformed/overbound refusals); the
+issued-marker correlation controls (FRESH vs pre-launch; ambiguous,
+duplicate and identity-mismatch refused); the scoped-read law (a
+readable coherent identity with an absent executable is `unknown`, never
+an artifact-hash fallback; a reused PID/birth mismatch refused before
+any exe read; a frame race and a vanished subject refused); the tri-
+state discovery absent-versus-foreign-scope contrast; the failed sealed
+startup with the child's closed reason adopted; the capture cap and
+read-error full-driver refusals (the reader's live state read after
+drain; the primary preserved); the expired-budget refusal before any
+blocking wait; the owner's bounded abort with cleanup-failure and
+unrelated-survival refusals; and the terminal publication orderings —
+the bound verified evidence first, refusals closed `fail` without
+journal pass, the post-retention unverified/raced finalization
+preserved). Pure/fake platform seams plus tiny exact-owned Python
+children (each exact-owned child is cleaned up by the test's own bounded
+cleanup if still alive; no signal to any real worker, Bash group or
+unrelated process; no container of any kind). ONE bounded actual Python-
+only attempt is authorized at the tested committed literal head, with
+its measured outcome recorded in the immutable round report; no native
+launch, no worker stop, no host signal; D09 remains NOT RUN; no v1
+runtime claim.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

@@ -35,6 +35,13 @@ Modes (all emit ONE closed JSON record as the final stdout line):
   output-cap  flushed record then bounded filler past the host cap
   stop-owned  same-UID exact-owned stopper: token + pid + starttime
               (PID-reuse protected) in this private PID namespace
+  hold        017-x live executable capability: closed identity
+              record (pid + starttime + uid/gid/groups + bound
+              32-hex token) flushed FIRST, then a hard finite hold
+              of at most 20 s (self-deadline backstopped), natural
+              exit 0 — no model POST, no child, no shell
+  observe     closed NON-CONSUMING controller /state record (no
+              model POST, no consume)
 
 Nothing here invokes Codex, reads a real profile/credential, or
 retains raw content.  The synthetic CODEX_HOME + separate early-beta
@@ -76,6 +83,12 @@ SUBJ_WORKDIR = f"{SUBJ_DIR}/work"
 PROVIDER_HOST = "127.0.0.1"
 
 SUBJECT_UID = 21002
+# The 017-x hard finite hold bound: the subject holds AT MOST this
+# many seconds (further capped by the shared self-deadline backstop)
+# so a host-side observer can measure its CURRENT executable while
+# the subject is still alive.
+HOLD_MAX_SECONDS = 20.0
+
 MODES = (
     "measure",
     "pty",
@@ -87,6 +100,7 @@ MODES = (
     "diagnostic",
     "auth-binding",
     "observe",
+    "hold",
 )
 NS_NAMES = ("pid", "mnt", "ipc", "uts", "net", "user")
 
@@ -1750,9 +1764,88 @@ def stop_owned_mode() -> int:
     return 0
 
 
+def _absolute_anchor_required() -> float:
+    """The 017-x hold rides the SAME shared absolute experiment
+    anchor the host passes to every scenario: a MISSING anchor is a
+    closed refusal (the legacy relative fallback would mint a fresh
+    phase deadline, which this mode must never do), a non-numeric
+    anchor is invalid, and a non-finite or already-elapsed anchor is
+    expired."""
+    raw_abs = os.environ.get("SLAIF_FIXTURE_DEADLINE_ABS", "")
+    if not raw_abs:
+        raise StandinError("self-anchor-missing")
+    try:
+        absolute = float(raw_abs)
+    except ValueError:
+        raise StandinError("self-deadline-invalid") from None
+    if not math.isfinite(absolute) or absolute <= time.monotonic():
+        raise StandinError("self-deadline-expired")
+    return absolute
+
+
+def hold_mode(argv_token: str | None = None) -> int:
+    """The 017-x live executable capability hold: verify the
+    SUBJECT identity (UID and GID are BOTH the subject identity),
+    flush the closed identity record (pid + immutable starttime +
+    uid/gid/groups + the bound 32-hex token — a PID-reuse-safe
+    identity for the host-side bounded exact-CID correlation)
+    FIRST, then hold hard for at most 20 s, further capped by the
+    SAME finite absolute experiment anchor, and exit 0 naturally.
+    No model POST, no child process, no shell, no host mount: the
+    capability under test is a host-side READ of this process's
+    CURRENT executable WHILE THIS PROCESS IS ALIVE — a synchronous
+    capture that only returns after the hold ends can never prove
+    that.  Every pre-hold failure is a closed non-echoing refusal;
+    nothing holds before the identity, token and anchor are all
+    verified."""
+    if os.getuid() != SUBJECT_UID or os.getgid() != SUBJECT_UID:
+        return fail("identity-not-subject")
+    try:
+        if argv_token is not None:
+            # The issued marker is bound on the kernel cmdline
+            # (the host-side correlation identity for the detached
+            # capability start); the closed env form remains the
+            # synchronous-test source.
+            token = argv_token
+        else:
+            token = env_str("SLAIF_HOLD_TOKEN")
+        if not re.fullmatch(r"[0-9a-f]{32}", token):
+            return fail("hold-token-invalid")
+        deadline = _absolute_anchor_required()
+        emit(
+            {
+                "record": "slaif-fixture-standin-v1",
+                "status": "pass",
+                "mode": "hold",
+                "uid": os.getuid(),
+                "gid": os.getgid(),
+                "groups": os.getgroups(),
+                "pid": os.getpid(),
+                "starttime": _proc_starttime(os.getpid()),
+                "token": token,
+                "record_flushed_before_hold": True,
+            }
+        )
+        hold_seconds = min(HOLD_MAX_SECONDS, _remaining(deadline))
+    except (StandinError, OSError, ValueError) as exc:
+        return fail(closed_reason(exc))
+    time.sleep(hold_seconds)
+    return 0
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 3 or argv[1] != "--mode" or argv[2] not in MODES:
+    if len(argv) not in (3, 5) or argv[1] != "--mode" or argv[2] not in MODES:
         return fail("mode-invalid")
+    hold_token: str | None = None
+    if len(argv) == 5:
+        # The ONE closed argv extension of this CLI: the hold mode's
+        # issued 32-hex marker, carried on the kernel cmdline as the
+        # host-side correlation identity for the detached capability
+        # start.  No other mode or argument form is admitted — this
+        # is not a general shell/argv escape.
+        if argv[2] != "hold" or argv[3] != "--hold-token":
+            return fail("mode-invalid")
+        hold_token = argv[4]
     modes = {
         "measure": measure_mode,
         "pty": pty_mode,
@@ -1764,7 +1857,10 @@ def main(argv: list[str]) -> int:
         "diagnostic": diagnostic_mode,
         "auth-binding": auth_binding_mode,
         "observe": observe_mode,
+        "hold": hold_mode,
     }
+    if argv[2] == "hold":
+        return hold_mode(hold_token)
     return modes[argv[2]]()
 
 

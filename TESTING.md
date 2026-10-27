@@ -453,7 +453,7 @@ separation),
 `tests/test_cache_native_fixture_controller.py` (33 tests —
 request/issuance causality, strict-after-result positions,
 quiesce/export frames over the real socket),
-`tests/test_cache_native_fixture_standin.py` (76 tests — the
+`tests/test_cache_native_fixture_standin.py` (102 tests — the
 exact reviewed keyring/ABI/caps/namespace/EROFS/CPU surface,
 bounded metadata diagnostic, hang/stop-owned records, the
 reconciled writable-data mount inventory from the actual
@@ -463,7 +463,7 @@ only on the exact source-root file identity, the narrow
 known-default path and the chr 1:3 device (counted as device
 surface, never writable data),
 fail-closed on unlisted writable data or missing documented
-roots — and the eight-test stopper identity suite: vanished,
+roots, the 017-x closed `hold` mode (the subject verifies its own UID and GID are BOTH the subject identity, flushes the closed identity record — pid + immutable starttime + uid/gid/groups + the bound 32-hex token, a PID-reuse-safe identity for the host-side bounded exact-CID correlation — FIRST, then holds hard for at most 20 s, further capped by the SAME finite absolute experiment anchor (a missing anchor is a closed refusal, never the legacy relative fallback; a non-finite or already-elapsed anchor is expired), and exits 0 naturally: no model POST, no child, no shell — every pre-hold failure is a closed non-echoing refusal before any hold) and the closed non-consuming `observe` /state record — and the eight-test stopper identity suite: vanished,
 self and unverified targets are never signalled; pidfd-open
 before verification and signal; the descriptor closed on every
 path; the exact SIGTERM/si_code/flags send ABI; the declared
@@ -741,6 +741,74 @@ TTY/job manipulation, no real fixture admission in
 the real checkout, no host signal, no CLI entry —
 no native, worker-stop, Docker or handoff
 qualification is earned.
+
+Round 017-x adds the live Python executable
+capability suite `tests/test_cache_native_
+fixture_exec_capability.py` (33 tests — the
+full coupled public-owner fake lifecycle
+positive (the sealed child owns resolve+admit
+once; prepare -> hold -> finish over ONE
+shared owner/run/ledger/END; the issued
+closed detached hold; bounded exact-CID
+discovery through the owner's guarded `top`;
+the issued-marker kernel-cmdline correlation;
+the scoped current-executable read MEASURED
+BEFORE the owner finish; the subject's
+natural bounded exit; the honest
+`verified-gone`; the W-order publication);
+the sealed-child admission law (the child's
+closed protected outputs verified; an
+exhausted running journal refused — never
+adopted or reconstructed); the startup
+authority (a pre-existing control root
+refused before any launch — a prior/foreign
+owner's surface never adopted, no command,
+no journal mutation; the published state
+bound to the actual still-live child PID);
+the closed grammar of the guarded `top`
+inventory (default and real header forms,
+exactly one verified PID column, the 96-row
+bound, duplicate/malformed/overbound
+refusals); the correlation controls (FRESH
+vs pre-launch; ambiguous, duplicate and
+identity-mismatch refused); the scoped-read
+law (a readable coherent identity with an
+absent executable is `unknown`, never an
+artifact-hash fallback; a reused PID/birth
+mismatch refused before any exe read; frame
+races and a vanished subject refused); the
+tri-state discovery contrast (verified
+absent vs foreign-scope
+`cap-inventory-unverified`); the failed
+sealed startup with the child's closed
+reason adopted (owner fail, no commands,
+journal unmutated, no retention); the
+capture cap and read-error full-driver
+refusals (the reader's live state read
+after drain; the primary preserved); the
+expired-budget refusal before any blocking
+wait; the owner's own bounded abort with
+cleanup-failure and unrelated-survival
+refusals (`container-cleanup-unverified`,
+`sentinel-process-died`); and the terminal
+publication orderings — the bound verified
+evidence first, a refusal closed `fail`
+with no journal pass and no fresh-path
+retry, and the post-retention unverified/
+raced finalization preserved).  Pure/fake
+platform seams plus tiny exact-owned Python
+children (each exact-owned child is cleaned
+up by the test's own bounded cleanup if
+still alive; no signal to any real worker,
+Bash group or unrelated process; no
+container of any kind).  These tests earn
+no native, worker-stop, Docker or handoff
+qualification; ONE bounded actual Python-
+only attempt is authorized at the tested
+committed literal head, with its measured
+outcome recorded in the immutable round
+report; D09 remains NOT RUN; no v1 runtime
+claim.
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in

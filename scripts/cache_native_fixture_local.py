@@ -136,6 +136,13 @@ ADMISSION_SCHEMA = "slaif-017s-admission-v1"
 ORDER_ID = "017-s"
 ORDER_PATH = "oap/orders/017-s-local-fixture-preparation-and-supervision.md"
 ACTIVE_EXPECTED = b"017-s\n"
+# The 017-x capability order: the ONE other order id this CLI's
+# owner subcommand admits (the detached capability start; its
+# SEALED child owns resolve+admit ONCE before any external work —
+# the module-minted run identity is admitted in THIS process, and
+# a constructor failure AFTER the won admission closes the SAME
+# attempt honestly).
+X_ORDER_ID = "017-x"
 # The R CI-measured built-image identity (immutable R report fact at
 # 2ce9dcd): the local rebuild records whether it matches.
 R_CI_IMAGE_ID = "sha256:331e1a70ec585f6fb1494c8486faf77fb1e624cf5f0f5765f7c5bab83a92de94"
@@ -234,6 +241,10 @@ _LOCAL_REASONS = frozenset(
         "local-prepared-wire-charged",
         "local-prepared-state",
         "local-image-state",
+        "local-hold-unavailable",
+        "local-hold-already-started",
+        "local-hold-start-failed",
+        "local-top-unavailable",
         "local-cleanup-unverified",
         "local-observe-unavailable",
         "local-control-protocol",
@@ -974,7 +985,13 @@ def _write_state(path: Path, state: dict) -> None:
 # stop or reset ownership, and the owner converges independently at
 # its own finite deadline.  No raw content crosses the protocol.
 CONTROL_RECORD = "slaif-017s-control-v1"
-_CONTROL_COMMANDS = ("prepare", "observe", "rehearse", "finish", "abort")
+# ``hold`` is the 017-x detached capability start (ONE closed
+# detached stand-in hold exec on the held prepared exact CID; a
+# second start — including a failed one — is refused for the run).
+# ``top`` is the 017-x bounded exact-CID process inventory (the
+# authoritative member list the host-side capability discovery
+# cross-checks; every query charges the SAME owner ledger/deadline).
+_CONTROL_COMMANDS = ("prepare", "observe", "rehearse", "finish", "abort", "hold", "top")
 _CONTROL_REQUEST_CAP = 4096
 _CONTROL_RESPONSE_CAP = 16384
 _CONTROL_ACCEPT_TIMEOUT = 5.0
@@ -999,6 +1016,8 @@ _CONTROL_DETAIL_KEYS = {
     ),
     "finish": ("outcome", "stage", "evidence_sha256", "control_dir_retained"),
     "abort": ("outcome", "stage", "evidence_sha256", "control_dir_retained"),
+    "hold": ("hold_token",),
+    "top": ("pids", "rows"),
 }
 
 
@@ -1056,6 +1075,32 @@ def _validate_control_response(response: object, command: str) -> None:
                 and detail["diagnostic_response"] == "fixed-final-text-no-tools"
                 and detail["admitted"] == 1
                 and detail["refused"] == 2
+            )
+        elif command == "hold":
+            # The detached capability start returns ONLY the issued
+            # 32-hex marker (the kernel-cmdline correlation
+            # identity); nothing else crosses the protocol.  The
+            # closed marker grammar is an ACTUAL string: a numeric
+            # (or any non-string) value is refused, never coerced
+            # by ``str()``.
+            ok = (
+                isinstance(detail["hold_token"], str)
+                and re.fullmatch(r"[0-9a-f]{32}", detail["hold_token"]) is not None
+            )
+        elif command == "top":
+            # The bounded exact-CID inventory: distinct positive
+            # PIDs, at most the fixture pids limit of rows, and a
+            # row count agreeing with the list — no raw content.
+            pids = detail["pids"]
+            rows = detail["rows"]
+            ok = (
+                isinstance(pids, list)
+                and isinstance(rows, int)
+                and not isinstance(rows, bool)
+                and rows == len(pids)
+                and 1 <= rows <= model.PIDS_LIMIT
+                and all(isinstance(p, int) and not isinstance(p, bool) and p > 0 for p in pids)
+                and len(set(pids)) == len(pids)
             )
         else:  # finish / abort: the converged closed outcome
             ok = (
@@ -1608,6 +1653,13 @@ class LocalFixtureOwner:
         self.status = "running"
         self.created: list[str] = []
         self.target_cid: str | None = None
+        # The 017-x detached capability start: ONE subject start in
+        # this run INCLUDING failed starts (the attempt latch is set
+        # BEFORE the dispatch, so a failed start consumes the one
+        # start and refuses any retry); the issued marker is the
+        # run's own 32-hex token (never a caller value).
+        self.hold_start_attempted = False
+        self.hold_token: str | None = None
         # The exact fresh create name/ownership intent, persisted
         # in the protected state BEFORE docker create (the create/
         # response gap is recoverable data, never an adopted
@@ -2007,6 +2059,115 @@ class LocalFixtureOwner:
         if self.target_cid is None or self.phase in ("teardown", "publish", "start"):
             raise FixtureError("local-observe-unavailable")
         return ci.observe_controller_on(self.guarded, self.target_cid, self.env_base, self.ledger)
+
+    def hold_start(self) -> str:
+        """The 017-x detached capability start: ONE closed detached
+        exec (``docker exec -d``) of the reviewed stand-in hold mode
+        as 21002 on the held prepared exact CID, carrying the issued
+        32-hex run marker on argv — the kernel-cmdline correlation
+        identity the host-side capability driver uses (no -e
+        arguments, no PTY, no env file, no output capture: the
+        subject's own finite hold and natural exit run without a
+        host capture).  Valid only while the target is held
+        (prepared).  ONE subject start in this run INCLUDING failed
+        starts: the attempt latch is set BEFORE the dispatch, so a
+        failed start consumes the one start and refuses any retry
+        (the run then converges through the existing finish/abort
+        path; the exact-CID cleanup is the subject's removal path on
+        every outcome)."""
+        self._abort_check()
+        if self.hold_start_attempted:
+            raise FixtureError("local-hold-already-started")
+        if self.target_cid is None or self.phase != "prepared":
+            raise FixtureError("local-hold-unavailable")
+        self.hold_start_attempted = True
+        cid = self.target_cid
+        self.hold_token = self.run_token
+        result = self.guarded(
+            [
+                "docker",
+                "exec",
+                "-d",
+                "--user",
+                f"{ci.SUBJECT_UID}:{ci.SUBJECT_UID}",
+                cid,
+                "python3",
+                ci.STANDIN_PATH,
+                "--mode",
+                "hold",
+                "--hold-token",
+                self.hold_token,
+            ],
+            ci._QUERY_TIMEOUT,
+        )
+        if result.returncode != 0:
+            raise FixtureError("local-hold-start-failed")
+        self._publish_state()
+        return self.hold_token
+
+    #: The FINITE verified ``docker top`` header forms the daemon
+    #: may emit for the closed 2-argument query: the default ``-ef``
+    #: listing and the existing fixture's closed form (each with
+    #: exactly one PID column).
+    _TOP_HEADER_FORMS: tuple[tuple[str, ...], ...] = (
+        ("UID", "PID", "PPID", "C", "STIME", "TTY", "TIME", "CMD"),
+        ("UID", "PID", "COMMAND"),
+    )
+
+    def top_pids(self) -> list[int]:
+        """The 017-x bounded exact-CID process inventory: ONE
+        guarded ``docker top`` for the held prepared exact CID
+        (closed 2-argument form; the query charges the SAME owner
+        deadline/ledger as every other operation — the SAME closed
+        command the existing CI descendant count uses; no ``ps``
+        argument or column selection is widened).  The response is
+        the authoritative member list of the exact owned CID,
+        parsed under FINITE verified header forms: the daemon's
+        default ``-ef`` listing (``UID PID PPID C STIME TTY TIME
+        CMD``) and the existing fixture's closed form (``UID PID
+        COMMAND``).  The PID column is LOCATED in the header (each
+        closed form carries exactly one), every row must carry
+        exactly the header's columns with a positive integer in
+        the PID column, rows are distinct, and the member count is
+        inside the closed fixture pids bound — an unknown,
+        duplicate-column, malformed, duplicate, overbound or
+        unreadable inventory is a closed refusal, never a silent
+        truncation.  The host-side capability discovery
+        cross-checks its bounded scan against this attestation: a
+        member the attestation cannot account for is never
+        silently filtered."""
+        self._abort_check()
+        if self.target_cid is None or self.phase in ("teardown", "publish", "start"):
+            raise FixtureError("local-top-unavailable")
+        cid = self.target_cid
+        result = self.guarded(["docker", "top", cid], ci._QUERY_TIMEOUT)
+        if result.returncode != 0:
+            raise FixtureError("top-query-failed")
+        lines = [
+            line for line in result.output.decode("ascii", "replace").splitlines() if line.strip()
+        ]
+        header = tuple(lines[0].split()) if lines else ()
+        if header not in self._TOP_HEADER_FORMS or header.count("PID") != 1:
+            raise FixtureError("top-query-failed")
+        pid_idx = header.index("PID")
+        pids: list[int] = []
+        for line in lines[1:]:
+            # The trailing CMD/COMMAND column is ONE field: a bounded
+            # split keeps its full remainder (command arguments with
+            # spaces are legal), the leading columns stay fixed.
+            fields = line.split(None, len(header) - 1)
+            if (
+                len(fields) != len(header)
+                or not fields[pid_idx].isdigit()
+                or int(fields[pid_idx]) <= 0
+            ):
+                raise FixtureError("top-count-untrusted")
+            pids.append(int(fields[pid_idx]))
+        if not 1 <= len(pids) <= model.PIDS_LIMIT:
+            raise FixtureError("top-count-untrusted")
+        if len(set(pids)) != len(pids):
+            raise FixtureError("top-count-untrusted")
+        return pids
 
     # -- lifecycle: rehearse (the S Python consume) --------------------------------
     def rehearse(self) -> None:
@@ -2646,6 +2807,35 @@ class LocalFixtureOwner:
                     "refused": 2,
                 },
             )
+        if command == "hold":
+            if self.target_cid is None or self.phase in ("teardown", "publish", "start"):
+                return self._response(command, False, "local-hold-unavailable", None)
+            try:
+                token = self.hold_start()
+            except FixtureError as exc:
+                # A closed start refusal (including the consumed
+                # one-start latch and a failed dispatch) does NOT
+                # converge the owner: the held prepared target is
+                # still finishable (prep-only honest unready).
+                return self._response(command, False, str(exc), None)
+            except BaseException:
+                self._converge(FixtureError("internal"))
+                return self._response(command, False, "internal", None)
+            return self._response(command, True, None, {"hold_token": token})
+        if command == "top":
+            if self.target_cid is None or self.phase in ("teardown", "publish", "start"):
+                return self._response(command, False, "local-top-unavailable", None)
+            try:
+                pids = self.top_pids()
+            except FixtureError as exc:
+                # A closed inventory refusal does NOT converge the
+                # owner: the held prepared target is still
+                # finishable (prep-only honest unready).
+                return self._response(command, False, str(exc), None)
+            except BaseException:
+                self._converge(FixtureError("internal"))
+                return self._response(command, False, "internal", None)
+            return self._response(command, True, None, {"pids": pids, "rows": len(pids)})
         if command == "finish":
             if self.target_cid is None or self.phase in ("teardown", "publish"):
                 return self._response(command, False, "local-lifecycle-state", None)
@@ -3703,7 +3893,13 @@ def validate_native_owner_run_evidence(record: dict) -> None:
 
 # -- the sealed owner launch + the thin rehearsal driver ----------------------------
 def _owner_argv(
-    module_path: str, bind_head: str, repo, work, control_dir, evidence_out
+    module_path: str,
+    bind_head: str,
+    repo,
+    work,
+    control_dir,
+    evidence_out,
+    order: str = ORDER_ID,
 ) -> list[str]:
     """The SEALED owner launch: the exact closed argv form (this
     module, the owner subcommand, the order-bound arguments only —
@@ -3714,7 +3910,7 @@ def _owner_argv(
         module_path,
         "owner",
         "--order",
-        ORDER_ID,
+        order,
         "--bind-head",
         bind_head,
         "--repo",
@@ -3973,7 +4169,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command in ("owner", "rehearsal"):
         if (
-            args.order != ORDER_ID
+            args.order not in (ORDER_ID, X_ORDER_ID)
             or not args.bind_head
             or not args.repo
             or not args.work
@@ -3985,6 +4181,14 @@ def main(argv: list[str] | None = None) -> int:
         repo, work = Path(args.repo), Path(args.work)
         control_dir, evidence_out = Path(args.control_dir), Path(args.evidence_out)
         if args.command == "rehearsal":
+            # The S sealed rehearsal is the 017-s path only: the
+            # 017-x driver sealed-launches the owner itself with
+            # the capability command sequence.
+            if args.order != ORDER_ID:
+                print(
+                    json.dumps({"schema": SCHEMA, "status": "fail", "reason": "local-args-invalid"})
+                )
+                return 1
             # The OUTER catch: any unexpected driver-side failure
             # still returns a closed truthful driver record (never
             # a traceback, never a bare exit).
@@ -3999,7 +4203,29 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(summary, sort_keys=True))
             return 0 if summary["status"] == "pass" else 1
         try:
-            owner = LocalFixtureOwner(repo, work, evidence_out, args.bind_head, control_dir)
+            if args.order == ORDER_ID:
+                owner = LocalFixtureOwner(repo, work, evidence_out, args.bind_head, control_dir)
+            else:
+                # 017-x: the SEALED CHILD owns resolve+admit ONCE
+                # before any external work — the module-minted run
+                # identity is admitted in THIS process, so ONE
+                # identity/admission survives the process boundary.
+                # Exhaustion is a closed REFUSAL: the one-attempt
+                # law is never bypassed by reconstructing identity
+                # from the journal, and a running attempt can never
+                # be served by a second owner.  A constructor
+                # failure closes the SAME already-won attempt as
+                # fail (the one-attempt law is never left dangling
+                # by a startup fault).
+                binding = oap_binding.resolve_order_binding(repo, args.order, args.bind_head)
+                oap_binding.admit_order_attempt(repo, args.order, binding)
+                try:
+                    owner = LocalFixtureOwner(
+                        repo, work, evidence_out, args.bind_head, control_dir, binding=binding
+                    )
+                except FixtureError:
+                    oap_binding.record_order_attempt(repo, args.order, binding.run_id, "fail")
+                    raise
             return owner.serve()
         except FixtureError as exc:
             print(json.dumps({"record": CONTROL_RECORD, "stage": "startup", "reason": str(exc)}))

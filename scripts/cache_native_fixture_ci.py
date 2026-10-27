@@ -870,6 +870,32 @@ def _match_docker_exec(argv: list[str]) -> bool:
     return probe or standin or export
 
 
+def _match_docker_exec_hold(argv: list[str]) -> bool:
+    """The 017-x detached capability start: the ONE closed detached
+    exec form — ``-d`` (dispatch and return; the subject's own
+    finite hold and natural exit run without a host capture), NO
+    PTY, NO -e arguments, NO env file, the exact subject uid pair,
+    the exact registered CID, and ONLY the fixed stand-in hold
+    entry whose issued 32-hex marker is the kernel-cmdline
+    correlation identity.  No general detach, no shell, no
+    arbitrary argv."""
+    return (
+        len(argv) == 12
+        and argv[0] == "docker"
+        and argv[1] == "exec"
+        and argv[2] == "-d"
+        and argv[3] == "--user"
+        and argv[4] == f"{SUBJECT_UID}:{SUBJECT_UID}"
+        and _is_cid(argv[5])
+        and argv[6] == "python3"
+        and argv[7] == STANDIN_PATH
+        and argv[8] == "--mode"
+        and argv[9] == "hold"
+        and argv[10] == "--hold-token"
+        and re.fullmatch(r"[0-9a-f]{32}", argv[11]) is not None
+    )
+
+
 def _match_runtime_version(argv: list[str]) -> bool:
     return (
         len(argv) == 2
@@ -894,6 +920,7 @@ _ARGV_MATCHERS = (
     _match_docker_image_inspect,
     _match_docker_rmi,
     _match_docker_exec,
+    _match_docker_exec_hold,
     _match_runtime_version,
 )
 
@@ -3144,12 +3171,19 @@ def _existing_ancestor_trusted(mode: int, owner_uid: int, self_uid: int) -> bool
     return False
 
 
-def _retain_evidence(dest, payload: bytes, digest: str, work) -> str:
+def _retain_evidence(dest, payload: bytes, digest: str, work=None) -> str:
     """Atomically retain the published 0600 evidence at an explicit
     protected destination OUTSIDE the disposable work root: the
     published file inside the scratch root is never the only copy of
     the reviewable evidence (the scratch root is destroyed at the
     end of the run).
+
+    ``work`` is the disposable root the destination must NOT lie
+    inside; a caller that owns the destination explicitly (a
+    protected destination of its own, e.g. the 017-x capability
+    record) passes None and only the inside-work refusal is
+    skipped — the ancestor trust, atomic no-overwrite, 0600-leaf
+    and temp-only-cleanup law are UNCHANGED in either case.
 
     The destination and every ancestor are validated AS GIVEN (no
     lexical ``.``/``..`` folding, no symlink resolution before the
@@ -3181,17 +3215,18 @@ def _retain_evidence(dest, payload: bytes, digest: str, work) -> str:
     dest = Path(dest)
     if not dest.is_absolute():
         dest = Path(os.getcwd()) / dest
-    work = Path(work)
-    if not work.is_absolute():
-        work = Path(os.getcwd()) / work
     # The retained copy must OUTLIVE the scratch root: a destination
     # at or under the disposable work root is refused outright.
-    try:
-        dest.relative_to(work)
-    except ValueError:
-        pass
-    else:
-        raise FixtureError("evidence-inside-work")
+    if work is not None:
+        work = Path(work)
+        if not work.is_absolute():
+            work = Path(os.getcwd()) / work
+        try:
+            dest.relative_to(work)
+        except ValueError:
+            pass
+        else:
+            raise FixtureError("evidence-inside-work")
     if dest.exists() or dest.is_symlink():
         raise FixtureError("evidence-exists")
     if ".." in dest.parts or "." in dest.parts:

@@ -20,6 +20,7 @@ import os
 import signal
 import stat
 import sys
+import time
 import tomllib
 from pathlib import Path
 from types import SimpleNamespace
@@ -1135,3 +1136,355 @@ class TestProfileRecord:
             "approval_policy": "never",
             "sandbox_mode": "danger-full-access",
         }
+
+
+class TestHoldMode:
+    """The 017-x finite hold: the closed identity record is flushed
+    FIRST, the hard finite hold is capped by the 20 s bound and the
+    SAME self-deadline backstop, the subject exits 0 naturally, and
+    no model POST / child / shell path is ever touched.  Pure fake:
+    the process identity is injected, the hold is captured, the
+    ACTUAL mode function is exercised."""
+
+    TOKEN = "0123456789abcdef0123456789abcdef"
+
+    @staticmethod
+    def _as_subject(monkeypatch: Any) -> None:
+        # The reviewed container identity is UID/GID 21002 with the
+        # subject's own group: represent BOTH identities.
+        monkeypatch.setattr(standin.os, "getuid", lambda: standin.SUBJECT_UID)
+        monkeypatch.setattr(standin.os, "getgid", lambda: standin.SUBJECT_UID)
+        monkeypatch.setattr(standin.os, "getgroups", lambda: [standin.SUBJECT_UID])
+
+    @staticmethod
+    def _as_other_uid(monkeypatch: Any) -> None:
+        monkeypatch.setattr(standin.os, "getuid", lambda: standin.SUBJECT_UID + 1)
+
+    @staticmethod
+    def _as_foreign_gid(monkeypatch: Any) -> None:
+        monkeypatch.setattr(standin.os, "getuid", lambda: standin.SUBJECT_UID)
+        monkeypatch.setattr(standin.os, "getgid", lambda: standin.SUBJECT_UID + 1)
+        monkeypatch.setattr(
+            standin.os,
+            "getgroups",
+            lambda: [standin.SUBJECT_UID + 1],
+        )
+
+    @staticmethod
+    def _anchor(monkeypatch: Any, seconds: float) -> None:
+        monkeypatch.setenv("SLAIF_FIXTURE_DEADLINE_ABS", repr(time.monotonic() + seconds))
+
+    @staticmethod
+    def _token(monkeypatch: Any, value: str | None = None) -> None:
+        if value is None:
+            monkeypatch.setenv("SLAIF_HOLD_TOKEN", TestHoldMode.TOKEN)
+        else:
+            monkeypatch.setenv("SLAIF_HOLD_TOKEN", value)
+
+    @staticmethod
+    def _capture_sleep(monkeypatch: Any) -> dict[str, float]:
+        requested: dict[str, float] = {}
+
+        def _sleep(seconds: float) -> None:
+            requested["seconds"] = seconds
+
+        monkeypatch.setattr(standin.time, "sleep", _sleep)
+        return requested
+
+    def test_closed_identity_record_flushed_before_finite_hold(
+        self, monkeypatch: Any, capsys: Any
+    ) -> None:
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.hold_mode()
+        out = capsys.readouterr().out
+        assert rc == 0
+        record = json.loads(out.strip())
+        assert set(record) == {
+            "record",
+            "status",
+            "mode",
+            "uid",
+            "gid",
+            "groups",
+            "pid",
+            "starttime",
+            "token",
+            "record_flushed_before_hold",
+        }
+        assert record["record"] == "slaif-fixture-standin-v1"
+        assert record["status"] == "pass"
+        assert record["mode"] == "hold"
+        assert record["uid"] == standin.SUBJECT_UID
+        assert record["gid"] == standin.SUBJECT_UID
+        assert record["groups"] == [standin.SUBJECT_UID]
+        assert record["pid"] == os.getpid()
+        assert record["starttime"] == standin._proc_starttime(os.getpid())
+        assert record["token"] == self.TOKEN
+        assert record["record_flushed_before_hold"] is True
+        # The 20 s hard bound caps the hold (the 120 s deadline is
+        # NOT the cap).
+        assert requested["seconds"] == standin.HOLD_MAX_SECONDS
+
+    def test_record_flushed_before_hold_starts(self, monkeypatch: Any, capsys: Any) -> None:
+        order: list[str] = []
+        real_emit = standin.emit
+
+        def _emit(record: dict[str, object]) -> None:
+            order.append("emit")
+            real_emit(record)
+
+        requested = self._capture_sleep(monkeypatch)
+
+        def _sleep(seconds: float) -> None:
+            order.append("sleep")
+            requested["seconds"] = seconds
+
+        monkeypatch.setattr(standin, "emit", _emit)
+        monkeypatch.setattr(standin.time, "sleep", _sleep)
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        assert standin.hold_mode() == 0
+        assert order.index("emit") < order.index("sleep")
+
+    def test_hold_capped_by_remaining_deadline(self, monkeypatch: Any, capsys: Any) -> None:
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        monkeypatch.setenv("SLAIF_FIXTURE_DEADLINE_ABS", repr(time.monotonic() + 5.0))
+        requested = self._capture_sleep(monkeypatch)
+        assert standin.hold_mode() == 0
+        seconds = requested["seconds"]
+        assert 0.0 < seconds <= 5.0
+
+    def test_expired_anchor_fails_closed(self, monkeypatch: Any, capsys: Any) -> None:
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        monkeypatch.setenv("SLAIF_FIXTURE_DEADLINE_ABS", repr(time.monotonic() - 1.0))
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.hold_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "fail",
+            "reason": "self-deadline-expired",
+        }
+        assert "seconds" not in requested
+
+    def test_invalid_anchor_fails_closed(self, monkeypatch: Any, capsys: Any) -> None:
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        monkeypatch.setenv("SLAIF_FIXTURE_DEADLINE_ABS", "not-a-number")
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.hold_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record["status"] == "fail"
+        assert record["reason"] == "self-deadline-invalid"
+        assert "seconds" not in requested
+
+    @pytest.mark.parametrize(
+        "token",
+        [
+            "",  # missing
+            "a" * 31,  # too short
+            "a" * 33,  # too long
+            "A" * 32,  # uppercase
+            "g" * 32,  # non-hex
+            "a" * 16 + " " + "a" * 15,  # embedded space
+        ],
+    )
+    def test_token_closed_refusal(self, token: str, monkeypatch: Any, capsys: Any) -> None:
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch, token)
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.hold_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record["status"] == "fail"
+        assert record["reason"] == "hold-token-invalid"
+        assert "seconds" not in requested
+
+    def test_identity_refusal_before_any_hold(self, monkeypatch: Any, capsys: Any) -> None:
+        self._as_other_uid(monkeypatch)
+        self._token(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.hold_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "fail",
+            "reason": "identity-not-subject",
+        }
+        assert "seconds" not in requested
+
+    def test_foreign_gid_refused_before_any_hold(self, monkeypatch: Any, capsys: Any) -> None:
+        # UID 21002 with a FOREIGN gid is not the subject identity:
+        # both uid and gid must be the subject identity.
+        self._as_foreign_gid(monkeypatch)
+        self._token(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.hold_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "fail",
+            "reason": "identity-not-subject",
+        }
+        assert "seconds" not in requested
+
+    def test_missing_absolute_anchor_refused_no_fallback(
+        self, monkeypatch: Any, capsys: Any
+    ) -> None:
+        # Neither absolute anchor nor relative deadline present: the
+        # hold must refuse — the legacy relative fallback would mint
+        # a fresh phase deadline, which this mode never does.
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        monkeypatch.delenv("SLAIF_FIXTURE_DEADLINE_ABS", raising=False)
+        monkeypatch.delenv("SLAIF_FIXTURE_DEADLINE", raising=False)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.hold_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "fail",
+            "reason": "self-anchor-missing",
+        }
+        assert "seconds" not in requested
+
+    def test_control_character_token_closed_refusal(self, monkeypatch: Any, capsys: Any) -> None:
+        # A control character in the token is rejected by the closed
+        # env law before the hex check: the refusal is a closed
+        # non-echoing record (the generic closed bucket per the
+        # closed_reason mapping), never an uncaught exception.
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch, "a" * 31 + "\n")
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.hold_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record["status"] == "fail"
+        assert record["reason"] == "standin-failure"
+        assert "seconds" not in requested
+
+    def test_no_model_post_no_child_no_shell(self, monkeypatch: Any, capsys: Any) -> None:
+        import subprocess as _sp
+
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        provider_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+        def _no_post(*args: object, **kwargs: object) -> object:
+            provider_calls.append((args, kwargs))
+            raise AssertionError("hold must never touch the provider wire")
+
+        def _no_child(*args: object, **kwargs: object) -> object:
+            raise AssertionError("hold must never spawn a child or shell")
+
+        monkeypatch.setattr(standin, "_provider_post", _no_post)
+        monkeypatch.setattr(_sp, "Popen", _no_child)
+        monkeypatch.setattr(_sp, "run", _no_child)
+        monkeypatch.setattr(standin.os, "system", _no_child)
+        rc = standin.hold_mode()
+        assert rc == 0
+        assert provider_calls == []
+        assert "seconds" in requested
+
+    def test_main_dispatch_reaches_hold_not_mode_invalid(
+        self, monkeypatch: Any, capsys: Any
+    ) -> None:
+        assert "hold" in standin.MODES
+        # The injected uid is NOT 21002: the dispatch must reach the
+        # mode (identity refusal), not the closed mode-invalid.
+        self._as_other_uid(monkeypatch)
+        self._token(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        rc = standin.main(["standin", "--mode", "hold"])
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record["reason"] == "identity-not-subject"
+
+    def test_main_dispatch_holds_and_exits_zero(self, monkeypatch: Any, capsys: Any) -> None:
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.main(["standin", "--mode", "hold"])
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 0
+        assert record["mode"] == "hold"
+        assert record["status"] == "pass"
+        assert requested["seconds"] == standin.HOLD_MAX_SECONDS
+
+    def test_argv_bound_token_holds_and_records_token(self, monkeypatch: Any, capsys: Any) -> None:
+        # The detached capability start form: the issued marker is
+        # bound on argv (the kernel-cmdline correlation identity);
+        # no env token is set at all.
+        argv_token = "f" * 32
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch, "")  # env deliberately empty
+        monkeypatch.setenv("SLAIF_HOLD_TOKEN", "")
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.main(["standin", "--mode", "hold", "--hold-token", argv_token])
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 0
+        assert record["status"] == "pass"
+        assert record["token"] == argv_token
+        assert requested["seconds"] == standin.HOLD_MAX_SECONDS
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            # the extension is hold-ONLY: no other mode may carry it
+            ["standin", "--mode", "hang", "--hold-token", "a" * 32],
+            # no argument form beyond the one closed extension
+            ["standin", "--mode", "hold", "--token", "a" * 32],
+            ["standin", "--mode", "hold", "--hold-token"],
+            ["standin", "--mode", "hold", "--hold-token", "a" * 32, "x"],
+            ["standin", "--mode", "observe", "--hold-token", "a" * 32, "y"],
+            # a 4-element form is never admitted
+            ["standin", "--mode", "hold", "--hold-token"],
+        ],
+    )
+    def test_argv_form_closed_refusals(
+        self, argv: list[str], monkeypatch: Any, capsys: Any
+    ) -> None:
+        self._as_subject(monkeypatch)
+        self._token(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.main(argv)
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record["status"] == "fail"
+        assert record["reason"] == "mode-invalid"
+        assert "seconds" not in requested
+
+    def test_argv_token_closed_refusal(self, monkeypatch: Any, capsys: Any) -> None:
+        # A malformed argv marker is a closed refusal, never held.
+        self._as_subject(monkeypatch)
+        self._anchor(monkeypatch, 120.0)
+        requested = self._capture_sleep(monkeypatch)
+        rc = standin.main(["standin", "--mode", "hold", "--hold-token", "A" * 32])
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "fail",
+            "reason": "hold-token-invalid",
+        }
+        assert "seconds" not in requested
