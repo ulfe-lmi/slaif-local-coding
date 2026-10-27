@@ -326,10 +326,7 @@ descriptors and cross-entry pairs are closed refusals), and the
 terminal retention/qualification propagates the entry through both the
 pass and fail paths, the matching record retained FIRST and only then
 the pass finalization. Ten focused tests were added across the three
-fixture suites (ci 224, local 50, exec_capability 38); the ONE
-separately bound 017-y attempt is bound to the tested committed
-literal head and its measured outcome is recorded in the immutable
-round report. No native launch, no worker stop, no host signal; D09
+fixture suites (ci 224, local 50, exec_capability 38). The actual outcome of the ONE separately bound 017-y attempt RAN EXACTLY ONCE at literal implementation head `35a3bcd7322535dd4a699efc53c0c1c62d4c942e` (run `fbe526a3290d465298bc8da61ef2a304`): a closed driver PASS with the complete preparation, confinement and Python-PTY phases; the subject uniquely identified and measured from the exact-CID inventory (UID/GID/groups 21002, birth-bound) and exited on its own finite hold (`verified-gone`, absence only) while the current executable remained the closed UNKNOWN (no digest; not native readiness and no proven kernel/errno cause); the admission is terminal pass and is never reset, retried or relabeled; the measured outcome is recorded in the immutable round report. No native launch, no worker stop, no host signal; D09
 remains `NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
