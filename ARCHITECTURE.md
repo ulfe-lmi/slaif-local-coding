@@ -301,8 +301,8 @@ launch, no worker stop, no host signal; the later serial native
 handoff remains a separately authorized order, and D09 remains `NOT
 RUN`.
 017-y adds the closed readiness diagnosis to that driver and the
-SECOND explicit sealed entry (order 017-y, closed record
-`slaif-017y-exec-capability-driver-v1` paired ONLY with order 017-y;
+SECOND explicit sealed entry (the 017-y entry, closed record
+`slaif-017y-exec-capability-driver-v1` paired ONLY with that entry;
 the historical S/X entries and the consumed X namespace unchanged): on
 a nonzero bounded readiness exec, ONLY the fixed probe's own exact
 finite closed failure record refines the original `controller-not-ready`

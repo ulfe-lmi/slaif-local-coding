@@ -800,8 +800,8 @@ remains NOT RUN; no v1 runtime claim.
 
 Round 017-y adds the closed readiness diagnosis and the
 second explicit sealed entry to the capability driver
-(order 017-y, record `slaif-017y-exec-capability-driver-v1`
-paired ONLY with order 017-y; the historical S/X entries,
+(the 017-y entry, record `slaif-017y-exec-capability-driver-v1`
+paired ONLY with that entry; the historical S/X entries,
 record/order pairs and the consumed X namespace unchanged):
 on a nonzero bounded readiness exec, ONLY the fixed probe's
 own exact finite closed failure record refines the original
