@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 195,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "eab23ab9d209ddc8f7a2013b6320e97868495a7e9691c6b4b8260e130e096ab5",
-      "size_bytes": 927453
+      "sha256": "b80a3541eba91eac621b3e94809026ee07345f73217ec42351caaba25cfe9d8e",
+      "size_bytes": 935454
     },
     "wheel": {
       "entry_count": 37,
@@ -21,8 +21,8 @@
     "source_commit": "255b3f42912e3947908fc8868eccb6bcec874a08",
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
-  "objective": "017-x",
-  "qualification_label": "development-source-90066b0e9344e86ab9cc8e05acd4e137fd1d768f; not a release candidate; not released",
+  "objective": "016-b",
+  "qualification_label": "development-source-f3c022b063ca6195b25802b8fac28fbcd0c4aa89; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "90066b0e9344e86ab9cc8e05acd4e137fd1d768f",
+  "source_commit": "f3c022b063ca6195b25802b8fac28fbcd0c4aa89",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -50,8 +50,8 @@
     "config/adapter.gateway-integrated.template.toml": "14357037ab96029ed510d0d491f10a9e7b51586d0f7b9b4842ac3d9937e74afb",
     "docs/ADAPTER-CONFIGURATION.md": "8da874d2036eb9de2ff99c1e9e195d856061bae5dcdeb030d766d6f6268a9e8f",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "aa13596f4efbd9f77ff637fd6af459a9e16e8ef69856e040edccbede3acedf23",
-    "docs/CACHE-OBSERVATION-CONTRACT.md": "7c4701491fe3d16b47e531d25912a0d6c6598b736162a34819c81d0732d1a6dd",
-    "docs/CACHE-REWORK-LEDGER.md": "fa75354d97ba77c827d91274478e343633f936193f55408d2d5cd6cb585ce26e",
+    "docs/CACHE-OBSERVATION-CONTRACT.md": "42c47ea13795d73ca4852ea3c187a6b31c363a30d680ee9433c8cde78ee05df4",
+    "docs/CACHE-REWORK-LEDGER.md": "307103f86f55c2e1e915d4ce373f2136f713da90e1861e5d9a13d279fabc5f48",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
@@ -177,10 +177,10 @@
     "tests/test_cache_native_containment_ci.py": "f22ac96341b2dda30a7f08b7ef725cd91d4f26285629dee700a09bd7f66bad09",
     "tests/test_cache_native_fixture.py": "3017e121c6081ac14cd89b5c96c85dae1d1f40f1d015e6b749912bae7f354c59",
     "tests/test_cache_native_fixture_binding.py": "02d9a0f534875e9a185db0136f48fc443d262233e7c6344619c7455f10bab9f7",
-    "tests/test_cache_native_fixture_ci.py": "1c99df6776dcb3c780650f646af6cc3bb60e3a3a7d250c3460f16cabe13f28f5",
+    "tests/test_cache_native_fixture_ci.py": "400a36f405bc7d83401355f3a312995442a941d67f3bbc970ee99985f5f89a7c",
     "tests/test_cache_native_fixture_controller.py": "3c162c9cfcf3722f8a4067349167f5fac19a3ec96e155e36264a1346a94d9d04",
-    "tests/test_cache_native_fixture_exec_capability.py": "ed2cabdd3f07b153e17024fa8f62be0712b6a5b8f027c24f3f0fe6caef1002a2",
-    "tests/test_cache_native_fixture_local.py": "430d04d4ef1aafab1af8c824bad9657f068ed01a04d0ea4148b1f489cc51f457",
+    "tests/test_cache_native_fixture_exec_capability.py": "89f9c054f9130fb3d6ff9b8d77b6c720cf1f4d24d3062bb76be1740cabbc0c5a",
+    "tests/test_cache_native_fixture_local.py": "4d3c38cdc6243e664872625329ca192a27106c72a651d02681064047e13f6510",
     "tests/test_cache_native_fixture_native_owner.py": "2b4b4786dd816a2c8edd07f95915ff046e8f8955596e2fdeb49853f8ed87e242",
     "tests/test_cache_native_fixture_native_prep.py": "772e8a6f1823341085b4813f9793b7ace8516ebecdd7cbebc367dd853c64409b",
     "tests/test_cache_native_fixture_standin.py": "a25eaa22d8084f2d163aa301f416cad1b8c3cbfc3ac459b6ea3928231b7924ac",
