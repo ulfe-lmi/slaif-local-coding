@@ -418,6 +418,55 @@ owner-UID suite, over fake platform operations in distinct
 honest layers — useful fake proof, not a sealed-real-owner
 end-to-end qualification; no native-ready or v1 runtime claim;
 D09 remains `NOT RUN`.
+017-ab activates that sealed entry and executes the ONE
+bounded actual PYTHON-only fixture capability
+qualification on the same PR25 (no source change: at the
+literal attempt head
+`cdb6a101ecbd6d687f8ad413b9505c7198000758`, run
+`87ee9c006d7f4de98d11af2dfbe5bd5c`, all 17 helper
+bytes, the runtime source, the 199-input map and both
+artifacts were verified identical to qualified AA, and
+all 10 CI checks were green at that head). The existing
+public driver ran EXACTLY ONCE, Python-only, over the
+real local Docker endpoint. The outcome is a closed
+driver PASS: the sealed child won the ONE admission;
+the real owner collected and froze its OWN eligible
+host identity (subject UID 1001, GID 1001, expected
+groups exactly the primary GID `[1001]` — measured
+values, never a caller flag); the preparation,
+confinement and Python-PTY phases completed under the
+unchanged confinement (controller 21001/21001; 1 GiB
+memory/no swap; 1 CPU; pids 96; bounded tmpfs budgets;
+empirical keyring syscall denial, EPERM, under the
+matching host UID); the ONE capability-hold subject was
+uniquely identified from the exact-CID inventory
+(pid/birth-bound, closed argv; pre/post inventory 1/2
+rows) and its current executable was MEASURED through
+the existing unprivileged scoped CID channel (sha256
+`4dbf3143240288fb2170257ffaa7bd030cdda5d2703d1f5f30b627042267e2e3`
+— the first measured executable for this entry class,
+distinct from the X null and the Y unknown); the subject
+was then observed `verified-gone` after the bounded
+hold (absence only — never an exit code, signal, errno,
+kernel cause or natural-exit provenance); the exact-CID
+cleanup converged (descendants 1 before / 0 after;
+container and owned image verified absent; the unrelated
+same-UID worker and host sentinel survived); and the
+publication ordering held (verified owner evidence
+first, driver record second, same-attempt terminal
+finalization last — ONE terminal-pass journal entry;
+owner exit 0; driver exit 0). The pinned native
+artifact (308139304 B) was fetched, hashed and baked
+but NEVER executed. This is a bounded Python-only
+diagnostic capability qualification on the owner-UID
+profile — NOT native-ready, NOT whole-017 acceptance,
+NOT v1 runtime delivery: full-017
+native/current-binary/right-pane format/PTY, D09, the
+required-syntax audit and ALL 018-024 remain
+mandatory. The admission is terminal pass and is never
+reset, retried or relabeled; the measured outcome is
+recorded in the immutable round report. D09 remains
+`NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

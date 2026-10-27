@@ -2834,6 +2834,93 @@ existing CI jobs remain under their ORIGINAL default scope.
   RUN; no native-ready, actual containment/current-exe or v1
   runtime claim.
 
+### 11k. Round 017-ab: owner-UID Python capability
+qualification (ONE bounded actual PYTHON-only run)
+
+Round 017-ab activates the canonical sealed entry fixed by
+017-aa (`017-ab`, driver record
+`slaif-017ab-owner-uid-exec-capability-v1`, selecting ONLY
+`slaif-fixture-identity-owner-uid-v1`) and executes the ONE
+bounded actual PYTHON-only fixture capability
+qualification on the same PR25 with no source change: at
+the literal attempt head
+`cdb6a101ecbd6d687f8ad413b9505c7198000758` (run
+`87ee9c006d7f4de98d11af2dfbe5bd5c`) the existing public
+driver ran EXACTLY ONCE, Python-only, over the real local
+Docker endpoint, with all 17 helper bytes, the runtime
+source, the 199-input map and both artifacts verified
+identical to qualified AA, the focused owner/capability
+suites 92/92 under frozen Python 3.12/umask 022, and all
+10 CI checks green at that head.
+
+- Admission and identity: the sealed child won the ONE
+  admission; the real owner collected and froze its OWN
+  eligible host identity through the 017-z production
+  collector (subject UID 1001, GID 1001, expected groups
+  exactly the primary GID `[1001]` — measured
+  real/effective/saved values, never a caller flag;
+  fingerprint
+  `7e5a6432d91bc873c3c3208e384efd48fac7f1bff3e8fe6b93240343cc5387b0`,
+  profile DATA sha256
+  `9e0db129cf5c9ce073ae5db03f670d383de0613021cbaa7d3def47699e0a3e2b`).
+- Preparation and confinement: the owner-profile image
+  (`sha256:dbb93559d3efcbd1575e15cafb43eebc219f6c4129b55f419d7a262dee4abc59`,
+  pinned base plus the owner-variant Dockerfile with the
+  frozen validated IDs, the root-owned immutable 0444
+  profile DATA and the 0555 native PATH entry) was built
+  once; the pinned native artifact (308139304 B, sha256
+  `b93f6811d3f653f0fb83be4050d857fb9abbb111dfa2ce160563327daff7f306`)
+  was fetched, hashed and baked, and was NEVER executed
+  (not even a version query). The preparation,
+  confinement and Python-PTY phases completed with the
+  measured confinement unchanged (controller 21001:21001;
+  subject 1001:1001; 1 GiB memory/no swap; 1 CPU; pids
+  96; four writable mounts including /dev/shm 64 MiB;
+  empirical keyring syscall denial — EPERM, errno 1 —
+  under the matching host UID; a matching UID is never
+  containment proof, and the measured denial is the
+  empirical fact).
+- The ONE capability-hold subject start: uniquely
+  identified from the exact-CID inventory (pid 2781142,
+  birth 174880545, UID/GID 1001/1001, groups `[1001]`,
+  closed argv; pre/post inventory 1/2 rows, ≤96; process
+  identity measured). The current executable was MEASURED
+  through the existing unprivileged scoped CID channel:
+  sha256
+  `4dbf3143240288fb2170257ffaa7bd030cdda5d2703d1f5f30b627042267e2e3`
+  — the first measured executable for this entry class
+  (distinct from the X null and the Y unknown).
+- Termination and cleanup: the subject was then observed
+  `verified-gone` after the bounded hold — ABSENCE only,
+  never an exit code, signal, errno, kernel cause or
+  natural-exit provenance. The exact-CID cleanup
+  converged (descendants 1 before / 0 after; the exact-
+  CID-membership proof, never a host UID scan; container
+  removal and owned-image removal verified absent; the
+  unrelated same-UID worker and host sentinel survived).
+  Bounded ledger charges: 36 docker admissions, 2
+  admitted requests, 1 healthz attempt, 24710 drained
+  bytes.
+- Publication ordering: the verified owner evidence
+  (`slaif-017ab-owner-run-evidence-v1`, scope
+  `slaif-017ab-owner-uid-scope`, status pass, sha256
+  `fa51cfafe56f7694ee4ed983fbffc7f42310f2a525e7f3a1b1d1f7eae521fc8f`)
+  was retained FIRST, the driver record
+  (`slaif-017ab-owner-uid-exec-capability-v1`) SECOND, and
+  the SAME still-live admitted-attempt pass finalization
+  LAST (ONE terminal-pass journal entry; finalize
+  `finalized`; owner exit 0; driver exit 0;
+  `terminal_command` none; reason null).
+- Scope: a bounded Python-only diagnostic capability
+  qualification on the owner-UID profile — NOT
+  native-ready, NOT whole-017 acceptance, NOT v1 runtime
+  delivery. Full-017 native/current-binary/right-pane
+  format/PTY, D09, the required-syntax audit and ALL
+  018-024 remain mandatory. The admission is terminal
+  pass and is never reset, retried or relabeled; the
+  measured outcome is recorded in the immutable round
+  report. D09 remains NOT RUN; no v1 runtime claim.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family
