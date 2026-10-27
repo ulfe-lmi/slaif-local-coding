@@ -830,8 +830,7 @@ def _validate_capability_record(record: object, entry: _SealedEntry = _ENTRY_X) 
                     and (
                         subject["uid"] != identity["subject_uid"]
                         or subject["gid"] != identity["subject_gid"]
-                        or tuple(subject["groups"])
-                        not in ((), (identity["subject_gid"],))
+                        or tuple(subject["groups"]) not in ((), (identity["subject_gid"],))
                     )
                 )
                 or (
@@ -1195,10 +1194,7 @@ def run_exec_capability(
     ab_identity: dict[str, object] | None = None
     expected_subject: tuple[int, int, tuple[int, ...]] | None = None
     if entry.order_id == rprofile.AB_ORDER_ID:
-        if (
-            state.get("order") != entry.order_id
-            or state.get("bind_head") != bind_head
-        ):
+        if state.get("order") != entry.order_id or state.get("bind_head") != bind_head:
             return _startup_record("local-driver-state-binding", _reap_bounded())
         law = flocal._identity_substructure_law(state.get("identity"))
         if law is None:
