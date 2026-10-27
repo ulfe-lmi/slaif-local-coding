@@ -2592,6 +2592,99 @@ is recorded in the immutable round report; no native launch, no
 worker stop, no host signal; D09 remains NOT RUN; no v1 runtime
 claim.
 
+### 11i. Round 017-z: inert versioned fixture identity contract
+
+(software-only; no runtime switch, no new admission, no
+Docker/native work)
+
+017-z makes the fixture identity contract explicit BEFORE any
+alternative runtime integration: a later owner-UID profile might
+permit the existing unprivileged host read without another
+measurement process; that is unproven and needs actual same-UID
+containment/current-exe qualification under a later exact order.
+
+- Two explicitly named immutable identity descriptions (names
+  distinct from adapter cache profiles):
+  `slaif-fixture-identity-original-v1` — controller 21001/21001,
+  subject 21002/21002, expected groups (21002,). It REMAINS the
+  current fixture identity; every old record/schema/constant
+  meaning is unchanged and the old 21002 record law — including
+  its empty-group allowance — is never reinterpreted by the new
+  record. And the INERT `slaif-fixture-identity-owner-uid-v1`
+  candidate — subject UID/GID equal to the captured eligible
+  host owner's real/effective/saved values, each triple's three
+  values equal, nonroot, strict finite integers, distinct from
+  the controller identity; Linux IDs bound 1..4294967294
+  inclusive (0, -1 and 4294967295 never admitted); expected
+  subject groups exactly (primary GID,), never copied from host
+  supplementary groups. Construction enforces the complete
+  field laws: no description with a mutable alias, an
+  oversized group vector (refused before any copy) or an
+  invalid field can exist; no caller-selected UID/argv, root
+  fallback, environment override or silent default; equivalent
+  numeric IDs under different profile versions remain different
+  configurations.
+- Closed strict record `slaif-fixture-identity-record-v1` with
+  a bounded mapping codec (at most 4096 bytes, exactly one
+  mapping, no duplicate keys; malformed/duplicate/over-bound/
+  missing/extra/contradictory input refused with fixed
+  non-echoing reasons) and a deterministic canonical
+  configuration fingerprint that binds complete profile
+  semantics and changes on any real identity/configuration
+  change. The fingerprint is a configuration digest — never a
+  process hash, trusted identity receipt, admission, cache key
+  or readiness certificate.
+- Bounded READ-ONLY host-owner-ID collector: direct stdlib
+  getresuid/getresgid plus the simple uid/euid/gid/egid getters
+  (cross-checked, never used to infer a missing value), ONE
+  collection, explicit unsupported/unavailable outcome when the
+  complete real/effective/saved IDs are not obtainable; no
+  filesystem/proc traversal, environment/config/profile read,
+  network/GitHub/Docker/subprocess, signal, UID/GID/group/
+  privilege/prctl/kernel mutation or credential handling. Raw
+  collection / data validation / derivation stay separate
+  behind a narrow fake OS-read seam; tests never bypass the
+  production validator or constructor.
+- INERT law: typed objects, decoded JSON/data, a profile name,
+  a fingerprint or caller flags NEVER establish measured
+  authority. A valid closed data record may decode into an
+  immutable description — a pure data transformation, not
+  measurement authority; serialization validity does not prove
+  the IDs came from an OS observation. The contract selects no
+  live profile, records no fixture admission and yields no
+  ready/native verdict.
+- Required LATER integration boundary (described, NOT
+  implemented): a later sealed child selects a canonical
+  profile, collects/freezes the actual owner IDs, binds them to
+  its ORIGINAL verified order/head/run and live admission
+  BEFORE external work, and revalidates the same context at
+  actual use. No path is opened through the existing local
+  CLI/defaults/validators by this increment.
+- A later profile must preserve: private PID/mount/IPC/UTS/
+  network namespaces; no host mounts or devices;
+  rootfs-readonly; cap-drop-ALL / no-new-privileges / seccomp;
+  exact bounded storage/memory/swap/pids/CPU; controller-
+  private paths; and EMPIRICAL keyring denial under the
+  matching host UID. Matching UID is NOT proof of safe
+  containment. The later native artifact (308139304 bytes)
+  also needs a later justified native-size byte/time
+  measurement bound, not blind reuse of the X/Y Python
+  16 MiB/10 s bound. No implementation or experiment of those
+  later mechanisms in this increment.
+- Packaging: the helper is repository-only under the existing
+  policy (pyproject top-level `scripts` exclusion and the
+  artifact policy's forbidden `scripts/` prefix in BOTH
+  artifacts); it enters neither wheel nor sdist; its bytes are
+  bound by the committed source A identity and the clean
+  git-archive check, separate from the artifact input map. The
+  new test file refreshes the development provenance input map
+  normally (197 to 198 inputs); the wheel stays byte-identical;
+  no published RC record is rewritten.
+- Verification: 19 focused tests (48 collected cases) plus the
+  relevant original fixture suites unchanged; the complete
+  frozen development gate at the literal committed head; D09
+  remains NOT RUN; no v1 runtime delivery.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

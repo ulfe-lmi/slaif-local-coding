@@ -856,6 +856,43 @@ retried or relabeled; the measured outcome is recorded in
 the immutable round report; D09 remains NOT RUN; no v1
 runtime claim.
 
+Round 017-z adds the inert versioned fixture identity
+contract suite (`tests/test_cache_native_fixture_identity.py`,
+19 tests, 48 collected cases): the original 21002 exact
+description, closed-record round-trip and stable canonical
+configuration fingerprint (cross-bound to the unchanged
+production constants `CONTROLLER_UID`/`SUBJECT_UID`); the old
+21002 record law re-proved UNCHANGED through the production
+model validator (including its empty-group allowance — the new
+description law requiring exactly the primary GID is a new
+closed record, never a reinterpretation of old records); the
+INERT owner-UID derivation from one faithful eligible nonroot
+OS observation (each real/effective/saved triple equal,
+nonroot, distinct from the controller, groups exactly the
+primary GID — never host supplementary groups); the closed
+record codec (bounded bytes, exactly one mapping, no duplicate
+keys; malformed/duplicate/over-bound/missing/extra/
+contradictory fields, boolean/string/out-of-range/root/
+controller IDs and unknown profile/schema all refused with
+fixed non-echoing reasons); construction enforcing the
+complete field laws (no mutable alias retained, no oversized
+caller vector copied, no invalid field can exist in a
+description); the bounded READ-ONLY host-ID collector through
+a narrow fake OS-read seam (one raw read per collection,
+explicit unsupported/unavailable outcome, production data
+validation never bypassed) plus one ACTUAL safe current-host
+UID read exercised as OS-data-only evidence (never containment
+or executable capability); original/new profile isolation even
+for equal numeric tuples; deterministic fingerprints
+distinguishing every meaningful change; pure decoded/
+caller-authored data yielding no ready/admission/native
+authority (the public surface is the closed contract set); and
+import/use performing no external operation or existing
+fixture state change. No Docker, namespaces, native binary,
+model/Gateway or live fixture is invoked; no
+`.oap-local/017-z` root is created; D09 remains NOT RUN; no v1
+runtime claim.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

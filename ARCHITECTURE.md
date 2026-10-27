@@ -341,6 +341,40 @@ kernel/errno cause); the admission is terminal pass and is never
 reset, retried or relabeled; the measured outcome is recorded in the
 immutable round report. No native launch, no worker stop, no host
 signal; D09 remains `NOT RUN`.
+017-z lands the inert versioned fixture identity contract
+(`scripts/cache_native_fixture_identity.py`, software-only): two
+closed, explicitly named, immutable identity descriptions — the
+ORIGINAL fixed controller 21001 / subject 21002 profile (remains
+the CURRENT fixture identity; every old record/schema/constant
+meaning unchanged) and an INERT owner-UID candidate (subject
+UID/GID equal to the captured eligible host owner's
+real/effective/saved values, each triple's three values equal,
+nonroot, strict finite Linux IDs 1..4294967294, distinct from the
+controller identity; expected subject groups exactly the primary
+GID, never host supplementary groups) — with a strict closed
+record codec (bounded bytes, exactly one mapping, no duplicate
+keys; malformed/duplicate/over-bound/missing/extra/contradictory
+input refused with fixed non-echoing reasons), a deterministic
+canonical configuration fingerprint (a configuration digest that
+binds complete profile semantics — never a process hash, trusted
+identity receipt, admission, cache key or readiness certificate),
+and a bounded READ-ONLY host-owner-ID collector (direct stdlib
+getresuid/getresgid plus the simple uid/euid/gid/egid getters,
+one collection, explicit unsupported/unavailable outcome; no
+fs/proc traversal, no env/config/profile read, no network, no
+subprocess, no signal, no privilege mutation). Construction
+enforces the complete field laws, so no description with a
+mutable alias or an invalid field can exist. Typed objects,
+decoded data, profile names, fingerprints and caller flags NEVER
+establish measured authority: the contract selects no live
+profile, records no fixture admission and yields no ready/native
+verdict; the later sealed child must select a canonical profile,
+collect/freeze actual owner IDs, bind them to its ORIGINAL
+verified order/head/run and live admission before external work
+and revalidate the same context at use — described, not
+implemented here. 19 focused tests (48 collected cases); no
+actual fixture/Docker/admission/native work, no
+`.oap-local/017-z` root; D09 remains `NOT RUN`.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation
