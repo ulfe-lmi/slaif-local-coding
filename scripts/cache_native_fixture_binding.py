@@ -59,6 +59,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_native_fixture_ci as ci  # noqa: E402
+import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
 
 FixtureError = ci.FixtureError
 
@@ -73,6 +74,17 @@ _ORDER_ID_RE = re.compile(r"^[0-9]{3}-[a-z]{1,2}$")
 _HEAD_RE = re.compile(r"^[0-9a-f]{40}$")
 _RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _ORIGIN_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$")
+# The FIXED canonical future entries: each has exactly ONE
+# unique committed order path it may resolve at (the canonical
+# names owned by the runtime-profile module — the accepted
+# 017-ab sealed entry and the inert 017-ad native entry).  A
+# pattern-matching FOREIGN name for one of these ids is a
+# closed refusal before any admission or owner adoption; every
+# other (generic) order keeps the exact historical pattern law.
+_CANONICAL_ORDER_PATHS: dict[str, str] = {
+    rprofile.AB_ORDER_ID: rprofile.AB_ORDER_PATH,
+    rprofile.AD_ORDER_ID: rprofile.AD_ORDER_PATH,
+}
 _IDENT_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 _ORDER_NAME_RE_TPL = r"{oid}-[a-z0-9][a-z0-9._-]*\.md"
 
@@ -104,6 +116,7 @@ BIND_REASONS = frozenset(
         "bind-active-drift",
         "bind-active-committed-mismatch",
         "bind-order-ambiguous",
+        "bind-order-path-mismatch",
         "bind-order-missing",
         "bind-order-object",
         "bind-order-bytes",
@@ -392,6 +405,13 @@ def resolve_order_binding(
     if len(matches) != 1:
         raise FixtureError("bind-order-ambiguous")
     order_path = "oap/orders/" + matches[0]
+    # the fixed canonical future entries resolve ONLY at their
+    # own unique committed order path: a foreign pattern-
+    # matching name can never mint a canonical binding (a
+    # closed refusal BEFORE any admission or owner adoption)
+    canonical = _CANONICAL_ORDER_PATHS.get(oid)
+    if canonical is not None and order_path != canonical:
+        raise FixtureError("bind-order-path-mismatch")
     order_disk = _read_owned_regular(repo_path / order_path, _ORDER_READ_CAP, "bind-order-object")
     order_head = _git_query(git, repo_path, ("show", f"{bind_head}:{order_path}"))
     if hashlib.sha256(order_disk).hexdigest() != hashlib.sha256(order_head).hexdigest():

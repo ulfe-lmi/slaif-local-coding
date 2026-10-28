@@ -181,6 +181,28 @@ AB_ORDER_ID = rprofile.AB_ORDER_ID
 # native-scope records keep their original meaning byte-for-byte.
 AB_OWNER_RUN_EVIDENCE_SCHEMA = rprofile.AB_OWNER_RUN_EVIDENCE_SCHEMA
 AB_OWNER_RUN_SCOPE = rprofile.AB_OWNER_RUN_SCOPE
+# The canonical FUTURE 017-ad native-order entry (INERT in
+# 017-ac: input-gated, unqualified — never created, activated,
+# admitted or launched in this round).  It selects ONLY the
+# owner-UID profile and carries the DISTINCT versioned
+# identity-bearing record tags of the native handoff; this
+# constant names the entry and grants NO authority — actual
+# repository-context validation refuses it before fixture work
+# or admission under any other active order.
+AD_ORDER_ID = rprofile.AD_ORDER_ID
+# The DISTINCT identity-bearing owner-state tag of the 017-ad
+# entry (the AD owner publishes ONLY this form; the historical
+# v1 tag stays the strict 12-key original and rejects it).
+AD_STATE_SCHEMA = rprofile.AD_OWNER_STATE_SCHEMA
+# The DISTINCT closed owner-UID AD native terminal record
+# (017-ac): the SAME measured owner state, cleanup and
+# publication as the native-scope record, PLUS the frozen owner
+# identity substructure and the exact-CID teardown proof.  The
+# S and native-scope records keep their original meaning
+# byte-for-byte (the two tags are separate closed records, never
+# a widened grammar).
+AD_OWNER_RUN_EVIDENCE_SCHEMA = rprofile.AD_NATIVE_RUN_EVIDENCE_SCHEMA
+AD_OWNER_RUN_SCOPE = rprofile.AD_OWNER_RUN_SCOPE
 # The R CI-measured built-image identity (immutable R report fact at
 # 2ce9dcd): the local rebuild records whether it matches.
 R_CI_IMAGE_ID = "sha256:331e1a70ec585f6fb1494c8486faf77fb1e624cf5f0f5765f7c5bab83a92de94"
@@ -248,6 +270,7 @@ _LOCAL_REASONS = frozenset(
     {
         "local-hosted-env",
         "local-binding-invalid",
+        "local-ad-order-path-mismatch",
         "local-bounded-admission-missing",
         "local-deadline-offset-invalid",
         "local-bind-head-invalid",
@@ -1126,6 +1149,48 @@ def _validate_state_object(state: object, run_id: str) -> None:
     _validate_state_common_fields(state, "local-state-malformed")
 
 
+def _validate_identity_state_core(
+    state: dict,
+    run_id: str,
+    *,
+    tag: str,
+    entry_order: str,
+    token: str,
+) -> None:
+    """The shared private structural core of the DISTINCT
+    identity-bearing owner-state grammars (the AB and AD
+    wrappers): the shared 12 keys PLUS the closed identity
+    substructure — the frozen owner identity (the shared
+    structural law) and the full ORIGINAL verified order/head/
+    run binding (the entry's own order id, the literal bound
+    head and the admitted run id).  The tag and the data
+    fingerprint are integrity only — the binding ties this state
+    to the owner's OWN admitted attempt, and the sealed
+    composition's admission verification is what proves it;
+    nothing here is a measured-authority claim.  Each PUBLIC
+    wrapper keeps its own fixed refusal token, its own tag and
+    its own entry-order binding (the strict wrappers are
+    separate closed grammars — a tag is never widened across
+    entries, including for equal-numeric identities)."""
+    if not isinstance(state, dict) or set(state) != _STATE_BASE_KEYS | {
+        "identity",
+        "order",
+        "bind_head",
+    }:
+        raise FixtureError(token)
+    if state["record"] != tag or state["run_id"] != run_id:
+        raise FixtureError(token)
+    if not re.fullmatch(r"[0-9a-f]{32}", str(state["run_id"])):
+        raise FixtureError(token)
+    if state["order"] != entry_order:
+        raise FixtureError(token)
+    if not re.fullmatch(r"[0-9a-f]{40}", str(state["bind_head"])):
+        raise FixtureError(token)
+    if _identity_substructure_law(state["identity"]) is None:
+        raise FixtureError(token)
+    _validate_state_common_fields(state, token)
+
+
 def _validate_ab_state_object(state: object, run_id: str) -> None:
     """The DISTINCT identity-bearing AB owner-state grammar
     (``slaif-017ab-owner-state-v1``): the shared 12 keys PLUS the
@@ -1138,33 +1203,47 @@ def _validate_ab_state_object(state: object, run_id: str) -> None:
     admission verification is what proves it; nothing here is a
     measured-authority claim.  The old v1 tag is never widened to
     this record, and this tag is refused by the v1 consumer."""
-    if not isinstance(state, dict) or set(state) != _STATE_BASE_KEYS | {
-        "identity",
-        "order",
-        "bind_head",
-    }:
-        raise FixtureError("local-ab-state-malformed")
-    if state["record"] != AB_STATE_SCHEMA or state["run_id"] != run_id:
-        raise FixtureError("local-ab-state-malformed")
-    if not re.fullmatch(r"[0-9a-f]{32}", str(state["run_id"])):
-        raise FixtureError("local-ab-state-malformed")
-    if state["order"] != AB_ORDER_ID:
-        raise FixtureError("local-ab-state-malformed")
-    if not re.fullmatch(r"[0-9a-f]{40}", str(state["bind_head"])):
-        raise FixtureError("local-ab-state-malformed")
-    if _identity_substructure_law(state["identity"]) is None:
-        raise FixtureError("local-ab-state-malformed")
-    _validate_state_common_fields(state, "local-ab-state-malformed")
+    _validate_identity_state_core(
+        state,
+        run_id,
+        tag=AB_STATE_SCHEMA,
+        entry_order=AB_ORDER_ID,
+        token="local-ab-state-malformed",
+    )
+
+
+def _validate_ad_state_object(state: object, run_id: str) -> None:
+    """The DISTINCT identity-bearing AD owner-state grammar
+    (``slaif-017ad-owner-state-v1``): the SAME shared structural
+    law as the AB wrapper, under the canonical 017-ad entry's
+    OWN tag and order binding (the future native entry, INERT in
+    017-ac).  The AB tag is refused here and the v1 tag never
+    widened — explicit separate closed grammars for the new
+    physical identity, including for equal-numeric identities."""
+    _validate_identity_state_core(
+        state,
+        run_id,
+        tag=AD_STATE_SCHEMA,
+        entry_order=AD_ORDER_ID,
+        token="local-ad-state-malformed",
+    )
 
 
 def _write_state(path: Path, state: dict, *, ab: bool = False) -> None:
     """Atomic (same-directory tmp + rename) 0600 state publish.
     The validator follows the published FORM: the DISTINCT
-    identity-bearing AB state (``ab=True`` — the AB owner's own
-    form) is validated by the AB grammar; the original v1 form
-    keeps the strict 12-key law (the owner publishes exactly one
-    form, chosen by its OWN frozen context, never the caller's)."""
-    validator = _validate_ab_state_object if ab else _validate_state_object
+    identity-bearing state (``ab=True`` — the AB or AD owner's
+    own form) is validated by its OWN tag's grammar (the tag
+    selects the strict wrapper); the original v1 form keeps the
+    strict 12-key law (the owner publishes exactly one form,
+    chosen by its OWN frozen context, never the caller's)."""
+    tag = state["record"] if isinstance(state, dict) else None
+    if tag == AB_STATE_SCHEMA:
+        validator = _validate_ab_state_object
+    elif tag == AD_STATE_SCHEMA:
+        validator = _validate_ad_state_object
+    else:
+        validator = _validate_state_object
     validator(state, str(state["run_id"]))
     payload = (json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
     tmp = path.with_name(path.name + ".tmp")
@@ -1340,14 +1419,20 @@ def _state_record(control_dir, *, entry_order: str | None = None) -> dict | None
     foreign, oversized or malformed state.
 
     The entry-aware tag law: the historical v1 tag for the original
-    entries (``entry_order`` None or a non-AB sealed entry —
+    entries (``entry_order`` None or a non-owner-UID sealed entry —
     byte-for-byte the historical meaning) and the DISTINCT
-    identity-bearing AB tag for the canonical 017-ab entry (which
-    additionally requires the full closed AB binding and identity
-    substructures).  Each entry reads ONLY its own tag: a foreign
-    tag is not this entry's state, and the v1 grammar rejects an
-    identity-bearing record (the old tag is never widened)."""
-    tag = AB_STATE_SCHEMA if entry_order == AB_ORDER_ID else STATE_SCHEMA
+    identity-bearing AB/AD tags for the canonical 017-ab / 017-ad
+    entries (which additionally require the full closed binding and
+    identity substructures of their OWN entry).  Each entry reads
+    ONLY its own tag: a foreign tag is not this entry's state, and
+    the v1 grammar rejects an identity-bearing record (the old tag
+    is never widened)."""
+    if entry_order == AB_ORDER_ID:
+        tag = AB_STATE_SCHEMA
+    elif entry_order == AD_ORDER_ID:
+        tag = AD_STATE_SCHEMA
+    else:
+        tag = STATE_SCHEMA
     root = Path(control_dir)
     try:
         rstat = os.lstat(root)
@@ -1378,6 +1463,8 @@ def _state_record(control_dir, *, entry_order: str | None = None) -> dict | None
     try:
         if tag == AB_STATE_SCHEMA:
             _validate_ab_state_object(state, str(state["run_id"]))
+        elif tag == AD_STATE_SCHEMA:
+            _validate_ad_state_object(state, str(state["run_id"]))
         else:
             _validate_state_object(state, str(state["run_id"]))
     except (FixtureError, KeyError, TypeError, ValueError):
@@ -1903,8 +1990,8 @@ class LocalFixtureOwner:
             _admit_attempt(self.repo, self.optin["bind_head"], self.run_id)
         else:
             self.run_id = binding.run_id
-        # owner-UID AB branch (the canonical future sealed entry;
-        # 017-aa): AFTER the bound run identity is adopted and
+        # owner-UID branch (the canonical future sealed entries;
+        # 017-aa AB and 017-ac AD): AFTER the bound run identity is adopted and
         # BEFORE any external fixture work, the owner collects the
         # host owner IDs through the ONE raw read seam (the
         # faithful narrow fake seam for tests; production is the
@@ -1920,7 +2007,28 @@ class LocalFixtureOwner:
         # re-resolution).
         self.identity_reader: fidentity.IdentityReader | None = identity_reader
         self._owner_context: OwnerIdentityContext | None = None
-        if binding is not None and binding.order_id == rprofile.AB_ORDER_ID:
+        # BOTH canonical owner-UID sealed entries (AB and the
+        # future AD) select ONLY the owner-UID profile through
+        # the closed entry mapping; the original entries never
+        # collect (their owner context stays None and every
+        # original record/meaning stays byte-for-byte)
+        if binding is not None and binding.order_id in (
+            rprofile.AB_ORDER_ID,
+            rprofile.AD_ORDER_ID,
+        ):
+            # The fixed canonical 017-ad entry resolves ONLY at
+            # its unique committed order path (the resolver
+            # applies the same closed law): a directly-
+            # constructed binding carrying the AD order id at a
+            # foreign path can never adopt the frozen owner
+            # context — a closed refusal BEFORE any collection
+            # (the generic original orders keep the exact
+            # historical law).
+            if (
+                binding.order_id == rprofile.AD_ORDER_ID
+                and binding.order_path != rprofile.AD_ORDER_PATH
+            ):
+                raise FixtureError("local-ad-order-path-mismatch")
             reader = (
                 identity_reader
                 if identity_reader is not None
@@ -2134,12 +2242,17 @@ class LocalFixtureOwner:
         # (no owner context) keeps the 12-key state byte-for-byte.
         if self._owner_context is not None:
             ctx = self._owner_context
-            # The DISTINCT identity-bearing AB state tag (the v1
-            # tag is never widened to the new profile record) and
-            # the full ORIGINAL verified order/head/run binding
-            # frozen with the context (tag/fingerprint alone are
-            # integrity, never owner-ID origin).
-            state["record"] = AB_STATE_SCHEMA
+            # The DISTINCT identity-bearing state tag of THIS
+            # entry's OWN canonical form (the AB or AD tag — the
+            # v1 tag is never widened to the new profile record)
+            # and the full ORIGINAL verified order/head/run
+            # binding frozen with the context (tag/fingerprint
+            # alone are integrity, never owner-ID origin).
+            state["record"] = (
+                AB_STATE_SCHEMA
+                if ctx.order_id == AB_ORDER_ID
+                else AD_STATE_SCHEMA
+            )
             state["order"] = ctx.order_id
             state["bind_head"] = ctx.bind_head
             state["identity"] = {
@@ -3343,7 +3456,17 @@ class LocalFixtureOwner:
             )
             if self._native_binding is not None:
                 if self._owner_context is not None:
-                    validate_ab_owner_run_evidence(evidence)
+                    # The DISTINCT owner-UID terminal record of
+                    # THIS entry's OWN closed grammar (the tag
+                    # follows the owner's frozen context — the
+                    # AB entry's tag is never the AD entry's
+                    # record and vice versa; the original
+                    # native-scope grammar stays the no-owner
+                    # context path)
+                    if self._owner_context.order_id == AB_ORDER_ID:
+                        validate_ab_owner_run_evidence(evidence)
+                    else:
+                        validate_ad_owner_run_evidence(evidence)
                 else:
                     validate_native_owner_run_evidence(evidence)
             else:
@@ -3813,22 +3936,35 @@ class LocalFixtureOwner:
         evidence["scope"] = NATIVE_OWNER_RUN_SCOPE
         evidence["order"] = self._native_binding.order_id
         if self._owner_context is not None:
-            evidence.update(self._ab_evidence_extra())
+            evidence.update(self._owner_evidence_extra())
         return evidence
 
-    def _ab_evidence_extra(self) -> dict[str, object]:
-        """The AB-only terminal record extras (017-aa): the frozen
-        owner identity substructure (the canonical profile
-        description's measured context — collected and derived by
-        THIS owner, never caller-authored) and the exact-CID
-        teardown proof marker (the owner-UID subject removal proof
-        is exact registered CID membership; the S-shaped teardown
-        dict itself stays byte-for-byte the original)."""
+    def _owner_evidence_extra(self) -> dict[str, object]:
+        """The DISTINCT owner-UID terminal record extras (the
+        canonical 017-ab and 017-ad entries; 017-aa / 017-ac):
+        the frozen owner identity substructure (the canonical
+        profile description's measured context — collected and
+        derived by THIS owner, never caller-authored) and the
+        exact-CID teardown proof marker (the owner-UID subject
+        removal proof is exact registered CID membership; the
+        S-shaped teardown dict itself stays byte-for-byte the
+        original).  The tag/scope are THIS entry's OWN distinct
+        closed record form (the AB tag is never the AD entry's
+        record and vice versa — separate closed grammars, never
+        a widened grammar)."""
         assert self._owner_context is not None
         ctx = self._owner_context
         return {
-            "record": AB_OWNER_RUN_EVIDENCE_SCHEMA,
-            "scope": AB_OWNER_RUN_SCOPE,
+            "record": (
+                AB_OWNER_RUN_EVIDENCE_SCHEMA
+                if ctx.order_id == AB_ORDER_ID
+                else AD_OWNER_RUN_EVIDENCE_SCHEMA
+            ),
+            "scope": (
+                AB_OWNER_RUN_SCOPE
+                if ctx.order_id == AB_ORDER_ID
+                else AD_OWNER_RUN_SCOPE
+            ),
             "identity": {
                 "profile": ctx.profile.profile,
                 "fingerprint": ctx.fingerprint,
@@ -3852,7 +3988,7 @@ class LocalFixtureOwner:
         evidence["scope"] = NATIVE_OWNER_RUN_SCOPE
         evidence["order"] = self._native_binding.order_id
         if self._owner_context is not None:
-            evidence.update(self._ab_evidence_extra())
+            evidence.update(self._owner_evidence_extra())
         return evidence
 
 
@@ -4782,6 +4918,78 @@ def validate_ab_owner_run_evidence(record: dict) -> None:
         )
     except FixtureError:
         raise FixtureError("ab-owner-run-evidence-invalid") from None
+
+
+def validate_ad_owner_run_evidence(record: dict) -> None:
+    """Closed-schema validation of the DISTINCT owner-UID AD
+    terminal record (017-ac): the SAME closed measured owner
+    state, cleanup and publication law as the AB wrapper, under
+    the canonical 017-ad native entry's OWN distinct record/
+    scope tags and order binding:
+
+    * ``identity`` — the frozen owner identity substructure
+      THIS owner collected and derived (never caller-authored),
+      through the SAME shared structural core (canonical
+      profile name, strict ID laws, one-element primary-GID
+      group vector, production codec re-derivation of both
+      digests) — closed data integrity, never a measured-
+      authority claim;
+    * ``teardown_proof`` — the literal exact-CID-membership
+      marker (the owner-UID subject removal proof is exact
+      registered-CID lifetime membership; the S-shaped teardown
+      dict stays byte-for-byte the original).
+
+    The order is the CANONICAL 017-ad entry ONLY: an AD-tagged
+    record of any other order id is refused, and the AB tag is
+    a separate closed grammar (never widened to the AD entry,
+    including for equal-numeric identities).  Every shared
+    measured substructure is validated through the SAME private
+    S-shaped structural core over the AD extras stripped — with
+    the frozen AD subject UID/GID and the derived owner tmpfs
+    budgets wired through (the measured owner facts are
+    validated as-is, NEVER normalized to 21002; the public v1
+    S/native/AB wrappers keep their closed laws byte-for-byte).
+    """
+    if not isinstance(record, dict):
+        raise FixtureError("ad-owner-run-evidence-invalid")
+    if (
+        record.get("record") != AD_OWNER_RUN_EVIDENCE_SCHEMA
+        or record.get("scope") != AD_OWNER_RUN_SCOPE
+        or record.get("status") not in ("pass", "fail")
+    ):
+        raise FixtureError("ad-owner-run-evidence-invalid")
+    # The canonical 017-ad entry ONLY: the AD-tagged grammar is
+    # the distinct owner-UID record of 017-ad, and no other
+    # order id may carry it (the AB tag and the native-scope
+    # generic order law are separate closed grammars).
+    if record.get("order") != AD_ORDER_ID:
+        raise FixtureError("ad-owner-run-evidence-invalid")
+    if record.get("teardown_proof") != "exact-cid-membership":
+        raise FixtureError("ad-owner-run-evidence-invalid")
+    identity = record.get("identity")
+    law = _identity_substructure_law(identity)
+    if law is None:
+        raise FixtureError("ad-owner-run-evidence-invalid")
+    subject_uid, subject_gid, _expected_groups, description = law
+    reduced = {
+        key: value for key, value in record.items() if key not in ("identity", "teardown_proof")
+    }
+    reduced["record"] = NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
+    reduced["scope"] = NATIVE_OWNER_RUN_SCOPE
+    try:
+        _native_key_grammar(reduced)
+    except FixtureError:
+        raise FixtureError("ad-owner-run-evidence-invalid") from None
+    try:
+        profile_view = rprofile.owner_runtime_profile(description)
+        _validate_local_evidence_core(
+            _native_s_envelope(reduced),
+            subject_uid=subject_uid,
+            subject_gid=subject_gid,
+            tmpfs_budgets=ci.owner_tmpfs_budgets(profile_view),
+        )
+    except FixtureError:
+        raise FixtureError("ad-owner-run-evidence-invalid") from None
 
 
 # -- the sealed owner launch + the thin rehearsal driver ----------------------------

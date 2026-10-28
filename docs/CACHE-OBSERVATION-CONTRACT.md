@@ -2921,6 +2921,192 @@ suites 92/92 under frozen Python 3.12/umask 022, and all
   measured outcome is recorded in the immutable round
   report. D09 remains NOT RUN; no v1 runtime claim.
 
+### 11l. Round 017-ac: owner-UID native handoff
+integration (software-only)
+
+Round 017-ac integrates the existing owner-UID fixture
+composition with the native handoff path on the same
+PR25 (amend; software-only — no actual local
+Docker/fixture/owner startup or admission, no native
+launch (including help/version), no worker stop, no real
+host signal, no model/Gateway call, no new runner,
+supervisor, watchdog, transport, privilege channel or
+framework; no adapter/runtime/parser/cache/compiler/
+image/Gateway/model/dependency/lock/workflow behavior
+change).
+
+- The ONE canonical future sealed entry `017-ad` is
+  fixed now but INERT, input-gated and UNQUALIFIED: its
+  entry constant names the unique order path
+  `oap/orders/017-ad-owner-uid-native-handoff-qualification.md`
+  required for the LATER strategic activation — not an
+  already-committed or activated AD order, no run
+  authority, and the real AD order file is ABSENT from
+  this checkout (the prior unauthorized stray file was
+  removed; the incident is disclosed in the round
+  report); actual repository-context validation
+  refuses the entry under AC-active BEFORE any
+  external work or admission, proven only in hermetic
+  synthetic repositories (never in the real checkout);
+  no arbitrary order/profile switch; the original
+  S/X/Y/AB entries, sealed pairs, defaults and
+  consumed namespaces are unchanged.
+- Identity: the SAME real owner's OWN bounded OS
+  identity collection — frozen in the owner's immutable
+  context AFTER its ORIGINAL won admission, BEFORE
+  external work (real/effective/saved UID and GID
+  triples each equal, nonroot, 1..4294967294, distinct
+  from the controller 21001; expected effective groups
+  exactly the primary GID, never host supplementary
+  groups) — is carried through the EXISTING public
+  NativeOwnerRun / preparation / measurement / evidence
+  composition, and the SAME frozen context is revalidated
+  by comparison at EVERY identity-bound use —
+  construction, prepare, hold start, finish AND the
+  public staged registration — never rebased or
+  re-frozen; a caller description/fingerprint/ready
+  flag, serialized receipt, matching numbers, foreign
+  owner or fresh resolution never proves origin; an AD
+  owner without a frozen context is a closed refusal,
+  never a silent original-profile fallback.
+- The FROZEN owner context is revalidated at the public
+  staged registration (the bounded current-ID coherence
+  read through the SAME seam, compared to the frozen
+  fingerprint): a host identity that drifted after the
+  measured stop is refused at registration BEFORE any
+  channel construction or receipt commit — nothing is
+  committed (no baseline, receipt or stop change), the
+  frozen context is never rebased, and the same won
+  attempt converges honestly (the original profile keeps
+  its context None and is a no-op, unchanged).
+- DISTINCT versioned identity-bearing tags wherever the
+  original or AB-only tags cannot honestly represent AD
+  (the original fixed-21002 and the AB consumers stay
+  strict, including equal-numeric cross-profile
+  separation; shared profile-independent cores keep
+  their unchanged closed meaning): the AD state form
+  `slaif-017ad-owner-state-v1`, the AD preparation
+  snapshot `slaif-017ad-native-handoff-prep-v1`, the AD
+  owner-run evidence
+  `slaif-017ad-native-owner-run-evidence-v1`, the AD
+  native-owner evidence
+  `slaif-017ad-native-owner-evidence-v1` (the frozen
+  owner-identity substructure cross-bound to the outer
+  record) and the AD native-run terminal record
+  `slaif-017ad-native-owner-run-v1`; data
+  validation/integrity stays distinct from measured
+  authority.
+- The canonical AD entry resolves ONLY at the unique
+  order path named by the entry constant: a
+  directly-constructed AD binding at a foreign path is
+  refused BEFORE the admission or the owner adoption
+  (the generic original orders keep their exact
+  historical law).
+- Subject registration binds THIS prepared owner's
+  ACTUAL registered CID and artifact, the actual fresh
+  PID/birth/UID/GID/groups, the exact argv
+  `codex --yolo --profile early-beta` and a nonzero
+  actually matched expected PTY: foreign
+  expected/channel/artifact, stale stop, ambiguous/
+  reused subject, unbound tty0 or unknown still-existing
+  inventory member refuses without committing a receipt;
+  a refused registration commits nothing and a later
+  genuinely matching registration within the same
+  still-valid phase remains possible.
+- The retained-record consumers stay coherent with the
+  ORIGINAL frozen workflow context: the bound workflow's
+  finalize composes a ready verdict ONLY for the
+  DISTINCT identity-bearing AD tag carrying the SAME
+  frozen owner-identity substructure as the workflow's
+  frozen subject law (a valid FOREIGN frozen identity
+  can never become ready, never adopted); the EXACT
+  tag-pair law keeps the original tag for the historical
+  entries ONLY — an original-tag record of the AD order
+  is a closed refusal at the record grammar (the AD tag
+  stays the 017-ad form), while the historical orders of
+  the original tag parse unchanged.
+- Native executable measurement: ACTUAL current bytes
+  through the EXISTING unprivileged registered-CID
+  channel, coherent before/after lifetime/identity/CID/
+  current-exe frames, bounded streaming (not full-file
+  buffering) at exactly 320 MiB (335544320 bytes) and
+  10 s per measurement, further clamped AT USE to the
+  SAME remaining owner END (the cleanup grace is
+  convergence, never fresh measurement); overbound/
+  slow/unreadable/raced remains a closed refusal/unknown
+  with no expected-artifact fallback, automatic ceiling
+  increase or refreshed deadline; the original Python
+  16 MiB / 10 s bound and the historical entries are
+  unchanged; no ptrace/prctl/proc/kernel/privileged
+  helper.
+- One owner / RAM context / absolute 1800 s END /
+  cumulative ledger / single 600 s cleanup grace;
+  existing resource/confinement limits unchanged; no
+  global owner-UID membership/cleanup scan (exact
+  registered-CID plus owned PID/birth lifetimes with
+  tri-state absence; a failed query never absence; the
+  unrelated same-UID worker/sentinel survives).
+- Native owner evidence FIRST, protected native
+  terminal record SECOND, SAME pending pass
+  finalization LAST: actual journal read, one-shot
+  publication, fail-if-exists, no fresh-path retry, no
+  second publication or journal reset.
+- The NEW `tests/test_cache_native_fixture_native_handoff.py`
+  suite (22 tests) names its layers.  The COUPLED
+  public-lifecycle layer (13 tests) drives the REAL
+  constructor/admission/prepare/stop/register/observe/
+  finish/restore/publish over ONE coherent coupled
+  fake process world (bash 40, worker 50 with an
+  unrelated SAME-UID frame, native subject 60 held
+  out): the useful 1001:1002 positive with the distinct
+  identity-bearing record tags at every retained layer
+  and the same frozen identity carried through all of
+  them; alive-at-finish quiesce refusal (fail evidence
+  keeps the FROZEN identity); unreadable/leftover
+  lifetime-frame refusals; the default-channel factory
+  bound to THIS owner's registered CID + the SAME
+  absolute owner END; expired-anchor patience before
+  the factory; foreign registration commits nothing
+  then a valid registration works; post-admission
+  drift refused at the identity use (terminal fail,
+  frozen identity in the fail evidence); post-PREPARE
+  registration drift refused with NO commit and no
+  rebase (same attempt aborted); the finalize
+  foreign-identity and original-tag refusals with the
+  unmutated ready control; prepare-only honest
+  not-ready; second publication one-shot; pre-existing
+  destination refusal.  The named pure-data layer (4
+  tests) covers the frozen subject-identity
+  construction law, the original-vs-frozen disjoint
+  laws, the AD channel closed fields (335544320 /
+  10.0 / the exe END) and the retained-record consumer
+  grammar (a foreign-path record refused).  The named
+  admission/constructor layer (5 tests) covers the
+  three pre-admission AC-active/canonical-path/
+  foreign-path refusals over owned synthetic
+  repositories and the two post-admission
+  uncollected/mismatched-identity constructor
+  failures closing the SAME won attempt terminal
+  fail.  EVERY started test
+  owner is reaped in a per-test finally before
+  monkeypatch teardown (the bounded exact-owner abort
+  is issued only while still held; an already-
+  converged owner is simply joined, so a positive
+  test finishes normally and stays a pass; no
+  framework, no host cleanup); a global subject-UID
+  scan is trapped and never called (the controller-UID
+  scan keeps its closed historical semantics). Fake
+  platform only: useful software integration, NEVER
+  sealed-real-owner/native/host readiness. The original
+  S/X/Y/AB suites retain their recorded checkpoints (ci
+  224, local 50, native_prep 124, native_owner 19,
+  standin 102, identity 48, exec_capability 52,
+  owner_uid 40, binding 45, controller 33 — 759 fixture
+  cases green under frozen Python 3.12 / umask 022).
+  D09 remains NOT RUN; no native-ready or v1 runtime
+  claim. The later serial native handoff remains the
+  separately authorized `017-ad` order.
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

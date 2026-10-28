@@ -467,6 +467,86 @@ mandatory. The admission is terminal pass and is never
 reset, retried or relabeled; the measured outcome is
 recorded in the immutable round report. D09 remains
 `NOT RUN`.
+017-ac integrates the existing owner-UID fixture
+composition with the native handoff path (software-only,
+amending PR25): the ONE canonical future sealed entry `017-ad` is
+fixed now but INERT, input-gated and UNQUALIFIED — its
+entry constant names the unique order path
+`oap/orders/017-ad-owner-uid-native-handoff-qualification.md`
+required for the LATER strategic activation (not an
+already-committed or activated AD order, no run
+authority; the real AD order file is absent from this
+checkout — the incident is disclosed in the round
+report) — actual repository-context validation
+refuses it under AC-active BEFORE any external work
+or admission (hermetic synthetic repositories only,
+never the real checkout).
+The SAME real owner's OWN bounded OS identity
+collection — frozen after its ORIGINAL won admission,
+before external work — is carried through the EXISTING
+public NativeOwnerRun / preparation / measurement /
+evidence composition: the frozen owner image/exec/
+stand-in/native subject, expected PTY, staged
+registration, owner evidence, native terminal record,
+closed consumer verdict and same-attempt finalization
+all use the SAME frozen context — revalidated by
+comparison at EVERY identity-bound use (construction,
+prepare, hold start, finish AND registration), never
+rebased; a host identity that drifted after the
+measured stop is refused at registration before any
+channel construction or receipt commit, commits
+nothing, and the same won attempt converges honestly.
+DISTINCT versioned identity-bearing tags are introduced
+wherever the original or AB-only tags cannot honestly
+represent AD (the original fixed-21002 and the AB
+consumers stay strict, including equal-numeric
+cross-profile separation); the retained-record
+consumers stay coherent with the ORIGINAL frozen
+workflow context (a valid foreign frozen identity, or a
+relabeled original-tag record of the AD order, can
+never become ready — the exact tag-pair law keeps the
+original tag for the historical entries only). The
+native executable measurement uses the ACTUAL current
+bytes through the EXISTING unprivileged registered-CID
+channel with coherent before/after frames and bounded
+streaming at exactly 320 MiB / 10 s clamped at USE to
+the SAME remaining owner END (overbound/slow/
+unreadable/raced a closed refusal/unknown, no
+artifact-hash fallback; the original Python 16 MiB /
+10 s bound unchanged). No global owner-UID
+membership/cleanup scan (exact registered-CID plus
+owned PID/birth lifetimes, tri-state absence; the
+unrelated same-UID worker survives with the SAME
+uid/gid/birth).  The new
+`tests/test_cache_native_fixture_native_handoff.py`
+suite (22 tests, three named layers) covers the
+ACTUAL public composition: its COUPLED
+public-lifecycle layer drives the REAL
+constructor/admission/prepare/stop/register/observe/
+finish/restore/publish over ONE coherent coupled
+fake process world (the useful 1001:1002 positive
+and the coupled contrasts, including the
+post-PREPARE registration drift with no commit and
+no rebase); its named pure-data and
+admission/constructor layers cover the frozen
+subject-identity construction law, the AD channel
+closed fields, the retained-record consumer grammar,
+the three pre-admission
+AC-active/canonical-path/foreign-path refusals and
+the two post-admission
+uncollected/mismatched-identity constructor failures
+(over owned synthetic repositories).  EVERY
+started test owner is reaped in a per-test finally
+before monkeypatch teardown (the bounded exact-owner
+abort is issued only while still held; an
+already-converged owner is simply joined, so a
+positive test finishes normally and stays a pass; no
+framework, no host cleanup). NO actual local
+Docker/fixture/owner startup or admission, NO native
+launch, NO worker stop, NO real host signal, NO
+model/Gateway call; the later serial native handoff
+remains the separately authorized `017-ad` order. D09
+remains `NOT RUN`; no native-ready or v1 runtime claim.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

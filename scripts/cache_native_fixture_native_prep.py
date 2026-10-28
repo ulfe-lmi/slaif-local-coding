@@ -130,6 +130,7 @@ bounded real /proc reader.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import stat
@@ -142,12 +143,28 @@ from typing import Protocol
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_native_fixture_binding as binding  # noqa: E402
+import cache_native_fixture_identity as fidentity  # noqa: E402
+import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
 import cache_native_fixture_ci as ci  # noqa: E402
 
 FixtureError = ci.FixtureError
 OrderRunBinding = binding.OrderRunBinding  # typed alias for the public seam
 
 NATIVE_PREP_SCHEMA = "slaif-native-handoff-prep-v1"
+# The DISTINCT identity-bearing prep-snapshot tag of the
+# canonical FUTURE 017-ad native handoff (INERT in this
+# round): the SAME closed W/B birth/group/session/TTY
+# baseline and measured subject facts as the original tag,
+# PLUS the frozen owner-identity substructure the real
+# owner collected and derived — and the strict law that the
+# subject of an AD-bound snapshot satisfies the frozen
+# owner-UID identity (never the fixed 21002 law, and never
+# a caller assertion).  The original tag keeps its exact
+# historical fixed-21002 meaning byte-for-byte and refuses
+# BOTH the identity key and any 017-ad binding (the tags are
+# separate closed records, never a widened grammar —
+# including for equal-numeric identities).
+AD_NATIVE_PREP_SCHEMA = "slaif-017ad-native-handoff-prep-v1"
 OWNER_FACTS_SCHEMA = "slaif-native-handoff-owner-facts-v1"
 # The owner's retained evidence schema (017-s record).  Its
 # meaning is preserved unchanged: its safety flags describe the
@@ -227,6 +244,8 @@ PREP_REASONS = frozenset(
         "prep-owner-run-mismatch",
         "prep-owner-order-mismatch",
         "prep-owner-head-mismatch",
+        "prep-owner-schema-mismatch",
+        "prep-owner-identity-mismatch",
         "prep-subject-run-mismatch",
         "prep-not-prepared",
         "prep-subject-registered",
@@ -242,6 +261,12 @@ PREP_REASONS = frozenset(
         "prep-export-invalid",
         "prep-native-owner-record-malformed",
         "prep-native-owner-context-mismatch",
+        "prep-frozen-identity-invalid",
+        "prep-frozen-identity-root",
+        "prep-frozen-identity-range",
+        "prep-frozen-identity-controller",
+        "prep-frozen-identity-groups",
+        "prep-channel-end-invalid",
     }
 )
 
@@ -850,25 +875,76 @@ def argv_digest(argv: Sequence[str]) -> str:
 
 
 def _check_identity_fields(
-    uid: object, gid: object, groups: object, argv: object, tty: int
+    uid: object, gid: object, groups: object, argv: object, tty: int,
+    subject_identity: tuple[int, int, tuple[int, ...]] | None = None,
 ) -> None:
     """The closed identity law, shared by the collector and the
     retained-record validator: every mismatch is a fixed closed
     refusal; nothing is echoed."""
-    if not _is_strict_int(uid) or uid != SUBJECT_UID:
+    if subject_identity is None:
+        # the ORIGINAL fixed-21002 law, byte-for-byte the
+        # historical one (no frozen identity supplied)
+        exp_uid = SUBJECT_UID
+        exp_gid = SUBJECT_GID
+        exp_group_variants = SUBJECT_GROUP_VARIANTS
+    else:
+        # the FROZEN owner-UID subject identity (the future
+        # 017-ad native handoff): the measured subject must be
+        # EXACTLY this closed triple — the fixed native argv and
+        # tty laws are unchanged; the triple itself was already
+        # closed-validated at workflow construction (this is
+        # data, never a per-read re-derivation)
+        exp_uid, exp_gid, frozen_groups = subject_identity
+        exp_group_variants = ((), frozen_groups)
+    if not _is_strict_int(uid) or uid != exp_uid:
         raise FixtureError("prep-uid-invalid")
-    if not _is_strict_int(gid) or gid != SUBJECT_GID:
+    if not _is_strict_int(gid) or gid != exp_gid:
         raise FixtureError("prep-gid-invalid")
     if (
         not isinstance(groups, (list, tuple))
         or any(not _is_strict_int(g) for g in groups)
-        or tuple(groups) not in SUBJECT_GROUP_VARIANTS
+        or tuple(groups) not in exp_group_variants
     ):
         raise FixtureError("prep-groups-invalid")
     if not isinstance(argv, (list, tuple)) or tuple(argv) != SUBJECT_ARGV:
         raise FixtureError("prep-argv-invalid")
     if not _is_strict_int(tty):
         raise FixtureError("prep-tty-invalid")
+
+
+def _validate_frozen_subject_identity(identity: object) -> tuple[int, int, tuple[int, ...]]:
+    """The closed law of the FROZEN owner-UID subject identity a
+    017-ad native workflow may apply in place of the original
+    fixed 21002: strict finite non-root Linux IDs (the Z
+    eligible-ID law — 1..4294967294, never 0, distinct from the
+    controller identity 21001) and groups EXACTLY the
+    one-element primary-GID vector (never host supplementary
+    groups, never an empty vector).  The frozen triple is DATA
+    (collected and derived by the real owner's own bounded OS
+    identity collection — never caller authority); this check
+    is data validation, not measured authority.  The original
+    workflow (no frozen identity) keeps the fixed-21002 law
+    byte-for-byte."""
+    if not isinstance(identity, tuple) or len(identity) != 3:
+        raise FixtureError("prep-frozen-identity-invalid")
+    uid, gid, groups = identity
+    for value in (uid, gid):
+        if not _is_strict_int(value):
+            raise FixtureError("prep-frozen-identity-invalid")
+        if value == 0:
+            raise FixtureError("prep-frozen-identity-root")
+        if value < 1 or value > 4294967294:
+            raise FixtureError("prep-frozen-identity-range")
+        if value == fidentity.CONTROLLER_UID or value == fidentity.CONTROLLER_GID:
+            raise FixtureError("prep-frozen-identity-controller")
+    if (
+        not isinstance(groups, tuple)
+        or len(groups) != 1
+        or not _is_strict_int(groups[0])
+        or groups[0] != gid
+    ):
+        raise FixtureError("prep-frozen-identity-groups")
+    return (uid, gid, groups)
 
 
 _CGROUP_MAX = 8192
@@ -961,13 +1037,27 @@ class RealCidScopedTable:
         root: Path = Path("/proc"),
         max_exe_bytes: int = 1 << 30,
         exe_deadline: float = 60.0,
+        exe_end: float | None = None,
     ) -> None:
         if not isinstance(cid, str) or _CID_RE.fullmatch(cid) is None:
             raise FixtureError("prep-cid-invalid")
+        if exe_end is not None and (
+            not isinstance(exe_end, (int, float))
+            or isinstance(exe_end, bool)
+            or not math.isfinite(exe_end)
+        ):
+            raise FixtureError("prep-channel-end-invalid")
         self._cid = cid
         self._root = root
         self._max_exe_bytes = max_exe_bytes
         self._exe_deadline = exe_deadline
+        # the ABSOLUTE owner-END clamp (017-ad): when bound, the
+        # effective deadline of EVERY actual exe read/return is
+        # further clamped to this SAME absolute anchor — a
+        # channel reused later can never refresh the window
+        # (a relative captured duration is a per-measurement
+        # cap only, never an extended budget)
+        self._exe_end = None if exe_end is None else float(exe_end)
 
     @property
     def cid(self) -> str:
@@ -1091,24 +1181,53 @@ class RealCidScopedTable:
         digest = hashlib.sha256()
         total = 0
         deadline = time.monotonic() + self._exe_deadline
+        # the ABSOLUTE owner-END clamp (017-ad): the effective
+        # deadline is the EARLIER of the relative
+        # per-measurement cap and the SAME absolute anchor —
+        # re-checked at EVERY actual read/return below, so a
+        # channel registered earlier and reused later can never
+        # refresh its window (no captured phase duration, no
+        # fresh budget, no cleanup-grace measurement)
+        if self._exe_end is not None:
+            deadline = min(deadline, self._exe_end)
         first = None
         try:
             first = os.fstat(fd)
             if not stat.S_ISREG(first.st_mode):
                 raise FixtureError("prep-exe-unreadable")
+            # first-fstat size rejection: a regular file that
+            # ALREADY exceeds the byte cap is refused before any
+            # byte is read — a finite cap never authorizes a
+            # whole unrelated chunk
+            if first.st_size > self._max_exe_bytes:
+                raise FixtureError("prep-proc-overbound")
             while True:
                 if time.monotonic() > deadline:
                     raise FixtureError("prep-exe-timeout")
-                chunk = os.read(fd, 1 << 20)
+                # remaining-cap read clamp: at most the cap plus
+                # ONE EOF sentinel byte is ever requested, so a
+                # file that grows past the cap between the fstat
+                # and a later read is refused after at most
+                # cap+1 actual bytes (never a proportional copy)
+                remaining = self._max_exe_bytes + 1 - total
+                chunk = os.read(fd, min(1 << 20, remaining))
                 if not chunk:
                     break
                 total += len(chunk)
                 if total > self._max_exe_bytes:
                     raise FixtureError("prep-proc-overbound")
                 digest.update(chunk)
+            # return-time expiry: an EOF read that returned
+            # after the deadline crossed can never yield a
+            # qualifying digest
+            if time.monotonic() > deadline:
+                raise FixtureError("prep-exe-timeout")
             last = os.fstat(fd)
             if last.st_dev != first.st_dev or last.st_ino != first.st_ino:
                 raise FixtureError("prep-exe-unreadable")
+            # final-frame return-time expiry
+            if time.monotonic() > deadline:
+                raise FixtureError("prep-exe-timeout")
         except FixtureError:
             raise
         except OSError:
@@ -1146,10 +1265,17 @@ class RealCidScopedTable:
                 os.close(check_fd)
             except OSError:
                 pass
+        # re-open frame return-time expiry
+        if time.monotonic() > deadline:
+            raise FixtureError("prep-exe-timeout")
         # identity binding AFTER the measurement: a PID/exec
         # reused mid-hash is not the measured process
         if self._birth(pid) != birth:
             raise FixtureError("prep-subject-invalid")
+        # post-measurement identity read return-time expiry:
+        # an expired context never returns a qualifying digest
+        if time.monotonic() > deadline:
+            raise FixtureError("prep-exe-timeout")
         return digest.hexdigest()
 
 
@@ -1169,6 +1295,7 @@ def collect_subject_identity(
     expectation: object,
     *,
     channel: CidScopedTable | None = None,
+    subject_identity: tuple[int, int, tuple[int, ...]] | None = None,
 ) -> SubjectIdentity:
     """Collect and validate the native subject identity
     READ-ONLY.  The runtime subject view: when the registered
@@ -1193,6 +1320,15 @@ def collect_subject_identity(
     bound (min_start_time None) stays unproven: ``start_bound``
     is False, never True-by-default.  Vanished/unreadable is a
     closed refusal."""
+    # the frozen owner-UID subject identity (017-ad): closed-
+    # validated ONCE here (the same law the workflow applies at
+    # construction); None keeps the original fixed-21002 law
+    # byte-for-byte
+    subject_identity = (
+        _validate_frozen_subject_identity(subject_identity)
+        if subject_identity is not None
+        else None
+    )
     exp = _validate_expectation(expectation)
     if not _is_pid(subject_pid):
         raise FixtureError("prep-subject-invalid")
@@ -1216,7 +1352,7 @@ def collect_subject_identity(
         raise FixtureError("prep-tty-invalid")
     if exp.min_start_time is not None and ps.start_time < exp.min_start_time:
         raise FixtureError("prep-start-unbound")
-    _check_identity_fields(uid, gid, groups, argv, ps.tty)
+    _check_identity_fields(uid, gid, groups, argv, ps.tty, subject_identity=subject_identity)
     measured_binary: str | None = None
     if channel is not None:
         measured_binary = channel.exe_sha256(subject_pid, ps.start_time)
@@ -1298,7 +1434,11 @@ _SUBJECT_KEYS = frozenset(
 )
 
 
-def validate_subject_identity(record: object, expectation: object) -> SubjectIdentity:
+def validate_subject_identity(
+    record: object,
+    expectation: object,
+    subject_identity: tuple[int, int, tuple[int, ...]] | None = None,
+) -> SubjectIdentity:
     """Validate a RETAINED (serialized) subject-identity record
     against the expectation: exact closed keys and strict
     types, the closed identity law, the recomputed argv digest
@@ -1311,6 +1451,11 @@ def validate_subject_identity(record: object, expectation: object) -> SubjectIde
     non-echoing refusal.  An unbound birth (``start_bound``
     false with no min bound to reprove) is incomplete, not
     ready — the verdict composes it as not-ready."""
+    subject_identity = (
+        _validate_frozen_subject_identity(subject_identity)
+        if subject_identity is not None
+        else None
+    )
     exp = _validate_expectation(expectation)
     if not isinstance(record, Mapping) or set(record) != _SUBJECT_KEYS:
         raise FixtureError("prep-record-malformed")
@@ -1366,7 +1511,12 @@ def validate_subject_identity(record: object, expectation: object) -> SubjectIde
     if exp.expected_tty is not None and values["tty"] != exp.expected_tty:
         raise FixtureError("prep-tty-invalid")
     _check_identity_fields(
-        values["uid"], values["gid"], tuple(values["groups"]), values["argv"], values["tty"]
+        values["uid"],
+        values["gid"],
+        tuple(values["groups"]),
+        values["argv"],
+        values["tty"],
+        subject_identity=subject_identity,
     )
     return SubjectIdentity(
         source=NATIVE_SOURCE,
@@ -1749,6 +1899,15 @@ def expectation_from_owner(
 # compatible.
 NATIVE_OWNER_SCHEMA = "slaif-native-owner-evidence-v1"
 NATIVE_OWNER_PRODUCER = "native-owner"
+# The DISTINCT identity-bearing native-owner evidence tag of
+# the future 017-ad native handoff (INERT in this round): the
+# SAME closed native-scope measured facts as the original tag
+# PLUS the frozen owner-identity substructure the real owner
+# collected and derived (never caller-authored).  The original
+# tag keeps its exact historical key set and refuses any
+# identity key — the two tags are separate closed records,
+# never a widened grammar.
+AD_NATIVE_OWNER_SCHEMA = "slaif-017ad-native-owner-evidence-v1"
 # the CLOSED native-owner record grammar: the exact top-level
 # key set and the exact nested object key sets.  Anything else
 # (unknown, missing, or non-mapping nested keys) is a closed
@@ -1799,6 +1958,11 @@ class NativeOwnerFacts:
     executable identity (``binary_sha256``) is the measured
     half of the immutable image binding: the later subject's
     MEASURED exe identity must match it."""
+    # the frozen owner-identity substructure of the DISTINCT
+    # 017-ad identity-bearing record (closed data integrity —
+    # never a measured-authority claim); None for the original
+    # tag, which carries no identity key at all
+    identity: tuple[int, int, tuple[int, ...]] | None
 
     schema: str
     producer: str
@@ -1821,6 +1985,110 @@ class NativeOwnerFacts:
     native_ready: bool
 
 
+def _ad_identity_substructure_law(
+    identity: object,
+) -> tuple[int, int, tuple[int, ...]] | None:
+    """The closed structural law of the 017-ad record's frozen
+    owner-identity substructure: the exact six keys, the
+    canonical owner-UID profile name, strict nonroot finite
+    Linux IDs distinct from the controller, the one-element
+    primary-GID group vector, and the 64-hex canonical
+    fingerprint and profile-DATA digest — with the production
+    codec re-deriving the canonical record from the retained
+    IDs (controller fixed 21001/21001) and BOTH digests
+    verified against it.  Returns the frozen ``(uid, gid,
+    groups)`` or None (the public consumer keeps its own fixed
+    refusal token).  This is closed data integrity — never a
+    measured-authority claim (a caller-authored valid
+    substructure is still only data)."""
+    if not isinstance(identity, dict) or set(identity) != {
+        "profile",
+        "fingerprint",
+        "subject_uid",
+        "subject_gid",
+        "subject_groups",
+        "profile_data_sha256",
+    }:
+        return None
+    profile = identity["profile"]
+    fingerprint = identity["fingerprint"]
+    subject_uid = identity["subject_uid"]
+    subject_gid = identity["subject_gid"]
+    subject_groups = identity["subject_groups"]
+    profile_data_sha256 = identity["profile_data_sha256"]
+    if (
+        profile != fidentity.PROFILE_OWNER_UID
+        or not isinstance(fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", fingerprint) is None
+        or isinstance(subject_uid, bool)
+        or not isinstance(subject_uid, int)
+        or isinstance(subject_gid, bool)
+        or not isinstance(subject_gid, int)
+        or not (fidentity.LINUX_ID_MIN <= subject_uid <= fidentity.LINUX_ID_MAX)
+        or not (fidentity.LINUX_ID_MIN <= subject_gid <= fidentity.LINUX_ID_MAX)
+        or not isinstance(subject_groups, list)
+        or len(subject_groups) != 1
+        or isinstance(subject_groups[0], bool)
+        or not isinstance(subject_groups[0], int)
+        or subject_groups[0] != subject_gid
+        or not isinstance(profile_data_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", profile_data_sha256) is None
+    ):
+        return None
+    try:
+        description = fidentity.FixtureIdentityDescription(
+            profile=profile,
+            controller_uid=fidentity.CONTROLLER_UID,
+            controller_gid=fidentity.CONTROLLER_GID,
+            subject_uid=subject_uid,
+            subject_gid=subject_gid,
+            subject_groups=(subject_gid,),
+        )
+    except fidentity.FixtureIdentityError:
+        return None
+    if (
+        fidentity.fingerprint_description(description) != fingerprint
+        or hashlib.sha256(fidentity.encode_description(description)).hexdigest()
+        != profile_data_sha256
+    ):
+        return None
+    return (subject_uid, subject_gid, (subject_gid,))
+
+
+def _ad_identity_substructure_from_triple(
+    identity: tuple[int, int, tuple[int, ...]],
+) -> dict[str, object]:
+    """The DISTINCT 017-ad identity-bearing record's frozen
+    owner-identity substructure DERIVED from the workflow's
+    frozen subject triple through the production codec: the
+    canonical owner-UID profile name (the controller identity
+    fixed 21001/21001), the canonical description fingerprint
+    and the profile-DATA sha256.  The description is fully
+    determined by the closed triple, so this derivation is
+    deterministic — the retained substructure re-derives to
+    the identical canonical record and digests (closed data
+    integrity, never a measured-authority claim)."""
+    uid, gid, groups = _validate_frozen_subject_identity(identity)
+    description = fidentity.FixtureIdentityDescription(
+        profile=fidentity.PROFILE_OWNER_UID,
+        controller_uid=fidentity.CONTROLLER_UID,
+        controller_gid=fidentity.CONTROLLER_GID,
+        subject_uid=uid,
+        subject_gid=gid,
+        subject_groups=(gid,),
+    )
+    return {
+        "profile": fidentity.PROFILE_OWNER_UID,
+        "fingerprint": fidentity.fingerprint_description(description),
+        "subject_uid": uid,
+        "subject_gid": gid,
+        "subject_groups": [gid],
+        "profile_data_sha256": hashlib.sha256(
+            fidentity.encode_description(description)
+        ).hexdigest(),
+    }
+
+
 def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
     """Parse a NATIVE-OWNER evidence record into typed final
     facts.  Closed versioned schema, explicit producer,
@@ -1837,9 +2105,22 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
     be the historical S scope).  A malformed, drifted,
     foreign-scope or non-pass record is a closed non-echoing
     refusal."""
-    if not isinstance(record, Mapping):
+    # The DISTINCT closed tag law (017-ad): the original tag
+    # keeps its exact historical key set (no identity key);
+    # the identity-bearing 017-ad tag carries the SAME closed
+    # native-scope facts PLUS the frozen owner-identity
+    # substructure, and is the record of the canonical 017-ad
+    # entry ONLY (an AD-tagged record of any other order id is
+    # a closed refusal — the original tag is never widened).
+    tag = record.get("record") if isinstance(record, Mapping) else None
+    if tag not in (NATIVE_OWNER_SCHEMA, AD_NATIVE_OWNER_SCHEMA):
         raise FixtureError("prep-native-owner-record-malformed")
-    if record.get("record") != NATIVE_OWNER_SCHEMA:
+    expected_keys = (
+        _NATIVE_OWNER_TOP_KEYS | {"identity"}
+        if tag == AD_NATIVE_OWNER_SCHEMA
+        else _NATIVE_OWNER_TOP_KEYS
+    )
+    if not isinstance(record, Mapping):
         raise FixtureError("prep-native-owner-record-malformed")
     if record.get("producer") != NATIVE_OWNER_PRODUCER:
         raise FixtureError("prep-native-owner-record-malformed")
@@ -1847,7 +2128,7 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
     # unknown or missing fields are a closed non-echoing
     # refusal before anything is used — a value is never
     # retained or echoed
-    if set(record) != _NATIVE_OWNER_TOP_KEYS:
+    if set(record) != expected_keys:
         raise FixtureError("prep-native-owner-record-malformed")
     for key, keys in _NATIVE_OWNER_NESTED_KEYS:
         nested = record[key]
@@ -1870,12 +2151,29 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
         sentinel_survived = record["teardown"]["sentinel_survived"]
         native_started = record["native_started"]
         native_ready = record["native_ready"]
+        identity_raw = record.get("identity")
     except (KeyError, TypeError):
         raise FixtureError("prep-native-owner-record-malformed") from None
+    # the frozen owner-identity substructure: closed data
+    # integrity via the production codec (re-derived canonical
+    # record, both digests verified) — AD record only
+    identity = None
+    if tag == AD_NATIVE_OWNER_SCHEMA:
+        identity = _ad_identity_substructure_law(identity_raw)
+        if identity is None:
+            raise FixtureError("prep-native-owner-record-malformed")
     if (
         status != "pass"
         or not isinstance(order, str)
         or not re.fullmatch(r"^[0-9]{3}-[a-z]{1,2}$", order)
+        or (tag == AD_NATIVE_OWNER_SCHEMA and order != "017-ad")
+        # the EXACT tag-pair law: the original tag carries the
+        # historical (non-AD) entries ONLY — the canonical
+        # 017-ad entry is representable by the DISTINCT
+        # identity-bearing tag alone, so an original-tag
+        # record of the AD order is a closed refusal (the
+        # historical orders of the original tag are unchanged)
+        or (tag == NATIVE_OWNER_SCHEMA and order == "017-ad")
         or not isinstance(source_head, str)
         or _HEAD_RE.fullmatch(source_head) is None
         or not isinstance(run_id, str)
@@ -1903,7 +2201,8 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
     ):
         raise FixtureError("prep-native-owner-record-malformed")
     return NativeOwnerFacts(
-        schema=NATIVE_OWNER_SCHEMA,
+        identity=identity,
+        schema=tag,
         producer=NATIVE_OWNER_PRODUCER,
         status=status,
         order=order,
@@ -2199,6 +2498,7 @@ def produce_native_owner_record(
     image_id: str,
     binary_sha256: str,
     max_export_bytes: int = 16 << 20,
+    identity: dict | None = None,
 ) -> dict[str, object]:
     """The explicit NATIVE-OWNER PRODUCER (order 017-t,
     section 3): the measurement-to-record boundary.  It
@@ -2229,6 +2529,15 @@ def produce_native_owner_record(
     emits no partial record — and the produced record must
     round-trip the closed consumer validation: producer
     and consumer agreement is enforced, never assumed."""
+    # the DISTINCT 017-ad identity-bearing form: the SAME
+    # closed measured facts PLUS the frozen owner-identity
+    # substructure (the real owner's own collected/derived
+    # identity, closed-validated here against the production
+    # codec — a malformed or inconsistent substructure is a
+    # closed refusal; it is data integrity, never measured
+    # authority).  None keeps the original tag byte-for-byte.
+    if identity is not None and _ad_identity_substructure_law(identity) is None:
+        raise FixtureError("prep-native-owner-record-malformed")
     if not isinstance(order, str) or re.fullmatch(r"^[0-9]{3}-[a-z]{1,2}$", order) is None:
         raise FixtureError("prep-native-owner-record-malformed")
     if not isinstance(source_head, str) or _HEAD_RE.fullmatch(source_head) is None:
@@ -2326,6 +2635,9 @@ def produce_native_owner_record(
         "native_started": True,
         "native_ready": native_ready,
     }
+    if identity is not None:
+        record["record"] = AD_NATIVE_OWNER_SCHEMA
+        record["identity"] = identity
     # producer/consumer agreement: the produced record must
     # pass the closed consumer validation before it is
     # returned — a drift between the two is a refusal, never
@@ -2506,7 +2818,11 @@ def _parse_owner_record(record: Mapping | None) -> OwnerFinalFacts | NativeOwner
     kind = record.get("record")
     if kind == _S_EVIDENCE_SCHEMA:
         return parse_owner_final_facts(record)
-    if kind == NATIVE_OWNER_SCHEMA:
+    if kind in (NATIVE_OWNER_SCHEMA, AD_NATIVE_OWNER_SCHEMA):
+        # both native-owner tags share the SAME closed consumer
+        # law; the tag selects its own exact key set inside
+        # (the identity-bearing 017-ad form carries the frozen
+        # identity substructure, the original tag never does)
         return parse_native_owner_facts(record)
     raise FixtureError("prep-owner-record-malformed")
 
@@ -2555,9 +2871,24 @@ class NativeHandoffWorkflow:
         tty_foreground_pgrp: int | None = None,
         channel: CidScopedTable | None = None,
         registered_owners: Mapping[int, int] | None = None,
+        subject_identity: tuple[int, int, tuple[int, ...]] | None = None,
     ) -> None:
         if not isinstance(binding, OrderRunBinding):
             raise FixtureError("prep-binding-invalid")
+        # the FROZEN owner-UID subject identity (the future
+        # 017-ad native handoff): closed-validated ONCE at
+        # construction (the Z eligible-ID law, groups exactly
+        # the primary GID) and applied to EVERY subject
+        # observation of this workflow (prepare/observe and the
+        # staged registration); None keeps the original
+        # fixed-21002 law byte-for-byte.  The triple is data
+        # (the real owner's own frozen identity), never a
+        # per-read re-derivation and never measured authority.
+        self._subject_identity = (
+            _validate_frozen_subject_identity(subject_identity)
+            if subject_identity is not None
+            else None
+        )
         if owner_run_id is not None and (
             not isinstance(owner_run_id, str) or _RUN_ID_RE.fullmatch(owner_run_id) is None
         ):
@@ -2610,13 +2941,24 @@ class NativeHandoffWorkflow:
         a caller flag."""
         return self._subject_receipt
 
+    @property
+    def subject_identity(self) -> tuple[int, int, tuple[int, ...]] | None:
+        """The frozen owner-UID subject identity this
+        workflow's subject law applies (017-ad), or None for
+        the original fixed-21002 law (byte-for-byte)."""
+        return self._subject_identity
+
     def _collect_subject(self) -> SubjectIdentity | None:
         if self._subject_pid is None and self._expectation is None:
             return None
         if self._subject_pid is None or self._expectation is None:
             raise FixtureError("prep-expectation-invalid")
         return collect_subject_identity(
-            self._table, self._subject_pid, self._expectation, channel=self._channel
+            self._table,
+            self._subject_pid,
+            self._expectation,
+            channel=self._channel,
+            subject_identity=self._subject_identity,
         )
 
     def _collect_group(self) -> WorkerGroupFacts:
@@ -2759,7 +3101,13 @@ class NativeHandoffWorkflow:
             # this workflow
             raise FixtureError("prep-subject-run-mismatch")
         ch = self._channel if channel is None else channel
-        subject = collect_subject_identity(self._table, subject_pid, expectation, channel=ch)
+        subject = collect_subject_identity(
+            self._table,
+            subject_pid,
+            expectation,
+            channel=ch,
+            subject_identity=self._subject_identity,
+        )
         # commit ONLY after a successful collection
         self._subject_pid = subject.pid
         self._expectation = expectation
@@ -2870,7 +3218,7 @@ class NativeHandoffWorkflow:
     def _snapshot(self) -> dict[str, object]:
         assert self._group is not None
         group = self._group
-        return {
+        snapshot: dict[str, object] = {
             "record": NATIVE_PREP_SCHEMA,
             "binding": self._binding.to_record(),
             "group": {
@@ -2902,6 +3250,17 @@ class NativeHandoffWorkflow:
             },
             "subject": _subject_record(self._subject),
         }
+        if self._subject_identity is not None:
+            # the DISTINCT identity-bearing 017-ad form: the SAME
+            # closed measured facts PLUS the frozen owner-identity
+            # substructure derived through the production codec
+            # (the original fixed-21002 workflow keeps the
+            # historical tag byte-for-byte, no identity key)
+            snapshot["record"] = AD_NATIVE_PREP_SCHEMA
+            snapshot["identity"] = _ad_identity_substructure_from_triple(
+                self._subject_identity
+            )
+        return snapshot
 
     def finalize(self, owner_record: Mapping | None) -> HandoffVerdict:
         """Compose the verdict AFTER the owner's own
@@ -2947,6 +3306,19 @@ class NativeHandoffWorkflow:
                 raise FixtureError("prep-owner-head-mismatch")
             if owner.run_id != self._binding.run_id:
                 raise FixtureError("prep-owner-run-mismatch")
+            if self._binding.order_id == rprofile.AD_ORDER_ID:
+                # the canonical 017-ad entry's record must be
+                # the DISTINCT identity-bearing tag and must
+                # carry the SAME frozen owner-identity
+                # substructure as this workflow's ORIGINAL
+                # frozen subject law (compared, never adopted):
+                # a relabeled original-tag record cannot
+                # represent the AD entry, and a valid foreign
+                # frozen identity can never become ready here
+                if owner.schema != AD_NATIVE_OWNER_SCHEMA:
+                    raise FixtureError("prep-owner-schema-mismatch")
+                if owner.identity != self._subject_identity:
+                    raise FixtureError("prep-owner-identity-mismatch")
         subject = self._subject_receipt
         if subject is not None and subject.run_id != self._binding.run_id:
             # the retained pre-teardown receipt is part of
@@ -3007,10 +3379,32 @@ def validate_prep_snapshot(record: object) -> None:
     """Closed structural validation of a retained workflow
     snapshot (the exact keys the workflow emits; no raw host
     content).  Used by the later flow to revalidate a retained
-    record without trusting it by flag."""
-    if not isinstance(record, Mapping) or set(record) != {"record", "binding", "group", "subject"}:
+    record without trusting it by flag.
+
+    The entry-aware closed tag law: the original tag
+    (``slaif-native-handoff-prep-v1``) keeps its EXACT
+    historical meaning — the fixed-21002 subject law, never an
+    identity key, and never the record of the canonical 017-ad
+    entry (the equal-numeric cross-profile case: a fixed-21002
+    subject bound to 017-ad is still an AD record and belongs
+    to the AD tag) — while the DISTINCT identity-bearing 017-ad
+    tag (``slaif-017ad-native-handoff-prep-v1``) carries the
+    SAME closed group/binding/subject facts PLUS the frozen
+    owner-identity substructure, is the record of the
+    canonical 017-ad entry ONLY, and its subject (when present)
+    must satisfy the frozen owner-UID identity derived from
+    that substructure (the fixed-21002 law never applies to it,
+    and the frozen law never to the original tag)."""
+    if not isinstance(record, Mapping):
         raise FixtureError("prep-record-malformed")
-    if record["record"] != NATIVE_PREP_SCHEMA:
+    tag = record.get("record")
+    if tag == AD_NATIVE_PREP_SCHEMA:
+        expected_keys = {"record", "binding", "group", "subject", "identity"}
+    elif tag == NATIVE_PREP_SCHEMA:
+        expected_keys = {"record", "binding", "group", "subject"}
+    else:
+        raise FixtureError("prep-record-malformed")
+    if set(record) != expected_keys:
         raise FixtureError("prep-record-malformed")
     b = record["binding"]
     if (
@@ -3029,6 +3423,26 @@ def validate_prep_snapshot(record: object) -> None:
         or b["record"] != binding.BINDING_RECORD_SCHEMA
     ):
         raise FixtureError("prep-record-malformed")
+    # The entry-aware closed ORDER binding: each tag is the
+    # record of its OWN canonical entry only — the tags are
+    # separate closed records, never a widened grammar
+    # (including for equal-numeric identities).
+    if tag == AD_NATIVE_PREP_SCHEMA:
+        if b.get("order_id") != rprofile.AD_ORDER_ID:
+            raise FixtureError("prep-record-malformed")
+        # the fixed canonical 017-ad entry is bound to its OWN
+        # unique committed order path (a foreign path can never
+        # carry the identity-bearing AD form)
+        if b.get("order_path") != rprofile.AD_ORDER_PATH:
+            raise FixtureError("prep-record-malformed")
+    elif b.get("order_id") == rprofile.AD_ORDER_ID:
+        raise FixtureError("prep-record-malformed")
+    if tag == AD_NATIVE_PREP_SCHEMA:
+        identity = _ad_identity_substructure_law(record["identity"])
+        if identity is None:
+            raise FixtureError("prep-record-malformed")
+    else:
+        identity = None
     g = record["group"]
     if not isinstance(g, Mapping) or set(g) != {
         "worker",
@@ -3129,12 +3543,34 @@ def validate_prep_snapshot(record: object) -> None:
             raise FixtureError("prep-record-malformed")
         if s["binary_sha256"] is not None and not isinstance(s["binary_sha256"], str):
             raise FixtureError("prep-record-malformed")
+        # The STRICT subject identity law of THIS tag (the
+        # snapshot consumer is entry-aware, not flag-trusting):
+        # the original tag applies the fixed-21002 law
+        # byte-for-byte (an owner-UID subject is a closed
+        # refusal under it), and the 017-ad tag applies the
+        # FROZEN owner-UID law derived from its own validated
+        # identity substructure (the fixed-21002 law never
+        # applies to it — the frozen triple is data, not a
+        # caller flag).
+        try:
+            _check_identity_fields(
+                s["uid"],
+                s["gid"],
+                tuple(s["groups"]),
+                s["argv"],
+                s["tty"],
+                subject_identity=identity,
+            )
+        except (FixtureError, KeyError, TypeError):
+            raise FixtureError("prep-record-malformed") from None
 
 
 __all__ = [
     "NATIVE_PREP_SCHEMA",
+    "AD_NATIVE_PREP_SCHEMA",
     "NATIVE_OWNER_PRODUCER",
     "NATIVE_OWNER_SCHEMA",
+    "AD_NATIVE_OWNER_SCHEMA",
     "NATIVE_SOURCE",
     "OWNER_FACTS_SCHEMA",
     "CID_MEMBERSHIP",

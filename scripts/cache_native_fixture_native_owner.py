@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import sys
@@ -89,12 +90,25 @@ import cache_native_fixture_binding as oap_binding  # noqa: E402
 import cache_native_fixture_ci as ci  # noqa: E402
 import cache_native_fixture_local as local  # noqa: E402
 import cache_native_fixture_native_prep as prep  # noqa: E402
+import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
 
 FixtureError = ci.FixtureError
 OrderRunBinding = oap_binding.OrderRunBinding
 
 NATIVE_RUN_SCHEMA = "slaif-native-owner-run-v1"
 NATIVE_RUN_SCOPE = "native-owner-run"
+# The canonical FUTURE 017-ad native entry (INERT in this
+# round: input-gated, unqualified — never activated, admitted
+# or launched here) and its DISTINCT versioned identity-bearing
+# native-run terminal tag: the SAME closed measured facts as
+# the original tag PLUS the frozen owner-identity substructure
+# the real owner collected and derived.  The original tag keeps
+# its exact historical key set and refuses BOTH the identity
+# key and any 017-ad binding (separate closed records, never a
+# widened grammar — including for equal-numeric identities);
+# the scope literal stays the profile-independent original.
+AD_ORDER_ID = rprofile.AD_ORDER_ID
+AD_NATIVE_RUN_SCHEMA = rprofile.AD_NATIVE_RUN_SCHEMA
 # the owner's closed terminal outcomes (the attempt record
 # vocabulary, never a caller boolean)
 NATIVE_RUN_OUTCOMES = frozenset({"pass", "fail", "aborted"})
@@ -140,6 +154,7 @@ _VERDICT_KEYS = frozenset({"ready", "reasons"})
 NATIVE_OWNER_REASONS = frozenset(
     {
         "native-owner-binding-invalid",
+        "native-owner-order-path-mismatch",
         "native-owner-not-started",
         "native-owner-startup",
         "native-owner-settle",
@@ -148,12 +163,14 @@ NATIVE_OWNER_REASONS = frozenset(
         "native-owner-registration-unmeasured",
         "native-owner-subject-cid-mismatch",
         "native-owner-subject-binary-mismatch",
+        "native-owner-identity-unmeasured",
         "native-owner-evidence-exists",
         "native-owner-evidence-env",
         "native-owner-journal-unverified",
         "native-owner-finalization-unverified",
         "native-owner-published",
         "native-owner-record-malformed",
+        "native-owner-channel-budget-invalid",
         "internal",
     }
 )
@@ -163,6 +180,33 @@ NATIVE_OWNER_REASONS = frozenset(
 # that is never an ancestor; the composition ALWAYS passes the
 # owner's real work root, which the seam enforces.
 _NO_WORK_ROOT = Path(os.devnull)
+
+
+def build_ad_native_channel(cid: str, end: float) -> prep.CidScopedTable:
+    """The REAL scoped AD native-measurement channel bound to
+    the exact registered CID with the 017-ad closed executable
+    bounds: at most 320 MiB (335544320 bytes) and at most 10 s
+    per measurement, further clamped to the SAME ABSOLUTE owner
+    END anchor (``end``) at EVERY actual exe read/return —
+    never a relative duration captured at construction and
+    never including the cleanup grace (grace is convergence,
+    not fresh measurement): once that absolute point has
+    passed, EVERY later use of this channel is refused, no
+    matter how often it is reused.  The original Python-entry
+    bounds (16 MiB / 10 s) are a separate closed default and
+    stay unchanged."""
+    if (
+        not isinstance(end, (int, float))
+        or isinstance(end, bool)
+        or not math.isfinite(end)
+    ):
+        raise FixtureError("native-owner-channel-budget-invalid")
+    return prep.RealCidScopedTable(
+        cid,
+        max_exe_bytes=rprofile.AD_EXE_MAX_BYTES,
+        exe_deadline=rprofile.AD_EXE_DEADLINE_SECONDS,
+        exe_end=float(end),
+    )
 
 
 def _is_sha256(value: object) -> bool:
@@ -191,13 +235,26 @@ def parse_native_run_record(record: object) -> dict:
     and any readiness.  Unknown, missing or non-mapping
     fields are closed non-echoing refusals; nothing is
     retained beyond the exact closed shape."""
-    if not isinstance(record, dict) or set(record) != _NATIVE_RUN_KEYS:
+    if not isinstance(record, dict):
+        raise FixtureError("native-owner-record-malformed")
+    tag = record.get("record")
+    # the DISTINCT identity-bearing 017-ad terminal form: the
+    # SAME closed measured facts PLUS the frozen owner-identity
+    # substructure; the original tag keeps its exact historical
+    # key set (no identity key at all) — separate closed
+    # records, never a widened grammar
+    if tag == AD_NATIVE_RUN_SCHEMA:
+        expected_keys = _NATIVE_RUN_KEYS | {"identity"}
+    elif tag == NATIVE_RUN_SCHEMA:
+        expected_keys = _NATIVE_RUN_KEYS
+    else:
+        raise FixtureError("native-owner-record-malformed")
+    if set(record) != expected_keys:
         raise FixtureError("native-owner-record-malformed")
     outcome = record["owner_outcome"]
     attempt = record["attempt"]
     if (
-        record["record"] != NATIVE_RUN_SCHEMA
-        or record["scope"] != NATIVE_RUN_SCOPE
+        record["scope"] != NATIVE_RUN_SCOPE
         or not isinstance(outcome, str)
         or outcome not in NATIVE_RUN_OUTCOMES
         or not isinstance(attempt, str)
@@ -224,6 +281,30 @@ def parse_native_run_record(record: object) -> dict:
         or oap_binding._RUN_ID_RE.fullmatch(binding.get("run_id", "")) is None
     ):
         raise FixtureError("native-owner-record-malformed")
+    # The entry-aware closed ORDER binding: the original tag is
+    # never the record of the canonical 017-ad entry (including
+    # the equal-numeric cross-profile case — a fixed-21002
+    # subject bound to 017-ad still belongs to the AD tag), and
+    # the AD tag is the canonical 017-ad entry's own record only
+    # (its frozen identity substructure is closed-validated by
+    # the shared structural core — data integrity, never a
+    # measured-authority claim).
+    ad_entry = tag == AD_NATIVE_RUN_SCHEMA
+    identity_triple: tuple[int, int, tuple[int, ...]] | None = None
+    if ad_entry:
+        if binding["order_id"] != AD_ORDER_ID:
+            raise FixtureError("native-owner-record-malformed")
+        # the fixed canonical 017-ad entry is bound to its OWN
+        # unique committed order path (a foreign path can never
+        # carry the identity-bearing AD terminal form)
+        if binding["order_path"] != rprofile.AD_ORDER_PATH:
+            raise FixtureError("native-owner-record-malformed")
+        law = local._identity_substructure_law(record["identity"])
+        if law is None:
+            raise FixtureError("native-owner-record-malformed")
+        identity_triple = (law[0], law[1], law[2])
+    elif binding["order_id"] == AD_ORDER_ID:
+        raise FixtureError("native-owner-record-malformed")
     native = record["native_record"]
     native_facts = None
     if native is not None:
@@ -236,6 +317,12 @@ def parse_native_run_record(record: object) -> dict:
             or native_facts.source_head != binding["source_head"]
             or native_facts.run_id != binding["run_id"]
         ):
+            raise FixtureError("native-owner-record-malformed")
+        # the AD form: the nested identity-bearing native record
+        # must carry the SAME frozen identity as the outer
+        # record (both halves of the retained record are
+        # cross-bound to one frozen context)
+        if ad_entry and native_facts.identity != identity_triple:
             raise FixtureError("native-owner-record-malformed")
     refusal = record["native_refusal"]
     if refusal is not None and (not isinstance(refusal, str) or refusal not in prep.PREP_REASONS):
@@ -328,9 +415,19 @@ class NativeOwnerRun:
         tty_foreground_pgrp: int | None = None,
         registered_owners=None,
         deadline_offset: float = 0.0,
+        identity_reader=None,
+        proc_root: Path | None = None,
     ) -> None:
         if not isinstance(binding, OrderRunBinding):
             raise FixtureError("native-owner-binding-invalid")
+        # The fixed canonical 017-ad entry resolves ONLY at its
+        # unique committed order path (the resolver applies the
+        # same closed law): a directly-constructed binding
+        # carrying the AD order id at a foreign path is refused
+        # BEFORE the admission or the owner adoption.  Every
+        # other (generic) order keeps the exact historical law.
+        if binding.order_id == AD_ORDER_ID and binding.order_path != rprofile.AD_ORDER_PATH:
+            raise FixtureError("native-owner-order-path-mismatch")
         self._binding: OrderRunBinding = binding
         self._repo = Path(str(repo))
         self._git_runner = git_runner
@@ -382,7 +479,36 @@ class NativeOwnerRun:
                 executor=executor,
                 deadline_offset=deadline_offset,
                 binding=binding,
+                identity_reader=identity_reader,
+                # the owner's EXISTING narrow proc seam (the
+                # same bounded lifetime readers; production
+                # default the actual /proc, unchanged): the
+                # coherent coupled fake process world projects
+                # its container-member frames there
+                proc_root=proc_root,
             )
+            # the FROZEN owner-UID subject identity of the
+            # canonical 017-ad entry: the SAME real owner's OWN
+            # bounded OS identity collection (already frozen in
+            # the owner's immutable context AFTER its original
+            # won admission, BEFORE external work) is applied as
+            # the workflow's subject law — the AD run never
+            # measures the fixed 21002 subject, and the original
+            # entries never collect (their context stays None,
+            # the workflow keeps the fixed-21002 law
+            # byte-for-byte).  An AD owner without a frozen
+            # context is a closed refusal, never a silent
+            # fallback to the original profile.
+            subject_identity: tuple[int, int, tuple[int, ...]] | None = None
+            if binding.order_id == AD_ORDER_ID:
+                ctx = self._owner._owner_context
+                if ctx is None:
+                    raise FixtureError("native-owner-identity-unmeasured")
+                subject_identity = (
+                    ctx.subject_uid,
+                    ctx.subject_gid,
+                    tuple(ctx.subject_groups),
+                )
             self._workflow = prep.NativeHandoffWorkflow(
                 binding,
                 table,
@@ -391,6 +517,7 @@ class NativeOwnerRun:
                 owner_run_id=self._run_id,
                 tty_foreground_pgrp=tty_foreground_pgrp,
                 registered_owners=registered_owners,
+                subject_identity=subject_identity,
             )
         except BaseException as primary:
             try:
@@ -440,7 +567,11 @@ class NativeOwnerRun:
         self._thread.start()
         end = self._budget_end()
         while time.monotonic() < end:
-            state = local._state_record(self._control_dir)
+            # the entry-aware state tag: the canonical owner-UID
+            # entries publish their OWN distinct identity-bearing
+            # state form and read it back under their OWN entry
+            # (the original entries keep the v1 tag byte-for-byte)
+            state = local._state_record(self._control_dir, entry_order=self._binding.order_id)
             if state is not None:
                 if state["run_id"] != self._run_id:
                     raise FixtureError("native-owner-binding-invalid")
@@ -460,7 +591,7 @@ class NativeOwnerRun:
         own closed token (propagated, never reworded)."""
         if self._thread is None:
             raise FixtureError("native-owner-not-started")
-        state = local._state_record(self._control_dir)
+        state = local._state_record(self._control_dir, entry_order=self._binding.order_id)
         if state is None or state["run_id"] != self._run_id:
             raise FixtureError("native-owner-not-started")
         anchor = float(state["end_anchor"])
@@ -548,6 +679,14 @@ class NativeOwnerRun:
         workflow = self._workflow
         if owner is None or workflow is None:
             raise FixtureError("native-owner-not-started")
+        # the FROZEN owner context is revalidated at THIS
+        # identity-bound use site as well (the same bounded
+        # current-ID coherence read as prepare/finish —
+        # compared, never rebased): a host identity that
+        # drifted after the measured stop cannot register a
+        # subject on the frozen context (the original profile
+        # keeps its context None and is a no-op, unchanged)
+        owner._revalidate_identity_context()
         if isinstance(expectation, prep.SubjectExpectation):
             artifact = owner.artifact
             if (
@@ -563,6 +702,26 @@ class NativeOwnerRun:
                 raise FixtureError("native-owner-subject-cid-mismatch")
             if expectation.binary_sha256 != artifact["binary_sha256"]:
                 raise FixtureError("native-owner-subject-binary-mismatch")
+        # The AD entry's closed native executable-measurement
+        # bound: when the operator did not supply an owned
+        # channel, the composition constructs the REAL scoped
+        # channel bound to THIS owner's own registered CID with
+        # the 017-ad bounds (exactly 320 MiB / 10 s per
+        # measurement) clamped to the SAME ABSOLUTE owner END
+        # anchor — the owner END ONLY (the cleanup grace is
+        # convergence, never fresh measurement), checked at
+        # EVERY actual read/return of the channel (a relative
+        # captured duration could never refresh the window).
+        # The original entries keep their historical channel
+        # law byte-for-byte (an absent channel stays absent, no
+        # AD default applies to them).
+        if channel is None and self._binding.order_id == AD_ORDER_ID:
+            if not isinstance(owner.target_cid, str):
+                raise FixtureError("native-owner-registration-unmeasured")
+            end = self._owner.deadline.anchor
+            if end - time.monotonic() <= 0:
+                raise FixtureError("native-owner-patience")
+            channel = build_ad_native_channel(owner.target_cid, end)
         return workflow.register_subject(subject_pid, expectation, channel=channel)
 
     def record_stop(self) -> prep.StopReceipt:
@@ -788,7 +947,41 @@ class NativeOwnerRun:
             stop_recorded = workflow.stop_receipt is not None
             native_record: dict | None = None
             native_refusal: str | None = None
-            if outcome == "pass" and subject is not None and stop_recorded:
+            # The frozen owner identity substructure of the
+            # DISTINCT 017-ad identity-bearing records: derived
+            # from THIS owner's OWN immutable context (the real
+            # owner's own bounded OS identity collection and
+            # production-code derivation — never caller-authored,
+            # never re-frozen here); None for the original
+            # entries, whose records keep their exact historical
+            # key set (no identity key at all).
+            owner_identity: dict | None = None
+            if self._binding.order_id == AD_ORDER_ID:
+                ctx = owner._owner_context
+                if ctx is None:
+                    # an AD run without the frozen context can
+                    # never mint an honest AD record: a closed
+                    # refusal, never a fallback to the original
+                    # fixed-21002 form
+                    native_refusal = "native-owner-identity-unmeasured"
+                else:
+                    owner_identity = {
+                        "profile": ctx.profile.profile,
+                        "fingerprint": ctx.fingerprint,
+                        "subject_uid": ctx.subject_uid,
+                        "subject_gid": ctx.subject_gid,
+                        "subject_groups": list(ctx.subject_groups),
+                        "profile_data_sha256": ctx.profile_data_sha256,
+                    }
+            if (
+                outcome == "pass"
+                and subject is not None
+                and stop_recorded
+                and (
+                    self._binding.order_id != AD_ORDER_ID
+                    or owner_identity is not None
+                )
+            ):
                 measurement = prep.OwnedOwnerMeasurement(owner, subject=subject)
                 artifact = owner.artifact
                 if (
@@ -812,6 +1005,7 @@ class NativeOwnerRun:
                             cid=owner.target_cid,
                             image_id=owner.image_id,
                             binary_sha256=artifact["binary_sha256"],
+                            identity=owner_identity,
                         )
                     except FixtureError as exc:
                         # the producer's closed token,
@@ -819,8 +1013,14 @@ class NativeOwnerRun:
                         native_refusal = str(exc)
             verdict = workflow.finalize(native_record)
             journal_state = self._verify_journal_for_publication(outcome)
-            record = {
-                "record": NATIVE_RUN_SCHEMA,
+            # The DISTINCT identity-bearing terminal tag of the
+            # canonical 017-ad entry (the SAME closed measured
+            # facts PLUS the frozen owner-identity
+            # substructure); the original tag keeps its exact
+            # historical key set for every other entry.
+            ad_entry = self._binding.order_id == AD_ORDER_ID
+            record: dict[str, object] = {
+                "record": AD_NATIVE_RUN_SCHEMA if ad_entry else NATIVE_RUN_SCHEMA,
                 "scope": NATIVE_RUN_SCOPE,
                 "binding": self._binding.to_record(),
                 "owner_outcome": outcome,
@@ -831,6 +1031,8 @@ class NativeOwnerRun:
                 "native_refusal": native_refusal,
                 "verdict": {"ready": verdict.ready, "reasons": list(verdict.reasons)},
             }
+            if ad_entry:
+                record["identity"] = owner_identity
             parse_native_run_record(record)
             _write_native_run_record(Path(str(native_evidence_out)), record, owner.work)
         except FixtureError:
@@ -871,6 +1073,9 @@ __all__ = [
     "NATIVE_RUN_OUTCOMES",
     "NATIVE_RUN_SCHEMA",
     "NATIVE_RUN_SCOPE",
+    "AD_NATIVE_RUN_SCHEMA",
+    "AD_ORDER_ID",
+    "build_ad_native_channel",
     "NativeOwnerRun",
     "parse_native_run_record",
 ]

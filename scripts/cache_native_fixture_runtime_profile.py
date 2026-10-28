@@ -23,7 +23,7 @@ Closed laws:
   built from the original constants and carries NO build args and
   NO profile DATA file.
 * the owner-UID profile (selected ONLY by the canonical future
-  017-ab sealed entry) is derived from a description that has
+  017-ab and 017-ad sealed entries) is derived from a description that has
   ALREADY passed Z's production validation
   (:mod:`cache_native_fixture_identity`); this module re-runs that
   validation (cheap, production code) and adds nothing to it.  UID
@@ -39,7 +39,12 @@ Closed laws:
   activated: this module names it (the canonical future entry) but
   grants it no authority — under any other active order the real
   repository-context validation refuses 017-ab before external
-  fixture work or admission.
+  fixture work or admission.  The canonical FUTURE native entry
+  017-ad is fixed the same way (INERT, input-gated, unqualified):
+  it selects the SAME owner-UID profile and carries the DISTINCT
+  versioned identity-bearing native record tags; under any other
+  active order the repository-context validation refuses 017-ad
+  before external fixture work or admission.
 * the entry mapping and every RuntimeProfile are IMMUTABLE: the
   selection table is a read-only view (no per-owner or caller
   mutation), and a RuntimeProfile owns immutable copies of every
@@ -69,6 +74,33 @@ AB_DRIVER_RECORD = "slaif-017ab-owner-uid-exec-capability-v1"
 # native-scope tag stays strictly its original meaning).
 AB_OWNER_RUN_EVIDENCE_SCHEMA = "slaif-017ab-owner-run-evidence-v1"
 AB_OWNER_RUN_SCOPE = "slaif-017ab-owner-uid-scope"
+
+# The canonical FUTURE native-order entry (017-ac: INERT,
+# input-gated, unqualified — the next order after AB).  It
+# selects ONLY the owner-UID profile, exactly as AB does, and
+# carries the DISTINCT versioned identity-bearing record tags
+# of the native handoff (the original native-scope tags keep
+# their strict original meaning and refuse the new profile
+# record).  Registering it is NOT activating it: under any
+# other active order the real repository-context validation
+# refuses 017-ad before external fixture work or admission.
+AD_ORDER_ID = "017-ad"
+AD_ORDER_PATH = "oap/orders/017-ad-owner-uid-native-handoff-qualification.md"
+AD_DRIVER_RECORD = "slaif-017ad-owner-uid-native-handoff-v1"
+AD_OWNER_STATE_SCHEMA = "slaif-017ad-owner-state-v1"
+AD_NATIVE_RUN_EVIDENCE_SCHEMA = "slaif-017ad-native-owner-run-evidence-v1"
+AD_NATIVE_RUN_SCHEMA = "slaif-017ad-native-owner-run-v1"
+AD_OWNER_RUN_SCOPE = "slaif-017ad-owner-uid-scope"
+
+# The closed NATIVE executable-measurement bounds of the 017-ad
+# entry: exactly 320 MiB (335544320 bytes) and 10 s — a
+# justified measurement bound for the pinned native artifact
+# (308139304 bytes fits this finite cap), further clamped AT
+# USE to the SAME remaining owner END (never a fresh phase
+# deadline, never a refreshed budget).  The Python entries keep
+# the historical 16 MiB / 10 s defaults unchanged.
+AD_EXE_MAX_BYTES = 320 * 1024 * 1024  # 335544320
+AD_EXE_DEADLINE_SECONDS = 10.0
 
 # The new owner-profile Dockerfile (repository-only source; the
 # original fixture Dockerfile stays byte-for-byte the original).
@@ -119,6 +151,9 @@ _ENTRY_PROFILES_LITERAL: dict[str, str] = {
     "017-x": PROFILE_ORIGINAL,
     "017-y": PROFILE_ORIGINAL,
     AB_ORDER_ID: PROFILE_OWNER_UID,
+    # the canonical FUTURE native entry (INERT in 017-ac): the
+    # SAME owner-UID profile selection, distinct native records
+    AD_ORDER_ID: PROFILE_OWNER_UID,
 }
 
 # The immutable canonical entry mapping: no per-owner or caller

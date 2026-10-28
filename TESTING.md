@@ -1041,6 +1041,110 @@ and is never reset, retried or relabeled; the measured
 outcome is recorded in the immutable round report. D09
 remains NOT RUN; no v1 runtime claim.
 
+Round 017-ac integrates the existing owner-UID fixture
+composition with the native handoff path (software-only;
+the future `017-ad` entry stays INERT, input-gated and
+UNQUALIFIED — no actual local Docker/fixture/owner
+startup or admission, no native launch (including
+help/version), no worker stop, no real host signal, no
+model/Gateway call, no new framework; no adapter/runtime
+behavior change).  The NEW suite
+`tests/test_cache_native_fixture_native_handoff.py` (22
+tests, three named layers) tests the ACTUAL public
+composition (`NativeOwnerRun` over the REAL
+`LocalFixtureOwner` and the REAL public staged
+`NativeHandoffWorkflow`) with injected FAKE platform
+operations only (fake git, fake docker, fake process
+table, faithful narrow identity-reader seam, owned
+synthetic repositories).  The COUPLED
+public-lifecycle layer (13 tests) drives that REAL
+public composition over ONE coherent coupled fake
+process world (bash 40, worker 50 with an unrelated
+SAME-UID frame, native subject 60 held out): the
+useful 1001:1002 public-lifecycle positive
+(constructor/admission/prepare/observe/stop/register/
+observe/finish/restore/publish; the distinct
+identity-bearing AD record tags at every retained layer
+— state, prep snapshot, owner evidence, native-owner
+evidence, native-run terminal — with the SAME frozen
+identity cross-bound through all of them, compared,
+never rebased; the unrelated same-UID worker survives
+with the SAME uid/gid/birth; the exact-CID teardown
+proof; ONE terminal-pass journal entry), and the
+meaningful contrasts: alive-at-finish quiesce refusal
+(fail evidence keeps the FROZEN identity); unreadable-
+frame and leftover-frame lifetime refusals; the
+default-channel factory bound to THIS owner's registered
+CID + the SAME absolute owner END (the cleanup grace is
+convergence, never fresh measurement) with the
+expired-anchor patience refusal before any factory call;
+foreign registration (foreign CID, matching-foreign
+binary) commits nothing and a later matching
+registration in the same still-valid phase works;
+post-admission identity drift refused at the identity-
+bound use (same attempt terminal fail, frozen identity
+in the fail evidence); post-PREPARE registration drift
+refused at the public staged registration (the frozen
+context revalidated at that identity-bound use site — no
+channel construction, no receipt commit, no rebase;
+same attempt aborted); the finalize consumer contrasts
+(a retained AD native-owner record with a VALID FOREIGN
+frozen identity can never become ready —
+`prep-owner-identity-mismatch`; a relabeled ORIGINAL-tag
+record cannot represent the AD-bound workflow — the
+EXACT tag-pair law refuses the original-tag + AD-order
+record at the closed record grammar before any
+composition, while the historical orders of the
+original tag parse unchanged; the unmutated retained
+record stays the ready
+control); prepare-only honest not-ready (the DISTINCT
+AD terminal record names what is missing); the one-
+shot second-publication refusal and the pre-existing
+foreign-destination refusal (foreign bytes preserved;
+same attempt terminalized fail).  The named pure-data
+layer (4 tests) covers the frozen subject-identity
+construction law and the original-vs-frozen disjoint
+laws (pure data), the AD channel closed fields
+(exactly 335544320 bytes / 10.0 s / the exe END;
+nan/inf/bool/str refused) and the retained-record
+consumer grammar (a foreign-path record refused).  The
+named admission/constructor layer (5 tests) covers
+the three pre-admission refusals over owned synthetic
+repositories (AD refused under AC-active before
+admission; the canonical AD order path binding; a
+foreign-path AD binding refused before admission) and
+the two post-admission constructor identity failures
+(uncollected identity; mismatched owner triple)
+closing the SAME won attempt terminal fail.  EVERY
+started
+test owner is reaped in a per-test finally before
+monkeypatch teardown (the bounded exact-owner abort is
+issued only while still held; an already-converged
+owner is simply joined, so a positive test finishes
+normally and stays a pass; no framework, no host
+cleanup); a global subject-UID scan is trapped and
+never called (the controller-UID scan keeps its closed
+historical semantics).  These compositions are useful
+FAKE proof — never sealed-real-owner, native or host
+readiness; the `017-ad` entry is INERT in this round.
+The production changes touch only the existing
+fixture/native integration seams: the public staged
+registration revalidates the FROZEN owner context at
+the identity-bound use site (the original profile no-op
+unchanged); the workflow finalize enforces the AD
+tag/identity coherence against the ORIGINAL frozen
+workflow context; and the retained native-owner record
+codec enforces the EXACT tag-pair law (the closed
+refusal vocabulary gains `prep-owner-schema-mismatch`
+and `prep-owner-identity-mismatch`).  The original
+S/X/Y/AB suites retain their recorded checkpoints and
+stayed green in the full fixture regression (ci 224,
+local 50, native_prep 124, native_owner 19, standin
+102, identity 48, exec_capability 52, owner_uid 40,
+binding 45, controller 33, native_handoff 22 — 759
+cases, frozen Python 3.12 / umask 022 child).  D09
+remains NOT RUN; no v1 runtime claim.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
