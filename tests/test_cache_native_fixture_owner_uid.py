@@ -1018,6 +1018,50 @@ def test_member_lifetime_same_birth_changed_uid_reports_frame(tmp_path: Path) ->
     assert _FrameHarness(root)._member_lifetime(42) == (123, 21002)
 
 
+def test_member_lifetime_zero_group_refused(tmp_path: Path) -> None:
+    # a well-formed ZERO pgrp/session observation is never a
+    # lifetime frame: the old parser's positive prerequisite is
+    # preserved at the consumer boundary (unknown, never a
+    # frame — the raw reader reports no lifetime fact)
+    root = tmp_path / "proc"
+    _write_proc_entry(
+        root,
+        42,
+        comm="python3",
+        start=123,
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        cgroup=None,
+    )
+    (root / "42" / "stat").write_text(
+        stp.stat_line(42, "python3", start=123, pgrp=0, session=0), encoding="ascii"
+    )
+    assert _FrameHarness(root)._member_lifetime(42) is None
+
+
+def test_owned_frame_scripted_zero_group_refused() -> None:
+    # a well-formed ZERO pgrp/session observation is never an
+    # owned lifetime frame (the old parser's positive
+    # prerequisite is preserved at the consumer boundary):
+    # unknown in the first frame, or swapped in by the
+    # confirming second frame, is refused — never adopted
+    zero = stp.stat_line(42, "python3", start=123, pgrp=0, session=0)
+    ch = _ScriptedChannel(
+        [zero.encode("ascii"), zero.encode("ascii")],
+        _status_bytes(SUBJ_UID, SUBJ_GID, (SUBJ_GID,)),
+    )
+    assert _FrameHarness(Path("/nonexistent"))._owned_member_frame(42, ch) is None
+    ch2 = _ScriptedChannel(
+        [
+            _stat_bytes(42, 123),
+            stp.stat_line(42, "python3", start=123, pgrp=42, session=0).encode("ascii"),
+        ],
+        _status_bytes(SUBJ_UID, SUBJ_GID, (SUBJ_GID,)),
+    )
+    assert _FrameHarness(Path("/nonexistent"))._owned_member_frame(42, ch2) is None
+
+
 # -- Part B: the public owner lifecycle (useful 1001:1002) ---------------------------
 
 

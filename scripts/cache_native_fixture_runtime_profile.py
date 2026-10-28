@@ -142,6 +142,39 @@ AF_OWNER_RUN_SCOPE = "slaif-017af-owner-uid-scope"
 # widened into an old consumer.
 AF_NATIVE_ATTACH_BINDING_SCHEMA = "slaif-017af-native-attach-binding-v1"
 
+# The canonical FUTURE native-PTY REQUALIFICATION entry
+# (017-ag: INERT, input-gated, unqualified): the LATER
+# separately authorized actual requalification round of the
+# AF entry's native scope.  It selects the SAME owner-UID
+# profile through the closed entry mapping (exactly as AB,
+# AD and AF do) and composes the EXISTING owner/guarded
+# exact-CID/NativeOwnerRun and independent devpts producer
+# APIs with their unchanged bounds; it carries the DISTINCT
+# versioned identity-bearing record tags of the 017-ah
+# requalification — the closed EXISTING records (the
+# original, the AB, the AD, the AE and the AF forms) keep
+# their exact historical key sets and tag laws byte-for-byte,
+# and 017-af in particular stays CLOSED and unchanged (its
+# round is complete; no new AF record form is minted here).
+# INERT means the REAL active/order/admission gates refuse
+# 017-ah while ANY other order (in particular the current
+# 017-ag) is active — BEFORE admission or external fixture
+# work: no real AH order, no AH namespace, no AH admission,
+# no AH owner is created in this round.  Registering the
+# constants is NOT activating the entry.
+AH_ORDER_ID = "017-ah"
+AH_ORDER_PATH = "oap/orders/017-ah-owner-uid-native-pty-requalification.md"
+AH_OWNER_STATE_SCHEMA = "slaif-017ah-owner-state-v1"
+AH_NATIVE_RUN_EVIDENCE_SCHEMA = "slaif-017ah-native-owner-run-evidence-v1"
+AH_NATIVE_RUN_SCHEMA = "slaif-017ah-native-owner-run-v1"
+AH_OWNER_RUN_SCOPE = "slaif-017ah-owner-uid-scope"
+# The DISTINCT identity-bearing attach-binding record tag of
+# the AH entry's native attach-binding phase: the SAME closed
+# structural core as the AF record under the AH entry's own
+# tag-pair law (the AF tag remains AF-only, even for
+# equal-numeric identities).
+AH_NATIVE_ATTACH_BINDING_SCHEMA = "slaif-017ah-native-attach-binding-v1"
+
 # The closed NATIVE executable-measurement bounds of the 017-ad
 # entry: exactly 320 MiB (335544320 bytes) and 10 s — a
 # justified measurement bound for the pinned native artifact
@@ -210,6 +243,12 @@ _ENTRY_PROFILES_LITERAL: dict[str, str] = {
     # REAL active/order/admission gate refusing 017-af under
     # any other active order, never a missing profile mapping
     AF_ORDER_ID: PROFILE_OWNER_UID,
+    # the canonical FUTURE native-PTY REQUALIFICATION entry
+    # (INERT in 017-ag): the SAME owner-UID profile selection
+    # through the existing owner composition — inertness is the
+    # REAL active/order/admission gate refusing 017-ah under
+    # any other active order, never a missing profile mapping
+    AH_ORDER_ID: PROFILE_OWNER_UID,
 }
 
 # The immutable canonical entry mapping: no per-owner or caller

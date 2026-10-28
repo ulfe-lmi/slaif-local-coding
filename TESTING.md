@@ -1274,6 +1274,114 @@ ordered native qualification is FAILED (never
 pass): preparation FAILED, worker stop NOT RUN,
 native NOT RUN.
 
+Round 017-ag (software-only) proves the zero-group
+observation repair and the sealed INERT 017-ah entry
+over REAL production collectors and the REAL public
+composition with injected FAKE platform operations
+only; NO actual local Docker/fixture/admission/
+native/client/model operation occurred. The named
+layers and their ACTUAL current collected counts:
+- the pure parser/authority layer (11 new cases
+  in total: 7 in
+  `tests/test_cache_native_fixture_native_prep.py`
+  (now 159 collected) + 2 member-lifetime in
+  `tests/test_cache_native_fixture_owner_uid.py`
+  (now 42 collected) + 2 in
+  `tests/test_cache_native_fixture_exec_capability.py`
+  (now 54 collected)): a well-formed
+  zero pgrp/session stat row is observation data
+  (negative/overflow/truncated forms still refuse);
+  the production running-group and stable-stop
+  collectors accept the unrelated well-formed zero
+  row alongside unchanged positive controls (the
+  stop receipt requires positive W/B pgrp AND
+  session — the zeroed-Bash-session case included);
+  restoration never earns a restored verdict from a
+  zero frame; the scoped subject and post-
+  executable frames refuse zero group/session; the
+  CID-scoped birth and member-lifetime readers stay
+  unknown on zero frames; the discovery inventory
+  retains a zero row as data and never adopts it;
+- the COUPLED public-owner layer (2 of the 6 new
+  tests in
+  `tests/test_cache_native_fixture_native_handoff.py`,
+  now 59 collected): the ORDER-REQUIRED full
+  public NativeOwnerRun lifecycle for the AH
+  entry over ONE coherent coupled fake process
+  world carrying an unrelated well-formed kernel
+  zero-group row across prepare/observe/
+  stop/register/finish/restore/retention —
+  observed but never adopted (not a member, not a
+  tool session, never mutated), the distinct
+  `slaif-017ah-*` tags at every retained layer
+  (state, prep snapshot, attach binding,
+  native-owner facts through the REAL
+  finalization dispatcher, native-run terminal,
+  owner evidence through the REAL AH evidence
+  validator), the SAME frozen identity
+  cross-bound everywhere; and the useful
+  zero-frame authority negative (zeroed Bash
+  frame refused by the stop collector's own
+  zero-group law; zeroed Worker frame refused by
+  the baseline binding; no receipt committed;
+  honest abort);
+- the single-layer handoff tests (the other 4 new
+  tests in the same suite): the closed-entry
+  mapping/data preservation; the hermetic
+  sealed-entry law (AG-active refusal before
+  admission, canonical-path resolution under its
+  own active, foreign-path refusal, the real AH
+  order and production admission namespace ABSENT
+  from this checkout); the devpts-probe guard
+  contrast (the exact probe admitted by the AF
+  AND AH owner guards only, refused by every
+  AB/AD/default matcher and every mutated argv);
+  and the cross-entry attach-binding/native-owner
+  tag-pair refusals in both directions (AF tags
+  AF-only, AH tags AH-only, even equal numeric
+  identities). EVERY started test owner reaped in
+  a per-test finally before monkeypatch teardown.
+The ONE bounded READ-ONLY real-host check
+(executed exactly once; the existing
+`collect_worker_group(RealProcTable)` against
+freshly measured SAME W/B/foreground) completed
+with exit 0 in 0.117 s at 2026-10-28T20:11:51Z
+against the literal final source (collector
+sha256
+e56d2ac28d44038958481c6b08912b6be9af9e9b55adaec01afa184bf52ea58f):
+the SAME worker 598258 (birth 150182858) and
+Bash 2014146 (birth 95656910) revalidated
+parent/TTY/comm, the TTY foreground pgrp was
+measured 598258 (equal to the worker pgrp;
+same_tty true, same_job false as expected for a
+foreground job in its own group), and the closed
+complete inventory showed group 598258 with
+exactly ONE member (the worker), ONE other
+session group (the Bash group 2014146) and two
+separately grouped tool sessions (the Bash
+itself retained as unknown; the check's own two
+tool processes as worker-descendants) — a parser
+traversal of actual host rows only, never
+stop/subject/attach/native readiness and never an
+idle-boundary or handoff-ready proof. The
+earlier host-wide name/argv candidate scan is
+recorded separately as an actual preflight
+occurrence, not this production check. The full
+fixture regression over ALL eleven
+fixture suites is 835 collected / 835 passed
+(frozen Python 3.12.15 / nonroot umask 022 test
+child; pre-commit development capture — the
+prescribed locked B gate at the final delivery head
+is the final qualification). Per-suite collected
+counts at the current source: local 50, owner-uid
+42, native-prep 159, native-owner 19, native-
+handoff 59, exec-capability 54, ci 224, binding 45,
+controller 33, standin 102, identity 48. The
+original S/X/Y/AB/AD/AF suites retain their
+recorded checkpoints unchanged. D09 remains NOT
+RUN; no native-ready or v1 runtime claim; the
+`017-ah` entry is INERT in this round.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

@@ -684,6 +684,103 @@ ready, whole-017 or v1 runtime claim; ALL 018-024
 remain mandatory. The measured outcome and retained
 actual bytes are recorded in the immutable round
 report.
+
+017-ag repairs the concrete process-observation
+prerequisite that AF exposed, SOFTWARE ONLY (no
+actual local Docker/fixture/owner/admission/
+native/stop/signal/model/Gateway operation; all
+original S/X/Y/AB/AD/AF entries, defaults, sealed
+namespaces and historical record meanings
+unchanged): the pure /proc stat parser now
+represents well-formed ZERO pgrp/session
+observations (e.g. kernel-thread-like rows)
+instead of refusing every listed host process that
+lacks positive groups — negative, overflow or
+truncated forms stay refused, the finite upper
+bounds are preserved, and no kernel identity is
+inferred from comm/name/UID or row filtering.
+Every authority-bearing consumer that previously
+obtained positive groups implicitly from the
+parser now enforces strict positive finite
+group/session identity itself: the actual W/B
+group and session facts, scoped subject and
+post-executable frames, stop receipts (including
+the Bash session), restoration/native-ready
+verdicts, CID-scoped birth and member lifetime.
+A well-formed zero observation can NEVER become a
+signal target, a valid prepared handoff, a stop
+receipt, a registered subject or a restored/
+native-ready verdict; the complete inventory
+still inspects every listed row and only
+independently verified-gone churn is ignorable.
+
+ONE future canonical sealed entry `017-ah`
+(owner-UID profile; unique path
+`oap/orders/017-ah-owner-uid-native-pty-requalification.md`)
+is fixed now but INERT under AG-active: the real
+AH order/namespace/admission/owner is absent now
+(hermetically proven, including the production
+admission path `.oap-local/<order>`), it is
+refused before admission under AG-active,
+resolves only under its own active at its unique
+canonical committed order path, composes the
+EXISTING owner/guarded exact-CID/NativeOwnerRun
+and independent devpts producer APIs with the
+SAME frozen bounds (absolute 1800 s END /
+600 s convergence grace / 320 MiB-10 s native /
+16 MiB-10 s Python current-exe / 96 slave rows /
+65536 drained B / 5 s devpts and 5 s subject
+metadata at use and return), and carries DISTINCT
+identity-bearing `slaif-017ah-*` state/prep/
+owner-evidence/attach-binding/native-run/
+run-evidence/scope tags — the original AF tags
+remain AF-only, even for equal numeric
+identities. The ONE exact NON-PTY devpts probe
+form is admitted by the AH guard selected from
+the owner's OWN bound order (the AB/AD/default
+guards keep their byte-for-byte old closed
+forms). The proof drives the REAL public
+composition over ONE coherent coupled fake
+process world that carries an unrelated
+well-formed kernel zero-group row across
+prepare/observe/stop/register/finish/restore/
+retention — observed but never adopted, never a
+member or tool session, never mutated — with the
+useful zero-frame authority negatives, the
+cross-entry tag-pair refusals (attach binding
+and native-owner records, in both directions)
+and the full eleven-fixture-suite regression
+green pre-commit (835 cases; the prescribed
+locked B gate is the final qualification). The
+ONE bounded read-only real-host check (the
+existing `collect_worker_group(RealProcTable)`
+against freshly measured SAME W/B/foreground)
+was executed exactly once at
+2026-10-28T20:11:51Z against the literal final
+source (collector sha256
+e56d2ac28d44038958481c6b08912b6be9af9e9b55adaec01afa184bf52ea58f):
+exit 0 in 0.117 s; the SAME worker 598258
+(birth 150182858) and Bash 2014146 (birth
+95656910) revalidated parent/TTY/comm, the TTY
+foreground pgrp measured 598258 (equal to the
+worker pgrp), and the closed complete inventory
+showed group 598258 with exactly ONE member
+(the worker), ONE other session group (the Bash
+group 2014146) and two separately grouped tool
+sessions (the Bash itself as unknown; the
+check's own two tool processes as
+worker-descendants). It proves this parser
+traverses actual host rows — never
+stop/subject/attach/native readiness and never
+an idle-boundary or handoff-ready proof; the
+earlier host-wide candidate scan is recorded
+separately as an actual preflight occurrence,
+not this production check. AF is CLOSED as
+FAILED actual native qualification
+with its ONE admission spent forever (no retry,
+no reset, no source/head/path/phase re-
+qualification); D09 remains `NOT RUN`; no
+native-ready, whole-017 or v1 runtime claim.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

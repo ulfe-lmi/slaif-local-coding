@@ -78,9 +78,11 @@ _ORIGIN_RE = re.compile(r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]
 # unique committed order path it may resolve at (the canonical
 # names owned by the runtime-profile module — the accepted
 # 017-ab sealed entry, the inert 017-ad native entry and the
-# inert 017-af native-PTY qualification entry, which is named
-# but grants no authority: its real order, namespace, admission
-# and owner are a later separately authorized round).  A
+# inert 017-af native-PTY qualification entry and the inert
+# 017-ah native-PTY requalification entry, which are named
+# but grant no authority: their real orders, namespaces,
+# admissions and owners are later separately authorized
+# rounds).  A
 # pattern-matching FOREIGN name for one of these ids is a
 # closed refusal before any admission or owner adoption; every
 # other (generic) order keeps the exact historical pattern law.
@@ -88,6 +90,7 @@ _CANONICAL_ORDER_PATHS: dict[str, str] = {
     rprofile.AB_ORDER_ID: rprofile.AB_ORDER_PATH,
     rprofile.AD_ORDER_ID: rprofile.AD_ORDER_PATH,
     rprofile.AF_ORDER_ID: rprofile.AF_ORDER_PATH,
+    rprofile.AH_ORDER_ID: rprofile.AH_ORDER_PATH,
 }
 _IDENT_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$")
 _ORDER_NAME_RE_TPL = r"{oid}-[a-z0-9][a-z0-9._-]*\.md"

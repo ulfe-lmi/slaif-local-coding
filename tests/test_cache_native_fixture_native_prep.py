@@ -431,6 +431,37 @@ def test_stat_parser_closed() -> None:
             fp.parse_proc_stat(bad)
 
 
+def test_stat_parser_zero_group_is_observation_data() -> None:
+    # a well-formed ZERO pgrp/session row (kernel-thread-like)
+    # is legal OBSERVATION data: the closed parser accepts it,
+    # preserving the explicit tty 0 / tpgid -1 states
+    st = fp.parse_proc_stat(stat_line(7, "kthreadd", "S", 1, 0, 0, 0, -1, 42))
+    assert (st.pid, st.ppid, st.pgrp, st.session, st.tty, st.tpgid, st.start_time) == (
+        7,
+        1,
+        0,
+        0,
+        0,
+        -1,
+        42,
+    )
+    # a zero pgrp with a positive session (and the reverse) is
+    # equally legal observation data
+    assert fp.parse_proc_stat(stat_line(7, "c", "S", 1, 0, 11, 0, 0, 42)).pgrp == 0
+    assert fp.parse_proc_stat(stat_line(7, "c", "S", 1, 9, 0, 0, 0, 42)).session == 0
+    # the closed REFUSALS are unchanged: negative or overflow
+    # pgrp/session are still malformed — zero is accepted only
+    # in its well-formed unsigned form
+    for bad in (
+        stat_line(7, "c", "S", 1, -1, 1, 0, 0, 42),
+        stat_line(7, "c", "S", 1, 1, -1, 0, 0, 42),
+        stat_line(7, "c", "S", 1, 1 << 31, 1, 0, 0, 42),
+        stat_line(7, "c", "S", 1, 1, 1 << 31, 0, 0, 42),
+    ):
+        with pytest.raises(fci.FixtureError, match="prep-stat-malformed"):
+            fp.parse_proc_stat(bad)
+
+
 def test_cmdline_parser_closed() -> None:
     assert fp.parse_proc_cmdline(CODEX_CMDLINE) == CODEX_ARGV
     assert fp.parse_proc_cmdline(b"") == ()
@@ -522,6 +553,40 @@ def test_worker_group_vanished_and_invalid() -> None:
     for bad_bash in (0, True):
         with pytest.raises(fci.FixtureError, match="prep-bash-invalid"):
             fp.collect_worker_group(table_with_worker, 50, bad_bash)
+
+
+def test_worker_group_zero_observation_rows() -> None:
+    # an unrelated well-formed ZERO pgrp/session row
+    # (kernel-thread-like) is observation data: the complete
+    # group facts are UNCHANGED — the row is neither recorded
+    # nor adopted, and no UID-based filtering happens
+    base = _job_table()
+    control = fp.collect_worker_group(base, 50, 40)
+    table = FakeTable(dict(base.procs))
+    table.procs[200] = {
+        "stat": stat_line(200, "kthreadd", "S", 0, 0, 0, 0, -1, 30),
+        "cmdline": b"",
+        "status": status_bytes(0, 0),
+    }
+    facts = fp.collect_worker_group(table, 50, 40)
+    assert facts == control
+    # the AUTHORITY facts themselves can never be zero: a
+    # well-formed ZERO pgrp/session worker or Bash is a closed
+    # refusal, never a handoff group
+    for pgrp, session in ((0, 99), (50, 0)):
+        procs = dict(_job_table().procs)
+        procs[50] = {
+            "stat": stat_line(50, "codex", "S", 40, pgrp, session, TTYS, 50, 500),
+            "cmdline": CODEX_CMDLINE,
+            "status": status_bytes(1000, 1000),
+        }
+        with pytest.raises(fci.FixtureError, match="prep-worker-invalid"):
+            fp.collect_worker_group(FakeTable(procs), 50, 40)
+    for pgrp, session in ((0, 99), (40, 0)):
+        procs = dict(_job_table().procs)
+        procs[40] = bash_proc(40, pgrp=pgrp, session=session)
+        with pytest.raises(fci.FixtureError, match="prep-bash-invalid"):
+            fp.collect_worker_group(FakeTable(procs), 50, 40)
 
 
 def test_group_membership_overbound() -> None:
@@ -663,6 +728,93 @@ def test_subject_identity_negatives() -> None:
         fp.collect_subject_identity(FakeTable({}), 60, _expectation())
     with pytest.raises(fci.FixtureError, match="prep-subject-invalid"):
         fp.collect_subject_identity(FakeTable({60: subject_proc(60)}), 0, _expectation())
+
+
+def test_subject_identity_zero_group_never_registered() -> None:
+    # a subject whose tty/birth/UID/argv all match but whose
+    # group or session is a well-formed ZERO observation is
+    # never a usable subject receipt — at the INITIAL frame
+    for pgrp, session in ((0, 77), (60, 0)):
+        table = FakeTable({60: subject_proc(60, pgrp=pgrp, session=session)})
+        with pytest.raises(fci.FixtureError, match="prep-subject-invalid"):
+            fp.collect_subject_identity(table, 60, _expectation())
+
+
+class _PostStatSwapTable(FakeCidScopedTable):
+    """The registered-CID fake whose post-executable stat
+    re-read serves a swapped frame: the identity re-read
+    boundary of collect_subject_identity."""
+
+    def __init__(
+        self, cid: str, procs: dict[int, dict[str, Any]], post_stat: dict[int, str]
+    ) -> None:
+        super().__init__(cid, procs)
+        self._post_stat = post_stat
+        self._stat_calls = 0
+
+    def stat(self, pid: int) -> bytes | None:
+        self._stat_calls += 1
+        if self._stat_calls >= 2 and pid in self._post_stat:
+            p = self._procs.get(pid)
+            if p is None or not self._in_scope(pid):
+                return None
+            return self._post_stat[pid].encode("ascii")
+        return super().stat(pid)
+
+
+def test_subject_identity_post_executable_zero_frame_refused() -> None:
+    # the POST-EXECUTABLE frame is the SAME authority: the
+    # identity re-read after the executable measurement swaps in
+    # a zero-group frame of the same (pid, birth, tty) — never a
+    # usable subject receipt
+    procs = {60: subject_proc(60, cgroup=CID)}
+    # positive control: an unchanged re-read composes the
+    # identity
+    unchanged = _PostStatSwapTable(CID, dict(procs), {60: procs[60]["stat"]})
+    ident = fp.collect_subject_identity(unchanged, 60, _expectation(), channel=unchanged)
+    assert ident.binary_verified is True
+    for zero in (
+        stat_line(60, "codex", "S", 1, 0, 77, TTYS, 0, 500),  # zero pgrp
+        stat_line(60, "codex", "S", 1, 60, 0, TTYS, 60, 500),  # zero session
+    ):
+        swapped = _PostStatSwapTable(CID, dict(procs), {60: zero})
+        with pytest.raises(fci.FixtureError, match="prep-subject-invalid"):
+            fp.collect_subject_identity(swapped, 60, _expectation(), channel=swapped)
+
+
+class _BirthScopedTable(fp.RealCidScopedTable):  # type: ignore[name-defined,misc]
+    """The real registered-CID channel bound to scripted raw
+    stat reads: the production _birth law runs without any host
+    /proc access."""
+
+    def __init__(self, cid: str, stats: dict[int, str]) -> None:
+        super().__init__(cid, root=Path("/nonexistent"))
+        self._stats = stats
+
+    def _read_file(self, pid: int, name: str, cap: int) -> bytes | None:
+        if name != "stat":
+            return None
+        raw = self._stats.get(pid)
+        return raw.encode("ascii") if raw is not None else None
+
+
+def test_cid_scoped_birth_zero_group_unknown() -> None:
+    # a positive group/session frame yields its birth (control);
+    # a well-formed ZERO pgrp/session row is observation data
+    # only: no lifetime fact is minted from it (unknown, never
+    # a birth — the old parser's positive prerequisite,
+    # preserved at the consumer boundary)
+    assert (
+        _BirthScopedTable(CID, {60: stat_line(60, "c", "S", 1, 5, 9, 0, 0, 500)})._birth(60) == 500
+    )
+    assert (
+        _BirthScopedTable(CID, {60: stat_line(60, "c", "S", 1, 0, 9, 0, 0, 500)})._birth(60) is None
+    )
+    assert (
+        _BirthScopedTable(CID, {60: stat_line(60, "c", "S", 1, 5, 0, 0, 0, 500)})._birth(60) is None
+    )
+    # a missing entry stays unknown as before
+    assert _BirthScopedTable(CID, {})._birth(60) is None
 
 
 def test_no_tty_tpgid_is_explicit_unavailable() -> None:
@@ -819,6 +971,52 @@ def test_stop_observation_negatives() -> None:
         fp.collect_stop_observation(_job_table(), 50, 0)
 
 
+def test_stop_observation_zero_group_authority() -> None:
+    # an unrelated well-formed ZERO pgrp/session row is
+    # observation data: the stable-phase receipt is UNCHANGED
+    base = _job_table(worker_state="T", worker_tpgid=40)
+    control = fp.collect_stop_observation(base, 50, 40)
+    table = FakeTable(dict(base.procs))
+    table.procs[200] = {
+        "stat": stat_line(200, "kthreadd", "S", 0, 0, 0, 0, -1, 30),
+        "cmdline": b"",
+        "status": status_bytes(0, 0),
+    }
+    assert fp.collect_stop_observation(table, 50, 40) == control
+    # the STOP receipt itself can never carry a zero group or
+    # session: a well-formed ZERO pgrp/session worker or Bash
+    # is a closed refusal, never a foreground-reclaim target
+    procs = dict(_job_table(worker_state="T", worker_tpgid=40).procs)
+    procs[50] = {
+        "stat": stat_line(50, "codex", "T", 40, 0, 99, TTYS, 40, 500),
+        "cmdline": CODEX_CMDLINE,
+        "status": status_bytes(1000, 1000),
+    }
+    with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+        fp.collect_stop_observation(FakeTable(procs), 50, 40)
+    procs = dict(_job_table(worker_state="T", worker_tpgid=40).procs)
+    procs[50] = {
+        "stat": stat_line(50, "codex", "T", 40, 50, 0, TTYS, 40, 500),
+        "cmdline": CODEX_CMDLINE,
+        "status": status_bytes(1000, 1000),
+    }
+    with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+        fp.collect_stop_observation(FakeTable(procs), 50, 40)
+    # a Bash frame with a zero group or a zero SESSION is never
+    # the stable-phase Bash (the receipt is refused, not minted
+    # from the zero observation)
+    with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+        fp.collect_stop_observation(
+            FakeTable({40: bash_proc(40, pgrp=0), 50: _worker_proc("T", tpgid=40)}), 50, 40
+        )
+    with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+        fp.collect_stop_observation(
+            FakeTable({40: bash_proc(40, pgrp=40, session=0), 50: _worker_proc("T", tpgid=40)}),
+            50,
+            40,
+        )
+
+
 # -- restoration facts --------------------------------------------------------------------
 
 
@@ -873,6 +1071,78 @@ def test_restoration_matrix() -> None:
         fp.collect_restoration(_job_table(), 0, 40)
     with pytest.raises(fci.FixtureError, match="prep-bash-invalid"):
         fp.collect_restoration(_job_table(), 50, 0)
+
+
+def _zero_field_receipt(**overrides: Any) -> Any:
+    # a TYPED stop receipt whose group/session fields are
+    # zero (the supplied-receipt path: matching typed fields
+    # can never mint restoration authority)
+    base: dict[str, Any] = {
+        "worker_pid": 50,
+        "worker_start_time": 500,
+        "worker_pgrp": 50,
+        "worker_session": 99,
+        "worker_tty": TTYS,
+        "worker_tpgid": 50,
+        "bash_pid": 40,
+        "bash_state": "S",
+        "bash_pgrp": 40,
+    }
+    base.update(overrides)
+    return fp.StopReceipt(**base)
+
+
+def test_restoration_zero_group_never_restored() -> None:
+    # an unrelated well-formed ZERO pgrp/session row is
+    # observation data: the measured positive is UNCHANGED
+    procs = dict(_job_table(worker_state="S", worker_tpgid=50).procs)
+    procs[200] = {
+        "stat": stat_line(200, "kthreadd", "S", 0, 0, 0, 0, -1, 30),
+        "cmdline": b"",
+        "status": status_bytes(0, 0),
+    }
+    r = fp.collect_restoration(FakeTable(procs), 50, 40, 50, stop_receipt=_stop_receipt())
+    assert r.restored is True
+    # the CURRENT worker frame carries a zero SESSION and the
+    # supplied typed receipt even matches it: still not restored
+    procs = dict(_job_table(worker_state="S", worker_tpgid=50).procs)
+    procs[50] = {
+        "stat": stat_line(50, "codex", "S", 40, 50, 0, TTYS, 50, 500),
+        "cmdline": CODEX_CMDLINE,
+        "status": status_bytes(1000, 1000),
+    }
+    r = fp.collect_restoration(
+        FakeTable(procs), 50, 40, 50, stop_receipt=_zero_field_receipt(worker_session=0)
+    )
+    assert r.restored is False
+    # the CURRENT Bash frame carries a zero pgrp or a zero
+    # SESSION (the measured receipt is positive): still not
+    # restored — the current frames alone decide
+    procs = dict(_job_table(worker_state="S", worker_tpgid=50).procs)
+    procs[40] = bash_proc(40, pgrp=0)
+    r = fp.collect_restoration(FakeTable(procs), 50, 40, 50, stop_receipt=_stop_receipt())
+    assert r.restored is False
+    procs = dict(_job_table(worker_state="S", worker_tpgid=50).procs)
+    procs[40] = bash_proc(40, pgrp=40, session=0)
+    r = fp.collect_restoration(FakeTable(procs), 50, 40, 50, stop_receipt=_stop_receipt())
+    assert r.restored is False
+    # a forged typed receipt carrying zero fields against
+    # matching zero current frames: still not restored
+    procs = dict(_job_table(worker_state="S", worker_tpgid=50).procs)
+    procs[50] = {
+        "stat": stat_line(50, "codex", "S", 40, 50, 0, TTYS, 50, 500),
+        "cmdline": CODEX_CMDLINE,
+        "status": status_bytes(1000, 1000),
+    }
+    procs[40] = bash_proc(40, pgrp=40, session=0)
+    r = fp.collect_restoration(
+        FakeTable(procs),
+        50,
+        40,
+        50,
+        stop_receipt=_zero_field_receipt(worker_session=0),
+    )
+    assert r.restored is False
 
 
 # -- owner final facts (historical S record) ------------------------------------------------

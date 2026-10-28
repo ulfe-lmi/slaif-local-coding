@@ -331,6 +331,11 @@ def discover_inventory(
             raise FixtureError("cap-proc-scan-malformed") from None
         if ps.pid != pid:
             raise FixtureError("cap-proc-scan-malformed")
+        # a well-formed ZERO pgrp/session row is OBSERVATION
+        # data for this UNRELATED inventory: it is retained as
+        # a row, never adopted (closed-form correlation and the
+        # positive subject re-measurement are the adoption
+        # boundaries, not this list)
         closed_form = bool(
             token is not None
             and len(argv) == len(_HOLD_FORM_HEAD) + 1
@@ -419,6 +424,13 @@ def _scoped_identity(
     except FixtureError:
         raise FixtureError("cap-subject-malformed") from None
     if ps.pid != pid:
+        raise FixtureError("cap-subject-malformed")
+    # SUBJECT/LIFETIME AUTHORITY: the parser now accepts a
+    # well-formed ZERO pgrp/session row as observation data,
+    # but a subject frame can never be one — the old parser's
+    # positive prerequisite is preserved at this authority
+    # boundary (a subject is never minted from a zero frame)
+    if not fp._is_pid(ps.pgrp) or not fp._is_pid(ps.session):
         raise FixtureError("cap-subject-malformed")
     return ps, argv, uid, gid, groups
 

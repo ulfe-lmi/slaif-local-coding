@@ -177,6 +177,13 @@ AD_NATIVE_PREP_SCHEMA = "slaif-017ad-native-handoff-prep-v1"
 # fixed-21002 meaning byte-for-byte and refuses BOTH the
 # identity key and any 017-ad / 017-af binding.
 AF_NATIVE_PREP_SCHEMA = "slaif-017af-native-handoff-prep-v1"
+# The DISTINCT identity-bearing prep snapshot tag of the
+# canonical FUTURE 017-ah requalification entry (INERT in
+# 017-ag): the SAME closed group/binding/subject facts plus
+# the frozen owner-identity substructure under the AH
+# entry's own tag-pair law (the AF tag remains AF-only, even
+# for equal-numeric identities).
+AH_NATIVE_PREP_SCHEMA = "slaif-017ah-native-handoff-prep-v1"
 OWNER_FACTS_SCHEMA = "slaif-native-handoff-owner-facts-v1"
 # The owner's retained evidence schema (017-s record).  Its
 # meaning is preserved unchanged: its safety flags describe the
@@ -321,6 +328,20 @@ def _is_pid(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 0 < value < (1 << 31)
 
 
+def _is_obs_group(value: object) -> bool:
+    """The OBSERVATION-only pgrp/session domain of one
+    well-formed /proc/<pid>/stat line: 0 is legal observation
+    data (e.g. kernel threads report pgrp 0 / session 0) and
+    the original finite upper bound is preserved.  This is NOT
+    an identity or authority validator: every authority-
+    bearing consumer (worker/Bash group and session facts,
+    stop receipts, scoped subject frames, restoration
+    verdicts) enforces strict positivity itself, and a zero
+    observation can never become a signal target, handoff,
+    receipt, registered subject or restored verdict."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value < (1 << 31)
+
+
 def _is_strict_int(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
@@ -388,15 +409,22 @@ def parse_proc_stat(raw: str) -> ProcStat:
         start_time = int(fields[19])
     except ValueError:
         raise FixtureError("prep-stat-malformed") from None
-    # ppid may be 0 (init); pgrp/session are real group ids
+    # ppid may be 0 (init); pgrp/session are real group ids —
+    # but a well-formed line may report ZERO pgrp/session as
+    # observation data (e.g. kernel threads): the parser is the
+    # closed observation boundary only, and every authority-
+    # bearing consumer enforces strict positivity itself (a
+    # zero group/session is never a signal target, handoff,
+    # stop receipt, subject frame or restoration authority).
+    # Negative, overflow or truncated forms stay refused.
     # tpgid may legitimately be -1 for a process WITHOUT a
     # controlling terminal: the explicit unavailable-foreground
     # state is preserved as such — never a valid foreground,
     # never malformed metadata
     if (
         not _is_strict_int(ppid)
-        or not _is_pid(pgrp)
-        or not _is_pid(session)
+        or not _is_obs_group(pgrp)
+        or not _is_obs_group(session)
         or not _is_strict_int(tty)
         or (tpgid != -1 and not _is_strict_int(tpgid))
         or not _is_strict_int(start_time)
@@ -720,6 +748,12 @@ def collect_worker_group(
     if w_raw is None:
         raise FixtureError("prep-worker-vanished")
     w = parse_proc_stat(w_raw.decode("ascii", "replace"))
+    # the handoff group facts carry AUTHORITY: the worker's
+    # group and session are strictly positive finite identity
+    # (a well-formed ZERO pgrp/session observation — e.g. a
+    # kernel-thread-like row — is never a handoff group)
+    if not _is_pid(w.pgrp) or not _is_pid(w.session):
+        raise FixtureError("prep-worker-invalid")
     bp = w.ppid if bash_pid is None else bash_pid
     if not _is_pid(bp):
         raise FixtureError("prep-bash-invalid")
@@ -727,6 +761,8 @@ def collect_worker_group(
     if b_raw is None:
         raise FixtureError("prep-bash-vanished")
     b = parse_proc_stat(b_raw.decode("ascii", "replace"))
+    if not _is_pid(b.pgrp) or not _is_pid(b.session):
+        raise FixtureError("prep-bash-invalid")
     if bash_pid is not None and b.pid != bp:
         raise FixtureError("prep-bash-invalid")
     # W/B relation checks: parent, session, TTY
@@ -1262,9 +1298,17 @@ class RealCidScopedTable:
         if raw is None:
             return None
         try:
-            return parse_proc_stat(raw.decode("ascii", "replace")).start_time
+            ps = parse_proc_stat(raw.decode("ascii", "replace"))
         except FixtureError:
             return None
+        # LIFETIME AUTHORITY: the parser now accepts a well-formed
+        # ZERO pgrp/session row as observation data, but a
+        # lifetime fact can never be minted from such a row —
+        # the old parser's positive prerequisite is preserved at
+        # this consumer boundary (unknown, never a birth)
+        if not _is_pid(ps.pgrp) or not _is_pid(ps.session):
+            return None
+        return ps.start_time
 
     def exe_sha256(self, pid: int, birth: int) -> str | None:
         if not _is_pid(pid) or not _is_strict_int(birth):
@@ -1544,6 +1588,13 @@ def collect_subject_identity(
     ps = parse_proc_stat(raw_stat.decode("ascii", "replace"))
     argv = parse_proc_cmdline(raw_cmdline)
     uid, gid, groups = parse_proc_status(raw_status)
+    # the scoped SUBJECT frame carries AUTHORITY: a registered
+    # subject is a real job process, so its group and session
+    # are strictly positive finite identity — a well-formed
+    # ZERO pgrp/session observation (however the tty/birth/UID
+    # match) is never a usable subject receipt
+    if not _is_pid(ps.pgrp) or not _is_pid(ps.session):
+        raise FixtureError("prep-subject-invalid")
     if exp.expected_tty is not None and ps.tty != exp.expected_tty:
         raise FixtureError("prep-tty-invalid")
     if exp.min_start_time is not None and ps.start_time < exp.min_start_time:
@@ -1573,6 +1624,11 @@ def collect_subject_identity(
             uid2, gid2, groups2 = parse_proc_status(raw_status2)
         except FixtureError:
             raise FixtureError("prep-subject-invalid") from None
+        # the POST-EXECUTABLE frame is the SAME authority: the
+        # current group/session must still be strictly positive
+        # finite identity when the identity is composed
+        if not _is_pid(ps2.pgrp) or not _is_pid(ps2.session):
+            raise FixtureError("prep-subject-invalid")
         if (
             ps2.pid != ps.pid
             or ps2.start_time != ps.start_time
@@ -1824,6 +1880,15 @@ def collect_stop_observation(table: ProcTable, worker_pid: object, bash_pid: obj
         raise FixtureError("prep-bash-vanished")
     if b.state not in _RUNNING_STATES:
         raise FixtureError("prep-stop-unobserved")
+    # a stop receipt carries AUTHORITY: the observed worker
+    # group/session and the Bash group/session are strictly
+    # positive finite identity (a well-formed ZERO pgrp/session
+    # observation is never a stop receipt, never a foreground-
+    # reclaim target)
+    if not _is_pid(w.pgrp) or not _is_pid(w.session):
+        raise FixtureError("prep-stop-unobserved")
+    if not _is_pid(b.pgrp) or not _is_pid(b.session):
+        raise FixtureError("prep-stop-unobserved")
     if w.ppid != b.pid:
         raise FixtureError("prep-stop-unobserved")
     if b.pgrp == w.pgrp:
@@ -1912,6 +1977,17 @@ def collect_restoration(
         and stop_receipt.worker_pgrp == w.pgrp
         and stop_receipt.worker_session == w.session
         and stop_receipt.worker_tty == w.tty
+        # the restored verdict carries AUTHORITY: the CURRENT
+        # worker AND Bash group/session frames are strictly
+        # positive finite identity, independent of the supplied
+        # receipt fields (a well-formed ZERO pgrp/session
+        # observation can never earn a restored or native-ready
+        # verdict, however the supplied receipt or the other
+        # measurements match)
+        and _is_pid(w.pgrp)
+        and _is_pid(w.session)
+        and _is_pid(b.pgrp)
+        and _is_pid(b.session)
         and w.tpgid == w.pgrp
         and foreground_pgrp is not None
         and foreground_pgrp == w.pgrp
@@ -2544,6 +2620,16 @@ def attach_binding_record(
     identity_law = _ad_identity_substructure_law(identity)
     if identity_law is None:
         raise FixtureError("prep-devpts-identity-invalid")
+    # the DISTINCT record tag of the binding's OWN canonical
+    # entry (the AF tag is AF-only and the AH tag AH-only, even
+    # for equal-numeric identities): any other entry's binding
+    # can never mint an attach-binding record
+    if binding.order_id == rprofile.AF_ORDER_ID:
+        record_tag = AF_ATTACH_BINDING_SCHEMA
+    elif binding.order_id == rprofile.AH_ORDER_ID:
+        record_tag = AH_ATTACH_BINDING_SCHEMA
+    else:
+        raise FixtureError("prep-devpts-binding-invalid")
     rederived = derive_attach_allocation(
         baseline.inventory, observation.inventory, subject_uid=identity_law[0]
     )
@@ -2564,7 +2650,7 @@ def attach_binding_record(
         return json.loads(body.decode("ascii"))
 
     record: dict[str, object] = {
-        "record": AF_ATTACH_BINDING_SCHEMA,
+        "record": record_tag,
         "baseline": _embed(baseline),
         "observation": _embed(observation),
         "allocation": {
@@ -2593,7 +2679,7 @@ def attach_binding_record(
 
 
 def parse_attach_binding_record(record: object, binding: object) -> DevptsAllocation:
-    """The closed consumer of the AF attach-binding record:
+    """The closed consumer of the attach-binding record:
     the exact closed key set, the distinct tag, the closed
     phase/encoding literals, the workflow's OWN immutable
     binding EXACTLY — an ``OrderRunBinding`` object is
@@ -2603,10 +2689,13 @@ def parse_attach_binding_record(record: object, binding: object) -> DevptsAlloca
     consumer (never assumed caller-validated) and then
     compared by exact equality — a foreign or
     contradicted binding is a refusal — the
-    exact tag-pair law (this tag is the record of the
-    canonical 017-af entry ONLY: the outer binding must be
-    the AF order at its canonical path), the owner's frozen
-    identity substructure (production-codec closed-validated),
+    exact tag-pair law (each tag is the record of ITS OWN
+    canonical entry ONLY: the AF tag with the AF order at its
+    canonical path, the AH tag with the AH order at its
+    canonical path — the AF tag stays AF-only and the AH tag
+    AH-only, even for equal-numeric identities), the owner's
+    frozen identity substructure (production-codec
+    closed-validated),
     the 64-hex CID, the closed namespace, and the two
     embedded inventory records validated DIRECTLY by the
     closed inventory consumer (each must carry the record's
@@ -2619,7 +2708,7 @@ def parse_attach_binding_record(record: object, binding: object) -> DevptsAlloca
     if not isinstance(record, dict) or set(record) != AF_ATTACH_RECORD_KEYS:
         raise FixtureError("prep-attach-binding-malformed")
     if (
-        record.get("record") != AF_ATTACH_BINDING_SCHEMA
+        record.get("record") not in (AF_ATTACH_BINDING_SCHEMA, AH_ATTACH_BINDING_SCHEMA)
         or record.get("phase") != AF_ATTACH_PHASE
         or record.get("encoding") != AF_ATTACH_ENCODING
     ):
@@ -2640,12 +2729,16 @@ def parse_attach_binding_record(record: object, binding: object) -> DevptsAlloca
         or record.get("binding") != outer
     ):
         raise FixtureError("prep-attach-binding-mismatch")
-    # the EXACT tag-pair law: the AF attach-binding tag is the
-    # canonical 017-af entry's record ONLY
-    if (
-        outer.get("order_id") != rprofile.AF_ORDER_ID
-        or outer.get("order_path") != rprofile.AF_ORDER_PATH
-    ):
+    # the EXACT tag-pair law: each attach-binding tag is the
+    # record of ITS OWN canonical entry ONLY (the AF tag is
+    # AF-only and the AH tag AH-only, even for equal-numeric
+    # identities)
+    expected_order, expected_path = (
+        (rprofile.AF_ORDER_ID, rprofile.AF_ORDER_PATH)
+        if record["record"] == AF_ATTACH_BINDING_SCHEMA
+        else (rprofile.AH_ORDER_ID, rprofile.AH_ORDER_PATH)
+    )
+    if outer.get("order_id") != expected_order or outer.get("order_path") != expected_path:
         raise FixtureError("prep-attach-binding-mismatch")
     identity_law = _ad_identity_substructure_law(record.get("identity"))
     if identity_law is None:
@@ -2743,6 +2836,16 @@ AD_NATIVE_OWNER_SCHEMA = "slaif-017ad-native-owner-evidence-v1"
 # closed records per entry, never a widened grammar,
 # including for equal-numeric identities.
 AF_NATIVE_OWNER_SCHEMA = "slaif-017af-native-owner-evidence-v1"
+# The DISTINCT identity-bearing native-owner evidence tag of
+# the canonical FUTURE 017-ah entry (INERT in 017-ag:
+# software only): the SAME closed native-scope measured facts
+# as the AD/AF tags PLUS the frozen owner-identity
+# substructure (the identical owner-UID identity law).  The
+# original tag keeps its exact historical key set and refuses
+# the identity key and every identity-bearing entry —
+# separate closed records per entry, never a widened
+# grammar, including for equal-numeric identities.
+AH_NATIVE_OWNER_SCHEMA = "slaif-017ah-native-owner-evidence-v1"
 # The DISTINCT identity-bearing attach-binding record tag of
 # the AF entry's native attach-binding phase (the measured
 # fixture-namespace devpts baseline, the second bounded
@@ -2752,6 +2855,12 @@ AF_NATIVE_OWNER_SCHEMA = "slaif-017af-native-owner-evidence-v1"
 # the attach-binding facts live in this distinct honest
 # version, never widened into an old consumer.
 AF_ATTACH_BINDING_SCHEMA = rprofile.AF_NATIVE_ATTACH_BINDING_SCHEMA
+# The DISTINCT identity-bearing attach-binding record tag of
+# the canonical FUTURE 017-ah entry (INERT in 017-ag): the
+# SAME closed structural core as the AF record under the AH
+# entry's own tag-pair law (the AF tag remains AF-only, even
+# for equal-numeric identities).
+AH_ATTACH_BINDING_SCHEMA = rprofile.AH_NATIVE_ATTACH_BINDING_SCHEMA
 # the CLOSED native-owner record grammar: the exact top-level
 # key set and the exact nested object key sets.  Anything else
 # (unknown, missing, or non-mapping nested keys) is a closed
@@ -2958,11 +3067,21 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
     # entry ONLY (an AD-tagged record of any other order id is
     # a closed refusal — the original tag is never widened).
     tag = record.get("record") if isinstance(record, Mapping) else None
-    if tag not in (NATIVE_OWNER_SCHEMA, AD_NATIVE_OWNER_SCHEMA, AF_NATIVE_OWNER_SCHEMA):
+    if tag not in (
+        NATIVE_OWNER_SCHEMA,
+        AD_NATIVE_OWNER_SCHEMA,
+        AF_NATIVE_OWNER_SCHEMA,
+        AH_NATIVE_OWNER_SCHEMA,
+    ):
         raise FixtureError("prep-native-owner-record-malformed")
     expected_keys = (
         _NATIVE_OWNER_TOP_KEYS | {"identity"}
-        if tag in (AD_NATIVE_OWNER_SCHEMA, AF_NATIVE_OWNER_SCHEMA)
+        if tag
+        in (
+            AD_NATIVE_OWNER_SCHEMA,
+            AF_NATIVE_OWNER_SCHEMA,
+            AH_NATIVE_OWNER_SCHEMA,
+        )
         else _NATIVE_OWNER_TOP_KEYS
     )
     if not isinstance(record, Mapping):
@@ -3002,9 +3121,13 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
     # the frozen owner-identity substructure: closed data
     # integrity via the production codec (re-derived canonical
     # record, both digests verified) — the identity-bearing
-    # AD / AF records only
+    # AD / AF / AH records only
     identity = None
-    if tag in (AD_NATIVE_OWNER_SCHEMA, AF_NATIVE_OWNER_SCHEMA):
+    if tag in (
+        AD_NATIVE_OWNER_SCHEMA,
+        AF_NATIVE_OWNER_SCHEMA,
+        AH_NATIVE_OWNER_SCHEMA,
+    ):
         identity = _ad_identity_substructure_law(identity_raw)
         if identity is None:
             raise FixtureError("prep-native-owner-record-malformed")
@@ -3014,14 +3137,23 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
         or not re.fullmatch(r"^[0-9]{3}-[a-z]{1,2}$", order)
         or (tag == AD_NATIVE_OWNER_SCHEMA and order != rprofile.AD_ORDER_ID)
         or (tag == AF_NATIVE_OWNER_SCHEMA and order != rprofile.AF_ORDER_ID)
+        or (tag == AH_NATIVE_OWNER_SCHEMA and order != rprofile.AH_ORDER_ID)
         # the EXACT tag-pair law: the original tag carries the
         # historical (non-AD) entries ONLY — the canonical
-        # 017-ad / 017-af entries are representable by their
-        # DISTINCT identity-bearing tags alone, so an
-        # original-tag record of either order is a closed
+        # 017-ad / 017-af / 017-ah entries are representable by
+        # their DISTINCT identity-bearing tags alone, so an
+        # original-tag record of any of them is a closed
         # refusal (the historical orders of the original tag
         # are unchanged)
-        or (tag == NATIVE_OWNER_SCHEMA and order in (rprofile.AD_ORDER_ID, rprofile.AF_ORDER_ID))
+        or (
+            tag == NATIVE_OWNER_SCHEMA
+            and order
+            in (
+                rprofile.AD_ORDER_ID,
+                rprofile.AF_ORDER_ID,
+                rprofile.AH_ORDER_ID,
+            )
+        )
         or not isinstance(source_head, str)
         or _HEAD_RE.fullmatch(source_head) is None
         or not isinstance(run_id, str)
@@ -3492,6 +3624,8 @@ def produce_native_owner_record(
             record["record"] = AD_NATIVE_OWNER_SCHEMA
         elif order == rprofile.AF_ORDER_ID:
             record["record"] = AF_NATIVE_OWNER_SCHEMA
+        elif order == rprofile.AH_ORDER_ID:
+            record["record"] = AH_NATIVE_OWNER_SCHEMA
         else:
             raise FixtureError("prep-native-owner-record-malformed")
         record["identity"] = identity
@@ -3664,7 +3798,7 @@ def _parse_owner_record(record: Mapping | None) -> OwnerFinalFacts | NativeOwner
     historical 017-s rehearsal record or the explicit
     native-owner producer record.  An explicit None is the
     closed "not yet finished" value; anything else that is
-    not one of the two versioned schemas is a closed
+    not one of the closed versioned owner schemas is a closed
     non-echoing refusal — the record's own declared scope
     decides which closed law applies, and the S flags are
     never reinterpreted as native facts (or vice versa)."""
@@ -3683,6 +3817,10 @@ def _parse_owner_record(record: Mapping | None) -> OwnerFinalFacts | NativeOwner
         return parse_native_owner_facts(record)
     if kind == AF_NATIVE_OWNER_SCHEMA:
         # the identity-bearing 017-af form: the SAME closed
+        # consumer law, its own exact key set and tag-pair
+        return parse_native_owner_facts(record)
+    if kind == AH_NATIVE_OWNER_SCHEMA:
+        # the identity-bearing 017-ah form: the SAME closed
         # consumer law, its own exact key set and tag-pair
         return parse_native_owner_facts(record)
     raise FixtureError("prep-owner-record-malformed")
@@ -4164,6 +4302,8 @@ class NativeHandoffWorkflow:
                 snapshot["record"] = AD_NATIVE_PREP_SCHEMA
             elif self._binding.order_id == rprofile.AF_ORDER_ID:
                 snapshot["record"] = AF_NATIVE_PREP_SCHEMA
+            elif self._binding.order_id == rprofile.AH_ORDER_ID:
+                snapshot["record"] = AH_NATIVE_PREP_SCHEMA
             else:
                 raise FixtureError("prep-record-malformed")
             snapshot["identity"] = _ad_identity_substructure_from_triple(self._subject_identity)
@@ -4213,22 +4353,26 @@ class NativeHandoffWorkflow:
                 raise FixtureError("prep-owner-head-mismatch")
             if owner.run_id != self._binding.run_id:
                 raise FixtureError("prep-owner-run-mismatch")
-            if self._binding.order_id in (rprofile.AD_ORDER_ID, rprofile.AF_ORDER_ID):
-                # the canonical 017-ad / 017-af entry's record
-                # must be the entry's OWN DISTINCT identity-
-                # bearing tag and must carry the SAME frozen
-                # owner-identity substructure as this
-                # workflow's ORIGINAL frozen subject law
-                # (compared, never adopted): a relabeled
+            if self._binding.order_id in (
+                rprofile.AD_ORDER_ID,
+                rprofile.AF_ORDER_ID,
+                rprofile.AH_ORDER_ID,
+            ):
+                # the canonical 017-ad / 017-af / 017-ah
+                # entry's record must be the entry's OWN
+                # DISTINCT identity-bearing tag and must carry
+                # the SAME frozen owner-identity substructure
+                # as this workflow's ORIGINAL frozen subject
+                # law (compared, never adopted): a relabeled
                 # original-tag record (or the OTHER entry's
                 # tag) cannot represent this entry, and a
                 # valid foreign frozen identity can never
                 # become ready here
-                expected_owner_schema = (
-                    AD_NATIVE_OWNER_SCHEMA
-                    if self._binding.order_id == rprofile.AD_ORDER_ID
-                    else AF_NATIVE_OWNER_SCHEMA
-                )
+                expected_owner_schema = {
+                    rprofile.AD_ORDER_ID: AD_NATIVE_OWNER_SCHEMA,
+                    rprofile.AF_ORDER_ID: AF_NATIVE_OWNER_SCHEMA,
+                    rprofile.AH_ORDER_ID: AH_NATIVE_OWNER_SCHEMA,
+                }[self._binding.order_id]
                 if owner.schema != expected_owner_schema:
                     raise FixtureError("prep-owner-schema-mismatch")
                 if owner.identity != self._subject_identity:
@@ -4299,16 +4443,18 @@ def validate_prep_snapshot(record: object) -> None:
     (``slaif-native-handoff-prep-v1``) keeps its EXACT
     historical meaning — the fixed-21002 subject law, never an
     identity key, and never the record of the canonical 017-ad
-    or 017-af entry (the equal-numeric cross-profile case: a
-    fixed-21002 subject bound to 017-ad / 017-af is still an
-    identity-bearing record and belongs to the entry's OWN tag)
-    — while the DISTINCT identity-bearing 017-ad / 017-af tags
+    or 017-af / 017-ah entry (the equal-numeric cross-profile
+    case: a fixed-21002 subject bound to any of them is still
+    an identity-bearing record and belongs to the entry's OWN
+    tag) — while the DISTINCT identity-bearing 017-ad / 017-af
+    / 017-ah tags
     (``slaif-017ad-native-handoff-prep-v1`` /
-    ``slaif-017af-native-handoff-prep-v1``) carry the SAME
+    ``slaif-017af-native-handoff-prep-v1`` /
+    ``slaif-017ah-native-handoff-prep-v1``) carry the SAME
     closed group/binding/subject facts PLUS the frozen owner-
     identity substructure, are the records of the canonical
-    017-ad / 017-af entries ONLY, and their subject (when
-    present) must satisfy the frozen owner-UID identity
+    017-ad / 017-af / 017-ah entries ONLY, and their subject
+    (when present) must satisfy the frozen owner-UID identity
     derived from that substructure (the fixed-21002 law never
     applies to them, and the frozen law never to the original
     tag)."""
@@ -4318,6 +4464,8 @@ def validate_prep_snapshot(record: object) -> None:
     if tag == AD_NATIVE_PREP_SCHEMA:
         expected_keys = {"record", "binding", "group", "subject", "identity"}
     elif tag == AF_NATIVE_PREP_SCHEMA:
+        expected_keys = {"record", "binding", "group", "subject", "identity"}
+    elif tag == AH_NATIVE_PREP_SCHEMA:
         expected_keys = {"record", "binding", "group", "subject", "identity"}
     elif tag == NATIVE_PREP_SCHEMA:
         expected_keys = {"record", "binding", "group", "subject"}
@@ -4347,7 +4495,7 @@ def validate_prep_snapshot(record: object) -> None:
     # separate closed records, never a widened grammar
     # (including for equal-numeric identities).  The original
     # tag is the historical entries' record ONLY and refuses
-    # BOTH the 017-ad and 017-af bindings.
+    # the 017-ad, 017-af and 017-ah bindings.
     if tag == AD_NATIVE_PREP_SCHEMA:
         if b.get("order_id") != rprofile.AD_ORDER_ID:
             raise FixtureError("prep-record-malformed")
@@ -4364,9 +4512,25 @@ def validate_prep_snapshot(record: object) -> None:
         # carry the identity-bearing AF form)
         if b.get("order_path") != rprofile.AF_ORDER_PATH:
             raise FixtureError("prep-record-malformed")
-    elif b.get("order_id") in (rprofile.AD_ORDER_ID, rprofile.AF_ORDER_ID):
+    elif tag == AH_NATIVE_PREP_SCHEMA:
+        if b.get("order_id") != rprofile.AH_ORDER_ID:
+            raise FixtureError("prep-record-malformed")
+        # the fixed canonical 017-ah entry is bound to its OWN
+        # unique committed order path (a foreign path can never
+        # carry the identity-bearing AH form)
+        if b.get("order_path") != rprofile.AH_ORDER_PATH:
+            raise FixtureError("prep-record-malformed")
+    elif b.get("order_id") in (
+        rprofile.AD_ORDER_ID,
+        rprofile.AF_ORDER_ID,
+        rprofile.AH_ORDER_ID,
+    ):
         raise FixtureError("prep-record-malformed")
-    if tag in (AD_NATIVE_PREP_SCHEMA, AF_NATIVE_PREP_SCHEMA):
+    if tag in (
+        AD_NATIVE_PREP_SCHEMA,
+        AF_NATIVE_PREP_SCHEMA,
+        AH_NATIVE_PREP_SCHEMA,
+    ):
         identity = _ad_identity_substructure_law(record["identity"])
         if identity is None:
             raise FixtureError("prep-record-malformed")
@@ -4498,11 +4662,14 @@ __all__ = [
     "NATIVE_PREP_SCHEMA",
     "AD_NATIVE_PREP_SCHEMA",
     "AF_NATIVE_PREP_SCHEMA",
+    "AH_NATIVE_PREP_SCHEMA",
     "NATIVE_OWNER_PRODUCER",
     "NATIVE_OWNER_SCHEMA",
     "AD_NATIVE_OWNER_SCHEMA",
     "AF_NATIVE_OWNER_SCHEMA",
+    "AH_NATIVE_OWNER_SCHEMA",
     "AF_ATTACH_BINDING_SCHEMA",
+    "AH_ATTACH_BINDING_SCHEMA",
     "AF_ATTACH_RECORD_KEYS",
     "AF_ATTACH_ENCODING",
     "AF_ATTACH_PHASE",

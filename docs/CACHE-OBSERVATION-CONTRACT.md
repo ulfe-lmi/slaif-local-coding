@@ -3410,6 +3410,153 @@ cumulative ledger/600 s convergence grace.
   or v1 runtime claim; ALL 018-024 remain
   mandatory.
 
+### 11o. Round 017-ag: zero-group observations and inert next native entry (software-only)
+
+Round 017-ag repairs the concrete process-observation
+prerequisite exposed by the AF attempt SOFTWARE ONLY
+(no actual local fixture/owner/admission/Docker/
+native/stop/signal/model/Gateway operation; AF stays
+spent/aborted forever — no retry, reset, re-admission
+or source/head/path/phase re-qualification):
+- PURE PARSER: the closed /proc stat parser
+  represents well-formed ZERO pgrp/session
+  observations (e.g. kernel-thread-like rows) as
+  observation data instead of refusing them — the
+  exact field/length/state/comm/numeric bounds are
+  preserved (negative, overflow and truncated forms
+  stay refused; the finite upper bounds unchanged);
+  no kernel identity is inferred from comm/name/UID
+  and no rows are filtered to avoid validation;
+  unavailable/raced/unknown metadata stays explicit
+  (True = verified gone, False = present, None =
+  unknown remain distinct).
+- AUTHORITY CONSUMERS: every authority-bearing
+  consumer that previously obtained positive
+  group/session implicitly from the parser enforces
+  strict positive finite identity itself — the
+  actual W/B group and session facts (worker group,
+  worker session, Bash pgrp AND Bash session),
+  scoped subject and post-executable frames, stop
+  receipts, restoration/native-ready verdicts, CID-
+  scoped birth and member lifetime. A well-formed
+  zero observation can NEVER become a signal
+  target, a valid prepared handoff, a stop receipt,
+  a registered subject or a restored/native-ready
+  verdict. `_is_pid` and the shared execution-
+  identity validators are NOT relaxed; the complete
+  inventory still inspects every listed row and
+  only independently verified-gone churn is
+  ignorable.
+- WORKER ANCESTRY: separately grouped owned tools
+  and worker descendants stay correctly bounded and
+  independently inventoried; an unrelated zero-
+  group row is classified as unrelated from
+  validated metadata and never acquires ownership or
+  authority; a genuine unstopped member of G still
+  refuses a complete stop. No serialized historical
+  record meaning changes to accommodate raw rows.
+- ONE new future canonical sealed entry `017-ah`
+  (owner-UID profile; unique canonical path
+  `oap/orders/017-ah-owner-uid-native-pty-requalification.md`)
+  — INERT under AG-active: the real AH order file,
+  namespace (production admission path
+  `.oap-local/<order>`) and owner are ABSENT now
+  (hermetically proven in owned synthetic
+  repositories; the real checkout untouched);
+  refused BEFORE admission under AG-active;
+  resolvable only under its own active at its own
+  unique canonical committed order path; never a
+  caller flag, wildcard entry or path switch. It
+  composes the EXISTING owner/guarded exact-CID/
+  NativeOwnerRun and independent devpts producer
+  APIs with the SAME frozen bounds (frozen own OS
+  identity after won admission; compare-at-use
+  law; absolute 1800 s END / cumulative ledger /
+  600 s convergence grace; 320 MiB/10 s native and
+  16 MiB/10 s Python current-exe bounds; 96 slaves
+  / 65536 drained B / 5 s devpts and 5 s subject
+  metadata at use/return). No new runner,
+  supervisor, watchdog, transport, privilege
+  channel, framework, CLI or real-client collector;
+  no adapter/cache/Gateway/model behavior change.
+- DISTINCT identity-bearing AH wire tags (closed
+  list, one literal each):
+  `slaif-017ah-owner-state-v1` (owner state),
+  `slaif-017ah-native-handoff-prep-v1`
+  (preparation snapshot),
+  `slaif-017ah-native-owner-evidence-v1`
+  (native-owner evidence — producer of the
+  nested native facts),
+  `slaif-017ah-native-attach-binding-v1` (attach
+  binding record),
+  `slaif-017ah-native-owner-run-v1` (native run
+  terminal record),
+  `slaif-017ah-native-owner-run-evidence-v1`
+  (backend owner-run terminal evidence) and the
+  scope constant `slaif-017ah-owner-uid-scope`. The EXACT tag-
+  pair law extends: each identity-bearing tag is
+  the record of ITS OWN canonical entry only — the
+  AF tags remain AF-only and the AH tags AH-only,
+  even for equal numeric identities (cross-entry
+  tag/binding pairs refuse at the closed consumers,
+  including the workflow finalization dispatcher).
+  Shared structural cores keep unchanged meaning;
+  the original fixed-21002, S, X, Y, AB, AD and AF
+  consumers stay strict. The ONE exact NON-PTY
+  devpts probe form is admitted by the AF AND AH
+  guards, selected from the owner's OWN bound order
+  id (the AB/AD/default guards keep the byte-for-
+  byte old closed forms).
+- PROOF (fake seams only, no host devpts): the
+  REAL public composition over one coherent
+  coupled fake process world carrying an unrelated
+  well-formed kernel zero-group row across
+  prepare/observe/stop/register/finish/restore/
+  retention (observed, never adopted, never
+  mutated); zero-frame authority negatives (zeroed
+  Bash frame refused by the stop collector's own
+  zero-group law including the Bash session;
+  zeroed Worker frame refused by the baseline
+  binding; no receipt committed, honest abort);
+  cross-entry tag-pair refusals in both
+  directions; the full eleven-fixture-suite
+  regression green pre-commit (835 cases; the
+  prescribed locked B gate is the final
+  qualification).
+- ONE bounded READ-ONLY real-host check through
+  the existing `collect_worker_group(RealProcTable)`
+  against freshly measured SAME W/B/foreground:
+  executed exactly once at 2026-10-28T20:11:51Z
+  against the literal final source (collector
+  sha256 e56d2ac28d44038958481c6b08912b6be9af9e9b55adaec01afa184bf52ea58f),
+  exit 0 in 0.117 s with no refusal: the SAME
+  worker 598258 (birth 150182858) and Bash
+  2014146 (birth 95656910) revalidated
+  parent/TTY/comm, the TTY foreground pgrp
+  measured 598258 (equal to the worker pgrp;
+  same_tty true, same_job false as expected for a
+  foreground job in its own group), and the
+  closed complete inventory recorded group
+  598258 with exactly ONE member (the worker),
+  ONE other session group (the Bash group
+  2014146) and two separately grouped tool
+  sessions (the Bash itself retained as unknown;
+  the check's own two tool processes as
+  worker-descendants) — closed
+  group/ancestry/completeness facts only (not a
+  raw process corpus; no argv/environment; no
+  total PID/parsed-row count claimed), never
+  stop/subject/attach/native readiness, never an
+  idle-boundary or handoff-ready proof;
+  unknown/raced/overbound outcomes stay truthful.
+  The earlier host-wide name/argv candidate scan
+  is a separate recorded preflight occurrence,
+  not this production check.
+- AF is CLOSED FAILED actual native qualification
+  (its ONE admission spent forever). D09 remains
+  NOT RUN; no native-ready, whole-017 or v1
+  runtime claim.
+
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 

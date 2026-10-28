@@ -227,6 +227,32 @@ AF_STATE_SCHEMA = rprofile.AF_OWNER_STATE_SCHEMA
 # records, never a widened grammar).
 AF_OWNER_RUN_EVIDENCE_SCHEMA = rprofile.AF_NATIVE_RUN_EVIDENCE_SCHEMA
 AF_OWNER_RUN_SCOPE = rprofile.AF_OWNER_RUN_SCOPE
+# The canonical FUTURE 017-ah native-PTY REQUALIFICATION entry
+# (INERT in 017-ag: software-only — never activated, admitted
+# or launched in this round).  It selects ONLY the owner-UID
+# profile through the closed entry mapping and composes the
+# EXISTING owner/guarded exact-CID/NativeOwnerRun and
+# independent devpts producer APIs; it carries the DISTINCT
+# versioned identity-bearing record tags of the 017-ah
+# requalification; this constant names the entry and grants NO
+# authority — actual repository-context validation refuses it
+# before fixture work or admission under any other active
+# order.
+AH_ORDER_ID = rprofile.AH_ORDER_ID
+# The DISTINCT identity-bearing owner-state tag of the 017-ah
+# entry (the AH owner publishes ONLY this form; the historical
+# v1 tag stays the strict 12-key original and rejects it; the
+# AF tag stays AF-only, even for equal-numeric identities).
+AH_STATE_SCHEMA = rprofile.AH_OWNER_STATE_SCHEMA
+# The DISTINCT closed owner-UID AH native terminal record
+# (017-ag software): the SAME measured owner state, cleanup
+# and publication as the AF native-scope record, PLUS the
+# frozen owner identity substructure and the exact-CID
+# teardown proof.  The S, native-scope, AB, AD and AF records
+# keep their original meaning byte-for-byte (the tags are
+# separate closed records, never a widened grammar).
+AH_OWNER_RUN_EVIDENCE_SCHEMA = rprofile.AH_NATIVE_RUN_EVIDENCE_SCHEMA
+AH_OWNER_RUN_SCOPE = rprofile.AH_OWNER_RUN_SCOPE
 # The R CI-measured built-image identity (immutable R report fact at
 # 2ce9dcd): the local rebuild records whether it matches.
 R_CI_IMAGE_ID = "sha256:331e1a70ec585f6fb1494c8486faf77fb1e624cf5f0f5765f7c5bab83a92de94"
@@ -1271,6 +1297,24 @@ def _validate_af_state_object(state: object, run_id: str) -> None:
     )
 
 
+def _validate_ah_state_object(state: object, run_id: str) -> None:
+    """The DISTINCT identity-bearing AH owner-state grammar
+    (``slaif-017ah-owner-state-v1``): the SAME shared structural
+    law as the AB wrapper, under the canonical 017-ah entry's
+    OWN tag and order binding (the future native-PTY
+    REQUALIFICATION entry, INERT in 017-ag).  The AB, AD and
+    AF tags are refused here and the v1 tag never widened —
+    explicit separate closed grammars for the new physical
+    identity, including for equal-numeric identities."""
+    _validate_identity_state_core(
+        state,
+        run_id,
+        tag=AH_STATE_SCHEMA,
+        entry_order=AH_ORDER_ID,
+        token="local-ah-state-malformed",
+    )
+
+
 def _write_state(path: Path, state: dict, *, ab: bool = False) -> None:
     """Atomic (same-directory tmp + rename) 0600 state publish.
     The validator follows the published FORM: the DISTINCT
@@ -1286,6 +1330,8 @@ def _write_state(path: Path, state: dict, *, ab: bool = False) -> None:
         validator = _validate_ad_state_object
     elif tag == AF_STATE_SCHEMA:
         validator = _validate_af_state_object
+    elif tag == AH_STATE_SCHEMA:
+        validator = _validate_ah_state_object
     else:
         validator = _validate_state_object
     validator(state, str(state["run_id"]))
@@ -1477,6 +1523,8 @@ def _state_record(control_dir, *, entry_order: str | None = None) -> dict | None
         tag = AD_STATE_SCHEMA
     elif entry_order == AF_ORDER_ID:
         tag = AF_STATE_SCHEMA
+    elif entry_order == AH_ORDER_ID:
+        tag = AH_STATE_SCHEMA
     else:
         tag = STATE_SCHEMA
     root = Path(control_dir)
@@ -1513,6 +1561,8 @@ def _state_record(control_dir, *, entry_order: str | None = None) -> dict | None
             _validate_ad_state_object(state, str(state["run_id"]))
         elif tag == AF_STATE_SCHEMA:
             _validate_af_state_object(state, str(state["run_id"]))
+        elif tag == AH_STATE_SCHEMA:
+            _validate_ah_state_object(state, str(state["run_id"]))
         else:
             _validate_state_object(state, str(state["run_id"]))
     except (FixtureError, KeyError, TypeError, ValueError):
@@ -2055,15 +2105,17 @@ class LocalFixtureOwner:
         # re-resolution).
         self.identity_reader: fidentity.IdentityReader | None = identity_reader
         self._owner_context: OwnerIdentityContext | None = None
-        # ALL canonical owner-UID sealed entries (AB, the future
-        # AD and the future AF) select ONLY the owner-UID
-        # profile through the closed entry mapping; the original
-        # entries never collect (their owner context stays None
-        # and every original record/meaning stays byte-for-byte)
+        # ALL canonical owner-UID sealed entries (AB, the
+        # future AD, the future AF and the future AH) select
+        # ONLY the owner-UID profile through the closed entry
+        # mapping; the original entries never collect (their
+        # owner context stays None and every original
+        # record/meaning stays byte-for-byte)
         if binding is not None and binding.order_id in (
             rprofile.AB_ORDER_ID,
             rprofile.AD_ORDER_ID,
             rprofile.AF_ORDER_ID,
+            rprofile.AH_ORDER_ID,
         ):
             # The fixed canonical 017-ad and 017-af entries
             # resolve ONLY at their unique committed order paths
@@ -2083,6 +2135,11 @@ class LocalFixtureOwner:
                 and binding.order_path != rprofile.AF_ORDER_PATH
             ):
                 raise FixtureError("local-af-order-path-mismatch")
+            if (
+                binding.order_id == rprofile.AH_ORDER_ID
+                and binding.order_path != rprofile.AH_ORDER_PATH
+            ):
+                raise FixtureError("local-ah-order-path-mismatch")
             reader = (
                 identity_reader
                 if identity_reader is not None
@@ -2317,6 +2374,8 @@ class LocalFixtureOwner:
                 state["record"] = AD_STATE_SCHEMA
             elif ctx.order_id == AF_ORDER_ID:
                 state["record"] = AF_STATE_SCHEMA
+            elif ctx.order_id == AH_ORDER_ID:
+                state["record"] = AH_STATE_SCHEMA
             else:
                 raise FixtureError("internal")
             state["order"] = ctx.order_id
@@ -3053,6 +3112,13 @@ class LocalFixtureOwner:
             uid, _gid, _groups = fixture_prep.parse_proc_status(raw_status)
         except (FixtureError, ValueError, UnicodeDecodeError):
             return None
+        # LIFETIME AUTHORITY: the parser now accepts a well-formed
+        # ZERO pgrp/session row as observation data, but a
+        # lifetime frame can never be one — the old parser's
+        # positive prerequisite is preserved at this consumer
+        # boundary (unknown, never a frame)
+        if not fixture_prep._is_pid(parsed.pgrp) or not fixture_prep._is_pid(parsed.session):
+            return None
         if parsed.pid != pid:
             return None
         return (parsed.start_time, uid)
@@ -3084,6 +3150,17 @@ class LocalFixtureOwner:
             second = fixture_prep.parse_proc_stat(second_stat.decode("ascii", "replace"))
             uid, _gid, _groups = fixture_prep.parse_proc_status(raw_status)
         except (FixtureError, ValueError, UnicodeDecodeError):
+            return None
+        # LIFETIME AUTHORITY: both stable frames must carry the
+        # old parser's positive group/session prerequisite — a
+        # well-formed ZERO pgrp/session observation is never an
+        # owned lifetime frame (unknown, never adopted)
+        if (
+            not fixture_prep._is_pid(first.pgrp)
+            or not fixture_prep._is_pid(first.session)
+            or not fixture_prep._is_pid(second.pgrp)
+            or not fixture_prep._is_pid(second.session)
+        ):
             return None
         if first.pid != pid or second.pid != pid:
             return None
@@ -3539,6 +3616,8 @@ class LocalFixtureOwner:
                         validate_ad_owner_run_evidence(evidence)
                     elif self._owner_context.order_id == AF_ORDER_ID:
                         validate_af_owner_run_evidence(evidence)
+                    elif self._owner_context.order_id == AH_ORDER_ID:
+                        validate_ah_owner_run_evidence(evidence)
                     else:
                         raise FixtureError("internal")
                 else:
@@ -3825,9 +3904,10 @@ class LocalFixtureOwner:
         return self._outcome if self._converged else None
 
     def devpts_inventory(self) -> fixture_prep.DevptsObservation:
-        """The AF-ONLY bounded fixture-namespace devpts
+        """The AF / AH bounded fixture-namespace devpts
         inventory (017-ae software): the ONE exact NON-PTY
-        probe form admitted for the canonical 017-af entry,
+        probe form admitted for the canonical 017-af and
+        017-ah entries,
         selected from this owner's OWN frozen context (a
         caller can never mint it; every other entry's guard
         refuses the form — AB and AD keep their byte-for-byte
@@ -3843,7 +3923,7 @@ class LocalFixtureOwner:
         measured namespace root, never assumed from the
         process identity)."""
         ctx = self._owner_context
-        if ctx is None or ctx.order_id != AF_ORDER_ID:
+        if ctx is None or ctx.order_id not in (AF_ORDER_ID, AH_ORDER_ID):
             raise FixtureError("local-devpts-not-admitted")
         if self.status != "running":
             # the attach-baseline window is the LIVE prepared
@@ -4126,7 +4206,7 @@ class LocalFixtureOwner:
 
     def _owner_evidence_extra(self) -> dict[str, object]:
         """The DISTINCT owner-UID terminal record extras (the
-        canonical 017-ab, 017-ad and 017-af entries;
+        canonical 017-ab, 017-ad, 017-af and 017-ah entries;
         017-aa / 017-ac / 017-ae):
         the frozen owner identity substructure (the canonical
         profile description's measured context — collected and
@@ -4150,6 +4230,8 @@ class LocalFixtureOwner:
             record_tag, scope = AD_OWNER_RUN_EVIDENCE_SCHEMA, AD_OWNER_RUN_SCOPE
         elif ctx.order_id == AF_ORDER_ID:
             record_tag, scope = AF_OWNER_RUN_EVIDENCE_SCHEMA, AF_OWNER_RUN_SCOPE
+        elif ctx.order_id == AH_ORDER_ID:
+            record_tag, scope = AH_OWNER_RUN_EVIDENCE_SCHEMA, AH_OWNER_RUN_SCOPE
         else:
             raise FixtureError("internal")
         return {
@@ -5253,6 +5335,81 @@ def validate_af_owner_run_evidence(record: dict) -> None:
         )
     except FixtureError:
         raise FixtureError("af-owner-run-evidence-invalid") from None
+
+
+def validate_ah_owner_run_evidence(record: dict) -> None:
+    """Closed-schema validation of the DISTINCT owner-UID AH
+    terminal record (017-ag sealed INERT entry): the SAME closed
+    measured owner state, cleanup and publication law as the AB
+    wrapper, under the canonical 017-ah native-PTY
+    requalification entry's OWN distinct record/scope tags and
+    order binding:
+
+    * ``identity`` — the frozen owner identity substructure
+      THIS owner collected and derived (never caller-authored),
+      through the SAME shared structural core (canonical
+      profile name, strict ID laws, one-element primary-GID
+      group vector, production codec re-derivation of both
+      digests) — closed data integrity, never a measured-
+      authority claim;
+    * ``teardown_proof`` — the literal exact-CID-membership
+      marker (the owner-UID subject removal proof is exact
+      registered-CID lifetime membership; the S-shaped teardown
+      dict stays byte-for-byte the original).
+
+    The order is the CANONICAL 017-ah entry ONLY: an AH-tagged
+    record of any other order id is refused, and the AB, AD and
+    AF tags are separate closed grammars (never widened to the
+    AH entry, including for equal-numeric identities).  Every
+    shared measured substructure is validated through the SAME
+    private S-shaped structural core over the AH extras
+    stripped — with the frozen AH subject UID/GID and the
+    derived owner tmpfs budgets wired through (the measured
+    owner facts are validated as-is, NEVER normalized to 21002;
+    the public v1 S/native/AB/AD/AF wrappers keep their closed
+    laws byte-for-byte).
+    """
+    if not isinstance(record, dict):
+        raise FixtureError("ah-owner-run-evidence-invalid")
+    if (
+        record.get("record") != AH_OWNER_RUN_EVIDENCE_SCHEMA
+        or record.get("scope") != AH_OWNER_RUN_SCOPE
+        or record.get("status") not in ("pass", "fail")
+    ):
+        raise FixtureError("ah-owner-run-evidence-invalid")
+    # The canonical 017-ah entry ONLY: the AH-tagged grammar is
+    # the distinct owner-UID record of 017-ah, and no other
+    # order id may carry it (the AB/AD/AF tags and the
+    # native-scope generic order law are separate closed
+    # grammars).
+    if record.get("order") != AH_ORDER_ID:
+        raise FixtureError("ah-owner-run-evidence-invalid")
+    if record.get("teardown_proof") != "exact-cid-membership":
+        raise FixtureError("ah-owner-run-evidence-invalid")
+    identity = record.get("identity")
+    law = _identity_substructure_law(identity)
+    if law is None:
+        raise FixtureError("ah-owner-run-evidence-invalid")
+    subject_uid, subject_gid, _expected_groups, description = law
+    reduced = {
+        key: value for key, value in record.items() if key not in ("identity", "teardown_proof")
+    }
+    reduced["record"] = NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
+    reduced["scope"] = NATIVE_OWNER_RUN_SCOPE
+    try:
+        _native_key_grammar(reduced)
+    except FixtureError:
+        raise FixtureError("ah-owner-run-evidence-invalid") from None
+    try:
+        profile_view = rprofile.owner_runtime_profile(description)
+        _validate_local_evidence_core(
+            _native_s_envelope(reduced),
+            subject_uid=subject_uid,
+            subject_gid=subject_gid,
+            tmpfs_budgets=ci.owner_tmpfs_budgets(profile_view),
+        )
+    except FixtureError:
+        raise FixtureError("ah-owner-run-evidence-invalid") from None
 
 
 # -- the sealed owner launch + the thin rehearsal driver ----------------------------

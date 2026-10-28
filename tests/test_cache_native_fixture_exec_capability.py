@@ -2460,6 +2460,69 @@ def test_discovery_absent_verified_vs_foreign_scope_refusal(tmp_path: Path) -> N
     assert str(exc.value) == "cap-inventory-unverified"
 
 
+def test_scoped_identity_zero_group_never_subject() -> None:
+    # a well-formed ZERO pgrp/session observation is never a
+    # subject frame: the old parser's positive prerequisite is
+    # preserved at the authority boundary (a subject is never
+    # minted from a zero frame, however the other fields match)
+    world = _World(CID)
+    world.launch_subject(TOKEN)
+    channel = _FakeChannel(CID, world)
+    ps, _argv, _uid, _gid, _groups = fxc._scoped_identity(channel, 60)
+    assert ps.start_time == 500
+    subject = world.subject
+    assert subject is not None
+    subject["stat"] = stp.stat_line(60, "codex", "S", 1, 0, 77, 0, 0, 500)
+    with pytest.raises(FixtureError, match="cap-subject-malformed"):
+        fxc._scoped_identity(channel, 60)
+    subject["stat"] = stp.stat_line(60, "codex", "S", 1, 60, 0, 0, 0, 500)
+    with pytest.raises(FixtureError, match="cap-subject-malformed"):
+        fxc._scoped_identity(channel, 60)
+    # and the lifetime law through the public measurement: a
+    # zero-group frame is a process-identity refusal, the
+    # executable is never earned
+    subject["stat"] = stp.stat_line(60, "codex", "S", 1, 0, 77, 0, 0, 500)
+    measured = fxc.measure_live_subject(channel, 60, 500, token=TOKEN)
+    assert measured == {
+        "process_identity": "refused",
+        "executable": "not-measured",
+        "executable_sha256": None,
+    }
+
+
+def test_discovery_inventory_zero_row_retained_unadopted(tmp_path: Path) -> None:
+    # an UNRELATED attested member reporting a well-formed ZERO
+    # pgrp/session is observation data: the scan is NOT poisoned
+    # (the row is retained with its measured birth), and no
+    # closed-form adoption is possible for it — the closed-form
+    # subject correlates exactly as before
+    proc_root = tmp_path / "proc"
+    for pid in (1, 60, 70):
+        (proc_root / str(pid)).mkdir(parents=True)
+    world = _World(CID)
+    world.launch_subject(TOKEN)
+    world.extra[70] = {
+        "stat": stp.stat_line(70, "kthreadd", "S", 0, 0, 0, 0, -1, 300),
+        "cmdline": b"",
+        "status": stp.status_bytes(0, 0, ()),
+        "cgroup": CID,
+    }
+    channel = _FakeChannel(CID, world)
+    rows = fxc.discover_inventory(channel, proc_root, [1, 60, 70], token=TOKEN)
+    by_pid = {row["pid"]: row for row in rows}
+    assert by_pid[70]["birth"] == 300
+    assert by_pid[70]["closed_hold_form"] is False
+    assert by_pid[60]["closed_hold_form"] is True
+    # and the zero row can never be correlated: it is not in the
+    # exact closed hold form, and a zero-frame subject is
+    # refused at the re-measurement boundary
+    post = fxc.discover_inventory(channel, proc_root, [1, 60, 70], token=TOKEN)
+    candidate, verdict = fxc.correlate_subject(
+        [row for row in post if row["pid"] != 60], post, TOKEN
+    )
+    assert verdict == "correlated" and candidate is not None and candidate["pid"] == 60
+
+
 # -- the driver terminal over the coupled owner (closed owner outcomes) -----------
 def test_driver_failed_sealed_startup_closed_reason(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

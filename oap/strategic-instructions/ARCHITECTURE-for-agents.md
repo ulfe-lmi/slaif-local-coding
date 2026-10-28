@@ -1043,6 +1043,90 @@ log / admission record, private AF root and
 report. D09 remains `NOT RUN`; no native-ready or
 v1 runtime claim; ALL 018–024 remain mandatory.
 
+Round 017-ag repairs the AF-exposed
+process-observation prerequisite SOFTWARE ONLY
+(no actual local fixture/owner/admission/Docker/
+native/stop/signal/model/Gateway operation; all
+original S/X/Y/AB/AD/AF entries, defaults, sealed
+namespaces and historical record meanings
+unchanged): the pure /proc stat parser preserves
+well-formed ZERO pgrp/session observations (e.g.
+kernel-thread-like rows) as observation data —
+negative, overflow or truncated forms stay
+refused, the finite upper bounds are unchanged,
+and no kernel identity is inferred from
+comm/name/UID or row filtering — while EVERY
+authority-bearing consumer enforces strict
+positive finite group/session identity itself:
+the actual W/B group and session facts, scoped
+subject and post-executable frames, stop
+receipts (including the Bash session),
+restoration/native-ready verdicts, CID-scoped
+birth and member lifetime. A well-formed zero
+observation can NEVER become a signal target,
+prepared handoff, stop receipt, registered
+subject or restored verdict; the complete
+inventory still inspects every listed row and
+only independently verified-gone churn is
+ignorable. ONE future canonical sealed entry
+`017-ah` (owner-UID profile; unique path
+`oap/orders/017-ah-owner-uid-native-pty-requalification.md`)
+is fixed now but INERT under AG-active: the real
+AH order/namespace/admission/owner is absent now
+(hermetically proven, including the production
+admission path `.oap-local/<order>`), refused
+before admission under AG-active, and resolves
+only under its own active at its unique
+canonical committed order path. It composes the
+EXISTING owner/guarded exact-CID/NativeOwnerRun
+and devpts producer APIs with the SAME frozen
+bounds (1800 s END / 600 s convergence grace /
+320 MiB-10 s native / 16 MiB-10 s Python exe /
+96 slave rows / 65536 drained B / 5 s devpts and
+subject metadata at use and return) and carries
+DISTINCT identity-bearing `slaif-017ah-*`
+state/prep/owner-evidence/attach-binding/
+native-run/run-evidence/scope tags (the AF tags
+stay AF-only, even equal numeric identities);
+the ONE exact NON-PTY devpts probe form is
+admitted by the AH guard selected from the
+owner's OWN bound order (old guards
+byte-for-byte unchanged). The proof drives the
+REAL public composition over one coherent
+coupled fake world carrying an unrelated
+well-formed kernel zero-group row across
+prepare/observe/stop/register/finish/restore/
+retention (observed, never adopted, never
+mutated), with the zero-frame authority
+negatives, cross-entry tag-pair refusals and
+the full eleven-fixture-suite regression green
+pre-commit (835 cases; the prescribed locked B
+gate is the final qualification). The ONE
+bounded read-only real-host check (the existing
+`collect_worker_group(RealProcTable)` against
+freshly measured SAME W/B/foreground) ran
+exactly once at 2026-10-28T20:11:51Z against
+the literal final source (collector sha256
+e56d2ac28d44038958481c6b08912b6be9af9e9b55adaec01afa184bf52ea58f):
+exit 0 in 0.117 s, the SAME worker 598258
+(birth 150182858) and Bash 2014146 (birth
+95656910) revalidated parent/TTY/comm, the TTY
+foreground pgrp measured 598258 (equal to the
+worker pgrp), and the closed complete inventory
+showed group 598258 with exactly ONE member,
+ONE other session group and two separately
+grouped tool sessions (the Bash itself as
+unknown; the check's own two tool processes as
+worker-descendants) — parser traversal of
+actual host rows only, never stop/subject/
+attach/native readiness or an idle-boundary
+proof; the earlier host-wide candidate scan is
+a separate recorded preflight occurrence. AF is
+CLOSED FAILED actual qualification
+with its ONE admission spent forever (no
+retry/reset). D09 remains `NOT RUN`; no native-
+ready, whole-017 or v1 runtime claim.
+
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

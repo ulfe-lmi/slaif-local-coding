@@ -122,6 +122,17 @@ AD_NATIVE_RUN_SCHEMA = rprofile.AD_NATIVE_RUN_SCHEMA
 # scope literal stays the profile-independent original.
 AF_ORDER_ID = rprofile.AF_ORDER_ID
 AF_NATIVE_RUN_SCHEMA = rprofile.AF_NATIVE_RUN_SCHEMA
+# The canonical FUTURE 017-ah native-PTY REQUALIFICATION
+# entry (INERT in 017-ag: software only — never activated,
+# admitted or launched here) and its DISTINCT versioned
+# identity-bearing native-run terminal tag: the SAME closed
+# measured facts as the AF tag PLUS the frozen owner-identity
+# substructure AND the nested attach-binding record (or an
+# honest None) under the AH entry's own tag-pair law (the AF
+# tag remains AF-only, even for equal-numeric identities);
+# the original tag refuses every identity-bearing binding.
+AH_ORDER_ID = rprofile.AH_ORDER_ID
+AH_NATIVE_RUN_SCHEMA = rprofile.AH_NATIVE_RUN_SCHEMA
 # the owner's closed terminal outcomes (the attempt record
 # vocabulary, never a caller boolean)
 NATIVE_RUN_OUTCOMES = frozenset({"pass", "fail", "aborted"})
@@ -275,6 +286,8 @@ def parse_native_run_record(record: object) -> dict:
         expected_keys = _NATIVE_RUN_KEYS | {"identity"}
     elif tag == AF_NATIVE_RUN_SCHEMA:
         expected_keys = _NATIVE_RUN_KEYS | {"identity", "attach_binding"}
+    elif tag == AH_NATIVE_RUN_SCHEMA:
+        expected_keys = _NATIVE_RUN_KEYS | {"identity", "attach_binding"}
     elif tag == NATIVE_RUN_SCHEMA:
         expected_keys = _NATIVE_RUN_KEYS
     else:
@@ -314,27 +327,31 @@ def parse_native_run_record(record: object) -> dict:
     # The entry-aware closed ORDER binding: the original tag is
     # never the record of the canonical 017-ad / 017-af entry
     # (including the equal-numeric cross-profile case — a
-    # fixed-21002 subject bound to 017-ad / 017-af still
-    # belongs to the entry's OWN tag), and each identity-
-    # bearing tag is its OWN canonical entry's record only at
-    # its canonical order path (its frozen identity
-    # substructure is closed-validated by the shared
-    # structural core — data integrity, never a measured-
-    # authority claim).
-    identity_entry = tag in (AD_NATIVE_RUN_SCHEMA, AF_NATIVE_RUN_SCHEMA)
+    # fixed-21002 subject bound to any of them still belongs
+    # to the entry's OWN tag), and each identity-bearing tag
+    # is its OWN canonical entry's record only at its
+    # canonical order path (its frozen identity substructure
+    # is closed-validated by the shared structural core — data
+    # integrity, never a measured-authority claim).
+    identity_entry = tag in (
+        AD_NATIVE_RUN_SCHEMA,
+        AF_NATIVE_RUN_SCHEMA,
+        AH_NATIVE_RUN_SCHEMA,
+    )
     identity_triple: tuple[int, int, tuple[int, ...]] | None = None
     if identity_entry:
-        entry_order = AD_ORDER_ID if tag == AD_NATIVE_RUN_SCHEMA else AF_ORDER_ID
-        entry_path = (
-            rprofile.AD_ORDER_PATH if tag == AD_NATIVE_RUN_SCHEMA else rprofile.AF_ORDER_PATH
-        )
+        entry_order, entry_path = {
+            AD_NATIVE_RUN_SCHEMA: (AD_ORDER_ID, rprofile.AD_ORDER_PATH),
+            AF_NATIVE_RUN_SCHEMA: (AF_ORDER_ID, rprofile.AF_ORDER_PATH),
+            AH_NATIVE_RUN_SCHEMA: (AH_ORDER_ID, rprofile.AH_ORDER_PATH),
+        }[tag]
         if binding["order_id"] != entry_order or binding["order_path"] != entry_path:
             raise FixtureError("native-owner-record-malformed")
         law = local._identity_substructure_law(record["identity"])
         if law is None:
             raise FixtureError("native-owner-record-malformed")
         identity_triple = (law[0], law[1], law[2])
-    elif binding["order_id"] in (AD_ORDER_ID, AF_ORDER_ID):
+    elif binding["order_id"] in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID):
         raise FixtureError("native-owner-record-malformed")
     native = record["native_record"]
     native_facts = None
@@ -355,14 +372,14 @@ def parse_native_run_record(record: object) -> dict:
         # cross-bound to one frozen context)
         if identity_entry and native_facts.identity != identity_triple:
             raise FixtureError("native-owner-record-malformed")
-    # The AF entry's nested attach-binding record: RE-DERIVED
-    # by the closed consumer against the OUTER binding record
-    # (a copied or replayed record never mints authority),
-    # cross-bound to the outer frozen identity and — when a
-    # native record is present — to that record's measured
-    # CID
+    # The AF / AH entry's nested attach-binding record:
+    # RE-DERIVED by the closed consumer against the OUTER
+    # binding record (a copied or replayed record never mints
+    # authority), cross-bound to the outer frozen identity and
+    # — when a native record is present — to that record's
+    # measured CID
     attach = None
-    if tag == AF_NATIVE_RUN_SCHEMA:
+    if tag in (AF_NATIVE_RUN_SCHEMA, AH_NATIVE_RUN_SCHEMA):
         attach = record["attach_binding"]
         if attach is not None:
             try:
@@ -397,10 +414,10 @@ def parse_native_run_record(record: object) -> dict:
         or native is None
         or refusal is not None
         or native_facts.native_ready is not True
-        # the AF entry's ready verdict additionally requires
-        # the measured attach binding (a missing attach is an
-        # honest None, never a ready handoff)
-        or (tag == AF_NATIVE_RUN_SCHEMA and attach is None)
+        # the AF / AH entry's ready verdict additionally
+        # requires the measured attach binding (a missing
+        # attach is an honest None, never a ready handoff)
+        or (tag in (AF_NATIVE_RUN_SCHEMA, AH_NATIVE_RUN_SCHEMA) and attach is None)
     ):
         raise FixtureError("native-owner-record-malformed")
     if refusal is not None and (native is not None or verdict["ready"] is True):
@@ -486,6 +503,8 @@ class NativeOwnerRun:
         if binding.order_id == AD_ORDER_ID and binding.order_path != rprofile.AD_ORDER_PATH:
             raise FixtureError("native-owner-order-path-mismatch")
         if binding.order_id == AF_ORDER_ID and binding.order_path != rprofile.AF_ORDER_PATH:
+            raise FixtureError("native-owner-order-path-mismatch")
+        if binding.order_id == AH_ORDER_ID and binding.order_path != rprofile.AH_ORDER_PATH:
             raise FixtureError("native-owner-order-path-mismatch")
         self._binding: OrderRunBinding = binding
         self._repo = Path(str(repo))
@@ -576,7 +595,7 @@ class NativeOwnerRun:
             # refusal, never a silent fallback to the original
             # profile.
             subject_identity: tuple[int, int, tuple[int, ...]] | None = None
-            if binding.order_id in (AD_ORDER_ID, AF_ORDER_ID):
+            if binding.order_id in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID):
                 ctx = self._owner._owner_context
                 if ctx is None:
                     raise FixtureError("native-owner-identity-unmeasured")
@@ -790,7 +809,7 @@ class NativeOwnerRun:
         # may retry CORRECTED parameters against the SAME
         # already-measured receipt (the workflow's staged
         # law), never a resampled allocation.
-        if self._binding.order_id == AF_ORDER_ID:
+        if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID):
             if self._attach_receipt is None:
                 raise FixtureError("native-owner-attach-binding-missing")
             if not isinstance(expectation, prep.SubjectExpectation) or not (
@@ -843,14 +862,18 @@ class NativeOwnerRun:
         # The original entries keep their historical channel
         # law byte-for-byte (an absent channel stays absent, no
         # AD default applies to them).
-        if channel is None and self._binding.order_id in (AD_ORDER_ID, AF_ORDER_ID):
+        if channel is None and self._binding.order_id in (
+            AD_ORDER_ID,
+            AF_ORDER_ID,
+            AH_ORDER_ID,
+        ):
             if not isinstance(owner.target_cid, str):
                 raise FixtureError("native-owner-registration-unmeasured")
             end = self._owner.deadline.anchor
             if end - time.monotonic() <= 0:
                 raise FixtureError("native-owner-patience")
             channel = build_ad_native_channel(owner.target_cid, end)
-        if self._binding.order_id == AF_ORDER_ID:
+        if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID):
             # the MEASURED native namespace/device frame: the
             # subject's own mount view compared against the
             # independently measured private allocation
@@ -954,6 +977,11 @@ class NativeOwnerRun:
                 ps = prep.parse_proc_stat(raw.decode("ascii", "replace"))
             except prep.FixtureError:
                 raise FixtureError("native-owner-attach-devpts-unreadable") from None
+            # positive group/session prerequisite (zero is
+            # observation data only — never the bound subject
+            # of a metadata read)
+            if not prep._is_pid(ps.pgrp) or not prep._is_pid(ps.session):
+                raise FixtureError("native-owner-attach-devpts-unreadable")
             birth = ps.start_time
         elif not prep._is_strict_int(birth):
             raise FixtureError("native-owner-attach-devpts-unreadable")
@@ -1085,13 +1113,20 @@ class NativeOwnerRun:
         if (
             ps.start_time != subject.start_time
             or ps.tty != subject.tty
+            # the POSITIVE pgrp/session prerequisite the parser
+            # used to supply implicitly: a now-parseable zero
+            # group/session frame is still not this subject
+            # (zero observation data never carries the final
+            # frame, however the other fields match)
+            or not prep._is_pid(ps.pgrp)
+            or not prep._is_pid(ps.session)
             or (uid, gid, tuple(groups)) != (subject.uid, subject.gid, subject.groups)
             or tuple(argv) != subject.argv
         ):
             raise FixtureError("native-owner-attach-identity-drift")
 
     def collect_attach_baseline(self) -> prep.DevptsObservation:
-        """The AF-ONLY attach-baseline collection (017-ae
+        """The AF / AH attach-baseline collection (017-ae
         software): after prepare and the separately measured
         stop, the owner's ONE bounded devpts inventory
         freezes the attach-baseline snapshot.  The phase is
@@ -1110,7 +1145,7 @@ class NativeOwnerRun:
         at the owner's actual use site; the budget is the
         owner's OWN absolute END anchor (no grace, no fresh
         phase window)."""
-        if self._binding.order_id != AF_ORDER_ID:
+        if self._binding.order_id not in (AF_ORDER_ID, AH_ORDER_ID):
             raise FixtureError("native-owner-attach-not-admitted")
         if (
             self._attach_baseline_attempted
@@ -1152,7 +1187,7 @@ class NativeOwnerRun:
         return self._attach_baseline
 
     def derive_attach_expectation(self) -> dict[str, object]:
-        """The AF-ONLY attach expectation derivation
+        """The AF / AH attach expectation derivation
         (017-ae software): ONE further bounded inventory
         observation after the frozen baseline; the unique
         fresh owned allocation is derived by the pure core
@@ -1183,7 +1218,7 @@ class NativeOwnerRun:
         identity is revalidated at the owner's actual use
         site; the budget is the owner's OWN absolute END
         anchor."""
-        if self._binding.order_id != AF_ORDER_ID:
+        if self._binding.order_id not in (AF_ORDER_ID, AH_ORDER_ID):
             raise FixtureError("native-owner-attach-not-admitted")
         owner = self._owner
         if owner is None or self._thread is None:
@@ -1487,13 +1522,14 @@ class NativeOwnerRun:
             # whose records keep their exact historical key
             # set (no identity key at all).
             owner_identity: dict | None = None
-            if self._binding.order_id in (AD_ORDER_ID, AF_ORDER_ID):
+            if self._binding.order_id in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID):
                 ctx = owner._owner_context
                 if ctx is None:
-                    # an AD run without the frozen context can
-                    # never mint an honest AD record: a closed
-                    # refusal, never a fallback to the original
-                    # fixed-21002 form
+                    # an AD / AF / AH run without the frozen
+                    # context can never mint an honest
+                    # identity-bearing record: a closed
+                    # refusal, never a fallback to the
+                    # original fixed-21002 form
                     native_refusal = "native-owner-identity-unmeasured"
                 else:
                     owner_identity = {
@@ -1509,7 +1545,7 @@ class NativeOwnerRun:
                 and subject is not None
                 and stop_recorded
                 and (
-                    self._binding.order_id not in (AD_ORDER_ID, AF_ORDER_ID)
+                    self._binding.order_id not in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID)
                     or owner_identity is not None
                 )
             ):
@@ -1545,18 +1581,25 @@ class NativeOwnerRun:
             verdict = workflow.finalize(native_record)
             journal_state = self._verify_journal_for_publication(outcome)
             # The DISTINCT identity-bearing terminal tag of
-            # the canonical 017-ad / 017-af entries (the SAME
-            # closed measured facts PLUS the frozen owner-
-            # identity substructure; the AF entry ADDITIONALLY
-            # carries the nested attach-binding record, or an
-            # honest None); the original tag keeps its exact
-            # historical key set for every other entry.
-            identity_entry = self._binding.order_id in (AD_ORDER_ID, AF_ORDER_ID)
+            # the canonical 017-ad / 017-af / 017-ah entries
+            # (the SAME closed measured facts PLUS the frozen
+            # owner-identity substructure; the AF and AH
+            # entries ADDITIONALLY carry the nested
+            # attach-binding record, or an honest None); the
+            # original tag keeps its exact historical key set
+            # for every other entry.
+            identity_entry = self._binding.order_id in (
+                AD_ORDER_ID,
+                AF_ORDER_ID,
+                AH_ORDER_ID,
+            )
             record_tag = (
                 AD_NATIVE_RUN_SCHEMA
                 if self._binding.order_id == AD_ORDER_ID
                 else AF_NATIVE_RUN_SCHEMA
                 if self._binding.order_id == AF_ORDER_ID
+                else AH_NATIVE_RUN_SCHEMA
+                if self._binding.order_id == AH_ORDER_ID
                 else NATIVE_RUN_SCHEMA
             )
             record: dict[str, object] = {
@@ -1573,9 +1616,9 @@ class NativeOwnerRun:
             }
             if identity_entry:
                 record["identity"] = owner_identity
-            if self._binding.order_id == AF_ORDER_ID:
-                # The nested attach-binding record of the AF
-                # entry: the retained measured receipt (the
+            if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID):
+                # The nested attach-binding record of the AF /
+                # AH entry: the retained measured receipt (the
                 # frozen owner context is its authority — a
                 # copied or replayed record never mints
                 # authority) or an honest None (the attach

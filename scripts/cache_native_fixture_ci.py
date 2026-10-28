@@ -1357,7 +1357,9 @@ def _owner_argv_matchers(profile: rprofile.RuntimeProfile, order_id: str | None 
         _make_docker_exec_hold_matcher(profile.exec_user),
         _match_runtime_version,
     ) + (
-        (_make_devpts_probe_matcher(profile.exec_user),) if order_id == rprofile.AF_ORDER_ID else ()
+        (_make_devpts_probe_matcher(profile.exec_user),)
+        if order_id in (rprofile.AF_ORDER_ID, rprofile.AH_ORDER_ID)
+        else ()
     )
 
 

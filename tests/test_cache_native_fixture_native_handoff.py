@@ -1545,9 +1545,12 @@ def test_ae_af_entry_selection_and_preserved_closed_mapping() -> None:
     assert frp.AF_NATIVE_RUN_SCHEMA == "slaif-017af-native-owner-run-v1"
     assert frp.AF_OWNER_RUN_SCOPE == "slaif-017af-owner-uid-scope"
     assert frp.AF_NATIVE_ATTACH_BINDING_SCHEMA == "slaif-017af-native-attach-binding-v1"
-    # the closed entry mapping: the five EXISTING entries
-    # preserved byte-for-byte, plus AF selecting the SAME
-    # owner-UID profile
+    # the closed entry mapping: the EXISTING entries
+    # preserved byte-for-byte (the sealed FUTURE 017-ah
+    # requalification entry added by the 017-ag order is
+    # included in the current closed law — its own test
+    # re-asserts every preserved constant), each owner-UID
+    # entry selecting the SAME owner-UID profile
     assert dict(frp.ENTRY_PROFILES) == {
         "017-s": frp.PROFILE_ORIGINAL,
         "017-x": frp.PROFILE_ORIGINAL,
@@ -1555,6 +1558,7 @@ def test_ae_af_entry_selection_and_preserved_closed_mapping() -> None:
         frp.AB_ORDER_ID: frp.PROFILE_OWNER_UID,
         frp.AD_ORDER_ID: frp.PROFILE_OWNER_UID,
         frp.AF_ORDER_ID: frp.PROFILE_OWNER_UID,
+        frp.AH_ORDER_ID: frp.PROFILE_OWNER_UID,
     }
     assert frp.entry_profile_name("017-s") == frp.PROFILE_ORIGINAL
     assert frp.entry_profile_name("017-x") == frp.PROFILE_ORIGINAL
@@ -3226,3 +3230,777 @@ def test_af_final_frame_end_crossed_during_hash_refused(
         with pytest.raises(fci.FixtureError, match="native-owner-patience"):
             run.register_subject(NAT_PID, _af_expectation(run))
         assert run.workflow.subject_receipt is None
+
+
+# ============================================================================
+# 017-ag: the sealed INERT 017-ah entry + zero-group coupled lifecycle
+# ============================================================================
+
+AH_ORDER_ID = "017-ah"
+AH_ORDER_NAME = "017-ah-owner-uid-native-pty-requalification.md"
+AH_ORDER_BYTES = b"# synthetic AH order (fake seam only)\n"
+AG_ORDER_ID = "017-ag"
+AG_ORDER_NAME = "017-ag-synthetic-active.md"
+AG_ORDER_BYTES = b"# synthetic AG order (fake seam only)\n"
+
+# The UNRELATED well-formed kernel-thread-like observation
+# row present across the coupled lifecycle (pgrp 0 / session
+# 0 / tty 0 / tpgid -1 — observation data only: never a
+# group member, never a tool session, never an authority
+# frame, never mutated).
+KERNEL_PID = 999
+
+
+def _kernel_proc() -> dict[str, Any]:
+    return {
+        "stat": stp.stat_line(KERNEL_PID, "kworker/0:1", "S", 2, 0, 0, 0, -1, 5),
+        "cmdline": b"",
+        "status": stp.status_bytes(0, 0),
+    }
+
+
+def _ah_repo(base: Path, *, active_order: str = AH_ORDER_ID) -> Path:
+    """The S-shaped synthetic repo for the 017-ag AH entry
+    tests: the AH canonical order file is committed; oap/active
+    selects the requested entry (AH by default, AG for the
+    pre-admission refusal law).  Test order bytes live ONLY in
+    owned synthetic repositories — the real AH order is never
+    created in this checkout."""
+    repo = Path(stl._make_local_repo(base))
+    for name in (
+        "cache_native_fixture_owner.Dockerfile",
+        "cache_native_fixture_identity.py",
+        "cache_native_fixture_native_prep.py",
+        "cache_native_fixture_runtime_profile.py",
+        "cache_native_fixture_binding.py",
+    ):
+        (repo / "scripts" / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
+    (repo / "oap" / "orders" / AH_ORDER_NAME).write_bytes(AH_ORDER_BYTES)
+    if active_order == AG_ORDER_ID:
+        (repo / "oap" / "orders" / AG_ORDER_NAME).write_bytes(AG_ORDER_BYTES)
+    (repo / "oap" / "active").write_bytes(active_order.encode("ascii") + b"\n")
+    return repo
+
+
+def _ah_git_runner(repo: Path, *, head: str = HEAD, active_order: str = AH_ORDER_ID) -> Any:
+    """The fake committed-context git runner (read-only
+    queries only) for the AH/AG synthetic repository."""
+
+    def git_runner(args: list[str], cwd: Path) -> bytes:
+        if args == ["rev-parse", "HEAD"]:
+            return head.encode("ascii")
+        if args == ["status", "--porcelain"]:
+            return b""
+        if args == ["remote", "get-url", "origin"]:
+            return b"https://github.com/ulfe-lmi/slaif-local-coding.git\n"
+        if args == ["ls-tree", "--name-only", f"{HEAD}:oap/orders"]:
+            names = [S_ORDER_NAME]
+            if active_order == AH_ORDER_ID:
+                names.append(AH_ORDER_NAME)
+            else:
+                names += [AG_ORDER_NAME, AH_ORDER_NAME]
+            return ("\n".join(names) + "\n").encode("ascii")
+        if args == ["show", f"{HEAD}:oap/active"]:
+            return active_order.encode("ascii") + b"\n"
+        if args == ["show", f"{HEAD}:oap/orders/{S_ORDER_NAME}"]:
+            return bytes(stl.ORDER_PATH.read_bytes())
+        if args == ["show", f"{HEAD}:oap/orders/{AH_ORDER_NAME}"]:
+            return AH_ORDER_BYTES
+        if args == ["show", f"{HEAD}:oap/orders/{AG_ORDER_NAME}"]:
+            return AG_ORDER_BYTES
+        raise AssertionError(f"unexpected git args: {args}")
+
+    return git_runner
+
+
+def _ah_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    world: _AFWorld,
+    docker: _AFFakeDocker,
+) -> tuple[Any, Any, _AFFakeDocker, Path, Path, list[int]]:
+    """The coupled AH composition over the SAME coherent fake
+    world: the REAL public NativeOwnerRun over the AH binding
+    (the sealed INERT entry exercised as software only)."""
+    repo = _ah_repo(tmp_path)
+    work = tmp_path / "work"
+    control = tmp_path / "control"
+    owner_evidence = tmp_path / "evidence" / "ah-owner-evidence.json"
+    uid_calls: list[int] = []
+    _hermetic(tmp_path, monkeypatch, docker, control, uid_calls)
+    git = _ah_git_runner(repo)
+    table = stp.FakeTable(world.procs)
+    binding = fb.resolve_order_binding(repo, AH_ORDER_ID, HEAD, git_runner=git)
+    run = fno.NativeOwnerRun(
+        binding,
+        repo,
+        work,
+        owner_evidence,
+        control,
+        git_runner=git,
+        executor=docker,
+        table=table,
+        worker_pid=WORK_PID,
+        bash_pid=BASH_PID,
+        tty_foreground_pgrp=WORK_PID,
+        identity_reader=_ad_reader,
+        proc_root=world.proc_root,
+    )
+    return run, repo, docker, owner_evidence, control, uid_calls
+
+
+def test_ag_ah_entry_selection_and_preserved_closed_mapping() -> None:
+    """The canonical sealed FUTURE 017-ah native-PTY
+    requalification entry selects the SAME owner-UID profile
+    through the closed entry mapping (composing the EXISTING
+    owner/guarded exact-CID/NativeOwnerRun and devpts
+    producer APIs), and every EXISTING entry, path and tag is
+    preserved byte-for-byte (the AF tags stay AF-only, even
+    equal numeric identities)."""
+    # the exact canonical AH constants
+    assert frp.AH_ORDER_ID == "017-ah"
+    assert frp.AH_ORDER_PATH == "oap/orders/017-ah-owner-uid-native-pty-requalification.md"
+    assert frp.AH_OWNER_STATE_SCHEMA == "slaif-017ah-owner-state-v1"
+    assert frp.AH_NATIVE_RUN_EVIDENCE_SCHEMA == "slaif-017ah-native-owner-run-evidence-v1"
+    assert frp.AH_NATIVE_RUN_SCHEMA == "slaif-017ah-native-owner-run-v1"
+    assert frp.AH_OWNER_RUN_SCOPE == "slaif-017ah-owner-uid-scope"
+    assert frp.AH_NATIVE_ATTACH_BINDING_SCHEMA == "slaif-017ah-native-attach-binding-v1"
+    # the closed entry mapping: the SIX existing entries
+    # preserved byte-for-byte, plus AH selecting the SAME
+    # owner-UID profile
+    assert dict(frp.ENTRY_PROFILES) == {
+        "017-s": frp.PROFILE_ORIGINAL,
+        "017-x": frp.PROFILE_ORIGINAL,
+        "017-y": frp.PROFILE_ORIGINAL,
+        frp.AB_ORDER_ID: frp.PROFILE_OWNER_UID,
+        frp.AD_ORDER_ID: frp.PROFILE_OWNER_UID,
+        frp.AF_ORDER_ID: frp.PROFILE_OWNER_UID,
+        frp.AH_ORDER_ID: frp.PROFILE_OWNER_UID,
+    }
+    assert frp.entry_profile_name("017-s") == frp.PROFILE_ORIGINAL
+    assert frp.entry_profile_name("017-x") == frp.PROFILE_ORIGINAL
+    assert frp.entry_profile_name("017-y") == frp.PROFILE_ORIGINAL
+    assert frp.entry_profile_name(frp.AB_ORDER_ID) == frp.PROFILE_OWNER_UID
+    assert frp.entry_profile_name(AD_ORDER_ID) == frp.PROFILE_OWNER_UID
+    assert frp.entry_profile_name(AF_ORDER_ID) == frp.PROFILE_OWNER_UID
+    # AH carries the owner-UID profile (the production
+    # derivation, never a caller-authored view)
+    assert frp.entry_profile_name(frp.AH_ORDER_ID) == frp.PROFILE_OWNER_UID
+    view = frp.entry_runtime_profile(frp.AH_ORDER_ID, _ad_description())
+    assert (view.subject_uid, view.subject_gid) == (SUBJ_UID, SUBJ_GID)
+    assert view.exec_user == f"{SUBJ_UID}:{SUBJ_GID}"
+    # unknown entries still refuse (AH is a known entry, not a
+    # wildcard: nothing else is selectable)
+    with pytest.raises(frp.ProfileError, match="profile-entry-unknown"):
+        frp.entry_profile_name("017-ae")
+    with pytest.raises(frp.ProfileError, match="profile-entry-unknown"):
+        frp.entry_profile_name("017-zz")
+    # every EXISTING canonical constant/tag preserved byte-for-byte
+    assert frp.AB_ORDER_ID == "017-ab"
+    assert frp.AB_ORDER_PATH == "oap/orders/017-ab-owner-uid-python-capability-qualification.md"
+    assert frp.AB_DRIVER_RECORD == "slaif-017ab-owner-uid-exec-capability-v1"
+    assert frp.AB_OWNER_RUN_EVIDENCE_SCHEMA == "slaif-017ab-owner-run-evidence-v1"
+    assert frp.AB_OWNER_RUN_SCOPE == "slaif-017ab-owner-uid-scope"
+    assert frp.AD_ORDER_ID == "017-ad"
+    assert frp.AD_ORDER_PATH == "oap/orders/017-ad-owner-uid-native-handoff-qualification.md"
+    assert frp.AD_DRIVER_RECORD == "slaif-017ad-owner-uid-native-handoff-v1"
+    assert frp.AD_OWNER_STATE_SCHEMA == "slaif-017ad-owner-state-v1"
+    assert frp.AD_NATIVE_RUN_EVIDENCE_SCHEMA == "slaif-017ad-native-owner-run-evidence-v1"
+    assert frp.AD_NATIVE_RUN_SCHEMA == "slaif-017ad-native-owner-run-v1"
+    assert frp.AD_OWNER_RUN_SCOPE == "slaif-017ad-owner-uid-scope"
+    assert frp.AD_EXE_MAX_BYTES == 335544320
+    assert frp.AD_EXE_DEADLINE_SECONDS == 10.0
+    assert not hasattr(frp, "AD_NATIVE_ATTACH_BINDING_SCHEMA")
+    assert frp.AF_ORDER_ID == "017-af"
+    assert frp.AF_ORDER_PATH == "oap/orders/017-af-owner-uid-native-pty-qualification.md"
+    assert frp.AF_OWNER_STATE_SCHEMA == "slaif-017af-owner-state-v1"
+    assert frp.AF_NATIVE_RUN_EVIDENCE_SCHEMA == "slaif-017af-native-owner-run-evidence-v1"
+    assert frp.AF_NATIVE_RUN_SCHEMA == "slaif-017af-native-owner-run-v1"
+    assert frp.AF_OWNER_RUN_SCOPE == "slaif-017af-owner-uid-scope"
+    assert frp.AF_NATIVE_ATTACH_BINDING_SCHEMA == "slaif-017af-native-attach-binding-v1"
+    # the distinct AH identity-bearing tags (AH-only, never
+    # AF's, even equal numeric identities)
+    assert fp.AH_NATIVE_PREP_SCHEMA == "slaif-017ah-native-handoff-prep-v1"
+    assert fp.AH_NATIVE_OWNER_SCHEMA == "slaif-017ah-native-owner-evidence-v1"
+    assert fp.AH_ATTACH_BINDING_SCHEMA == "slaif-017ah-native-attach-binding-v1"
+    assert fno.AH_NATIVE_RUN_SCHEMA == "slaif-017ah-native-owner-run-v1"
+    assert flocal.AH_STATE_SCHEMA == "slaif-017ah-owner-state-v1"
+    assert flocal.AH_OWNER_RUN_EVIDENCE_SCHEMA == "slaif-017ah-native-owner-run-evidence-v1"
+    assert flocal.AH_OWNER_RUN_SCOPE == "slaif-017ah-owner-uid-scope"
+
+
+def test_ag_ah_refused_under_ag_active_before_admission(tmp_path: Path) -> None:
+    """The REAL repository-context validation refuses 017-ah
+    under AG-active BEFORE any admission or external work,
+    proven only in an owned synthetic repository (the real
+    checkout is never touched): the closed canonical map
+    carries the AH entry's unique committed order path, the
+    active-content law refuses the foreign-active AH binding,
+    and the AH admission namespace is never claimed.  The
+    ACTUAL real AH order file and namespace stay ABSENT in
+    this checkout (the entry is sealed INERT)."""
+    # coherence: the binding module's closed map mirrors the
+    # canonical entry names owned by the runtime-profile module
+    assert fb._CANONICAL_ORDER_PATHS[AH_ORDER_ID] == frp.AH_ORDER_PATH
+    # the AG-active synthetic repo: the AH order file is
+    # committed at its canonical path, active selects AG
+    repo = _ah_repo(tmp_path / "repo", active_order=AG_ORDER_ID)
+    git = _ah_git_runner(repo, active_order=AG_ORDER_ID)
+    with pytest.raises(fci.FixtureError, match="bind-active-mismatch"):
+        fb.resolve_order_binding(repo, AH_ORDER_ID, HEAD, git_runner=git)
+    # no admission namespace (the ACTUAL production
+    # admission path, including any claim), no journal, no
+    # external work
+    assert not fb.admission_dir_path(repo, AH_ORDER_ID).exists()
+    assert not fb.admission_path(repo, AH_ORDER_ID).exists()
+    assert not fb.claim_path(repo, AH_ORDER_ID).exists()
+    # the AG binding itself still resolves (the active entry)
+    ag_binding = fb.resolve_order_binding(repo, AG_ORDER_ID, HEAD, git_runner=git)
+    assert ag_binding.order_id == AG_ORDER_ID
+    # the AH entry under ITS OWN active context resolves ONLY at
+    # its unique canonical committed order path
+    ah_repo = _ah_repo(tmp_path / "ahrepopo")
+    ah_git = _ah_git_runner(ah_repo)
+    ah_binding = fb.resolve_order_binding(ah_repo, AH_ORDER_ID, HEAD, git_runner=ah_git)
+    assert ah_binding.order_path == frp.AH_ORDER_PATH
+    # a FOREIGN pattern-matching AH name is a closed refusal
+    # BEFORE any admission or owner adoption
+    wrong = tmp_path / "wrong" / "repo"
+    wrong.parent.mkdir(parents=True)
+    wrong_repo = Path(stl._make_local_repo(wrong))
+    wrong_name = "017-ah-other-synthetic-name.md"
+    (wrong_repo / "oap" / "orders" / wrong_name).write_bytes(AH_ORDER_BYTES)
+    (wrong_repo / "oap" / "active").write_bytes(AH_ORDER_ID.encode("ascii") + b"\n")
+
+    def wrong_git(args: list[str], cwd: Path) -> bytes:
+        if args == ["rev-parse", "HEAD"]:
+            return str(HEAD).encode("ascii")
+        if args == ["status", "--porcelain"]:
+            return b""
+        if args == ["remote", "get-url", "origin"]:
+            return b"https://github.com/ulfe-lmi/slaif-local-coding.git\n"
+        if args == ["ls-tree", "--name-only", f"{HEAD}:oap/orders"]:
+            return (S_ORDER_NAME + "\n" + wrong_name + "\n").encode("ascii")
+        if args == ["show", f"{HEAD}:oap/active"]:
+            return AH_ORDER_ID.encode("ascii") + b"\n"
+        if args == ["show", f"{HEAD}:oap/orders/{wrong_name}"]:
+            return AH_ORDER_BYTES
+        if args == ["show", f"{HEAD}:oap/orders/{S_ORDER_NAME}"]:
+            return bytes(stl.ORDER_PATH.read_bytes())
+        raise AssertionError(f"unexpected git args: {args}")
+
+    with pytest.raises(fci.FixtureError, match="bind-order-path-mismatch"):
+        fb.resolve_order_binding(wrong_repo, AH_ORDER_ID, HEAD, git_runner=wrong_git)
+    assert not fb.admission_dir_path(wrong_repo, AH_ORDER_ID).exists()
+    # the ACTUAL real AH order file and namespace stay ABSENT
+    # in this checkout (the sealed INERT entry)
+    assert list((REPO_ROOT / "oap" / "orders").glob("017-ah-*")) == []
+    # the real production admission namespace (repo
+    # .oap-local/<order>) is ABSENT in this checkout
+    assert not fb.admission_dir_path(REPO_ROOT, AH_ORDER_ID).exists()
+    assert not fb.admission_path(REPO_ROOT, AH_ORDER_ID).exists()
+
+
+def _devpts_probe_argv(
+    user: str = f"{SUBJ_UID}:{SUBJ_GID}",
+    cid: str = "f" * 64,
+    python: tuple[str, ...] = ("python3", "-I", "-S", "-c"),
+    body: str = fci.DEVPTS_PROBE,
+    prefix: tuple[str, ...] = (),
+    suffix: tuple[str, ...] = (),
+) -> list[str]:
+    return ["docker", "exec", *prefix, "--user", user, cid, *python, body, *suffix]
+
+
+def test_ag_ah_devpts_probe_guard_carries_ah_and_old_guards_refuse() -> None:
+    """The ONE exact NON-PTY devpts probe argv is admitted for
+    the canonical 017-ah entry TOO, selected from the owner's
+    OWN bound order (the sealed INERT entry carries the same
+    frozen authority as AF when later activated): the
+    AB/AD/default guards keep the byte-for-byte old closed
+    forms and refuse the exact probe and every modified argv,
+    and the AF entry's guard is unchanged."""
+    profile = frp.owner_runtime_profile(_ad_description())
+    assert profile.exec_user == f"{SUBJ_UID}:{SUBJ_GID}"
+    ah_matchers = fci._owner_argv_matchers(profile, frp.AH_ORDER_ID)
+    af_matchers = fci._owner_argv_matchers(profile, frp.AF_ORDER_ID)
+    ad_matchers = fci._owner_argv_matchers(profile, frp.AD_ORDER_ID)
+    ab_matchers = fci._owner_argv_matchers(profile, frp.AB_ORDER_ID)
+    # the original entries keep the byte-for-byte original
+    # module-level matcher tuple (their owners never mint the
+    # owner-scoped set)
+    original_matchers = fci._ARGV_MATCHERS
+    # direct AH guard construction: the SAME shape as the AF
+    # tuple — the unchanged old forms plus ONE closed probe
+    # matcher, callable without TypeError
+    assert len(ah_matchers) == len(af_matchers) == len(ad_matchers) + 1
+    ah_probe_matcher = ah_matchers[-1]
+    assert callable(ah_probe_matcher)
+    # the old forms are BEHAVIORALLY identical across the AH,
+    # AF and non-AF owner tuples (compare their decisions over
+    # the closed old forms)
+    old_forms: list[list[str]] = [
+        ["docker", "ps", "-aq", "--filter", "id=" + "a" * 64],  # admitted
+        ["docker", "version", "--format", "{{.Server.Version}}"],  # admitted
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-c",
+            fci.CONTROLLER_PROBE,
+        ],  # admitted (subject user)
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            fci.EXPORT_CLIENT_PATH,
+        ],  # admitted (export)
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-c",
+            "print(1)",
+        ],  # refused (open program)
+        ["docker", "ps", "-a"],  # refused (not the closed form)
+    ]
+    admitted = 0
+    for argv in old_forms:
+        for m_ah, m_ad in zip(ah_matchers[:-1], ad_matchers, strict=True):
+            assert bool(m_ah(argv)) == bool(m_ad(argv))
+        admitted += sum(1 for m in ad_matchers if m(argv))
+    assert admitted >= 4  # the positive forms really are admitted
+    exact = _devpts_probe_argv()
+    assert len(exact) == 10
+    # AH admits the exact form (any valid registered-CID-shaped
+    # target)
+    assert ah_probe_matcher(exact) is True
+    assert ah_probe_matcher(_devpts_probe_argv(cid="e" * 64)) is True
+    # the AF entry's guard is unchanged
+    assert af_matchers[-1](exact) is True
+    # the AB/AD/default guards refuse the EXACT new probe
+    assert not any(m(exact) for m in ad_matchers)
+    assert not any(m(exact) for m in ab_matchers)
+    assert not any(m(exact) for m in original_matchers)
+    # every modified argv is refused by EVERY guard, AH
+    # included (the closed form is EXACT)
+    for mutated in (
+        _devpts_probe_argv(prefix=("-it",)),  # a PTY attach contaminates
+        _devpts_probe_argv(user="21001:21001"),  # the controller user
+        _devpts_probe_argv(user="21002:21002"),  # the original profile user
+        _devpts_probe_argv(prefix=("--env-file", "/tmp/slaif-env")),  # env-file
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-I",
+            "-S",
+            "-e",
+            "A=1",
+            "-c",
+            fci.DEVPTS_PROBE,
+        ],  # -e
+        _devpts_probe_argv(python=("python3", "-S", "-c")),  # no -I
+        _devpts_probe_argv(python=("python3", "-I", "-c")),  # no -S
+        _devpts_probe_argv(python=("python3.12", "-I", "-S", "-c")),  # alternate binary
+        _devpts_probe_argv(body="print(1)"),  # a different probe body
+        _devpts_probe_argv(suffix=("--flag",)),  # an extra argument
+        exact[:-1],  # a missing argument
+        _devpts_probe_argv(cid="xyz"),  # a non-CID target
+    ):
+        assert not any(m(mutated) for m in ah_matchers)
+        assert not any(m(mutated) for m in af_matchers)
+        assert not any(m(mutated) for m in ad_matchers)
+        assert not any(m(mutated) for m in original_matchers)
+
+
+def _attach_observations() -> tuple[Any, Any, Any]:
+    """The closed devpts pair (the empty baseline + ONE owned
+    slave) over the shared fixture model, built through the
+    closed consumer (pure data, no probe execution)."""
+    base: dict[str, object] = {
+        "record": fci.DEVPTS_PROBE_RECORD,
+        "status": "pass",
+        "uid": SUBJ_UID,
+        "namespace": list(AF_DEVPTS_NS),
+        "policy": {
+            "fstype": "devpts",
+            "gid": AF_DEVPTS_POLICY[0],
+            "mode": AF_DEVPTS_POLICY[1],
+        },
+        "isolation": {"site": False, "startup": False},
+        "slave_rows": [],
+    }
+    major, minor, ino, mode, uid, gid = AF_ALLOC
+    obs = dict(base)
+    obs["slave_rows"] = [[str(minor), major, minor, ino, mode, uid, gid]]
+
+    def _record(obj: dict[str, object]) -> Any:
+        return fp.parse_devpts_inventory_record(
+            (json.dumps(obj, separators=(",", ":")) + "\n").encode("ascii")
+        )
+
+    baseline = _record(base)
+    observation = _record(obs)
+    allocation = fp.derive_attach_allocation(
+        baseline.inventory, observation.inventory, subject_uid=SUBJ_UID
+    )
+    return baseline, observation, allocation
+
+
+def test_ag_ah_attach_binding_tag_pair_cross_entry_refused(tmp_path: Path) -> None:
+    """The DISTINCT attach-binding tags stay entry-pure in
+    BOTH directions (even for equal-numeric identities): the
+    producer mints the binding's OWN canonical tag, and the
+    closed consumer refuses any cross-entry tag/binding pair
+    BEFORE any authority is derived — a copied or replayed
+    record of the other entry never mints authority."""
+    af_repo = _af_repo(tmp_path / "af")
+    af_git = _af_git_runner(af_repo)
+    af_binding = fb.resolve_order_binding(af_repo, AF_ORDER_ID, HEAD, git_runner=af_git)
+    ah_repo = _ah_repo(tmp_path / "ah")
+    ah_git = _ah_git_runner(ah_repo)
+    ah_binding = fb.resolve_order_binding(ah_repo, AH_ORDER_ID, HEAD, git_runner=ah_git)
+    baseline, observation, allocation = _attach_observations()
+    identity = _ad_identity_dict()
+    cid = "f" * 64
+    af_record = fp.attach_binding_record(
+        baseline=baseline,
+        observation=observation,
+        allocation=allocation,
+        binding=af_binding,
+        identity=identity,
+        cid=cid,
+    )
+    ah_record = fp.attach_binding_record(
+        baseline=baseline,
+        observation=observation,
+        allocation=allocation,
+        binding=ah_binding,
+        identity=identity,
+        cid=cid,
+    )
+    assert af_record["record"] == fp.AF_ATTACH_BINDING_SCHEMA
+    assert ah_record["record"] == fp.AH_ATTACH_BINDING_SCHEMA
+    # positive controls: each tag parses against ITS OWN binding
+    assert fp.parse_attach_binding_record(af_record, af_binding).expected_tty_nr == AF_TTY_NR
+    assert fp.parse_attach_binding_record(ah_record, ah_binding).expected_tty_nr == AF_TTY_NR
+    # cross-entry refusals: the AF tag never carries an AH
+    # binding and vice versa
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-mismatch"):
+        fp.parse_attach_binding_record(af_record, ah_binding)
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-mismatch"):
+        fp.parse_attach_binding_record(ah_record, af_binding)
+    # the SAME cross-entry pair in the retained-dict binding
+    # form is refused identically (the dict is validated by
+    # the full closed grammar, then compared exactly)
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-mismatch"):
+        fp.parse_attach_binding_record(af_record, ah_binding.to_record())
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-mismatch"):
+        fp.parse_attach_binding_record(ah_record, af_binding.to_record())
+
+
+def test_ag_ah_full_public_native_lifecycle_with_kernel_zero_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ORDER-REQUIRED coupled public NativeOwnerRun
+    lifecycle containing UNRELATED kernel rows: the coherent
+    fake world carries a well-formed zero pgrp/session kernel
+    observation across prepare/observe/stop/register/finish/
+    restore/retention, and the AH entry's full public
+    composition still passes end to end — the zero row is
+    observed but never adopted (not a group member, not a
+    tool session, never a signal target or authority frame,
+    never mutated), and the AH's OWN distinct identity-
+    bearing record tags are carried through every retained
+    layer (state, prep snapshot, attach binding, native-owner
+    facts through the REAL finalization dispatcher, native-
+    run terminal, owner evidence) with the SAME frozen
+    identity.  NO actual Docker/native/PTY operation: fake
+    proof only — the AH entry stays sealed INERT in this
+    round."""
+    import copy
+
+    world, fake = _af_new_world(tmp_path)
+    kernel_before = _kernel_proc()
+    world.procs[KERNEL_PID] = dict(kernel_before)
+    run, repo, _f, owner_evidence, _c, uid_calls = _ah_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    with _owned_run(run):
+        binding = run.binding
+        identity = _ad_identity_dict()
+        native_out = tmp_path / "evidence" / "ah-native-run-record.json"
+        proc_root = world.proc_root
+        # the ONE shared run context across the whole lifecycle
+        ctx_before = run.owner._owner_context
+        anchor_before = run.owner.deadline.anchor
+        ledger_before = run.owner.ledger
+
+        # start/prepare/observe/stop/baseline/launch/derive
+        # (the kernel zero row is present through every one
+        # of these traversals)
+        _af_prep(run, world)
+
+        # the zero observation row is OBSERVED but never
+        # adopted: not a group member, not a tool session,
+        # and no zero group appears anywhere in the collected
+        # facts
+        facts = fp.collect_worker_group(stp.FakeTable(world.procs), WORK_PID, BASH_PID, WORK_PID)
+        assert KERNEL_PID not in [m.pid for m in facts.members]
+        assert KERNEL_PID not in {m.pid for _g, ms in facts.tool_sessions for m in ms}
+        assert all(g != 0 for g, _count in facts.session_other_groups)
+
+        # the DISTINCT AH state tag on disk (the v1 reader
+        # never sees it — the tag is entry-scoped)
+        ah_state = flocal._state_record(_c, entry_order=AH_ORDER_ID)
+        assert ah_state is not None
+        assert ah_state["record"] == flocal.AH_STATE_SCHEMA
+        assert ah_state["order"] == AH_ORDER_ID
+        assert ah_state["identity"]["subject_uid"] == SUBJ_UID
+
+        calls: list[tuple[Any, float]] = []
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, calls))
+        end_before = run.owner.deadline.anchor
+        snapshot = run.register_subject(NAT_PID, _af_expectation(run))
+        # the factory saw EXACTLY this owner's registered CID
+        # and the SAME absolute owner END
+        assert calls == [(run.owner.target_cid, end_before)]
+        # the measured subject frame: the owned allocation's
+        # derived tty_nr, bound by the collector's OWN pty
+        assert snapshot["subject"]["tty"] == AF_TTY_NR
+        assert snapshot["subject"]["pty_matched"] is True
+        assert snapshot["subject"]["cid_membership"] == "cid-scoped"
+        assert run.workflow.subject_receipt is not None
+        # the DISTINCT AH tag at the retained prep layer (the
+        # SAME frozen identity carried through)
+        assert snapshot["record"] == fp.AH_NATIVE_PREP_SCHEMA
+        assert snapshot["identity"]["subject_uid"] == SUBJ_UID
+        # the attach phase used EXACTLY two bounded probes
+        # (the empty baseline + the allocation observation);
+        # a later observe reuses the retained receipt and
+        # never re-measures
+        assert world.devpts_probe_calls == 2
+        run.observe()
+        assert world.devpts_probe_calls == 2
+
+        # the EXPLICIT fake native exit before the positive
+        # finish: absence only (no exit code or cause)
+        world.exit_native()
+        assert world.native_exits == 1
+        assert NAT_PID not in world.procs
+        assert not (proc_root / str(NAT_PID)).exists()
+        assert run.workflow.subject_receipt is not None
+
+        # finish: the REAL finish/export/teardown over the
+        # fake platform — the kernel zero row is present in
+        # the host table through the whole convergence
+        run.finish()
+        assert run.owner.terminal_outcome == "pass"
+        _join_run(run)
+        assert fake.last_quiesce is not None
+        assert fake.last_quiesce["owned_subject_stopped"] is True
+        assert run.owner.owned_members_before == ((CTL_PID, CTL_START, CTL_UID),)
+        assert run.owner.owned_members_after == ((CTL_PID, "verified-gone"),)
+        # the unrelated same-UID worker survived the whole
+        # run with the SAME uid/gid; the kernel zero row
+        # survived UNCHANGED (observation data is never
+        # mutated)
+        worker = world.procs[WORK_PID]
+        assert fp.parse_proc_status(worker["status"]) == (SUBJ_UID, SUBJ_UID, ())
+        assert world.procs[KERNEL_PID] == kernel_before
+
+        # the operator restores the SAME worker job (stat-
+        # only) with the kernel row still present
+        world.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+
+        # publish: the DISTINCT identity-bearing AH terminal
+        # record (owner evidence FIRST, native record SECOND,
+        # the nested protected AH attach record, same-attempt
+        # finalization LAST)
+        record_doc = run.publish_native(native_out)
+        assert record_doc["record"] == fno.AH_NATIVE_RUN_SCHEMA
+        assert record_doc["identity"] == identity
+        assert record_doc["owner_outcome"] == "pass"
+        assert record_doc["attempt"] == "running"  # pending, never a predicted token
+        assert record_doc["subject_measured"] is True
+        assert record_doc["stop_recorded"] is True
+        assert record_doc["native_refusal"] is None
+        assert record_doc["verdict"] == {"ready": True, "reasons": []}
+        fno.parse_native_run_record(record_doc)
+        facts2 = fp.parse_native_owner_facts(record_doc["native_record"])
+        assert facts2.schema == fp.AH_NATIVE_OWNER_SCHEMA
+        assert facts2.identity == (SUBJ_UID, SUBJ_GID, (SUBJ_GID,))
+        assert facts2.order == AH_ORDER_ID
+        assert facts2.source_head == HEAD
+        assert facts2.run_id == binding.run_id
+        assert facts2.cid == run.owner.target_cid
+        assert facts2.native_started is True
+        assert facts2.native_ready is True
+        # the nested PROTECTED AH attach record: the closed
+        # consumer re-derives the allocation from the two
+        # embedded inventories against the OUTER binding
+        # record (a copied/replayed record never mints
+        # authority)
+        attach = record_doc["attach_binding"]
+        assert attach is not None
+        rederived = fp.parse_attach_binding_record(attach, run.binding)
+        assert attach["record"] == fp.AH_ATTACH_BINDING_SCHEMA
+        assert attach["expected_tty_nr"] == AF_TTY_NR
+        assert attach["namespace"] == list(AF_DEVPTS_NS)
+        assert attach["cid"] == run.owner.target_cid
+        assert rederived.major == AF_ALLOC[0]
+        assert rederived.minor == AF_ALLOC[1]
+        assert rederived.inode == AF_ALLOC[2]
+        assert rederived.mode == AF_ALLOC[3]
+        st = native_out.stat()
+        assert (st.st_mode & 0o777) == 0o600 and st.st_uid == os.getuid()
+
+        # the same-order journal is terminal pass ONLY after
+        # the protected publication (the real finalize token
+        # in RAM)
+        assert run.finalize_attempt() == "finalized"
+        record = fb.read_admission_record(repo, AH_ORDER_ID)
+        assert record["attempts"] == [{"head": HEAD, "run_id": binding.run_id, "status": "pass"}]
+
+        # the owner's OWN distinct AH terminal evidence: the
+        # SAME frozen identity (compared, never rebased), the
+        # exact-CID teardown proof, the bound order —
+        # validated by the REAL AH evidence validator
+        ev_raw = json.loads(owner_evidence.read_bytes().decode("ascii"))
+        flocal.validate_ah_owner_run_evidence(ev_raw)
+        assert ev_raw["record"] == flocal.AH_OWNER_RUN_EVIDENCE_SCHEMA
+        assert ev_raw["scope"] == flocal.AH_OWNER_RUN_SCOPE
+        assert ev_raw["order"] == AH_ORDER_ID
+        assert ev_raw["status"] == "pass"
+        assert ev_raw["identity"] == identity
+        assert ev_raw["teardown_proof"] == "exact-cid-membership"
+        assert ev_raw["fixture_consumed_by"] == "unobserved"
+
+        # the same frozen identity across EVERY retained
+        # layer of the same attempt (no rebase anywhere in
+        # the composition)
+        assert (
+            snapshot["identity"]
+            == identity
+            == record_doc["identity"]
+            == ev_raw["identity"]
+            == attach["identity"]
+        )
+
+        # ONE shared run context: the SAME frozen owner
+        # context, END anchor and ledger across the whole
+        # lifecycle (compared, never rebased or replaced)
+        assert run.owner._owner_context is ctx_before
+        assert run.owner.deadline.anchor == anchor_before
+        assert run.owner.ledger is ledger_before
+        # no global subject-UID scan ever ran on the
+        # owner-UID path (the trap would have raised)
+        assert SUBJ_UID not in uid_calls
+        assert CTL_UID in uid_calls
+
+        # the EXACT tag-pair law across entries over the
+        # retained AH native record: a relabeled order or tag
+        # is a closed refusal, and the AH record reaches the
+        # REAL parser through the public finalization
+        # dispatcher (not a direct codec call alone)
+        native_record = record_doc["native_record"]
+        with _owned_run(run):
+            verdict = run.workflow.finalize(native_record)
+            assert verdict.ready is True and verdict.reasons == ()
+            foreign_order = copy.deepcopy(native_record)
+            foreign_order["order"] = AF_ORDER_ID
+            with pytest.raises(fci.FixtureError, match="prep-native-owner-record-malformed"):
+                fp.parse_native_owner_facts(foreign_order)
+            af_tag = copy.deepcopy(native_record)
+            af_tag["record"] = fp.AF_NATIVE_OWNER_SCHEMA
+            with pytest.raises(fci.FixtureError, match="prep-native-owner-record-malformed"):
+                fp.parse_native_owner_facts(af_tag)
+            # the dispatcher itself refuses the OTHER
+            # entry's tag for this AH-bound workflow (the
+            # AF-tagged record is dispatched to the shared
+            # consumer, whose tag-pair law refuses it)
+            with pytest.raises(fci.FixtureError, match="prep-native-owner-record-malformed"):
+                run.workflow.finalize(af_tag)
+            original_tag = copy.deepcopy(native_record)
+            original_tag["record"] = fp.NATIVE_OWNER_SCHEMA
+            original_tag.pop("identity")
+            with pytest.raises(fci.FixtureError, match="prep-native-owner-record-malformed"):
+                fp.parse_native_owner_facts(original_tag)
+            with pytest.raises(fci.FixtureError, match="prep-native-owner-record-malformed"):
+                run.workflow.finalize(original_tag)
+            # the original tag of the AF entry is refused too
+            original_af = copy.deepcopy(original_tag)
+            original_af["order"] = AF_ORDER_ID
+            with pytest.raises(fci.FixtureError, match="prep-native-owner-record-malformed"):
+                fp.parse_native_owner_facts(original_af)
+            # the unmutated retained record remains the ready
+            # positive control
+            verdict2 = run.workflow.finalize(native_record)
+            assert verdict2.ready is True and verdict2.reasons == ()
+
+
+def test_ag_ah_zero_frames_never_earn_stop_authority_in_composition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The useful coupled negative: a ZERO pgrp/session
+    observation frame can never earn STOP authority inside
+    the REAL public composition — a zeroed Bash frame (same
+    pid/birth) passes the baseline birth binding but is
+    refused by the stop collector's OWN zero-group law
+    (the B.pgrp AND B.session checks), and a zeroed Worker
+    frame is refused by the baseline binding itself; neither
+    refusal commits a receipt, and the won attempt converges
+    honest ABORT (the unrelated kernel zero observation row
+    stays present and is never adopted)."""
+    world, fake = _af_new_world(tmp_path)
+    world.procs[KERNEL_PID] = _kernel_proc()
+    run, repo, _f, _ev, _c, _u = _ah_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        run.start()
+        run.prepare()
+        run.observe()
+        world.procs[WORK_PID] = _worker_proc("T", tpgid=BASH_PID, start=WORK_START)
+        # 1) the BASH frame zeroed (same pid/birth 100): the
+        #    baseline binding passes, the stop collector's
+        #    zero-group law refuses — no stop receipt
+        world.procs[BASH_PID] = {
+            "stat": stp.stat_line(BASH_PID, "bash", "S", 1, 0, 0, stp.TTYS, 0, 100),
+            "cmdline": b"bash\0",
+            "status": stp.bash_proc(BASH_PID, state="S", pgrp=BASH_PID)["status"],
+        }
+        with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+            run.record_stop()
+        assert run.workflow._stop_receipt is None
+        # 2) the WORKER frame zeroed (same pid/birth): the
+        #    baseline binding itself refuses the zeroed W
+        #    group/session
+        world.procs[WORK_PID] = {
+            "stat": stp.stat_line(
+                WORK_PID, "codex", "T", BASH_PID, 0, 0, stp.TTYS, BASH_PID, WORK_START
+            ),
+            "cmdline": stp.CODEX_CMDLINE,
+            "status": stp.status_bytes(SUBJ_UID, SUBJ_UID),
+        }
+        with pytest.raises(fci.FixtureError, match="prep-worker-invalid"):
+            run.record_stop()
+        assert run.workflow._stop_receipt is None
+        _join_run(run)
+        assert run.owner.terminal_outcome == "aborted"
+        record = fb.read_admission_record(repo, AH_ORDER_ID)
+        assert record["attempts"] == [
+            {"head": HEAD, "run_id": run.binding.run_id, "status": "aborted"}
+        ]
