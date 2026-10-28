@@ -42,6 +42,7 @@ import json
 import os
 import shutil
 import socket
+import stat
 import sys
 import time
 from pathlib import Path
@@ -98,6 +99,15 @@ AC_ORDER_BYTES = b"# synthetic AC order (fake seam only)\n"
 AD_ORDER_ID = "017-ad"
 AD_ORDER_NAME = "017-ad-owner-uid-native-handoff-qualification.md"
 AD_ORDER_BYTES = b"# synthetic AD order (fake seam only)\n"
+# The synthetic 017-ae/017-af order names of the 017-ae gate
+# tests (test order bytes ONLY in owned synthetic repositories
+# — the real AF order is never created in this checkout).
+AF_ORDER_ID = "017-af"
+AF_ORDER_NAME = "017-af-owner-uid-native-pty-qualification.md"
+AF_ORDER_BYTES = b"# synthetic AF order (fake seam only)\n"
+AE_ORDER_ID = "017-ae"
+AE_ORDER_NAME = "017-ae-synthetic-active.md"
+AE_ORDER_BYTES = b"# synthetic AE order (fake seam only)\n"
 
 SUBJ_UID = 1001
 SUBJ_GID = 1002
@@ -199,6 +209,60 @@ def _ad_git_runner(repo: Path, *, head: str = HEAD, active_order: str = AD_ORDER
             return AD_ORDER_BYTES
         if args == ["show", f"{HEAD}:oap/orders/{AC_ORDER_NAME}"]:
             return AC_ORDER_BYTES
+        raise AssertionError(f"unexpected git args: {args}")
+
+    return git_runner
+
+
+def _af_repo(base: Path, *, active_order: str = AF_ORDER_ID) -> Path:
+    """The S-shaped synthetic repo for the 017-ae gate tests:
+    the AF canonical order file is committed; oap/active
+    selects the requested entry (AF by default, AE for the
+    pre-admission refusal law).  Test order bytes live ONLY in
+    owned synthetic repositories — the real AF order is never
+    created in this checkout."""
+    repo = Path(stl._make_local_repo(base))
+    for name in (
+        "cache_native_fixture_owner.Dockerfile",
+        "cache_native_fixture_identity.py",
+        "cache_native_fixture_native_prep.py",
+        "cache_native_fixture_runtime_profile.py",
+        "cache_native_fixture_binding.py",
+    ):
+        (repo / "scripts" / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
+    (repo / "oap" / "orders" / AF_ORDER_NAME).write_bytes(AF_ORDER_BYTES)
+    if active_order == AE_ORDER_ID:
+        (repo / "oap" / "orders" / AE_ORDER_NAME).write_bytes(AE_ORDER_BYTES)
+    (repo / "oap" / "active").write_bytes(active_order.encode("ascii") + b"\n")
+    return repo
+
+
+def _af_git_runner(repo: Path, *, head: str = HEAD, active_order: str = AF_ORDER_ID) -> Any:
+    """The fake committed-context git runner (read-only queries
+    only) for the AF/AE synthetic repository."""
+
+    def git_runner(args: list[str], cwd: Path) -> bytes:
+        if args == ["rev-parse", "HEAD"]:
+            return head.encode("ascii")
+        if args == ["status", "--porcelain"]:
+            return b""
+        if args == ["remote", "get-url", "origin"]:
+            return b"https://github.com/ulfe-lmi/slaif-local-coding.git\n"
+        if args == ["ls-tree", "--name-only", f"{HEAD}:oap/orders"]:
+            names = [S_ORDER_NAME]
+            if active_order == AF_ORDER_ID:
+                names.append(AF_ORDER_NAME)
+            else:
+                names += [AE_ORDER_NAME, AF_ORDER_NAME]
+            return ("\n".join(names) + "\n").encode("ascii")
+        if args == ["show", f"{HEAD}:oap/active"]:
+            return active_order.encode("ascii") + b"\n"
+        if args == ["show", f"{HEAD}:oap/orders/{S_ORDER_NAME}"]:
+            return bytes(stl.ORDER_PATH.read_bytes())
+        if args == ["show", f"{HEAD}:oap/orders/{AF_ORDER_NAME}"]:
+            return AF_ORDER_BYTES
+        if args == ["show", f"{HEAD}:oap/orders/{AE_ORDER_NAME}"]:
+            return AE_ORDER_BYTES
         raise AssertionError(f"unexpected git args: {args}")
 
     return git_runner
@@ -1465,6 +1529,127 @@ def test_ad_mismatched_owner_triple_refused(
         _ad_run(tmp_path, monkeypatch, world=world, docker=fake, reader=mismatched_reader)
 
 
+# -- the future 017-af entry: owner-UID selection, inert under AE-active -----------
+def test_ae_af_entry_selection_and_preserved_closed_mapping() -> None:
+    """The canonical FUTURE 017-af native-PTY qualification entry
+    selects the SAME owner-UID profile through the closed entry
+    mapping (carrying the new producer through the existing
+    owner composition), and every EXISTING entry, path and tag
+    is preserved byte-for-byte (017-ad stays closed and
+    unchanged — no new AD record form is minted)."""
+    # the exact canonical AF constants
+    assert frp.AF_ORDER_ID == "017-af"
+    assert frp.AF_ORDER_PATH == "oap/orders/017-af-owner-uid-native-pty-qualification.md"
+    assert frp.AF_OWNER_STATE_SCHEMA == "slaif-017af-owner-state-v1"
+    assert frp.AF_NATIVE_RUN_EVIDENCE_SCHEMA == "slaif-017af-native-owner-run-evidence-v1"
+    assert frp.AF_NATIVE_RUN_SCHEMA == "slaif-017af-native-owner-run-v1"
+    assert frp.AF_OWNER_RUN_SCOPE == "slaif-017af-owner-uid-scope"
+    assert frp.AF_NATIVE_ATTACH_BINDING_SCHEMA == "slaif-017af-native-attach-binding-v1"
+    # the closed entry mapping: the five EXISTING entries
+    # preserved byte-for-byte, plus AF selecting the SAME
+    # owner-UID profile
+    assert dict(frp.ENTRY_PROFILES) == {
+        "017-s": frp.PROFILE_ORIGINAL,
+        "017-x": frp.PROFILE_ORIGINAL,
+        "017-y": frp.PROFILE_ORIGINAL,
+        frp.AB_ORDER_ID: frp.PROFILE_OWNER_UID,
+        frp.AD_ORDER_ID: frp.PROFILE_OWNER_UID,
+        frp.AF_ORDER_ID: frp.PROFILE_OWNER_UID,
+    }
+    assert frp.entry_profile_name("017-s") == frp.PROFILE_ORIGINAL
+    assert frp.entry_profile_name("017-x") == frp.PROFILE_ORIGINAL
+    assert frp.entry_profile_name("017-y") == frp.PROFILE_ORIGINAL
+    assert frp.entry_profile_name(frp.AB_ORDER_ID) == frp.PROFILE_OWNER_UID
+    assert frp.entry_profile_name(AD_ORDER_ID) == frp.PROFILE_OWNER_UID
+    # AF carries the owner-UID profile (the production
+    # derivation, never a caller-authored view)
+    assert frp.entry_profile_name(frp.AF_ORDER_ID) == frp.PROFILE_OWNER_UID
+    view = frp.entry_runtime_profile(frp.AF_ORDER_ID, _ad_description())
+    assert (view.subject_uid, view.subject_gid) == (SUBJ_UID, SUBJ_GID)
+    assert view.exec_user == f"{SUBJ_UID}:{SUBJ_GID}"
+    # unknown entries still refuse (AF is a known entry, not a
+    # wildcard: nothing else is selectable)
+    with pytest.raises(frp.ProfileError, match="profile-entry-unknown"):
+        frp.entry_profile_name("017-ae")
+    with pytest.raises(frp.ProfileError, match="profile-entry-unknown"):
+        frp.entry_profile_name("017-zz")
+    # every EXISTING canonical constant/tag preserved byte-for-byte
+    assert frp.AB_ORDER_ID == "017-ab"
+    assert frp.AB_ORDER_PATH == "oap/orders/017-ab-owner-uid-python-capability-qualification.md"
+    assert frp.AB_DRIVER_RECORD == "slaif-017ab-owner-uid-exec-capability-v1"
+    assert frp.AB_OWNER_RUN_EVIDENCE_SCHEMA == "slaif-017ab-owner-run-evidence-v1"
+    assert frp.AB_OWNER_RUN_SCOPE == "slaif-017ab-owner-uid-scope"
+    assert frp.AD_ORDER_ID == "017-ad"
+    assert frp.AD_ORDER_PATH == "oap/orders/017-ad-owner-uid-native-handoff-qualification.md"
+    assert frp.AD_DRIVER_RECORD == "slaif-017ad-owner-uid-native-handoff-v1"
+    assert frp.AD_OWNER_STATE_SCHEMA == "slaif-017ad-owner-state-v1"
+    assert frp.AD_NATIVE_RUN_EVIDENCE_SCHEMA == "slaif-017ad-native-owner-run-evidence-v1"
+    assert frp.AD_NATIVE_RUN_SCHEMA == "slaif-017ad-native-owner-run-v1"
+    assert frp.AD_OWNER_RUN_SCOPE == "slaif-017ad-owner-uid-scope"
+    assert frp.AD_EXE_MAX_BYTES == 335544320
+    assert frp.AD_EXE_DEADLINE_SECONDS == 10.0
+    assert not hasattr(frp, "AD_NATIVE_ATTACH_BINDING_SCHEMA")
+
+
+def test_ae_af_refused_under_ae_active_before_admission(tmp_path: Path) -> None:
+    """The REAL repository-context validation refuses 017-af
+    under AE-active BEFORE any admission or external work,
+    proven only in an owned synthetic repository (the real
+    checkout is never touched): the closed canonical map carries
+    the AF entry's unique committed order path, the active-
+    content law refuses the foreign-active AF binding, and the
+    AF admission namespace is never claimed."""
+    # coherence: the binding module's closed map mirrors the
+    # canonical entry names owned by the runtime-profile module
+    assert fb._CANONICAL_ORDER_PATHS[AF_ORDER_ID] == frp.AF_ORDER_PATH
+    # the AE-active synthetic repo: the AF order file is
+    # committed at its canonical path, active selects AE
+    repo = _af_repo(tmp_path / "repo", active_order=AE_ORDER_ID)
+    git = _af_git_runner(repo, active_order=AE_ORDER_ID)
+    with pytest.raises(fci.FixtureError, match="bind-active-mismatch"):
+        fb.resolve_order_binding(repo, AF_ORDER_ID, HEAD, git_runner=git)
+    # no admission namespace, no journal, no external work
+    assert not (repo / "oap" / "admissions" / AF_ORDER_ID).exists()
+    # the AE binding itself still resolves (the active entry)
+    ae_binding = fb.resolve_order_binding(repo, AE_ORDER_ID, HEAD, git_runner=git)
+    assert ae_binding.order_id == AE_ORDER_ID
+    # the AF entry under ITS OWN active context resolves ONLY at
+    # its unique canonical committed order path
+    af_repo = _af_repo(tmp_path / "afrepo")
+    af_git = _af_git_runner(af_repo)
+    af_binding = fb.resolve_order_binding(af_repo, AF_ORDER_ID, HEAD, git_runner=af_git)
+    assert af_binding.order_path == frp.AF_ORDER_PATH
+    # a FOREIGN pattern-matching AF name is a closed refusal
+    # BEFORE any admission or owner adoption
+    wrong = tmp_path / "wrong" / "repo"
+    wrong.parent.mkdir(parents=True)
+    wrong_repo = Path(stl._make_local_repo(wrong))
+    wrong_name = "017-af-other-synthetic-name.md"
+    (wrong_repo / "oap" / "orders" / wrong_name).write_bytes(AF_ORDER_BYTES)
+    (wrong_repo / "oap" / "active").write_bytes(AF_ORDER_ID.encode("ascii") + b"\n")
+
+    def wrong_git(args: list[str], cwd: Path) -> bytes:
+        if args == ["rev-parse", "HEAD"]:
+            return str(HEAD).encode("ascii")
+        if args == ["status", "--porcelain"]:
+            return b""
+        if args == ["remote", "get-url", "origin"]:
+            return b"https://github.com/ulfe-lmi/slaif-local-coding.git\n"
+        if args == ["ls-tree", "--name-only", f"{HEAD}:oap/orders"]:
+            return (S_ORDER_NAME + "\n" + wrong_name + "\n").encode("ascii")
+        if args == ["show", f"{HEAD}:oap/active"]:
+            return AF_ORDER_ID.encode("ascii") + b"\n"
+        if args == ["show", f"{HEAD}:oap/orders/{wrong_name}"]:
+            return AF_ORDER_BYTES
+        if args == ["show", f"{HEAD}:oap/orders/{S_ORDER_NAME}"]:
+            return bytes(stl.ORDER_PATH.read_bytes())
+        raise AssertionError(f"unexpected git args: {args}")
+
+    with pytest.raises(fci.FixtureError, match="bind-order-path-mismatch"):
+        fb.resolve_order_binding(wrong_repo, AF_ORDER_ID, HEAD, git_runner=wrong_git)
+    assert not (wrong_repo / "oap" / "admissions" / AF_ORDER_ID).exists()
+
+
 # -- the fixed canonical entry: the UNIQUE committed order path -------------------
 def test_canonical_entry_path_law(tmp_path: Path) -> None:
     """The fixed canonical future entry resolves ONLY at its own
@@ -1627,3 +1812,1417 @@ def test_ad_record_consumers_refuse_foreign_path() -> None:
     terminal["binding"] = dict(ad_binding, order_path="oap/orders/017-ad-other-synthetic-name.md")
     with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
         fno.parse_native_run_record(terminal)
+
+
+# -- the AF coupled attach-binding lifecycle (017-ae software) -----------------
+# The canonical FUTURE 017-af entry exercised HERE as inert software
+# ONLY: the ACTUAL public composition over ONE coherent coupled fake
+# process world carrying the fixture-namespace devpts model (the
+# measured namespace root, the measured policy fact, the closed
+# slave-row vector) and the per-subject metadata seam.  NO actual
+# Docker/native/PTY operation; fake proof is software integration —
+# never sealed-real-owner, native or host readiness, and the AF
+# entry stays INERT and unqualified in this round.
+
+AF_DEVPTS_NS = (9, 42)  # the fixture devpts mount root (st_dev, st_ino)
+AF_DEVPTS_POLICY = (5, 0o620)  # the measured node GID / node MODE
+AF_ALLOC = (136, 1, 77, 0o620, SUBJ_UID, 5)  # major, minor, inode, mode, uid, gid
+AF_TTY_NR = 34817  # new_encode_dev(136, 1) — the derived expected tty_nr
+
+
+class _AFWorld(_ADWorld):
+    """The AF coherent world: the AD canonical PID map plus the
+    fixture-namespace devpts model observed by BOTH the probe
+    records and the per-subject channel metadata (ONE model —
+    the operator's explicit launch event allocates the owned
+    slave in the SAME measured namespace)."""
+
+    def __init__(self, proc_root: Path) -> None:
+        super().__init__(proc_root)
+        self.devpts_rows: dict[int, tuple[int, int, int, int, int, int]] = {}
+        self.devpts_allocations = 0
+        self.devpts_probe_calls = 0
+        # the MEASURED probe uid the record reports (the
+        # frozen subject uid by default; a test may report a
+        # foreign measured uid to exercise the owner's
+        # measurement-boundary binding)
+        self.devpts_probe_uid: int = SUBJ_UID
+
+    def _devpts_record(self) -> bytes:
+        # the row name is the CANONICAL decimal string (the
+        # closed row grammar: str, ascii, isdigit, no leading
+        # zeros) — equal to the minor
+        rows = [
+            [str(name), major, minor, ino, mode, uid, gid]
+            for name, (major, minor, ino, mode, uid, gid) in sorted(self.devpts_rows.items())
+        ]
+        obj = {
+            "record": "slaif-017ae-devpts-inventory-v1",
+            "status": "pass",
+            "uid": self.devpts_probe_uid,
+            "namespace": list(AF_DEVPTS_NS),
+            "policy": {
+                "fstype": "devpts",
+                "gid": AF_DEVPTS_POLICY[0],
+                "mode": AF_DEVPTS_POLICY[1],
+            },
+            "isolation": {"site": False, "startup": False},
+            "slave_rows": rows,
+        }
+        return json.dumps(obj, separators=(",", ":")).encode("ascii") + b"\n"
+
+    def launch_native(self) -> None:
+        """The operator's explicit native launch: the SAME
+        canonical map projection as AD plus the fixture devpts
+        ALLOCATION event (one fresh owned slave 136:1 with a
+        fresh inode, owned by the subject UID, node GID as
+        MEASURED — never assumed equal to the process GID) and
+        the per-subject metadata (the FULL measured mode, the
+        subject's own mount view)."""
+        super().launch_native()
+        assert self.devpts_allocations == 0, "one allocation per world"
+        self.devpts_allocations += 1
+        major, minor, ino, mode, uid, gid = AF_ALLOC
+        self.devpts_rows[minor] = (major, minor, ino, mode, uid, gid)
+        self.procs[NAT_PID]["devpts_slave"] = {
+            "root_dev": AF_DEVPTS_NS[0],
+            "root_ino": AF_DEVPTS_NS[1],
+            "slave_dev": AF_DEVPTS_NS[0],
+            "slave_ino": ino,
+            "slave_mode": stat.S_IFCHR | mode,  # the FULL measured mode
+            "slave_uid": uid,
+            "slave_gid": gid,
+            "major": major,
+            "minor": minor,
+        }
+
+
+class _AFFakeDocker(_ADFakeDocker):
+    """The AF probe surface over the SAME world: the ONE exact
+    NON-PTY devpts probe argv (the frozen subject user, the
+    registered CID, ``python3 -I -S -c`` with the immutable
+    probe body) returns the world's measured inventory record
+    (a closed single-line ASCII record with a complete
+    capture); every other form keeps the AD/AA scripted
+    behavior byte-for-byte."""
+
+    def __call__(self, argv: list[str], timeout: float) -> Any:
+        if (
+            len(argv) == 10
+            and argv[:3] == ["docker", "exec", "--user"]
+            and argv[3] == f"{SUBJ_UID}:{SUBJ_GID}"
+            and argv[5:9] == ["python3", "-I", "-S", "-c"]
+            and argv[9] == fci.DEVPTS_PROBE
+        ):
+            # The probed CID must be the SAME world's OWN
+            # registered CID, and the target container must be
+            # live/prepared (created, the controller frame
+            # attached and present in the synthetic proc
+            # view): the measured inventory is NEVER returned
+            # for a foreign, unknown or unprepared target
+            if (
+                self._world.cid is None
+                or self._world.controller is None
+                or argv[4] != self._world.cid
+                or not (self.proc_root / str(CTL_PID)).is_dir()
+            ):
+                return self._result(125, b"exec-refused\n")
+            self._world.devpts_probe_calls += 1
+            return self._result(0, self._world._devpts_record())
+        return super().__call__(argv, timeout)
+
+
+def _af_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    world: _AFWorld,
+    docker: _AFFakeDocker,
+) -> tuple[Any, Any, _AFFakeDocker, Path, Path, list[int]]:
+    repo = _af_repo(tmp_path)
+    work = tmp_path / "work"
+    control = tmp_path / "control"
+    owner_evidence = tmp_path / "evidence" / "af-owner-evidence.json"
+    uid_calls: list[int] = []
+    _hermetic(tmp_path, monkeypatch, docker, control, uid_calls)
+    git = _af_git_runner(repo)
+    table = stp.FakeTable(world.procs)
+    binding = fb.resolve_order_binding(repo, AF_ORDER_ID, HEAD, git_runner=git)
+    run = fno.NativeOwnerRun(
+        binding,
+        repo,
+        work,
+        owner_evidence,
+        control,
+        git_runner=git,
+        executor=docker,
+        table=table,
+        worker_pid=WORK_PID,
+        bash_pid=BASH_PID,
+        tty_foreground_pgrp=WORK_PID,
+        identity_reader=_ad_reader,
+        # the owner's EXISTING narrow proc seam: the coherent
+        # world's synthetic-proc projection
+        proc_root=world.proc_root,
+    )
+    return run, repo, docker, owner_evidence, control, uid_calls
+
+
+def _af_prep(run: Any, world: _AFWorld) -> dict[str, object]:
+    """The shared AF attach phase: start/prepare/observe, the
+    separately measured stop, the ONE-SHOT EMPTY baseline, the
+    operator's explicit native launch (the allocation) and the
+    derived expectation — the receipt frozen BEFORE any
+    registration (two bounded probes, no more)."""
+    run.start()
+    run.prepare()
+    run.observe()
+    world.procs[WORK_PID] = _worker_proc("T", tpgid=BASH_PID, start=WORK_START)
+    run.record_stop()
+    baseline = run.collect_attach_baseline()
+    assert baseline.inventory.slave_rows == ()
+    assert world.devpts_probe_calls == 1
+    world.launch_native()
+    receipt: dict[str, object] = run.derive_attach_expectation()
+    assert world.devpts_probe_calls == 2
+    assert receipt["expected_tty_nr"] == AF_TTY_NR
+    assert receipt["namespace"] == list(AF_DEVPTS_NS)
+    return receipt
+
+
+def _af_expectation(run: Any, *, expected_tty: int = AF_TTY_NR) -> Any:
+    return fp.SubjectExpectation(
+        cid=str(run.owner.target_cid),
+        binary_sha256=FAKE_BINARY,
+        run_id=run.binding.run_id,
+        min_start_time=400,
+        expected_tty=expected_tty,
+    )
+
+
+def _af_channel_factory(world: _AFWorld, calls: list[tuple[Any, float]]) -> Any:
+    def factory(cid: Any, end: float) -> Any:
+        calls.append((cid, end))
+        return stp.FakeCidScopedTable(cid, world.procs, exe_digest=FAKE_BINARY)
+
+    return factory
+
+
+def _af_new_world(tmp_path: Path) -> tuple[_AFWorld, _AFFakeDocker]:
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    return world, _AFFakeDocker(world, proc_root)
+
+
+def _racy_channel_class(mutate: Any) -> Any:
+    """A scripted registered-CID channel whose executable
+    re-measurement runs a world mutation (the race point):
+    ``mutate(channel, pid, birth)`` between the blocking read
+    and its result."""
+
+    class _RacyChannel(stp.FakeCidScopedTable):  # type: ignore[name-defined,misc]
+        def __init__(self, cid: str, procs: dict[str, Any], *, world: _AFWorld, **kw: Any) -> None:
+            super().__init__(cid, procs, **kw)
+            self._world = world
+            self._exe_calls = 0
+
+        def exe_sha256(self, pid: int, birth: int) -> Any:
+            self._exe_calls += 1
+            if self._exe_calls == 2:  # the FINAL-frame re-measurement
+                mutate(self, pid, birth)
+            return super().exe_sha256(pid, birth)
+
+    _RacyChannel.__name__ = "RacyChannelFor" + mutate.__name__
+    return _RacyChannel
+
+
+def test_af_full_public_native_lifecycle_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The useful 1001:1002 positive through the REAL public
+    composition for the AF entry (constructor/admission/
+    prepare/stop/baseline/launch/derive/register/exit/
+    finish/restore/publish/finalize) over ONE coherent
+    coupled fake process world with the fixture devpts
+    model: the AF's OWN default exact-CID channel (the
+    factory sees the registered CID and the SAME absolute
+    owner END — no grace, no fresh window), the expectation
+    bound to the DERIVED tty (never the subject's own), the
+    measured namespace/device frames at the
+    collect-before-commit boundary, and the protected AF
+    owner/native/attach terminal records with the SAME
+    frozen identity carried through every retained layer.
+    The unrelated same-UID worker survives the exact-CID
+    world."""
+    world, fake = _af_new_world(tmp_path)
+    run, repo, _f, owner_evidence, _c, uid_calls = _af_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    with _owned_run(run):
+        binding = run.binding
+        identity = _ad_identity_dict()
+        native_out = tmp_path / "evidence" / "af-native-run-record.json"
+        proc_root = world.proc_root
+        # the ONE shared run context across the whole lifecycle
+        ctx_before = run.owner._owner_context
+        anchor_before = run.owner.deadline.anchor
+        ledger_before = run.owner.ledger
+        worker_birth = world.procs[WORK_PID]["stat"].split()[21]
+
+        # start/prepare/observe/stop/baseline/launch/derive
+        _af_prep(run, world)
+        calls: list[tuple[Any, float]] = []
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, calls))
+        end_before = run.owner.deadline.anchor
+        snapshot = run.register_subject(NAT_PID, _af_expectation(run))
+        # the factory saw EXACTLY this owner's registered CID
+        # and the SAME absolute owner END
+        assert calls == [(run.owner.target_cid, end_before)]
+        # the measured subject frame: the owned allocation's
+        # derived tty_nr, bound by the collector's OWN pty
+        assert snapshot["subject"]["tty"] == AF_TTY_NR
+        assert snapshot["subject"]["pty_matched"] is True
+        assert snapshot["subject"]["cid_membership"] == "cid-scoped"
+        assert run.workflow.subject_receipt is not None
+        # the DISTINCT AF tag at the retained prep layer (the
+        # SAME frozen identity carried through)
+        assert snapshot["record"] == fp.AF_NATIVE_PREP_SCHEMA
+        assert snapshot["identity"]["subject_uid"] == SUBJ_UID
+        # the attach phase used EXACTLY two bounded probes
+        # (the empty baseline + the allocation observation);
+        # a later observe reuses the retained receipt and
+        # never re-measures
+        assert world.devpts_probe_calls == 2
+        run.observe()
+        assert world.devpts_probe_calls == 2
+
+        # the EXPLICIT fake native exit before the positive
+        # finish: absence only (no exit code or cause); the
+        # retained receipt stays history, never re-measured
+        world.exit_native()
+        assert world.native_exits == 1
+        assert NAT_PID not in world.procs
+        assert not (proc_root / str(NAT_PID)).exists()
+        assert run.workflow.subject_receipt is not None
+
+        # finish: the REAL finish/export/teardown over the
+        # fake platform — the in-image quiesce MEASURES zero
+        # subjects (the exit happened; a still-running
+        # subject could never truthfully yield closure), the
+        # exact-CID removal removes the controller member,
+        # and the post-removal parser verifies ENOENT
+        # (verified-gone, tri-stated)
+        run.finish()
+        assert run.owner.terminal_outcome == "pass"
+        _join_run(run)
+        assert fake.last_quiesce is not None
+        assert fake.last_quiesce["owned_subject_stopped"] is True
+        assert run.owner.owned_members_before == ((CTL_PID, CTL_START, CTL_UID),)
+        assert run.owner.owned_members_after == ((CTL_PID, "verified-gone"),)
+        # the unrelated same-UID worker survived the whole run
+        # with the SAME uid/gid AND the SAME birth
+        worker = world.procs[WORK_PID]
+        assert fp.parse_proc_status(worker["status"]) == (SUBJ_UID, SUBJ_UID, ())
+        assert worker["stat"].split()[21] == worker_birth
+
+        # the operator restores the SAME worker job (stat-only)
+        world.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+
+        # publish: the DISTINCT identity-bearing AF terminal
+        # record (owner evidence FIRST, native record SECOND,
+        # the nested protected attach record, same-attempt
+        # finalization LAST)
+        record_doc = run.publish_native(native_out)
+
+        assert record_doc["record"] == fno.AF_NATIVE_RUN_SCHEMA
+        assert record_doc["identity"] == identity
+        assert record_doc["owner_outcome"] == "pass"
+        assert record_doc["attempt"] == "running"  # pending, never a predicted token
+        assert record_doc["subject_measured"] is True
+        assert record_doc["stop_recorded"] is True
+        assert record_doc["native_refusal"] is None
+        assert record_doc["verdict"] == {"ready": True, "reasons": []}
+        fno.parse_native_run_record(record_doc)
+        facts = fp.parse_native_owner_facts(record_doc["native_record"])
+        assert facts.schema == fp.AF_NATIVE_OWNER_SCHEMA
+        assert facts.identity == (SUBJ_UID, SUBJ_GID, (SUBJ_GID,))
+        assert facts.order == AF_ORDER_ID
+        assert facts.source_head == HEAD
+        assert facts.run_id == binding.run_id
+        assert facts.cid == run.owner.target_cid
+        assert facts.native_started is True
+        assert facts.native_ready is True
+        # the nested PROTECTED AF attach record: the closed
+        # consumer re-derives the allocation from the two
+        # embedded inventories against the OUTER binding
+        # record (a copied/replayed record never mints
+        # authority)
+        attach = record_doc["attach_binding"]
+        assert attach is not None
+        rederived = fp.parse_attach_binding_record(attach, run.binding)
+        assert attach["record"] == fp.AF_ATTACH_BINDING_SCHEMA
+        assert attach["expected_tty_nr"] == AF_TTY_NR
+        assert attach["namespace"] == list(AF_DEVPTS_NS)
+        assert attach["cid"] == run.owner.target_cid
+        assert rederived.major == AF_ALLOC[0]
+        assert rederived.minor == AF_ALLOC[1]
+        assert rederived.inode == AF_ALLOC[2]
+        assert rederived.mode == AF_ALLOC[3]
+        st = native_out.stat()
+        assert (st.st_mode & 0o777) == 0o600 and st.st_uid == os.getuid()
+
+        # the same-order journal is terminal pass ONLY after
+        # the protected publication (the real finalize token
+        # in RAM)
+        assert run.finalize_attempt() == "finalized"
+        record = fb.read_admission_record(repo, AF_ORDER_ID)
+        assert record["attempts"] == [{"head": HEAD, "run_id": binding.run_id, "status": "pass"}]
+
+        # the owner's OWN distinct AF terminal evidence: the
+        # SAME frozen identity (compared, never rebased), the
+        # exact-CID teardown proof, the bound order
+        ev_raw = json.loads(owner_evidence.read_bytes().decode("ascii"))
+        flocal.validate_af_owner_run_evidence(ev_raw)
+        assert ev_raw["record"] == flocal.AF_OWNER_RUN_EVIDENCE_SCHEMA
+        assert ev_raw["scope"] == flocal.AF_OWNER_RUN_SCOPE
+        assert ev_raw["order"] == AF_ORDER_ID
+        assert ev_raw["status"] == "pass"
+        assert ev_raw["identity"] == identity
+        assert ev_raw["teardown_proof"] == "exact-cid-membership"
+        assert ev_raw["fixture_consumed_by"] == "unobserved"
+
+        # the same frozen identity across EVERY retained
+        # layer of the same attempt (no rebase anywhere in
+        # the composition)
+        assert (
+            snapshot["identity"]
+            == identity
+            == record_doc["identity"]
+            == ev_raw["identity"]
+            == attach["identity"]
+        )
+
+        # ONE shared run context: the SAME frozen owner
+        # context, END anchor and ledger across the whole
+        # lifecycle (compared, never rebased or replaced)
+        assert run.owner._owner_context is ctx_before
+        assert run.owner.deadline.anchor == anchor_before
+        assert run.owner.ledger is ledger_before
+        # no global subject-UID scan ever ran on the
+        # owner-UID path (the trap would have raised); the
+        # controller-UID scan kept its closed historical
+        # semantics
+        assert SUBJ_UID not in uid_calls
+        assert CTL_UID in uid_calls
+
+
+def test_af_baseline_foreign_probe_uid_consumes_failed_phase(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe record whose MEASURED uid is not the frozen
+    subject uid (the record would otherwise be closed and
+    valid): a closed typed refusal at the owner's measurement
+    boundary — the attempt stays consumed with a retained
+    failed phase, NO baseline commits, and NO later fresh
+    baseline or second observation (a resampled world could
+    hide a multiple-allocation refusal)."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        run.start()
+        run.prepare()
+        run.observe()
+        world.procs[WORK_PID] = _worker_proc("T", tpgid=BASH_PID, start=WORK_START)
+        run.record_stop()
+        world.devpts_probe_uid = 1003  # a foreign MEASURED probe uid
+        with pytest.raises(fci.FixtureError, match="local-devpts-probe-uid-mismatch"):
+            run.collect_attach_baseline()
+        # the consumed failed phase: no usable baseline, the
+        # failure retained, the attempt consumed
+        assert run._attach_baseline is None
+        assert run._attach_failure == "local-devpts-probe-uid-mismatch"
+        assert run._attach_baseline_attempted is True
+        # NO resampling, ever: a corrected world still refuses
+        world.devpts_probe_uid = SUBJ_UID
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-baseline-repeat"):
+            run.collect_attach_baseline()
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-baseline-missing"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+
+
+def test_af_derive_foreign_probe_uid_retains_failure_no_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The baseline measured clean, then the SECOND
+    observation's record carries a foreign measured uid: a
+    closed typed refusal — the SAME baseline/stop stay
+    retained, the attempt stays consumed with a retained
+    failed phase, NO receipt commits, and NO resampling (a
+    later corrected world still refuses)."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        run.start()
+        run.prepare()
+        run.observe()
+        world.procs[WORK_PID] = _worker_proc("T", tpgid=BASH_PID, start=WORK_START)
+        run.record_stop()
+        baseline = run.collect_attach_baseline()
+        assert baseline.inventory.slave_rows == ()
+        assert world.devpts_probe_calls == 1
+        world.launch_native()
+        world.devpts_probe_uid = 1003  # the SECOND observation is foreign
+        with pytest.raises(fci.FixtureError, match="local-devpts-probe-uid-mismatch"):
+            run.derive_attach_expectation()
+        # the SAME measured baseline/stop survive the refusal;
+        # the failure is retained; the attempt is consumed
+        assert run._attach_baseline is not None
+        assert run.workflow.stop_receipt is not None
+        assert run._attach_receipt is None
+        assert run._attach_failure == "local-devpts-probe-uid-mismatch"
+        assert run._attach_derive_attempted is True
+        # NO resampling, ever: a corrected world still refuses
+        world.devpts_probe_uid = SUBJ_UID
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-binding-repeat"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+
+
+def _af_prep_through_baseline(run: Any, world: Any) -> None:
+    """start/prepare/observe/stop + the ONE-SHOT EMPTY baseline
+    (the attach phase up to the allocation, no derive)."""
+    run.start()
+    run.prepare()
+    run.observe()
+    world.procs[WORK_PID] = _worker_proc("T", tpgid=BASH_PID, start=WORK_START)
+    run.record_stop()
+    baseline = run.collect_attach_baseline()
+    assert baseline.inventory.slave_rows == ()
+
+
+def test_af_derive_end_crossed_during_measurement_retains_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SAME absolute owner END crosses DURING the second
+    measurement (the entry check passed; the final check in
+    the failure-handled region refuses): the attempt stays
+    consumed with a retained failed phase, NO receipt commits,
+    and NO resampling."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep_through_baseline(run, world)
+        world.launch_native()
+        real = run.owner.devpts_inventory
+        obs = real()  # the valid measured observation (probe #2)
+
+        def crossed_end() -> Any:
+            # the owner's ONE absolute END passes at the race
+            # point: the final check after the measurement
+            # refuses
+            run.owner.deadline.anchor = time.monotonic() - 1.0
+            return obs
+
+        monkeypatch.setattr(run.owner, "devpts_inventory", crossed_end)
+        with pytest.raises(fci.FixtureError, match="native-owner-patience"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+        assert run._attach_failure == "native-owner-patience"
+        assert run._attach_derive_attempted is True
+        # NO resampling, ever
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-binding-repeat"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+
+
+def test_af_derive_final_stop_check_resumes_worker_retains_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The worker RESUMES at the final stable-stop re-check
+    (after the observation, the retained stop receipt is
+    re-verified and no longer holds): a closed refusal — the
+    attempt stays consumed with a retained failed phase, NO
+    receipt commits, and NO resampling."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep_through_baseline(run, world)
+        world.launch_native()
+        real = run.owner.devpts_inventory
+        obs = real()  # the valid measured observation (probe #2)
+
+        def resume_worker() -> Any:
+            # the SAME worker job resumes: the recorded stop
+            # phase no longer holds
+            world.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+            return obs
+
+        monkeypatch.setattr(run.owner, "devpts_inventory", resume_worker)
+        with pytest.raises(fci.FixtureError, match="prep-stop-unobserved"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+        assert run._attach_failure == "prep-stop-unobserved"
+        assert run._attach_derive_attempted is True
+        # the SAME measured baseline survives the refusal
+        assert run._attach_baseline is not None
+        # NO resampling, ever
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-binding-repeat"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+
+
+def test_af_derive_identity_drift_during_measurement_retains_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The host owner identity DRIFTS after the measurement:
+    the frozen-context revalidation in the failure-handled
+    region refuses — the attempt stays consumed with a
+    retained failed phase, NO receipt commits, and NO
+    resampling."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep_through_baseline(run, world)
+        world.launch_native()
+        real = run.owner.devpts_inventory
+        obs = real()  # measured BEFORE the drift is installed
+
+        monkeypatch.setattr(run.owner, "devpts_inventory", lambda: obs)
+        monkeypatch.setattr(
+            run.owner,
+            "identity_reader",
+            lambda: (SUBJ_UID + 1, SUBJ_UID + 1, SUBJ_UID + 1, SUBJ_GID, SUBJ_GID, SUBJ_GID),
+        )
+        with pytest.raises(fci.FixtureError, match="local-identity-drift"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+        assert run._attach_failure == "local-identity-drift"
+        assert run._attach_derive_attempted is True
+        # NO resampling, ever
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-binding-repeat"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+
+
+def test_af_derive_copy_failure_retains_failure_no_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record that CANNOT be prepared as the public copy
+    (a non-closed value smuggled past the producer) is a
+    refusal INSIDE the failure-handled region: the attempt
+    stays consumed with a retained failed phase, NO private
+    receipt commits, and NO resampling."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep_through_baseline(run, world)
+        world.launch_native()
+
+        real_producer = fp.attach_binding_record
+
+        def unserializable_record(**kw: Any) -> Any:
+            record = real_producer(**kw)
+            # a non-closed value: the record cannot be copied
+            # to its public JSON form
+            record["observation"] = {**record["observation"], "bogus": object()}
+            return record
+
+        monkeypatch.setattr(fp, "attach_binding_record", unserializable_record)
+        with pytest.raises(TypeError):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+        assert run._attach_failure is not None
+        assert run._attach_derive_attempted is True
+        # NO resampling, ever
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-binding-repeat"):
+            run.derive_attach_expectation()
+        assert run._attach_receipt is None
+
+
+def test_af_devpts_probe_guard_af_only_and_old_guards_refuse() -> None:
+    """The ONE exact NON-PTY devpts probe argv is admitted by
+    the canonical 017-af entry's guard ONLY (selected from the
+    owner's OWN bound order): the AB/AD/default guards keep
+    the byte-for-byte old closed forms and refuse the exact
+    new probe and every modified argv (no -it — a PTY would
+    allocate and contaminate the measured namespace — no
+    controller user, no environment, no alternate python
+    flags)."""
+    profile = frp.owner_runtime_profile(_ad_description())
+    assert profile.exec_user == f"{SUBJ_UID}:{SUBJ_GID}"
+    af_matchers = fci._owner_argv_matchers(profile, frp.AF_ORDER_ID)
+    ad_matchers = fci._owner_argv_matchers(profile, frp.AD_ORDER_ID)
+    ab_matchers = fci._owner_argv_matchers(profile, frp.AB_ORDER_ID)
+    # the original entries keep the byte-for-byte original
+    # module-level matcher tuple (their owners never mint the
+    # owner-scoped set)
+    original_matchers = fci._ARGV_MATCHERS
+    # direct AF guard construction: EXACTLY ONE extra closed
+    # matcher, callable without TypeError (the old forms are
+    # the SAME unchanged matchers, plus the narrow AF one)
+    assert len(af_matchers) == len(ad_matchers) + 1
+    af_probe_matcher = af_matchers[-1]
+    assert callable(af_probe_matcher)
+    # the old forms are BEHAVIORALLY unchanged between the
+    # AF and non-AF owner tuples (factory closures are not
+    # identity-comparable — compare their decisions over the
+    # closed old forms)
+    # the SAME closed old forms (positives and negatives):
+    # the AF and non-AF owner tuples decide them identically
+    old_forms: list[list[str]] = [
+        ["docker", "ps", "-aq", "--filter", "id=" + "a" * 64],  # admitted
+        ["docker", "version", "--format", "{{.Server.Version}}"],  # admitted
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-c",
+            fci.CONTROLLER_PROBE,
+        ],  # admitted (subject user)
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            fci.EXPORT_CLIENT_PATH,
+        ],  # admitted (export)
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-c",
+            "print(1)",
+        ],  # refused (open program)
+        ["docker", "ps", "-a"],  # refused (not the closed form)
+    ]
+    admitted = 0
+    for argv in old_forms:
+        # matchers may return a truthy re.Match — compare
+        # decisions, not objects
+        for m_af, m_other in zip(af_matchers[:-1], ad_matchers, strict=True):
+            assert bool(m_af(argv)) == bool(m_other(argv))
+        admitted += sum(1 for m in ad_matchers if m(argv))
+    assert admitted >= 4  # the positive forms really are admitted
+
+    def probe_argv(
+        user: str = f"{SUBJ_UID}:{SUBJ_GID}",
+        cid: str = "f" * 64,
+        python: tuple[str, ...] = ("python3", "-I", "-S", "-c"),
+        body: str = fci.DEVPTS_PROBE,
+        prefix: tuple[str, ...] = (),
+        suffix: tuple[str, ...] = (),
+    ) -> list[str]:
+        return ["docker", "exec", *prefix, "--user", user, cid, *python, body, *suffix]
+
+    exact = probe_argv()
+    assert len(exact) == 10
+    # the AF entry's guard admits the exact form (any valid
+    # registered-CID-shaped target)
+    assert af_probe_matcher(exact) is True
+    assert af_probe_matcher(probe_argv(cid="e" * 64)) is True
+    # the AB/AD/default guards refuse the EXACT new probe
+    assert not any(m(exact) for m in ad_matchers)
+    assert not any(m(exact) for m in ab_matchers)
+    assert not any(m(exact) for m in original_matchers)
+    # every modified argv is refused by EVERY guard, AF
+    # included (the closed form is EXACT)
+    for mutated in (
+        probe_argv(prefix=("-it",)),  # a PTY attach contaminates
+        probe_argv(user="21001:21001"),  # the controller user
+        # the ORIGINAL profile's OWN valid exec user: the
+        # native-specific operation form itself is unavailable
+        # to the original/default guard (not merely a wrong
+        # user refusal)
+        probe_argv(user="21002:21002"),
+        probe_argv(prefix=("--env-file", "/tmp/slaif-env")),  # env-file
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-I",
+            "-S",
+            "-e",
+            "A=1",
+            "-c",
+            fci.DEVPTS_PROBE,
+        ],  # -e
+        probe_argv(python=("python3", "-S", "-c")),  # no -I
+        probe_argv(python=("python3", "-I", "-c")),  # no -S
+        probe_argv(python=("python3.12", "-I", "-S", "-c")),  # alternate binary
+        probe_argv(body="print(1)"),  # a different probe body
+        probe_argv(suffix=("--flag",)),  # an extra argument
+        exact[:-1],  # a missing argument
+        probe_argv(cid="xyz"),  # a non-CID target
+    ):
+        assert not any(m(mutated) for m in af_matchers)
+        assert not any(m(mutated) for m in ad_matchers)
+        assert not any(m(mutated) for m in original_matchers)
+
+
+def test_af_probe_refuses_foreign_or_unprepared_target(tmp_path: Path) -> None:
+    """The fake probe surface is bound to the SAME world's OWN
+    registered CID and a live/prepared container (created,
+    the controller frame attached): the measured inventory is
+    never returned for a foreign CID-shaped argv, an unknown
+    container, or an unprepared target (a closed refusal, no
+    probe charged)."""
+    world, fake = _af_new_world(tmp_path)
+    probe = [
+        "docker",
+        "exec",
+        "--user",
+        f"{SUBJ_UID}:{SUBJ_GID}",
+        "f" * 64,
+        "python3",
+        "-I",
+        "-S",
+        "-c",
+        fci.DEVPTS_PROBE,
+    ]
+    # no container registered yet: any CID-shaped probe is a
+    # closed refusal, no probe charged
+    assert fake(probe, 5.0).returncode == 125
+    assert world.devpts_probe_calls == 0
+    # a prepared world: the SAME registered CID is admitted
+    world.cid = "f" * 64
+    world.controller = {"cgroup": world.cid}
+    aa._write_proc_entry(
+        world.proc_root,
+        CTL_PID,
+        comm="python3",
+        start=CTL_START,
+        uid=CTL_UID,
+        gid=CTL_UID,
+        groups=(),
+        cgroup=world.cid,
+    )
+    assert fake(probe, 5.0).returncode == 0
+    assert world.devpts_probe_calls == 1
+    # a FOREIGN CID-shaped argv over the SAME prepared world:
+    # closed refusal, no probe charged
+    foreign = list(probe)
+    foreign[4] = "e" * 64
+    assert fake(foreign, 5.0).returncode == 125
+    assert world.devpts_probe_calls == 1
+
+
+def _af_drive_to_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any, Any, Any]:
+    """Drive the coherent AF world through
+    start/prepare/stop/baseline/launch/derive/register/exit/
+    finish (the COMPLETED owner, not yet published)."""
+    world, fake = _af_new_world(tmp_path)
+    run, repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    try:
+        _af_prep(run, world)
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        run.register_subject(NAT_PID, _af_expectation(run))
+        world.exit_native()
+        run.finish()
+        assert run.owner.terminal_outcome == "pass"
+        _join_run(run)
+        world.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+        return run, repo, world, fake
+    except BaseException:
+        _join_run(run)
+        raise
+
+
+def _af_at_use_owner(case_dir: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+    """ONE fresh prepared AF owner (start/prepare/observe done,
+    the ORIGINAL owner END untouched) for a single at-use
+    boundary case — each case gets its OWN owned subdirectory
+    (a fresh synthetic repo/admission/control — an admission
+    is never reset or reused) so separate owners keep each
+    case's END and phase facts clean."""
+    case_dir.mkdir(parents=True, exist_ok=True)
+    world, fake = _af_new_world(case_dir)
+    run, _repo, _f, _ev, _c, _u = _af_run(case_dir, monkeypatch, world=world, docker=fake)
+    try:
+        run.start()
+        run.prepare()
+        run.observe()
+        return run, world
+    except BaseException:
+        # a setup assertion/refusal still reaps its owner
+        # before monkeypatch teardown
+        _join_run(run)
+        raise
+
+
+def test_af_devpts_inventory_at_use_boundaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The REAL owner.devpts_inventory's at-use boundary over
+    scripted executors (ONE fresh owner per case, the
+    ORIGINAL owner END never refreshed): an executor failure,
+    a retained valid prefix with discarded extra bytes,
+    over-cap output (the drained-total law — the existing
+    closed refusal), a late blocking return crossing the
+    per-probe absolute end, and a host identity drift DURING
+    the probe are all closed typed refusals — the measured
+    observation never escapes; the complete valid capture is
+    retained (the boundary does not over-refuse).  Every fake
+    nonempty result carries its drained total EXACTLY; the
+    guarded/reader fakes are scoped so they restore BEFORE
+    the owned-run final cleanup."""
+    # positive control: the complete valid capture is retained
+    run, world = _af_at_use_owner(tmp_path / "case-positive", monkeypatch)
+    valid = world._devpts_record()  # the closed valid empty-baseline record
+    with _owned_run(run):
+        with monkeypatch.context() as mp:
+            mp.setattr(
+                run.owner,
+                "guarded",
+                lambda argv, timeout: fci.ExecResult(0, valid, drained_bytes=len(valid)),
+            )
+            obs = run.owner.devpts_inventory()
+            assert obs.inventory.uid == SUBJ_UID
+            assert obs.inventory.slave_rows == ()
+            assert obs.record == valid
+    # 1. an executor failure is a closed typed refusal
+    run, world = _af_at_use_owner(tmp_path / "case1", monkeypatch)
+    with _owned_run(run):
+        with monkeypatch.context() as mp:
+            mp.setattr(run.owner, "guarded", lambda argv, timeout: fci.ExecResult(1, b""))
+            with pytest.raises(fci.FixtureError, match="local-devpts-exec-failed"):
+                run.owner.devpts_inventory()
+    # 2. a retained valid prefix with DISCARDED extra output
+    # is not a complete observation (the drained total is not
+    # the retained bytes)
+    run, world = _af_at_use_owner(tmp_path / "case2", monkeypatch)
+    valid = world._devpts_record()
+    with _owned_run(run):
+        with monkeypatch.context() as mp:
+            mp.setattr(
+                run.owner,
+                "guarded",
+                lambda argv, timeout: fci.ExecResult(0, valid, drained_bytes=len(valid) + 16),
+            )
+            with pytest.raises(fci.FixtureError, match="local-devpts-capture-invalid"):
+                run.owner.devpts_inventory()
+    # 3. over-cap output: the drained TOTAL (retained +
+    # discarded) crossing the cap is refused by the
+    # complete-capture law — the EXISTING closed refusal (the
+    # consumer's own byte cap is proven separately at the
+    # pure codec level)
+    run, world = _af_at_use_owner(tmp_path / "case3", monkeypatch)
+    with _owned_run(run):
+        with monkeypatch.context() as mp:
+            mp.setattr(
+                run.owner,
+                "guarded",
+                lambda argv, timeout: fci.ExecResult(
+                    0,
+                    b"x" * (fci.DEVPTS_OUTPUT_MAX + 1),
+                    drained_bytes=fci.DEVPTS_OUTPUT_MAX + 1,
+                ),
+            )
+            with pytest.raises(fci.FixtureError, match="local-devpts-capture-invalid"):
+                run.owner.devpts_inventory()
+    # 4. a late blocking return crossing the per-probe
+    # absolute end (min(start + the probe's own bound, the
+    # ORIGINAL owner END) — here the probe's own bound,
+    # scoped to this case only): no grace, no fresh window
+    run, world = _af_at_use_owner(tmp_path / "case4", monkeypatch)
+    valid = world._devpts_record()
+    with _owned_run(run):
+        with monkeypatch.context() as mp:
+            mp.setattr(fci, "DEVPTS_PROBE_TIMEOUT", 0.05)
+
+            def late(argv: object, timeout: object) -> object:
+                time.sleep(0.06)
+                return fci.ExecResult(0, valid, drained_bytes=len(valid))
+
+            mp.setattr(run.owner, "guarded", late)
+            with pytest.raises(fci.FixtureError, match="local-devpts-end-expired"):
+                run.owner.devpts_inventory()
+    # 5. a host identity drift DURING the probe: the entry
+    # revalidation passes, the RETURN revalidation refuses
+    run, world = _af_at_use_owner(tmp_path / "case5", monkeypatch)
+    valid = world._devpts_record()
+    with _owned_run(run):
+        with monkeypatch.context() as mp:
+            calls = {"n": 0}
+
+            def drift_reader() -> tuple[int, int, int, int, int, int]:
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return (SUBJ_UID, SUBJ_UID, SUBJ_UID, SUBJ_GID, SUBJ_GID, SUBJ_GID)
+                return (SUBJ_UID + 1, SUBJ_UID + 1, SUBJ_UID + 1, SUBJ_GID, SUBJ_GID, SUBJ_GID)
+
+            mp.setattr(
+                run.owner,
+                "guarded",
+                lambda argv, timeout: fci.ExecResult(0, valid, drained_bytes=len(valid)),
+            )
+            mp.setattr(run.owner, "identity_reader", drift_reader)
+            with pytest.raises(fci.FixtureError, match="local-identity-drift"):
+                run.owner.devpts_inventory()
+            assert calls["n"] == 2  # entry + return revalidation
+
+
+def test_af_second_publication_refused_one_shot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The completed AF owner's publication is a ONE-SHOT
+    terminal transition: a second publication on a fresh path
+    is a closed refusal (no retry, no relabel), and the
+    RETAINED AF record's closed cross-field law refuses a
+    mutated copy (the outer, the nested native and the nested
+    attach identities are cross-bound to ONE frozen context;
+    a derived copy with one field changed can never
+    validate)."""
+    run, _repo, _w, _f = _af_drive_to_published(tmp_path, monkeypatch)
+    with _owned_run(run):
+        record = run.publish_native(tmp_path / "evidence" / "af-native-run-record.json")
+        assert record["owner_outcome"] == "pass"
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run.publish_native(tmp_path / "evidence" / "second.json")
+        assert not (tmp_path / "evidence" / "second.json").exists()
+        # the RETAINED record validates (the production bytes)
+        fno.parse_native_run_record(record)
+        import copy
+
+        foreign = fp._ad_identity_substructure_from_triple((1003, 1004, (1004,)))
+        # OUTER identity mutated (internally consistent, foreign):
+        # the cross-bound nested identities can no longer agree
+        mutated = copy.deepcopy(record)
+        mutated["identity"] = foreign
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+        # NESTED native-record identity mutated
+        mutated = copy.deepcopy(record)
+        mutated["native_record"]["identity"] = foreign
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+        # NESTED attach identity mutated (cross-bound to the
+        # outer frozen context)
+        mutated = copy.deepcopy(record)
+        mutated["attach_binding"]["identity"] = foreign
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+        # NESTED attach CID mutated (cross-bound to the
+        # measured native record's CID)
+        mutated = copy.deepcopy(record)
+        mutated["attach_binding"]["cid"] = "e" * 64
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+
+
+def test_af_preexisting_native_destination_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pre-existing foreign AF native destination is a
+    closed refusal (fail-if-exists): the attempt
+    terminalizes honestly, the foreign bytes are preserved
+    untouched, and no fresh-path retry is ever made."""
+    world, fake = _af_new_world(tmp_path)
+    run, repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        try:
+            _af_prep(run, world)
+            monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+            run.register_subject(NAT_PID, _af_expectation(run))
+            world.exit_native()
+            run.finish()
+            assert run.owner.terminal_outcome == "pass"
+            _join_run(run)
+            native_out = tmp_path / "evidence" / "af-native-run-record.json"
+            native_out.parent.mkdir(parents=True, exist_ok=True)
+            native_out.write_bytes(b"foreign bytes\n")
+            with pytest.raises(fci.FixtureError, match="native-owner-evidence-exists"):
+                run.publish_native(native_out)
+            # the foreign bytes are preserved untouched
+            assert native_out.read_bytes() == b"foreign bytes\n"
+            # the same won attempt was terminalized honestly (fail)
+            record = fb.read_admission_record(repo, AF_ORDER_ID)
+            assert record["attempts"] == [
+                {"head": HEAD, "run_id": run.binding.run_id, "status": "fail"}
+            ]
+        except BaseException:
+            _join_run(run)
+            raise
+
+
+def test_af_registration_refuses_caller_channel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller-supplied channel for the AF entry is a closed
+    refusal BEFORE any factory call or commit (the AF entry
+    measures through its OWN default exact registered-CID
+    channel only — no bypass of the scoped/birth-bound
+    reads)."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        calls: list[tuple[Any, float]] = []
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, calls))
+        channel = stp.FakeCidScopedTable(
+            str(run.owner.target_cid), world.procs, exe_digest=FAKE_BINARY
+        )
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-channel-invalid"):
+            run.register_subject(NAT_PID, _af_expectation(run), channel=channel)
+        assert calls == []  # the default factory was never consulted
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_without_receipt_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No measured attach receipt (the allocation was never
+    derived): the registration is a closed refusal BEFORE any
+    channel or commit — a foreign/unobserved expectation can
+    never bind the AF entry."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        run.start()
+        run.prepare()
+        run.observe()
+        world.procs[WORK_PID] = _worker_proc("T", tpgid=BASH_PID, start=WORK_START)
+        run.record_stop()
+        run.collect_attach_baseline()
+        world.launch_native()  # the subject exists, but NO derive ran
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-binding-missing"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_pty_mismatch_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An expectation whose PTY is NOT the derived expected
+    tty_nr (the expected PTY comes from the owned attach,
+    never from the subject itself or a guess): a closed
+    refusal, nothing committed."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-pty-mismatch"):
+            run.register_subject(NAT_PID, _af_expectation(run, expected_tty=AF_TTY_NR + 1))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_context_invalid_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retained receipt whose allocation no longer encodes
+    to its own derived tty_nr (a corrupted/contradicted
+    context): a closed refusal at the re-encode frame BEFORE
+    any channel or commit."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        run._attach_receipt["allocation"]["major"] = 137  # corrupted retained context
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-context-invalid"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_foreign_namespace_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SAME numeric tty in a FOREIGN devpts namespace (the
+    subject's mount view root differs from the measured
+    private namespace): a closed refusal, nothing committed —
+    equal tty numbers alone are never sufficient."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        world.procs[NAT_PID]["devpts_slave"]["root_dev"] = 28  # a foreign namespace root
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-namespace-mismatch"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_foreign_node_device_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The selected slave node lives on a DIFFERENT filesystem
+    than the measured devpts root (an equal inode/mode/owner
+    on another filesystem is not the owned allocation): a
+    closed refusal, nothing committed."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        world.procs[NAT_PID]["devpts_slave"]["slave_dev"] = 10  # a foreign filesystem
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-namespace-mismatch"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_device_mismatch_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slave device whose major/minor is not the owned
+    allocation's device: a closed refusal, nothing committed."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        world.procs[NAT_PID]["devpts_slave"]["major"] = 137
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-device-mismatch"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_inode_mismatch_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slave node with a different inode than the owned
+    allocation (a different node wearing the same number): a
+    closed refusal, nothing committed."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        world.procs[NAT_PID]["devpts_slave"]["slave_ino"] = 78
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-inode-mismatch"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_mode_mismatch_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slave node whose PERMISSION BITS differ from the owned
+    allocation (the FULL measured mode is normalized before
+    comparison): a closed refusal, nothing committed."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        world.procs[NAT_PID]["devpts_slave"]["slave_mode"] = stat.S_IFCHR | 0o640
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-mode-mismatch"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_owner_mismatch_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slave node owned by a different UID/GID than the
+    owned allocation: a closed refusal, nothing committed."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        world.procs[NAT_PID]["devpts_slave"]["slave_uid"] = 1003
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-owner-mismatch"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_unreadable_metadata_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The per-subject metadata is unreadable/absent from the
+    subject's mount view (a typed unknown, never an
+    assumption): a closed refusal, nothing committed."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        del world.procs[NAT_PID]["devpts_slave"]
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-unreadable"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_af_registration_out_of_scope_subject_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The subject is no longer observed in the registered
+    container's scope (the scoped stat read is the typed
+    unknown): a closed refusal, nothing committed."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        del world.procs[NAT_PID]["cgroup"]
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-unreadable"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def _mutate_pid_reuse(channel: Any, pid: int, birth: int) -> None:
+    """A PID reuse AT the final executable re-measurement: the
+    same number is now a DIFFERENT process (a new birth)."""
+    channel._world.procs[pid] = stp.subject_proc(
+        pid,
+        cgroup=str(channel.cid),
+        uid=SUBJ_UID,
+        gid=SUBJ_GID,
+        groups=(SUBJ_GID,),
+        start=birth + 1,
+    )
+
+
+def test_af_final_frame_pid_reuse_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PID reused AFTER collection (the same number now a
+    different process, detected by the birth-bound channel at
+    the final executable re-measurement): a closed refusal,
+    NO receipt commit — a reused PID can never validate
+    itself against a fresh stat."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        racy = _racy_channel_class(_mutate_pid_reuse)
+
+        def factory(cid: Any, end: float) -> Any:
+            return racy(cid, world.procs, world=world, exe_digest=FAKE_BINARY)
+
+        monkeypatch.setattr(fno, "build_ad_native_channel", factory)
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-identity-drift"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def _mutate_uid_drift(channel: Any, pid: int, birth: int) -> None:
+    """A native-UID drift AT the final executable
+    re-measurement: the SAME process (same birth) changes its
+    UID after collection."""
+    p = channel._world.procs[pid]
+    p["status"] = stp.status_bytes(1003, SUBJ_GID, (SUBJ_GID,))
+
+
+def test_af_final_frame_uid_drift_during_hash_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A native UID drift DURING the final metadata/hash (the
+    same process, the same birth, a changed UID): the identity
+    frame re-verified AFTER the blocking operations refuses —
+    the collected frame never goes stale at commit, and NO
+    receipt commits."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        racy = _racy_channel_class(_mutate_uid_drift)
+
+        def factory(cid: Any, end: float) -> Any:
+            return racy(cid, world.procs, world=world, exe_digest=FAKE_BINARY)
+
+        monkeypatch.setattr(fno, "build_ad_native_channel", factory)
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-identity-drift"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def _mutate_namespace_race(channel: Any, pid: int, birth: int) -> None:
+    """A devpts namespace change AT the final executable
+    re-measurement: the subject's mount view root is no
+    longer the measured private namespace."""
+    channel._world.procs[pid]["devpts_slave"]["root_dev"] = 28
+
+
+def test_af_final_frame_namespace_raced_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A namespace change DURING the final hash (caught by the
+    devpts frame re-read AFTER the executable re-measurement,
+    still bound to the ORIGINAL collected PID/birth): a
+    closed refusal, NO receipt commit."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        racy = _racy_channel_class(_mutate_namespace_race)
+
+        def factory(cid: Any, end: float) -> Any:
+            return racy(cid, world.procs, world=world, exe_digest=FAKE_BINARY)
+
+        monkeypatch.setattr(fno, "build_ad_native_channel", factory)
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-devpts-namespace-mismatch"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def _mutate_exe_drift(channel: Any, pid: int, birth: int) -> None:
+    """An in-place exec AT the final executable
+    re-measurement: the SAME PID/birth now runs a different
+    binary (the current-executable race)."""
+    channel._exe_digest = "e" * 64
+
+
+def test_af_final_frame_exe_drift_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An in-place exec DURING the final hash (same PID, same
+    birth, a different actual running executable): the
+    current-executable race law refuses across the final
+    metadata phase, NO receipt commit."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        racy = _racy_channel_class(_mutate_exe_drift)
+
+        def factory(cid: Any, end: float) -> Any:
+            return racy(cid, world.procs, world=world, exe_digest=FAKE_BINARY)
+
+        monkeypatch.setattr(fno, "build_ad_native_channel", factory)
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-identity-drift"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def _mutate_end_crossed(channel: Any, pid: int, birth: int) -> None:
+    """The SAME absolute owner END crosses AT the final
+    executable re-measurement (the owner's deadline
+    anchor is set by the test below)."""
+
+
+def test_af_final_frame_end_crossed_during_hash_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SAME absolute owner END crossed DURING the final
+    hash: the original-END gate at the collect-before-commit
+    boundary refuses — NO receipt commit, no cleanup-grace
+    measurement, no captured-duration extension."""
+    world, fake = _af_new_world(tmp_path)
+    run, _repo, _f, _ev, _c, _u = _af_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+
+        def cross_end(channel: Any, pid: int, birth: int) -> None:
+            # the owner's ONE absolute END passes at the race point
+            run.owner.deadline.anchor = time.monotonic() - 1.0
+
+        racy = _racy_channel_class(cross_end)
+
+        def factory(cid: Any, end: float) -> Any:
+            return racy(cid, world.procs, world=world, exe_digest=FAKE_BINARY)
+
+        monkeypatch.setattr(fno, "build_ad_native_channel", factory)
+        with pytest.raises(fci.FixtureError, match="native-owner-patience"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None

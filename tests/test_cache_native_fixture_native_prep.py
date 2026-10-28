@@ -28,7 +28,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -68,6 +68,10 @@ assert l_spec is not None and l_spec.loader is not None
 flocal = importlib.util.module_from_spec(l_spec)
 sys.modules["cache_native_fixture_local"] = flocal
 l_spec.loader.exec_module(flocal)
+
+if TYPE_CHECKING:  # static names for the runtime-loaded modules
+    import cache_native_fixture_binding as _fb_typed  # type: ignore[import-not-found]
+    import cache_native_fixture_native_prep as _fp_typed  # type: ignore[import-not-found]
 
 CID = "a" * 64
 FOREIGN_CID = "9" * 64
@@ -261,6 +265,30 @@ class FakeCidScopedTable:
         if st.start_time != birth:
             raise fci.FixtureError("prep-subject-invalid")
         return self._exe_digest
+
+    def devpts_slave_metadata(self, pid: int, birth: int, name: int) -> Any:
+        # the scripted per-subject devpts metadata seam: the
+        # proc entry's optional "devpts_slave" closed fact,
+        # scope- and birth-bound exactly like the real channel
+        # (an unbound frame is the typed unknown None, never
+        # an assumption)
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            raise fci.FixtureError("prep-subject-invalid")
+        if not isinstance(name, int) or isinstance(name, bool) or name < 0:
+            raise fci.FixtureError("prep-subject-invalid")
+        p = self._procs.get(pid)
+        if p is None or not self._in_scope(pid):
+            return None
+        try:
+            st = fp.parse_proc_stat(p["stat"])
+        except fci.FixtureError:
+            return None
+        if st.start_time != birth:
+            return None
+        meta = p.get("devpts_slave")
+        if meta is None:
+            return None
+        return fp.DevptsSlaveMetadata(**meta)
 
 
 def _expectation(**overrides: Any) -> Any:
@@ -2793,3 +2821,925 @@ def test_membership_cap_unaffected_by_verified_churn() -> None:
     procs[1500] = member(1500)
     with pytest.raises(fci.FixtureError, match="prep-proc-overbound"):
         fp.collect_worker_group(t, 50, 40, 40)
+
+
+# -- the AF per-subject devpts metadata seam (017-ae software) ------------------
+# The REAL RealCidScopedTable seam over a fake /proc projection: the
+# scoped proc frames (stat/cgroup) are real files under tmp; the devpts
+# root/slave node facts are scripted CLOSED metadata (a duck-typed stat
+# result through a dispatching lstat — no mknod, no host /dev/pts).
+# The metadata read is bounded to the finite operation cap clamped to
+# the SAME absolute owner END anchor (checked at entry, after each
+# blocking read, and at the final frames); every unbound/expired/raced
+# frame is the typed unknown None.
+
+_SEAM_PID = 60
+_SEAM_BIRTH = 500
+_SEAM_NS = (9, 42)
+_SEAM_SLAVE = (136, 1, 77, 0o620, 1001, 5)  # major, minor, inode, mode, uid, gid
+
+
+class _SeamStat:
+    """The scripted CLOSED node metadata (the full measured stat
+    mode — file-type bits included, exactly as a real lstat
+    returns)."""
+
+    def __init__(self, mode: int, ino: int, dev: int, uid: int, gid: int, rdev: int) -> None:
+        self.st_mode = mode
+        self.st_ino = ino
+        self.st_dev = dev
+        self.st_uid = uid
+        self.st_gid = gid
+        self.st_rdev = rdev
+
+
+def _seam_proc_root(tmp_path: Path, *, cid: str = CID, start: int = _SEAM_BIRTH) -> Path:
+    root = tmp_path / "proc"
+    p = root / str(_SEAM_PID)
+    (p / "root" / "dev" / "pts").mkdir(parents=True)
+    (p / "cgroup").write_text(f"0::/system.slice/docker-{cid}.scope\n", encoding="ascii")
+    (p / "stat").write_text(
+        stat_line(_SEAM_PID, "codex", "S", 1, _SEAM_PID, 77, TTYS, _SEAM_PID, start),
+        encoding="ascii",
+    )
+    return root
+
+
+def _seam_lstat(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    root_stat: _SeamStat,
+    slave_stat: _SeamStat,
+    name: int = _SEAM_SLAVE[1],
+) -> None:
+    """The dispatching lstat: scripted node metadata for the
+    devpts root/slave paths, the REAL lstat for every proc
+    path (the scoped stat/cgroup reads)."""
+    real = os.lstat
+
+    def lstat(path: str | os.PathLike[str], *a: object, **k: object) -> object:
+        sp = str(path)
+        if sp.endswith("/dev/pts"):
+            return root_stat
+        if sp.endswith(f"/dev/pts/{name}"):
+            return slave_stat
+        return real(path)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+
+
+def _seam_channel(root: Path, **kw: Any) -> Any:
+    return fp.RealCidScopedTable(CID, root=root, **kw)
+
+
+def _seam_slave_stat(
+    major: int = _SEAM_SLAVE[0], minor: int = _SEAM_SLAVE[1], **overrides: Any
+) -> _SeamStat:
+    import stat as stat_module
+
+    # the st_rdev representation is the kernel's ENCODED
+    # device number (os.makedev — pure integer packing, no
+    # device created): for a minor above the low byte the
+    # encoding carries the high bits in the 12..31 field, so
+    # a simplified ``(major << 8) | minor`` would silently
+    # become a different device (136:256 -> 35072 decodes as
+    # 137:0, the correct encoding 1083392 decodes as 136:256)
+    d = dict(
+        mode=(stat_module.S_IFCHR | _SEAM_SLAVE[3]),
+        ino=_SEAM_SLAVE[2],
+        dev=_SEAM_NS[0],
+        uid=_SEAM_SLAVE[4],
+        gid=_SEAM_SLAVE[5],
+        rdev=os.makedev(major, minor),
+    )
+    d.update(overrides)
+    return _SeamStat(**d)
+
+
+def test_devpts_seam_positive_measured_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The positive: a scoped, birth-bound subject with a
+    directory devpts root and a character slave in the SAME
+    filesystem yields the EXACT closed metadata (the FULL
+    measured mode retained; the permission-bit normalization
+    is the consumer's, never the seam's)."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    _seam_lstat(
+        monkeypatch,
+        root_stat=_SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0),
+        slave_stat=_seam_slave_stat(),
+    )
+    ch = _seam_channel(root)
+    meta = ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1])
+    assert meta is not None
+    assert (meta.root_dev, meta.root_ino) == _SEAM_NS
+    assert meta.slave_dev == _SEAM_NS[0]  # the SAME filesystem as the root
+    assert meta.slave_ino == _SEAM_SLAVE[2]
+    assert meta.slave_mode == (stat_module.S_IFCHR | _SEAM_SLAVE[3])  # FULL mode
+    assert (meta.slave_uid, meta.slave_gid) == (_SEAM_SLAVE[4], _SEAM_SLAVE[5])
+    assert (meta.major, meta.minor) == (_SEAM_SLAVE[0], _SEAM_SLAVE[1])
+
+
+def test_devpts_seam_minor_256_encoded_rdev_positive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slave whose MINOR is above the low byte: the st_rdev
+    is the kernel's encoded device number (the 136:256
+    sample — 1083392, the root-verified new_encode_dev
+    value), and the seam decodes it back to the exact
+    major/minor.  This pins the fake representation: the
+    simplified ``(major << 8) | minor`` packing (35072) would
+    decode as 137:0 and can never silently stand in for the
+    real encoded device number."""
+    import stat as stat_module
+
+    assert os.makedev(136, 256) == 1083392  # the root-verified encoding
+    assert ((136 << 8) | 256) != 1083392  # the simplified form is a different device
+    root = _seam_proc_root(tmp_path)
+    _seam_lstat(
+        monkeypatch,
+        root_stat=_SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0),
+        slave_stat=_seam_slave_stat(major=136, minor=256),
+        name=256,
+    )
+    ch = _seam_channel(root)
+    meta = ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, 256)
+    assert meta is not None
+    assert (meta.major, meta.minor) == (136, 256)  # decoded, not packed
+
+
+def test_devpts_seam_foreign_node_device_still_measured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slave node on a DIFFERENT filesystem than the devpts
+    root is STILL MEASURED (the seam reports, it does not
+    interpret): the consumer compares slave_dev against the
+    measured namespace and refuses the foreign node."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    _seam_lstat(
+        monkeypatch,
+        root_stat=_SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0),
+        slave_stat=_seam_slave_stat(dev=10),  # a foreign filesystem
+    )
+    ch = _seam_channel(root)
+    meta = ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1])
+    assert meta is not None
+    assert meta.slave_dev == 10 != meta.root_dev
+
+
+def test_devpts_seam_out_of_scope_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No registered-CID scope in the proc cgroup view: the
+    typed unknown None (never a measurement)."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    (root / str(_SEAM_PID) / "cgroup").write_text(
+        "0::/system.slice/other.scope\n", encoding="ascii"
+    )
+    _seam_lstat(
+        monkeypatch,
+        root_stat=_SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0),
+        slave_stat=_seam_slave_stat(),
+    )
+    ch = _seam_channel(root)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_cid_drift_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cgroup view that has drifted to ANOTHER container's
+    scope: the typed unknown None (the scope is re-read
+    freshly — never the constructor's CID by faith)."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    foreign = "f" * 64
+    (root / str(_SEAM_PID) / "cgroup").write_text(
+        f"0::/system.slice/docker-{foreign}.scope\n", encoding="ascii"
+    )
+    _seam_lstat(
+        monkeypatch,
+        root_stat=_SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0),
+        slave_stat=_seam_slave_stat(),
+    )
+    ch = _seam_channel(root)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_birth_mismatch_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The (pid, birth) pair is not the live process (a
+    reused number with a different birth): the typed unknown
+    None."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path, start=_SEAM_BIRTH + 1)  # the live birth differs
+    _seam_lstat(
+        monkeypatch,
+        root_stat=_SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0),
+        slave_stat=_seam_slave_stat(),
+    )
+    ch = _seam_channel(root)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_expired_at_entry_no_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ALREADY-EXPIRED owner END (clamped below the
+    current clock) refuses BEFORE the first scope/file read —
+    ALL IO is trapped: a past end never opens the seam."""
+    root = _seam_proc_root(tmp_path)
+    ch = _seam_channel(root, exe_end=time.monotonic() - 1.0)
+
+    def _trap(*a: object, **k: object) -> None:
+        raise AssertionError("IO opened at/past an already-expired end")
+
+    monkeypatch.setattr(os, "lstat", _trap)
+    monkeypatch.setattr(os, "open", _trap)
+    monkeypatch.setattr(os, "read", _trap)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_expired_at_boundary_no_io(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The CLOSED end exactly at the entry clock (now ==
+    deadline): the work is already expired — NO IO at the
+    boundary (a frozen clock makes the equality exact)."""
+    root = _seam_proc_root(tmp_path)
+    clock = [0.0]
+    monkeypatch.setattr(fp.time, "monotonic", lambda: clock[0])
+    ch = _seam_channel(root, exe_end=0.0)  # deadline clamps to the entry clock
+
+    def _trap(*a: object, **k: object) -> None:
+        raise AssertionError("IO opened at the expired boundary")
+
+    monkeypatch.setattr(os, "lstat", _trap)
+    monkeypatch.setattr(os, "open", _trap)
+    monkeypatch.setattr(os, "read", _trap)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_slow_final_scope_no_birth_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The final scope read CROSSES the deadline: the expiry
+    is checked between the final scope and the final birth —
+    the subsequent birth proc read is NEVER opened (trapped)."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    clock = [0.0]
+    monkeypatch.setattr(fp.time, "monotonic", lambda: clock[0])
+    ch = _seam_channel(root, metadata_deadline=1.0)
+
+    real_lstat = os.lstat
+
+    def lstat(path: str | os.PathLike[str], *a: object, **k: object) -> object:
+        sp = str(path)
+        if sp.endswith("/dev/pts"):
+            return _SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0)
+        if sp.endswith(f"/dev/pts/{_SEAM_SLAVE[1]}"):
+            return _seam_slave_stat()
+        return real_lstat(path)
+
+    cgroup_opens = {"n": 0}
+    real_open = os.open
+
+    def open_hook(path: str | os.PathLike[str], *a: int, **k: int) -> object:
+        sp = str(path)
+        if sp.endswith("/cgroup"):
+            cgroup_opens["n"] += 1
+            if cgroup_opens["n"] == 2:
+                # the FINAL scope read crosses the deadline
+                clock[0] += 2.0
+        if sp.endswith("/stat") and clock[0] >= 1.0:
+            raise AssertionError("birth proc read opened at/past the expired end")
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    monkeypatch.setattr(os, "open", open_hook)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+    assert cgroup_opens["n"] == 2  # the final scope ran; the birth read never did
+
+
+def test_devpts_seam_raced_final_frame_none(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PID reuse mid-read: the stat file's birth changes
+    between the pre-read binding and the FINAL frame — the
+    raced frame is the typed unknown None (never a
+    self-validated measurement)."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    stat_path = root / str(_SEAM_PID) / "stat"
+    real_lstat = os.lstat
+
+    def lstat(path: str | os.PathLike[str], *a: object, **k: object) -> object:
+        sp = str(path)
+        if sp.endswith("/dev/pts"):
+            return _SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0)
+        if sp.endswith(f"/dev/pts/{_SEAM_SLAVE[1]}"):
+            # the reuse happens AT the slave read: the live
+            # process at this number now has a new birth
+            stat_path.write_text(
+                stat_line(
+                    _SEAM_PID, "codex", "S", 1, _SEAM_PID, 77, TTYS, _SEAM_PID, _SEAM_BIRTH + 1
+                ),
+                encoding="ascii",
+            )
+            return _seam_slave_stat()
+        return real_lstat(path)
+
+    monkeypatch.setattr(os, "lstat", lstat)
+    ch = _seam_channel(root)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_root_not_dir_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-directory devpts root: the typed unknown None."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    _seam_lstat(
+        monkeypatch,
+        root_stat=_SeamStat(stat_module.S_IFREG | 0o644, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0),
+        slave_stat=_seam_slave_stat(),
+    )
+    ch = _seam_channel(root)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_slave_not_chr_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-character slave node (the S_ISCHR frame is kept
+    while the mode's permission bits are normalized by the
+    consumer): the typed unknown None."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    _seam_lstat(
+        monkeypatch,
+        root_stat=_SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0),
+        slave_stat=_SeamStat(stat_module.S_IFREG | 0o620, _SEAM_SLAVE[2], _SEAM_NS[0], 1001, 5, 0),
+    )
+    ch = _seam_channel(root)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_absent_slave_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The selected slave is absent from the subject's mount
+    view (a denied/unreadable path): the typed unknown None."""
+    import stat as stat_module
+
+    root = _seam_proc_root(tmp_path)
+    real_lstat = os.lstat
+
+    def lstat_no_slave(path: str | os.PathLike[str], *a: object, **k: object) -> object:
+        sp = str(path)
+        if sp.endswith("/dev/pts"):
+            return _SeamStat(stat_module.S_IFDIR | 0o755, _SEAM_NS[1], _SEAM_NS[0], 0, 0, 0)
+        return real_lstat(path)  # the slave path does not exist: FileNotFoundError
+
+    monkeypatch.setattr(os, "lstat", lstat_no_slave)
+    ch = _seam_channel(root)
+    assert ch.devpts_slave_metadata(_SEAM_PID, _SEAM_BIRTH, _SEAM_SLAVE[1]) is None
+
+
+def test_devpts_seam_invalid_args_refuse(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid arguments are a closed refusal (never the typed
+    unknown): non-pid, bool, negative name, over-bound name."""
+    root = _seam_proc_root(tmp_path)
+    ch = _seam_channel(root)
+    for bad_pid, bad_name in (
+        (0, _SEAM_SLAVE[1]),
+        (True, _SEAM_SLAVE[1]),
+        (_SEAM_PID, -1),
+        (_SEAM_PID, True),
+        (_SEAM_PID, 1048576),
+    ):
+        with pytest.raises(fci.FixtureError, match="prep-subject-invalid"):
+            ch.devpts_slave_metadata(bad_pid, _SEAM_BIRTH, bad_name)
+
+
+def test_devpts_seam_constructor_bound_refuses(tmp_path: Path) -> None:
+    """An invalid metadata bound is a closed refusal at
+    construction (never a silent unbounded read)."""
+    root = _seam_proc_root(tmp_path)
+    for bad in (0, -1, float("inf"), float("nan"), True, "5"):
+        with pytest.raises(fci.FixtureError, match="prep-channel-end-invalid"):
+            _seam_channel(root, metadata_deadline=bad)
+
+
+# -- AF devpts pure codec law (inventory / allocation / attach binding) ------------
+# 017-ae software: pure data proof over the closed consumer/derivation
+# core — no OS probe, no fixture, no host /dev/pts.
+
+_AF_NS = (9, 42)
+_AF_POLICY_GID = 5
+_AF_POLICY_MODE = 0o620
+_AF_UID = 1001
+_AF_GID = 1002
+
+
+def _devpts_row(
+    name: int,
+    *,
+    major: int = 136,
+    inode: int = 77,
+    mode: int = 400,
+    uid: int = 1001,
+    gid: int = 5,
+) -> list[Any]:
+    return [str(name), major, name, inode, mode, uid, gid]
+
+
+def _devpts_record_bytes(
+    rows: list[Any],
+    *,
+    uid: int = 1001,
+    ns: tuple[Any, ...] = _AF_NS,
+    policy_gid: int = 5,
+    policy_mode: int = 400,
+) -> bytes:
+    return (
+        json.dumps(
+            {
+                "record": fci.DEVPTS_PROBE_RECORD,
+                "status": "pass",
+                "uid": uid,
+                "namespace": list(ns),
+                "policy": {"fstype": "devpts", "gid": policy_gid, "mode": policy_mode},
+                "isolation": {"site": False, "startup": False},
+                "slave_rows": rows,
+            },
+            separators=(",", ":"),
+        ).encode("ascii")
+        + b"\n"
+    )
+
+
+def _parse_devpts(rows: list[Any], **kw: Any) -> _fp_typed.DevptsInventory:
+    return fp.parse_devpts_inventory_record(_devpts_record_bytes(rows, **kw)).inventory
+
+
+def _af_binding() -> _fb_typed.OrderRunBinding:
+    return fb.OrderRunBinding(
+        order_id="017-af",
+        order_path="oap/orders/017-af-owner-uid-native-pty-qualification.md",
+        order_sha256="e" * 64,
+        active_bytes=b"017-af\n",
+        source_head=HEAD,
+        repo_identity="ulfe-lmi/slaif-local-coding",
+        run_id=RUN,
+    )
+
+
+def test_devpts_inventory_positive_closed() -> None:
+    """The closed inventory law accepts the empty baseline and a
+    populated observation; the retained record bytes are the
+    EXACT measured capture and the typed facts are the closed
+    derivation inputs."""
+    empty = fp.parse_devpts_inventory_record(_devpts_record_bytes([]))
+    assert empty.record == _devpts_record_bytes([])
+    assert empty.inventory.slave_rows == ()
+    assert empty.inventory.namespace == _AF_NS
+    assert empty.inventory.policy == ("devpts", 5, 0o620)
+    assert empty.inventory.isolation == (False, False)
+    assert empty.inventory.uid == 1001
+    one = _parse_devpts([_devpts_row(1)])
+    assert one.slave_rows == ((1, 136, 1, 77, 0o620, 1001, 5),)
+    # the row NAME is the canonical decimal of the minor
+    two = _parse_devpts([_devpts_row(256)])
+    assert two.slave_rows == ((256, 136, 256, 77, 0o620, 1001, 5),)
+
+
+def test_devpts_inventory_row_bound() -> None:
+    """The closed 96-row cap: 96 rows is the boundary positive,
+    97 rows is a closed refusal before any row is retained."""
+    rows96 = [_devpts_row(i) for i in range(1, 97)]
+    assert len(_parse_devpts(rows96).slave_rows) == 96
+    with pytest.raises(fci.FixtureError, match="prep-devpts-rows-overbound"):
+        _parse_devpts(rows96 + [_devpts_row(97)])
+
+
+def test_devpts_inventory_byte_bound_before_copy() -> None:
+    """The 65536-byte cap is checked BEFORE any copy: an
+    oversized bytes or bytearray capture is a closed refusal
+    (never copied first), regardless of its content."""
+    for bad in (b"x" * (fci.DEVPTS_OUTPUT_MAX + 1), bytearray(b"x" * (fci.DEVPTS_OUTPUT_MAX + 1))):
+        with pytest.raises(fci.FixtureError, match="prep-devpts-output-overbound"):
+            fp.parse_devpts_inventory_record(bad)
+
+
+def test_devpts_inventory_name_grammar_refuse() -> None:
+    """The row name is the ASCII DECIMAL canonical value of the
+    minor: leading zeros, non-decimal or non-ASCII digits,
+    over-length digit strings and a name/minor disagreement are
+    all closed refusals (never a raw conversion error)."""
+    good = _devpts_row(7)
+    for bad_name in ("007", "1a", "\u00b9", "12345678", "2"):
+        row = list(good)
+        row[0] = bad_name
+        with pytest.raises(fci.FixtureError, match="prep-devpts-row-malformed"):
+            _parse_devpts([row])
+
+
+def test_devpts_inventory_domain_and_policy_refuse() -> None:
+    """The closed domains: the measured probe uid, the major/
+    minor fields, the node inode, the node GID/MODE against the
+    MEASURED policy fact, the namespace root (a zero inode is
+    not measured), and the isolation flags."""
+    row = _devpts_row(1)
+    # policy-bound node facts
+    with pytest.raises(fci.FixtureError, match="prep-devpts-node-policy"):
+        _parse_devpts([list(row), _devpts_row(2, gid=6)])
+    with pytest.raises(fci.FixtureError, match="prep-devpts-node-policy"):
+        _parse_devpts([list(row), _devpts_row(2, mode=0o640)])
+    # probe uid domain
+    for bad_uid in (0, -1, True, 2**32):
+        with pytest.raises(fci.FixtureError, match="prep-devpts-uid-invalid"):
+            fp.parse_devpts_inventory_record(_devpts_record_bytes([_devpts_row(1)], uid=bad_uid))
+    # namespace root: a zero inode is not a measured valid root
+    with pytest.raises(fci.FixtureError, match="prep-devpts-namespace-invalid"):
+        _parse_devpts([_devpts_row(1)], ns=(9, 0))
+    # isolation: a non-isolated probe is a closed refusal (the
+    # trailing LF is valid JSON whitespace — load the complete
+    # record, never a sliced fragment)
+    raw = json.loads(_devpts_record_bytes([_devpts_row(1)]))
+    raw["isolation"]["site"] = True
+    with pytest.raises(fci.FixtureError, match="prep-devpts-not-isolated"):
+        fp.parse_devpts_inventory_record(
+            (json.dumps(raw, separators=(",", ":")) + "\n").encode("ascii")
+        )
+    # the closed 12-bit major field
+    with pytest.raises(fci.FixtureError, match="prep-devpts-row-malformed"):
+        _parse_devpts([_devpts_row(1, major=4096)])
+    # node inode must be strictly positive
+    with pytest.raises(fci.FixtureError, match="prep-devpts-row-malformed"):
+        _parse_devpts([_devpts_row(1, inode=0)])
+    # duplicate row names
+    with pytest.raises(fci.FixtureError, match="prep-devpts-row-malformed"):
+        _parse_devpts([_devpts_row(1), _devpts_row(1)])
+
+
+def test_devpts_inventory_shape_and_duplicate_key_refuse() -> None:
+    """Document shape: the exact top-level key set, single-line
+    ASCII, and duplicate keys at EVERY nesting level are closed
+    non-echoing refusals."""
+    base = _devpts_record_bytes([_devpts_row(1)])
+    # an unknown top-level key (the trailing LF is valid JSON
+    # whitespace — load the complete record, never a sliced
+    # fragment)
+    raw = json.loads(base)
+    raw["extra"] = 1
+    with pytest.raises(fci.FixtureError, match="prep-devpts-record-malformed"):
+        fp.parse_devpts_inventory_record(
+            (json.dumps(raw, separators=(",", ":")) + "\n").encode("ascii")
+        )
+    # duplicate keys at a nested level (the json decoder keeps
+    # the last one silently — the hook refuses)
+    with pytest.raises(fci.FixtureError, match="prep-devpts-record-malformed"):
+        fp.parse_devpts_inventory_record(
+            b'{"record":"slaif-017ae-devpts-inventory-v1","record":1}\n'
+        )
+    # two lines
+    with pytest.raises(fci.FixtureError, match="prep-devpts-record-malformed"):
+        fp.parse_devpts_inventory_record(base + base)
+    # non-ASCII content
+    with pytest.raises(fci.FixtureError, match="prep-devpts-record-malformed"):
+        fp.parse_devpts_inventory_record(base.replace(b"pass", b"pa\xc3\xa9ss"))
+
+
+def test_devpts_inventory_fail_form_typed() -> None:
+    """The fail form propagates the closed probe reason as a
+    TYPED local refusal (a failed query is never absence)."""
+    for reason in fci.DEVPTS_FAIL_REASONS:
+        raw = (
+            json.dumps(
+                {"record": fci.DEVPTS_PROBE_RECORD, "status": "fail", "reason": reason},
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("ascii")
+        with pytest.raises(fci.FixtureError, match="local-" + reason):
+            fp.parse_devpts_inventory_record(raw)
+
+
+def test_devpts_inventory_deep_nesting_under_cap_refused() -> None:
+    """A deeply nested document UNDER the byte cap: the parser's
+    recursion exhaustion is normalized to the fixed typed
+    malformed-record refusal (never a raw RecursionError), so
+    the caller's consumed failed phase can retain it."""
+    deep = b"[" * 10000 + b"1" + b"]" * 10000
+    assert len(deep) < fci.DEVPTS_OUTPUT_MAX
+    with pytest.raises(fci.FixtureError, match="prep-devpts-record-malformed"):
+        fp.parse_devpts_inventory_record(deep)
+
+
+def test_derive_attach_allocation_unique_positive() -> None:
+    """Exactly ONE fresh owned slave between two same-namespace
+    observations is the allocation; the expected proc tty_nr is
+    DERIVED through the primary-source encoding (never copied
+    from the subject)."""
+    baseline = _parse_devpts([])
+    observation = _parse_devpts([_devpts_row(1, inode=77, uid=1001, gid=5)])
+    alloc = fp.derive_attach_allocation(baseline, observation, subject_uid=1001)
+    assert alloc.name == 1
+    assert alloc.major == 136
+    assert alloc.minor == 1
+    assert alloc.inode == 77
+    assert alloc.mode == 0o620
+    assert alloc.uid == 1001
+    assert alloc.gid == 5
+    assert alloc.expected_tty_nr == fp.new_encode_dev(136, 1)
+    assert fp.expected_tty_nr_qualifies(alloc.expected_tty_nr)
+
+
+def test_derive_attach_allocation_churn_refusals() -> None:
+    """Every non-unique world is a closed refusal: baseline
+    removal or metadata drift (churn), no allocation, multiple
+    allocations, inode reuse, a foreign node owner, a foreign
+    namespace or policy, and an unrepresentable device."""
+    base_row = _devpts_row(5, inode=70)
+    baseline = _parse_devpts([base_row])
+    # churn: the baseline row vanished
+    with pytest.raises(fci.FixtureError, match="prep-devpts-churn"):
+        fp.derive_attach_allocation(baseline, _parse_devpts([_devpts_row(6)]), subject_uid=1001)
+    # churn: the baseline row drifted (a new inode)
+    drifted = list(base_row)
+    drifted[3] = 71
+    with pytest.raises(fci.FixtureError, match="prep-devpts-churn"):
+        fp.derive_attach_allocation(
+            baseline, _parse_devpts([drifted, _devpts_row(6)]), subject_uid=1001
+        )
+    # no fresh allocation
+    with pytest.raises(fci.FixtureError, match="prep-devpts-allocation-none"):
+        fp.derive_attach_allocation(baseline, baseline, subject_uid=1001)
+    # multiple fresh allocations
+    with pytest.raises(fci.FixtureError, match="prep-devpts-allocation-ambiguous"):
+        fp.derive_attach_allocation(
+            baseline, _parse_devpts([base_row, _devpts_row(6), _devpts_row(7)]), subject_uid=1001
+        )
+    # the fresh node reuses a baseline inode
+    with pytest.raises(fci.FixtureError, match="prep-devpts-inode-reuse"):
+        fp.derive_attach_allocation(
+            baseline, _parse_devpts([base_row, _devpts_row(6, inode=70)]), subject_uid=1001
+        )
+    # the fresh node is not owned by the subject uid
+    with pytest.raises(fci.FixtureError, match="prep-devpts-owner-mismatch"):
+        fp.derive_attach_allocation(
+            baseline, _parse_devpts([base_row, _devpts_row(6, uid=1003)]), subject_uid=1001
+        )
+    # a foreign namespace
+    with pytest.raises(fci.FixtureError, match="prep-devpts-namespace-mismatch"):
+        fp.derive_attach_allocation(
+            baseline, _parse_devpts([base_row, _devpts_row(6)], ns=(28, 42)), subject_uid=1001
+        )
+    # a foreign measured policy (EVERY observation row —
+    # including the retained baseline-row copy — must agree
+    # with the altered policy, or the parse refuses
+    # node-policy before the intended derive policy mismatch)
+    with pytest.raises(fci.FixtureError, match="prep-devpts-policy-mismatch"):
+        fp.derive_attach_allocation(
+            baseline,
+            _parse_devpts(
+                [_devpts_row(5, inode=70, gid=6, mode=0o640), _devpts_row(6, gid=6, mode=0o640)],
+                policy_gid=6,
+                policy_mode=0o640,
+            ),
+            subject_uid=1001,
+        )
+    # a device the kernel cannot represent as a positive signed
+    # tty_nr (the encoding is refused, never truncated)
+    with pytest.raises(fci.FixtureError, match="prep-devpts-encoding-unrepresentable"):
+        fp.derive_attach_allocation(
+            _parse_devpts([]),
+            _parse_devpts([_devpts_row(1048320, major=4095)]),
+            subject_uid=1001,
+        )
+
+
+def _af_attach_pair() -> tuple[
+    _fp_typed.DevptsObservation,
+    _fp_typed.DevptsObservation,
+    _fp_typed.DevptsAllocation,
+    _fb_typed.OrderRunBinding,
+]:
+    baseline = fp.parse_devpts_inventory_record(_devpts_record_bytes([]))
+    observation = fp.parse_devpts_inventory_record(_devpts_record_bytes([_devpts_row(1)]))
+    allocation = fp.derive_attach_allocation(
+        baseline.inventory, observation.inventory, subject_uid=1001
+    )
+    return baseline, observation, allocation, _af_binding()
+
+
+def test_attach_binding_round_trip() -> None:
+    """The AF attach-binding producer and consumer agree: the
+    produced record round-trips the closed consumer against the
+    workflow's OWN immutable binding, and the retained DICT
+    form (the exact JSON round-trip) validates the same way."""
+    baseline, observation, allocation, binding = _af_attach_pair()
+    identity = fp._ad_identity_substructure_from_triple((1001, 1002, (1002,)))
+    record = fp.attach_binding_record(
+        baseline=baseline,
+        observation=observation,
+        allocation=allocation,
+        binding=binding,
+        identity=identity,
+        cid=CID,
+    )
+    assert record["record"] == fp.AF_ATTACH_BINDING_SCHEMA
+    assert set(record) == fp.AF_ATTACH_RECORD_KEYS
+    assert record["phase"] == fp.AF_ATTACH_PHASE
+    assert record["encoding"] == fp.AF_ATTACH_ENCODING
+    assert record["cid"] == CID
+    assert record["namespace"] == list(_AF_NS)
+    assert record["expected_tty_nr"] == allocation.expected_tty_nr
+    rederived = fp.parse_attach_binding_record(record, binding)
+    assert rederived == allocation
+    # the retained DICT form: the exact JSON round-trip against
+    # the binding's own closed record
+    retained = json.loads(json.dumps(record, sort_keys=True))
+    assert retained == json.loads(json.dumps(record, sort_keys=True))
+    assert fp.parse_attach_binding_record(retained, binding.to_record()) == allocation
+
+
+def test_attach_binding_replay_and_foreign_binding_refused() -> None:
+    """Replay/foreign law: a copied or replayed record is data
+    only — a foreign binding (another order, another entry's
+    canonical path, or a contradicted record) is a closed
+    refusal; the consumer RE-DERIVES the allocation from the
+    embedded inventories, so a tampered allocation or expected
+    tty_nr can never pass."""
+    baseline, observation, allocation, binding = _af_attach_pair()
+    identity = fp._ad_identity_substructure_from_triple((1001, 1002, (1002,)))
+    record = fp.attach_binding_record(
+        baseline=baseline,
+        observation=observation,
+        allocation=allocation,
+        binding=binding,
+        identity=identity,
+        cid=CID,
+    )
+    # a foreign ORDER binding (the tag-pair law: this tag is
+    # the canonical 017-af entry ONLY)
+    foreign_order = fb.OrderRunBinding(
+        order_id="017-ad",
+        order_path="oap/orders/017-ad-owner-uid-native-handoff-qualification.md",
+        order_sha256="e" * 64,
+        active_bytes=b"017-ad\n",
+        source_head=HEAD,
+        repo_identity="ulfe-lmi/slaif-local-coding",
+        run_id=RUN,
+    )
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-mismatch"):
+        fp.parse_attach_binding_record(record, foreign_order)
+    # the AF order at a NON-canonical path
+    foreign_path = fb.OrderRunBinding(
+        order_id="017-af",
+        order_path="oap/orders/017-af-other-synthetic-name.md",
+        order_sha256="e" * 64,
+        active_bytes=b"017-af\n",
+        source_head=HEAD,
+        repo_identity="ulfe-lmi/slaif-local-coding",
+        run_id=RUN,
+    )
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-mismatch"):
+        fp.parse_attach_binding_record(record, foreign_path)
+    # a tampered allocation (re-derived, never trusted)
+    tampered = json.loads(json.dumps(record, sort_keys=True))
+    tampered["allocation"]["major"] = 137
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-mismatch"):
+        fp.parse_attach_binding_record(tampered, binding)
+    # a tampered expected tty_nr
+    tampered2 = json.loads(json.dumps(record, sort_keys=True))
+    tampered2["expected_tty_nr"] = allocation.expected_tty_nr + 1
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-malformed"):
+        fp.parse_attach_binding_record(tampered2, binding)
+    # an embedded observation with a SECOND fresh row (the
+    # re-derivation becomes ambiguous)
+    tampered3 = json.loads(json.dumps(record, sort_keys=True))
+    tampered3["observation"]["slave_rows"].append(_devpts_row(2, inode=78))
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-mismatch"):
+        fp.parse_attach_binding_record(tampered3, binding)
+    # a malformed supplied binding record (the consumer never
+    # assumes caller validation)
+    bad_binding = dict(binding.to_record())
+    # a TRULY malformed order id (no dash suffix — outside the
+    # closed OAP id grammar)
+    bad_binding["order_id"] = "017"
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-malformed"):
+        fp.parse_attach_binding_record(record, bad_binding)
+    # a non-hex cid is a closed grammar refusal
+    tampered4 = json.loads(json.dumps(record, sort_keys=True))
+    tampered4["cid"] = "z" * 64
+    with pytest.raises(fci.FixtureError, match="prep-attach-binding-malformed"):
+        fp.parse_attach_binding_record(tampered4, binding)
+
+
+def _isolation_arm(base_dir: Path) -> tuple[dict[str, str], Path, Path]:
+    """ONE arm's OWNED fresh base dir (separate per arm — never
+    recreated): the MINIMAL fresh child environment (a
+    synthetic HOME and PYTHONUSERBASE, the declared synthetic
+    PYTHONPATH only — never dict(os.environ): a control cannot
+    discover human startup/profile context or inherit
+    credentials) plus its canary and owned marker dirs."""
+    canary_dir = base_dir / "canary"
+    canary_dir.mkdir(parents=True)
+    markers = base_dir / "markers"
+    markers.mkdir()
+    env = {
+        "HOME": str(base_dir / "home"),
+        "PYTHONUSERBASE": str(base_dir / "userbase"),
+        "PYTHONPATH": str(canary_dir),
+    }
+    return env, canary_dir, markers
+
+
+def _write_startup_canaries(canary_dir: Path, markers: Path) -> None:
+    """Synthetic sitecustomize / usercustomize canaries whose
+    EXECUTED code writes ONLY their owned marker files (a
+    startup-execution witness, not an importability probe)."""
+    (canary_dir / "sitecustomize.py").write_text(
+        f"open({str(markers / 'site-ran')!r}, \"w\").write('s')\n",
+        encoding="ascii",
+    )
+    (canary_dir / "usercustomize.py").write_text(
+        f"open({str(markers / 'user-ran')!r}, \"w\").write('u')\n",
+        encoding="ascii",
+    )
+
+
+def _base_python() -> str:
+    """The known toolchain BASE interpreter (the SAME version
+    the repo venv wraps); the repo venv intentionally disables
+    the user site by CPython venv design, so the working
+    user-site control needs the base context."""
+    base = getattr(sys, "_base_executable", None)
+    if not isinstance(base, str) or not base:
+        raise AssertionError("base interpreter unavailable")
+    return base
+
+
+def test_isolated_python_child_refuses_startup_site_canaries(tmp_path: Path) -> None:
+    """The exact -I -S isolation of the AF probe's python
+    child, proven with TWO bounded exact-owned NON-Codex
+    Python children (the DEVPTS probe is never executed; the
+    host devpts is never read).  The seam uses the known
+    toolchain BASE interpreter (``sys._base_executable``, the
+    SAME version the venv wraps): the repo venv
+    intentionally disables the user site by CPython venv
+    design, so the working user-site control needs the base
+    context.  Each arm runs under its OWN fresh owned test
+    dir and the minimal fresh HOME/PYTHONUSERBASE/PYTHONPATH:
+
+    * the UN-ISOLATED control executes BOTH synthetic
+      startup hooks at startup (the owned markers prove the
+      canaries work);
+    * the EXACT -I -S child leaves every marker absent and
+      the site/sitecustomize/usercustomize modules UNLOADED
+      (the isolation is the flags' effect, not a claim)."""
+    base_python = _base_python()
+    # arm 1: the un-isolated control (the base interpreter):
+    # both synthetic startup hooks execute at startup
+    env_c, canary_c, markers_c = _isolation_arm(tmp_path / "control")
+    _write_startup_canaries(canary_c, markers_c)
+    control = subprocess.run(
+        [base_python, "-c", "import sys; sys.exit(0)"],
+        env=env_c,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert control.returncode == 0
+    assert (markers_c / "site-ran").is_file()
+    assert (markers_c / "user-ran").is_file()
+    # arm 2: the EXACT probe flag form (the SAME base
+    # interpreter, the same minimal environment shape, its OWN
+    # fresh canary and markers): no startup execution and no
+    # startup module loaded
+    env_i, canary_i, markers_i = _isolation_arm(tmp_path / "isolated")
+    _write_startup_canaries(canary_i, markers_i)
+    isolated = subprocess.run(
+        [
+            base_python,
+            "-I",
+            "-S",
+            "-c",
+            "import sys; bad = [n for n in ('site', 'sitecustomize', "
+            "'usercustomize') if n in sys.modules]; "
+            "sys.exit(4 if bad else 0)",
+        ],
+        env=env_i,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert isolated.returncode == 0  # none of the startup modules loaded
+    assert not (markers_i / "site-ran").exists()
+    assert not (markers_i / "user-ran").exists()

@@ -109,6 +109,19 @@ NATIVE_RUN_SCOPE = "native-owner-run"
 # the scope literal stays the profile-independent original.
 AD_ORDER_ID = rprofile.AD_ORDER_ID
 AD_NATIVE_RUN_SCHEMA = rprofile.AD_NATIVE_RUN_SCHEMA
+# The canonical FUTURE 017-af native-PTY qualification entry
+# (INERT in 017-ae: software only — never activated,
+# admitted or launched here) and its DISTINCT versioned
+# identity-bearing native-run terminal tag: the SAME closed
+# measured facts as the AD tag PLUS the frozen owner-identity
+# substructure AND the nested attach-binding record (or an
+# honest None).  The original tag keeps its exact historical
+# key set and refuses BOTH the identity key and any 017-ad /
+# 017-af binding (separate closed records, never a widened
+# grammar — including for equal-numeric identities); the
+# scope literal stays the profile-independent original.
+AF_ORDER_ID = rprofile.AF_ORDER_ID
+AF_NATIVE_RUN_SCHEMA = rprofile.AF_NATIVE_RUN_SCHEMA
 # the owner's closed terminal outcomes (the attempt record
 # vocabulary, never a caller boolean)
 NATIVE_RUN_OUTCOMES = frozenset({"pass", "fail", "aborted"})
@@ -171,6 +184,23 @@ NATIVE_OWNER_REASONS = frozenset(
         "native-owner-published",
         "native-owner-record-malformed",
         "native-owner-channel-budget-invalid",
+        # the AF native attach-binding phase (017-ae software)
+        "native-owner-attach-not-admitted",
+        "native-owner-attach-stale-stop",
+        "native-owner-attach-baseline-missing",
+        "native-owner-attach-baseline-repeat",
+        "native-owner-attach-binding-missing",
+        "native-owner-attach-binding-repeat",
+        "native-owner-attach-pty-mismatch",
+        "native-owner-attach-context-invalid",
+        "native-owner-attach-channel-invalid",
+        "native-owner-attach-devpts-unreadable",
+        "native-owner-attach-devpts-namespace-mismatch",
+        "native-owner-attach-devpts-device-mismatch",
+        "native-owner-attach-devpts-inode-mismatch",
+        "native-owner-attach-devpts-mode-mismatch",
+        "native-owner-attach-devpts-owner-mismatch",
+        "native-owner-attach-identity-drift",
         "internal",
     }
 )
@@ -234,13 +264,17 @@ def parse_native_run_record(record: object) -> dict:
     if not isinstance(record, dict):
         raise FixtureError("native-owner-record-malformed")
     tag = record.get("record")
-    # the DISTINCT identity-bearing 017-ad terminal form: the
-    # SAME closed measured facts PLUS the frozen owner-identity
-    # substructure; the original tag keeps its exact historical
-    # key set (no identity key at all) — separate closed
-    # records, never a widened grammar
+    # the DISTINCT identity-bearing 017-ad / 017-af terminal
+    # forms: the SAME closed measured facts PLUS the frozen
+    # owner-identity substructure (the AF form ADDITIONALLY
+    # carries the nested attach-binding record); the original
+    # tag keeps its exact historical key set (no identity key
+    # at all) — separate closed records, never a widened
+    # grammar
     if tag == AD_NATIVE_RUN_SCHEMA:
         expected_keys = _NATIVE_RUN_KEYS | {"identity"}
+    elif tag == AF_NATIVE_RUN_SCHEMA:
+        expected_keys = _NATIVE_RUN_KEYS | {"identity", "attach_binding"}
     elif tag == NATIVE_RUN_SCHEMA:
         expected_keys = _NATIVE_RUN_KEYS
     else:
@@ -278,28 +312,29 @@ def parse_native_run_record(record: object) -> dict:
     ):
         raise FixtureError("native-owner-record-malformed")
     # The entry-aware closed ORDER binding: the original tag is
-    # never the record of the canonical 017-ad entry (including
-    # the equal-numeric cross-profile case — a fixed-21002
-    # subject bound to 017-ad still belongs to the AD tag), and
-    # the AD tag is the canonical 017-ad entry's own record only
-    # (its frozen identity substructure is closed-validated by
-    # the shared structural core — data integrity, never a
-    # measured-authority claim).
-    ad_entry = tag == AD_NATIVE_RUN_SCHEMA
+    # never the record of the canonical 017-ad / 017-af entry
+    # (including the equal-numeric cross-profile case — a
+    # fixed-21002 subject bound to 017-ad / 017-af still
+    # belongs to the entry's OWN tag), and each identity-
+    # bearing tag is its OWN canonical entry's record only at
+    # its canonical order path (its frozen identity
+    # substructure is closed-validated by the shared
+    # structural core — data integrity, never a measured-
+    # authority claim).
+    identity_entry = tag in (AD_NATIVE_RUN_SCHEMA, AF_NATIVE_RUN_SCHEMA)
     identity_triple: tuple[int, int, tuple[int, ...]] | None = None
-    if ad_entry:
-        if binding["order_id"] != AD_ORDER_ID:
-            raise FixtureError("native-owner-record-malformed")
-        # the fixed canonical 017-ad entry is bound to its OWN
-        # unique committed order path (a foreign path can never
-        # carry the identity-bearing AD terminal form)
-        if binding["order_path"] != rprofile.AD_ORDER_PATH:
+    if identity_entry:
+        entry_order = AD_ORDER_ID if tag == AD_NATIVE_RUN_SCHEMA else AF_ORDER_ID
+        entry_path = (
+            rprofile.AD_ORDER_PATH if tag == AD_NATIVE_RUN_SCHEMA else rprofile.AF_ORDER_PATH
+        )
+        if binding["order_id"] != entry_order or binding["order_path"] != entry_path:
             raise FixtureError("native-owner-record-malformed")
         law = local._identity_substructure_law(record["identity"])
         if law is None:
             raise FixtureError("native-owner-record-malformed")
         identity_triple = (law[0], law[1], law[2])
-    elif binding["order_id"] == AD_ORDER_ID:
+    elif binding["order_id"] in (AD_ORDER_ID, AF_ORDER_ID):
         raise FixtureError("native-owner-record-malformed")
     native = record["native_record"]
     native_facts = None
@@ -318,8 +353,29 @@ def parse_native_run_record(record: object) -> dict:
         # must carry the SAME frozen identity as the outer
         # record (both halves of the retained record are
         # cross-bound to one frozen context)
-        if ad_entry and native_facts.identity != identity_triple:
+        if identity_entry and native_facts.identity != identity_triple:
             raise FixtureError("native-owner-record-malformed")
+    # The AF entry's nested attach-binding record: RE-DERIVED
+    # by the closed consumer against the OUTER binding record
+    # (a copied or replayed record never mints authority),
+    # cross-bound to the outer frozen identity and — when a
+    # native record is present — to that record's measured
+    # CID
+    attach = None
+    if tag == AF_NATIVE_RUN_SCHEMA:
+        attach = record["attach_binding"]
+        if attach is not None:
+            try:
+                prep.parse_attach_binding_record(attach, binding)
+            except prep.FixtureError:
+                raise FixtureError("native-owner-record-malformed") from None
+            attach_law = local._identity_substructure_law(attach.get("identity"))
+            if attach_law is None or (
+                (attach_law[0], attach_law[1], attach_law[2]) != identity_triple
+            ):
+                raise FixtureError("native-owner-record-malformed")
+            if native_facts is not None and attach.get("cid") != native_facts.cid:
+                raise FixtureError("native-owner-record-malformed")
     refusal = record["native_refusal"]
     if refusal is not None and (not isinstance(refusal, str) or refusal not in prep.PREP_REASONS):
         raise FixtureError("native-owner-record-malformed")
@@ -341,6 +397,10 @@ def parse_native_run_record(record: object) -> dict:
         or native is None
         or refusal is not None
         or native_facts.native_ready is not True
+        # the AF entry's ready verdict additionally requires
+        # the measured attach binding (a missing attach is an
+        # honest None, never a ready handoff)
+        or (tag == AF_NATIVE_RUN_SCHEMA and attach is None)
     ):
         raise FixtureError("native-owner-record-malformed")
     if refusal is not None and (native is not None or verdict["ready"] is True):
@@ -416,13 +476,16 @@ class NativeOwnerRun:
     ) -> None:
         if not isinstance(binding, OrderRunBinding):
             raise FixtureError("native-owner-binding-invalid")
-        # The fixed canonical 017-ad entry resolves ONLY at its
-        # unique committed order path (the resolver applies the
-        # same closed law): a directly-constructed binding
-        # carrying the AD order id at a foreign path is refused
-        # BEFORE the admission or the owner adoption.  Every
-        # other (generic) order keeps the exact historical law.
+        # The fixed canonical 017-ad / 017-af entries resolve
+        # ONLY at their unique committed order paths (the
+        # resolver applies the same closed law): a directly-
+        # constructed binding carrying the entry's order id at
+        # a foreign path is refused BEFORE the admission or the
+        # owner adoption.  Every other (generic) order keeps
+        # the exact historical law.
         if binding.order_id == AD_ORDER_ID and binding.order_path != rprofile.AD_ORDER_PATH:
+            raise FixtureError("native-owner-order-path-mismatch")
+        if binding.order_id == AF_ORDER_ID and binding.order_path != rprofile.AF_ORDER_PATH:
             raise FixtureError("native-owner-order-path-mismatch")
         self._binding: OrderRunBinding = binding
         self._repo = Path(str(repo))
@@ -435,6 +498,22 @@ class NativeOwnerRun:
         self._attempt_token: str | None = None
         self._outcome: str | None = None
         self._published = False
+        # the AF native attach-binding phase state (017-ae
+        # software): the frozen attach-baseline observation
+        # (collected exactly ONCE) and the derived attach-
+        # binding receipt (frozen on first success, never
+        # resettable, never re-derived), the ONE-SHOT attempt
+        # latches (consumed BEFORE each measurement) and the
+        # retained failed-phase refusal (a refused
+        # measurement forbids any later fresh baseline or
+        # second observation) — all in THIS SAME owner RAM
+        # context over the shared absolute END anchor and
+        # ledger
+        self._attach_baseline: prep.DevptsObservation | None = None
+        self._attach_receipt: dict[str, object] | None = None
+        self._attach_baseline_attempted = False
+        self._attach_derive_attempted = False
+        self._attach_failure: str | None = None
         # the completed owner's publication is a ONE-SHOT
         # terminal transition (order 017-w section 3): once it
         # begins, a refusal terminalizes the qualified attempt
@@ -484,19 +563,20 @@ class NativeOwnerRun:
                 proc_root=proc_root,
             )
             # the FROZEN owner-UID subject identity of the
-            # canonical 017-ad entry: the SAME real owner's OWN
-            # bounded OS identity collection (already frozen in
-            # the owner's immutable context AFTER its original
-            # won admission, BEFORE external work) is applied as
-            # the workflow's subject law — the AD run never
-            # measures the fixed 21002 subject, and the original
-            # entries never collect (their context stays None,
-            # the workflow keeps the fixed-21002 law
-            # byte-for-byte).  An AD owner without a frozen
-            # context is a closed refusal, never a silent
-            # fallback to the original profile.
+            # canonical 017-ad / 017-af entries: the SAME real
+            # owner's OWN bounded OS identity collection
+            # (already frozen in the owner's immutable context
+            # AFTER its original won admission, BEFORE external
+            # work) is applied as the workflow's subject law —
+            # the AD / AF runs never measure the fixed 21002
+            # subject, and the original entries never collect
+            # (their context stays None, the workflow keeps
+            # the fixed-21002 law byte-for-byte).  An AD / AF
+            # owner without a frozen context is a closed
+            # refusal, never a silent fallback to the original
+            # profile.
             subject_identity: tuple[int, int, tuple[int, ...]] | None = None
-            if binding.order_id == AD_ORDER_ID:
+            if binding.order_id in (AD_ORDER_ID, AF_ORDER_ID):
                 ctx = self._owner._owner_context
                 if ctx is None:
                     raise FixtureError("native-owner-identity-unmeasured")
@@ -698,6 +778,58 @@ class NativeOwnerRun:
                 raise FixtureError("native-owner-subject-cid-mismatch")
             if expectation.binary_sha256 != artifact["binary_sha256"]:
                 raise FixtureError("native-owner-subject-binary-mismatch")
+        # The AF entry's attach-binding gate (017-ae): the
+        # measured attach receipt must already exist (no
+        # resampling at registration — the allocation is
+        # measured ONCE in the attach phase), and the
+        # expectation's expected PTY must equal the DERIVED
+        # expected tty_nr exactly (the expected PTY comes
+        # from the owned attach, never from the subject
+        # itself; an unobserved or foreign expectation can
+        # never bind the AF entry).  A refused registration
+        # may retry CORRECTED parameters against the SAME
+        # already-measured receipt (the workflow's staged
+        # law), never a resampled allocation.
+        if self._binding.order_id == AF_ORDER_ID:
+            if self._attach_receipt is None:
+                raise FixtureError("native-owner-attach-binding-missing")
+            if not isinstance(expectation, prep.SubjectExpectation) or not (
+                isinstance(expectation.expected_tty, int)
+                and not isinstance(expectation.expected_tty, bool)
+                and expectation.expected_tty == self._attach_receipt["expected_tty_nr"]
+            ):
+                raise FixtureError("native-owner-attach-pty-mismatch")
+            # the DERIVED expected tty_nr is re-checked against
+            # the allocation's OWN device identity (the closed
+            # encoding of the owned device must equal the
+            # derived value and qualify — a context
+            # contradiction is a closed refusal, never a
+            # silently re-derived expectation)
+            allocation = self._attach_receipt["allocation"]
+            try:
+                encoded = prep.new_encode_dev(allocation["major"], allocation["minor"])
+            except prep.FixtureError:
+                raise FixtureError("native-owner-attach-context-invalid") from None
+            if not (
+                encoded == self._attach_receipt["expected_tty_nr"]
+                and prep.expected_tty_nr_qualifies(encoded)
+            ):
+                raise FixtureError("native-owner-attach-context-invalid")
+            # the ORIGINAL W/B baseline + CURRENT stable-stop
+            # phase, the FROZEN owner identity and the SAME
+            # absolute owner END are re-verified at this
+            # actual PRE-COMMIT use site (the retained stop
+            # receipt is re-verified, never replaced)
+            self._verify_attach_phase()
+            owner._revalidate_identity_context()
+            if owner.deadline.anchor - time.monotonic() <= 0:
+                raise FixtureError("native-owner-patience")
+            # the AF entry measures through its OWN default
+            # exact registered-CID channel ONLY: a
+            # caller-supplied channel is a closed refusal (no
+            # bypass of the scoped/birth-bound reads)
+            if channel is not None:
+                raise FixtureError("native-owner-attach-channel-invalid")
         # The AD entry's closed native executable-measurement
         # bound: when the operator did not supply an owned
         # channel, the composition constructs the REAL scoped
@@ -711,14 +843,42 @@ class NativeOwnerRun:
         # The original entries keep their historical channel
         # law byte-for-byte (an absent channel stays absent, no
         # AD default applies to them).
-        if channel is None and self._binding.order_id == AD_ORDER_ID:
+        if channel is None and self._binding.order_id in (AD_ORDER_ID, AF_ORDER_ID):
             if not isinstance(owner.target_cid, str):
                 raise FixtureError("native-owner-registration-unmeasured")
             end = self._owner.deadline.anchor
             if end - time.monotonic() <= 0:
                 raise FixtureError("native-owner-patience")
             channel = build_ad_native_channel(owner.target_cid, end)
-        return workflow.register_subject(subject_pid, expectation, channel=channel)
+        if self._binding.order_id == AF_ORDER_ID:
+            # the MEASURED native namespace/device frame: the
+            # subject's own mount view compared against the
+            # independently measured private allocation
+            # context BEFORE the workflow's staged collection
+            # (equal tty numbers alone are never sufficient)
+            if channel is None:
+                # unreachable: the AF branch above refused a
+                # caller channel and the default block built
+                # one — an internal contradiction, never a
+                # silent host-unscoped measurement
+                raise FixtureError("internal")
+            af_channel = channel
+            self._verify_af_devpts_namespace(subject_pid, af_channel)
+            # the FINAL frames run at the workflow's OWN
+            # collect-before-commit boundary (after the
+            # possibly-long executable measurement, before ANY
+            # subject/baseline/stop commit) — a change during
+            # hashing or the last metadata frame refuses with
+            # NO workflow change
+            snapshot = workflow.register_subject(
+                subject_pid,
+                expectation,
+                channel=af_channel,
+                pre_commit_check=lambda subject: self._af_pre_commit_check(subject, af_channel),
+            )
+        else:
+            snapshot = workflow.register_subject(subject_pid, expectation, channel=channel)
+        return snapshot
 
     def record_stop(self) -> prep.StopReceipt:
         """Record the SEPARATELY MEASURED worker-stop event
@@ -726,6 +886,380 @@ class NativeOwnerRun:
         the separately authorized operator) — a recorded
         event, never re-derived from a later snapshot."""
         return self._workflow.record_stop()  # type: ignore[union-attr]
+
+    def _verify_attach_phase(self) -> None:
+        """The AF attach-phase world-coherence re-check
+        (017-ae software): the ORIGINAL W/B prepare baseline
+        must still be the same worker job and the CURRENT
+        bounded stable-stop predicate must still hold
+        (predicate-only re-measurement — the retained stop
+        receipt is re-verified, never replaced or
+        re-measured into).  Applied BEFORE and AFTER each
+        blocking inventory/derivation: a stale, resumed or
+        substituted phase can never open an inventory or
+        carry one out."""
+        workflow = self._workflow
+        if workflow is None:
+            raise FixtureError("native-owner-attach-stale-stop")
+        workflow.verify_stable_stop_phase()
+
+    def _verify_af_devpts_namespace(
+        self,
+        subject_pid: object,
+        channel: prep.CidScopedTable,
+        *,
+        birth: int | None = None,
+    ) -> None:
+        """The AF registration's MEASURED native devpts
+        namespace/device frame (017-ae software): the
+        subject's OWN mount view (``/proc/<pid>/root/dev/pts``
+        and the selected slave — Linux documents
+        ``/proc/<pid>/root`` as the subject's filesystem and
+        mount view) is read READ-ONLY through the SAME
+        scoped/birth-bound registered-CID channel (no new
+        transport, no host ``/dev/pts`` enumeration) and
+        compared against the independently measured private
+        allocation context: the devpts mount root (the
+        namespace), the device major/minor, the node inode,
+        the node mode and the node owner.  Equal tty numbers
+        alone are never sufficient: the SAME numeric tty in a
+        FOREIGN devpts namespace is a closed refusal.  The
+        metadata read is bound to an EXPLICIT birth: when the
+        caller supplies one (the pre-commit path) it is the
+        ORIGINAL collected subject's birth — a PID reused
+        after collection can never re-bind itself to a fresh
+        stat; when the caller supplies none (the pre-collection
+        path, before any subject exists) the birth is derived
+        from the ONE scoped stat read here and the read is
+        still bound to it.  Access denial or an unbound frame
+        is a typed unknown refusal, never an assumption;
+        nothing here commits — a refused registration commits
+        nothing and a later corrected registration within the
+        same still-valid phase remains possible."""
+        receipt = self._attach_receipt
+        if receipt is None:
+            raise FixtureError("native-owner-attach-binding-missing")
+        allocation = receipt["allocation"]
+        namespace = receipt["namespace"]
+        if not prep._is_pid(subject_pid):
+            raise FixtureError("native-owner-attach-devpts-unreadable")
+        if birth is None:
+            # pre-collection path: no subject exists yet, so the
+            # birth is derived from the ONE scoped stat read
+            # here (the metadata read is still bound to it)
+            raw = channel.stat(subject_pid)
+            if raw is None:
+                raise FixtureError("native-owner-attach-devpts-unreadable")
+            try:
+                ps = prep.parse_proc_stat(raw.decode("ascii", "replace"))
+            except prep.FixtureError:
+                raise FixtureError("native-owner-attach-devpts-unreadable") from None
+            birth = ps.start_time
+        elif not prep._is_strict_int(birth):
+            raise FixtureError("native-owner-attach-devpts-unreadable")
+        meta = channel.devpts_slave_metadata(subject_pid, birth, allocation["name"])
+        if meta is None:
+            raise FixtureError("native-owner-attach-devpts-unreadable")
+        if (meta.root_dev, meta.root_ino) != (namespace[0], namespace[1]):
+            raise FixtureError("native-owner-attach-devpts-namespace-mismatch")
+        # the selected node must live on the SAME filesystem as
+        # the measured devpts root: a node from a different
+        # filesystem can carry an equal inode/mode/owner
+        if meta.slave_dev != namespace[0]:
+            raise FixtureError("native-owner-attach-devpts-namespace-mismatch")
+        if (meta.major, meta.minor) != (allocation["major"], allocation["minor"]):
+            raise FixtureError("native-owner-attach-devpts-device-mismatch")
+        if meta.slave_ino != allocation["inode"]:
+            raise FixtureError("native-owner-attach-devpts-inode-mismatch")
+        # the measured fact is the FULL stat mode (file-type
+        # bits included); the allocation carries the
+        # PERMISSION BITS — normalize consistently
+        if (meta.slave_mode & 0o7777) != allocation["mode"]:
+            raise FixtureError("native-owner-attach-devpts-mode-mismatch")
+        if (meta.slave_uid, meta.slave_gid) != (allocation["uid"], allocation["gid"]):
+            raise FixtureError("native-owner-attach-devpts-owner-mismatch")
+
+    def _af_pre_commit_check(
+        self, subject: prep.SubjectIdentity, channel: prep.CidScopedTable
+    ) -> None:
+        """The FINAL measured AF frames at the workflow's
+        collect-before-commit boundary (017-ae software): they
+        run AFTER the possibly-long executable measurement and
+        BEFORE any subject/baseline/stop commit — a
+        namespace/device, identity, frozen-ID, current-stop or
+        original-END change during hashing or the last
+        metadata frame refuses with NO workflow subject/
+        baseline/stop change (the staged law).  The frames:
+        the CURRENT native-identity frame re-verified against
+        the COLLECTED identity (a PID reused after collection,
+        or a drifted UID/GID/groups/argv/tty, can never carry
+        the final frames — a reused PID is never compared
+        with itself via a fresh stat), the re-read devpts
+        namespace/device BOUND TO THE ORIGINAL collected
+        PID/birth, the current-executable race law (the ACTUAL
+        running executable re-measured through the SAME
+        scoped channel must still be the collected measured
+        binary — an in-place exec with unchanged PID/birth is
+        a closed refusal), the collected subject's OWN
+        measured tty (the collector's own pty binding — a
+        matching foreign expectation can never mint it), the
+        frozen owner identity at this final use site, the
+        CURRENT stable-stop phase (predicate-only — the
+        retained receipt is re-verified, never replaced) and
+        the SAME absolute owner END."""
+        receipt = self._attach_receipt
+        if receipt is None:
+            raise FixtureError("native-owner-attach-binding-missing")
+        owner = self._owner
+        if owner is None:
+            raise FixtureError("native-owner-not-started")
+        # 0) the CURRENT native-identity frame must still be
+        #    the COLLECTED identity (PID reuse / native ID /
+        #    argv / tty drift after collection is a closed
+        #    refusal BEFORE any final frame is trusted)
+        self._verify_af_identity_frame(subject, channel)
+        # 1) the FINAL devpts namespace/device frame, bound to
+        #    the ORIGINAL collected PID/birth (never a fresh
+        #    self-binding read)
+        self._verify_af_devpts_namespace(subject.pid, channel, birth=subject.start_time)
+        # 2) the current-executable race law across the final
+        #    metadata phase: the ACTUAL running executable,
+        #    re-measured through the SAME scoped/birth-bound
+        #    channel, must still be the collected measured
+        #    binary (an in-place exec with unchanged PID/birth
+        #    is a closed refusal, never a stale verified
+        #    identity)
+        try:
+            current_exe = channel.exe_sha256(subject.pid, subject.start_time)
+        except FixtureError:
+            raise FixtureError("native-owner-attach-identity-drift") from None
+        if current_exe != subject.binary_sha256:
+            raise FixtureError("native-owner-attach-identity-drift")
+        # 3) the devpts frame is re-read AFTER the executable
+        #    re-measurement as well: a namespace/device change
+        #    DURING the final hash cannot leave the collected
+        #    frame stale at commit (still bound to the
+        #    ORIGINAL collected PID/birth)
+        self._verify_af_devpts_namespace(subject.pid, channel, birth=subject.start_time)
+        # 4) the identity frame is re-verified AFTER these
+        #    blocking operations as well: a UID/GID/groups/
+        #    argv/tty drift DURING the final metadata/hash
+        #    cannot leave the collected frame stale at commit
+        self._verify_af_identity_frame(subject, channel)
+        # 5) the collected subject's own tty frame
+        if subject.pty_matched is not True or subject.tty != receipt["expected_tty_nr"]:
+            raise FixtureError("native-owner-attach-pty-mismatch")
+        # 6) the frozen owner identity at THIS final use site
+        owner._revalidate_identity_context()
+        # 7) the CURRENT stable-stop phase
+        self._verify_attach_phase()
+        # 8) the SAME absolute owner END (never the cleanup
+        #    grace, never a captured duration)
+        if owner.deadline.anchor - time.monotonic() <= 0:
+            raise FixtureError("native-owner-patience")
+
+    def _verify_af_identity_frame(
+        self, subject: prep.SubjectIdentity, channel: prep.CidScopedTable
+    ) -> None:
+        """The FINAL native-identity frame re-validation
+        (017-ae software): the CURRENT scoped view of the
+        subject (stat/cmdline/status through the SAME
+        registered-CID channel) must still be the COLLECTED
+        identity — the birth (a PID reused after collection
+        has a different birth), the tty, the UID/GID/groups
+        and the exact argv.  Any drifted or unreadable frame
+        is a closed refusal: the final metadata frames run
+        ONLY for the process that was collected, never for a
+        successor at the same number."""
+        raw_stat = channel.stat(subject.pid)
+        raw_cmdline = channel.cmdline(subject.pid)
+        raw_status = channel.status(subject.pid)
+        if raw_stat is None or raw_cmdline is None or raw_status is None:
+            raise FixtureError("native-owner-attach-identity-drift")
+        try:
+            ps = prep.parse_proc_stat(raw_stat.decode("ascii", "replace"))
+            argv = prep.parse_proc_cmdline(raw_cmdline)
+            uid, gid, groups = prep.parse_proc_status(raw_status)
+        except prep.FixtureError:
+            raise FixtureError("native-owner-attach-identity-drift") from None
+        if (
+            ps.start_time != subject.start_time
+            or ps.tty != subject.tty
+            or (uid, gid, tuple(groups)) != (subject.uid, subject.gid, subject.groups)
+            or tuple(argv) != subject.argv
+        ):
+            raise FixtureError("native-owner-attach-identity-drift")
+
+    def collect_attach_baseline(self) -> prep.DevptsObservation:
+        """The AF-ONLY attach-baseline collection (017-ae
+        software): after prepare and the separately measured
+        stop, the owner's ONE bounded devpts inventory
+        freezes the attach-baseline snapshot.  The phase is
+        ONE-SHOT and NON-RESETTABLE: the attempt is consumed
+        BEFORE the measurement (exactly one baseline per
+        run), a refused measurement retains a failed phase
+        that forbids ANY later fresh baseline or second
+        observation (a resampled world could hide a churn or
+        multiple-allocation refusal), and the baseline is
+        never re-measured or replaced after success.  The
+        original W/B baseline and the current stable stop are
+        re-verified before AND after the blocking inventory;
+        a pre-stop baseline is refused (the stop is the phase
+        boundary — a stale stop is a closed refusal, never a
+        valid baseline).  The frozen identity is revalidated
+        at the owner's actual use site; the budget is the
+        owner's OWN absolute END anchor (no grace, no fresh
+        phase window)."""
+        if self._binding.order_id != AF_ORDER_ID:
+            raise FixtureError("native-owner-attach-not-admitted")
+        if (
+            self._attach_baseline_attempted
+            or self._attach_failure is not None
+            or self._attach_baseline is not None
+        ):
+            raise FixtureError("native-owner-attach-baseline-repeat")
+        owner = self._owner
+        workflow = self._workflow
+        if owner is None or workflow is None or self._thread is None:
+            raise FixtureError("native-owner-not-started")
+        if workflow.stop_receipt is None:
+            raise FixtureError("native-owner-attach-stale-stop")
+        if owner.deadline.anchor - time.monotonic() <= 0:
+            raise FixtureError("native-owner-patience")
+        self._verify_attach_phase()
+        # the attempt is consumed BEFORE the measurement: a
+        # refused inventory still closes the phase (no fresh
+        # baseline, no second observation, ever).  The
+        # observation stays TEMPORARY until every
+        # post-measurement check passes; a post-measurement
+        # refusal retains a failed phase and commits NO
+        # usable baseline
+        self._attach_baseline_attempted = True
+        try:
+            observation = owner.devpts_inventory()
+            self._verify_attach_phase()
+            # the final frozen-ID and END checks: a drifted
+            # identity or a crossed END after the measurement
+            # can never commit the baseline
+            owner._revalidate_identity_context()
+            if owner.deadline.anchor - time.monotonic() <= 0:
+                raise FixtureError("native-owner-patience")
+        except FixtureError as exc:
+            self._attach_failure = str(exc)
+            raise
+        # commit ONLY after all post-measurement checks pass
+        self._attach_baseline = observation
+        return self._attach_baseline
+
+    def derive_attach_expectation(self) -> dict[str, object]:
+        """The AF-ONLY attach expectation derivation
+        (017-ae software): ONE further bounded inventory
+        observation after the frozen baseline; the unique
+        fresh owned allocation is derived by the pure core
+        and the DISTINCT identity-bearing attach-binding
+        receipt is frozen (its expected proc tty_nr is the
+        derived expected PTY — the provenance the later
+        registration expectation must bind to).  The
+        second observation is ONE-SHOT and NON-RESETTABLE:
+        the attempt is consumed BEFORE the measurement, and
+        a refused derivation retains a failed phase that
+        forbids ANY later fresh baseline or second
+        observation (a resampled world could hide a churn or
+        multiple-allocation refusal — only a LATER
+        registration may retry corrected parameters against
+        the SAME already-measured receipt, never resampling
+        allocations).  The receipt and the public copy are
+        built INSIDE the failure-handled region and stay
+        TEMPORARY: the ORIGINAL W/B baseline and the current
+        stable stop are re-verified after the blocking
+        observation, and the final frozen-owner-identity and
+        END checks run in the same region; the private
+        receipt is committed ONLY after every post-measurement
+        check passes (a post-measurement refusal retains a
+        failed phase and commits no usable receipt).  The
+        retained receipt is private measured context: the
+        returned value is a protected copy (caller mutation
+        can never alter the retained evidence).  The frozen
+        identity is revalidated at the owner's actual use
+        site; the budget is the owner's OWN absolute END
+        anchor."""
+        if self._binding.order_id != AF_ORDER_ID:
+            raise FixtureError("native-owner-attach-not-admitted")
+        owner = self._owner
+        if owner is None or self._thread is None:
+            raise FixtureError("native-owner-not-started")
+        if self._attach_baseline is None:
+            raise FixtureError("native-owner-attach-baseline-missing")
+        if (
+            self._attach_derive_attempted
+            or self._attach_failure is not None
+            or self._attach_receipt is not None
+        ):
+            raise FixtureError("native-owner-attach-binding-repeat")
+        if owner.deadline.anchor - time.monotonic() <= 0:
+            raise FixtureError("native-owner-patience")
+        ctx = owner._owner_context
+        if ctx is None:
+            raise FixtureError("native-owner-identity-unmeasured")
+        self._verify_attach_phase()
+        # the attempt is consumed BEFORE the measurement: a
+        # refused observation/derivation still closes the
+        # phase (no resampling, ever)
+        self._attach_derive_attempted = True
+        receipt: dict[str, object] | None = None
+        public_receipt: dict[str, object] | None = None
+        try:
+            observation = owner.devpts_inventory()
+            allocation = prep.derive_attach_allocation(
+                self._attach_baseline.inventory,
+                observation.inventory,
+                subject_uid=ctx.subject_uid,
+            )
+            identity = prep._ad_identity_substructure_from_triple(
+                (ctx.subject_uid, ctx.subject_gid, tuple(ctx.subject_groups))
+            )
+            receipt = prep.attach_binding_record(
+                baseline=self._attach_baseline,
+                observation=observation,
+                allocation=allocation,
+                binding=self._binding,
+                identity=identity,
+                cid=owner.target_cid,
+            )
+            # the PUBLIC copy of the closed record is prepared
+            # INSIDE the failure-handled region, BEFORE the
+            # final post-measurement checks: a record that
+            # cannot be copied leaves the consumed attempt
+            # with a retained failed phase, exactly like any
+            # other refusal in this region
+            public_receipt = json.loads(json.dumps(receipt, sort_keys=True))
+            # the ORIGINAL W/B baseline + CURRENT stable-stop
+            # phase AFTER the observation (the retained stop
+            # receipt is re-verified, never replaced); the
+            # final frozen-owner-identity and END checks: a
+            # resumed worker, a drifted identity or a crossed
+            # END after the measurement can never commit the
+            # receipt
+            self._verify_attach_phase()
+            owner._revalidate_identity_context()
+            if owner.deadline.anchor - time.monotonic() <= 0:
+                raise FixtureError("native-owner-patience")
+        except (FixtureError, TypeError, ValueError) as exc:
+            # EVERY refusal in this region — the measurement,
+            # the copy preparation or a post-measurement
+            # check — retains a failed phase and commits NO
+            # usable receipt (the attempt stays consumed — no
+            # resampling, ever)
+            self._attach_failure = str(exc)
+            raise
+        # commit the private receipt ONLY after all
+        # post-measurement checks pass; the returned value is
+        # the prepared PUBLIC copy: the retained private
+        # receipt is the measured context, and a
+        # copied/caller/replayed record never mints authority
+        assert receipt is not None and public_receipt is not None
+        self._attach_receipt = receipt
+        return public_receipt
 
     def finish(self) -> None:
         """FINISH the held instance through the owner's REAL
@@ -944,15 +1478,16 @@ class NativeOwnerRun:
             native_record: dict | None = None
             native_refusal: str | None = None
             # The frozen owner identity substructure of the
-            # DISTINCT 017-ad identity-bearing records: derived
-            # from THIS owner's OWN immutable context (the real
-            # owner's own bounded OS identity collection and
-            # production-code derivation — never caller-authored,
-            # never re-frozen here); None for the original
-            # entries, whose records keep their exact historical
-            # key set (no identity key at all).
+            # DISTINCT 017-ad / 017-af identity-bearing
+            # records: derived from THIS owner's OWN immutable
+            # context (the real owner's own bounded OS
+            # identity collection and production-code
+            # derivation — never caller-authored, never re-
+            # frozen here); None for the original entries,
+            # whose records keep their exact historical key
+            # set (no identity key at all).
             owner_identity: dict | None = None
-            if self._binding.order_id == AD_ORDER_ID:
+            if self._binding.order_id in (AD_ORDER_ID, AF_ORDER_ID):
                 ctx = owner._owner_context
                 if ctx is None:
                     # an AD run without the frozen context can
@@ -973,7 +1508,10 @@ class NativeOwnerRun:
                 outcome == "pass"
                 and subject is not None
                 and stop_recorded
-                and (self._binding.order_id != AD_ORDER_ID or owner_identity is not None)
+                and (
+                    self._binding.order_id not in (AD_ORDER_ID, AF_ORDER_ID)
+                    or owner_identity is not None
+                )
             ):
                 measurement = prep.OwnedOwnerMeasurement(owner, subject=subject)
                 artifact = owner.artifact
@@ -1006,14 +1544,23 @@ class NativeOwnerRun:
                         native_refusal = str(exc)
             verdict = workflow.finalize(native_record)
             journal_state = self._verify_journal_for_publication(outcome)
-            # The DISTINCT identity-bearing terminal tag of the
-            # canonical 017-ad entry (the SAME closed measured
-            # facts PLUS the frozen owner-identity
-            # substructure); the original tag keeps its exact
+            # The DISTINCT identity-bearing terminal tag of
+            # the canonical 017-ad / 017-af entries (the SAME
+            # closed measured facts PLUS the frozen owner-
+            # identity substructure; the AF entry ADDITIONALLY
+            # carries the nested attach-binding record, or an
+            # honest None); the original tag keeps its exact
             # historical key set for every other entry.
-            ad_entry = self._binding.order_id == AD_ORDER_ID
+            identity_entry = self._binding.order_id in (AD_ORDER_ID, AF_ORDER_ID)
+            record_tag = (
+                AD_NATIVE_RUN_SCHEMA
+                if self._binding.order_id == AD_ORDER_ID
+                else AF_NATIVE_RUN_SCHEMA
+                if self._binding.order_id == AF_ORDER_ID
+                else NATIVE_RUN_SCHEMA
+            )
             record: dict[str, object] = {
-                "record": AD_NATIVE_RUN_SCHEMA if ad_entry else NATIVE_RUN_SCHEMA,
+                "record": record_tag,
                 "scope": NATIVE_RUN_SCOPE,
                 "binding": self._binding.to_record(),
                 "owner_outcome": outcome,
@@ -1024,8 +1571,17 @@ class NativeOwnerRun:
                 "native_refusal": native_refusal,
                 "verdict": {"ready": verdict.ready, "reasons": list(verdict.reasons)},
             }
-            if ad_entry:
+            if identity_entry:
                 record["identity"] = owner_identity
+            if self._binding.order_id == AF_ORDER_ID:
+                # The nested attach-binding record of the AF
+                # entry: the retained measured receipt (the
+                # frozen owner context is its authority — a
+                # copied or replayed record never mints
+                # authority) or an honest None (the attach
+                # phase never bound — the closed consumer
+                # refuses a ready verdict without it)
+                record["attach_binding"] = self._attach_receipt
             parse_native_run_record(record)
             _write_native_run_record(Path(str(native_evidence_out)), record, owner.work)
         except FixtureError:
@@ -1068,6 +1624,8 @@ __all__ = [
     "NATIVE_RUN_SCOPE",
     "AD_NATIVE_RUN_SCHEMA",
     "AD_ORDER_ID",
+    "AF_NATIVE_RUN_SCHEMA",
+    "AF_ORDER_ID",
     "build_ad_native_channel",
     "NativeOwnerRun",
     "parse_native_run_record",

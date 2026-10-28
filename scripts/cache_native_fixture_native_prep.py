@@ -130,13 +130,14 @@ bounded real /proc reader.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import os
 import re
 import stat
 import sys
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -165,6 +166,17 @@ NATIVE_PREP_SCHEMA = "slaif-native-handoff-prep-v1"
 # separate closed records, never a widened grammar —
 # including for equal-numeric identities).
 AD_NATIVE_PREP_SCHEMA = "slaif-017ad-native-handoff-prep-v1"
+# The DISTINCT identity-bearing prep-snapshot tag of the
+# canonical FUTURE 017-af native-PTY qualification entry
+# (INERT in 017-ae: software only): the SAME closed W/B
+# birth/group/session/TTY baseline and measured subject facts
+# as the AD tag PLUS the frozen owner-identity substructure
+# (the identical owner-UID identity law — the tags are
+# separate closed records per entry, never a widened
+# grammar).  The original tag keeps its exact historical
+# fixed-21002 meaning byte-for-byte and refuses BOTH the
+# identity key and any 017-ad / 017-af binding.
+AF_NATIVE_PREP_SCHEMA = "slaif-017af-native-handoff-prep-v1"
 OWNER_FACTS_SCHEMA = "slaif-native-handoff-owner-facts-v1"
 # The owner's retained evidence schema (017-s record).  Its
 # meaning is preserved unchanged: its safety flags describe the
@@ -267,6 +279,32 @@ PREP_REASONS = frozenset(
         "prep-frozen-identity-controller",
         "prep-frozen-identity-groups",
         "prep-channel-end-invalid",
+        # the AF native attach-binding pure core (017-ae)
+        "prep-devpts-record-malformed",
+        "prep-devpts-output-overbound",
+        "prep-devpts-uid-invalid",
+        "prep-devpts-namespace-invalid",
+        "prep-devpts-policy-invalid",
+        "prep-devpts-not-isolated",
+        "prep-devpts-rows-overbound",
+        "prep-devpts-row-malformed",
+        "prep-devpts-node-policy",
+        "prep-devpts-device-invalid",
+        "prep-devpts-namespace-mismatch",
+        "prep-devpts-policy-mismatch",
+        "prep-devpts-churn",
+        "prep-devpts-allocation-none",
+        "prep-devpts-allocation-ambiguous",
+        "prep-devpts-inode-reuse",
+        "prep-devpts-owner-mismatch",
+        "prep-devpts-encoding-unrepresentable",
+        "prep-devpts-allocation-malformed",
+        "prep-devpts-cid-invalid",
+        "prep-devpts-identity-invalid",
+        "prep-devpts-allocation-mismatch",
+        "prep-devpts-binding-invalid",
+        "prep-attach-binding-malformed",
+        "prep-attach-binding-mismatch",
     }
 )
 
@@ -975,6 +1013,37 @@ def _cgroup_docker_scope(line: str, cid: str) -> str | None:
     return None
 
 
+@dataclass(frozen=True)
+class DevptsSlaveMetadata:
+    """The CLOSED per-subject devpts slave metadata fact
+    (017-ae software), measured READ-ONLY through the
+    subject's OWN mount view — Linux documents
+    ``/proc/<pid>/root`` as the process's filesystem and
+    mount view, so ``/proc/<pid>/root/dev/pts`` is the
+    subject's devpts mount root and the selected slave node
+    beneath it.  The (pid, birth) identity is bound before
+    AND after the reads and the registered-CID scope gates
+    the read: no ptrace/prctl, no privilege change, no new
+    transport, no host ``/dev/pts`` enumeration.  Access
+    denial or any unbound frame is a typed unknown (the
+    channel returns None), never an assumption."""
+
+    root_dev: int  # st_dev of the subject's devpts mount root (the namespace)
+    root_ino: int  # st_ino of the subject's devpts mount root (the namespace)
+    slave_dev: int  # st_dev of the selected slave node (MUST be the
+    # measured devpts root's filesystem — a node from another
+    # filesystem can carry equal inodes/modes/owners)
+    slave_ino: int  # st_ino of the selected slave node
+    slave_mode: int  # the FULL measured st_mode of the selected
+    # slave node (file-type bits included — the real seam keeps
+    # its S_ISCHR check; the closed consumer normalizes the
+    # permission bits before comparing them to the allocation)
+    slave_uid: int  # owner UID of the selected slave node
+    slave_gid: int  # owner GID of the selected slave node
+    major: int  # the slave device major (from st_rdev)
+    minor: int  # the slave device minor (from st_rdev)
+
+
 class CidScopedTable(Protocol):
     """The narrow READ-ONLY collection channel bound to the
     registered CID and immutable image.  EVERY subject read is
@@ -1026,6 +1095,19 @@ class CidScopedTable(Protocol):
         absent/unmeasurable, closed refusal when over-bound,
         timed out, or the identity is not bound."""
 
+    def devpts_slave_metadata(self, pid: int, birth: int, name: int) -> DevptsSlaveMetadata | None:
+        """The narrow READ-ONLY per-subject devpts slave
+        metadata (017-ae software): the fixed node facts of
+        ``/proc/<pid>/root/dev/pts`` and its selected slave
+        ``<name>`` in the subject's OWN mount view, with the
+        registered-CID scope gate and (pid, birth) identity
+        binding before AND after — the closed frames that
+        make a per-subject tty namespace claim.  None when the
+        subject is out of scope, the identity is not bound,
+        or the path is denied/unreadable (a typed unknown,
+        never assumed); an invalid argument is a closed
+        refusal."""
+
 
 class RealCidScopedTable:
     """The bounded READ-ONLY real channel: cgroup-scope reads
@@ -1042,6 +1124,7 @@ class RealCidScopedTable:
         max_exe_bytes: int = 1 << 30,
         exe_deadline: float = 60.0,
         exe_end: float | None = None,
+        metadata_deadline: float = 5.0,
     ) -> None:
         if not isinstance(cid, str) or _CID_RE.fullmatch(cid) is None:
             raise FixtureError("prep-cid-invalid")
@@ -1049,6 +1132,13 @@ class RealCidScopedTable:
             not isinstance(exe_end, (int, float))
             or isinstance(exe_end, bool)
             or not math.isfinite(exe_end)
+        ):
+            raise FixtureError("prep-channel-end-invalid")
+        if (
+            not isinstance(metadata_deadline, (int, float))
+            or isinstance(metadata_deadline, bool)
+            or not math.isfinite(metadata_deadline)
+            or metadata_deadline <= 0
         ):
             raise FixtureError("prep-channel-end-invalid")
         self._cid = cid
@@ -1062,6 +1152,14 @@ class RealCidScopedTable:
         # (a relative captured duration is a per-measurement
         # cap only, never an extended budget)
         self._exe_end = None if exe_end is None else float(exe_end)
+        # the AF per-subject metadata-operation bound (017-ae
+        # software): a FINITE operation cap for the devpts
+        # slave metadata seam ONLY (the original executable
+        # bounds stay byte-for-byte unchanged), further
+        # clamped to the SAME absolute owner END anchor this
+        # channel carries — no cleanup grace, no fresh window,
+        # no deadline reset
+        self._metadata_deadline = float(metadata_deadline)
 
     @property
     def cid(self) -> str:
@@ -1281,6 +1379,100 @@ class RealCidScopedTable:
         if time.monotonic() > deadline:
             raise FixtureError("prep-exe-timeout")
         return digest.hexdigest()
+
+    def devpts_slave_metadata(self, pid: int, birth: int, name: int) -> DevptsSlaveMetadata | None:
+        """The bounded real seam: lstat the subject's devpts
+        mount root and the selected slave node through
+        ``/proc/<pid>/root`` (the kernel exposes the subject's
+        filesystem and mount view there — never a host
+        ``/dev/pts`` enumeration).  The work is clamped to the
+        finite metadata-operation bound AND to the SAME
+        absolute owner END anchor this channel carries (no
+        cleanup grace, no fresh window, no deadline reset),
+        checked at USE (after the scope gate, after the
+        birth binding, after EACH blocking lstat) and at
+        RETURN (after the FINAL scope/identity frame).  The
+        registered-CID scope and (pid, birth) identity are
+        bound/re-checked as coherent frames before AND after;
+        the root must be a directory and the slave a
+        character device.  EVERY unbound, expired, raced or
+        unreadable frame (denied access, vanished process,
+        reused PID, drifted scope, non-directory root,
+        non-character slave) is the typed unknown None — a
+        denial or race is never a measurement."""
+        if (
+            not _is_pid(pid)
+            or not _is_strict_int(birth)
+            or not _is_strict_int(name)
+            or name > _DEVPTS_MINOR_MAX
+        ):
+            raise FixtureError("prep-subject-invalid")
+        # the finite operation bound clamped to the SAME
+        # absolute owner END anchor (owner END only — never a
+        # captured duration, never the cleanup grace).  The
+        # closed end is CHECKED BEFORE the first scope/file
+        # read: an already-expired owner END (or one exactly
+        # at the boundary) never opens the seam
+        deadline = time.monotonic() + self._metadata_deadline
+        if self._exe_end is not None:
+            deadline = min(deadline, self._exe_end)
+
+        def _expired() -> bool:
+            # the end is CLOSED: at the boundary the work is
+            # already expired (no read at or past the end)
+            return time.monotonic() >= deadline
+
+        if _expired():
+            return None
+        if self.cgroup_scope(pid) is None:
+            return None
+        if _expired():
+            return None
+        # identity binding BEFORE the measurement: the (pid,
+        # birth) pair must be the live process now
+        if self._birth(pid) != birth:
+            return None
+        if _expired():
+            return None
+        root = self._root / str(pid) / "root" / "dev" / "pts"
+        slave = root / str(name)
+        try:
+            root_st = os.lstat(root)
+            if _expired():
+                return None
+            slave_st = os.lstat(slave)
+        except OSError:
+            return None
+        if _expired():
+            return None
+        if not stat.S_ISDIR(root_st.st_mode) or not stat.S_ISCHR(slave_st.st_mode):
+            return None
+        # the FINAL coherent frames at return: the ACTUAL
+        # scope and identity must still be bound (a raced
+        # frame is a typed unknown, never a measurement) and
+        # the bound must still hold — EACH step is expiry-
+        # checked, as at entry (a proc read is never opened
+        # at or past the closed end, even after the final
+        # scope read crossed it)
+        if self.cgroup_scope(pid) is None:
+            return None
+        if _expired():
+            return None
+        if self._birth(pid) != birth:
+            return None
+        if _expired():
+            return None
+        return DevptsSlaveMetadata(
+            root_dev=root_st.st_dev,
+            root_ino=root_st.st_ino,
+            slave_dev=slave_st.st_dev,
+            slave_ino=slave_st.st_ino,
+            slave_mode=slave_st.st_mode,
+            slave_uid=slave_st.st_uid,
+            slave_gid=slave_st.st_gid,
+            major=os.major(slave_st.st_rdev),
+            minor=os.minor(slave_st.st_rdev),
+        )
 
 
 # The closed cid-membership law of a subject record:
@@ -1895,6 +2087,635 @@ def expectation_from_owner(
     )
 
 
+# -- AF native attach-binding pure core (017-ae software) ------------------------
+# The independent fixture-namespace PTY producer of the
+# canonical FUTURE 017-af entry (INERT in 017-ae: software
+# only — NO actual fixture, admission, Docker, native or
+# client operation).  The measured devpts facts come from the
+# owner's ONE bounded NON-PTY probe (the closed record); this
+# pure core is the measurement-to-facts boundary: strict
+# non-echoing parsing of the closed record (the measured
+# devpts POLICY fact included — the permitted node GID/MODE
+# and filesystem type bound to the SAME measured namespace
+# root, never assumed from the process identity), the
+# PRIMARY-SOURCE-VERIFIED proc tty_nr encoding
+# (``new_encode_dev`` — distinct from the kernel-internal
+# MKDEV layout, never a makedev convenience), the closed
+# allocation derivation (the UNIQUE fresh owned slave
+# between two same-namespace observations) and the DISTINCT
+# identity-bearing attach-binding record with its tag-pair
+# law.  The expected PTY is derived ONLY from the owned
+# allocation, never from the subject itself, and the node
+# GID of an allocation is a MEASURED fact (legal to differ
+# from the process GID), never an assumption.
+_DEVPTS_MAJOR_MAX = 4095  # the 12-bit major field
+_DEVPTS_MINOR_MAX = 1048575  # the 20-bit minor field (MINORBITS 20)
+_TTY_NR_MAX = 2**31 - 1  # strict positive signed 32-bit tty_nr
+_DEVPTS_FAIL_KEYS = frozenset({"record", "status", "reason"})
+_DEVPTS_INVENTORY_TOP_KEYS = frozenset(
+    {"record", "status", "uid", "namespace", "policy", "isolation", "slave_rows"}
+)
+_DEVPTS_POLICY_KEYS = frozenset({"fstype", "gid", "mode"})
+_ATTACH_ALLOCATION_KEYS = frozenset({"name", "major", "minor", "inode", "mode", "uid", "gid"})
+
+
+def new_encode_dev(major: object, minor: object) -> int:
+    """The proc tty_nr encoding, PRIMARY-SOURCE-VERIFIED:
+    ``(minor & 0xff) | (major << 8) | ((minor & ~0xff) << 12)``.
+    This is the /proc/PID/stat ``tty_nr`` representation —
+    distinct from the kernel-internal MKDEV layout and never a
+    udev makedev convenience.  Strict non-bool integers in the
+    closed 12-bit major / 20-bit minor domains; out-of-domain
+    or non-integer input is a closed non-echoing refusal."""
+    if (
+        isinstance(major, bool)
+        or not isinstance(major, int)
+        or isinstance(minor, bool)
+        or not isinstance(minor, int)
+        or major < 0
+        or major > _DEVPTS_MAJOR_MAX
+        or minor < 0
+        or minor > _DEVPTS_MINOR_MAX
+    ):
+        raise FixtureError("prep-devpts-device-invalid")
+    return (minor & 0xFF) | (major << 8) | ((minor & ~0xFF) << 12)
+
+
+def expected_tty_nr_qualifies(value: object) -> bool:
+    """The closed qualification of a DERIVED expected proc
+    tty_nr: a strict positive signed 32-bit integer
+    (``0 < v <= 2**31-1``).  Zero (no controlling terminal),
+    out-of-domain values and non-strict values are NOT
+    qualified — never ready-by-casting."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 < value <= _TTY_NR_MAX
+
+
+@dataclass(frozen=True)
+class DevptsInventory:
+    """ONE measured fixture-namespace devpts snapshot (typed):
+    the measured namespace root ``(st_dev, st_ino)``, the
+    bounded measured devpts POLICY fact (the filesystem type,
+    permitted node GID and node MODE of the single mountinfo
+    entry binding that root to /dev/pts — measured, never
+    assumed), the closed measured isolation flags
+    ``(site, startup)``, the measured probe uid, and the
+    closed slave-row vector (each row: name, major, minor,
+    inode, mode, uid, gid — the name is the canonical decimal
+    value, equal to the minor).  Rows are measured facts;
+    their GID/MODE are validated against the measured policy
+    at parse, never against the process identity."""
+
+    namespace: tuple[int, int]
+    policy: tuple[str, int, int]
+    isolation: tuple[bool, bool]
+    uid: int
+    slave_rows: tuple[tuple[int, int, int, int, int, int, int], ...]
+
+
+@dataclass(frozen=True)
+class DevptsObservation:
+    """The owner-level bounded observation: the closed probe
+    record (the exact retained bytes, parse-validated)
+    together with its typed inventory facts.  The record is
+    what the attach-binding receipt embeds; the typed facts
+    are the derivation inputs."""
+
+    record: bytes
+    inventory: DevptsInventory
+
+
+def _parse_devpts_inventory_object(obj: object) -> DevptsInventory:
+    """The closed OBJECT-LEVEL law of the AF devpts inventory
+    (017-ae software), shared by the bytes consumer and the
+    attach-binding record consumer (an embedded mapping is
+    validated DIRECTLY against this grammar — never
+    re-serialized merely to discover a bound): the closed
+    record tag; the fail form (exact three keys, a closed
+    reason) propagated as the typed ``local-<reason>``
+    refusal (a failed query is never absence); the pass form
+    (exact seven keys) strict throughout — the measured uid,
+    the measured namespace root (a zero inode is not a
+    measured valid root), the measured POLICY fact
+    (filesystem type, node GID, node MODE), the measured
+    isolation flags (a non-isolated probe is a closed
+    refusal), and the slave rows (bounded, canonical, domain-
+    strict, node GID/MODE equal to the MEASURED policy —
+    never assumed from the process identity, never blindly
+    accepted, no duplicate names).  The closed domains apply
+    to the EMPTY baseline case exactly as to a populated one.
+    Anything else is a closed non-echoing refusal."""
+    if not isinstance(obj, dict) or obj.get("record") != ci.DEVPTS_PROBE_RECORD:
+        raise FixtureError("prep-devpts-record-malformed")
+    if set(obj) == _DEVPTS_FAIL_KEYS:
+        status = obj.get("status")
+        reason = obj.get("reason")
+        if status != "fail" or not isinstance(reason, str) or reason not in ci.DEVPTS_FAIL_REASONS:
+            raise FixtureError("prep-devpts-record-malformed")
+        raise FixtureError("local-" + reason)
+    if set(obj) != _DEVPTS_INVENTORY_TOP_KEYS or obj.get("status") != "pass":
+        raise FixtureError("prep-devpts-record-malformed")
+    uid = obj.get("uid")
+    if (
+        isinstance(uid, bool)
+        or not isinstance(uid, int)
+        or not (1 <= uid <= fidentity.LINUX_ID_MAX)
+    ):
+        raise FixtureError("prep-devpts-uid-invalid")
+    namespace = obj.get("namespace")
+    if (
+        not isinstance(namespace, list)
+        or len(namespace) != 2
+        or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in namespace)
+        # a zero inode is not a measured valid root
+        or namespace[1] <= 0
+    ):
+        raise FixtureError("prep-devpts-namespace-invalid")
+    policy = obj.get("policy")
+    if (
+        not isinstance(policy, dict)
+        or set(policy) != _DEVPTS_POLICY_KEYS
+        or policy.get("fstype") != "devpts"
+        or isinstance(policy.get("gid"), bool)
+        or not isinstance(policy.get("gid"), int)
+        or not (0 <= policy["gid"] <= fidentity.LINUX_ID_MAX)
+        or isinstance(policy.get("mode"), bool)
+        or not isinstance(policy.get("mode"), int)
+        or not (0 <= policy["mode"] <= 0o7777)
+    ):
+        raise FixtureError("prep-devpts-policy-invalid")
+    isolation = obj.get("isolation")
+    if (
+        not isinstance(isolation, dict)
+        or set(isolation) != {"site", "startup"}
+        or not isinstance(isolation.get("site"), bool)
+        or not isinstance(isolation.get("startup"), bool)
+        or isolation["site"] is not False
+        or isolation["startup"] is not False
+    ):
+        raise FixtureError("prep-devpts-not-isolated")
+    rows_raw = obj.get("slave_rows")
+    if not isinstance(rows_raw, list) or len(rows_raw) > ci.DEVPTS_MAX_SLAVE_ROWS:
+        raise FixtureError("prep-devpts-rows-overbound")
+    policy_gid = policy["gid"]
+    policy_mode = policy["mode"]
+    rows: list[tuple[int, int, int, int, int, int, int]] = []
+    seen: set[int] = set()
+    for row in rows_raw:
+        if (
+            not isinstance(row, list)
+            or len(row) != 7
+            or not isinstance(row[0], str)
+            # ASCII DECIMAL canonical name: bounded before any
+            # conversion (a superscript digit or a long digit
+            # string is a row refusal, never a raw error)
+            or not row[0].isascii()
+            or not row[0].isdigit()
+            or len(row[0]) > 7
+            or row[0] != str(int(row[0]))
+        ):
+            raise FixtureError("prep-devpts-row-malformed")
+        name = int(row[0])
+        major, minor, inode, mode, ruid, rgid = row[1], row[2], row[3], row[4], row[5], row[6]
+        if (
+            name != minor
+            or name in seen
+            or isinstance(major, bool)
+            or not isinstance(major, int)
+            or not (0 <= major <= _DEVPTS_MAJOR_MAX)
+            or isinstance(minor, bool)
+            or not isinstance(minor, int)
+            or not (0 <= minor <= _DEVPTS_MINOR_MAX)
+            or isinstance(inode, bool)
+            or not isinstance(inode, int)
+            or inode <= 0
+            or isinstance(mode, bool)
+            or not isinstance(mode, int)
+            or not (0 <= mode <= 0o7777)
+            or isinstance(ruid, bool)
+            or not isinstance(ruid, int)
+            or not (0 <= ruid <= fidentity.LINUX_ID_MAX)
+            or isinstance(rgid, bool)
+            or not isinstance(rgid, int)
+            or not (0 <= rgid <= fidentity.LINUX_ID_MAX)
+        ):
+            raise FixtureError("prep-devpts-row-malformed")
+        # the measured policy law: the node GID/MODE must equal
+        # the MEASURED devpts policy fact (bound to the same
+        # measured namespace root) — never assumed from the
+        # process identity, never blindly accepted
+        if rgid != policy_gid or mode != policy_mode:
+            raise FixtureError("prep-devpts-node-policy")
+        seen.add(name)
+        rows.append((name, major, minor, inode, mode, ruid, rgid))
+    return DevptsInventory(
+        namespace=(namespace[0], namespace[1]),
+        policy=("devpts", policy_gid, policy_mode),
+        isolation=(isolation["site"], isolation["startup"]),
+        uid=uid,
+        slave_rows=tuple(rows),
+    )
+
+
+def parse_devpts_inventory_record(raw: object) -> DevptsObservation:
+    """The closed pure consumer of the AF devpts probe record
+    (017-ae software): a bounded single-line ASCII JSON
+    document, duplicate keys refused at every nesting level,
+    validated through the shared closed object-level law and
+    retained together with its typed inventory facts.  The
+    size is checked BEFORE any copy (an oversized bytearray
+    is refused, never copied first).  Anything else is a
+    closed non-echoing refusal."""
+    if not isinstance(raw, (bytes, bytearray)):
+        raise FixtureError("prep-devpts-record-malformed")
+    if len(raw) > ci.DEVPTS_OUTPUT_MAX:
+        raise FixtureError("prep-devpts-output-overbound")
+    raw = bytes(raw)
+    body = raw[:-1] if raw.endswith(b"\n") else raw
+    if not body or b"\n" in body or b"\r" in body:
+        raise FixtureError("prep-devpts-record-malformed")
+
+    def _no_duplicate_pairs(pairs: list) -> dict:
+        # duplicate keys are a closed refusal at EVERY nesting
+        # level (json.loads silently keeps the last one — a
+        # shadowed value is never a measured fact)
+        seen = set()
+        for key, _value in pairs:
+            if key in seen:
+                raise ValueError("duplicate-key")
+            seen.add(key)
+        return dict(pairs)
+
+    try:
+        obj = json.loads(body.decode("ascii"), object_pairs_hook=_no_duplicate_pairs)
+    except (UnicodeDecodeError, ValueError, RecursionError):
+        # a deeply nested document under the byte cap is the
+        # SAME malformed record (the parser's recursion
+        # exhaustion is normalized to the fixed typed refusal,
+        # never a raw escape — the caller's consumed failed
+        # phase can retain it)
+        raise FixtureError("prep-devpts-record-malformed") from None
+    inventory = _parse_devpts_inventory_object(obj)
+    return DevptsObservation(record=raw, inventory=inventory)
+
+
+@dataclass(frozen=True)
+class DevptsAllocation:
+    """The UNIQUE fresh owned slave allocation between two
+    same-namespace observations (derived, never caller-
+    asserted): the measured node identity, its MEASURED uid
+    (required to equal the subject uid) and its MEASURED gid
+    (a measured fact validated against the policy at parse —
+    legal to differ from the process GID), and the DERIVED
+    expected proc tty_nr (the encoding of the owned device —
+    never copied from the subject)."""
+
+    name: int
+    major: int
+    minor: int
+    inode: int
+    mode: int
+    uid: int
+    gid: int
+    expected_tty_nr: int
+
+
+def derive_attach_allocation(
+    baseline: DevptsInventory,
+    observation: DevptsInventory,
+    *,
+    subject_uid: object,
+) -> DevptsAllocation:
+    """The closed allocation derivation: the two observations
+    must be the SAME measured namespace carrying the SAME
+    measured policy; every baseline row must persist
+    UNCHANGED (removals and metadata drift are churn, never
+    tolerated); EXACTLY ONE fresh slave (a new name with a
+    fresh inode, owned by the subject uid — the node GID is a
+    measured fact, NEVER assumed to equal the process GID) is
+    the allocation; its expected proc tty_nr is DERIVED
+    through ``new_encode_dev`` and must qualify (a device the
+    kernel cannot represent as a positive signed tty_nr is
+    refused, never truncated).  Every mismatch is a closed
+    non-echoing refusal."""
+    if not isinstance(baseline, DevptsInventory) or not isinstance(observation, DevptsInventory):
+        raise FixtureError("prep-devpts-record-malformed")
+    if baseline.namespace != observation.namespace:
+        raise FixtureError("prep-devpts-namespace-mismatch")
+    if baseline.policy != observation.policy:
+        raise FixtureError("prep-devpts-policy-mismatch")
+    if isinstance(subject_uid, bool) or not isinstance(subject_uid, int) or subject_uid <= 0:
+        raise FixtureError("prep-devpts-owner-mismatch")
+    base_rows = {row[0]: row for row in baseline.slave_rows}
+    obs_rows = {row[0]: row for row in observation.slave_rows}
+    for name, base_row in base_rows.items():
+        if obs_rows.get(name) != base_row:
+            raise FixtureError("prep-devpts-churn")
+    added = [obs_rows[name] for name in obs_rows if name not in base_rows]
+    if not added:
+        raise FixtureError("prep-devpts-allocation-none")
+    if len(added) > 1:
+        raise FixtureError("prep-devpts-allocation-ambiguous")
+    name, major, minor, inode, mode, ruid, rgid = added[0]
+    if inode in {row[3] for row in baseline.slave_rows}:
+        raise FixtureError("prep-devpts-inode-reuse")
+    if ruid != subject_uid:
+        raise FixtureError("prep-devpts-owner-mismatch")
+    try:
+        expected = new_encode_dev(major, minor)
+    except FixtureError:
+        raise FixtureError("prep-devpts-encoding-unrepresentable") from None
+    if not expected_tty_nr_qualifies(expected):
+        raise FixtureError("prep-devpts-encoding-unrepresentable")
+    return DevptsAllocation(
+        name=name,
+        major=major,
+        minor=minor,
+        inode=inode,
+        mode=mode,
+        uid=ruid,
+        gid=rgid,
+        expected_tty_nr=expected,
+    )
+
+
+AF_ATTACH_RECORD_KEYS = frozenset(
+    {
+        "record",
+        "baseline",
+        "observation",
+        "allocation",
+        "expected_tty_nr",
+        "encoding",
+        "binding",
+        "cid",
+        "namespace",
+        "phase",
+        "identity",
+    }
+)
+AF_ATTACH_ENCODING = "linux-proc-new-encode-dev-v1"
+AF_ATTACH_PHASE = "attach-bound"
+# the binding record's closed schema literal (module-level
+# alias: the attach consumer's parameter is named after the
+# binding and must never shadow the module access)
+BINDING_RECORD_SCHEMA = binding.BINDING_RECORD_SCHEMA
+_BINDING_RECORD_KEYS = frozenset(
+    {
+        "record",
+        "order_id",
+        "order_path",
+        "order_sha256",
+        "active_sha256",
+        "source_head",
+        "repo_identity",
+        "run_id",
+    }
+)
+
+
+def _validate_binding_record(value: object) -> dict:
+    """The FULL closed key/type/hash grammar of a supplied
+    binding record (the same law the outer native-run
+    consumer applies): the exact key set, the closed schema
+    literal, the OAP order id, the non-empty order path, the
+    two sha256 digests, the literal 40-hex source head, the
+    non-empty repository identity and the 32-hex run id.
+    A public pure consumer never assumes a caller has
+    already validated its input; accepting retained data is
+    DATA validation only — never a measured run authority."""
+    if not isinstance(value, dict) or set(value) != _BINDING_RECORD_KEYS:
+        raise FixtureError("prep-attach-binding-malformed")
+    if (
+        value.get("record") != BINDING_RECORD_SCHEMA
+        or not isinstance(value.get("order_id"), str)
+        or re.fullmatch(r"^[0-9]{3}-[a-z]{1,2}$", value["order_id"]) is None
+        or not isinstance(value.get("order_path"), str)
+        or not value["order_path"]
+        or not isinstance(value.get("order_sha256"), str)
+        or _SHA_RE.fullmatch(value["order_sha256"]) is None
+        or not isinstance(value.get("active_sha256"), str)
+        or _SHA_RE.fullmatch(value["active_sha256"]) is None
+        or not isinstance(value.get("source_head"), str)
+        or _HEAD_RE.fullmatch(value["source_head"]) is None
+        or not isinstance(value.get("repo_identity"), str)
+        or not value["repo_identity"]
+        or not isinstance(value.get("run_id"), str)
+        or _RUN_ID_RE.fullmatch(value["run_id"]) is None
+    ):
+        raise FixtureError("prep-attach-binding-malformed")
+    return value
+
+
+def attach_binding_record(
+    *,
+    baseline: DevptsObservation,
+    observation: DevptsObservation,
+    allocation: DevptsAllocation,
+    binding: OrderRunBinding,
+    identity: dict,
+    cid: str,
+) -> dict[str, object]:
+    """The producer of the DISTINCT identity-bearing AF
+    attach-binding record (017-ae software): the two closed
+    inventory records (embedded EXACTLY as measured — the
+    producer re-parses both and refuses a non-closed record),
+    the allocation INDEPENDENTLY RE-DERIVED from the two
+    inventories and required to equal the supplied one field
+    by field (a caller-asserted allocation is never trusted),
+    the derived expected tty_nr re-checked, the workflow's
+    OWN immutable binding (``to_record``, never caller
+    strings), the owner's MEASURED CID (64-hex), the measured
+    namespace, the closed phase/encoding literals, and the
+    owner's frozen identity substructure (closed-validated
+    through the production codec — never caller-authored).
+    A malformed or contradictory fact emits no record; the
+    produced record must round-trip the closed consumer
+    before it is returned."""
+    if not isinstance(baseline, DevptsObservation) or not isinstance(
+        observation, DevptsObservation
+    ):
+        raise FixtureError("prep-devpts-record-malformed")
+    if not isinstance(allocation, DevptsAllocation):
+        raise FixtureError("prep-devpts-allocation-malformed")
+    if not isinstance(binding, OrderRunBinding):
+        raise FixtureError("prep-devpts-binding-invalid")
+    if not isinstance(cid, str) or _CID_RE.fullmatch(cid) is None:
+        raise FixtureError("prep-devpts-cid-invalid")
+    identity_law = _ad_identity_substructure_law(identity)
+    if identity_law is None:
+        raise FixtureError("prep-devpts-identity-invalid")
+    rederived = derive_attach_allocation(
+        baseline.inventory, observation.inventory, subject_uid=identity_law[0]
+    )
+    if rederived != allocation:
+        raise FixtureError("prep-devpts-allocation-mismatch")
+    if not expected_tty_nr_qualifies(allocation.expected_tty_nr):
+        raise FixtureError("prep-devpts-encoding-unrepresentable")
+
+    def _embed(obs: DevptsObservation) -> dict[str, object]:
+        # The retained record is re-parsed through the closed
+        # consumer and required to agree with its typed
+        # inventory (a caller-built DevptsObservation is
+        # ordinary data — never embedded by faith)
+        reobs = parse_devpts_inventory_record(obs.record)
+        if reobs.inventory != obs.inventory:
+            raise FixtureError("prep-devpts-record-malformed")
+        body = reobs.record[:-1] if reobs.record.endswith(b"\n") else reobs.record
+        return json.loads(body.decode("ascii"))
+
+    record: dict[str, object] = {
+        "record": AF_ATTACH_BINDING_SCHEMA,
+        "baseline": _embed(baseline),
+        "observation": _embed(observation),
+        "allocation": {
+            "name": allocation.name,
+            "major": allocation.major,
+            "minor": allocation.minor,
+            "inode": allocation.inode,
+            "mode": allocation.mode,
+            "uid": allocation.uid,
+            "gid": allocation.gid,
+        },
+        "expected_tty_nr": allocation.expected_tty_nr,
+        "encoding": AF_ATTACH_ENCODING,
+        "binding": binding.to_record(),
+        "cid": cid,
+        "namespace": list(observation.inventory.namespace),
+        "phase": AF_ATTACH_PHASE,
+        "identity": identity,
+    }
+    # producer/consumer agreement: the produced record must
+    # pass the closed consumer validation before it is
+    # returned — a drift between the two is a refusal, never
+    # a silently shipped record
+    parse_attach_binding_record(record, binding)
+    return record
+
+
+def parse_attach_binding_record(record: object, binding: object) -> DevptsAllocation:
+    """The closed consumer of the AF attach-binding record:
+    the exact closed key set, the distinct tag, the closed
+    phase/encoding literals, the workflow's OWN immutable
+    binding EXACTLY — an ``OrderRunBinding`` object is
+    compared through its own closed ``to_record``, or a
+    supplied binding record dict is FIRST validated by the
+    full closed key/type/hash grammar of this public pure
+    consumer (never assumed caller-validated) and then
+    compared by exact equality — a foreign or
+    contradicted binding is a refusal — the
+    exact tag-pair law (this tag is the record of the
+    canonical 017-af entry ONLY: the outer binding must be
+    the AF order at its canonical path), the owner's frozen
+    identity substructure (production-codec closed-validated),
+    the 64-hex CID, the closed namespace, and the two
+    embedded inventory records validated DIRECTLY by the
+    closed inventory consumer (each must carry the record's
+    namespace); the allocation is INDEPENDENTLY RE-DERIVED
+    from the two inventories through the frozen subject uid
+    and compared field by field (a retained allocation is
+    re-derived, never trusted), and the expected tty_nr re-
+    checked.  Returns the re-derived allocation; anything
+    else is a closed non-echoing refusal."""
+    if not isinstance(record, dict) or set(record) != AF_ATTACH_RECORD_KEYS:
+        raise FixtureError("prep-attach-binding-malformed")
+    if (
+        record.get("record") != AF_ATTACH_BINDING_SCHEMA
+        or record.get("phase") != AF_ATTACH_PHASE
+        or record.get("encoding") != AF_ATTACH_ENCODING
+    ):
+        raise FixtureError("prep-attach-binding-malformed")
+    if isinstance(binding, OrderRunBinding):
+        outer = binding.to_record()
+    elif isinstance(binding, dict):
+        # a supplied binding dict is validated by the FULL
+        # closed key/type/hash grammar here — this public
+        # pure consumer never assumes the caller has already
+        # validated it
+        outer = _validate_binding_record(binding)
+    else:
+        raise FixtureError("prep-attach-binding-malformed")
+    if (
+        not isinstance(outer, dict)
+        or outer.get("record") != BINDING_RECORD_SCHEMA
+        or record.get("binding") != outer
+    ):
+        raise FixtureError("prep-attach-binding-mismatch")
+    # the EXACT tag-pair law: the AF attach-binding tag is the
+    # canonical 017-af entry's record ONLY
+    if (
+        outer.get("order_id") != rprofile.AF_ORDER_ID
+        or outer.get("order_path") != rprofile.AF_ORDER_PATH
+    ):
+        raise FixtureError("prep-attach-binding-mismatch")
+    identity_law = _ad_identity_substructure_law(record.get("identity"))
+    if identity_law is None:
+        raise FixtureError("prep-attach-binding-malformed")
+    cid = record.get("cid")
+    if not isinstance(cid, str) or _CID_RE.fullmatch(cid) is None:
+        raise FixtureError("prep-attach-binding-malformed")
+    namespace = record.get("namespace")
+    if (
+        not isinstance(namespace, list)
+        or len(namespace) != 2
+        or any(isinstance(v, bool) or not isinstance(v, int) or v < 0 for v in namespace)
+    ):
+        raise FixtureError("prep-attach-binding-malformed")
+    observations: dict[str, DevptsInventory] = {}
+    for key in ("baseline", "observation"):
+        embedded = record.get(key)
+        if not isinstance(embedded, dict):
+            raise FixtureError("prep-attach-binding-malformed")
+        # the embedded inventory is validated DIRECTLY
+        # against the shared closed object-level grammar
+        # (no re-serialization: a huge or non-closed caller
+        # mapping is refused before any copy)
+        try:
+            inv = _parse_devpts_inventory_object(embedded)
+        except FixtureError:
+            raise FixtureError("prep-attach-binding-malformed") from None
+        if list(inv.namespace) != namespace:
+            raise FixtureError("prep-attach-binding-mismatch")
+        observations[key] = inv
+    allocation_raw = record.get("allocation")
+    if (
+        not isinstance(allocation_raw, dict)
+        or set(allocation_raw) != _ATTACH_ALLOCATION_KEYS
+        or any(
+            isinstance(allocation_raw[k], bool) or not isinstance(allocation_raw[k], int)
+            for k in _ATTACH_ALLOCATION_KEYS
+        )
+    ):
+        raise FixtureError("prep-attach-binding-malformed")
+    try:
+        rederived = derive_attach_allocation(
+            observations["baseline"],
+            observations["observation"],
+            subject_uid=identity_law[0],
+        )
+    except FixtureError:
+        raise FixtureError("prep-attach-binding-mismatch") from None
+    rederived_raw = {
+        "name": rederived.name,
+        "major": rederived.major,
+        "minor": rederived.minor,
+        "inode": rederived.inode,
+        "mode": rederived.mode,
+        "uid": rederived.uid,
+        "gid": rederived.gid,
+    }
+    if allocation_raw != rederived_raw:
+        raise FixtureError("prep-attach-binding-mismatch")
+    expected = record.get("expected_tty_nr")
+    if (
+        isinstance(expected, bool)
+        or not isinstance(expected, int)
+        or expected != rederived.expected_tty_nr
+        or not expected_tty_nr_qualifies(expected)
+    ):
+        raise FixtureError("prep-attach-binding-malformed")
+    return rederived
+
+
 # -- native-owner producer (explicit versioned scope) ------------------------------
 # The historical 017-s schema remains the S rehearsal record
 # and is NEVER relabeled as native evidence.  A native-owner
@@ -1912,6 +2733,25 @@ NATIVE_OWNER_PRODUCER = "native-owner"
 # identity key — the two tags are separate closed records,
 # never a widened grammar.
 AD_NATIVE_OWNER_SCHEMA = "slaif-017ad-native-owner-evidence-v1"
+# The DISTINCT identity-bearing native-owner evidence tag of
+# the canonical FUTURE 017-af entry (INERT in 017-ae:
+# software only): the SAME closed native-scope measured facts
+# as the AD tag PLUS the frozen owner-identity substructure
+# (the identical owner-UID identity law).  The original tag
+# keeps its exact historical key set and refuses BOTH the
+# identity key and any 017-ad / 017-af binding — separate
+# closed records per entry, never a widened grammar,
+# including for equal-numeric identities.
+AF_NATIVE_OWNER_SCHEMA = "slaif-017af-native-owner-evidence-v1"
+# The DISTINCT identity-bearing attach-binding record tag of
+# the AF entry's native attach-binding phase (the measured
+# fixture-namespace devpts baseline, the second bounded
+# observation, the unique fresh owned allocation and the
+# independently derived expected proc tty_nr).  The record is
+# bound to the AF entry's exact order in its own tag-pair law;
+# the attach-binding facts live in this distinct honest
+# version, never widened into an old consumer.
+AF_ATTACH_BINDING_SCHEMA = rprofile.AF_NATIVE_ATTACH_BINDING_SCHEMA
 # the CLOSED native-owner record grammar: the exact top-level
 # key set and the exact nested object key sets.  Anything else
 # (unknown, missing, or non-mapping nested keys) is a closed
@@ -2118,11 +2958,11 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
     # entry ONLY (an AD-tagged record of any other order id is
     # a closed refusal — the original tag is never widened).
     tag = record.get("record") if isinstance(record, Mapping) else None
-    if tag not in (NATIVE_OWNER_SCHEMA, AD_NATIVE_OWNER_SCHEMA):
+    if tag not in (NATIVE_OWNER_SCHEMA, AD_NATIVE_OWNER_SCHEMA, AF_NATIVE_OWNER_SCHEMA):
         raise FixtureError("prep-native-owner-record-malformed")
     expected_keys = (
         _NATIVE_OWNER_TOP_KEYS | {"identity"}
-        if tag == AD_NATIVE_OWNER_SCHEMA
+        if tag in (AD_NATIVE_OWNER_SCHEMA, AF_NATIVE_OWNER_SCHEMA)
         else _NATIVE_OWNER_TOP_KEYS
     )
     if not isinstance(record, Mapping):
@@ -2161,9 +3001,10 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
         raise FixtureError("prep-native-owner-record-malformed") from None
     # the frozen owner-identity substructure: closed data
     # integrity via the production codec (re-derived canonical
-    # record, both digests verified) — AD record only
+    # record, both digests verified) — the identity-bearing
+    # AD / AF records only
     identity = None
-    if tag == AD_NATIVE_OWNER_SCHEMA:
+    if tag in (AD_NATIVE_OWNER_SCHEMA, AF_NATIVE_OWNER_SCHEMA):
         identity = _ad_identity_substructure_law(identity_raw)
         if identity is None:
             raise FixtureError("prep-native-owner-record-malformed")
@@ -2171,14 +3012,16 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
         status != "pass"
         or not isinstance(order, str)
         or not re.fullmatch(r"^[0-9]{3}-[a-z]{1,2}$", order)
-        or (tag == AD_NATIVE_OWNER_SCHEMA and order != "017-ad")
+        or (tag == AD_NATIVE_OWNER_SCHEMA and order != rprofile.AD_ORDER_ID)
+        or (tag == AF_NATIVE_OWNER_SCHEMA and order != rprofile.AF_ORDER_ID)
         # the EXACT tag-pair law: the original tag carries the
         # historical (non-AD) entries ONLY — the canonical
-        # 017-ad entry is representable by the DISTINCT
-        # identity-bearing tag alone, so an original-tag
-        # record of the AD order is a closed refusal (the
-        # historical orders of the original tag are unchanged)
-        or (tag == NATIVE_OWNER_SCHEMA and order == "017-ad")
+        # 017-ad / 017-af entries are representable by their
+        # DISTINCT identity-bearing tags alone, so an
+        # original-tag record of either order is a closed
+        # refusal (the historical orders of the original tag
+        # are unchanged)
+        or (tag == NATIVE_OWNER_SCHEMA and order in (rprofile.AD_ORDER_ID, rprofile.AF_ORDER_ID))
         or not isinstance(source_head, str)
         or _HEAD_RE.fullmatch(source_head) is None
         or not isinstance(run_id, str)
@@ -2641,7 +3484,16 @@ def produce_native_owner_record(
         "native_ready": native_ready,
     }
     if identity is not None:
-        record["record"] = AD_NATIVE_OWNER_SCHEMA
+        # the DISTINCT identity-bearing tag of THIS entry's
+        # OWN form: the identity substructure is bound to the
+        # entry's exact order (a foreign order id can never
+        # carry the identity-bearing form)
+        if order == rprofile.AD_ORDER_ID:
+            record["record"] = AD_NATIVE_OWNER_SCHEMA
+        elif order == rprofile.AF_ORDER_ID:
+            record["record"] = AF_NATIVE_OWNER_SCHEMA
+        else:
+            raise FixtureError("prep-native-owner-record-malformed")
         record["identity"] = identity
     # producer/consumer agreement: the produced record must
     # pass the closed consumer validation before it is
@@ -2828,6 +3680,10 @@ def _parse_owner_record(record: Mapping | None) -> OwnerFinalFacts | NativeOwner
         # law; the tag selects its own exact key set inside
         # (the identity-bearing 017-ad form carries the frozen
         # identity substructure, the original tag never does)
+        return parse_native_owner_facts(record)
+    if kind == AF_NATIVE_OWNER_SCHEMA:
+        # the identity-bearing 017-af form: the SAME closed
+        # consumer law, its own exact key set and tag-pair
         return parse_native_owner_facts(record)
     raise FixtureError("prep-owner-record-malformed")
 
@@ -3043,6 +3899,7 @@ class NativeHandoffWorkflow:
         expectation: object,
         *,
         channel: CidScopedTable | None = None,
+        pre_commit_check: Callable[[SubjectIdentity], None] | None = None,
     ) -> dict[str, object]:
         """The PUBLIC staged registration of the actual
         native subject that appears later (order 017-v,
@@ -3113,6 +3970,21 @@ class NativeHandoffWorkflow:
             channel=ch,
             subject_identity=self._subject_identity,
         )
+        # the AF COLLECT-BEFORE-COMMIT boundary (017-ae
+        # software): the composition's FINAL measured frames
+        # (the collected subject's own tty, the re-read devpts
+        # namespace/device, the frozen owner identity, the
+        # current stable-stop phase, the SAME absolute owner
+        # END) run HERE — after the possibly-long executable
+        # measurement and BEFORE ANY subject/baseline/stop
+        # commit.  A refused check commits nothing (the
+        # staged law: no baseline replacement, no receipt,
+        # no stop change) and a later corrected registration
+        # within the same still-valid phase remains possible.
+        # The original/AD entries pass no check: their
+        # behavior stays byte-for-byte.
+        if pre_commit_check is not None:
+            pre_commit_check(subject)
         # commit ONLY after a successful collection
         self._subject_pid = subject.pid
         self._expectation = expectation
@@ -3220,6 +4092,29 @@ class NativeHandoffWorkflow:
         self._stop_receipt = receipt
         return receipt
 
+    def verify_stable_stop_phase(self) -> None:
+        """The CURRENT bounded stable-stop predicate re-check
+        for an ALREADY recorded stop (the AF attach phase and
+        any later phase that must prove the world is still in
+        the recorded phase): the FROZEN first-prepare W/B
+        baseline must still be the same worker job (PID reuse
+        or substitution is a closed refusal), and the stop
+        phase recorded by the retained receipt must be the
+        phase the world is in NOW (a resumed worker, a newly
+        running group member, a changed foreground, or a
+        newly unreadable positively-existing listed entry —
+        the tri-state law — is a closed refusal).  The
+        re-measurement is predicate-only: the retained stop
+        receipt is the immutable historical record — it is
+        re-verified, never replaced or re-measured into."""
+        if self._stop_receipt is None:
+            raise FixtureError("prep-stop-not-recorded")
+        self._verify_baseline()
+        base = self._baseline
+        if base is None:
+            raise FixtureError("prep-not-prepared")
+        collect_stop_observation(self._table, base.worker_pid, base.bash_pid)
+
     def _snapshot(self) -> dict[str, object]:
         assert self._group is not None
         group = self._group
@@ -3256,12 +4151,21 @@ class NativeHandoffWorkflow:
             "subject": _subject_record(self._subject),
         }
         if self._subject_identity is not None:
-            # the DISTINCT identity-bearing 017-ad form: the SAME
-            # closed measured facts PLUS the frozen owner-identity
+            # the DISTINCT identity-bearing form of THIS entry
+            # (the 017-ad or the 017-af tag): the SAME closed
+            # measured facts PLUS the frozen owner-identity
             # substructure derived through the production codec
             # (the original fixed-21002 workflow keeps the
-            # historical tag byte-for-byte, no identity key)
-            snapshot["record"] = AD_NATIVE_PREP_SCHEMA
+            # historical tag byte-for-byte, no identity key).
+            # A frozen subject identity under any other entry
+            # is a contradiction — a closed refusal, never a
+            # silent relabel.
+            if self._binding.order_id == rprofile.AD_ORDER_ID:
+                snapshot["record"] = AD_NATIVE_PREP_SCHEMA
+            elif self._binding.order_id == rprofile.AF_ORDER_ID:
+                snapshot["record"] = AF_NATIVE_PREP_SCHEMA
+            else:
+                raise FixtureError("prep-record-malformed")
             snapshot["identity"] = _ad_identity_substructure_from_triple(self._subject_identity)
         return snapshot
 
@@ -3309,16 +4213,23 @@ class NativeHandoffWorkflow:
                 raise FixtureError("prep-owner-head-mismatch")
             if owner.run_id != self._binding.run_id:
                 raise FixtureError("prep-owner-run-mismatch")
-            if self._binding.order_id == rprofile.AD_ORDER_ID:
-                # the canonical 017-ad entry's record must be
-                # the DISTINCT identity-bearing tag and must
-                # carry the SAME frozen owner-identity
-                # substructure as this workflow's ORIGINAL
-                # frozen subject law (compared, never adopted):
-                # a relabeled original-tag record cannot
-                # represent the AD entry, and a valid foreign
-                # frozen identity can never become ready here
-                if owner.schema != AD_NATIVE_OWNER_SCHEMA:
+            if self._binding.order_id in (rprofile.AD_ORDER_ID, rprofile.AF_ORDER_ID):
+                # the canonical 017-ad / 017-af entry's record
+                # must be the entry's OWN DISTINCT identity-
+                # bearing tag and must carry the SAME frozen
+                # owner-identity substructure as this
+                # workflow's ORIGINAL frozen subject law
+                # (compared, never adopted): a relabeled
+                # original-tag record (or the OTHER entry's
+                # tag) cannot represent this entry, and a
+                # valid foreign frozen identity can never
+                # become ready here
+                expected_owner_schema = (
+                    AD_NATIVE_OWNER_SCHEMA
+                    if self._binding.order_id == rprofile.AD_ORDER_ID
+                    else AF_NATIVE_OWNER_SCHEMA
+                )
+                if owner.schema != expected_owner_schema:
                     raise FixtureError("prep-owner-schema-mismatch")
                 if owner.identity != self._subject_identity:
                     raise FixtureError("prep-owner-identity-mismatch")
@@ -3388,20 +4299,25 @@ def validate_prep_snapshot(record: object) -> None:
     (``slaif-native-handoff-prep-v1``) keeps its EXACT
     historical meaning — the fixed-21002 subject law, never an
     identity key, and never the record of the canonical 017-ad
-    entry (the equal-numeric cross-profile case: a fixed-21002
-    subject bound to 017-ad is still an AD record and belongs
-    to the AD tag) — while the DISTINCT identity-bearing 017-ad
-    tag (``slaif-017ad-native-handoff-prep-v1``) carries the
-    SAME closed group/binding/subject facts PLUS the frozen
-    owner-identity substructure, is the record of the
-    canonical 017-ad entry ONLY, and its subject (when present)
-    must satisfy the frozen owner-UID identity derived from
-    that substructure (the fixed-21002 law never applies to it,
-    and the frozen law never to the original tag)."""
+    or 017-af entry (the equal-numeric cross-profile case: a
+    fixed-21002 subject bound to 017-ad / 017-af is still an
+    identity-bearing record and belongs to the entry's OWN tag)
+    — while the DISTINCT identity-bearing 017-ad / 017-af tags
+    (``slaif-017ad-native-handoff-prep-v1`` /
+    ``slaif-017af-native-handoff-prep-v1``) carry the SAME
+    closed group/binding/subject facts PLUS the frozen owner-
+    identity substructure, are the records of the canonical
+    017-ad / 017-af entries ONLY, and their subject (when
+    present) must satisfy the frozen owner-UID identity
+    derived from that substructure (the fixed-21002 law never
+    applies to them, and the frozen law never to the original
+    tag)."""
     if not isinstance(record, Mapping):
         raise FixtureError("prep-record-malformed")
     tag = record.get("record")
     if tag == AD_NATIVE_PREP_SCHEMA:
+        expected_keys = {"record", "binding", "group", "subject", "identity"}
+    elif tag == AF_NATIVE_PREP_SCHEMA:
         expected_keys = {"record", "binding", "group", "subject", "identity"}
     elif tag == NATIVE_PREP_SCHEMA:
         expected_keys = {"record", "binding", "group", "subject"}
@@ -3429,7 +4345,9 @@ def validate_prep_snapshot(record: object) -> None:
     # The entry-aware closed ORDER binding: each tag is the
     # record of its OWN canonical entry only — the tags are
     # separate closed records, never a widened grammar
-    # (including for equal-numeric identities).
+    # (including for equal-numeric identities).  The original
+    # tag is the historical entries' record ONLY and refuses
+    # BOTH the 017-ad and 017-af bindings.
     if tag == AD_NATIVE_PREP_SCHEMA:
         if b.get("order_id") != rprofile.AD_ORDER_ID:
             raise FixtureError("prep-record-malformed")
@@ -3438,9 +4356,17 @@ def validate_prep_snapshot(record: object) -> None:
         # carry the identity-bearing AD form)
         if b.get("order_path") != rprofile.AD_ORDER_PATH:
             raise FixtureError("prep-record-malformed")
-    elif b.get("order_id") == rprofile.AD_ORDER_ID:
+    elif tag == AF_NATIVE_PREP_SCHEMA:
+        if b.get("order_id") != rprofile.AF_ORDER_ID:
+            raise FixtureError("prep-record-malformed")
+        # the fixed canonical 017-af entry is bound to its OWN
+        # unique committed order path (a foreign path can never
+        # carry the identity-bearing AF form)
+        if b.get("order_path") != rprofile.AF_ORDER_PATH:
+            raise FixtureError("prep-record-malformed")
+    elif b.get("order_id") in (rprofile.AD_ORDER_ID, rprofile.AF_ORDER_ID):
         raise FixtureError("prep-record-malformed")
-    if tag == AD_NATIVE_PREP_SCHEMA:
+    if tag in (AD_NATIVE_PREP_SCHEMA, AF_NATIVE_PREP_SCHEMA):
         identity = _ad_identity_substructure_law(record["identity"])
         if identity is None:
             raise FixtureError("prep-record-malformed")
@@ -3571,9 +4497,15 @@ def validate_prep_snapshot(record: object) -> None:
 __all__ = [
     "NATIVE_PREP_SCHEMA",
     "AD_NATIVE_PREP_SCHEMA",
+    "AF_NATIVE_PREP_SCHEMA",
     "NATIVE_OWNER_PRODUCER",
     "NATIVE_OWNER_SCHEMA",
     "AD_NATIVE_OWNER_SCHEMA",
+    "AF_NATIVE_OWNER_SCHEMA",
+    "AF_ATTACH_BINDING_SCHEMA",
+    "AF_ATTACH_RECORD_KEYS",
+    "AF_ATTACH_ENCODING",
+    "AF_ATTACH_PHASE",
     "NATIVE_SOURCE",
     "OWNER_FACTS_SCHEMA",
     "CID_MEMBERSHIP",
@@ -3585,8 +4517,12 @@ __all__ = [
     "SUBJECT_UID",
     "FixtureError",
     "CidScopedTable",
+    "DevptsSlaveMetadata",
     "RealCidScopedTable",
     "GroupMember",
+    "DevptsAllocation",
+    "DevptsInventory",
+    "DevptsObservation",
     "HandoffVerdict",
     "NativeHandoffWorkflow",
     "NativeOwnerFacts",
@@ -3594,6 +4530,7 @@ __all__ = [
     "CompletedOwnerState",
     "OwnedOwnerMeasurement",
     "OwnerFinalFacts",
+    "attach_binding_record",
     "ProcStat",
     "ProcTable",
     "RealProcTable",
@@ -3605,17 +4542,22 @@ __all__ = [
     "WorkerGroupFacts",
     "argv_digest",
     "collect_stop_observation",
+    "derive_attach_allocation",
     "collect_restoration",
     "collect_subject_identity",
     "collect_worker_group",
     "compose_handoff_verdict",
     "expectation_from_owner",
+    "expected_tty_nr_qualifies",
     "parse_native_owner_facts",
+    "parse_attach_binding_record",
+    "parse_devpts_inventory_record",
     "parse_owner_final_facts",
     "parse_proc_cmdline",
     "parse_proc_stat",
     "parse_proc_status",
     "produce_native_owner_record",
+    "new_encode_dev",
     "validate_prep_snapshot",
     "validate_subject_identity",
 ]

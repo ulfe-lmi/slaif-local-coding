@@ -282,9 +282,208 @@ EXPECTED_CTL_PROBE = {
 # Module-level closed fact containers for the current run (the
 # scenario functions record measured closed facts; run() consumes
 # and clears them).  No raw content ever enters them.
+# Module-level closed fact containers for the current run (the
+# scenario functions record measured closed facts; run() consumes
+# and clears them).  No raw content ever enters them.
 _SC_FACTS: dict[str, dict[str, object]] = {}
 _SC_EXPORT: dict[str, object] = {}
 _SC_TEARDOWN: dict[str, object] = {}
+
+
+# The 017-ae native attach-binding devpts probe: the EXACT
+# immutable read-only Python program that inventories the
+# ALLOCATED SLAVE device nodes of the registered fixture's OWN
+# devpts namespace (it runs INSIDE the container through the
+# owner's guarded exact-CID exec channel as the frozen owner
+# exec user, invoked exactly ``python3 -I -S -c <this code>`` —
+# isolated interpreter, no site, no user startup, no PYTHONPATH,
+# no arbitrary program).  It never reads the native subject's
+# /proc, never enumerates the host /dev/pts (its /dev/pts IS the
+# fixture's own mount instance — the measured (st_dev, st_ino)
+# namespace identity is carried in the closed record and
+# coherence-checked against the baseline), never writes, and
+# bounds itself closed: at most 96 slave rows (the reserved
+# ptmx node is not a slave), at most 65536 serialized output
+# bytes (overbound is a fail record, never a truncation) and a
+# 5 s internal clock (the host guard clamps the SAME call to
+# the remaining owner END; a failed query is never absence).
+# The isolation fact is MEASURED, not claimed: the record
+# carries whether any user startup/site module is importable —
+# a non-isolated probe is a closed refusal at the host.
+DEVPTS_PROBE_RECORD = "slaif-017ae-devpts-inventory-v1"
+DEVPTS_PROBE_TIMEOUT = 5.0
+DEVPTS_MAX_SLAVE_ROWS = 96
+DEVPTS_OUTPUT_MAX = 65536
+DEVPTS_FAIL_REASONS = (
+    "devpts-unreadable",
+    "devpts-overbound",
+    "devpts-timeout",
+    "devpts-row-malformed",
+    "devpts-namespace-raced",
+    "devpts-policy-unreadable",
+    "devpts-policy-overbound",
+    "devpts-policy-absent",
+    "devpts-policy-malformed",
+    "devpts-policy-mismatch",
+)
+DEVPTS_PROBE = r"""
+import json, os, stat, sys, time
+def fail(reason):
+    print(json.dumps({"record": "slaif-017ae-devpts-inventory-v1",
+                      "status": "fail", "reason": reason},
+                     sort_keys=True, separators=(",", ":")))
+    raise SystemExit(2)
+try:
+    deadline = time.monotonic() + 5.0
+    def check_time():
+        if time.monotonic() > deadline:
+            fail("devpts-timeout")
+    # the measured devpts root frame: the fixture's OWN mount
+    # instance (namespace identity = (st_dev, st_ino) of the
+    # /dev/pts directory); every node is identity-checked
+    # against this root and the frame is re-measured AFTER
+    # collection (a raced mount/snapshot cannot pass)
+    root = os.stat("/dev/pts")
+    if not stat.S_ISDIR(root.st_mode):
+        fail("devpts-unreadable")
+    namespace = [root.st_dev, root.st_ino]
+    check_time()
+    # the MEASURED devpts policy fact: the ONE mountinfo entry
+    # that binds the measured root to /dev/pts (same
+    # namespace/root).  ONLY the derived closed fact (fstype +
+    # node gid + node mode) is carried — the raw mount table
+    # is never retained, and the permitted node GID/mode is
+    # measured, NEVER assumed from the process identity.
+    want = b"%d:%d" % (os.major(root.st_dev), os.minor(root.st_dev))
+    try:
+        with open("/proc/self/mountinfo", "rb") as handle:
+            table = handle.read(65537)
+    except OSError:
+        fail("devpts-policy-unreadable")
+    if len(table) > 65536:
+        fail("devpts-policy-overbound")
+    policy = None
+    for line in table.split(b"\n"):
+        parts = line.split(b" ")
+        if len(parts) < 5 or parts[2] != want or parts[4] != b"/dev/pts":
+            continue
+        if policy is not None:
+            fail("devpts-policy-mismatch")
+        if b"-" not in parts:
+            fail("devpts-policy-malformed")
+        sep = parts.index(b"-")
+        if sep + 3 >= len(parts):
+            fail("devpts-policy-mismatch")
+        if parts[sep + 1] != b"devpts":
+            fail("devpts-policy-mismatch")
+        gid = None
+        mode = None
+        for opt in parts[sep + 3].split(b","):
+            key, eq, value = opt.partition(b"=")
+            if not eq or not value:
+                continue
+            if key == b"gid":
+                # a duplicate or invalid gid option is a
+                # closed refusal (no ambiguity, no silent
+                # first-wins)
+                if gid is not None or not value.isdigit():
+                    fail("devpts-policy-malformed")
+                gid = int(value)
+            elif key == b"mode":
+                if (
+                    mode is not None
+                    or len(value) > 4
+                    or not all(c in b"01234567" for c in value)
+                ):
+                    fail("devpts-policy-malformed")
+                mode = int(value, 8)
+        if gid is None or mode is None:
+            fail("devpts-policy-malformed")
+        policy = {"fstype": "devpts", "gid": gid, "mode": mode}
+    if policy is None:
+        fail("devpts-policy-absent")
+    rows = []
+    count = 0
+    # BOUNDED iteration of the fixture's OWN namespace: the
+    # directory is scanned one entry at a time and the 98th
+    # entry (the reserved ptmx plus at most 96 slaves) is a
+    # refusal BEFORE it is processed or retained — the whole
+    # directory is never materialized
+    it = os.scandir("/dev/pts")
+    try:
+        while True:
+            check_time()
+            try:
+                entry = next(it)
+            except StopIteration:
+                break
+            count += 1
+            if count > 97:
+                fail("devpts-overbound")
+            name = entry.name
+            if name == "ptmx":
+                # the reserved ptmx node: iterated, verified a
+                # character node on the SAME root, NOT a slave
+                # row
+                try:
+                    pmx = entry.stat(follow_symlinks=False)
+                except OSError:
+                    fail("devpts-unreadable")
+                if not stat.S_ISCHR(pmx.st_mode) or pmx.st_dev != root.st_dev:
+                    fail("devpts-row-malformed")
+                continue
+            if not (name.isascii() and name.isdigit()):
+                fail("devpts-row-malformed")
+            try:
+                dst = entry.stat(follow_symlinks=False)
+            except OSError:
+                fail("devpts-unreadable")
+            if not stat.S_ISCHR(dst.st_mode):
+                fail("devpts-row-malformed")
+            if dst.st_dev != root.st_dev:
+                fail("devpts-row-malformed")
+            rows.append([name, os.major(dst.st_rdev), os.minor(dst.st_rdev),
+                         dst.st_ino, dst.st_mode & 0o7777, dst.st_uid, dst.st_gid])
+            if len(rows) > 96:
+                fail("devpts-overbound")
+    finally:
+        try:
+            it.close()
+        except OSError:
+            pass
+    check_time()
+    after = os.stat("/dev/pts")
+    if (
+        not stat.S_ISDIR(after.st_mode)
+        or [after.st_dev, after.st_ino] != namespace
+    ):
+        fail("devpts-namespace-raced")
+    payload = {
+        "record": "slaif-017ae-devpts-inventory-v1",
+        "status": "pass",
+        "uid": os.getuid(),
+        "namespace": namespace,
+        "policy": policy,
+        "isolation": {"site": "site" in sys.modules,
+                      "startup": ("sitecustomize" in sys.modules
+                                  or "usercustomize" in sys.modules)},
+        "slave_rows": rows,
+    }
+    # the bounds are re-checked at FINAL serialization/return
+    # as well (the empty baseline path included): time first,
+    # then the closed output bound, then the time again around
+    # the return
+    check_time()
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    if len(text) > 65536:
+        fail("devpts-overbound")
+    check_time()
+    print(text)
+except SystemExit:
+    raise
+except Exception:
+    fail("devpts-unreadable")
+"""
 
 
 # The closed readiness DIAGNOSIS (order 017-y): on a nonzero
@@ -1043,6 +1242,39 @@ def _make_docker_exec_hold_matcher(subject_user: str):
 _match_docker_exec_hold = _make_docker_exec_hold_matcher(f"{SUBJECT_UID}:{SUBJECT_UID}")
 
 
+def _make_devpts_probe_matcher(subject_user: str):
+    """The ONE exact AF-only devpts probe form (017-ae): the
+    native attach-binding phase's read-only inventory
+    operation, admitted for the canonical 017-af entry ONLY
+    (the entry is selected by the owner's OWN bound
+    order — a caller flag can never mint it).  The closed
+    form is EXACT and NON-PTY: no ``-it`` (a PTY attach would
+    allocate and contaminate the measured namespace), no
+    controller user (the frozen subject ``uid:gid`` only), no
+    ``-e`` environment arguments, no ``--env-file`` — exactly
+    ``docker exec --user <frozen uid:gid> <cid> python3 -I -S
+    -c <the immutable probe code>``.  The original closed exec
+    matcher is reused UNCHANGED for every old form, and the
+    AB/AD/default guards keep refusing this new form."""
+
+    def match(argv: list[str]) -> bool:
+        return (
+            len(argv) == 10
+            and argv[0] == "docker"
+            and argv[1] == "exec"
+            and argv[2] == "--user"
+            and argv[3] == subject_user
+            and _is_cid(argv[4])
+            and argv[5] == "python3"
+            and argv[6] == "-I"
+            and argv[7] == "-S"
+            and argv[8] == "-c"
+            and argv[9] == DEVPTS_PROBE
+        )
+
+    return match
+
+
 def _match_runtime_version(argv: list[str]) -> bool:
     return (
         len(argv) == 2
@@ -1093,14 +1325,18 @@ def _make_docker_build_matcher(profile: rprofile.RuntimeProfile):
     return match
 
 
-def _owner_argv_matchers(profile: rprofile.RuntimeProfile) -> tuple:
+def _owner_argv_matchers(profile: rprofile.RuntimeProfile, order_id: str | None = None) -> tuple:
     """The owner-scoped guarded-argv set for ONE frozen runtime
     profile: the SAME closed matchers as the original guard for
     every command whose form is profile-independent, and the
     profile-bound variants for the three surfaces that carry the
-    subject identity (build args, exec user, detached hold user).
-    A per-owner matcher tuple — no global mutable identity
-    binding."""
+    subject identity (build args, exec user, detached hold
+    user).  A per-owner matcher tuple — no global mutable
+    identity binding.  The ONE new native-specific operation
+    (the read-only devpts probe) is admitted for the canonical
+    017-af entry ONLY, selected from the owner's OWN bound
+    order id: the AB/AD/default guards keep the byte-for-byte
+    old closed forms and refuse the new probe argv."""
     return (
         _match_docker_ps,
         _match_docker_version,
@@ -1120,6 +1356,8 @@ def _owner_argv_matchers(profile: rprofile.RuntimeProfile) -> tuple:
         _make_docker_exec_matcher(profile.exec_user),
         _make_docker_exec_hold_matcher(profile.exec_user),
         _match_runtime_version,
+    ) + (
+        (_make_devpts_probe_matcher(profile.exec_user),) if order_id == rprofile.AF_ORDER_ID else ()
     )
 
 

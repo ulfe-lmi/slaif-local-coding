@@ -547,6 +547,95 @@ launch, NO worker stop, NO real host signal, NO
 model/Gateway call; the later serial native handoff
 remains the separately authorized `017-ad` order. D09
 remains `NOT RUN`; no native-ready or v1 runtime claim.
+017-ad activated that sealed AD entry and closed
+PARTIAL: the ordered actual single-attempt native
+handoff qualification was NOT RUN — never PASS, never
+waived — because the required private preparation
+found the pre-admission engineering gap (no existing
+seam produces the native expected PTY independently;
+the candidate host /dev/pts delta was rejected because
+kernel devpts mounts have independent allocation
+domains), with the checkpoint 0001–0003 findings
+accepted WITH QUALIFICATION and the corrected primary-
+source-verified proc tty_nr encoding (distinct from
+the kernel-internal MKDEV layout) recorded in the
+immutable AD report. No source/helper/test/lock/
+workflow change occurred in that round; the order and
+active were committed exactly (implementation head
+`6bd535b8a633a14c3ee0301662fd7a53cd57b94a`; the
+PARTIAL report is the report-only SELF
+`8489dce5e2e9d20f321848ecdfd74f589451a19a`) and all 10
+implementation and all 10 report-head checks are
+SUCCESS.
+017-ae repairs that missing prerequisite SOFTWARE ONLY
+(no native/client launch, no actual local fixture
+operation, no new runner/transport/privilege
+mechanism/framework; no adapter/cache/parser/compiler/
+image/Gateway/model behavior change; all original
+S/X/Y/AB/AD schemas, sealed entries, defaults and
+consumed namespaces unchanged): the independent
+native-attach PTY expectation producer through the
+EXISTING fixture owner, guarded exact-CID exec channel
+and NativeOwnerRun composition. ONE future canonical
+sealed entry `017-af` (owner-UID profile; unique path
+`oap/orders/017-af-owner-uid-native-pty-qualification.md`)
+is fixed now but INERT: its constant names the LATER
+strategic activation — the real AF order/namespace/
+admission/owner is absent now — and under AE-active it
+is refused before admission or any external work
+(hermetic synthetic repositories only); it is
+selected only by its own entry and carries DISTINCT
+identity-bearing AF tags (`slaif-017af-*` state/prep/
+owner-evidence/attach-binding/native-run/run-evidence)
+while the original, AB and AD consumers stay strict.
+The AF entry owns ONE non-resettable attach-binding
+phase in the SAME owner/RAM context/absolute END/
+ledger: a measured (possibly empty) baseline after
+prepare and the separately measured stable stop, then
+ONE bounded same-namespace second observation
+deriving an expectation ONLY from a unique fresh owned
+allocation (churn/reuse/ambiguity/malformed → typed
+refusal; a consumed failed phase never re-samples; the
+legal devpts node GID is governed by the MEASURED
+devpts policy, never assumed equal to the process
+GID), under the primary-source-verified proc tty_nr
+encoding (distinct from MKDEV) with finite signed
+limits. The producer is a minimal fixed read-only
+`python3 -I -S -c` probe admitted ONLY by the AF guard
+(the old guards refuse it byte-for-byte in meaning),
+bounded at 96 slave rows / 65536 bytes / 5 s clamped
+at every use to the remaining owner END (overbound is
+a refusal, never truncation; the measured probe UID
+must equal the frozen subject UID). Public staged
+registration goes through the EXISTING exact
+registered-CID default channel (caller overrides
+refuse) with the measured per-subject devpts namespace
+verification (bounded `/proc/<attested-pid>/root/dev/pts`
+metadata reads, 5 s bound clamped to the SAME
+original owner END, coherent before/after frames,
+final identity revalidation before any receipt
+commit): matching tty numbers, fabricated/replayed
+allocation receipts, stale stops, PID reuse, drift or
+expiry across a blocking read never establish origin,
+and a refusal commits nothing while the SAME won
+attempt converges honestly. The proof drives the REAL
+public composition over ONE coherent coupled fake
+process world with the useful 1001:1002 positive, in
+honestly named layers (pure-data, coupled public-
+lifecycle, admission/constructor, at-use boundary),
+every started test owner reaped in a per-test finally
+(the abort issued only while still held) and the
+original S/X/Y/AB/AD suites unchanged (full fixture
+regression over all eleven fixture suites 818 cases
+green pre-commit; the prescribed locked B gate is
+the final qualification). NO actual local
+Docker/fixture/admission/native/client/model/Gateway
+operation or worker stop occurred this round; the
+bounded process deviations are disclosed in the round
+report and private checkpoints. D09 remains `NOT RUN`;
+no native-ready, whole-017 or v1 runtime claim; the
+later ACTUAL qualification belongs to the separately
+authorized `017-af` order, strategy-chosen.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

@@ -45,6 +45,19 @@ Closed laws:
   versioned identity-bearing native record tags; under any other
   active order the repository-context validation refuses 017-ad
   before external fixture work or admission.
+* the canonical FUTURE native-PTY qualification entry 017-af
+  (017-ae: INERT, input-gated, unqualified) is fixed the same
+  way: it selects the SAME owner-UID profile through the closed
+  entry mapping and carries the DISTINCT versioned
+  identity-bearing record tags of the native-PTY
+  qualification (plus the DISTINCT attach-binding record).
+  INERT means the REAL active/order/admission gates refuse
+  017-af while any other order (in particular the current
+  017-ae) is active — BEFORE admission or external fixture
+  work — and no real AF order, namespace, admission or owner
+  is created in this round; its later actual qualification is
+  a separately authorized order, never a replay of a closed
+  round.
 * the entry mapping and every RuntimeProfile are IMMUTABLE: the
   selection table is a read-only view (no per-owner or caller
   mutation), and a RuntimeProfile owns immutable copies of every
@@ -91,6 +104,43 @@ AD_OWNER_STATE_SCHEMA = "slaif-017ad-owner-state-v1"
 AD_NATIVE_RUN_EVIDENCE_SCHEMA = "slaif-017ad-native-owner-run-evidence-v1"
 AD_NATIVE_RUN_SCHEMA = "slaif-017ad-native-owner-run-v1"
 AD_OWNER_RUN_SCOPE = "slaif-017ad-owner-uid-scope"
+
+# The canonical FUTURE native-PTY qualification entry (017-ae:
+# INERT, input-gated, unqualified): the LATER separately
+# authorized actual qualification round.  It selects the SAME
+# owner-UID profile through the closed entry mapping (exactly
+# as AB and AD do) and carries the DISTINCT versioned
+# identity-bearing record tags of the native-PTY
+# qualification — the closed EXISTING records (the original,
+# the AB and the AD forms) keep their exact historical key
+# sets and tag laws byte-for-byte, and 017-ad in particular
+# stays CLOSED and unchanged (its round is complete; no new
+# AD record form is minted here).  INERT means the REAL
+# active/order/admission gates refuse 017-af while ANY other
+# order (in particular the current 017-ae) is active — BEFORE
+# admission or external fixture work (proven in hermetic
+# synthetic repositories only): no real AF order, no AF
+# namespace, no AF admission, no AF owner is created in this
+# round.  Registering the constants is NOT activating the
+# entry.
+AF_ORDER_ID = "017-af"
+AF_ORDER_PATH = "oap/orders/017-af-owner-uid-native-pty-qualification.md"
+AF_OWNER_STATE_SCHEMA = "slaif-017af-owner-state-v1"
+AF_NATIVE_RUN_EVIDENCE_SCHEMA = "slaif-017af-native-owner-run-evidence-v1"
+AF_NATIVE_RUN_SCHEMA = "slaif-017af-native-owner-run-v1"
+AF_OWNER_RUN_SCOPE = "slaif-017af-owner-uid-scope"
+# The DISTINCT identity-bearing attach-binding record of the
+# native attach-binding phase owned by the selected native
+# entry (017-ae software, 017-af qualification): the measured
+# fixture-namespace devpts baseline, the second bounded
+# observation, the UNIQUE fresh owned allocation and the
+# independently derived expected proc tty_nr (the primary-
+# source-verified new_encode_dev encoding, distinct from the
+# kernel-internal MKDEV layout).  The record is bound to the
+# AF entry's exact order in its own tag-pair law; the attach-
+# binding facts live in this distinct honest version, never
+# widened into an old consumer.
+AF_NATIVE_ATTACH_BINDING_SCHEMA = "slaif-017af-native-attach-binding-v1"
 
 # The closed NATIVE executable-measurement bounds of the 017-ad
 # entry: exactly 320 MiB (335544320 bytes) and 10 s — a
@@ -154,6 +204,12 @@ _ENTRY_PROFILES_LITERAL: dict[str, str] = {
     # the canonical FUTURE native entry (INERT in 017-ac): the
     # SAME owner-UID profile selection, distinct native records
     AD_ORDER_ID: PROFILE_OWNER_UID,
+    # the canonical FUTURE native-PTY qualification entry
+    # (INERT in 017-ae): the SAME owner-UID profile selection
+    # through the existing owner composition — inertness is the
+    # REAL active/order/admission gate refusing 017-af under
+    # any other active order, never a missing profile mapping
+    AF_ORDER_ID: PROFILE_OWNER_UID,
 }
 
 # The immutable canonical entry mapping: no per-owner or caller

@@ -1145,6 +1145,88 @@ binding 45, controller 33, native_handoff 22 — 759
 cases, frozen Python 3.12 / umask 022 child).  D09
 remains NOT RUN; no v1 runtime claim.
 
+Round 017-ad closed PARTIAL with the ordered actual
+single-attempt native handoff qualification NOT RUN
+(never PASS, never waived): the pre-admission
+engineering gap was found during the required private
+preparation, so NO local test/fixture operation
+occurred in that round — no new tests, no suite
+changes, no local fixture/native/client operation.
+The fresh CI jobs at the implementation head ran the
+existing fixture checks under their original scope.
+The existing suites are untouched and retain their
+recorded checkpoints; D09 remains NOT RUN.
+
+Round 017-ae (software-only) proves the independent
+native-attach PTY expectation producer over REAL
+constructors / public lifecycle / production
+validators with injected FAKE platform operations
+only (fake git, fake docker, fake process table,
+faithful narrow metadata seams, owned synthetic
+repositories); NO actual local Docker/fixture/
+admission/native/client/model operation occurred. The
+two modified fixture suites collect 205 tests at the
+current source
+(`tests/test_cache_native_fixture_native_handoff.py` 53,
+`tests/test_cache_native_fixture_native_prep.py` 152 collected):
+the handoff suite adds the COUPLED fake-world AF
+layer — the full public-lifecycle positive (start/
+prepare/observe/stop/baseline/launch/derive → AF
+default-factory registration bound to THIS owner's
+exact registered CID and the SAME absolute owner END
+→ explicit fake native exit → finish / restore /
+publish / finalize / admission / evidence over the
+distinct `slaif-017af-*` tags with the SAME frozen
+identity cross-bound at every layer, the unrelated
+same-UID worker surviving, the global subject-UID
+scan trapped) and its contrasts (a foreign probe UID
+consumes the failed phase with no baseline/receipt/
+resample; drift/expiry/copy-failure retain the
+failure before any commit; the exact AF-only guard —
+the original default matcher tuple and every AB/AD
+matcher refusing the exact new probe plus every
+mutated argv, with the matching original-profile user
+proving the operation itself is unavailable, not
+merely the wrong user; the probe refusing foreign or
+unprepared targets; the one-shot second-publication
+and pre-existing-destination refusals) — and the at-
+use boundary case, which drives the REAL
+`owner.devpts_inventory` over a fresh owner per case
+(valid complete capture; exec-failed; discarded-
+prefix capture-invalid; over-cap; late-return END
+expiry; identity drift with the reader called exactly
+twice). The prep suite adds the pure-data layer (the
+devpts-inventory / allocation / attach-binding
+codecs: closed fields and bounds — 96 rows, 65536
+bytes, canonical name grammar, finite Linux UID/GID
+domains, measured devpts policy, duplicate-key and
+deep-under-byte-cap nesting normalization — plus
+replay/foreign/malformed refusals and the object-
+binding round trip) and the exact `-I -S` startup-
+isolation test (two bounded owned NON-Codex children
+on the SAME base interpreter with separate fresh
+owned base dirs and minimal fresh HOME/
+PYTHONUSERBASE/PYTHONPATH environments: the un-
+isolated control executes both synthetic startup
+canaries into owned markers; the exact `-I -S` child
+leaves every marker absent and the site/sitecustomize/
+usercustomize modules unloaded; the devpts probe is
+never executed and the host devpts never read). EVERY
+started test owner is reaped in a per-test finally
+before monkeypatch teardown (the bounded exact-owner
+abort is issued only while still held; an already-
+converged owner is simply joined, so a positive test
+finishes normally and stays a pass; no framework, no
+host cleanup). The full fixture regression over ALL
+eleven fixture suites is 818 passed (frozen Python
+3.12.15 / umask 022 test child; pre-commit
+development capture — the prescribed locked B gate
+is the final qualification); the original
+S/X/Y/AB/AD suites retain their recorded
+checkpoints unchanged. D09 remains NOT RUN; no
+native-ready or v1 runtime claim; the `017-af` entry
+is INERT in this round.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

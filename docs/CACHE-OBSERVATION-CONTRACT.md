@@ -3107,6 +3107,226 @@ change).
   claim. The later serial native handoff remains the
   separately authorized `017-ad` order.
 
+### 11m. Round 017-ae: independent native-attach PTY expectation producer (software-only)
+
+Round 017-ad closed as PARTIAL, and its prescribed
+actual single-attempt native handoff qualification was
+NOT RUN — never PASS, never waived. During the required
+private preparation (no local test/fixture operation,
+no source/helper/test/lock/workflow change) the
+pre-admission engineering gap was found: no existing
+seam produces the native expected PTY independently.
+The candidate host /dev/pts delta was REJECTED (kernel
+devpts mounts have independent allocation domains;
+equal device numbers do not prove one mount/allocation)
+and the checkpoint 0001–0003 findings were accepted
+WITH QUALIFICATION (immutable references: the AD round
+report SHA-256
+fb075eaf87cbb45241337f3a0ececcb41dae9f6141081cfb9f82fb47957d9717
+and `reviews/017-ad-decision.md`). Round 017-ae repairs
+that missing prerequisite SOFTWARE ONLY through the
+EXISTING fixture owner, guarded exact-CID exec channel
+and NativeOwnerRun composition (no native/client
+launch, no actual local fixture operation, no new
+runner, supervisor, watchdog, transport, privilege
+mechanism or framework; no adapter/cache/parser/
+compiler/image/Gateway/model behavior change; all
+original S/X/Y/AB/AD schemas, sealed entries, defaults
+and consumed namespaces unchanged).
+
+- ONE new future canonical sealed entry `017-af`
+  (owner-UID profile; unique order path constant
+  `oap/orders/017-af-owner-uid-native-pty-qualification.md`)
+  is fixed now but INERT: the constant names the LATER
+  strategic activation — not an already-committed or
+  activated AF order or run authority; the real AF
+  order/namespace/admission/owner is ABSENT (verified
+  before activation), and under AE-active the entry is
+  refused BEFORE admission or any external work
+  (proven only in hermetic synthetic repositories,
+  never in the real checkout). AF is selected ONLY by
+  its own entry — never a generic wildcard or caller
+  flag; the original AD stays strictly AD.
+- DISTINCT identity-bearing AF wire tags (closed list,
+  one literal each): `slaif-017af-owner-state-v1`
+  (owner state), `slaif-017af-native-handoff-prep-v1`
+  (preparation snapshot for the AF subject),
+  `slaif-017af-native-owner-evidence-v1` (native-owner
+  evidence — producer of the nested native facts,
+  frozen identity substructure cross-bound),
+  `slaif-017af-native-attach-binding-v1` (attach
+  binding record: record/baseline/observation/
+  allocation/expected_tty_nr/encoding/binding/cid/
+  namespace/phase/identity),
+  `slaif-017af-native-owner-run-v1` (native run
+  terminal record),
+  `slaif-017af-native-owner-run-evidence-v1`
+  (backend owner-run terminal evidence) and the scope constant
+  `slaif-017af-owner-uid-scope`. The original fixed-
+  21002, AB and AD consumers stay strict (including
+  equal-numeric cross-profile separation); the
+  original `slaif-native-handoff-prep-v1` and the AD
+  `slaif-017ad-*` tags keep their closed meanings —
+  the old-tag prep consumer refuses the owner-UID
+  identity form, and a relabeled AF record of the
+  original tag can never parse as an original record.
+- Attach-binding phase (ONE, non-resettable, in the
+  SAME owner RAM context / absolute 1800 s END /
+  cumulative ledger / 600 s convergence grace): AFTER
+  the original prepare and the separately measured
+  stable worker stop, ONE measured baseline is
+  collected through the owner (an EMPTY baseline is a
+  valid measured state, not missing output; bound to
+  the original owner/run/head/admission/profile/
+  exact-CID/namespace/phase; caller JSON/data/ready
+  flag/descriptor never mints measured origin). After
+  the attach, ONE second bounded same-namespace
+  observation may derive an expectation ONLY from a
+  unique fresh OWNED allocation, with observed
+  baseline/device/inode/owner/namespace coherence and
+  the legal devpts node GID governed by the MEASURED
+  devpts policy (never assumed equal to the process
+  GID). Multiple candidates, removal/reuse/
+  contradictory baseline, missing/changed namespace,
+  unreadable/oversized/malformed rows, failed exec or
+  churn uncertainty stay a TYPED refusal (closed
+  reason vocabulary) — no second baseline, no
+  cosmetic re-snapshot, no fresh window; a CONSUMED
+  failed phase retains the failure and never
+  re-samples (registration may retry corrected
+  parameters against the SAME already-measured
+  receipt, never resample allocations). The measured
+  probe UID must equal the FROZEN subject UID at the
+  owner measurement boundary.
+- Expectation encoding: the PRIMARY-SOURCE-VERIFIED
+  Linux proc tty_nr encoding, distinct from the
+  kernel-internal MKDEV layout: reference unsigned
+  encoding `(minor & 0xff) | (major << 8) | ((minor &
+  ~0xff) << 12)` as in the primary kernel kdev_t.h,
+  emitted through signed tty_nr by proc array.c
+  (136:0 → 34816 where MKDEV is 142606336; root-
+  verified 136:256 → 1083392, 1024:0 → 262144).
+  Finite/signed limits are enforced (0 < tty_nr ≤
+  2^31-1); unrepresentable or non-positive values
+  refuse; the strict-positive expected-PTY law holds;
+  no general conversion is inferred from one sample.
+- Producer probe: a minimal FIXED read-only
+  `python3 -I -S -c` program admitted ONLY by the AF
+  guard (the original default and every AB/AD matcher
+  stay byte-for-byte in meaning and refuse the exact
+  new probe plus every mutated argv; the -it /
+  controller-user / env / env-file forms are never
+  inherited). The probe inventories ONLY the
+  registered fixture's OWN devpts namespace: at most
+  96 slave-device rows (the reserved ptmx node is not
+  a slave; unknown names and numeric non-character
+  entries refuse, never silently continue), 65536
+  output bytes (the drained-total law: a retained
+  valid prefix with discarded extra output is not a
+  complete observation), 5 s per probe, clamped AT
+  EVERY USE to min(start+5 s, the SAME original owner
+  END) — the cleanup grace is convergence, never fresh
+  measurement; an already-expired/equal END refuses
+  before the first read, and expiry is re-checked
+  between blocking reads and at the final frame. The
+  probe carries a bounded MEASURED devpts-policy fact
+  (node GID/mode) bound to the same namespace/root;
+  every node's filesystem identity is checked against
+  the measured devpts root and the namespace/root
+  frame is re-checked AFTER collection. Malformed
+  records, duplicate keys and deep-under-byte-cap
+  nesting are normalized typed refusals, never raw
+  exceptions. The isolated interpreter never executes
+  user startup/site modules (proven with bounded owned
+  NON-Codex children against synthetic startup
+  canaries; the devpts probe itself is never executed
+  in that proof).
+- Public staged registration: AF registers through its
+  OWN default exact registered-CID native channel
+  (caller channel overrides refuse; the default 320
+  MiB / 10 s native current-executable law and the
+  original Python 16 MiB / 10 s bound are unchanged)
+  with coherent before/after PID/birth/UID/GID/
+  groups/argv/PTY/CID/current-exe frames and the SAME
+  frozen context COMPARED, never rebased, plus the
+  measured per-subject devpts namespace verification:
+  bounded `/proc/<attested-pid>/root/dev/pts` and
+  selected-slave metadata reads through the existing
+  scoped/birth-bound CID table (5 s operation bound
+  clamped to the SAME original owner END; permission
+  bits normalized while the character-device and
+  device-identity checks are retained; the node device
+  must equal the measured devpts root device) and the
+  final subject frame revalidated AFTER the blocking
+  operations and BEFORE any receipt commit, bound to
+  the ORIGINAL collected PID/birth (a reused PID
+  cannot validate itself). Matching tty NUMBERS alone
+  never establish origin (an equal number in a foreign
+  devpts namespace fails); a fabricated/caller/
+  replayed allocation receipt, stale stop, PID reuse,
+  current-exe race, post-admission/pre-registration
+  identity drift, or expiry across a blocking read or
+  final frame refuses; a refusal commits NO subject
+  receipt/baseline/stop change and the SAME won
+  attempt converges honestly.
+- Publication: owner evidence FIRST, protected native
+  terminal record SECOND, SAME pending-pass
+  finalization LAST (one-shot, fail-if-exists, no
+  fresh-path retry).
+- Proof: REAL constructors / public lifecycle /
+  production validators over ONE coherent coupled
+  fake process world with the useful unequal 1001:1002
+  identity (full public-lifecycle positive: measured
+  empty baseline → one new device → independent
+  correct expectation → CID/native comparison →
+  evidence / retention / one-shot finalization; the
+  unrelated same-UID worker survives; a global
+  subject-UID scan is trapped and never called).
+  Honestly named layers: pure-data (inventory/
+  allocation/attach-binding codecs, closed bounds,
+  malformed-input and deep-nesting normalization,
+  replay/foreign refusals), coupled public-lifecycle
+  (the real public positive and contrasts: probe-UID
+  boundary, foreign namespace, churn/reuse, post-
+  admission/pre-registration drift, expiry across
+  blocking reads, one-shot publication, pre-existing
+  destination), admission/constructor (AF selection
+  positive, AE-active refusal over an owned synthetic
+  repository, canonical path, guard construction) and
+  at-use boundary (the REAL `owner.devpts_inventory`
+  over fake executor failures: exec-failed, discarded-
+  prefix capture-invalid, over-cap, late-return END
+  expiry, identity drift). EVERY started test owner is
+  reaped in a per-test finally before monkeypatch
+  teardown (the bounded exact-owner abort issued only
+  while still held; an already-converged owner is
+  simply joined; no framework, no host cleanup). The
+  two AE-modified fixture suites collect 205 tests
+  (native_handoff 53 / native_prep 152 collected
+  tests); the full fixture regression over ALL
+  eleven fixture suites is 818 passed (frozen
+  Python 3.12.15, umask 022 test child; pre-commit
+  development capture — the prescribed locked B
+  gate is the final qualification); the original
+  S/X/Y/AB/AD suites are unchanged.
+- NOT RUN / unqualified: NO actual local Docker/
+  fixture/admission/native/client/model/Gateway
+  operation, no worker stop, no host /dev/pts
+  enumeration in the ordered scope; D09 remains NOT
+  RUN; no native-ready, whole-017 or v1 runtime
+  claim. Bounded process deviations (one out-of-scope
+  host devpts inventory read — observed read-only,
+  full original invocation unverified, no categorical
+  host-mutation-absence claim; manual /tmp canary-
+  experiment objects preserved AS IS; manual Python
+  invocations without -B; the first isolation-test
+  variant's ambient-environment controls, with no
+  credential claim) are disclosed in the round report
+  and the private deviation checkpoints. The LATER
+  ACTUAL qualification belongs to the separately
+  authorized `017-af` order, strategy-chosen.
+
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family
