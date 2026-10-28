@@ -2248,11 +2248,7 @@ class LocalFixtureOwner:
             # and the full ORIGINAL verified order/head/run
             # binding frozen with the context (tag/fingerprint
             # alone are integrity, never owner-ID origin).
-            state["record"] = (
-                AB_STATE_SCHEMA
-                if ctx.order_id == AB_ORDER_ID
-                else AD_STATE_SCHEMA
-            )
+            state["record"] = AB_STATE_SCHEMA if ctx.order_id == AB_ORDER_ID else AD_STATE_SCHEMA
             state["order"] = ctx.order_id
             state["bind_head"] = ctx.bind_head
             state["identity"] = {
@@ -3960,11 +3956,7 @@ class LocalFixtureOwner:
                 if ctx.order_id == AB_ORDER_ID
                 else AD_OWNER_RUN_EVIDENCE_SCHEMA
             ),
-            "scope": (
-                AB_OWNER_RUN_SCOPE
-                if ctx.order_id == AB_ORDER_ID
-                else AD_OWNER_RUN_SCOPE
-            ),
+            "scope": (AB_OWNER_RUN_SCOPE if ctx.order_id == AB_ORDER_ID else AD_OWNER_RUN_SCOPE),
             "identity": {
                 "profile": ctx.profile.profile,
                 "fingerprint": ctx.fingerprint,

@@ -143,9 +143,9 @@ from typing import Protocol
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_native_fixture_binding as binding  # noqa: E402
+import cache_native_fixture_ci as ci  # noqa: E402
 import cache_native_fixture_identity as fidentity  # noqa: E402
 import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
-import cache_native_fixture_ci as ci  # noqa: E402
 
 FixtureError = ci.FixtureError
 OrderRunBinding = binding.OrderRunBinding  # typed alias for the public seam
@@ -875,7 +875,11 @@ def argv_digest(argv: Sequence[str]) -> str:
 
 
 def _check_identity_fields(
-    uid: object, gid: object, groups: object, argv: object, tty: int,
+    uid: object,
+    gid: object,
+    groups: object,
+    argv: object,
+    tty: int,
     subject_identity: tuple[int, int, tuple[int, ...]] | None = None,
 ) -> None:
     """The closed identity law, shared by the collector and the
@@ -1958,6 +1962,7 @@ class NativeOwnerFacts:
     executable identity (``binary_sha256``) is the measured
     half of the immutable image binding: the later subject's
     MEASURED exe identity must match it."""
+
     # the frozen owner-identity substructure of the DISTINCT
     # 017-ad identity-bearing record (closed data integrity —
     # never a measured-authority claim); None for the original
@@ -3257,9 +3262,7 @@ class NativeHandoffWorkflow:
             # (the original fixed-21002 workflow keeps the
             # historical tag byte-for-byte, no identity key)
             snapshot["record"] = AD_NATIVE_PREP_SCHEMA
-            snapshot["identity"] = _ad_identity_substructure_from_triple(
-                self._subject_identity
-            )
+            snapshot["identity"] = _ad_identity_substructure_from_triple(self._subject_identity)
         return snapshot
 
     def finalize(self, owner_record: Mapping | None) -> HandoffVerdict:

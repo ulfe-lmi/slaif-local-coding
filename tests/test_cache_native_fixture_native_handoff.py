@@ -42,8 +42,8 @@ import json
 import os
 import shutil
 import socket
-import time
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +69,9 @@ def _load_test_module(name: str, path: Path) -> Any:
 # below stay shared and consistent across this module.
 aa = _load_test_module("oap_ac_aa", REPO_ROOT / "tests" / "test_cache_native_fixture_owner_uid.py")
 stl = _load_test_module("oap_ac_stl", REPO_ROOT / "tests" / "test_cache_native_fixture_local.py")
-stp = _load_test_module("oap_ac_stp", REPO_ROOT / "tests" / "test_cache_native_fixture_native_prep.py")
+stp = _load_test_module(
+    "oap_ac_stp", REPO_ROOT / "tests" / "test_cache_native_fixture_native_prep.py"
+)
 
 # The REAL composition module, canonical name (it reuses the
 # same ci/local/prep/binding instances the suites above loaded).
@@ -132,7 +134,10 @@ def _ad_identity_dict() -> dict[str, object]:
     """The frozen owner-identity substructure the production
     code derives from the frozen triple (never hand-typed
     digests)."""
-    return fp._ad_identity_substructure_from_triple((SUBJ_UID, SUBJ_GID, (SUBJ_GID,)))
+    result: dict[str, object] = fp._ad_identity_substructure_from_triple(
+        (SUBJ_UID, SUBJ_GID, (SUBJ_GID,))
+    )
+    return result
 
 
 def _ad_reader() -> tuple[int, int, int, int, int, int]:
@@ -171,7 +176,6 @@ def _ad_repo(base: Path, *, active_order: str = AD_ORDER_ID) -> Path:
 def _ad_git_runner(repo: Path, *, head: str = HEAD, active_order: str = AD_ORDER_ID) -> Any:
     """The fake committed-context git runner (read-only queries
     only) for the synthetic repository."""
-    active_name = AD_ORDER_NAME if active_order == AD_ORDER_ID else AC_ORDER_NAME
 
     def git_runner(args: list[str], cwd: Path) -> bytes:
         if args == ["rev-parse", "HEAD"]:
@@ -254,13 +258,15 @@ def _worker_proc(state: str, *, tpgid: int, start: int = WORK_START) -> dict[str
     (a reset of the status bytes would make any same-UID
     survival claim dishonest)."""
     return {
-        "stat": stp.stat_line(WORK_PID, "codex", state, BASH_PID, WORK_PID, 99, stp.TTYS, tpgid, start),
+        "stat": stp.stat_line(
+            WORK_PID, "codex", state, BASH_PID, WORK_PID, 99, stp.TTYS, tpgid, start
+        ),
         "cmdline": stp.CODEX_CMDLINE,
         "status": stp.status_bytes(SUBJ_UID, SUBJ_UID),
     }
 
 
-class _ADWorld(aa._World):
+class _ADWorld(aa._World):  # type: ignore[name-defined,misc]
     """The ONE canonical AD fake process map, observed by
     everything: the workflow's host table (bash 40, the
     unrelated same-UID worker 50 — both OUTSIDE the container
@@ -273,6 +279,8 @@ class _ADWorld(aa._World):
     lifecycle is the operator's EXPLICIT launch/exit event —
     never a docker-detached hold, never the AA finite-hold
     clock."""
+
+    subject: dict[str, object] | None
 
     def __init__(self, proc_root: Path) -> None:
         super().__init__(proc_root)
@@ -300,9 +308,7 @@ class _ADWorld(aa._World):
         )
         d = self.proc_root / str(NAT_PID)
         d.mkdir(parents=True, exist_ok=True)
-        (d / "cgroup").write_text(
-            f"0::/system.slice/docker-{self.cid}.scope\n", encoding="ascii"
-        )
+        (d / "cgroup").write_text(f"0::/system.slice/docker-{self.cid}.scope\n", encoding="ascii")
         (d / "stat").write_text(
             stp.stat_line(NAT_PID, "codex", "S", 1, NAT_PID, 77, stp.TTYS, NAT_PID, NAT_START),
             encoding="ascii",
@@ -323,7 +329,7 @@ class _ADWorld(aa._World):
         self.subject_started_at = None
 
 
-class _ADFakeDocker(aa.AAFakeDocker):
+class _ADFakeDocker(aa.AAFakeDocker):  # type: ignore[name-defined,misc]
     """The scripted fake docker over the AD coupled world: the
     closed original surface plus the owner-scoped argv (the
     frozen 1001:1002 exec user, the explicit v2 closed stand-in
@@ -427,6 +433,7 @@ def _join_run(run: Any) -> None:
             flocal._control_client(run._control_dir, "abort", run._run_id, timeout=15.0)
     thread.join(60.0)
     assert not thread.is_alive(), "owner thread did not converge after bounded abort"
+
 
 @contextlib.contextmanager
 def _owned_run(run: Any) -> Any:
@@ -632,7 +639,13 @@ def test_ad_full_public_native_lifecycle_pass(
 
         # the same frozen identity across EVERY retained layer of
         # the same attempt (no rebase anywhere in the composition)
-        assert prepared["identity"] == identity == snapshot["identity"] == ev_raw["identity"] == record_doc["identity"]
+        assert (
+            prepared["identity"]
+            == identity
+            == snapshot["identity"]
+            == ev_raw["identity"]
+            == record_doc["identity"]
+        )
 
         # ONE shared run context: the SAME frozen owner context, END
         # anchor and ledger across the whole lifecycle (compared,
@@ -645,8 +658,6 @@ def test_ad_full_public_native_lifecycle_pass(
         # its closed historical semantics
         assert SUBJ_UID not in uid_calls
         assert CTL_UID in uid_calls
-
-
 
 
 # -- the native-still-alive contrast (quiesce must measure it) ---------------------
@@ -754,9 +765,7 @@ def _drive_to_finish(
         raise
 
 
-def test_ad_unknown_lifetime_frame_refuses(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ad_unknown_lifetime_frame_refuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A present-but-UNREADABLE post-removal frame is unknown,
     never a verified absence: the closed refusal converges the
     run terminal FAIL (never a fabricated zero)."""
@@ -945,9 +954,6 @@ def test_ad_foreign_registration_refused_commits_nothing(
         assert run.owner.terminal_outcome == "aborted"
 
 
-
-
-
 # -- the post-admission drift: compare at use, never rebase -----------------------
 def test_ad_post_admission_drift_refuses_at_identity_use(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1095,9 +1101,7 @@ def test_ad_finalize_refuses_foreign_identity_and_original_tag(
         # workflow's ORIGINAL frozen subject law is compared,
         # never adopted
         foreign = copy.deepcopy(native_record)
-        foreign["identity"] = fp._ad_identity_substructure_from_triple(
-            (1003, 1004, (1004,))
-        )
+        foreign["identity"] = fp._ad_identity_substructure_from_triple((1003, 1004, (1004,)))
         with pytest.raises(fci.FixtureError, match="prep-owner-identity-mismatch"):
             run.workflow.finalize(foreign)
         # a relabeled ORIGINAL-tag record (identity removed)
@@ -1167,9 +1171,7 @@ def test_ad_original_and_frozen_identity_laws_are_disjoint() -> None:
     refuses the fixed-21002 subject — including the equal-
     numeric cross-profile separation."""
     owner_procs = {
-        60: stp.subject_proc(
-            60, cgroup=stp.CID, uid=SUBJ_UID, gid=SUBJ_GID, groups=(SUBJ_GID,)
-        )
+        60: stp.subject_proc(60, cgroup=stp.CID, uid=SUBJ_UID, gid=SUBJ_GID, groups=(SUBJ_GID,))
     }
     owner_table = stp.FakeTable(owner_procs)
     owner_channel = stp.FakeCidScopedTable(stp.CID, owner_procs, exe_digest=FAKE_BINARY)
@@ -1283,7 +1285,7 @@ def test_ad_prepare_only_finish_is_honest_not_ready(
 # -- the one-shot publication: second publication / pre-existing destination ---------
 def _drive_to_published(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[Any, Any, _ADWorld, _ADFakeDocker, Any, dict]:
+) -> tuple[Any, Any, _ADWorld, _ADFakeDocker, Any, dict[str, Any]]:
     proc_root = tmp_path / "proc"
     proc_root.mkdir()
     world = _ADWorld(proc_root)
@@ -1403,7 +1405,6 @@ def test_ad_preexisting_native_destination_refused(
         ]
 
 
-
 # -- the pre-admission law: AD refused under AC-active ---------------------------
 def test_ad_refused_under_ac_active_before_admission(tmp_path: Path) -> None:
     """The actual repository-context validation refuses 017-ad
@@ -1490,8 +1491,9 @@ def test_canonical_entry_path_law(tmp_path: Path) -> None:
     (wrong_repo / "oap" / "active").write_bytes(AD_ORDER_ID.encode("ascii") + b"\n")
 
     def wrong_git(args: list[str], cwd: Path) -> bytes:
+        head = str(HEAD)
         if args == ["rev-parse", "HEAD"]:
-            return HEAD.encode("ascii")
+            return head.encode("ascii")
         if args == ["status", "--porcelain"]:
             return b""
         if args == ["remote", "get-url", "origin"]:
@@ -1574,8 +1576,22 @@ def test_ad_record_consumers_refuse_foreign_path() -> None:
         "record": fp.AD_NATIVE_PREP_SCHEMA,
         "binding": dict(ad_binding),
         "group": {
-            "worker": {"pid": 50, "state": "S", "pgrp": 50, "session": 50, "tty": 8, "start_time": 500},
-            "bash": {"pid": 40, "state": "S", "pgrp": 40, "session": 40, "tty": 8, "start_time": 100},
+            "worker": {
+                "pid": 50,
+                "state": "S",
+                "pgrp": 50,
+                "session": 50,
+                "tty": 8,
+                "start_time": 500,
+            },
+            "bash": {
+                "pid": 40,
+                "state": "S",
+                "pgrp": 40,
+                "session": 40,
+                "tty": 8,
+                "start_time": 100,
+            },
             "same_job": True,
             "same_tty": True,
             "foreground_pgrp": 50,
@@ -1587,9 +1603,7 @@ def test_ad_record_consumers_refuse_foreign_path() -> None:
         "identity": _ad_identity_dict(),
     }
     fp.validate_prep_snapshot(snapshot)
-    snapshot["binding"] = dict(
-        ad_binding, order_path="oap/orders/017-ad-other-synthetic-name.md"
-    )
+    snapshot["binding"] = dict(ad_binding, order_path="oap/orders/017-ad-other-synthetic-name.md")
     with pytest.raises(fci.FixtureError, match="prep-record-malformed"):
         fp.validate_prep_snapshot(snapshot)
 
@@ -1610,8 +1624,6 @@ def test_ad_record_consumers_refuse_foreign_path() -> None:
         "identity": _ad_identity_dict(),
     }
     fno.parse_native_run_record(terminal)
-    terminal["binding"] = dict(
-        ad_binding, order_path="oap/orders/017-ad-other-synthetic-name.md"
-    )
+    terminal["binding"] = dict(ad_binding, order_path="oap/orders/017-ad-other-synthetic-name.md")
     with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
         fno.parse_native_run_record(terminal)

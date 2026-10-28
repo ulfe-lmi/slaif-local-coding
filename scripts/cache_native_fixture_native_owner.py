@@ -195,11 +195,7 @@ def build_ad_native_channel(cid: str, end: float) -> prep.CidScopedTable:
     matter how often it is reused.  The original Python-entry
     bounds (16 MiB / 10 s) are a separate closed default and
     stay unchanged."""
-    if (
-        not isinstance(end, (int, float))
-        or isinstance(end, bool)
-        or not math.isfinite(end)
-    ):
+    if not isinstance(end, (int, float)) or isinstance(end, bool) or not math.isfinite(end):
         raise FixtureError("native-owner-channel-budget-invalid")
     return prep.RealCidScopedTable(
         cid,
@@ -977,10 +973,7 @@ class NativeOwnerRun:
                 outcome == "pass"
                 and subject is not None
                 and stop_recorded
-                and (
-                    self._binding.order_id != AD_ORDER_ID
-                    or owner_identity is not None
-                )
+                and (self._binding.order_id != AD_ORDER_ID or owner_identity is not None)
             ):
                 measurement = prep.OwnedOwnerMeasurement(owner, subject=subject)
                 artifact = owner.artifact
