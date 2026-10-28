@@ -3558,6 +3558,144 @@ or source/head/path/phase re-qualification):
   runtime claim.
 
 
+### 11p. Round 017-ah: ONE actual owner-UID native PTY requalification
+(verified PASS at the qualified diagnostic scope)
+
+Round 017-ah activated the sealed AH entry and executed the ONE authorized
+actual attempt on the same PR25 (no source change; attempt P
+06806eeeebac76b38f9ab5d6bbcfd2940f8b66a8; run
+1bbeeabfb9434ebf965eaa7e1a624a49; CID
+0b5d35f07f984d1fe1c3344e6f6f606afb1142bef9c5e740b14f2d2c3e9da1bc; image
+sha256:085bb42752808e9eb52192e0486306f9cc5006b6ac44e2c0049071ea63a74997):
+ONE reviewed private non-Codex operator driving the EXISTING production
+APIs over ONE managed foreground procedure, ONE resolve/constructor
+admission, ONE owner/RAM context/1800 s END/cumulative ledger/600 s
+convergence grace. The outcome is a verified actual PASS at the qualified
+diagnostic scope, delivered as an accurate PARTIAL round (the single
+preserved CI hermetic failure is documented below).
+- STOP + ATTACH (measured): the SAME worker 598258 (birth
+  150182858, tty 34834) was stopped exactly once through the
+  reviewed exact-group stop; the monitor mode was measured ON
+  via `set -o` with no option name BEFORE any setter (the
+  required attach-branch gate; OFF/unknown would apply the
+  failure law); the attach window used `set +m`, and the SAME
+  Bash foreground-launched ONE native in the exact owned
+  prepared CID with the exact frozen argv `codex --yolo
+  --profile early-beta`, the synthetic environment carried in
+  the explicit attach via the owner-created env-file path
+  (the file held the synthetic CODEX_HOME/provider-key
+  values; the retained metadata lists only the key names
+  CODEX_HOME/SLAIF_SYNTHETIC_API_KEY and the file sha256, no
+  real credentials; no key values on argv), never assumed
+  inherited.
+- SUBJECT + INDEPENDENT EXPECTED PTY (measured): uniquely
+  discovered from the exact-CID inventory (pid 3836555, birth
+  184083134 above the launch floor 184080662, UID/GID/groups
+  1001:1001/[1001] equal to the frozen owner identity, tty
+  matched); baseline zero slave rows (empty, valid), then ONE
+  fresh owned allocation 136:0 (uid 1001, node gid 5, inode 3,
+  mode 400) coherent with the baseline device and namespace
+  [1048813, 1] under the MEASURED devpts policy (fstype
+  devpts, gid 5, mode 400) - the legal node GID is governed by
+  that policy, lawfully distinct from the frozen process GID
+  1001; expected_tty_nr 34816 is the proc new-encode of 136:0
+  (never MKDEV); the guarded `-I -S` probe (site/startup
+  isolation verified) read only the fixture's OWN devpts.
+- CURRENT EXE (measured): the current executable through the
+  existing unprivileged registered-CID channel equals the
+  pinned public 0.164.0 artifact (sha256
+  b93f6811d3f653f0fb83be4050d857fb9abbb111dfa2ce160563327daff7f306,
+  308139304 bytes; archive sha256
+  90dd0b03b28afcb7fa733a4f73b413db2916a47347efd43fb669cc1c774ee8e4)
+  - binary_verified true in the retained subject frame.
+- DIAGNOSTIC + COUNT LAW (measured): ONE visible final
+  assistant answer ("slaif fixed final text") with no tool
+  call, then a normal `/exit` with the SAME Bash prompt; the
+  counts are separate ledgers, never conflated - controller
+  wire_requests 2 at the finish observation (0 / unobserved at
+  the prepare observation); the second POST's cause is
+  UNMEASURED (no retained body/status trace; no forensics or
+  rerun authorized, and it is never called a second user
+  diagnostic); controller snapshot requests 4 (including
+  quiesce/export commands); host ledger 2 API requests (2
+  admitted, 0 refused, 0 refusals, 38 docker admissions, 25617
+  bytes drained and retained); issued_calls empty; the
+  retained metadata record
+  (slaif-fixture-metadata-diagnostic-v1) proves
+  endpoint/schema/known-name presence only (10 function names;
+  known exec_command/write_stdin; 8 unknown unsupported;
+  traversal depth 3; raw content NOT retained).
+- QUIESCE / EXPORT / TEARDOWN (measured): quiesce closed-pass
+  (active 0, residual writers 0, handlers/subject/tools
+  stopped, provider sockets closed); the 3273-byte export
+  (sha256
+  3a1b5bd584414957598a6771b44817873d81bad8579d2fc831d1e6183f403861,
+  exporter uid 21001) was exported BEFORE teardown and
+  revalidated; the exact-CID teardown converged (descendants 1
+  to 0; container and image independently 404 absent-verified;
+  the unrelated same-UID sentinel survived with its birth; the
+  owner-removed env file, work/control leaves absent).
+- RESTORATION + TTY QUALIFICATION (measured): the SAME stopped
+  worker was restored in the SAME Bash - monitor restored to
+  its measured ON state, jobs-l bound the actual numeric J=1
+  to the worker group, `fg %1`, foreground re-measured 598258,
+  restoration closed "restored", worker_state S,
+  worker_stopped false at the terminal frame. The physical
+  restoration bool alone does NOT prove a functional TUI:
+  after `fg` the TUI remained canonical/echo (a continuation
+  Enter became a newline; no model turn started) and root
+  restored raw/noecho on the exact verified /dev/pts/18
+  (TCSANOW, no inputflush; no signal/restart/profile/service
+  change) before the coding input resumed.
+- PROCESS QUALIFICATIONS (by immutable reference): the
+  original fixed-21002 validator refused the AH evidence
+  before any output/file/resource query; root corrected to the
+  explicit validate_ah_owner_run_evidence - no record edit, no
+  runtime retry. The initial phase-wait creation line was a
+  parse failure (the retained wait facts were re-measured from
+  /proc and root-verified: PID 3833957, birth 184063503, state
+  S, wait_for_partner; the initial line retained as printed).
+- PUBLICATION ORDERING (measured): owner evidence FIRST
+  (production-validated), protected native terminal record
+  SECOND (one-shot, fail-if-exists), same pending-pass journal
+  finalization LAST (ONE entry pass); the retained native run
+  record's attempt field "running" is the pre-finalization
+  snapshot, and the actual journal terminal pass was verified.
+- NOT EARNED: actual tool/read/result formats;
+  multichunk/process completion (D09 - NOT RUN); the
+  required-syntax audit; whole-017 acceptance; v1 runtime; ALL
+  018-024. This diagnostic earns measured startup/request
+  schema only, never generic native compatibility.
+- CI HERMETIC FAILURE + PARTIAL DELIVERY (measured): the P CI
+  run (GitHub run 40780306145, test job 123140025243) measured
+  9 SUCCESS / 1 FAILURE: the AG-round hermetic test
+  test_ag_ah_refused_under_ag_active_before_admission
+  (tests/test_cache_native_fixture_native_handoff.py, lines
+  3498/3501/3502) ends by asserting the REAL AH
+  order/admission ABSENCE in the checkout - a premise AH
+  activation itself invalidated (the order file is committed
+  at P; the local admission namespace is consumed, so the
+  later two assertions are likewise stale). No production
+  defect or native-readiness failure is proven. AH strictly
+  forbids source/helper/test changes and in-round repair: no
+  repair, skip, xfail or conditional weakening this round; the
+  prescribed locked B gate is required once at the final
+  delivery head (its actual outcome - the single failure
+  preserved - is recorded in the immutable round report); a
+  later software continuation owns the hermetic repair (the
+  absence/nonmutation proof moved wholly
+  into owned hermetic synthetic repositories). The round is
+  delivered as an accurate PARTIAL.
+- AF is CLOSED FAILED actual native qualification (its ONE
+  admission spent forever); AD remains PARTIAL (by the
+  immutable round reports). D09 remains NOT RUN; no
+  native-ready, whole-017 or v1 runtime claim. The retained
+  actual bytes (0600 owner evidence / native run record /
+  stage log under the private AH root; the consumed
+  .oap-local/017-ah/ admission journal; root review records)
+  are inventoried in the immutable round report.
+
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

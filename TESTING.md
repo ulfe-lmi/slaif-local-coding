@@ -1382,6 +1382,84 @@ recorded checkpoints unchanged. D09 remains NOT
 RUN; no native-ready or v1 runtime claim; the
 `017-ah` entry is INERT in this round.
 
+Round 017-ah (the ONE actual attempt) adds NO tests and
+changes NO source, helper, test, lock or workflow file:
+the ordered actual owner-UID native PTY requalification
+ran EXACTLY ONCE at literal attempt head
+06806eeeebac76b38f9ab5d6bbcfd2940f8b66a8 (run
+1bbeeabfb9434ebf965eaa7e1a624a49; ONE reviewed private
+non-Codex operator over ONE managed foreground procedure,
+ONE admission) and is a verified actual PASS at the
+qualified diagnostic scope - the SAME worker 598258
+stopped exactly once through the reviewed exact-group stop
+(monitor mode measured ON before any setter, the required
+attach-branch gate), the SAME Bash foreground-attached ONE
+native in the exact owned prepared CID with the synthetic
+environment carried in the explicit attach and the frozen
+owner identity (1001:1001, groups exactly [1001]), the
+native uniquely discovered from the exact-CID inventory
+(pid 3836555, birth 184083134 above the launch floor
+184080662, exact argv `codex --yolo --profile early-beta`)
+and registered against the independently measured expected
+PTY (devpts baseline zero slave rows, then ONE fresh owned
+allocation 136:0 with node gid 5 per the measured devpts
+policy gid 5 mode 400 - lawfully distinct from the frozen
+process GID 1001 - proc tty_nr 34816, the new-encode of
+136:0, never MKDEV), the current executable MEASURED
+through the registered-CID channel and equal to the pinned
+public 0.164.0 artifact (sha256
+b93f6811d3f653f0fb83be4050d857fb9abbb111dfa2ce160563327daff7f306,
+308139304 bytes), the diagnostic earning ONE visible final
+assistant answer with no tool call then a normal /exit,
+quiesce closed-pass (residual 0), the 3273-byte export
+(exporter uid 21001) revalidated before teardown, and the
+exact-CID/image teardown converged (descendants 1 to 0;
+container/image 404 absent-verified; the unrelated
+same-UID sentinel survived). The counts are separate
+ledgers, never conflated: controller wire_requests 2 at
+finish (0/unobserved at prepare) - the second POST's cause
+is unmeasured (no retained body/status trace; no forensics
+or rerun authorized) - controller snapshot requests 4
+(including quiesce/export), host ledger 2 API requests;
+issued_calls empty. The SAME stopped worker was restored
+in the SAME Bash (jobs-l bound J=1; `fg %1`; foreground
+re-measured 598258; monitor restored to its measured ON
+state); the physical restoration bool alone does NOT prove
+a functional TUI - after `fg` the TUI remained
+canonical/echo and root restored raw/noecho on the exact
+verified /dev/pts/18 (TCSANOW, no inputflush; no
+signal/restart/profile/service change) before input
+resumed; the original fixed-21002 validator refusal
+(corrected to the explicit validate_ah_owner_run_evidence,
+no record edit, no runtime retry) and the initial
+phase-wait parse failure (facts re-measured from /proc and
+root-verified) stand as recorded process qualifications.
+The existing suites retain their recorded AG checkpoints
+unchanged (218 collected in the two AG-current fixture
+suites - native-prep 159 + native-handoff 59; 835
+collected / 835 passed pre-attempt across all eleven
+fixture suites at the historical AG source); the full
+CI suite at the attempt head P measured 3426 passed /
+28 skipped / 1 failed - the
+single failure is the AG-round hermetic test
+test_ag_ah_refused_under_ag_active_before_admission, whose
+real-checkout AH order/admission absence assertions were
+invalidated by AH activation itself (order committed at P;
+local admission namespace consumed); no production defect
+or native-readiness failure is proven, and AH forbids
+source/test repair, skip or xfail this round, so the
+prescribed locked B gate at the final delivery head is
+required once (its actual outcome - the single failure
+preserved - is recorded in the immutable round report; the
+later software continuation owns the hermetic repair). NO
+retry, re-admission or in-round source repair under AH; the
+ordered attempt is terminal and never reset or relabeled.
+This diagnostic earns measured startup/request schema only
+- never actual file-read/tool/multichunk/D09 acquisition
+or generic native compatibility. D09 remains NOT RUN; no
+native-ready or v1 runtime claim; the `017-ah` entry's ONE
+admission is terminal pass.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

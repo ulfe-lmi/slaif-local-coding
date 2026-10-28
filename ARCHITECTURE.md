@@ -787,6 +787,81 @@ transcripts; the versioned contract is [the observation
 contract](docs/CACHE-OBSERVATION-CONTRACT.md); no v1 runtime
 mechanism is active or qualified yet.
 
+Round 017-ah activated the sealed AH entry and executed the
+ONE authorized actual attempt at literal attempt head
+06806eeeebac76b38f9ab5d6bbcfd2940f8b66a8 (run
+1bbeeabfb9434ebf965eaa7e1a624a49; ONE reviewed private
+non-Codex operator over ONE managed foreground procedure,
+ONE admission): a verified actual PASS at the qualified
+diagnostic scope. The SAME worker 598258 was stopped exactly
+once through the reviewed exact-group stop (monitor mode
+measured ON before any setter, the required attach-branch
+gate); the SAME Bash then foreground-attached ONE native in
+the exact owned prepared CID with the synthetic environment
+carried in the explicit attach (never assumed inherited)
+under the frozen owner identity (1001:1001, groups exactly
+[1001]). The native was uniquely discovered from the
+exact-CID inventory (pid 3836555, birth 184083134 above the
+launch floor 184080662, exact argv `codex --yolo --profile
+early-beta`) and registered against the independently
+measured expected PTY: devpts baseline zero slave rows, then
+ONE fresh owned allocation 136:0 (uid 1001, node gid 5 per
+the measured devpts policy gid 5 mode 400 - lawfully
+distinct from the frozen process GID 1001 - proc tty_nr
+34816, the new-encode of 136:0, never MKDEV). The current
+executable was MEASURED through the registered-CID channel
+and equals the pinned public 0.164.0 artifact (sha256
+b93f6811d3f653f0fb83be4050d857fb9abbb111dfa2ce160563327daff7f306,
+308139304 bytes). The diagnostic earned ONE visible final
+assistant answer with no tool call, then a normal /exit with
+the SAME Bash prompt; the counts are separate ledgers, never
+conflated - controller wire_requests 2 at finish versus 0
+(unobserved) at prepare, controller snapshot requests 4
+(including quiesce/export), host ledger 2 API requests; the
+second POST's cause is unmeasured (no retained body/status
+trace; no forensics or rerun authorized). Quiesce
+closed-pass (residual 0); the export (3273 bytes, exporter
+uid 21001) was revalidated before teardown; the
+exact-CID/image teardown converged (descendants 1 to 0;
+container and image 404 absent-verified; the unrelated
+same-UID sentinel survived). The SAME stopped worker was
+restored in the SAME Bash (jobs-l bound J=1 to the worker;
+`fg %1`; foreground re-measured 598258; monitor restored to
+its measured ON state); the physical restoration bool alone
+does NOT prove a functional TUI - after `fg` the TUI
+remained canonical/echo and root restored raw/noecho on the
+exact verified /dev/pts/18 (TCSANOW, no inputflush; no
+signal/restart/profile/service change) before input resumed.
+Two process qualifications stand: the original fixed-21002
+validator refused the AH evidence before any
+output/file/resource query and was corrected to the explicit
+AH validator (no record edit, no runtime retry), and the
+initial phase-wait creation line was a parse failure (the
+facts were re-measured from /proc and root-verified). This
+diagnostic earns measured startup/request schema only -
+never actual file-read/tool/multichunk/D09 acquisition or
+generic native compatibility; D09 remains `NOT RUN`; no
+native-ready, whole-017 or v1 runtime claim. The P CI run
+measured 9 SUCCESS / 1 FAILURE: the AG-round hermetic test
+test_ag_ah_refused_under_ag_active_before_admission asserts
+the REAL AH order/admission absence in the checkout, which
+AH activation itself invalidated (the order file is
+committed at P; the local admission namespace is consumed) -
+no production defect or native-readiness failure is proven;
+the order forbids source/test repair, skip or xfail under
+AH, so the prescribed locked B gate is required once at
+the final delivery head (its actual outcome - the single
+failure preserved - is recorded in the immutable round
+report), and a later software continuation owns the
+hermetic repair; the round is
+delivered as an accurate PARTIAL. AF remains CLOSED FAILED
+actual qualification with its ONE admission spent forever;
+AD remains PARTIAL (by the immutable round reports). The
+retained actual bytes (0600 owner evidence / native run
+record / stage log under the private AH root, the consumed
+`.oap-local/017-ah/` admission journal, and the root review
+records) are inventoried in the immutable round report.
+
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact
 configuration is described in [the configuration reference](docs/ADAPTER-CONFIGURATION.md);
