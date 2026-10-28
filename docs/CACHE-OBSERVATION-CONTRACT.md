@@ -3327,6 +3327,90 @@ and consumed namespaces unchanged).
   authorized `017-af` order, strategy-chosen.
 
 
+### 11n. Round 017-af: ONE actual owner-UID native PTY
+qualification attempt (FAILED at preparation)
+
+Round 017-af activated the sealed entry and executed
+the ONE authorized bounded actual diagnostic
+qualification on the same PR25 (no source change;
+attempt P
+622f9a7bb52980e9358d60d8220812f66f4b4c4e; run
+30eab04899784690a3ac289b1686cb08): ONE reviewed
+private non-Codex operator driving the EXISTING
+production APIs over ONE managed foreground
+procedure (outside RIGHT, `tty:true`, pipefail + tee
+of the precreated 0600 stage log, literal P, freshly
+measured W/B/F/birth), ONE resolve/constructor
+admission, ONE owner/RAM context/1800 s END/
+cumulative ledger/600 s convergence grace.
+
+- ACTUAL OUTCOME - honest closed FAILURE at
+  preparation (never pass, never waived): the owner
+  constructed/admitted ONCE and completed the
+  artifact/build/build-context/collision/preflight/
+  prepare-target/pull/sentinels phases, then the
+  actual preparation/observation failed
+  `prep-stat-malformed`. The stage stream contains
+  ONLY `s0-preflight` and `closed-failure`: NO
+  `s0-prepared` permission, NO stop (stop never
+  POSSIBLE), NO baseline, NO attach, NO
+  discovery/derivation/registration, NO native
+  launch, NO diagnostic. One exact-owner abort
+  converged; the journal holds ONE entry (order
+  017-af, head P, status `aborted`); the owner
+  evidence validates via the production
+  `validate_af_owner_run_evidence` (status fail /
+  reason cancelled / `cleanup_failures` empty); the
+  exact owned container and image were independently
+  verified ABSENT (HTTP 404 via the verified
+  default local Docker socket); the work/control
+  roots are absent.
+- WORKER: the SAME W 598258 / birth 150182858 stayed
+  running/foreground throughout; B 2014146 / birth
+  95656910 unchanged. NO signal, fg, monitor setter
+  or restoration was required or performed (no stop
+  occurred - the restoration law was never
+  triggered).
+- DIAGNOSIS (current read-only host stat parsing
+  only; NOT a replay of the workflow and mints no
+  authority): 454 of 640 current rows were refused
+  by the pure parser; the first observed PID 2 and
+  other kernel rows carry legal pgrp 0 / session 0 /
+  tty 0 / tpgid -1 while the parser demands positive
+  pgrp/session - a concrete reproducible defect
+  class. The ORIGINAL exact failing row was NOT
+  captured and MUST NOT be invented. The operator's
+  `prep-stat-malformed` and the owner's `cancelled`
+  are DISTINCT facts.
+- PUBLICATION: the protected AF native terminal
+  record publication was attempted ONCE, raised
+  (type only - no invented deeper exception
+  reason); the record is ABSENT. No publication
+  retry, no new destination, no relabel.
+- RETAINED ACTUAL BYTES (0600, preserved AS IS):
+  owner evidence
+  `2cb066c380d0b7532cc790613b522c85c57b048d58a386dec3a99d10434a93b9`
+  (1358 B), operator stage log
+  `c79ab2bfa783f9bb7dcc03b17ecbb74341006ec315cc7d100d4556d6588a941f`
+  (569 B) under the private AF root, and the
+  admission record
+  `43fae6ff80a0780c28dffbd09fd3247a65e9435cec6acb10b0f0d3f4bfc4ac78`
+  (187 B) under `.oap-local/017-af/`.
+- LAW: no retry, no re-admission, no namespace
+  reset, no in-round source repair under AF; a later
+  strategic continuation owns the software repair
+  and a SEPARATELY SEALED later attempt (never
+  resetting AF). The ordered native qualification
+  is FAILED (never pass): actual preparation FAILED,
+  worker stop NOT RUN, native NOT RUN - distinct
+  measured statuses, never relabeled. No
+  model/Gateway request; all protected
+  Qwen/model/network/key/profile state unchanged.
+  D09 remains NOT RUN; no native-ready, whole-017
+  or v1 runtime claim; ALL 018-024 remain
+  mandatory.
+
+
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
 Round 017-i lands `scripts/real_client_capture.py` (schema family

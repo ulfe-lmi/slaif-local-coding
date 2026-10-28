@@ -636,6 +636,54 @@ report and private checkpoints. D09 remains `NOT RUN`;
 no native-ready, whole-017 or v1 runtime claim; the
 later ACTUAL qualification belongs to the separately
 authorized `017-af` order, strategy-chosen.
+
+017-af activated that sealed entry and ran the ONE
+bounded actual diagnostic qualification attempt at
+literal attempt head
+`622f9a7bb52980e9358d60d8220812f66f4b4c4e`
+(run `30eab04899784690a3ac289b1686cb08`; exact
+reviewed private non-Codex operator, ONE managed
+foreground procedure, ONE admission). The attempt is
+an honest closed FAILURE at preparation: the owner
+constructed/admitted ONCE, completed the artifact/
+build/build-context/collision/preflight/prepare-
+target/pull/sentinels phases, then the actual
+preparation/observation failed `prep-stat-malformed`
+BEFORE the stop permission emission, so the stage
+stream contains only `s0-preflight` and `closed-
+failure`: NO stop, NO baseline, NO attach, NO native
+launch, NO diagnostic. One exact-owner abort
+converged; the journal holds ONE entry (status
+`aborted`); the owner evidence validates (production
+validator) with status fail / reason cancelled / no
+cleanup failures; the exact owned container and
+image were independently verified absent (HTTP 404 on
+the verified default local Docker socket). The SAME
+worker `598258` stayed running/foreground throughout
+(no signal, fg, monitor setter or restoration was
+required or performed because no stop occurred). A
+current read-only parser diagnosis (454 of 640 host
+stat rows refused; kernel rows carry legal pgrp 0 /
+session 0 / tty 0 / tpgid -1 that the pure parser
+rejects) identifies a concrete reproducible class,
+but the original exact failing row was NOT captured
+and is never invented; the operator's
+`prep-stat-malformed` and the owner's `cancelled`
+stay distinct facts. The protected native record
+publication was attempted ONCE, raised (type only,
+no deeper reason) and the record is ABSENT - no
+retry, no new destination. No source/helper/test/
+lock/workflow change occurred in that round and no
+retry, re-admission or source repair happened under
+AF; a later strategic continuation owns the software
+repair and a separately sealed later attempt. The
+ordered native qualification is FAILED (never pass):
+actual preparation FAILED, worker stop NOT RUN,
+native NOT RUN. D09 remains `NOT RUN`; no native-
+ready, whole-017 or v1 runtime claim; ALL 018-024
+remain mandatory. The measured outcome and retained
+actual bytes are recorded in the immutable round
+report.
 Detailed round history is in [the stage
 ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP
 transcripts; the versioned contract is [the observation

@@ -992,6 +992,57 @@ no native-ready or v1 runtime claim; the later ACTUAL
 qualification belongs to the separately authorized
 `017-af` order, strategy-chosen.
 
+Round 017-af activated the sealed entry and
+executed the ONE authorized actual attempt at
+literal attempt head
+622f9a7bb52980e9358d60d8220812f66f4b4c4e (run
+30eab04899784690a3ac289b1686cb08; ONE reviewed
+private non-Codex operator, ONE managed foreground
+procedure, ONE admission): an honest closed FAILURE
+at preparation, never pass - the owner
+constructed/admitted ONCE, completed the artifact/
+build/build-context/collision/preflight/prepare-
+target/pull/sentinels phases, then the actual
+preparation/observation failed
+`prep-stat-malformed` BEFORE the stop permission
+emission (stage stream: `s0-preflight` then
+`closed-failure` only; NO stop permission/stop,
+baseline, attach, registration, native launch or
+diagnostic; stop never POSSIBLE). One exact-owner
+abort converged; journal ONE entry `aborted`; owner
+evidence production-validated (fail / cancelled / no
+cleanup failures); exact owned container and image
+independently verified absent (HTTP 404 on the
+verified default local socket); work/control
+absent. The SAME worker 598258 stayed
+running/foreground throughout - no signal, fg,
+monitor setter or restoration required or performed
+(no stop occurred). Current read-only parser
+diagnosis: 454 of 640 host stat rows refused (kernel
+rows carry legal pgrp 0 / session 0 / tty 0 / tpgid
+-1 that the pure parser rejects) - a concrete
+reproducible class; the original exact failing row
+was NOT captured and is never invented;
+`prep-stat-malformed` (operator) and `cancelled`
+(owner) stay distinct facts. The protected native
+record publication was attempted ONCE, raised (type
+only), record ABSENT; no retry, no new destination.
+NO source/helper/test/lock/workflow change, no
+retry, re-admission or source repair under AF; a
+later strategic continuation owns the software
+repair and a separately sealed attempt (never
+resetting AF). The ordered native qualification is
+FAILED (never pass): preparation FAILED, worker stop
+NOT RUN, native NOT RUN - distinct measured
+statuses, never relabeled. No model/Gateway
+request; all protected Qwen/model/network/key/
+profile state unchanged. The measured outcome and
+retained actual bytes (0600 owner evidence / stage
+log / admission record, private AF root and
+`.oap-local/017-af/`) are in the immutable round
+report. D09 remains `NOT RUN`; no native-ready or
+v1 runtime claim; ALL 018–024 remain mandatory.
+
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

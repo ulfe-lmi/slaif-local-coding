@@ -1227,6 +1227,53 @@ checkpoints unchanged. D09 remains NOT RUN; no
 native-ready or v1 runtime claim; the `017-af` entry
 is INERT in this round.
 
+Round 017-af (the ONE actual attempt) adds NO tests
+and changes NO source, helper, test, lock or
+workflow file: the ordered actual diagnostic
+qualification ran EXACTLY ONCE at literal attempt
+head 622f9a7bb52980e9358d60d8220812f66f4b4c4e (run
+30eab04899784690a3ac289b1686cb08; ONE reviewed
+private non-Codex operator over ONE managed
+foreground procedure, ONE admission) and is an
+honest closed FAILURE at preparation, never pass -
+the owner constructed/admitted ONCE, completed the
+artifact/build/build-context/collision/preflight/
+prepare-target/pull/sentinels phases, then the
+actual preparation/observation failed
+`prep-stat-malformed` BEFORE the stop permission
+emission (stage stream `s0-preflight` then
+`closed-failure` only: NO stop, NO baseline, NO
+attach, NO native launch, NO diagnostic; stop never
+POSSIBLE). One exact-owner abort converged; journal
+ONE entry `aborted`; owner evidence production-
+validated (fail / cancelled / no cleanup failures);
+exact owned container and image independently
+verified absent (HTTP 404 on the verified default
+local socket); work/control absent; the SAME worker
+598258 stayed running/foreground throughout (no
+signal/fg/monitor setter/restoration required or
+performed). A current READ-ONLY parser diagnosis
+(454 of 640 host stat rows refused - kernel rows
+carry legal pgrp 0 / session 0 / tty 0 / tpgid -1
+that the pure parser rejects) identifies a concrete
+reproducible class, but the original exact failing
+row was NOT captured and is never invented; the
+operator's `prep-stat-malformed` and the owner's
+`cancelled` stay distinct facts. No retry,
+re-admission or in-round source repair under AF; a
+later strategic continuation owns the software
+repair and a separately sealed attempt (never
+resetting AF). The existing suites retain their
+recorded AE checkpoints unchanged (205 collected in
+the two AE-modified fixture suites; 818 passed
+pre-commit across all eleven fixture suites); the
+prescribed locked B gate at the final delivery head
+is the final source qualification. D09 remains NOT
+RUN; no native-ready or v1 runtime claim; the
+ordered native qualification is FAILED (never
+pass): preparation FAILED, worker stop NOT RUN,
+native NOT RUN.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
