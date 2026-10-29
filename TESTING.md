@@ -1458,7 +1458,260 @@ This diagnostic earns measured startup/request schema only
 - never actual file-read/tool/multichunk/D09 acquisition
 or generic native compatibility. D09 remains NOT RUN; no
 native-ready or v1 runtime claim; the `017-ah` entry's ONE
-admission is terminal pass.
+admission is terminal pass.Round 017-ai (software-only) repairs the
+activated-checkout-dependent AG hermetic test
+and lands the ONE explicit future native-
+format entry `017-aj` through the EXISTING
+fixture composition with its closed
+deterministic format scenario; NO actual
+local Docker/fixture/owner admission or
+startup, NO native launch (including
+help/version), NO worker stop, NO host signal,
+NO model/Gateway call occurred. The AG-round
+test `test_ag_ah_refused_under_ag_active_
+before_admission` no longer asserts the AH
+order/admission absence in the real checkout
+(AH activation itself invalidated that
+absence — the order file is committed and the
+local admission namespace is consumed — which
+was the sole P CI test failure, 3426 passed /
+1 failed / 28 skipped); the SAME law is now
+proven WHOLLY over owned hermetic synthetic
+repositories (AG-active refusal before
+admission, own-active canonical-path
+acceptance, foreign-path refusal, pre-
+admission no-journal/no-claim) plus an
+activated-checkout-shaped synthetic control
+proving the law holds for an activated
+checkout without reading or mutating the real
+spent namespace; no skip, xfail, public-active
+bypass or weakened validation, and no
+production code changed for the repair. The
+`017-aj` entry (unique path `oap/orders/
+017-aj-native-process-format-qualification.
+md`) is fixed in the closed production map
+but INERT under AI-active (the real AJ
+order/namespace/admission/owner absent,
+hermetically proven including the production
+admission path `.oap-local/<order>`; refused
+before admission under AI-active; resolvable
+only under its own active at its own unique
+canonical committed order path). The AJ
+entry's OWN verified frozen binding selects
+the CLOSED native-format scenario BEFORE
+startup (the exact create argv carries the
+owner's own frozen-entry scenario; ambient
+SLAIF_FIXTURE_SCENARIO, HTTP flags and user-
+authored ready records can never select or
+redefine it — the selected closed expectation
+travels to the owned standin through the
+EXISTING reviewed configuration transport as
+transport data while the host revalidates the
+record against its OWN verified entry, and
+default/historical consumers stay strict).
+The closed deterministic workload is code-
+defined before any actual qualification: at
+most 8 bounded synthetic seed files / 128 KiB
+total whose identity is retained from PRE-
+LAUNCH originals (bounded owned seed root
+sealed after the bounded writes — no pre-
+existing-file adoption or overwrite), exposed
+through the smallest existing fixture seam; at
+most 16 issued semantic calls (4 exec cases
+plus at most 12 empty-stdin write_stdin polls
+across the ONE running process, never
+concurrent outstanding execs); any forced
+sleep at most 5 s; at most 20 model POSTs / 1
+MiB per inbound body / 256 KiB TOTAL
+SERIALIZED selected record (including the
+outer binding/identity/CID/tag, byte-checked
+before decode/copy at export, consumer and
+publication). The four serial cases: the
+complete exit-0 literal file read; the
+genuine initial-running exec plus causally
+associated empty-stdin polls through actual
+completion with output delivered in MULTIPLE
+chunks (at least two NONEMPTY observed output
+pieces across verified exec/poll results —
+empty poll frames are accurate metadata and
+cannot inflate the proof); the successful
+empty output (the native EMPTY output
+requires the delimiter LF); and the deliberate
+bounded truncation with actual formatter
+evidence (always non-acquiring). The REAL
+pinned native text wrapper is strictly parsed
+and verified from the pinned primary-source
+grammar (the pinned `function_tool_response`
+text wrapper; the actual formatter
+truncation is warning/line-count plus a UTF-8
+head/tail marker over the effective-token
+budget, never an assumed fixed byte prefix;
+chunk grouping is accepted only as ACTUALLY
+observed in the verified exec/poll results,
+never declared transport boundaries; native
+completion may omit the process ID). The
+exact issued family/name/call-ID/argument
+digest and numeric causal request position
+are retained before accepting a result (a
+result attaches only strictly AFTER its own
+issuance — it may equal the next call's
+issuance — same-ID changed-arguments/results,
+unissued/preloaded/duplicate/conflicting
+results and foreign process/session facts are
+closed refusals; issued call IDs stay unique
+across the complete <=16 registry; previously
+completed historical results reappearing in
+later accumulated requests validate as frozen
+historical identity and never advance or
+retain twice). Selected frames only: exact
+known synthetic call/result text after strict
+formatter/source/byte verification against
+the immutable seeds, preserving actual IDs/
+association, complete wrapper ordering,
+chunk/process fields and Unicode/CRLF/empty/
+truncation facts; no reconstruction from
+digests, no raw unknown output, no source/
+private-history/full-request/headers/auth/
+prompt/schema blob persistence; unknown text
+is a fixed safe metadata/digest or typed
+refusal. The complete four-case snapshot
+validator keeps its earned law, and a
+DISTINCT closed PARTIAL snapshot form (the
+zero-POST source-less form and the completed-
+prefix-plus-one-outstanding form) retains
+only verified frames, re-derives pending
+byte/session facts from them and never mints
+a format qualification. Publication keeps the
+ordered separation: the FIRST protected owner
+evidence requires the SAME owner's OWN
+successful protected retention (a narrow RAM
+retention receipt set only after the
+protected owner writer returned verified
+success, independent of the cleanup/evidence
+status — a post-commit unverified result
+never sets it, a precomputed digest or merely
+existing matching file is not a receipt, an
+honest failed owner whose FIRST evidence WAS
+retained keeps its representable publication,
+and a failed/unverified retention refuses
+BEFORE any AJ native/capture destination);
+the SECOND protected selected native capture
+record is built only from this owner's
+retained selected export (validated at the
+producer boundary with the shared selected-
+export validator before decode/copy under the
+existing raw-export byte cap); the SAME
+pending-pass journal is finalized LAST with
+the actual journal read, one-shot/no
+overwrite/no fresh-path retry. The AJ
+QUALIFICATION journal gate keeps the facts
+separate: terminal PASS additionally
+requires the ACTUAL cleanup pass, the native-
+ready verdict, the strict full four-case
+format qualification and the protected
+retention; a cleanup-pass / native-ready
+owner with an unsupported, partial or absent
+format stays truthfully representable and
+retainable with the owner's actual outcome
+and the native verdict preserved unchanged,
+but the journal closes terminal FAIL (never
+pass) and the cached outcome/finalize_attempt
+can never later upgrade it; a post-retention
+unverified or raced finalization is a closed
+failure preserving the retained bytes and
+the actual journal facts as-is. The proof
+layers over the REAL public composition
+(`NativeOwnerRun` over the REAL
+`LocalFixtureOwner` and REAL guarded channel
+with injected FAKE platform operations only
+— fake git, fake docker, fake process table,
+faithful narrow identity-reader seam, owned
+synthetic repositories) and one coherent
+coupled fake process world: the pure
+schema/state/selection layer (closed native
+text-wrapper parser, per-chunk token
+accounting, the delimiter/LF empty law,
+observed chunk grouping, UTF-8 byte-index
+truncation verification, strict typed poll-
+argument identity, the causal position law,
+issued-ID uniqueness, malformed/over-bound/
+overlong-metadata typed refusals, the strict
+TOTAL serialized selected-record bound at
+export/consumer/publication, the complete
+four-case and distinct partial snapshot
+forms, and the closed consumer/exporter
+dispatch); the actual receiver/ledger/
+Exporter layer (the real provider route over
+real sockets with the actual wire counters —
+the thread-cap/connection-versus-route
+counter separation, late-second-check expiry
+refusals, refusal-state non-mutation, exact
+typed poll-argument refusal and the bounded
+export frame accounting — plus owned Unix-
+socket exporter teardown with every client
+socket closed and the provider torn down in
+an outer finally, including injected
+exporter teardown faults); and the COUPLED
+public-lifecycle layer (the useful unequal
+1001:1002 positive driving the REAL
+constructor/admission/prepare/stop/baseline/
+launch/derive/register/exit/finish/restore/
+publish over the AJ entry with the distinct
+identity-bearing record tags at every
+retained layer and the SAME frozen identity
+carried through all of them, plus the
+contrasts: caller-channel and identity-drift
+registration refusals committing nothing, END
+crossed at use and during final-frame
+hashing, the zero-POST safe-partial owner
+finish, full and nonempty-partial finish
+evidence, the owner-evidence retention
+failures (pre-existing destination, post-
+commit writer uncertainty) refusing capture
+publication before any destination, the
+honest failed-owner publication when the
+FIRST evidence was retained, and the post-
+native-retention unverified finalization
+preserving the retained record and the
+actual journal with the one-shot fresh-path
+retry refused and no finalize upgrade).
+EVERY started test owner is reaped in a per-
+test finally before monkeypatch teardown; a
+global subject-UID scan is trapped and never
+called; the original S/X/Y/AB/AD/AF/AH suites
+retain their recorded checkpoints. The named
+fixture suites collect at the current source:
+local 52, owner-uid 42, native-prep 165,
+native-owner 19, native-handoff 84, exec-
+capability 54, ci 235, binding 45, controller
+33, standin 118, identity 48 and the new
+`tests/test_cache_native_fixture_format_
+capture.py` 176 — 1071 collected across all
+twelve fixture suites, frozen Python 3.12 /
+nonroot umask 022 test child (pre-commit
+development capture — the prescribed locked
+B gate at the final delivery head is the
+final qualification); strict `uv run
+--frozen mypy src tests` and ruff format/
+check are clean at the current source. The
+combined-suite module-instance coherence law:
+the format-capture suite loads the controller
+module FIRST and binds its actual
+dependencies (the provider's model instance,
+the producer's binding instance, the
+exporter's model instance) to the canonical
+loaded modules, and the seed fixture asserts
+the bound configuration against the owned
+tmp root BEFORE any seed filesystem I/O. NO
+actual AJ fixture operation, native launch
+(including help/version), worker stop, Docker
+operation, model/Gateway call or host signal
+this round; the bounded process deviations
+are disclosed in the round report. D09
+remains NOT RUN; no native-ready, whole-017
+or v1 runtime claim; the later ACTUAL
+qualification belongs to the separately
+activated `017-aj` order, strategy-chosen.
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in

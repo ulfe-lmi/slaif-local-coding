@@ -69,6 +69,20 @@ flocal = importlib.util.module_from_spec(l_spec)
 sys.modules["cache_native_fixture_local"] = flocal
 l_spec.loader.exec_module(flocal)
 
+# The DURABLE format-capture test module: its closed
+# synthetic snapshot builders (the coherent four-case
+# full positive and the zero-POST sourceless partial)
+# are the ONLY selected format payload fixtures the
+# producer form-law tests use (pure data builders; no
+# fixture, Docker or native operation).
+fmtc_spec = importlib.util.spec_from_file_location(
+    "oap_ai_fmtc_prep", REPO_ROOT / "tests" / "test_cache_native_fixture_format_capture.py"
+)
+assert fmtc_spec is not None and fmtc_spec.loader is not None
+fmtc = importlib.util.module_from_spec(fmtc_spec)
+sys.modules["oap_ai_fmtc_prep"] = fmtc
+fmtc_spec.loader.exec_module(fmtc)
+
 if TYPE_CHECKING:  # static names for the runtime-loaded modules
     import cache_native_fixture_binding as _fb_typed  # type: ignore[import-not-found]
     import cache_native_fixture_native_prep as _fp_typed  # type: ignore[import-not-found]
@@ -1462,6 +1476,181 @@ def test_producer_full_payload_validation_refusals(data: bytes) -> None:
     _assert_shared_invalid(data)
     with pytest.raises(fci.FixtureError, match="prep-export-invalid"):
         fp.produce_native_owner_record(FakeOwnerMeasurement(payload=data), **_producer_kwargs())
+
+
+def _aj_quiesce_record() -> dict[str, Any]:
+    return {
+        "record": fp.fmodel.SCHEMA_QUIESCE,
+        "provider_sockets_closed": True,
+        "handlers_stopped": True,
+        "owned_subject_stopped": True,
+        "owned_tools_stopped": True,
+        "active_connections": 0,
+        "residual_writers": 0,
+    }
+
+
+def _aj_full_export_payload() -> bytes:
+    return json.dumps(
+        {
+            "record": fp.fmodel.SCHEMA_FORMAT_EXPORT,
+            "quiesce": _aj_quiesce_record(),
+            "snapshot": fmtc.build_positive(),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _aj_partial_export_payload() -> bytes:
+    return json.dumps(
+        {
+            "record": fp.fmodel.SCHEMA_FORMAT_EXPORT_PARTIAL,
+            "quiesce": _aj_quiesce_record(),
+            "snapshot": fmtc._partial_record([], [], 0),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _aj_tag_flipped_payload() -> bytes:
+    # the full tag over the PARTIAL snapshot: the closed
+    # full snapshot law refuses it (tag/form coherence)
+    return json.dumps(
+        {
+            "record": fp.fmodel.SCHEMA_FORMAT_EXPORT,
+            "quiesce": _aj_quiesce_record(),
+            "snapshot": fmtc._partial_record([], [], 0),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _assert_shared_valid_selected(data: bytes) -> dict[str, Any]:
+    """Precondition: the positive is independently valid
+    under the ACTUAL shared selected dispatcher."""
+    selected = fci.fixture_export.validate_selected_payload(data)
+    assert isinstance(selected, dict)
+    return selected
+
+
+def _aj_identity() -> dict[str, Any]:
+    identity = fp._ad_identity_substructure_from_triple((1001, 1002, (1002,)))
+    assert isinstance(identity, dict)
+    return identity
+
+
+def test_producer_aj_full_format_payload_accepted() -> None:
+    # the COMPLETE four-case selected format payload
+    # validates through the closed tag dispatcher and the
+    # record carries the AJ entry's OWN distinct tag
+    payload = _aj_full_export_payload()
+    selected = _assert_shared_valid_selected(payload)
+    assert selected["record"] == fp.fmodel.SCHEMA_FORMAT_EXPORT
+    rec = fp.produce_native_owner_record(
+        FakeOwnerMeasurement(
+            payload=payload,
+            context=_producer_context(order=fp.rprofile.AJ_ORDER_ID),
+        ),
+        identity=_aj_identity(),
+        **_producer_kwargs(order=fp.rprofile.AJ_ORDER_ID),
+    )
+    assert rec["record"] == fp.AJ_NATIVE_OWNER_SCHEMA
+    assert rec["order"] == fp.rprofile.AJ_ORDER_ID
+    assert rec["export"]["bytes"] == len(payload)
+    assert rec["export"]["sha256"] == hashlib.sha256(payload).hexdigest()
+    assert rec["identity"] == _aj_identity()
+    facts = fp.parse_native_owner_facts(rec)
+    assert facts.export_bytes == len(payload)
+
+
+def test_producer_aj_safe_partial_format_payload_accepted() -> None:
+    # the zero-POST sourceless safe PARTIAL payload
+    # produces owner evidence under the SAME distinct tag:
+    # the honest not-qualified partial coexists with the
+    # measured cleanup/native facts, and the record never
+    # mints any format qualification (the four-case
+    # qualification is a separate later fact)
+    payload = _aj_partial_export_payload()
+    selected = _assert_shared_valid_selected(payload)
+    assert selected["record"] == fp.fmodel.SCHEMA_FORMAT_EXPORT_PARTIAL
+    assert selected["snapshot"]["qualification"] == "not-qualified"
+    rec = fp.produce_native_owner_record(
+        FakeOwnerMeasurement(
+            payload=payload,
+            context=_producer_context(order=fp.rprofile.AJ_ORDER_ID),
+        ),
+        identity=_aj_identity(),
+        **_producer_kwargs(order=fp.rprofile.AJ_ORDER_ID),
+    )
+    assert rec["record"] == fp.AJ_NATIVE_OWNER_SCHEMA
+    assert rec["native_started"] is True and rec["native_ready"] is True
+    assert "format_capture" not in rec
+    fp.parse_native_owner_facts(rec)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [b"not-json", _aj_tag_flipped_payload()],
+)
+def test_producer_aj_malformed_selected_payload_refused(data: bytes) -> None:
+    with pytest.raises(ValueError):
+        fci.fixture_export.validate_selected_payload(data)
+    with pytest.raises(fci.FixtureError, match="prep-export-invalid"):
+        fp.produce_native_owner_record(
+            FakeOwnerMeasurement(
+                payload=data,
+                context=_producer_context(order=fp.rprofile.AJ_ORDER_ID),
+            ),
+            identity=_aj_identity(),
+            **_producer_kwargs(order=fp.rprofile.AJ_ORDER_ID),
+        )
+
+
+def test_producer_aj_untagged_legacy_payload_refused() -> None:
+    # the VALID six-field historical payload is drift
+    # under AJ: refused, never relabelled (the SAME form
+    # law the AJ owner finish applies at its export seam)
+    payload = _valid_payload()
+    fci.fixture_export.validate_payload(payload)
+    with pytest.raises(fci.FixtureError, match="prep-export-invalid"):
+        fp.produce_native_owner_record(
+            FakeOwnerMeasurement(
+                payload=payload,
+                context=_producer_context(order=fp.rprofile.AJ_ORDER_ID),
+            ),
+            identity=_aj_identity(),
+            **_producer_kwargs(order=fp.rprofile.AJ_ORDER_ID),
+        )
+
+
+def test_producer_historical_entries_keep_legacy_form_law() -> None:
+    # the AH identity entry keeps the ORIGINAL six-field
+    # payload law byte-for-byte, and the reverse direction
+    # is refused: a selected format payload under a
+    # historical entry fails the original validator's
+    # exact field set (never relabelled)
+    identity = _aj_identity()
+    rec = fp.produce_native_owner_record(
+        FakeOwnerMeasurement(
+            payload=_valid_payload(),
+            context=_producer_context(order=fp.rprofile.AH_ORDER_ID),
+        ),
+        identity=identity,
+        **_producer_kwargs(order=fp.rprofile.AH_ORDER_ID),
+    )
+    assert rec["record"] == fp.AH_NATIVE_OWNER_SCHEMA
+    with pytest.raises(fci.FixtureError, match="prep-export-invalid"):
+        fp.produce_native_owner_record(
+            FakeOwnerMeasurement(
+                payload=_aj_full_export_payload(),
+                context=_producer_context(order=fp.rprofile.AH_ORDER_ID),
+            ),
+            identity=identity,
+            **_producer_kwargs(order=fp.rprofile.AH_ORDER_ID),
+        )
 
 
 _FORGED_CONTEXTS: dict[str, Any] = {

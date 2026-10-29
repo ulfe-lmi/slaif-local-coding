@@ -146,6 +146,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_native_fixture_binding as binding  # noqa: E402
 import cache_native_fixture_ci as ci  # noqa: E402
 import cache_native_fixture_identity as fidentity  # noqa: E402
+import cache_native_fixture_model as fmodel  # noqa: E402
 import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
 
 FixtureError = ci.FixtureError
@@ -184,6 +185,13 @@ AF_NATIVE_PREP_SCHEMA = "slaif-017af-native-handoff-prep-v1"
 # entry's own tag-pair law (the AF tag remains AF-only, even
 # for equal-numeric identities).
 AH_NATIVE_PREP_SCHEMA = "slaif-017ah-native-handoff-prep-v1"
+# The DISTINCT identity-bearing prep snapshot tag of the
+# canonical FUTURE 017-aj native-process format
+# qualification entry (INERT in 017-ai): the SAME closed
+# group/binding/subject facts plus the frozen owner-identity
+# substructure under the AJ entry's own tag-pair law (the AH
+# tag remains AH-only, even for equal-numeric identities).
+AJ_NATIVE_PREP_SCHEMA = "slaif-017aj-native-handoff-prep-v1"
 OWNER_FACTS_SCHEMA = "slaif-native-handoff-owner-facts-v1"
 # The owner's retained evidence schema (017-s record).  Its
 # meaning is preserved unchanged: its safety flags describe the
@@ -217,6 +225,10 @@ _RUN_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _CID_RE = re.compile(r"^[0-9a-f]{64}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _HEAD_RE = re.compile(r"^[0-9a-f]{40}$")
+# the resolver's own active-read cap: the closed bound of a
+# typed binding's raw active bytes at the AJ consumer seam
+# (bounded handling BEFORE any hashing at to_record)
+_ACTIVE_BYTES_MAX = binding._ACTIVE_READ_CAP
 # The closed image-identity forms: the bare 64-hex digest or
 # the ACTUAL measured Docker identity form used by R/S
 # (``sha256:<digest>`` — the form the owner's own discovery
@@ -312,6 +324,10 @@ PREP_REASONS = frozenset(
         "prep-devpts-binding-invalid",
         "prep-attach-binding-malformed",
         "prep-attach-binding-mismatch",
+        # the AJ selected native format-capture consumer (017-ai)
+        "prep-format-capture-malformed",
+        "prep-format-capture-mismatch",
+        "prep-format-capture-bound",
     }
 )
 
@@ -2621,13 +2637,16 @@ def attach_binding_record(
     if identity_law is None:
         raise FixtureError("prep-devpts-identity-invalid")
     # the DISTINCT record tag of the binding's OWN canonical
-    # entry (the AF tag is AF-only and the AH tag AH-only, even
-    # for equal-numeric identities): any other entry's binding
-    # can never mint an attach-binding record
+    # entry (the AF tag is AF-only, the AH tag AH-only and the
+    # AJ tag AJ-only, even for equal-numeric identities): any
+    # other entry's binding can never mint an attach-binding
+    # record
     if binding.order_id == rprofile.AF_ORDER_ID:
         record_tag = AF_ATTACH_BINDING_SCHEMA
     elif binding.order_id == rprofile.AH_ORDER_ID:
         record_tag = AH_ATTACH_BINDING_SCHEMA
+    elif binding.order_id == rprofile.AJ_ORDER_ID:
+        record_tag = AJ_ATTACH_BINDING_SCHEMA
     else:
         raise FixtureError("prep-devpts-binding-invalid")
     rederived = derive_attach_allocation(
@@ -2708,7 +2727,8 @@ def parse_attach_binding_record(record: object, binding: object) -> DevptsAlloca
     if not isinstance(record, dict) or set(record) != AF_ATTACH_RECORD_KEYS:
         raise FixtureError("prep-attach-binding-malformed")
     if (
-        record.get("record") not in (AF_ATTACH_BINDING_SCHEMA, AH_ATTACH_BINDING_SCHEMA)
+        record.get("record")
+        not in (AF_ATTACH_BINDING_SCHEMA, AH_ATTACH_BINDING_SCHEMA, AJ_ATTACH_BINDING_SCHEMA)
         or record.get("phase") != AF_ATTACH_PHASE
         or record.get("encoding") != AF_ATTACH_ENCODING
     ):
@@ -2731,13 +2751,13 @@ def parse_attach_binding_record(record: object, binding: object) -> DevptsAlloca
         raise FixtureError("prep-attach-binding-mismatch")
     # the EXACT tag-pair law: each attach-binding tag is the
     # record of ITS OWN canonical entry ONLY (the AF tag is
-    # AF-only and the AH tag AH-only, even for equal-numeric
-    # identities)
-    expected_order, expected_path = (
-        (rprofile.AF_ORDER_ID, rprofile.AF_ORDER_PATH)
-        if record["record"] == AF_ATTACH_BINDING_SCHEMA
-        else (rprofile.AH_ORDER_ID, rprofile.AH_ORDER_PATH)
-    )
+    # AF-only, the AH tag AH-only and the AJ tag AJ-only, even
+    # for equal-numeric identities)
+    expected_order, expected_path = {
+        AF_ATTACH_BINDING_SCHEMA: (rprofile.AF_ORDER_ID, rprofile.AF_ORDER_PATH),
+        AH_ATTACH_BINDING_SCHEMA: (rprofile.AH_ORDER_ID, rprofile.AH_ORDER_PATH),
+        AJ_ATTACH_BINDING_SCHEMA: (rprofile.AJ_ORDER_ID, rprofile.AJ_ORDER_PATH),
+    }[record["record"]]
     if outer.get("order_id") != expected_order or outer.get("order_path") != expected_path:
         raise FixtureError("prep-attach-binding-mismatch")
     identity_law = _ad_identity_substructure_law(record.get("identity"))
@@ -2809,6 +2829,132 @@ def parse_attach_binding_record(record: object, binding: object) -> DevptsAlloca
     return rederived
 
 
+def parse_format_capture_record(record: object, binding: object) -> dict:
+    """The closed consumer of the AJ selected native
+    format-capture record: the exact closed key set, the
+    AJ-only tag, the workflow's OWN immutable binding EXACTLY
+    (an ``OrderRunBinding`` object is compared through its own
+    closed ``to_record``, or a supplied binding record dict is
+    FIRST validated by the full closed key/type/hash grammar of
+    this public pure consumer (never assumed caller-validated)
+    and then compared by exact equality — a foreign or
+    contradicted binding is a refusal), the exact tag-pair law
+    (the AJ format-capture tag is the record of the AJ
+    canonical entry ONLY — never AF/AH or any other order, even
+    for equal-numeric identities), the owner's frozen identity
+    substructure (production-codec closed-validated), the
+    64-hex CID, and the nested selected format snapshot
+    RE-VALIDATED by the DISTINCT closed format-snapshot law
+    dispatched on the snapshot's own record tag (strict full
+    snapshot: the strict pinned wrapper re-parse, the immutable
+    seed identity, the closed chains and issued-identity law;
+    safe partial snapshot: only verified selected frames and
+    explicit not-qualified; every other tag refused — a copied
+    or replayed snapshot never mints authority).  The WHOLE record
+    is then bounded at the 256 KiB TOTAL SERIALIZED
+    selected-capture bound: the nested snapshot's own bound is
+    necessary but is NOT the total — the outer tag, the
+    workflow's immutable binding, the frozen identity and the
+    measured CID are part of the captured record and are
+    bounded here at the consumer seam (the producer and the
+    integrated export apply the same total at their own
+    seams).  Returns the validated snapshot; anything else is a
+    closed non-echoing refusal."""
+    if not isinstance(record, dict) or set(record) != _FORMAT_CAPTURE_RECORD_KEYS:
+        raise FixtureError("prep-format-capture-malformed")
+    if record.get("record") != AJ_FORMAT_CAPTURE_SCHEMA:
+        raise FixtureError("prep-format-capture-malformed")
+    if isinstance(binding, OrderRunBinding):
+        # bounded pre-hash handling of the typed object's raw
+        # active bytes: the resolver's own active-read cap is
+        # the closed bound of this field; an over-bound or
+        # non-bytes value is refused BEFORE any hashing work
+        raw_active = binding.active_bytes
+        if not isinstance(raw_active, (bytes, bytearray)) or len(raw_active) > _ACTIVE_BYTES_MAX:
+            raise FixtureError("prep-format-capture-malformed")
+        try:
+            # the typed representation is held to the SAME
+            # closed binding-record grammar as a supplied
+            # dict: the dataclass carries no __post_init__
+            # validation, so a directly constructed value with
+            # a malformed head/hash/run id is refused — the
+            # to_record output is never trusted, and the active
+            # bytes are hashed only after the bounded field
+            # checks above
+            outer = _validate_binding_record(binding.to_record())
+        except (FixtureError, ValueError, TypeError):
+            raise FixtureError("prep-format-capture-malformed") from None
+    elif isinstance(binding, dict):
+        # a supplied binding dict is validated by the FULL
+        # closed key/type/hash grammar here — this public
+        # pure consumer never assumes the caller has already
+        # validated it
+        outer = _validate_binding_record(binding)
+    else:
+        raise FixtureError("prep-format-capture-malformed")
+    if (
+        not isinstance(outer, dict)
+        or outer.get("record") != BINDING_RECORD_SCHEMA
+        or record.get("binding") != outer
+    ):
+        raise FixtureError("prep-format-capture-mismatch")
+    # the EXACT tag-pair law: the AJ format-capture tag is the
+    # record of the AJ canonical entry ONLY (never AF/AH or any
+    # other order, even for equal-numeric identities)
+    if (
+        outer.get("order_id") != rprofile.AJ_ORDER_ID
+        or outer.get("order_path") != rprofile.AJ_ORDER_PATH
+    ):
+        raise FixtureError("prep-format-capture-mismatch")
+    identity_law = _ad_identity_substructure_law(record.get("identity"))
+    if identity_law is None:
+        raise FixtureError("prep-format-capture-malformed")
+    cid = record.get("cid")
+    if not isinstance(cid, str) or _CID_RE.fullmatch(cid) is None:
+        raise FixtureError("prep-format-capture-malformed")
+    snapshot = record.get("snapshot")
+    if not isinstance(snapshot, dict):
+        raise FixtureError("prep-format-capture-malformed")
+    # strict DISTINCT dispatch on the nested snapshot's own
+    # record tag: the strict full snapshot passes the closed
+    # four-case validator; the safe PARTIAL snapshot (only
+    # verified selected frames, qualification explicitly
+    # not-qualified) passes the DISTINCT partial validator;
+    # every other tag — including untagged or legacy tags — is
+    # a closed refusal.  The two validators are never widened
+    # into one another.
+    nested_tag = snapshot.get("record")
+    if nested_tag == fmodel.SCHEMA_FORMAT_SNAPSHOT:
+        _validate_nested = fmodel.validate_format_snapshot_record
+    elif nested_tag == fmodel.SCHEMA_FORMAT_SNAPSHOT_PARTIAL:
+        _validate_nested = fmodel.validate_format_snapshot_record_partial
+    else:
+        _validate_nested = None
+    try:
+        if _validate_nested is None:
+            raise fmodel.FixtureError("format-snapshot-tag")
+        _validate_nested(snapshot)
+    # the model validator raises ITS OWN closed error class
+    # (model.FixtureError, a ValueError) — DISTINCT from this
+    # module's FixtureError alias (ci.FixtureError, a
+    # RuntimeError): catching only this alias would let a
+    # malformed nested snapshot escape the promised prep
+    # refusal token and the native-run consumer conversion
+    except fmodel.FixtureError:
+        raise FixtureError("prep-format-capture-malformed") from None
+    # the 256 KiB TOTAL SERIALIZED selected capture bound: the
+    # WHOLE record — outer tag, the workflow's immutable
+    # binding, the frozen owner-identity substructure, the
+    # measured 64-hex CID and the nested snapshot — serialized
+    # canonically.  The nested snapshot's own bound is
+    # necessary but is NOT the total: the outer identity
+    # metadata is part of the selected capture and is bounded
+    # here at the consumer seam.
+    if len(fmodel.canonical_bytes(record)) > fmodel.FORMAT_SNAPSHOT_MAX_BYTES:
+        raise FixtureError("prep-format-capture-bound")
+    return snapshot
+
+
 # -- native-owner producer (explicit versioned scope) ------------------------------
 # The historical 017-s schema remains the S rehearsal record
 # and is NEVER relabeled as native evidence.  A native-owner
@@ -2846,6 +2992,16 @@ AF_NATIVE_OWNER_SCHEMA = "slaif-017af-native-owner-evidence-v1"
 # separate closed records per entry, never a widened
 # grammar, including for equal-numeric identities.
 AH_NATIVE_OWNER_SCHEMA = "slaif-017ah-native-owner-evidence-v1"
+# The DISTINCT identity-bearing native-owner evidence tag of
+# the canonical FUTURE 017-aj entry (INERT in 017-ai:
+# software only): the SAME closed native-scope measured facts
+# as the AD/AF/AH tags PLUS the frozen owner-identity
+# substructure (the identical owner-UID identity law).  The
+# original tag keeps its exact historical key set and refuses
+# the identity key and every identity-bearing entry —
+# separate closed records per entry, never a widened
+# grammar, including for equal-numeric identities.
+AJ_NATIVE_OWNER_SCHEMA = "slaif-017aj-native-owner-evidence-v1"
 # The DISTINCT identity-bearing attach-binding record tag of
 # the AF entry's native attach-binding phase (the measured
 # fixture-namespace devpts baseline, the second bounded
@@ -2861,6 +3017,21 @@ AF_ATTACH_BINDING_SCHEMA = rprofile.AF_NATIVE_ATTACH_BINDING_SCHEMA
 # entry's own tag-pair law (the AF tag remains AF-only, even
 # for equal-numeric identities).
 AH_ATTACH_BINDING_SCHEMA = rprofile.AH_NATIVE_ATTACH_BINDING_SCHEMA
+# The DISTINCT identity-bearing attach-binding record tag of
+# the canonical FUTURE 017-aj entry (INERT in 017-ai): the
+# SAME closed structural core as the AF record under the AJ
+# entry's own tag-pair law (the AH tag remains AH-only, even
+# for equal-numeric identities).
+AJ_ATTACH_BINDING_SCHEMA = rprofile.AJ_NATIVE_ATTACH_BINDING_SCHEMA
+# The DISTINCT identity-bearing selected native format-capture
+# record tag of the canonical FUTURE 017-aj entry (INERT in
+# 017-ai: software only): the closed selected-format snapshot
+# bound to the AJ entry's exact order in its own tag-pair law,
+# with the owner's frozen identity substructure and the
+# measured CID.  The format facts live in this distinct honest
+# version, never widened into an old consumer.
+AJ_FORMAT_CAPTURE_SCHEMA = rprofile.AJ_NATIVE_FORMAT_CAPTURE_SCHEMA
+_FORMAT_CAPTURE_RECORD_KEYS = frozenset({"record", "binding", "identity", "cid", "snapshot"})
 # the CLOSED native-owner record grammar: the exact top-level
 # key set and the exact nested object key sets.  Anything else
 # (unknown, missing, or non-mapping nested keys) is a closed
@@ -3072,6 +3243,7 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
         AD_NATIVE_OWNER_SCHEMA,
         AF_NATIVE_OWNER_SCHEMA,
         AH_NATIVE_OWNER_SCHEMA,
+        AJ_NATIVE_OWNER_SCHEMA,
     ):
         raise FixtureError("prep-native-owner-record-malformed")
     expected_keys = (
@@ -3081,6 +3253,7 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
             AD_NATIVE_OWNER_SCHEMA,
             AF_NATIVE_OWNER_SCHEMA,
             AH_NATIVE_OWNER_SCHEMA,
+            AJ_NATIVE_OWNER_SCHEMA,
         )
         else _NATIVE_OWNER_TOP_KEYS
     )
@@ -3127,6 +3300,7 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
         AD_NATIVE_OWNER_SCHEMA,
         AF_NATIVE_OWNER_SCHEMA,
         AH_NATIVE_OWNER_SCHEMA,
+        AJ_NATIVE_OWNER_SCHEMA,
     ):
         identity = _ad_identity_substructure_law(identity_raw)
         if identity is None:
@@ -3138,13 +3312,14 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
         or (tag == AD_NATIVE_OWNER_SCHEMA and order != rprofile.AD_ORDER_ID)
         or (tag == AF_NATIVE_OWNER_SCHEMA and order != rprofile.AF_ORDER_ID)
         or (tag == AH_NATIVE_OWNER_SCHEMA and order != rprofile.AH_ORDER_ID)
+        or (tag == AJ_NATIVE_OWNER_SCHEMA and order != rprofile.AJ_ORDER_ID)
         # the EXACT tag-pair law: the original tag carries the
         # historical (non-AD) entries ONLY — the canonical
-        # 017-ad / 017-af / 017-ah entries are representable by
-        # their DISTINCT identity-bearing tags alone, so an
-        # original-tag record of any of them is a closed
-        # refusal (the historical orders of the original tag
-        # are unchanged)
+        # 017-ad / 017-af / 017-ah / 017-aj entries are
+        # representable by their DISTINCT identity-bearing
+        # tags alone, so an original-tag record of any of them
+        # is a closed refusal (the historical orders of the
+        # original tag are unchanged)
         or (
             tag == NATIVE_OWNER_SCHEMA
             and order
@@ -3152,6 +3327,7 @@ def parse_native_owner_facts(record: object) -> NativeOwnerFacts:
                 rprofile.AD_ORDER_ID,
                 rprofile.AF_ORDER_ID,
                 rprofile.AH_ORDER_ID,
+                rprofile.AJ_ORDER_ID,
             )
         )
         or not isinstance(source_head, str)
@@ -3488,7 +3664,12 @@ def produce_native_owner_record(
     quiesce/snapshot/diagnostic/originals law the R/S
     finish path applies to its host revalidation — a
     recomputed digest alone proves framing integrity,
-    never payload validity), recomputes the export digest
+    never payload validity).  The canonical 017-aj entry
+    validates the DISTINCT selected format-capture payload
+    through the closed tag dispatcher instead (the full or
+    the safe partial form; the untagged six-field legacy
+    form is drift under AJ and is refused, never
+    relabelled), recomputes the export digest
     from the measured payload bytes ITSELF (a supplied
     digest is never trusted), and only then PRODUCES the
     closed ``slaif-native-owner-evidence-v1`` record from
@@ -3547,8 +3728,27 @@ def produce_native_owner_record(
     # DECODED bytes bind to the snapshot bytes AND sha) —
     # a rehash of arbitrary bytes would prove framing
     # integrity only
+    # The canonical 017-aj entry's closed format-capture
+    # scenario carries the DISTINCT three-field selected
+    # format payload: the closed record tag selects the
+    # full or the safe partial format law, and the
+    # untagged six-field legacy form is drift under AJ,
+    # refused, never relabelled (the SAME closed form law
+    # the AJ owner finish applies at its export seam).
+    # Every historical entry keeps the original six-field
+    # payload law byte-for-byte (a selected format payload
+    # there is refused by the original validator's exact
+    # field set).
     try:
-        ci.fixture_export.validate_payload(bytes(payload))
+        if order == rprofile.AJ_ORDER_ID:
+            selected = ci.fixture_export.validate_selected_payload(bytes(payload))
+            if selected.get("record") not in (
+                fmodel.SCHEMA_FORMAT_EXPORT,
+                fmodel.SCHEMA_FORMAT_EXPORT_PARTIAL,
+            ):
+                raise ValueError("format-payload-tag")
+        else:
+            ci.fixture_export.validate_payload(bytes(payload))
     except ValueError:
         raise FixtureError("prep-export-invalid") from None
     export_sha = hashlib.sha256(bytes(payload)).hexdigest()
@@ -3626,6 +3826,8 @@ def produce_native_owner_record(
             record["record"] = AF_NATIVE_OWNER_SCHEMA
         elif order == rprofile.AH_ORDER_ID:
             record["record"] = AH_NATIVE_OWNER_SCHEMA
+        elif order == rprofile.AJ_ORDER_ID:
+            record["record"] = AJ_NATIVE_OWNER_SCHEMA
         else:
             raise FixtureError("prep-native-owner-record-malformed")
         record["identity"] = identity
@@ -3821,6 +4023,10 @@ def _parse_owner_record(record: Mapping | None) -> OwnerFinalFacts | NativeOwner
         return parse_native_owner_facts(record)
     if kind == AH_NATIVE_OWNER_SCHEMA:
         # the identity-bearing 017-ah form: the SAME closed
+        # consumer law, its own exact key set and tag-pair
+        return parse_native_owner_facts(record)
+    if kind == AJ_NATIVE_OWNER_SCHEMA:
+        # the identity-bearing 017-aj form: the SAME closed
         # consumer law, its own exact key set and tag-pair
         return parse_native_owner_facts(record)
     raise FixtureError("prep-owner-record-malformed")
@@ -4304,6 +4510,8 @@ class NativeHandoffWorkflow:
                 snapshot["record"] = AF_NATIVE_PREP_SCHEMA
             elif self._binding.order_id == rprofile.AH_ORDER_ID:
                 snapshot["record"] = AH_NATIVE_PREP_SCHEMA
+            elif self._binding.order_id == rprofile.AJ_ORDER_ID:
+                snapshot["record"] = AJ_NATIVE_PREP_SCHEMA
             else:
                 raise FixtureError("prep-record-malformed")
             snapshot["identity"] = _ad_identity_substructure_from_triple(self._subject_identity)
@@ -4357,21 +4565,23 @@ class NativeHandoffWorkflow:
                 rprofile.AD_ORDER_ID,
                 rprofile.AF_ORDER_ID,
                 rprofile.AH_ORDER_ID,
+                rprofile.AJ_ORDER_ID,
             ):
-                # the canonical 017-ad / 017-af / 017-ah
-                # entry's record must be the entry's OWN
-                # DISTINCT identity-bearing tag and must carry
-                # the SAME frozen owner-identity substructure
-                # as this workflow's ORIGINAL frozen subject
-                # law (compared, never adopted): a relabeled
-                # original-tag record (or the OTHER entry's
-                # tag) cannot represent this entry, and a
-                # valid foreign frozen identity can never
-                # become ready here
+                # the canonical 017-ad / 017-af / 017-ah /
+                # 017-aj entry's record must be the entry's
+                # OWN DISTINCT identity-bearing tag and must
+                # carry the SAME frozen owner-identity
+                # substructure as this workflow's ORIGINAL
+                # frozen subject law (compared, never
+                # adopted): a relabeled original-tag record
+                # (or the OTHER entry's tag) cannot
+                # represent this entry, and a valid foreign
+                # frozen identity can never become ready here
                 expected_owner_schema = {
                     rprofile.AD_ORDER_ID: AD_NATIVE_OWNER_SCHEMA,
                     rprofile.AF_ORDER_ID: AF_NATIVE_OWNER_SCHEMA,
                     rprofile.AH_ORDER_ID: AH_NATIVE_OWNER_SCHEMA,
+                    rprofile.AJ_ORDER_ID: AJ_NATIVE_OWNER_SCHEMA,
                 }[self._binding.order_id]
                 if owner.schema != expected_owner_schema:
                     raise FixtureError("prep-owner-schema-mismatch")
@@ -4467,6 +4677,8 @@ def validate_prep_snapshot(record: object) -> None:
         expected_keys = {"record", "binding", "group", "subject", "identity"}
     elif tag == AH_NATIVE_PREP_SCHEMA:
         expected_keys = {"record", "binding", "group", "subject", "identity"}
+    elif tag == AJ_NATIVE_PREP_SCHEMA:
+        expected_keys = {"record", "binding", "group", "subject", "identity"}
     elif tag == NATIVE_PREP_SCHEMA:
         expected_keys = {"record", "binding", "group", "subject"}
     else:
@@ -4520,16 +4732,26 @@ def validate_prep_snapshot(record: object) -> None:
         # carry the identity-bearing AH form)
         if b.get("order_path") != rprofile.AH_ORDER_PATH:
             raise FixtureError("prep-record-malformed")
+    elif tag == AJ_NATIVE_PREP_SCHEMA:
+        if b.get("order_id") != rprofile.AJ_ORDER_ID:
+            raise FixtureError("prep-record-malformed")
+        # the fixed canonical 017-aj entry is bound to its OWN
+        # unique committed order path (a foreign path can never
+        # carry the identity-bearing AJ form)
+        if b.get("order_path") != rprofile.AJ_ORDER_PATH:
+            raise FixtureError("prep-record-malformed")
     elif b.get("order_id") in (
         rprofile.AD_ORDER_ID,
         rprofile.AF_ORDER_ID,
         rprofile.AH_ORDER_ID,
+        rprofile.AJ_ORDER_ID,
     ):
         raise FixtureError("prep-record-malformed")
     if tag in (
         AD_NATIVE_PREP_SCHEMA,
         AF_NATIVE_PREP_SCHEMA,
         AH_NATIVE_PREP_SCHEMA,
+        AJ_NATIVE_PREP_SCHEMA,
     ):
         identity = _ad_identity_substructure_law(record["identity"])
         if identity is None:
@@ -4663,13 +4885,18 @@ __all__ = [
     "AD_NATIVE_PREP_SCHEMA",
     "AF_NATIVE_PREP_SCHEMA",
     "AH_NATIVE_PREP_SCHEMA",
+    "AJ_NATIVE_PREP_SCHEMA",
     "NATIVE_OWNER_PRODUCER",
     "NATIVE_OWNER_SCHEMA",
     "AD_NATIVE_OWNER_SCHEMA",
     "AF_NATIVE_OWNER_SCHEMA",
     "AH_NATIVE_OWNER_SCHEMA",
+    "AJ_NATIVE_OWNER_SCHEMA",
     "AF_ATTACH_BINDING_SCHEMA",
     "AH_ATTACH_BINDING_SCHEMA",
+    "AJ_ATTACH_BINDING_SCHEMA",
+    "AJ_FORMAT_CAPTURE_SCHEMA",
+    "parse_format_capture_record",
     "AF_ATTACH_RECORD_KEYS",
     "AF_ATTACH_ENCODING",
     "AF_ATTACH_PHASE",

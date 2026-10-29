@@ -3694,6 +3694,206 @@ preserved CI hermetic failure is documented below).
   stage log under the private AH root; the consumed
   .oap-local/017-ah/ admission journal; root review records)
   are inventoried in the immutable round report.
+- Round 017-ai (software-only) repairs the
+  activated-checkout-dependent AG hermetic
+  test — the real-checkout AH order/admission
+  absence assertions are INVALIDATED by the
+  AH activation itself (the order is
+  committed and the local admission
+  namespace consumed; the sole P CI test
+  failure) — by moving the WHOLE absence/
+  nonmutation proof into owned hermetic
+  synthetic repositories (AG-active refusal
+  before admission, own-active canonical-
+  path acceptance, foreign-path refusal,
+  pre-admission no-journal/no-claim) plus an
+  activated-checkout-shaped synthetic
+  control that proves the sealed-entry law
+  for an activated checkout without reading
+  or mutating the real spent namespace (no
+  recursive scan or byte read of it; no
+  skip/xfail/weakened validation; no
+  production change). It lands the ONE
+  explicit future canonical sealed entry
+  `017-aj` (owner-UID profile; unique path
+  `oap/orders/017-aj-native-process-format-
+  qualification.md`) — INERT under AI-active
+  (the real AJ order file, namespace,
+  admission and owner are absent,
+  hermetically proven including the
+  production admission path
+  `.oap-local/<order>`; refused BEFORE
+  admission under AI-active; resolvable only
+  under its own active at its own unique
+  canonical committed order path; never a
+  caller flag, wildcard entry or path
+  switch). The AJ entry's OWN verified
+  frozen binding selects the CLOSED native-
+  format scenario BEFORE startup (the exact
+  create argv carries the owner's own
+  frozen-entry scenario; ambient env/HTTP/
+  caller flags can never select or redefine
+  it; the selected closed expectation is
+  transport DATA to the owned standin over
+  the EXISTING reviewed configuration
+  transport, and the host revalidates the
+  record against its OWN verified entry;
+  default/historical consumers stay strict).
+  It composes the EXISTING NativeOwnerRun /
+  owner-controller / guarded exact-CID
+  channel / frozen owner-UID identity /
+  independent devpts producer and the
+  existing quiesce/export/integrity/
+  teardown/publication law under the SAME
+  frozen bounds (1800 s END / 600 s
+  convergence grace / 320 MiB-10 s native /
+  16 MiB-10 s Python exe / 96 slave rows /
+  65536 drained B / 5 s devpts and subject
+  metadata at use and return); no new
+  runner, supervisor, watchdog, transport,
+  privilege channel or framework. The closed
+  deterministic format workload (code-
+  defined before any actual qualification):
+  at most 8 bounded synthetic seed files /
+  128 KiB total whose identity is retained
+  from PRE-LAUNCH originals (bounded owned
+  seed root sealed after the bounded
+  writes; no pre-existing-file adoption or
+  overwrite), exposed to subject reads
+  through the smallest existing fixture
+  seam; at most 16 issued semantic calls (4
+  exec cases plus at most 12 empty-stdin
+  write_stdin polls across the ONE running
+  process; never concurrent outstanding
+  execs); any forced sleep at most 5 s; at
+  most 20 model POSTs, 1 MiB per inbound
+  body and 256 KiB TOTAL SERIALIZED
+  selected record (including the outer
+  binding/identity/CID/tag; byte-checked
+  BEFORE decode/copy at export, consumer
+  and publication). The four serial cases:
+  the complete exit-0 literal file read;
+  the genuine initial-running exec plus
+  causally associated empty-stdin polls
+  through actual completion with output in
+  MULTIPLE chunks (at least two NONEMPTY
+  observed output pieces across verified
+  exec/poll results — empty poll frames
+  cannot inflate the proof); the successful
+  empty output (the native EMPTY output
+  requires the delimiter LF); the
+  deliberate bounded truncation with actual
+  formatter evidence (always non-acquiring).
+  The REAL pinned native text wrapper is
+  strictly parsed from the pinned primary-
+  source grammar (the pinned
+  `function_tool_response` text wrapper;
+  the actual formatter truncation is
+  warning/line-count plus a UTF-8 head/tail
+  marker over the effective-token budget —
+  never an assumed fixed byte prefix; chunk
+  grouping accepted only as ACTUALLY
+  observed in the verified results — never
+  declared transport boundaries; native
+  completion may omit the process ID); the
+  exact issued family/name/call-ID/argument
+  digest and numeric causal request
+  position retained before accepting a
+  result (strictly AFTER its own issuance
+  — it may equal the next call's issuance;
+  same-ID changed-arguments/results,
+  unissued/preloaded/duplicate/conflicting
+  results and foreign process/session facts
+  refuse; issued call IDs unique across the
+  complete <=16 registry; previously
+  completed historical results in later
+  accumulated requests validate as frozen
+  historical identity and never advance or
+  retain twice). Selected frames only:
+  exact known synthetic call/result text
+  after strict formatter/source/byte
+  verification against the immutable seeds
+  (actual IDs/association, complete wrapper
+  ordering, chunk/process fields, Unicode/
+  CRLF/empty/truncation facts); no
+  reconstruction from digests, no raw
+  unknown output, no source/private-
+  history/full-request/headers/auth/prompt/
+  schema blob persistence; unknown text is
+  a fixed safe metadata/digest or typed
+  refusal. The complete four-case snapshot
+  validator keeps its earned law; a
+  DISTINCT closed PARTIAL snapshot form
+  (zero-POST source-less; completed-prefix-
+  plus-one-outstanding) retains only
+  verified frames, re-derives pending
+  byte/session facts from them and never
+  mints a format qualification. Publication
+  keeps the ordered separation: the FIRST
+  protected owner evidence requires the
+  SAME owner's OWN successful protected
+  retention (a narrow RAM retention receipt
+  set ONLY after the protected owner writer
+  returned verified success, independent of
+  the cleanup/evidence status — a post-
+  commit unverified result never sets it, a
+  precomputed digest or merely existing
+  matching file is not a receipt; an honest
+  failed owner whose FIRST evidence WAS
+  retained keeps its representable
+  publication; a failed/unverified
+  retention refuses BEFORE any AJ native/
+  capture destination); the SECOND
+  protected selected native capture record
+  is built only from this owner's retained
+  selected export (validated at the
+  producer boundary with the shared
+  selected-export validator before
+  decode/copy under the existing raw-export
+  byte cap); the SAME pending-pass journal
+  is finalized LAST (actual journal read,
+  one-shot, no overwrite, no fresh-path
+  retry). The AJ QUALIFICATION journal gate
+  keeps the facts separate: terminal PASS
+  additionally requires the ACTUAL cleanup
+  pass, the native-ready verdict, the
+  strict full four-case format
+  qualification and the protected
+  retention; a cleanup-pass / native-ready
+  owner with an unsupported, partial or
+  absent format stays truthfully
+  representable and retainable with the
+  owner's actual outcome and the native
+  verdict preserved unchanged, but the
+  journal closes terminal FAIL (never
+  pass) and the cached outcome/
+  finalize_attempt can never later upgrade
+  it; a post-retention unverified or raced
+  finalization is a closed failure
+  preserving the retained bytes and the
+  actual journal facts as-is. The proof
+  drives the REAL public composition over
+  ONE coherent coupled fake process world
+  (the useful unequal 1001:1002 positive
+  plus the adversarial contrasts) with
+  EVERY started test owner reaped in a per-
+  test finally and the global subject-UID
+  scan trapped; 1071 collected across all
+  twelve fixture suites at the current
+  source (pre-commit development capture —
+  the prescribed locked B gate at the final
+  delivery head is the final qualification).
+  NO actual AJ fixture operation, native
+  launch (including help/version), worker
+  stop, Docker operation, model/Gateway
+  call or host signal this round; the
+  bounded process deviations are disclosed
+  in the round report. D09 remains NOT RUN;
+  no native-ready, whole-017 or v1 runtime
+  claim; the later ACTUAL format
+  qualification belongs to the separately
+  activated `017-aj` order, strategy-
+  chosen.
 
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)

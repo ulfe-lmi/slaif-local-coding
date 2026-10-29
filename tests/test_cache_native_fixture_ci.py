@@ -49,6 +49,7 @@ sys.modules["cache_native_fixture_ci"] = fci
 spec.loader.exec_module(fci)
 
 model = fci.model
+frp = fci.rprofile
 fixture_export = fci.fixture_export
 
 CID = "a" * 64
@@ -3352,3 +3353,154 @@ def test_prepare_readiness_closed_probe_cause_skips_lifecycle_query() -> None:
         reason, _ledger = _lifecycle_reason(fake)
         assert reason == f"controller-not-ready:{cause}"
         assert fake.lifecycle_calls == []
+
+
+# ============================================================================
+# 017-ai: the host's OWN-entry closed scenario revalidation (observe)
+# ============================================================================
+
+
+class TestObserveControllerOnEntryLaw:
+    """The host's OWN verified entry is the closed scenario
+    authority for the NON-CONSUMING observe: the canonical
+    017-aj entry expects its OWN closed format-capture and
+    NOTHING else; every other entry keeps the historical
+    two-scenario set byte-for-byte; a foreign or unknown
+    entry is a closed refusal BEFORE any exec; and the
+    owner-carried EXISTING container scenario key reaches the
+    standin as transport data only for the AJ entry (the
+    historical exec envs stay byte-for-byte unchanged).  The
+    executor is a call-recording fake returning the closed
+    standin observe record — no docker, no container, no
+    network, no model POST."""
+
+    ENV_BASE = {"SLAIF_FIXTURE_PORT": "18443"}
+
+    @staticmethod
+    def _record_body(scenario: str) -> bytes:
+        return (
+            json.dumps(
+                {
+                    "record": "slaif-fixture-standin-v1",
+                    "status": "pass",
+                    "mode": "observe",
+                    "uid": fci.SUBJECT_UID,
+                    "scenario": scenario,
+                    "wire_requests": 0,
+                    "diagnostic_state": "unobserved",
+                    "raw_content_retained": False,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode("ascii")
+
+    def _run(
+        self, argvs: list[list[str]], scenario: str, entry_order: str | None
+    ) -> dict[str, object]:
+        def executor(argv: list[str], timeout: float) -> Any:
+            argvs.append(list(argv))
+            body = self._record_body(scenario)
+            return fci.ExecResult(0, body, len(body))
+
+        ledger = fci._RunLedger(model.FixtureBudgets())
+        result: dict[str, object] = fci.observe_controller_on(
+            executor,
+            CID,
+            dict(self.ENV_BASE),
+            ledger,
+            entry_order=entry_order,
+        )
+        return result
+
+    def test_aj_entry_accepts_only_format_record(self) -> None:
+        argvs: list[list[str]] = []
+        result = self._run(argvs, "format-capture", frp.AJ_ORDER_ID)
+        assert result == {
+            "scenario": "format-capture",
+            "wire_requests": 0,
+            "diagnostic_state": "unobserved",
+        }
+        assert len(argvs) == 1
+        argv = argvs[0]
+        # the exact closed exec form: the historical subject
+        # user, the observed cid, the standin observe tail
+        assert argv[0:3] == ["docker", "exec", "--user"]
+        assert argv[3] == f"{fci.SUBJECT_UID}:{fci.SUBJECT_UID}"
+        assert CID in argv
+        tail = argv[argv.index(CID) + 1 :]
+        assert tail == ["python3", fci.STANDIN_PATH, "--mode", "observe"]
+        # the AJ transport carries the closed expectation ONCE
+        i = argv.index("SLAIF_FIXTURE_SCENARIO=format-capture")
+        assert argv[i - 1] == "-e"
+        assert argv.count("SLAIF_FIXTURE_SCENARIO=format-capture") == 1
+        p = argv.index("SLAIF_FIXTURE_PORT=18443")
+        assert argv[p - 1] == "-e"
+        assert p < i  # the closed sorted-key env form
+
+    @pytest.mark.parametrize("scenario", ["diagnostic", "tool-cycle"])
+    def test_aj_entry_refuses_legacy_records(self, scenario: str) -> None:
+        argvs: list[list[str]] = []
+        with pytest.raises(fci.FixtureError, match="observe-record-state"):
+            self._run(argvs, scenario, frp.AJ_ORDER_ID)
+        # the record was READ (the drift is measured), but the
+        # host's own-entry law refuses it
+        assert len(argvs) == 1
+
+    @pytest.mark.parametrize("entry_order", [None, "017-ab"])
+    @pytest.mark.parametrize("scenario", ["diagnostic", "tool-cycle"])
+    def test_historical_entries_keep_closed_two_scenario_set(
+        self, entry_order: str | None, scenario: str
+    ) -> None:
+        argvs: list[list[str]] = []
+        result = self._run(argvs, scenario, entry_order)
+        assert result["scenario"] == scenario
+        assert len(argvs) == 1
+        # the historical exec env stays byte-for-byte: the
+        # scenario key is NEVER carried for non-AJ entries
+        assert "SLAIF_FIXTURE_SCENARIO" not in " ".join(argvs[0])
+        assert "-e" in argvs[0]
+        assert argvs[0].count("SLAIF_FIXTURE_PORT=18443") == 1
+
+    @pytest.mark.parametrize("entry_order", [None, "017-ab"])
+    def test_historical_entries_refuse_format_record(self, entry_order: str | None) -> None:
+        argvs: list[list[str]] = []
+        with pytest.raises(fci.FixtureError, match="observe-record-state"):
+            self._run(argvs, "format-capture", entry_order)
+        assert len(argvs) == 1
+
+    def test_foreign_entry_refused_before_exec(self) -> None:
+        argvs: list[list[str]] = []
+        with pytest.raises(fci.FixtureError, match="observe-entry-invalid"):
+            self._run(argvs, "format-capture", "017-xx")
+        assert argvs == []
+
+    def test_aj_standin_refusal_propagates_closed(self) -> None:
+        def executor(argv: list[str], timeout: float) -> Any:
+            argvs.append(list(argv))
+            body = (
+                json.dumps(
+                    {
+                        "record": "slaif-fixture-standin-v1",
+                        "status": "fail",
+                        "reason": "observe-transport",
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                + "\n"
+            ).encode("ascii")
+            return fci.ExecResult(2, body, len(body))
+
+        argvs: list[list[str]] = []
+        ledger = fci._RunLedger(model.FixtureBudgets())
+        with pytest.raises(fci.FixtureError, match="observe-failed"):
+            fci.observe_controller_on(
+                executor,
+                CID,
+                dict(self.ENV_BASE),
+                ledger,
+                entry_order=frp.AJ_ORDER_ID,
+            )
+        assert len(argvs) == 1

@@ -175,6 +175,53 @@ AH_OWNER_RUN_SCOPE = "slaif-017ah-owner-uid-scope"
 # equal-numeric identities).
 AH_NATIVE_ATTACH_BINDING_SCHEMA = "slaif-017ah-native-attach-binding-v1"
 
+# The canonical FUTURE native-process format QUALIFICATION
+# entry (017-ai: INERT, input-gated, unqualified): the LATER
+# separately authorized actual format qualification round.
+# It selects the SAME owner-UID profile through the closed
+# entry mapping (exactly as AB, AD, AF and AH do) and
+# composes the EXISTING owner/guarded exact-CID/NativeOwnerRun
+# and independent devpts producer APIs with their unchanged
+# bounds; the canonical entry selects the CLOSED native
+# format-capture scenario BEFORE startup through the existing
+# reviewed configuration transport (the trusted owner carries
+# it; the transport is not authority — caller environment
+# presence/values, HTTP flags or user-authored ready records
+# never select or advance the scenario); it carries the
+# DISTINCT versioned identity-bearing record tags of the
+# 017-aj qualification AND the NEW strict selected native
+# format-capture record tag — the closed EXISTING records
+# (the original, the AB, the AD, the AE, the AF and the AH
+# forms) keep their exact historical key sets and tag laws
+# byte-for-byte, and 017-ah in particular stays CLOSED and
+# unchanged (its round is complete; no new AH record form is
+# minted here).  INERT means the REAL active/order/admission
+# gates refuse 017-aj while ANY other order (in particular
+# the current 017-ai) is active — BEFORE admission or
+# external fixture work: no real AJ order, no AJ namespace,
+# no AJ admission, no AJ owner is created in this round.
+# Registering the constants is NOT activating the entry.
+AJ_ORDER_ID = "017-aj"
+AJ_ORDER_PATH = "oap/orders/017-aj-native-process-format-qualification.md"
+AJ_OWNER_STATE_SCHEMA = "slaif-017aj-owner-state-v1"
+AJ_NATIVE_RUN_EVIDENCE_SCHEMA = "slaif-017aj-native-owner-run-evidence-v1"
+AJ_NATIVE_RUN_SCHEMA = "slaif-017aj-native-owner-run-v1"
+AJ_OWNER_RUN_SCOPE = "slaif-017aj-owner-uid-scope"
+AJ_NATIVE_ATTACH_BINDING_SCHEMA = "slaif-017aj-native-attach-binding-v1"
+# The NEW strict selected native format-capture record of the
+# 017-aj entry: the bounded deterministic tool scenario (the
+# four serial exec cases plus the empty-stdin polls across
+# the ONE running process), the strict formatter/source/byte
+# verified selected frames against the immutable pre-launch
+# seed identity, and the closed non-acquiring truncation
+# fact.  It is a DISTINCT closed record, never a relabeled
+# diagnostic or stand-in tag.
+AJ_NATIVE_FORMAT_CAPTURE_SCHEMA = "slaif-017aj-native-format-capture-v1"
+# The CLOSED native format scenario selected by the canonical
+# 017-aj entry BEFORE startup (a closed enum value of the
+# controller's construction-time scenario law; a request body
+# can never select, switch or advance it).
+AJ_FORMAT_SCENARIO = "format-capture"
 # The closed NATIVE executable-measurement bounds of the 017-ad
 # entry: exactly 320 MiB (335544320 bytes) and 10 s — a
 # justified measurement bound for the pinned native artifact
@@ -249,6 +296,14 @@ _ENTRY_PROFILES_LITERAL: dict[str, str] = {
     # REAL active/order/admission gate refusing 017-ah under
     # any other active order, never a missing profile mapping
     AH_ORDER_ID: PROFILE_OWNER_UID,
+    # the canonical FUTURE native-process format QUALIFICATION
+    # entry (INERT in 017-ai): the SAME owner-UID profile
+    # selection through the existing owner composition; the
+    # entry additionally selects the CLOSED native
+    # format-capture scenario before startup; inertness is the
+    # REAL active/order/admission gate refusing 017-aj under
+    # any other active order, never a missing profile mapping
+    AJ_ORDER_ID: PROFILE_OWNER_UID,
 }
 
 # The immutable canonical entry mapping: no per-owner or caller

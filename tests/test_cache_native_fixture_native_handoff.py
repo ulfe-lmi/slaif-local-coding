@@ -35,6 +35,7 @@ Layers (named separately, per the order):
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import importlib.util
@@ -72,6 +73,9 @@ aa = _load_test_module("oap_ac_aa", REPO_ROOT / "tests" / "test_cache_native_fix
 stl = _load_test_module("oap_ac_stl", REPO_ROOT / "tests" / "test_cache_native_fixture_local.py")
 stp = _load_test_module(
     "oap_ac_stp", REPO_ROOT / "tests" / "test_cache_native_fixture_native_prep.py"
+)
+fmtc = _load_test_module(
+    "oap_ai_fmtc", REPO_ROOT / "tests" / "test_cache_native_fixture_format_capture.py"
 )
 
 # The REAL composition module, canonical name (it reuses the
@@ -1549,7 +1553,9 @@ def test_ae_af_entry_selection_and_preserved_closed_mapping() -> None:
     # preserved byte-for-byte (the sealed FUTURE 017-ah
     # requalification entry added by the 017-ag order is
     # included in the current closed law — its own test
-    # re-asserts every preserved constant), each owner-UID
+    # re-asserts every preserved constant — as is the sealed
+    # FUTURE 017-aj format-qualification entry added by the
+    # 017-ai order, INERT under AI-active), each owner-UID
     # entry selecting the SAME owner-UID profile
     assert dict(frp.ENTRY_PROFILES) == {
         "017-s": frp.PROFILE_ORIGINAL,
@@ -1559,12 +1565,14 @@ def test_ae_af_entry_selection_and_preserved_closed_mapping() -> None:
         frp.AD_ORDER_ID: frp.PROFILE_OWNER_UID,
         frp.AF_ORDER_ID: frp.PROFILE_OWNER_UID,
         frp.AH_ORDER_ID: frp.PROFILE_OWNER_UID,
+        frp.AJ_ORDER_ID: frp.PROFILE_OWNER_UID,
     }
     assert frp.entry_profile_name("017-s") == frp.PROFILE_ORIGINAL
     assert frp.entry_profile_name("017-x") == frp.PROFILE_ORIGINAL
     assert frp.entry_profile_name("017-y") == frp.PROFILE_ORIGINAL
     assert frp.entry_profile_name(frp.AB_ORDER_ID) == frp.PROFILE_OWNER_UID
     assert frp.entry_profile_name(AD_ORDER_ID) == frp.PROFILE_OWNER_UID
+    assert frp.entry_profile_name(frp.AJ_ORDER_ID) == frp.PROFILE_OWNER_UID
     # AF carries the owner-UID profile (the production
     # derivation, never a caller-authored view)
     assert frp.entry_profile_name(frp.AF_ORDER_ID) == frp.PROFILE_OWNER_UID
@@ -3366,9 +3374,11 @@ def test_ag_ah_entry_selection_and_preserved_closed_mapping() -> None:
     assert frp.AH_NATIVE_RUN_SCHEMA == "slaif-017ah-native-owner-run-v1"
     assert frp.AH_OWNER_RUN_SCOPE == "slaif-017ah-owner-uid-scope"
     assert frp.AH_NATIVE_ATTACH_BINDING_SCHEMA == "slaif-017ah-native-attach-binding-v1"
-    # the closed entry mapping: the SIX existing entries
-    # preserved byte-for-byte, plus AH selecting the SAME
-    # owner-UID profile
+    # the closed entry mapping: the SEVEN existing entries
+    # preserved byte-for-byte (the sealed FUTURE 017-aj
+    # format-qualification entry added by the 017-ai order is
+    # included in the current closed law — INERT under
+    # AI-active), plus AH selecting the SAME owner-UID profile
     assert dict(frp.ENTRY_PROFILES) == {
         "017-s": frp.PROFILE_ORIGINAL,
         "017-x": frp.PROFILE_ORIGINAL,
@@ -3377,6 +3387,7 @@ def test_ag_ah_entry_selection_and_preserved_closed_mapping() -> None:
         frp.AD_ORDER_ID: frp.PROFILE_OWNER_UID,
         frp.AF_ORDER_ID: frp.PROFILE_OWNER_UID,
         frp.AH_ORDER_ID: frp.PROFILE_OWNER_UID,
+        frp.AJ_ORDER_ID: frp.PROFILE_OWNER_UID,
     }
     assert frp.entry_profile_name("017-s") == frp.PROFILE_ORIGINAL
     assert frp.entry_profile_name("017-x") == frp.PROFILE_ORIGINAL
@@ -3384,6 +3395,7 @@ def test_ag_ah_entry_selection_and_preserved_closed_mapping() -> None:
     assert frp.entry_profile_name(frp.AB_ORDER_ID) == frp.PROFILE_OWNER_UID
     assert frp.entry_profile_name(AD_ORDER_ID) == frp.PROFILE_OWNER_UID
     assert frp.entry_profile_name(AF_ORDER_ID) == frp.PROFILE_OWNER_UID
+    assert frp.entry_profile_name(frp.AJ_ORDER_ID) == frp.PROFILE_OWNER_UID
     # AH carries the owner-UID profile (the production
     # derivation, never a caller-authored view)
     assert frp.entry_profile_name(frp.AH_ORDER_ID) == frp.PROFILE_OWNER_UID
@@ -3433,73 +3445,110 @@ def test_ag_ah_entry_selection_and_preserved_closed_mapping() -> None:
 def test_ag_ah_refused_under_ag_active_before_admission(tmp_path: Path) -> None:
     """The REAL repository-context validation refuses 017-ah
     under AG-active BEFORE any admission or external work,
-    proven only in an owned synthetic repository (the real
-    checkout is never touched): the closed canonical map
-    carries the AH entry's unique committed order path, the
-    active-content law refuses the foreign-active AH binding,
-    and the AH admission namespace is never claimed.  The
-    ACTUAL real AH order file and namespace stay ABSENT in
-    this checkout (the entry is sealed INERT)."""
-    # coherence: the binding module's closed map mirrors the
-    # canonical entry names owned by the runtime-profile module
-    assert fb._CANONICAL_ORDER_PATHS[AH_ORDER_ID] == frp.AH_ORDER_PATH
-    # the AG-active synthetic repo: the AH order file is
-    # committed at its canonical path, active selects AG
-    repo = _ah_repo(tmp_path / "repo", active_order=AG_ORDER_ID)
-    git = _ah_git_runner(repo, active_order=AG_ORDER_ID)
-    with pytest.raises(fci.FixtureError, match="bind-active-mismatch"):
-        fb.resolve_order_binding(repo, AH_ORDER_ID, HEAD, git_runner=git)
-    # no admission namespace (the ACTUAL production
-    # admission path, including any claim), no journal, no
-    # external work
-    assert not fb.admission_dir_path(repo, AH_ORDER_ID).exists()
-    assert not fb.admission_path(repo, AH_ORDER_ID).exists()
-    assert not fb.claim_path(repo, AH_ORDER_ID).exists()
-    # the AG binding itself still resolves (the active entry)
-    ag_binding = fb.resolve_order_binding(repo, AG_ORDER_ID, HEAD, git_runner=git)
-    assert ag_binding.order_id == AG_ORDER_ID
-    # the AH entry under ITS OWN active context resolves ONLY at
-    # its unique canonical committed order path
-    ah_repo = _ah_repo(tmp_path / "ahrepopo")
-    ah_git = _ah_git_runner(ah_repo)
-    ah_binding = fb.resolve_order_binding(ah_repo, AH_ORDER_ID, HEAD, git_runner=ah_git)
-    assert ah_binding.order_path == frp.AH_ORDER_PATH
-    # a FOREIGN pattern-matching AH name is a closed refusal
-    # BEFORE any admission or owner adoption
-    wrong = tmp_path / "wrong" / "repo"
-    wrong.parent.mkdir(parents=True)
-    wrong_repo = Path(stl._make_local_repo(wrong))
-    wrong_name = "017-ah-other-synthetic-name.md"
-    (wrong_repo / "oap" / "orders" / wrong_name).write_bytes(AH_ORDER_BYTES)
-    (wrong_repo / "oap" / "active").write_bytes(AH_ORDER_ID.encode("ascii") + b"\n")
+    proven only in owned synthetic repositories: the closed
+    canonical map carries the AH entry's unique committed
+    order path, the active-content law refuses the
+    foreign-active AH binding, a foreign-pattern AH name is a
+    closed refusal, and the AH admission namespace is never
+    claimed in the synthetic repositories.  The
+    activated-checkout-shaped synthetic control (AH order
+    committed AND active selecting AH) resolves ONLY at the
+    canonical path with no admission claimed.  The AH entry
+    is ACTIVATED and CONSUMED in this actual checkout by the
+    completed AH round: the test makes NO absence assertion
+    on the real checkout: every admission-path helper is
+    guarded by a fail-fast spy that refuses the actual
+    checkout (REPO_ROOT) BEFORE any I/O, so the real consumed
+    namespace is never read, enumerated or touched — the
+    activated-checkout-shaped behavior is proven wholly in
+    owned synthetic repositories."""
+    # fail-fast no-touch guard: every admission-path helper in
+    # this test must be called ONLY with owned synthetic
+    # repositories; the actual checkout is refused BEFORE any
+    # I/O (no read, no enumeration, no snapshot of the real
+    # consumed namespace)
+    real_seen: list[str] = []
+    _admission_helpers = ("admission_dir_path", "admission_path", "claim_path")
+    _originals = {n: getattr(fb, n) for n in _admission_helpers}
 
-    def wrong_git(args: list[str], cwd: Path) -> bytes:
-        if args == ["rev-parse", "HEAD"]:
-            return str(HEAD).encode("ascii")
-        if args == ["status", "--porcelain"]:
-            return b""
-        if args == ["remote", "get-url", "origin"]:
-            return b"https://github.com/ulfe-lmi/slaif-local-coding.git\n"
-        if args == ["ls-tree", "--name-only", f"{HEAD}:oap/orders"]:
-            return (S_ORDER_NAME + "\n" + wrong_name + "\n").encode("ascii")
-        if args == ["show", f"{HEAD}:oap/active"]:
-            return AH_ORDER_ID.encode("ascii") + b"\n"
-        if args == ["show", f"{HEAD}:oap/orders/{wrong_name}"]:
-            return AH_ORDER_BYTES
-        if args == ["show", f"{HEAD}:oap/orders/{S_ORDER_NAME}"]:
-            return bytes(stl.ORDER_PATH.read_bytes())
-        raise AssertionError(f"unexpected git args: {args}")
+    def _guarded(name: str, real_fn: Any) -> Any:
+        def _spy(repo: Any, order_id: str) -> Any:
+            if Path(repo) == REPO_ROOT:
+                real_seen.append(name)
+                raise AssertionError(f"admission helper {name} targeted the real checkout")
+            return real_fn(repo, order_id)
 
-    with pytest.raises(fci.FixtureError, match="bind-order-path-mismatch"):
-        fb.resolve_order_binding(wrong_repo, AH_ORDER_ID, HEAD, git_runner=wrong_git)
-    assert not fb.admission_dir_path(wrong_repo, AH_ORDER_ID).exists()
-    # the ACTUAL real AH order file and namespace stay ABSENT
-    # in this checkout (the sealed INERT entry)
-    assert list((REPO_ROOT / "oap" / "orders").glob("017-ah-*")) == []
-    # the real production admission namespace (repo
-    # .oap-local/<order>) is ABSENT in this checkout
-    assert not fb.admission_dir_path(REPO_ROOT, AH_ORDER_ID).exists()
-    assert not fb.admission_path(REPO_ROOT, AH_ORDER_ID).exists()
+        return _spy
+
+    for _n in _admission_helpers:
+        setattr(fb, _n, _guarded(_n, _originals[_n]))
+    try:
+        # coherence: the binding module's closed map mirrors the
+        # canonical entry names owned by the runtime-profile module
+        assert fb._CANONICAL_ORDER_PATHS[AH_ORDER_ID] == frp.AH_ORDER_PATH
+        # the AG-active synthetic repo: the AH order file is
+        # committed at its canonical path, active selects AG
+        repo = _ah_repo(tmp_path / "repo", active_order=AG_ORDER_ID)
+        git = _ah_git_runner(repo, active_order=AG_ORDER_ID)
+        with pytest.raises(fci.FixtureError, match="bind-active-mismatch"):
+            fb.resolve_order_binding(repo, AH_ORDER_ID, HEAD, git_runner=git)
+        # no admission namespace (the ACTUAL production
+        # admission path, including any claim), no journal, no
+        # external work
+        assert not fb.admission_dir_path(repo, AH_ORDER_ID).exists()
+        assert not fb.admission_path(repo, AH_ORDER_ID).exists()
+        assert not fb.claim_path(repo, AH_ORDER_ID).exists()
+        # the AG binding itself still resolves (the active entry)
+        ag_binding = fb.resolve_order_binding(repo, AG_ORDER_ID, HEAD, git_runner=git)
+        assert ag_binding.order_id == AG_ORDER_ID
+        # the AH entry under ITS OWN active context resolves ONLY at
+        # its unique canonical committed order path
+        ah_repo = _ah_repo(tmp_path / "ahrepopo")
+        ah_git = _ah_git_runner(ah_repo)
+        ah_binding = fb.resolve_order_binding(ah_repo, AH_ORDER_ID, HEAD, git_runner=ah_git)
+        assert ah_binding.order_path == frp.AH_ORDER_PATH
+        # the activated-checkout-shaped synthetic control claims NO
+        # admission before admission (no dir, no journal, no claim)
+        assert not fb.admission_dir_path(ah_repo, AH_ORDER_ID).exists()
+        assert not fb.admission_path(ah_repo, AH_ORDER_ID).exists()
+        assert not fb.claim_path(ah_repo, AH_ORDER_ID).exists()
+        # a FOREIGN pattern-matching AH name is a closed refusal
+        # BEFORE any admission or owner adoption
+        wrong = tmp_path / "wrong" / "repo"
+        wrong.parent.mkdir(parents=True)
+        wrong_repo = Path(stl._make_local_repo(wrong))
+        wrong_name = "017-ah-other-synthetic-name.md"
+        (wrong_repo / "oap" / "orders" / wrong_name).write_bytes(AH_ORDER_BYTES)
+        (wrong_repo / "oap" / "active").write_bytes(AH_ORDER_ID.encode("ascii") + b"\n")
+
+        def wrong_git(args: list[str], cwd: Path) -> bytes:
+            if args == ["rev-parse", "HEAD"]:
+                return str(HEAD).encode("ascii")
+            if args == ["status", "--porcelain"]:
+                return b""
+            if args == ["remote", "get-url", "origin"]:
+                return b"https://github.com/ulfe-lmi/slaif-local-coding.git\n"
+            if args == ["ls-tree", "--name-only", f"{HEAD}:oap/orders"]:
+                return (S_ORDER_NAME + "\n" + wrong_name + "\n").encode("ascii")
+            if args == ["show", f"{HEAD}:oap/active"]:
+                return AH_ORDER_ID.encode("ascii") + b"\n"
+            if args == ["show", f"{HEAD}:oap/orders/{wrong_name}"]:
+                return AH_ORDER_BYTES
+            if args == ["show", f"{HEAD}:oap/orders/{S_ORDER_NAME}"]:
+                return bytes(stl.ORDER_PATH.read_bytes())
+            raise AssertionError(f"unexpected git args: {args}")
+
+        with pytest.raises(fci.FixtureError, match="bind-order-path-mismatch"):
+            fb.resolve_order_binding(wrong_repo, AH_ORDER_ID, HEAD, git_runner=wrong_git)
+        assert not fb.admission_dir_path(wrong_repo, AH_ORDER_ID).exists()
+        # no-touch proof: no admission helper was ever called
+        # with the real checkout (the fail-fast spy would have
+        # raised before any I/O); the actual consumed namespace
+        # was never read, enumerated or touched
+        assert real_seen == []
+    finally:
+        for _n in _admission_helpers:
+            setattr(fb, _n, _originals[_n])
 
 
 def _devpts_probe_argv(
@@ -4004,3 +4053,2104 @@ def test_ag_ah_zero_frames_never_earn_stop_authority_in_composition(
         assert record["attempts"] == [
             {"head": HEAD, "run_id": run.binding.run_id, "status": "aborted"}
         ]
+
+
+# ============================================================================
+# 017-ai: the sealed INERT 017-aj entry + public composition proof
+# ============================================================================
+
+AJ_ORDER_ID = "017-aj"
+AJ_ORDER_NAME = "017-aj-native-process-format-qualification.md"
+AJ_ORDER_BYTES = b"# synthetic AJ order (fake seam only)\n"
+AI_ORDER_ID = "017-ai"
+AI_ORDER_NAME = "017-ai-synthetic-active.md"
+AI_ORDER_BYTES = b"# synthetic AI order (fake seam only)\n"
+
+
+def _aj_repo(base: Path, *, active_order: str = AJ_ORDER_ID) -> Path:
+    """The S-shaped synthetic repo for the 017-ai AJ entry
+    tests: the AJ canonical order file is committed; oap/active
+    selects the requested entry (AJ by default, AI for the
+    pre-admission refusal law).  Test order bytes live ONLY in
+    owned synthetic repositories — the real AJ order is never
+    created in this checkout."""
+    repo = Path(stl._make_local_repo(base))
+    for name in (
+        "cache_native_fixture_owner.Dockerfile",
+        "cache_native_fixture_identity.py",
+        "cache_native_fixture_native_prep.py",
+        "cache_native_fixture_runtime_profile.py",
+        "cache_native_fixture_binding.py",
+    ):
+        (repo / "scripts" / name).write_bytes((REPO_ROOT / "scripts" / name).read_bytes())
+    (repo / "oap" / "orders" / AJ_ORDER_NAME).write_bytes(AJ_ORDER_BYTES)
+    if active_order == AI_ORDER_ID:
+        (repo / "oap" / "orders" / AI_ORDER_NAME).write_bytes(AI_ORDER_BYTES)
+    (repo / "oap" / "active").write_bytes(active_order.encode("ascii") + b"\n")
+    return repo
+
+
+def _aj_git_runner(repo: Path, *, head: str = HEAD, active_order: str = AJ_ORDER_ID) -> Any:
+    """The fake committed-context git runner (read-only
+    queries only) for the AI/AJ synthetic repository."""
+
+    def git_runner(args: list[str], cwd: Path) -> bytes:
+        if args == ["rev-parse", "HEAD"]:
+            return head.encode("ascii")
+        if args == ["status", "--porcelain"]:
+            return b""
+        if args == ["remote", "get-url", "origin"]:
+            return b"https://github.com/ulfe-lmi/slaif-local-coding.git\n"
+        if args == ["ls-tree", "--name-only", f"{HEAD}:oap/orders"]:
+            names = [S_ORDER_NAME, AJ_ORDER_NAME]
+            if active_order == AI_ORDER_ID:
+                names.append(AI_ORDER_NAME)
+            return ("\n".join(names) + "\n").encode("ascii")
+        if args == ["show", f"{HEAD}:oap/active"]:
+            return active_order.encode("ascii") + b"\n"
+        if args == ["show", f"{HEAD}:oap/orders/{S_ORDER_NAME}"]:
+            return bytes(stl.ORDER_PATH.read_bytes())
+        if args == ["show", f"{HEAD}:oap/orders/{AJ_ORDER_NAME}"]:
+            return AJ_ORDER_BYTES
+        if args == ["show", f"{HEAD}:oap/orders/{AI_ORDER_NAME}"]:
+            return AI_ORDER_BYTES
+        raise AssertionError(f"unexpected git args: {args}")
+
+    return git_runner
+
+
+class _AJFakeDocker(_AFFakeDocker):
+    """The AJ format-capture transport surface over the SAME
+    world: records the EXACT create argv (the closed scenario is
+    selected BEFORE startup) and the owned standin observe exec
+    reports the closed format-capture scenario (a test may
+    report a legacy scenario to exercise the host's own-entry
+    refusal).  No production dispatch is synthesized away: the
+    real owner/controller/observe path is driven unchanged."""
+
+    def __init__(self, world: _AFWorld, proc_root: Path) -> None:
+        super().__init__(world, proc_root)
+        self.create_argv: list[str] | None = None
+        self.observe_env: dict[str, str] | None = None
+        self.observe_scenario = "format-capture"
+        # The MEASURED controller /state facts at each observe
+        # (the prepare observation keeps the closed zero-traffic
+        # initial state; a test advances them to the measured
+        # post-workload state before the finish command).
+        self.observe_wire_requests = 0
+        self.observe_diagnostic_state = "unobserved"
+
+    def __call__(self, argv: list[str], timeout: float) -> Any:
+        if len(argv) >= 2 and argv[1] == "create":
+            self.create_argv = list(argv)
+        return super().__call__(argv, timeout)
+
+    def _owner_standin_exec(
+        self, mode: str, itty: bool, env: dict[str, str], env_file: str | None
+    ) -> Any:
+        if mode == "observe":
+            self.observe_env = dict(env)
+            line = aa._standin_record_aa(
+                "observe",
+                scenario=self.observe_scenario,
+                wire_requests=self.observe_wire_requests,
+                diagnostic_state=self.observe_diagnostic_state,
+                raw_content_retained=False,
+            )
+            out = (json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n").encode("ascii")
+            return self._result(0, out)
+        return super()._owner_standin_exec(mode, itty, env, env_file)
+
+
+def _aj_run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    world: _AFWorld,
+    docker: _AJFakeDocker,
+) -> tuple[Any, Any, _AJFakeDocker, Path, Path, list[int]]:
+    """The coupled AJ composition over the SAME coherent fake
+    world: the REAL public NativeOwnerRun over the AJ binding
+    (the sealed INERT entry exercised as software only)."""
+    repo = _aj_repo(tmp_path)
+    work = tmp_path / "work"
+    control = tmp_path / "control"
+    owner_evidence = tmp_path / "evidence" / "aj-owner-evidence.json"
+    uid_calls: list[int] = []
+    _hermetic(tmp_path, monkeypatch, docker, control, uid_calls)
+    git = _aj_git_runner(repo)
+    table = stp.FakeTable(world.procs)
+    binding = fb.resolve_order_binding(repo, AJ_ORDER_ID, HEAD, git_runner=git)
+    run = fno.NativeOwnerRun(
+        binding,
+        repo,
+        work,
+        owner_evidence,
+        control,
+        git_runner=git,
+        executor=docker,
+        table=table,
+        worker_pid=WORK_PID,
+        bash_pid=BASH_PID,
+        tty_foreground_pgrp=WORK_PID,
+        identity_reader=_ad_reader,
+        proc_root=world.proc_root,
+    )
+    return run, repo, docker, owner_evidence, control, uid_calls
+
+
+def test_aj_public_command_threads_frozen_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The O2 proof: the AJ public composition threads the
+    FROZEN owner entry through the real owner/controller path —
+    the closed format-capture scenario is selected BEFORE
+    startup in the exact create argv, the published state is the
+    AJ entry's OWN distinct identity-bearing form (read back
+    under its OWN entry), the prepare detail carries the
+    closed observed scenario, and the owned standin observe
+    exec carries the closed expectation as transport data while
+    the host revalidates the record against its OWN verified
+    entry."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, _ev, control, _uid = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        # the FROZEN owner context is the entry authority
+        assert run.owner._owner_context is not None
+        assert run.owner._owner_context.order_id == AJ_ORDER_ID
+        run.start()
+        # the published state is the AJ entry's OWN tag, read
+        # back under its OWN entry (the v1 grammar never
+        # widened)
+        state = flocal._state_record(control, entry_order=AJ_ORDER_ID)
+        assert state is not None
+        assert state["record"] == frp.AJ_OWNER_STATE_SCHEMA
+        assert state["order"] == AJ_ORDER_ID
+        # the prepare command runs through the owner's REAL
+        # path with the frozen-entry authority; the closed
+        # scenario is selected BEFORE the container startup in
+        # the exact create argv (the owner's OWN frozen entry)
+        prepared = run._command("prepare")
+        assert fake.create_argv is not None
+        i = fake.create_argv.index("SLAIF_FIXTURE_SCENARIO=format-capture")
+        assert fake.create_argv[i - 1] == "-e"
+        assert fake.create_argv.count("SLAIF_FIXTURE_SCENARIO=format-capture") == 1
+        assert prepared["detail"]["state"] == "prepared-unconsumed"
+        assert prepared["detail"]["observed"] == {
+            "scenario": "format-capture",
+            "wire_requests": 0,
+            "diagnostic_state": "unobserved",
+        }
+        # the observe exec carries the closed expectation as
+        # transport data only
+        assert fake.observe_env is not None
+        assert fake.observe_env.get("SLAIF_FIXTURE_SCENARIO") == "format-capture"
+        observed = run._command("observe")
+        assert observed["detail"]["scenario"] == "format-capture"
+        assert observed["detail"]["raw_content_retained"] is False
+
+
+def test_aj_ambient_env_never_selects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An ambient host SLAIF_FIXTURE_SCENARIO value (the caller
+    environment) never selects or redefines the AJ closed
+    scenario: the create argv still carries the owner's OWN
+    frozen-entry value, and the observe transport still carries
+    format-capture."""
+    monkeypatch.setenv("SLAIF_FIXTURE_SCENARIO", "diagnostic")
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, _ev, _c, _uid = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        run.start()
+        prepared = run._command("prepare")
+        assert fake.create_argv is not None
+        assert fake.create_argv.count("SLAIF_FIXTURE_SCENARIO=format-capture") == 1
+        assert "SLAIF_FIXTURE_SCENARIO=diagnostic" not in fake.create_argv
+        assert prepared["detail"]["observed"]["scenario"] == "format-capture"
+        assert fake.observe_env is not None
+        assert fake.observe_env.get("SLAIF_FIXTURE_SCENARIO") == "format-capture"
+
+
+def test_aj_legacy_scenario_drift_refused_at_prepare(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A legacy scenario REPORTED under the AJ entry is drift:
+    the host's own-entry closed law refuses it at prepare — the
+    owner is never held under the wrong scenario (no prepared
+    target, no receipt)."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    fake.observe_scenario = "diagnostic"
+    run, _repo, fake, _ev, _c, _uid = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        run.start()
+        with pytest.raises(fci.FixtureError, match="observe-record-state"):
+            run._command("prepare")
+        # no prepared-unconsumed claim, and the owner has
+        # converged honestly (the CID was registered at create,
+        # BEFORE the observe refusal — actual production
+        # behavior, never a prepared target)
+        assert run.owner.prepared is None
+        assert run.owner.terminal_outcome is not None
+
+
+def test_aj_missing_frozen_context_refused_at_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The O5 at-use proof: a canonical AJ-bound owner whose
+    frozen context is missing at an identity-bound use is a
+    closed refusal at BOTH the identity revalidation and the
+    prepare target selection — BEFORE any fixture create —
+    never a fall-through to the original profile (the
+    legitimate historical original-form default stays None and
+    is proven by the unchanged original suites)."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, _ev, _c, _uid = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        run.start()
+        # the partial-object seam: the faithful original
+        # default on a defective AJ object
+        run.owner._owner_context = None
+        with pytest.raises(fci.FixtureError, match="local-aj-context-unmeasured"):
+            run.owner._revalidate_identity_context()
+        with pytest.raises(fci.FixtureError, match="local-aj-context-unmeasured"):
+            run.owner._prepare_target()
+        # refused BEFORE any fixture create
+        assert fake.create_argv is None
+        assert run.owner.target_cid is None
+
+
+def test_aj_missing_frozen_context_refused_at_construction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The O5 composition proof: the REAL constructor admission
+    flow over a synthetic AJ repository with a defective owner
+    (frozen context missing after the real owner constructor)
+    is a closed refusal — a canonical owner-UID entry without a
+    frozen context never falls back to the original profile,
+    and the SAME won attempt closes honestly."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    repo = _aj_repo(tmp_path)
+    git = _aj_git_runner(repo)
+    work = tmp_path / "work"
+    control = tmp_path / "control"
+    evidence = tmp_path / "evidence" / "aj-owner-evidence.json"
+    uid_calls: list[int] = []
+    _hermetic(tmp_path, monkeypatch, fake, control, uid_calls)
+    binding = fb.resolve_order_binding(repo, AJ_ORDER_ID, HEAD, git_runner=git)
+
+    class _DefectiveOwner(flocal.LocalFixtureOwner):  # type: ignore[name-defined,misc]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self._owner_context = None
+
+    monkeypatch.setattr(fno.local, "LocalFixtureOwner", _DefectiveOwner)
+    with pytest.raises(fci.FixtureError, match="native-owner-identity-unmeasured"):
+        fno.NativeOwnerRun(
+            binding,
+            repo,
+            work,
+            evidence,
+            control,
+            git_runner=git,
+            executor=fake,
+            table=stp.FakeTable(world.procs),
+            worker_pid=WORK_PID,
+            bash_pid=BASH_PID,
+            tty_foreground_pgrp=WORK_PID,
+            identity_reader=_ad_reader,
+            proc_root=proc_root,
+        )
+    # the SAME won attempt closed honestly (terminal fail,
+    # never a silent original-profile owner)
+    record = fb.read_admission_record(repo, AJ_ORDER_ID)
+    assert record["attempts"] == [{"head": HEAD, "run_id": binding.run_id, "status": "fail"}]
+    assert fake.create_argv is None
+
+
+def test_aj_refused_under_ai_active_before_admission(tmp_path: Path) -> None:
+    """The REAL repository-context validation refuses 017-aj
+    under AI-active BEFORE any admission or external work,
+    proven only in owned synthetic repositories: the closed
+    canonical map carries the AJ entry's unique committed
+    order path, the active-content law refuses the
+    foreign-active AJ binding, a foreign-pattern AJ name is a
+    closed refusal, and the AJ admission namespace is never
+    claimed in the synthetic repositories.  The
+    activated-checkout-shaped synthetic control (AJ order
+    committed AND active selecting AJ) resolves ONLY at the
+    canonical path with no admission claimed.  The test makes
+    NO absence assertion on the real checkout: every
+    admission-path helper is guarded by a fail-fast spy that
+    refuses the actual checkout (REPO_ROOT) BEFORE any I/O, so
+    the real namespace is never read, enumerated or touched —
+    the activated-checkout-shaped behavior is proven wholly in
+    owned synthetic repositories."""
+    real_seen: list[str] = []
+    _admission_helpers = ("admission_dir_path", "admission_path", "claim_path")
+    _originals = {n: getattr(fb, n) for n in _admission_helpers}
+
+    def _guarded(name: str, real_fn: Any) -> Any:
+        def _spy(repo: Any, order_id: str) -> Any:
+            if Path(repo) == REPO_ROOT:
+                real_seen.append(name)
+                raise AssertionError(f"admission helper {name} targeted the real checkout")
+            return real_fn(repo, order_id)
+
+        return _spy
+
+    for _n in _admission_helpers:
+        setattr(fb, _n, _guarded(_n, _originals[_n]))
+    try:
+        # coherence: the binding module's closed map mirrors the
+        # canonical entry names owned by the runtime-profile
+        # module
+        assert fb._CANONICAL_ORDER_PATHS[AJ_ORDER_ID] == frp.AJ_ORDER_PATH
+        # the AI-active synthetic repo: the AJ order file is
+        # committed at its canonical path, active selects AI
+        repo = _aj_repo(tmp_path / "repo", active_order=AI_ORDER_ID)
+        git = _aj_git_runner(repo, active_order=AI_ORDER_ID)
+        with pytest.raises(fci.FixtureError, match="bind-active-mismatch"):
+            fb.resolve_order_binding(repo, AJ_ORDER_ID, HEAD, git_runner=git)
+        # no admission namespace (the ACTUAL production
+        # admission path, including any claim), no journal, no
+        # external work
+        assert not fb.admission_dir_path(repo, AJ_ORDER_ID).exists()
+        assert not fb.admission_path(repo, AJ_ORDER_ID).exists()
+        assert not fb.claim_path(repo, AJ_ORDER_ID).exists()
+        # the AI binding itself still resolves (the active entry)
+        ai_binding = fb.resolve_order_binding(repo, AI_ORDER_ID, HEAD, git_runner=git)
+        assert ai_binding.order_id == AI_ORDER_ID
+        # the AJ entry under ITS OWN active context resolves ONLY at
+        # its unique canonical committed order path
+        aj_repo = _aj_repo(tmp_path / "ajrepo")
+        aj_git = _aj_git_runner(aj_repo)
+        aj_binding = fb.resolve_order_binding(aj_repo, AJ_ORDER_ID, HEAD, git_runner=aj_git)
+        assert aj_binding.order_path == frp.AJ_ORDER_PATH
+        # the activated-checkout-shaped synthetic control claims NO
+        # admission before admission (no dir, no journal, no claim)
+        assert not fb.admission_dir_path(aj_repo, AJ_ORDER_ID).exists()
+        assert not fb.admission_path(aj_repo, AJ_ORDER_ID).exists()
+        assert not fb.claim_path(aj_repo, AJ_ORDER_ID).exists()
+        # a FOREIGN pattern-matching AJ name is a closed refusal
+        # BEFORE any admission or owner adoption
+        wrong = tmp_path / "wrong" / "repo"
+        wrong.parent.mkdir(parents=True)
+        wrong_repo = Path(stl._make_local_repo(wrong))
+        wrong_name = "017-aj-other-synthetic-name.md"
+        (wrong_repo / "oap" / "orders" / wrong_name).write_bytes(AJ_ORDER_BYTES)
+        (wrong_repo / "oap" / "active").write_bytes(AJ_ORDER_ID.encode("ascii") + b"\n")
+
+        def wrong_git(args: list[str], cwd: Path) -> bytes:
+            if args == ["rev-parse", "HEAD"]:
+                return str(HEAD).encode("ascii")
+            if args == ["status", "--porcelain"]:
+                return b""
+            if args == ["remote", "get-url", "origin"]:
+                return b"https://github.com/ulfe-lmi/slaif-local-coding.git\n"
+            if args == ["ls-tree", "--name-only", f"{HEAD}:oap/orders"]:
+                return (S_ORDER_NAME + "\n" + wrong_name + "\n").encode("ascii")
+            if args == ["show", f"{HEAD}:oap/active"]:
+                return AJ_ORDER_ID.encode("ascii") + b"\n"
+            if args == ["show", f"{HEAD}:oap/orders/{wrong_name}"]:
+                return AJ_ORDER_BYTES
+            if args == ["show", f"{HEAD}:oap/orders/{S_ORDER_NAME}"]:
+                return bytes(stl.ORDER_PATH.read_bytes())
+            raise AssertionError(f"unexpected git args: {args}")
+
+        with pytest.raises(fci.FixtureError, match="bind-order-path-mismatch"):
+            fb.resolve_order_binding(wrong_repo, AJ_ORDER_ID, HEAD, git_runner=wrong_git)
+        assert not fb.admission_dir_path(wrong_repo, AJ_ORDER_ID).exists()
+        # no-touch proof: no admission helper was ever called
+        # with the real checkout (the fail-fast spy would have
+        # raised before any I/O); the real namespace was never
+        # read, enumerated or touched
+        assert real_seen == []
+    finally:
+        for _n in _admission_helpers:
+            setattr(fb, _n, _originals[_n])
+
+
+# ============================================================================
+# F6-B: the AJ owner finish/export selection + retained owner evidence
+# (order 017-ai, software-only; the real owner path is driven unchanged)
+# ============================================================================
+
+
+def _aj_quiesce_record() -> dict[str, Any]:
+    """The closed quiesce facts the in-image controller MEASURES
+    over the AJ world (no held subject: the owned subject count is
+    zero, the controller's own socket/handler/tool closure is the
+    closed by-design fact of the fake platform)."""
+    return {
+        "record": model.SCHEMA_QUIESCE,
+        "provider_sockets_closed": True,
+        "handlers_stopped": True,
+        "owned_subject_stopped": True,
+        "owned_tools_stopped": True,
+        "active_connections": 0,
+        "residual_writers": 0,
+    }
+
+
+def _aj_partial_export_payload() -> bytes:
+    """The DISTINCT closed safe PARTIAL format-capture export
+    payload: the zero-POST sourceless partial snapshot (no issued
+    calls, no cases, the closed not-qualified fact), the
+    model-validated quiesce record and the partial tag — the
+    payload the in-image exporter would produce for a format run
+    that ended before its first model POST."""
+    return json.dumps(
+        {
+            "record": model.SCHEMA_FORMAT_EXPORT_PARTIAL,
+            "quiesce": _aj_quiesce_record(),
+            "snapshot": fmtc._partial_record([], [], 0),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def test_aj_finish_safe_partial_export_and_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The F6-B first meaningful case: the AJ owner's REAL finish
+    path selects the closed safe PARTIAL format-capture export
+    under its OWN verified entry — the zero-POST sourceless
+    partial snapshot (model_posts 0, controller requests 2,
+    qualification not-qualified) validates through the closed
+    tag-driven dispatcher, NO legacy
+    diagnostic/observed_at_position is invented, the retained
+    owner evidence is the AJ entry's OWN distinct tag with the
+    closed format-capture consumption variant (selected by the
+    owner's own binding, never by the observed diagnostic
+    state), the honest not-qualified partial coexists with the
+    measured cleanup pass, and the whole retained record
+    revalidates through the real AJ validator.  The owner is
+    reaped through the exact-owned convergence."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, owner_evidence, _control, _uid = _aj_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    payload = _aj_partial_export_payload()
+    fake.export_payload = payload
+    with _owned_run(run):
+        run.start()
+        prepared = run._command("prepare")
+        assert prepared["detail"]["observed"] == {
+            "scenario": "format-capture",
+            "wire_requests": 0,
+            "diagnostic_state": "unobserved",
+        }
+        # the MEASURED controller state at finish is the SAME
+        # closed zero-traffic state (the format workload issued
+        # no model POST): the observed wire stays 0 and the
+        # diagnostic state is the measured unobserved fact
+        fake.observe_wire_requests = 0
+        fake.observe_diagnostic_state = "unobserved"
+        final = run._command("finish")
+        assert final["ok"] is True
+        assert final["detail"]["outcome"] == "pass"
+        # NO legacy position is invented for the format scenario
+        assert run.owner.finish_position is None
+        # the truthful binding law: the observed wire (0) plus
+        # exactly the two exporter commands
+        assert run.owner.finish_ledger_requests == 2
+        assert run.owner.export_sha == hashlib.sha256(payload).hexdigest()
+        assert run.owner.terminal_outcome == "pass"
+    assert not run._thread.is_alive()
+    evidence = json.loads(owner_evidence.read_bytes())
+    assert evidence["record"] == frp.AJ_NATIVE_RUN_EVIDENCE_SCHEMA
+    assert evidence["scope"] == frp.AJ_OWNER_RUN_SCOPE
+    assert evidence["status"] == "pass"
+    assert evidence["order"] == AJ_ORDER_ID
+    # the closed AJ format-capture consumption variant, selected
+    # by the owner's OWN verified binding (the measured
+    # unobserved diagnostic state is never interpreted as the
+    # legacy source-less "unobserved" variant)
+    assert evidence["fixture_consumed_by"] == "format-capture"
+    assert evidence["prepared"]["disposition"] == "consumed-by-format-capture"
+    assert evidence["prepared"]["observed"] == {
+        "scenario": "format-capture",
+        "wire_requests": 0,
+        "diagnostic_state": "unobserved",
+    }
+    finish = evidence["phases"]["finish"]
+    assert finish["observed_at_finish"] == {
+        "scenario": "format-capture",
+        "wire_requests": 0,
+        "diagnostic_state": "unobserved",
+    }
+    assert finish["observed_at_position"] is None
+    assert finish["controller_ledger_requests"] == 2
+    assert finish["retained_capture_bytes"] == len(payload)
+    # the retained export is the DISTINCT partial form with the
+    # honest not-qualified fact (never a full-qualification
+    # relabel, never the legacy six-field form)
+    selected = json.loads(base64.b64decode(evidence["export"]["payload_b64"]).decode("utf-8"))
+    assert selected["record"] == model.SCHEMA_FORMAT_EXPORT_PARTIAL
+    assert selected["snapshot"]["model_posts"] == 0
+    assert selected["snapshot"]["controller_ledger"] == {"requests": 2, "output_bytes": 0}
+    assert selected["snapshot"]["qualification"] == "not-qualified"
+    assert selected["snapshot"]["final_state"] == "awaiting-first-post"
+    # the WHOLE retained AJ owner record revalidates through the
+    # real closed AJ validator
+    flocal.validate_aj_owner_run_evidence(evidence)
+
+
+def _aj_full_export_payload() -> bytes:
+    """The DISTINCT closed COMPLETE format-capture export payload:
+    the coherent four-case full snapshot (seven model POSTs, the
+    two charged exporter commands, the retained verified
+    wrappers), the model-validated quiesce record and the full
+    tag — the payload the in-image exporter would produce for a
+    finished format run."""
+    return json.dumps(
+        {
+            "record": model.SCHEMA_FORMAT_EXPORT,
+            "quiesce": _aj_quiesce_record(),
+            "snapshot": fmtc.build_positive(),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _aj_nonempty_partial_snapshot() -> dict[str, Any]:
+    """The coherent NON-EMPTY safe partial snapshot: the completed
+    read prefix plus the running stream case with ONE retained
+    verified frame and the transactionally committed FIRST poll
+    outstanding (the per-case RETAINED poll count is zero while
+    the ACTUAL issued counter is one)."""
+    rec: dict[str, Any] = fmtc._partial_record(
+        [
+            fmtc._complete_read_case(),
+            fmtc._partial_case(
+                model.FORMAT_CASES[1],
+                fmtc._IDS_PARTIAL["e1"],
+                1,
+                [fmtc._stream_running_frame("e1", "a1b2c3", "0.5000", fmtc._P0)],
+                0,
+            ),
+        ],
+        [fmtc._issued_read(), fmtc._issued_stream_exec(), fmtc._issued_poll("poll1")],
+        3,
+        len(fmtc.SEED["read-0"]) + len(fmtc.SEED["stream-piece-0"]),
+    )
+    return rec
+
+
+def test_aj_finish_full_format_export_and_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The AJ owner's REAL finish path selects the closed COMPLETE
+    format-capture export under its OWN verified entry: the
+    coherent four-case snapshot (model_posts 7, controller
+    requests 9, final_state done) validates through the closed
+    tag-driven dispatcher, the measured finish observation (all
+    seven model POSTs observed; the valid format traffic
+    populated the one-shot diagnostic metadata, retained as the
+    measured "observed" fact) binds the ledger, NO legacy
+    diagnostic/observed_at_position is invented, and the WHOLE
+    retained AJ owner record revalidates through the real closed
+    AJ validator.  The owner is reaped through the
+    exact-owned convergence."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, owner_evidence, _control, _uid = _aj_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    payload = _aj_full_export_payload()
+    fake.export_payload = payload
+    with _owned_run(run):
+        run.start()
+        prepared = run._command("prepare")
+        assert prepared["detail"]["observed"] == {
+            "scenario": "format-capture",
+            "wire_requests": 0,
+            "diagnostic_state": "unobserved",
+        }
+        # the MEASURED controller state at finish: the complete
+        # four-case workload's seven model POSTs all observed, and
+        # the valid format traffic populated the one-shot
+        # diagnostic metadata (the measured "observed" fact)
+        fake.observe_wire_requests = 7
+        fake.observe_diagnostic_state = "observed"
+        final = run._command("finish")
+        assert final["ok"] is True
+        assert final["detail"]["outcome"] == "pass"
+        # NO legacy position is invented for the format scenario
+        assert run.owner.finish_position is None
+        # seven model POSTs plus exactly the two exporter commands
+        assert run.owner.finish_ledger_requests == 9
+        assert run.owner.export_sha == hashlib.sha256(payload).hexdigest()
+        assert run.owner.terminal_outcome == "pass"
+    assert not run._thread.is_alive()
+    evidence = json.loads(owner_evidence.read_bytes())
+    assert evidence["record"] == frp.AJ_NATIVE_RUN_EVIDENCE_SCHEMA
+    assert evidence["scope"] == frp.AJ_OWNER_RUN_SCOPE
+    assert evidence["status"] == "pass"
+    assert evidence["order"] == AJ_ORDER_ID
+    assert evidence["fixture_consumed_by"] == "format-capture"
+    assert evidence["prepared"]["disposition"] == "consumed-by-format-capture"
+    finish = evidence["phases"]["finish"]
+    assert finish["observed_at_finish"] == {
+        "scenario": "format-capture",
+        "wire_requests": 7,
+        "diagnostic_state": "observed",
+    }
+    assert finish["observed_at_position"] is None
+    assert finish["controller_ledger_requests"] == 9
+    assert finish["retained_capture_bytes"] == len(payload)
+    selected = json.loads(base64.b64decode(evidence["export"]["payload_b64"]).decode("utf-8"))
+    # the COMPLETE form: the full four-case snapshot with the
+    # truthful model-POST ledger (never a partial relabel)
+    assert selected["record"] == model.SCHEMA_FORMAT_EXPORT
+    assert selected["snapshot"]["model_posts"] == 7
+    assert selected["snapshot"]["controller_ledger"]["requests"] == 9
+    assert selected["snapshot"]["final_state"] == "done"
+    assert len(selected["snapshot"]["cases"]) == 4
+    assert len(selected["snapshot"]["issued_calls"]) == 6
+    flocal.validate_aj_owner_run_evidence(evidence)
+
+
+def test_aj_finish_nonempty_partial_export_and_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The AJ owner's REAL finish path retains the NON-EMPTY safe
+    partial honestly: the completed read prefix plus the running
+    stream case with one verified retained frame and the
+    transactionally committed first poll outstanding (model_posts
+    3, controller requests 5, qualification NOT qualified, final
+    state awaiting-result).  The honest partial coexists with the
+    measured cleanup pass, the retained export re-decodes to the
+    DISTINCT partial form, and the WHOLE retained AJ owner record
+    revalidates through the real closed AJ validator."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, owner_evidence, _control, _uid = _aj_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    snap = _aj_nonempty_partial_snapshot()
+    payload = json.dumps(
+        {
+            "record": model.SCHEMA_FORMAT_EXPORT_PARTIAL,
+            "quiesce": _aj_quiesce_record(),
+            "snapshot": snap,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    fake.export_payload = payload
+    with _owned_run(run):
+        run.start()
+        prepared = run._command("prepare")
+        assert prepared["detail"]["observed"] == {
+            "scenario": "format-capture",
+            "wire_requests": 0,
+            "diagnostic_state": "unobserved",
+        }
+        # the MEASURED controller state at finish: the three model
+        # POSTs of the prefix-plus-running workload all observed
+        fake.observe_wire_requests = 3
+        fake.observe_diagnostic_state = "observed"
+        final = run._command("finish")
+        assert final["ok"] is True
+        assert final["detail"]["outcome"] == "pass"
+        assert run.owner.finish_position is None
+        # three model POSTs plus exactly the two exporter commands
+        assert run.owner.finish_ledger_requests == 5
+        assert run.owner.export_sha == hashlib.sha256(payload).hexdigest()
+        assert run.owner.terminal_outcome == "pass"
+    assert not run._thread.is_alive()
+    evidence = json.loads(owner_evidence.read_bytes())
+    assert evidence["status"] == "pass"
+    assert evidence["order"] == AJ_ORDER_ID
+    assert evidence["fixture_consumed_by"] == "format-capture"
+    finish = evidence["phases"]["finish"]
+    assert finish["observed_at_finish"] == {
+        "scenario": "format-capture",
+        "wire_requests": 3,
+        "diagnostic_state": "observed",
+    }
+    assert finish["observed_at_position"] is None
+    assert finish["controller_ledger_requests"] == 5
+    assert finish["retained_capture_bytes"] == len(payload)
+    selected = json.loads(base64.b64decode(evidence["export"]["payload_b64"]).decode("utf-8"))
+    # the DISTINCT partial form: the verified retained frames only,
+    # the honest not-qualified fact (never a full relabel)
+    assert selected["record"] == model.SCHEMA_FORMAT_EXPORT_PARTIAL
+    assert selected["snapshot"]["model_posts"] == 3
+    assert selected["snapshot"]["controller_ledger"] == {
+        "requests": 5,
+        "output_bytes": len(fmtc.SEED["read-0"]) + len(fmtc.SEED["stream-piece-0"]),
+    }
+    assert selected["snapshot"]["polls"] == 1
+    assert selected["snapshot"]["qualification"] == "not-qualified"
+    assert selected["snapshot"]["final_state"] == "awaiting-result"
+    assert [c["status"] for c in selected["snapshot"]["cases"]] == ["completed", "pending"]
+    assert selected["snapshot"]["cases"][1]["polls"] == 0
+    flocal.validate_aj_owner_run_evidence(evidence)
+
+
+def test_aj_finish_legacy_payload_refused_live(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The untagged six-field legacy form is DRIFT under the AJ
+    entry: the real finish path refuses it through the closed
+    tag-driven dispatcher (export-invalid) BEFORE any export
+    commit, the owner converges terminal FAIL through the SAME
+    exact-owned cleanup, and the retained fail evidence is the AJ
+    entry's OWN distinct tag with the honest measured reason —
+    the legacy form is never relabelled format-capture."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, owner_evidence, _control, _uid = _aj_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    fake.export_payload = stl._local_unobserved_payload(0)
+    with _owned_run(run):
+        run.start()
+        run._command("prepare")
+        # the measured zero-traffic state; the refusal precedes
+        # any export commit under the AJ tag law
+        final = run._command("finish")
+        assert final["ok"] is True
+        assert final["detail"]["outcome"] == "fail"
+        assert final["detail"]["stage"] == "finish"
+        assert run.owner.terminal_outcome == "fail"
+        assert run.owner.failure_reason == "export-invalid"
+    assert not run._thread.is_alive()
+    evidence = json.loads(owner_evidence.read_bytes())
+    flocal.validate_aj_owner_run_evidence(evidence)
+    assert evidence["record"] == frp.AJ_NATIVE_RUN_EVIDENCE_SCHEMA
+    assert evidence["scope"] == frp.AJ_OWNER_RUN_SCOPE
+    assert evidence["status"] == "fail"
+    assert evidence["order"] == AJ_ORDER_ID
+    assert evidence["reason"] == "export-invalid"
+    assert evidence["stage"] == "finish"
+
+
+def test_aj_finish_wire_ahead_of_ledger_refused_live(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The observed wire AHEAD of the export ledger is drift: the
+    finish observation measured MORE model traffic (12) than the
+    complete export's own snapshot ledger can account for (9) —
+    the real finish path refuses through the closed identity law
+    (export-identity-mismatch) BEFORE any export commit, the
+    owner converges terminal FAIL through the SAME exact-owned
+    cleanup, and the retained fail evidence carries the honest
+    measured reason."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, owner_evidence, _control, _uid = _aj_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    fake.export_payload = _aj_full_export_payload()
+    with _owned_run(run):
+        run.start()
+        run._command("prepare")
+        # the measured finish state reports wire traffic the
+        # export's own ledger cannot account for
+        fake.observe_wire_requests = 12
+        fake.observe_diagnostic_state = "observed"
+        final = run._command("finish")
+        assert final["ok"] is True
+        assert final["detail"]["outcome"] == "fail"
+        assert final["detail"]["stage"] == "finish"
+        assert run.owner.terminal_outcome == "fail"
+        assert run.owner.failure_reason == "export-identity-mismatch"
+    assert not run._thread.is_alive()
+    evidence = json.loads(owner_evidence.read_bytes())
+    flocal.validate_aj_owner_run_evidence(evidence)
+    assert evidence["record"] == frp.AJ_NATIVE_RUN_EVIDENCE_SCHEMA
+    assert evidence["status"] == "fail"
+    assert evidence["order"] == AJ_ORDER_ID
+    assert evidence["reason"] == "export-identity-mismatch"
+    assert evidence["stage"] == "finish"
+
+
+def test_aj_finish_retained_exact_ledger_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The retained binding law is EXACT, never merely monotonic.
+    Part 1 (pure consumer law): a coherent AJ owner (the measured
+    observed wire 7 plus exactly the two exporter commands =
+    ledger 9) terminal-passes and retains a valid AJ record; a
+    byte-copied record mutated ONLY in its recorded observed wire
+    (5, where 9 != 5 + 2) is a closed refusal through the public
+    AJ wrapper — the consumer law is proven without re-running the
+    owner.  Part 2 (the actual mismatched finish): when the
+    owner's real finish observation reports wire 5 against the
+    complete export's ledger 9, the monotonic LIVE check passes
+    but the exact retained law is enforced at the evidence gate
+    BEFORE retention — a publication failure after a computed pass
+    is never recorded as an admitted pass — so the owner converges
+    terminal FAIL through the SAME exact-owned cleanup, the
+    one-attempt journal records the honest fail, and NO qualifying
+    retained record is published.  Neither outcome is rewritten or
+    re-run; both owners are reaped."""
+    # -- Part 1: the coherent owner and the pure consumer refusal --
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, fake, owner_evidence, _control, _uid = _aj_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    payload = _aj_full_export_payload()
+    fake.export_payload = payload
+    with _owned_run(run):
+        run.start()
+        run._command("prepare")
+        fake.observe_wire_requests = 7
+        fake.observe_diagnostic_state = "observed"
+        final = run._command("finish")
+        assert final["ok"] is True
+        assert final["detail"]["outcome"] == "pass"
+        assert run.owner.finish_ledger_requests == 9
+        assert run.owner.terminal_outcome == "pass"
+    assert not run._thread.is_alive()
+    good = json.loads(owner_evidence.read_bytes())
+    flocal.validate_aj_owner_run_evidence(good)
+    # a byte-copied record mutated ONLY in the recorded observed
+    # wire: 9 != 5 + 2, so the WHOLE retained record is refused by
+    # the public AJ wrapper (the core's exact-ledger refusal
+    # translated to the AJ token)
+    bad = json.loads(json.dumps(good))
+    assert bad["phases"]["finish"]["observed_at_finish"]["wire_requests"] == 7
+    bad["phases"]["finish"]["observed_at_finish"]["wire_requests"] = 5
+    with pytest.raises(flocal.FixtureError, match="aj-owner-run-evidence-invalid"):
+        flocal.validate_aj_owner_run_evidence(bad)
+    # the unmutated original still validates: the copy was the
+    # refusal target, the retained file was never rewritten
+    flocal.validate_aj_owner_run_evidence(good)
+    # -- Part 2: the actual mismatched finish publishes no pass --
+    p2 = tmp_path / "p2"
+    p2.mkdir()
+    proc_root2 = p2 / "proc"
+    proc_root2.mkdir()
+    world2 = _AFWorld(proc_root2)
+    fake2 = _AJFakeDocker(world2, proc_root2)
+    run2, repo2, fake2, owner_evidence2, _control2, _uid2 = _aj_run(
+        p2, monkeypatch, world=world2, docker=fake2
+    )
+    fake2.export_payload = _aj_full_export_payload()
+    with _owned_run(run2):
+        run_id2 = run2.start()
+        run2._command("prepare")
+        fake2.observe_wire_requests = 5
+        fake2.observe_diagnostic_state = "observed"
+        final2 = run2._command("finish")
+        assert final2["ok"] is True
+        assert final2["detail"]["outcome"] == "fail"
+        assert run2.owner.terminal_outcome == "fail"
+    assert not run2._thread.is_alive()
+    # the exact retained law is enforced at the evidence gate
+    # BEFORE retention: no qualifying retained record is published
+    assert not owner_evidence2.exists()
+    # the one-attempt journal carries the honest terminal fail
+    record = fb.read_admission_record(repo2, AJ_ORDER_ID)
+    assert record["attempts"] == [{"head": HEAD, "run_id": run_id2, "status": "fail"}]
+
+
+# ============================================================================
+# F6-D: AJ NativeOwnerRun public gates — guard, constructor, capture
+# producer (order 017-ai, software-only)
+# ============================================================================
+
+
+def test_ai_aj_devpts_probe_guard_carries_aj_and_old_guards_refuse() -> None:
+    """The ONE exact NON-PTY devpts probe argv is admitted for
+    the canonical 017-aj entry TOO, selected from the owner's
+    OWN bound order: the AB/AD/default guards keep the
+    byte-for-byte old closed forms and refuse the exact probe
+    and every modified argv, and the AF/AH entry guards are
+    unchanged."""
+    profile = frp.owner_runtime_profile(_ad_description())
+    assert profile.exec_user == f"{SUBJ_UID}:{SUBJ_GID}"
+    aj_matchers = fci._owner_argv_matchers(profile, frp.AJ_ORDER_ID)
+    ah_matchers = fci._owner_argv_matchers(profile, frp.AH_ORDER_ID)
+    af_matchers = fci._owner_argv_matchers(profile, frp.AF_ORDER_ID)
+    ad_matchers = fci._owner_argv_matchers(profile, frp.AD_ORDER_ID)
+    ab_matchers = fci._owner_argv_matchers(profile, frp.AB_ORDER_ID)
+    # the original entries keep the byte-for-byte original
+    # module-level matcher tuple
+    original_matchers = fci._ARGV_MATCHERS
+    # direct AJ guard construction: the SAME shape as the
+    # AF/AH tuples — the unchanged old forms plus ONE closed
+    # probe matcher, callable without TypeError
+    assert len(aj_matchers) == len(ah_matchers) == len(af_matchers) == len(ad_matchers) + 1
+    aj_probe_matcher = aj_matchers[-1]
+    assert callable(aj_probe_matcher)
+    # the old forms are BEHAVIORALLY identical across the AJ
+    # and non-AJ owner tuples (compare their decisions over
+    # the closed old forms)
+    old_forms: list[list[str]] = [
+        ["docker", "ps", "-aq", "--filter", "id=" + "a" * 64],  # admitted
+        ["docker", "version", "--format", "{{.Server.Version}}"],  # admitted
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-c",
+            fci.CONTROLLER_PROBE,
+        ],  # admitted (subject user)
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            fci.EXPORT_CLIENT_PATH,
+        ],  # admitted (export)
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-c",
+            "print(1)",
+        ],  # refused (open program)
+        ["docker", "ps", "-a"],  # refused (not the closed form)
+    ]
+    admitted = 0
+    for argv in old_forms:
+        for m_aj, m_ad in zip(aj_matchers[:-1], ad_matchers, strict=True):
+            assert bool(m_aj(argv)) == bool(m_ad(argv))
+        admitted += sum(1 for m in ad_matchers if m(argv))
+    assert admitted >= 4  # the positive forms really are admitted
+    exact = _devpts_probe_argv()
+    assert len(exact) == 10
+    # AJ admits the exact form (any valid registered-CID-
+    # shaped target); the AF/AH guards are unchanged
+    assert aj_probe_matcher(exact) is True
+    assert aj_probe_matcher(_devpts_probe_argv(cid="e" * 64)) is True
+    assert ah_matchers[-1](exact) is True
+    assert af_matchers[-1](exact) is True
+    # the AB/AD/default guards refuse the EXACT new probe
+    assert not any(m(exact) for m in ad_matchers)
+    assert not any(m(exact) for m in ab_matchers)
+    assert not any(m(exact) for m in original_matchers)
+    # every modified argv is refused by EVERY guard, AJ
+    # included (the closed form is EXACT)
+    for mutated in (
+        _devpts_probe_argv(prefix=("-it",)),  # a PTY attach contaminates
+        _devpts_probe_argv(user="21001:21001"),  # the controller user
+        _devpts_probe_argv(user="21002:21002"),  # the original profile user
+        _devpts_probe_argv(prefix=("--env-file", "/tmp/slaif-env")),  # env-file
+        [
+            "docker",
+            "exec",
+            "--user",
+            f"{SUBJ_UID}:{SUBJ_GID}",
+            "f" * 64,
+            "python3",
+            "-I",
+            "-S",
+            "-e",
+            "A=1",
+            "-c",
+            fci.DEVPTS_PROBE,
+        ],  # -e
+        _devpts_probe_argv(python=("python3", "-S", "-c")),  # no -I
+        _devpts_probe_argv(python=("python3", "-I", "-c")),  # no -S
+        _devpts_probe_argv(python=("python3.12", "-I", "-S", "-c")),  # alternate binary
+        _devpts_probe_argv(body="print(1)"),  # a different probe body
+        _devpts_probe_argv(suffix=("--flag",)),  # an extra argument
+        exact[:-1],  # a missing argument
+        _devpts_probe_argv(cid="xyz"),  # a non-CID target
+    ):
+        assert not any(m(mutated) for m in aj_matchers)
+        assert not any(m(mutated) for m in ah_matchers)
+        assert not any(m(mutated) for m in af_matchers)
+        assert not any(m(mutated) for m in ad_matchers)
+        assert not any(m(mutated) for m in original_matchers)
+
+
+def test_ai_aj_foreign_path_binding_refused_before_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directly-constructed binding carrying the AJ order
+    id at a FOREIGN path is refused by the composition's OWN
+    constructor BEFORE the admission or the owner adoption
+    (the constructor's closed canonical-path law; the
+    resolver's law is proven in the sealed-entry test
+    above).  No admission namespace is claimed and no
+    external work occurs."""
+    repo = _aj_repo(tmp_path / "repo")
+    binding = fb.OrderRunBinding(
+        order_id=AJ_ORDER_ID,
+        order_path="oap/orders/017-aj-other-synthetic-name.md",
+        order_sha256="e" * 64,
+        active_bytes=AJ_ORDER_ID.encode("ascii") + b"\n",
+        source_head=HEAD,
+        repo_identity="ulfe-lmi/slaif-local-coding",
+        run_id=stp.RUN,
+    )
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _ADWorld(proc_root)
+    fake = _ADFakeDocker(world, proc_root)
+    uid_calls: list[int] = []
+    _hermetic(tmp_path, monkeypatch, fake, tmp_path / "control", uid_calls)
+
+    def _trap_admit(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("admit_order_attempt reached before the path refusal")
+
+    monkeypatch.setattr(fb, "admit_order_attempt", _trap_admit)
+    with pytest.raises(fci.FixtureError, match="native-owner-order-path-mismatch"):
+        fno.NativeOwnerRun(
+            binding,
+            repo,
+            tmp_path / "work",
+            tmp_path / "evidence" / "aj-owner-evidence.json",
+            tmp_path / "control",
+            git_runner=_aj_git_runner(repo),
+            executor=fake,
+            table=stp.FakeTable(world.procs),
+            worker_pid=WORK_PID,
+            bash_pid=BASH_PID,
+            tty_foreground_pgrp=WORK_PID,
+            identity_reader=_ad_reader,
+            proc_root=proc_root,
+        )
+    assert not fb.admission_dir_path(repo, AJ_ORDER_ID).exists()
+    assert not fb.admission_path(repo, AJ_ORDER_ID).exists()
+    assert not fb.claim_path(repo, AJ_ORDER_ID).exists()
+    assert fake.calls == []
+
+
+def test_ai_aj_format_capture_record_producer_law() -> None:
+    """The AJ measured format-capture record producer law
+    (pure): the retained selected export payload of the SAME
+    completed owner is length-checked on the ORIGINAL object
+    BEFORE any copy (the existing shared export validators'
+    own 256 KiB raw-export bound), validated in FULL by the
+    ACTUAL shared selected-export dispatcher (exact export
+    key set, closed quiesce record, export-tag versus
+    nested-tag coherence, nested snapshot law), admitted
+    under the AJ entry's explicit full/partial-only law,
+    re-wrapped in the closed outer record and RE-VALIDATED
+    by the closed consumer (256 KiB TOTAL SERIALIZED bound
+    over the whole record included).  Every malformed,
+    untagged, invalid-quiesce, extra-key, tag-flipped or
+    over-bound payload is the fixed non-echoing refusal; an
+    honest None is preserved."""
+
+    class _StubOwner:
+        def __init__(self, payload: bytes | bytearray | None) -> None:
+            self.export_payload = payload
+            self.target_cid = "a" * 64
+
+    binding = fb.OrderRunBinding(
+        order_id=AJ_ORDER_ID,
+        order_path=frp.AJ_ORDER_PATH,
+        order_sha256="1" * 64,
+        active_bytes=AJ_ORDER_ID.encode("ascii") + b"\n",
+        source_head="3" * 40,
+        repo_identity="slaif-aj-synthetic-repo",
+        run_id="4" * 32,
+    )
+    identity = fp._ad_identity_substructure_from_triple((SUBJ_UID, SUBJ_GID, (SUBJ_GID,)))
+
+    # honest None: the finish retained no selected capture
+    assert fno._aj_format_capture_record(_StubOwner(None), binding, identity) is None
+    # the frozen identity is a prerequisite (never a silent
+    # fallback)
+    with pytest.raises(fci.FixtureError, match="native-owner-identity-unmeasured"):
+        fno._aj_format_capture_record(_StubOwner(b"x"), binding, None)
+
+    def expect_invalid(payload: bytes) -> None:
+        with pytest.raises(fci.FixtureError, match="native-owner-format-capture-invalid"):
+            fno._aj_format_capture_record(_StubOwner(payload), binding, identity)
+
+    def dumps(obj: dict[str, Any]) -> bytes:
+        return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    # the fixed refusal token covers every closed refusal at
+    # this seam
+    expect_invalid(b"")
+    expect_invalid(b"not-json")
+    expect_invalid(b"[1, 2]")
+    # an untagged legacy-shaped payload: the dispatcher
+    # validates it under its historical six-field law, but
+    # the AJ entry admits ONLY the full / partial tags
+    expect_invalid(dumps({"quiesce": _aj_quiesce_record(), "snapshot": fmtc.build_positive()}))
+    # an invalid quiesce record inside an otherwise valid
+    # FULL export (the quiesce closed law requires the zero
+    # facts)
+    bad_quiesce = json.loads(_aj_full_export_payload())
+    bad_quiesce["quiesce"]["active_connections"] = 1
+    expect_invalid(dumps(bad_quiesce))
+    # an extra export key breaks the exact closed key set
+    extra_key = json.loads(_aj_full_export_payload())
+    extra_key["extra"] = 1
+    expect_invalid(dumps(extra_key))
+    # the export tag versus nested snapshot tag flip (both
+    # directions)
+    flipped_full = json.loads(_aj_full_export_payload())
+    flipped_full["snapshot"] = fmtc._partial_record([], [], 0)
+    expect_invalid(dumps(flipped_full))
+    flipped_partial = json.loads(_aj_partial_export_payload())
+    flipped_partial["snapshot"] = fmtc.build_positive()
+    expect_invalid(dumps(flipped_partial))
+    # the byte bound: a payload over the existing 256 KiB
+    # raw-export bound is refused before any parse
+    expect_invalid(b"x" * (model.FORMAT_SNAPSHOT_MAX_BYTES + 1))
+
+    # the valid FULL export: the closed outer record,
+    # re-validated by the consumer (total bound included),
+    # snapshot tag full
+    full_outer = fno._aj_format_capture_record(
+        _StubOwner(_aj_full_export_payload()), binding, identity
+    )
+    assert full_outer is not None
+    assert full_outer["record"] == frp.AJ_NATIVE_FORMAT_CAPTURE_SCHEMA
+    assert full_outer["binding"] == binding.to_record()
+    assert full_outer["identity"] == identity
+    assert full_outer["cid"] == "a" * 64
+    assert full_outer["snapshot"]["record"] == model.SCHEMA_FORMAT_SNAPSHOT
+    assert fp.parse_format_capture_record(full_outer, binding) is full_outer["snapshot"]
+
+    # the valid safe partial export: the DISTINCT partial
+    # snapshot tag, still explicitly not-qualified
+    part_outer = fno._aj_format_capture_record(
+        _StubOwner(_aj_partial_export_payload()), binding, identity
+    )
+    assert part_outer is not None
+    assert part_outer["snapshot"]["record"] == model.SCHEMA_FORMAT_SNAPSHOT_PARTIAL
+    assert part_outer["snapshot"]["qualification"] == "not-qualified"
+    assert fp.parse_format_capture_record(part_outer, binding) is part_outer["snapshot"]
+
+    # the TOTAL serialized bound at this seam: a valid
+    # nested snapshot under its own nested bound, but the
+    # WHOLE canonical record (outer metadata included) over
+    # the 256 KiB total — the consumer's total-not-nested
+    # law, translated to the fixed producer token
+    big_binding = fb.OrderRunBinding(
+        order_id=AJ_ORDER_ID,
+        order_path=frp.AJ_ORDER_PATH,
+        order_sha256="1" * 64,
+        active_bytes=AJ_ORDER_ID.encode("ascii") + b"\n",
+        source_head="3" * 40,
+        repo_identity="r" * (300 * 1024),
+        run_id="4" * 32,
+    )
+    with pytest.raises(fci.FixtureError, match="native-owner-format-capture-invalid"):
+        fno._aj_format_capture_record(_StubOwner(_aj_full_export_payload()), big_binding, identity)
+
+    # the preparse/copy ORDER law: for an over-bound
+    # payload the length check on the ORIGINAL object must
+    # fire BEFORE any bytes() conversion — a fail-fast
+    # conversion spy (a bytearray subclass whose
+    # __bytes__ raises) proves the conversion is never
+    # reached (an implementation that copies first would
+    # raise the spy's AssertionError, not the fixed
+    # token)
+    class _FailCopyPayload(bytearray):
+        def __bytes__(self) -> bytes:
+            raise AssertionError("bytes() conversion reached before the length check")
+
+    # the spy is not vacuous: bytes() on the payload-owned
+    # subclass really invokes the raising __bytes__ (a
+    # fail-fast control on the hook itself; the over-bound
+    # production refusal below must never reach it)
+    with pytest.raises(AssertionError, match="conversion reached"):
+        bytes(_FailCopyPayload(b"y"))
+    with pytest.raises(fci.FixtureError, match="native-owner-format-capture-invalid"):
+        fno._aj_format_capture_record(
+            _StubOwner(_FailCopyPayload(b"x" * (model.FORMAT_SNAPSHOT_MAX_BYTES + 1))),
+            binding,
+            identity,
+        )
+
+
+# ============================================================================
+# F6-E: AJ NativeOwnerRun coupled public lifecycle + journal gate
+# (order 017-ai, software-only; ONE coherent fake process world)
+# ============================================================================
+
+
+def _aj_drive_to_published(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    payload: bytes,
+    wire: int,
+    diag: str,
+) -> tuple[Any, Any, Any, Any]:
+    """Drive the coherent AJ world through
+    start/prepare/stop/baseline/launch/derive/register/exit/
+    finish to the COMPLETED (not yet published) owner: the
+    closed format-capture export is injected into the fake
+    platform BEFORE the finish, the finish observation
+    reports the measured wire/diagnostic facts, and the
+    operator restores the SAME worker job before the caller
+    publishes."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, repo, _f, _ev, _c, _u = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    try:
+        _af_prep(run, world)
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        run.register_subject(NAT_PID, _af_expectation(run))
+        world.exit_native()
+        fake.export_payload = payload
+        fake.observe_wire_requests = wire
+        fake.observe_diagnostic_state = diag
+        run.finish()
+        assert run.owner.terminal_outcome == "pass"
+        _join_run(run)
+        world.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+        return run, repo, world, fake
+    except BaseException:
+        _join_run(run)
+        raise
+
+
+def test_aj_full_public_native_lifecycle_pass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The useful 1001:1002 positive through the REAL public
+    composition for the AJ entry (constructor/admission/
+    prepare/stop/baseline/launch/derive/register/exit/
+    finish/restore/publish/finalize) over ONE coherent
+    coupled fake process world with the fixture devpts
+    model: the AJ's OWN default exact-CID channel (the
+    factory sees the registered CID and the SAME absolute
+    owner END), the expectation bound to the DERIVED tty
+    (never the subject's own), the measured
+    namespace/device frames at the
+    collect-before-commit boundary, and the protected AJ
+    owner/native/attach/format-capture terminal records with
+    the SAME frozen identity carried through every retained
+    layer.  The COMPLETE four-case format export qualifies
+    the run, so the same-order journal finalizes terminal
+    PASS.  The unrelated same-UID worker survives the
+    exact-CID world."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, repo, _f, owner_evidence, _c, uid_calls = _aj_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    with _owned_run(run):
+        binding = run.binding
+        identity = _ad_identity_dict()
+        native_out = tmp_path / "evidence" / "aj-native-run-record.json"
+        proc_root = world.proc_root
+        # the ONE shared run context across the whole lifecycle
+        ctx_before = run.owner._owner_context
+        anchor_before = run.owner.deadline.anchor
+        ledger_before = run.owner.ledger
+        worker_birth = world.procs[WORK_PID]["stat"].split()[21]
+
+        # start/prepare/observe/stop/baseline/launch/derive
+        _af_prep(run, world)
+        calls: list[tuple[Any, float]] = []
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, calls))
+        end_before = run.owner.deadline.anchor
+        snapshot = run.register_subject(NAT_PID, _af_expectation(run))
+        # the factory saw EXACTLY this owner's registered CID
+        # and the SAME absolute owner END
+        assert calls == [(run.owner.target_cid, end_before)]
+        # the measured subject frame: the owned allocation's
+        # derived tty_nr, bound by the collector's OWN pty
+        assert snapshot["subject"]["tty"] == AF_TTY_NR
+        assert snapshot["subject"]["pty_matched"] is True
+        assert snapshot["subject"]["cid_membership"] == "cid-scoped"
+        assert run.workflow.subject_receipt is not None
+        # the DISTINCT AJ tag at the retained prep layer (the
+        # SAME frozen identity carried through)
+        assert snapshot["record"] == fp.AJ_NATIVE_PREP_SCHEMA
+        assert snapshot["identity"]["subject_uid"] == SUBJ_UID
+        # the attach phase used EXACTLY two bounded probes
+        # (the empty baseline + the allocation observation);
+        # a later observe reuses the retained receipt and
+        # never re-measures
+        assert world.devpts_probe_calls == 2
+        run.observe()
+        assert world.devpts_probe_calls == 2
+
+        # the EXPLICIT fake native exit before the positive
+        # finish: absence only (no exit code or cause); the
+        # retained receipt stays history, never re-measured
+        world.exit_native()
+        assert world.native_exits == 1
+        assert NAT_PID not in world.procs
+        assert not (proc_root / str(NAT_PID)).exists()
+        assert run.workflow.subject_receipt is not None
+
+        # finish: the REAL finish/export/teardown over the
+        # fake platform — the closed COMPLETE four-case
+        # format export, the measured seven model POSTs, the
+        # in-image quiesce MEASURES zero subjects (the exit
+        # happened), the exact-CID removal removes the
+        # controller member, and the post-removal parser
+        # verifies ENOENT (verified-gone, tri-stated)
+        fake.export_payload = _aj_full_export_payload()
+        fake.observe_wire_requests = 7
+        fake.observe_diagnostic_state = "observed"
+        run.finish()
+        assert run.owner.terminal_outcome == "pass"
+        # seven model POSTs plus exactly the two exporter
+        # commands
+        assert run.owner.finish_ledger_requests == 9
+        _join_run(run)
+        assert fake.last_quiesce is not None
+        assert fake.last_quiesce["owned_subject_stopped"] is True
+        assert run.owner.owned_members_before == ((CTL_PID, CTL_START, CTL_UID),)
+        assert run.owner.owned_members_after == ((CTL_PID, "verified-gone"),)
+        # the unrelated same-UID worker survived the whole run
+        # with the SAME uid/gid AND the SAME birth
+        worker = world.procs[WORK_PID]
+        assert fp.parse_proc_status(worker["status"]) == (SUBJ_UID, SUBJ_UID, ())
+        assert worker["stat"].split()[21] == worker_birth
+
+        # the operator restores the SAME worker job (stat-only)
+        world.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+
+        # publish: the DISTINCT identity-bearing AJ terminal
+        # record (owner evidence FIRST, native record SECOND,
+        # the nested protected attach + format-capture
+        # records, same-attempt finalization LAST)
+        record_doc = run.publish_native(native_out)
+        assert record_doc["record"] == frp.AJ_NATIVE_RUN_SCHEMA
+        assert record_doc["identity"] == identity
+        assert record_doc["owner_outcome"] == "pass"
+        assert record_doc["attempt"] == "running"  # pending, never a predicted token
+        assert record_doc["subject_measured"] is True
+        assert record_doc["stop_recorded"] is True
+        assert record_doc["native_refusal"] is None
+        assert record_doc["verdict"] == {"ready": True, "reasons": []}
+        fno.parse_native_run_record(record_doc)
+        facts = fp.parse_native_owner_facts(record_doc["native_record"])
+        assert facts.schema == fp.AJ_NATIVE_OWNER_SCHEMA
+        assert facts.identity == (SUBJ_UID, SUBJ_GID, (SUBJ_GID,))
+        assert facts.order == AJ_ORDER_ID
+        assert facts.source_head == HEAD
+        assert facts.run_id == binding.run_id
+        assert facts.cid == run.owner.target_cid
+        assert facts.native_started is True
+        assert facts.native_ready is True
+        # the nested PROTECTED AJ attach record: the closed
+        # consumer re-derives the allocation from the two
+        # embedded inventories against the OUTER binding
+        # record (a copied/replayed record never mints
+        # authority)
+        attach = record_doc["attach_binding"]
+        assert attach is not None
+        rederived = fp.parse_attach_binding_record(attach, run.binding)
+        assert attach["record"] == fp.AJ_ATTACH_BINDING_SCHEMA
+        assert attach["expected_tty_nr"] == AF_TTY_NR
+        assert attach["namespace"] == list(AF_DEVPTS_NS)
+        assert attach["cid"] == run.owner.target_cid
+        assert rederived.major == AF_ALLOC[0]
+        assert rederived.minor == AF_ALLOC[1]
+        assert rederived.inode == AF_ALLOC[2]
+        assert rederived.mode == AF_ALLOC[3]
+        # the nested SELECTED AJ format-capture record: the
+        # COMPLETE four-case snapshot, cross-bound to the
+        # outer identity and the measured CID, re-derived by
+        # the closed consumer
+        fmt = record_doc["format_capture"]
+        assert fmt is not None
+        assert fmt["record"] == frp.AJ_NATIVE_FORMAT_CAPTURE_SCHEMA
+        assert fmt["binding"] == binding.to_record()
+        assert fmt["identity"] == identity
+        assert fmt["cid"] == run.owner.target_cid
+        assert fmt["snapshot"]["record"] == model.SCHEMA_FORMAT_SNAPSHOT
+        assert fmt["snapshot"]["model_posts"] == 7
+        assert fp.parse_format_capture_record(fmt, run.binding) is fmt["snapshot"]
+        st = native_out.stat()
+        assert (st.st_mode & 0o777) == 0o600 and st.st_uid == os.getuid()
+
+        # the QUALIFIED run's same-order journal is terminal
+        # pass ONLY after the protected publication (the real
+        # finalize token in RAM)
+        assert run.finalize_attempt() == "finalized"
+        record = fb.read_admission_record(repo, AJ_ORDER_ID)
+        assert record["attempts"] == [{"head": HEAD, "run_id": binding.run_id, "status": "pass"}]
+
+        # the owner's OWN distinct AJ terminal evidence: the
+        # SAME frozen identity (compared, never rebased), the
+        # exact-CID teardown proof, the bound order, the
+        # closed format-capture consumption variant
+        ev_raw = json.loads(owner_evidence.read_bytes().decode("ascii"))
+        flocal.validate_aj_owner_run_evidence(ev_raw)
+        assert ev_raw["record"] == frp.AJ_NATIVE_RUN_EVIDENCE_SCHEMA
+        assert ev_raw["scope"] == frp.AJ_OWNER_RUN_SCOPE
+        assert ev_raw["order"] == AJ_ORDER_ID
+        assert ev_raw["status"] == "pass"
+        assert ev_raw["identity"] == identity
+        assert ev_raw["teardown_proof"] == "exact-cid-membership"
+        assert ev_raw["fixture_consumed_by"] == "format-capture"
+
+        # the same frozen identity across EVERY retained
+        # layer of the same attempt (no rebase anywhere in
+        # the composition)
+        assert (
+            snapshot["identity"]
+            == identity
+            == record_doc["identity"]
+            == ev_raw["identity"]
+            == attach["identity"]
+            == fmt["identity"]
+        )
+
+        # ONE shared run context: the SAME frozen owner
+        # context, END anchor and ledger across the whole
+        # lifecycle (compared, never rebased or replaced)
+        assert run.owner._owner_context is ctx_before
+        assert run.owner.deadline.anchor == anchor_before
+        assert run.owner.ledger is ledger_before
+        # no global subject-UID scan ever ran on the
+        # owner-UID path (the trap would have raised); the
+        # controller-UID scan kept its closed historical
+        # semantics
+        assert SUBJ_UID not in uid_calls
+        assert CTL_UID in uid_calls
+
+
+def test_aj_full_public_native_lifecycle_partial_journal_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The qualification journal law over the FULL lifecycle:
+    a cleanup-pass / native-ready AJ owner whose retained
+    selected capture is the DISTINCT safe PARTIAL form (the
+    zero-POST source-less snapshot) stays truthfully
+    representable and retainable — the owner's ACTUAL
+    cleanup outcome and the native READY verdict are
+    preserved unchanged in the retained record — but the AJ
+    qualification journal closes terminal FAIL, never pass:
+    the same-order journal records the honest fail, the
+    composition's cached outcome is the ACTUAL
+    qualification finalization (fail), the one-shot journal
+    can never be later upgraded to pass by the cached
+    outcome or by a fresh finalization request, and the
+    owner's physical terminal state keeps the measured
+    pass."""
+    run, repo, _w, _f = _aj_drive_to_published(
+        tmp_path,
+        monkeypatch,
+        payload=_aj_partial_export_payload(),
+        wire=0,
+        diag="unobserved",
+    )
+    with _owned_run(run):
+        binding = run.binding
+        native_out = tmp_path / "evidence" / "aj-native-run-record.json"
+        record_doc = run.publish_native(native_out)
+        assert record_doc["record"] == frp.AJ_NATIVE_RUN_SCHEMA
+        # the ACTUAL cleanup outcome and the native
+        # readiness verdict are preserved, never rewritten to
+        # match the journal
+        assert record_doc["owner_outcome"] == "pass"
+        assert record_doc["verdict"] == {"ready": True, "reasons": []}
+        assert record_doc["subject_measured"] is True
+        assert record_doc["stop_recorded"] is True
+        assert record_doc["native_refusal"] is None
+        assert record_doc["attempt"] == "running"
+        fno.parse_native_run_record(record_doc)
+        # the DISTINCT partial snapshot: explicitly
+        # not-qualified, zero model POSTs
+        fmt = record_doc["format_capture"]
+        assert fmt is not None
+        assert fmt["record"] == frp.AJ_NATIVE_FORMAT_CAPTURE_SCHEMA
+        assert fmt["snapshot"]["record"] == model.SCHEMA_FORMAT_SNAPSHOT_PARTIAL
+        assert fmt["snapshot"]["qualification"] == "not-qualified"
+        assert fmt["snapshot"]["model_posts"] == 0
+        # the owner's finish kept the honest zero-traffic
+        # ledger (the format workload issued no model POST;
+        # the two charged exporter commands only)
+        assert run.owner.finish_ledger_requests == 2
+        # the QUALIFICATION journal: terminal fail, never
+        # pass; the cached composition outcome is the ACTUAL
+        # qualification finalization
+        assert run._outcome == "fail"
+        assert run.finalize_attempt() == "finalized"
+        record = fb.read_admission_record(repo, AJ_ORDER_ID)
+        assert record["attempts"] == [{"head": HEAD, "run_id": binding.run_id, "status": "fail"}]
+        # the one-shot journal can never be later upgraded: a
+        # mismatched pass finalization is a closed no-op
+        # refusal and the fail entry is preserved immutable
+        assert (
+            fb.record_order_attempt(repo, AJ_ORDER_ID, binding.run_id, "pass")
+            == "terminal-preserved"
+        )
+        record = fb.read_admission_record(repo, AJ_ORDER_ID)
+        assert record["attempts"] == [{"head": HEAD, "run_id": binding.run_id, "status": "fail"}]
+        # the owner's PHYSICAL terminal state keeps the
+        # measured pass (distinct from the qualification
+        # verdict), with the retained export the DISTINCT
+        # partial form
+        ev_raw = json.loads(
+            (tmp_path / "evidence" / "aj-owner-evidence.json").read_bytes().decode("ascii")
+        )
+        flocal.validate_aj_owner_run_evidence(ev_raw)
+        assert ev_raw["status"] == "pass"
+        assert ev_raw["order"] == AJ_ORDER_ID
+        selected = json.loads(base64.b64decode(ev_raw["export"]["payload_b64"]).decode("utf-8"))
+        assert selected["record"] == model.SCHEMA_FORMAT_EXPORT_PARTIAL
+        assert selected["snapshot"]["model_posts"] == 0
+        assert selected["snapshot"]["qualification"] == "not-qualified"
+
+
+def test_aj_second_publication_refused_one_shot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The completed AJ owner's publication is a ONE-SHOT
+    terminal transition: a second publication on a fresh path
+    is a closed refusal (no retry, no relabel), and the
+    RETAINED AJ record's closed cross-field law refuses a
+    mutated copy (the outer, the nested native, the nested
+    attach and the nested format-capture identities are
+    cross-bound to ONE frozen context; a derived copy with
+    one field changed can never validate)."""
+    run, _repo, _w, _f = _aj_drive_to_published(
+        tmp_path,
+        monkeypatch,
+        payload=_aj_full_export_payload(),
+        wire=7,
+        diag="observed",
+    )
+    with _owned_run(run):
+        record = run.publish_native(tmp_path / "evidence" / "aj-native-run-record.json")
+        assert record["owner_outcome"] == "pass"
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run.publish_native(tmp_path / "evidence" / "second.json")
+        assert not (tmp_path / "evidence" / "second.json").exists()
+        # the RETAINED record validates (the production bytes)
+        fno.parse_native_run_record(record)
+        import copy
+
+        foreign = fp._ad_identity_substructure_from_triple((1003, 1004, (1004,)))
+        # OUTER identity mutated (internally consistent,
+        # foreign): the cross-bound nested identities can no
+        # longer agree
+        mutated = copy.deepcopy(record)
+        mutated["identity"] = foreign
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+        # NESTED native-record identity mutated
+        mutated = copy.deepcopy(record)
+        mutated["native_record"]["identity"] = foreign
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+        # NESTED attach identity mutated (cross-bound to the
+        # outer frozen context)
+        mutated = copy.deepcopy(record)
+        mutated["attach_binding"]["identity"] = foreign
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+        # NESTED attach CID mutated (cross-bound to the
+        # measured native record's CID)
+        mutated = copy.deepcopy(record)
+        mutated["attach_binding"]["cid"] = "e" * 64
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+        # NESTED format-capture identity mutated (cross-bound
+        # to the outer frozen context)
+        mutated = copy.deepcopy(record)
+        mutated["format_capture"]["identity"] = foreign
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+        # NESTED format-capture CID mutated (cross-bound to
+        # the measured native record's CID)
+        mutated = copy.deepcopy(record)
+        mutated["format_capture"]["cid"] = "e" * 64
+        with pytest.raises(fci.FixtureError, match="native-owner-record-malformed"):
+            fno.parse_native_run_record(mutated)
+
+
+def test_aj_preexisting_native_destination_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A pre-existing foreign AJ native destination is a
+    closed refusal (fail-if-exists): the attempt
+    terminalizes honestly, the foreign bytes are preserved
+    untouched, and no fresh-path retry is ever made (the
+    one-shot transition is consumed)."""
+    run, repo, _w, _f = _aj_drive_to_published(
+        tmp_path,
+        monkeypatch,
+        payload=_aj_full_export_payload(),
+        wire=7,
+        diag="observed",
+    )
+    with _owned_run(run):
+        try:
+            native_out = tmp_path / "evidence" / "aj-native-run-record.json"
+            native_out.parent.mkdir(parents=True, exist_ok=True)
+            native_out.write_bytes(b"foreign bytes\n")
+            with pytest.raises(fci.FixtureError, match="native-owner-evidence-exists"):
+                run.publish_native(native_out)
+            # the foreign bytes are preserved untouched
+            assert native_out.read_bytes() == b"foreign bytes\n"
+            # the same won attempt was terminalized honestly
+            # (fail — a failed publication never leaves an
+            # admitted pass)
+            record = fb.read_admission_record(repo, AJ_ORDER_ID)
+            assert record["attempts"] == [
+                {"head": HEAD, "run_id": run.binding.run_id, "status": "fail"}
+            ]
+            # no fresh-path retry is ever made
+            with pytest.raises(fci.FixtureError, match="native-owner-published"):
+                run.publish_native(tmp_path / "evidence" / "retry.json")
+            assert not (tmp_path / "evidence" / "retry.json").exists()
+        except BaseException:
+            _join_run(run)
+            raise
+
+
+# ============================================================================
+# F6-E continued: AJ registration refusal / original-END boundary /
+# owner-FIRST publication negatives (order 017-ai, software-only;
+# every case over the SAME coherent coupled fake AJ world)
+# ============================================================================
+
+
+def test_aj_registration_refuses_caller_channel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller-supplied channel for the AJ entry is a closed
+    refusal BEFORE any factory call or commit (the AJ entry
+    measures through its OWN default exact registered-CID
+    channel only — no bypass of the scoped/birth-bound
+    reads)."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, _f, _ev, _c, _u = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        calls: list[tuple[Any, float]] = []
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, calls))
+        channel = stp.FakeCidScopedTable(
+            str(run.owner.target_cid), world.procs, exe_digest=FAKE_BINARY
+        )
+        with pytest.raises(fci.FixtureError, match="native-owner-attach-channel-invalid"):
+            run.register_subject(NAT_PID, _af_expectation(run), channel=channel)
+        assert calls == []  # the default factory was never consulted
+        assert run.workflow.subject_receipt is None
+
+
+def test_aj_registration_identity_drift_refused_commits_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A host identity that drifts AFTER the AJ attach
+    preparation (before the identity-bound staged
+    registration) is a closed refusal at the registration
+    itself: the FROZEN owner context is revalidated at this
+    use site (compared, never rebased), the refused
+    registration commits NOTHING (no receipt, no staged
+    expectation), the frozen workflow subject law is
+    unchanged, and the same won attempt converges honest
+    ABORT with the same-order journal."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, repo, _f, _ev, _c, uid_calls = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        original_context = run.owner._owner_context
+        # a consistent but DIFFERENT identity at the later
+        # registration use: a drift fact, never re-frozen
+        monkeypatch.setattr(
+            run.owner,
+            "identity_reader",
+            lambda: (1003, 1003, 1003, 1004, 1004, 1004),
+        )
+        with pytest.raises(fci.FixtureError, match="local-identity-drift"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        # the refused registration commits NOTHING
+        assert run.workflow.subject_receipt is None
+        assert run.workflow._subject_pid is None
+        assert run.workflow._expectation is None
+        # the frozen workflow subject law is UNCHANGED
+        assert run.workflow.subject_identity == (SUBJ_UID, SUBJ_GID, (SUBJ_GID,))
+        # the frozen context was NEVER rebased
+        assert run.owner._owner_context is original_context
+        assert original_context.subject_uid == SUBJ_UID
+        assert original_context.subject_gid == SUBJ_GID
+        # the same won attempt converges honest ABORT
+        _join_run(run)
+        assert run.owner.terminal_outcome == "aborted"
+        record = fb.read_admission_record(repo, AJ_ORDER_ID)
+        assert record["attempts"] == [
+            {"head": HEAD, "run_id": run.binding.run_id, "status": "aborted"}
+        ]
+        # no global subject-UID scan on the owner-UID path
+        assert SUBJ_UID not in uid_calls
+
+
+def test_aj_registration_end_crossed_at_use_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SAME absolute owner END crosses at the
+    registration's OWN pre-commit use site (the attach
+    receipt is already measured): the original-END gate
+    refuses BEFORE the default channel factory is ever
+    consulted — no fresh measurement horizon, no receipt
+    commit."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, _f, _ev, _c, _u = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+        calls: list[tuple[Any, float]] = []
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, calls))
+        # the owner's ONE absolute END passes at the use site
+        run.owner.deadline.anchor = time.monotonic() - 1.0
+        with pytest.raises(fci.FixtureError, match="native-owner-patience"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert calls == []  # never a fresh horizon from a new factory window
+        assert run.workflow.subject_receipt is None
+
+
+def test_aj_final_frame_end_crossed_during_hash_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SAME absolute owner END crosses DURING the final
+    executable re-measurement (the return boundary): the
+    original-END gate at the collect-before-commit boundary
+    refuses — NO receipt commit, no cleanup-grace
+    measurement, no captured-duration extension."""
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, _repo, _f, _ev, _c, _u = _aj_run(tmp_path, monkeypatch, world=world, docker=fake)
+    with _owned_run(run):
+        _af_prep(run, world)
+
+        def cross_end(channel: Any, pid: int, birth: int) -> None:
+            # the owner's ONE absolute END passes at the race point
+            run.owner.deadline.anchor = time.monotonic() - 1.0
+
+        racy = _racy_channel_class(cross_end)
+
+        def factory(cid: Any, end: float) -> Any:
+            return racy(cid, world.procs, world=world, exe_digest=FAKE_BINARY)
+
+        monkeypatch.setattr(fno, "build_ad_native_channel", factory)
+        with pytest.raises(fci.FixtureError, match="native-owner-patience"):
+            run.register_subject(NAT_PID, _af_expectation(run))
+        assert run.workflow.subject_receipt is None
+
+
+def test_aj_owner_evidence_retention_failure_refuses_capture_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The AJ owner-FIRST law: the FIRST owner evidence
+    retention is measured by the SAME completed owner's own
+    protected writer (its RAM retention receipt, set only
+    after a verified writer success), never inferred from
+    the cleanup outcome, a precomputed digest or an
+    existing file.  Part 1: a selective no-overwrite
+    refusal at the owner's OWN pre-existing foreign
+    evidence destination (after a valid export/teardown)
+    converges the SAME owner terminal fail with the
+    foreign bytes preserved, and the AJ native/capture
+    publication is a closed refusal BEFORE any AJ
+    native/capture destination is created — the one-shot
+    transition blocks any fresh-path retry.  Part 2: the
+    existing writer's POST-COMMIT uncertainty law — the
+    normal retain COMMITS the exact bytes and only THEN
+    the result is unverified (the file exists with the
+    owner's own measured digest, yet the measured
+    retention is unverified) — the SAME closed refusal
+    holds and the committed bytes are preserved as-is.
+    Part 3: the representable honest-failure path — a
+    selective CLEANUP failure (work-root destruction
+    unverified) with a valid export converges terminal
+    fail, but the owner's OWN failure-evidence retention
+    SUCCEEDS (the receipt is earned), so the honest
+    failed-owner publication PROCEEDS and the retained
+    record validates through the closed consumer."""
+    # -- Part 1: the pre-existing foreign owner destination --
+    proc_root = tmp_path / "proc"
+    proc_root.mkdir()
+    world = _AFWorld(proc_root)
+    fake = _AJFakeDocker(world, proc_root)
+    run, repo, _f, owner_evidence, _c, uid_calls = _aj_run(
+        tmp_path, monkeypatch, world=world, docker=fake
+    )
+    try:
+        _af_prep(run, world)
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world, []))
+        run.register_subject(NAT_PID, _af_expectation(run))
+        world.exit_native()
+        # the selective owner-evidence DESTINATION failure:
+        # a foreign pre-existing file at the owner's OWN
+        # protected evidence path (the no-overwrite law
+        # refuses; the foreign bytes are never adopted)
+        foreign = b"# foreign owner-evidence destination (test-owned)\n"
+        owner_evidence.parent.mkdir(mode=0o700)
+        owner_evidence.write_bytes(foreign)
+        fake.export_payload = _aj_full_export_payload()
+        fake.observe_wire_requests = 7
+        fake.observe_diagnostic_state = "observed"
+        run.finish()
+        # the SAME owner converges terminal fail (a failed
+        # publication is never an admitted pass)
+        assert run.owner.terminal_outcome == "fail"
+        assert run.owner._evidence_retained is False
+        _join_run(run)
+        # the foreign destination bytes are preserved AS IS
+        assert owner_evidence.read_bytes() == foreign
+        # restore the SAME worker job (stat-only)
+        world.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+        # the AJ native/capture publication is REFUSED
+        # before any AJ native/capture destination is
+        # created (no origin without the measured FIRST
+        # owner retention)
+        native_out = tmp_path / "evidence" / "aj-native-run-record.json"
+        with pytest.raises(fci.FixtureError, match="native-owner-evidence-unretained"):
+            run.publish_native(native_out)
+        assert not native_out.exists()
+        # the one-shot transition: no fresh-path retry
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run.publish_native(tmp_path / "evidence" / "retry.json")
+        assert not (tmp_path / "evidence" / "retry.json").exists()
+        # the honest journal fact is preserved (terminal
+        # fail finalized at owner convergence, never
+        # rewritten or relabeled)
+        record = fb.read_admission_record(repo, AJ_ORDER_ID)
+        assert record["attempts"] == [
+            {"head": HEAD, "run_id": run.binding.run_id, "status": "fail"}
+        ]
+        # no global subject-UID scan on the owner-UID path
+        assert SUBJ_UID not in uid_calls
+    finally:
+        _join_run(run)
+    # -- Part 2: the post-commit writer uncertainty (fresh base) --
+    p2 = tmp_path / "p2"
+    p2.mkdir()
+    proc_root2 = p2 / "proc"
+    proc_root2.mkdir()
+    world2 = _AFWorld(proc_root2)
+    fake2 = _AJFakeDocker(world2, proc_root2)
+    run2, repo2, _f2, owner_evidence2, _c2, _uid2 = _aj_run(
+        p2, monkeypatch, world=world2, docker=fake2
+    )
+    with _owned_run(run2):
+        _af_prep(run2, world2)
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world2, []))
+        run2.register_subject(NAT_PID, _af_expectation(run2))
+        world2.exit_native()
+        real_retain = flocal.ci._retain_evidence
+
+        def unverified_retain(dest: Any, payload: Any, digest: str, work: Any = None) -> str:
+            real_retain(dest, payload, digest, work)
+            # the exact bytes are COMMITTED and THEN the
+            # writer result is unverified: the existing
+            # writer's post-commit uncertainty law
+            raise RuntimeError("injected-evidence-commit-unverified")
+
+        monkeypatch.setattr(flocal.ci, "_retain_evidence", unverified_retain)
+        fake2.export_payload = _aj_full_export_payload()
+        fake2.observe_wire_requests = 7
+        fake2.observe_diagnostic_state = "observed"
+        run2.finish()
+        assert run2.owner.terminal_outcome == "fail"
+        # the file EXISTS with the owner's OWN measured
+        # digest — exists/hash is NOT a retention receipt
+        assert run2.owner._evidence_retained is False
+        committed = owner_evidence2.read_bytes()
+        assert hashlib.sha256(committed).hexdigest() == run2.owner._evidence_sha
+        _join_run(run2)
+        world2.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+        native_out2 = p2 / "evidence" / "aj-native-run-record.json"
+        with pytest.raises(fci.FixtureError, match="native-owner-evidence-unretained"):
+            run2.publish_native(native_out2)
+        assert not native_out2.exists()
+        # the committed bytes are preserved as-is
+        assert owner_evidence2.read_bytes() == committed
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run2.publish_native(p2 / "evidence" / "retry.json")
+        assert not (p2 / "evidence" / "retry.json").exists()
+        record2 = fb.read_admission_record(repo2, AJ_ORDER_ID)
+        assert record2["attempts"] == [
+            {"head": HEAD, "run_id": run2.binding.run_id, "status": "fail"}
+        ]
+    # -- Part 3: the honest failed-owner publication with the
+    #    FIRST evidence actually retained (fresh base) --
+    # Part 3 drives the REAL protected writer: the Part 2
+    # injected post-commit uncertainty is no longer in effect
+    monkeypatch.setattr(flocal.ci, "_retain_evidence", real_retain)
+    p3 = tmp_path / "p3"
+    p3.mkdir()
+    proc_root3 = p3 / "proc"
+    proc_root3.mkdir()
+    world3 = _AFWorld(proc_root3)
+    fake3 = _AJFakeDocker(world3, proc_root3)
+    run3, repo3, _f3, owner_evidence3, _c3, _uid3 = _aj_run(
+        p3, monkeypatch, world=world3, docker=fake3
+    )
+    with _owned_run(run3):
+        _af_prep(run3, world3)
+        monkeypatch.setattr(fno, "build_ad_native_channel", _af_channel_factory(world3, []))
+        run3.register_subject(NAT_PID, _af_expectation(run3))
+        world3.exit_native()
+        # a selective CLEANUP failure (work-root destruction
+        # unverified) with a valid export: the SAME owner
+        # converges terminal fail, but its OWN failure
+        # evidence retention SUCCEEDS (the receipt is
+        # earned)
+        monkeypatch.setattr(flocal.ci, "_destroy_owned_work_root", lambda work: False)
+        fake3.export_payload = _aj_full_export_payload()
+        fake3.observe_wire_requests = 7
+        fake3.observe_diagnostic_state = "observed"
+        run3.finish()
+        assert run3.owner.terminal_outcome == "fail"
+        assert run3.owner.failure_reason == "cleanup-incomplete"
+        assert run3.owner._evidence_retained is True
+        # the FIRST owner evidence was actually retained
+        # under the closed AJ grammar
+        good3 = json.loads(owner_evidence3.read_bytes())
+        flocal.validate_aj_owner_run_evidence(good3)
+        _join_run(run3)
+        world3.procs[WORK_PID] = _worker_proc("S", tpgid=WORK_PID, start=WORK_START)
+        # the honest failed-owner publication PROCEEDS: the
+        # owner-FIRST gate reads the same-owner retention
+        # fact, not the cleanup outcome
+        native_out3 = p3 / "evidence" / "aj-native-run-record.json"
+        record3 = run3.publish_native(native_out3)
+        assert record3["record"] == frp.AJ_NATIVE_RUN_SCHEMA
+        assert record3["owner_outcome"] == "fail"
+        assert record3["verdict"]["ready"] is False
+        assert record3["native_record"] is None
+        # the retained record validates through the closed
+        # consumer (the honest fail representation)
+        retained3 = json.loads(native_out3.read_bytes())
+        fno.parse_native_run_record(retained3)
+        # the one-shot: no second publication
+        with pytest.raises(fci.FixtureError, match="native-owner-published"):
+            run3.publish_native(p3 / "evidence" / "retry.json")
+        assert not (p3 / "evidence" / "retry.json").exists()
+        # the journal carries the honest terminal fail
+        record_j3 = fb.read_admission_record(repo3, AJ_ORDER_ID)
+        assert record_j3["attempts"] == [
+            {"head": HEAD, "run_id": run3.binding.run_id, "status": "fail"}
+        ]
+
+
+def test_aj_post_native_retention_finalize_unverified_preserves_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Order 017-ai F6-E: an unverified journal
+    finalization AFTER the protected native retention on
+    the QUALIFIED AJ run is a closed failure — the
+    retained native record (the actual cleanup pass, the
+    pending attempt state read at publication, the native
+    readiness verdict and the COMPLETE four-case format
+    capture that qualified this run) and the ACTUAL
+    journal fact (still pending) are preserved as-is, the
+    one-shot transition blocks any fresh-path retry, and a
+    later finalize_attempt cannot upgrade the attempt to
+    pass."""
+    run, repo, _world, _fake = _aj_drive_to_published(
+        tmp_path,
+        monkeypatch,
+        payload=_aj_full_export_payload(),
+        wire=7,
+        diag="observed",
+    )
+    binding = run.binding
+    identity = _ad_identity_dict()
+    native_out = tmp_path / "evidence" / "aj-native-run-record.json"
+    real_finalize = fno.oap_binding.record_order_attempt
+    attempts: list[tuple[str, str]] = []
+
+    def unreadable_finalize(owned: Any, oid: str, run_id: str, status: str) -> str:
+        attempts.append((oid, status))
+        if status == "pass":
+            # the unverified result never writes the
+            # terminal journal fact
+            return "record-unreadable"
+        return str(real_finalize(owned, oid, run_id, status))
+
+    monkeypatch.setattr(fno.oap_binding, "record_order_attempt", unreadable_finalize)
+    with pytest.raises(fci.FixtureError, match="native-owner-finalization-unverified"):
+        run.publish_native(native_out)
+    # the retained record is preserved AS IS (never
+    # rewritten after the unverified finalization): the
+    # actual cleanup pass, the pending journal state read
+    # at publication (never a predicted token), the native
+    # readiness verdict and the COMPLETE four-case format
+    # capture
+    retained = json.loads(native_out.read_bytes())
+    fno.parse_native_run_record(retained)
+    assert retained["record"] == frp.AJ_NATIVE_RUN_SCHEMA
+    assert retained["identity"] == identity
+    assert retained["owner_outcome"] == "pass"
+    assert retained["attempt"] == "running"
+    assert retained["subject_measured"] is True
+    assert retained["stop_recorded"] is True
+    assert retained["native_refusal"] is None
+    assert retained["verdict"] == {"ready": True, "reasons": []}
+    fmt = retained["format_capture"]
+    assert fmt is not None
+    assert fmt["record"] == frp.AJ_NATIVE_FORMAT_CAPTURE_SCHEMA
+    assert fmt["identity"] == identity
+    assert fmt["snapshot"]["record"] == model.SCHEMA_FORMAT_SNAPSHOT
+    assert fmt["snapshot"]["model_posts"] == 7
+    assert fp.parse_format_capture_record(fmt, run.binding) is fmt["snapshot"]
+    st = native_out.stat()
+    assert (st.st_mode & 0o777) == 0o600 and st.st_uid == os.getuid()
+    # the ACTUAL journal fact is preserved as-is (still
+    # pending — the unverified finalization never re-closed,
+    # overwrote or relabeled it) and the ONLY finalization
+    # request was the qualified pass
+    assert attempts == [(AJ_ORDER_ID, "pass")]
+    journal = fb.read_admission_record(repo, AJ_ORDER_ID)
+    assert journal["attempts"] == [{"head": HEAD, "run_id": binding.run_id, "status": "running"}]
+    # no finalize upgrade: the failed one-shot publication
+    # never admitted the pass, so the cached followup can
+    # never request a terminal status for it
+    with pytest.raises(fci.FixtureError, match="native-owner-not-terminal"):
+        run.finalize_attempt()
+    # the one-shot transition: no fresh-path retry
+    with pytest.raises(fci.FixtureError, match="native-owner-published"):
+        run.publish_native(tmp_path / "evidence" / "retry.json")
+    assert not (tmp_path / "evidence" / "retry.json").exists()

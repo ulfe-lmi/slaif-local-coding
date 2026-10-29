@@ -1488,3 +1488,156 @@ class TestHoldMode:
             "reason": "hold-token-invalid",
         }
         assert "seconds" not in requested
+
+
+# ============================================================================
+# 017-ai: the closed observe transport scenario grammar (pure standin layer)
+# ============================================================================
+
+
+class TestObserveMode:
+    """The closed NON-CONSUMING observe transport's scenario
+    grammar on the ACTUAL ``observe_mode`` with a bounded fake
+    provider and the injected subject identity (no provider,
+    no docker, no host read, no model POST — this pure
+    standin-transport layer proves ONLY the carried-key
+    grammar; the host's OWN-entry revalidation is proven in
+    the ci suite, and the public owner composition in the
+    handoff suite).  The owner-carried EXISTING container
+    scenario key is transport data only: the unset default
+    AND the explicitly carried historical values (the
+    historical owners set the key explicitly at prepare
+    time) keep the historical two-scenario set byte-for-byte,
+    the canonical AJ transport selects its OWN closed
+    format-capture expectation and nothing else, and any
+    other carried value is a closed refusal BEFORE the
+    /state read."""
+
+    STATE = {
+        "record": "slaif-fixture-state-v1",
+        "scenario": "diagnostic",
+        "wire_requests": 0,
+        "diagnostic": "unobserved",
+    }
+
+    @staticmethod
+    def _as_subject(monkeypatch: Any) -> None:
+        monkeypatch.setattr(standin.os, "getuid", lambda: standin.SUBJECT_UID)
+        monkeypatch.setattr(standin.os, "getgid", lambda: standin.SUBJECT_UID)
+        monkeypatch.setattr(standin.os, "getgroups", lambda: [standin.SUBJECT_UID])
+        # The identity-expectation READ seam is injected with the
+        # faithful explicit default (None = the original-mode
+        # absent image file): the ACTUAL subject-identity
+        # validator stays live, but this pure transport fixture
+        # never premises on the real host's /opt/slaif-fixture
+        # state (no real-host read in this layer).
+        monkeypatch.setattr(standin, "_image_identity_profile_raw", lambda: None)
+
+    @staticmethod
+    def _anchor(monkeypatch: Any) -> None:
+        monkeypatch.setenv("SLAIF_FIXTURE_DEADLINE_ABS", repr(time.monotonic() + 120.0))
+
+    def _run(
+        self, monkeypatch: Any, capsys: Any, scenario: str | None, state: dict[str, object]
+    ) -> tuple[int, dict[str, object]]:
+        self._as_subject(monkeypatch)
+        self._anchor(monkeypatch)
+        if scenario is None:
+            monkeypatch.delenv("SLAIF_FIXTURE_SCENARIO", raising=False)
+        else:
+            monkeypatch.setenv("SLAIF_FIXTURE_SCENARIO", scenario)
+        monkeypatch.setattr(
+            standin,
+            "_provider_get",
+            lambda path, deadline: (200, "application/json", json.dumps(state).encode("ascii")),
+        )
+        rc = standin.observe_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        return rc, record
+
+    @pytest.mark.parametrize("carried", [None, "diagnostic", "tool-cycle"])
+    def test_unset_and_carried_historical_keep_closed_set(
+        self, carried: str | None, monkeypatch: Any, capsys: Any
+    ) -> None:
+        # the unset default AND the explicit historical
+        # transport values accept the historical two-scenario
+        # set (diagnostic shown; tool-cycle below)
+        rc, record = self._run(monkeypatch, capsys, carried, dict(self.STATE))
+        assert rc == 0
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "pass",
+            "mode": "observe",
+            "uid": standin.SUBJECT_UID,
+            "scenario": "diagnostic",
+            "wire_requests": 0,
+            "diagnostic_state": "unobserved",
+            "raw_content_retained": False,
+        }
+
+    @pytest.mark.parametrize("carried", [None, "diagnostic", "tool-cycle"])
+    def test_historical_set_accepts_tool_cycle_report(
+        self, carried: str | None, monkeypatch: Any, capsys: Any
+    ) -> None:
+        state = dict(self.STATE, scenario="tool-cycle", diagnostic="observed")
+        rc, record = self._run(monkeypatch, capsys, carried, state)
+        assert rc == 0
+        assert record["scenario"] == "tool-cycle"
+        assert record["diagnostic_state"] == "observed"
+
+    @pytest.mark.parametrize("carried", [None, "diagnostic", "tool-cycle"])
+    def test_historical_grammar_refuses_format_report(
+        self, carried: str | None, monkeypatch: Any, capsys: Any
+    ) -> None:
+        state = dict(self.STATE, scenario="format-capture")
+        rc, record = self._run(monkeypatch, capsys, carried, state)
+        assert rc == 2
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "fail",
+            "reason": "observe-shape",
+        }
+
+    def test_aj_transport_accepts_only_format_report(self, monkeypatch: Any, capsys: Any) -> None:
+        state = dict(self.STATE, scenario="format-capture")
+        rc, record = self._run(monkeypatch, capsys, "format-capture", state)
+        assert rc == 0
+        assert record["scenario"] == "format-capture"
+        assert record["raw_content_retained"] is False
+
+    @pytest.mark.parametrize("scenario", ["diagnostic", "tool-cycle"])
+    def test_aj_transport_refuses_legacy_reports(
+        self, scenario: str, monkeypatch: Any, capsys: Any
+    ) -> None:
+        state = dict(self.STATE, scenario=scenario)
+        rc, record = self._run(monkeypatch, capsys, "format-capture", state)
+        assert rc == 2
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "fail",
+            "reason": "observe-shape",
+        }
+
+    @pytest.mark.parametrize(
+        "carried",
+        ["tool-cycle ", "diagnostic-x", "FORMAT-CAPTURE", "format-capture-extra"],
+    )
+    def test_foreign_carried_value_refused_before_state_read(
+        self, carried: str, monkeypatch: Any, capsys: Any
+    ) -> None:
+        self._as_subject(monkeypatch)
+        self._anchor(monkeypatch)
+        monkeypatch.setenv("SLAIF_FIXTURE_SCENARIO", carried)
+
+        def _boom(path: str, deadline: float) -> None:
+            raise AssertionError("the /state read must never happen")
+
+        monkeypatch.setattr(standin, "_provider_get", _boom)
+        rc = standin.observe_mode()
+        record = json.loads(capsys.readouterr().out.strip())
+        assert rc == 2
+        assert record == {
+            "record": "slaif-fixture-standin-v1",
+            "status": "fail",
+            "reason": "observe-transport",
+        }

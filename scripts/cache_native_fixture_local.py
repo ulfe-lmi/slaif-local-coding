@@ -253,6 +253,82 @@ AH_STATE_SCHEMA = rprofile.AH_OWNER_STATE_SCHEMA
 # separate closed records, never a widened grammar).
 AH_OWNER_RUN_EVIDENCE_SCHEMA = rprofile.AH_NATIVE_RUN_EVIDENCE_SCHEMA
 AH_OWNER_RUN_SCOPE = rprofile.AH_OWNER_RUN_SCOPE
+# The canonical FUTURE 017-aj native-process format
+# QUALIFICATION entry (INERT in 017-ai: software-only — never
+# activated, admitted or launched in this round).  It selects
+# ONLY the owner-UID profile through the closed entry mapping
+# and composes the EXISTING owner/guarded exact-CID/NativeOwnerRun
+# and independent devpts producer APIs; the canonical entry
+# selects the CLOSED native format-capture scenario before
+# startup; it carries the DISTINCT versioned identity-bearing
+# record tags of the 017-aj qualification; this constant names
+# the entry and grants NO authority — actual repository-context
+# validation refuses it before fixture work or admission under
+# any other active order.
+AJ_ORDER_ID = rprofile.AJ_ORDER_ID
+# The DISTINCT identity-bearing owner-state tag of the 017-aj
+# entry (the AJ owner publishes ONLY this form; the historical
+# v1 tag stays the strict 12-key original and rejects it; the
+# AH tag stays AH-only, even for equal-numeric identities).
+AJ_STATE_SCHEMA = rprofile.AJ_OWNER_STATE_SCHEMA
+# The DISTINCT closed owner-UID AJ native terminal record
+# (017-ai software): the SAME measured owner state, cleanup
+# and publication as the AH native-scope record, PLUS the
+# frozen owner identity substructure and the exact-CID
+# teardown proof.  The S, native-scope, AB, AD, AF and AH
+# records keep their original meaning byte-for-byte (the tags
+# are separate closed records, never a widened grammar).
+AJ_OWNER_RUN_EVIDENCE_SCHEMA = rprofile.AJ_NATIVE_RUN_EVIDENCE_SCHEMA
+AJ_OWNER_RUN_SCOPE = rprofile.AJ_OWNER_RUN_SCOPE
+
+
+def _entry_scenario(order_id: str | None) -> str:
+    """The CLOSED scenario selected BEFORE startup by the owner's
+    OWN frozen entry: the verified binding / frozen owner context
+    is the sole selection authority — ambient environment values,
+    HTTP flags and caller-ready records never select or redefine
+    it.  Only the canonical 017-aj entry declares the closed
+    ``format-capture`` scenario; every historical entry and the
+    original default (``None``) keep ``diagnostic``
+    byte-for-byte.  A foreign or unknown entry id is a closed
+    refusal at the selection seam — the SAME closed entry set the
+    observer-seam helper enforces, never a silent fallback."""
+    if order_id is None:
+        return "diagnostic"
+    if order_id == AJ_ORDER_ID:
+        return rprofile.AJ_FORMAT_SCENARIO
+    if order_id in (
+        AB_ORDER_ID,
+        AD_ORDER_ID,
+        AF_ORDER_ID,
+        AH_ORDER_ID,
+    ):
+        return "diagnostic"
+    raise FixtureError("local-entry-scenario-invalid")
+
+
+def _entry_scenario_set(order_id: str | None) -> tuple[str, ...]:
+    """The closed set of declared scenarios a host observer may
+    accept for the owner's OWN frozen entry: the historical
+    two-scenario set for every non-AJ entry (the hosted CI path
+    included) and the AJ entry's own closed ``format-capture``
+    declaration for the AJ entry ONLY: the AJ observer expects the
+    closed format-capture scenario and NOTHING else (legacy
+    scenario drift is a closed refusal).  A foreign or unknown
+    entry id is a closed refusal at the observer seam, never a
+    silent acceptance."""
+    if order_id is None or order_id in (
+        AB_ORDER_ID,
+        AD_ORDER_ID,
+        AF_ORDER_ID,
+        AH_ORDER_ID,
+    ):
+        return ("diagnostic", "tool-cycle")
+    if order_id == AJ_ORDER_ID:
+        return (rprofile.AJ_FORMAT_SCENARIO,)
+    raise FixtureError("local-entry-scenario-invalid")
+
+
 # The R CI-measured built-image identity (immutable R report fact at
 # 2ce9dcd): the local rebuild records whether it matches.
 R_CI_IMAGE_ID = "sha256:331e1a70ec585f6fb1494c8486faf77fb1e624cf5f0f5765f7c5bab83a92de94"
@@ -321,6 +397,9 @@ _LOCAL_REASONS = frozenset(
         "local-hosted-env",
         "local-binding-invalid",
         "local-ad-order-path-mismatch",
+        "local-af-order-path-mismatch",
+        "local-ah-order-path-mismatch",
+        "local-aj-order-path-mismatch",
         "local-bounded-admission-missing",
         "local-deadline-offset-invalid",
         "local-bind-head-invalid",
@@ -374,6 +453,8 @@ _LOCAL_REASONS = frozenset(
         "local-identity-invalid-group-vector",
         "local-identity-invalid-subject-for-profile",
         "local-identity-drift",
+        "local-entry-scenario-invalid",
+        "local-aj-context-unmeasured",
         "local-control-protocol",
         "local-control-socket-untrusted",
         "local-control-unbound",
@@ -539,6 +620,8 @@ _CI_REASONS = frozenset(
         "standin-record-identity",
         "observe-failed",
         "observe-record-state",
+        "observe-entry-invalid",
+        "observe-profile-invalid",
         "env-file-unbound",
         "output-read-failed",
         "work-root-exists",
@@ -1315,6 +1398,25 @@ def _validate_ah_state_object(state: object, run_id: str) -> None:
     )
 
 
+def _validate_aj_state_object(state: object, run_id: str) -> None:
+    """The DISTINCT identity-bearing AJ owner-state grammar
+    (``slaif-017aj-owner-state-v1``): the SAME shared structural
+    law as the AB wrapper, under the canonical 017-aj entry's
+    OWN tag and order binding (the future native-process
+    format QUALIFICATION entry, INERT in 017-ai).  The AB,
+    AD, AF and AH tags are refused here and the v1 tag never
+    widened — explicit separate closed grammars for the new
+    physical identity, including for equal-numeric
+    identities."""
+    _validate_identity_state_core(
+        state,
+        run_id,
+        tag=AJ_STATE_SCHEMA,
+        entry_order=AJ_ORDER_ID,
+        token="local-aj-state-malformed",
+    )
+
+
 def _write_state(path: Path, state: dict, *, ab: bool = False) -> None:
     """Atomic (same-directory tmp + rename) 0600 state publish.
     The validator follows the published FORM: the DISTINCT
@@ -1332,6 +1434,8 @@ def _write_state(path: Path, state: dict, *, ab: bool = False) -> None:
         validator = _validate_af_state_object
     elif tag == AH_STATE_SCHEMA:
         validator = _validate_ah_state_object
+    elif tag == AJ_STATE_SCHEMA:
+        validator = _validate_aj_state_object
     else:
         validator = _validate_state_object
     validator(state, str(state["run_id"]))
@@ -1404,7 +1508,9 @@ _CONTROL_DETAIL_KEYS = {
 }
 
 
-def _validate_control_response(response: object, command: str) -> None:
+def _validate_control_response(
+    response: object, command: str, entry_order: str | None = None
+) -> None:
     """Closed validation of the owner's control response: exact key
     set, fixed record tag, run-id identity, the closed failure
     vocabulary for ``reason``, and the exact per-command ``detail``
@@ -1432,7 +1538,7 @@ def _validate_control_response(response: object, command: str) -> None:
                 and detail["state"] == "prepared-unconsumed"
                 and isinstance(observed, dict)
                 and set(observed) == {"scenario", "wire_requests", "diagnostic_state"}
-                and observed["scenario"] == "diagnostic"
+                and observed["scenario"] == _entry_scenario(entry_order)
                 and observed["wire_requests"] == 0
                 and observed["diagnostic_state"] == "unobserved"
                 and isinstance(detail["end_anchor"], (int, float))
@@ -1442,7 +1548,7 @@ def _validate_control_response(response: object, command: str) -> None:
             )
         elif command == "observe":
             ok = (
-                detail["scenario"] in ("diagnostic", "tool-cycle")
+                detail["scenario"] in _entry_scenario_set(entry_order)
                 and isinstance(detail["wire_requests"], int)
                 and not isinstance(detail["wire_requests"], bool)
                 and detail["wire_requests"] >= 0
@@ -1511,12 +1617,13 @@ def _state_record(control_dir, *, entry_order: str | None = None) -> dict | None
     The entry-aware tag law: the historical v1 tag for the original
     entries (``entry_order`` None or a non-owner-UID sealed entry —
     byte-for-byte the historical meaning) and the DISTINCT
-    identity-bearing AB/AD/AF tags for the canonical 017-ab / 017-ad
-    / 017-af entries (which additionally require the full closed
-    binding and identity substructures of their OWN entry).  Each
-    entry reads ONLY its own tag: a foreign tag is not this entry's
-    state, and the v1 grammar rejects an identity-bearing record
-    (the old tag is never widened)."""
+    identity-bearing AB/AD/AF/AH/AJ tags for the canonical 017-ab
+    / 017-ad / 017-af / 017-ah / 017-aj entries (which
+    additionally require the full closed binding and identity
+    substructures of their OWN entry).  Each entry reads ONLY
+    its own tag: a foreign tag is not this entry's state, and
+    the v1 grammar rejects an identity-bearing record (the old
+    tag is never widened)."""
     if entry_order == AB_ORDER_ID:
         tag = AB_STATE_SCHEMA
     elif entry_order == AD_ORDER_ID:
@@ -1525,6 +1632,8 @@ def _state_record(control_dir, *, entry_order: str | None = None) -> dict | None
         tag = AF_STATE_SCHEMA
     elif entry_order == AH_ORDER_ID:
         tag = AH_STATE_SCHEMA
+    elif entry_order == AJ_ORDER_ID:
+        tag = AJ_STATE_SCHEMA
     else:
         tag = STATE_SCHEMA
     root = Path(control_dir)
@@ -1563,6 +1672,8 @@ def _state_record(control_dir, *, entry_order: str | None = None) -> dict | None
             _validate_af_state_object(state, str(state["run_id"]))
         elif tag == AH_STATE_SCHEMA:
             _validate_ah_state_object(state, str(state["run_id"]))
+        elif tag == AJ_STATE_SCHEMA:
+            _validate_aj_state_object(state, str(state["run_id"]))
         else:
             _validate_state_object(state, str(state["run_id"]))
     except (FixtureError, KeyError, TypeError, ValueError):
@@ -1623,7 +1734,13 @@ def _read_control_request(conn) -> dict | None:
     return request
 
 
-def _control_client(control_dir, command: str, run_id: str, timeout: float) -> dict:
+def _control_client(
+    control_dir,
+    command: str,
+    run_id: str,
+    timeout: float,
+    entry_order: str | None = None,
+) -> dict:
     """ONE bounded thin-client command against the running owner.
 
     Protected socket verification is the ONE declared permission
@@ -1712,7 +1829,7 @@ def _control_client(control_dir, command: str, run_id: str, timeout: float) -> d
         raise FixtureError("local-control-protocol") from None
     finally:
         sock.close()
-    _validate_control_response(response, command)
+    _validate_control_response(response, command, entry_order)
     # The response must bind the EXACT requested identity before the
     # result is exposed (a different valid 32-hex run id is a
     # protocol violation, not a valid answer to this command).
@@ -1986,6 +2103,14 @@ class LocalFixtureOwner:
         self._exit_code = 1
         self._outcome: str | None = None
         self._evidence_sha: str | None = None
+        # The SAME-owner protected-writer retention receipt
+        # (RAM only): initialized false and set only after
+        # the protected owner writer returns verified
+        # success — independent of the pass/cleanup
+        # outcome (the native composition's owner-FIRST
+        # publication gate reads this measured fact, never
+        # a precomputed digest or a merely existing file).
+        self._evidence_retained: bool = False
         self._recovery_state_retained = False
         # Own-process termination handling from the first bounded
         # query: SIGTERM and SIGINT both converge through the same
@@ -2116,6 +2241,7 @@ class LocalFixtureOwner:
             rprofile.AD_ORDER_ID,
             rprofile.AF_ORDER_ID,
             rprofile.AH_ORDER_ID,
+            rprofile.AJ_ORDER_ID,
         ):
             # The fixed canonical 017-ad and 017-af entries
             # resolve ONLY at their unique committed order paths
@@ -2140,6 +2266,11 @@ class LocalFixtureOwner:
                 and binding.order_path != rprofile.AH_ORDER_PATH
             ):
                 raise FixtureError("local-ah-order-path-mismatch")
+            if (
+                binding.order_id == rprofile.AJ_ORDER_ID
+                and binding.order_path != rprofile.AJ_ORDER_PATH
+            ):
+                raise FixtureError("local-aj-order-path-mismatch")
             reader = (
                 identity_reader
                 if identity_reader is not None
@@ -2298,6 +2429,14 @@ class LocalFixtureOwner:
         # the faithful original default explicitly.
         ctx = self._owner_context
         if ctx is None:
+            # The closed fail-closed law at every identity-bound
+            # use site: a canonical 017-aj bound owner whose
+            # frozen context is missing is a closed refusal —
+            # never a fall-through to the original profile
+            # (the original form, no owner context, keeps its
+            # legitimate historical default byte-for-byte).
+            if self.optin["order"] == AJ_ORDER_ID:
+                raise FixtureError("local-aj-context-unmeasured")
             return
         reader = (
             self.identity_reader
@@ -2376,6 +2515,8 @@ class LocalFixtureOwner:
                 state["record"] = AF_STATE_SCHEMA
             elif ctx.order_id == AH_ORDER_ID:
                 state["record"] = AH_STATE_SCHEMA
+            elif ctx.order_id == AJ_ORDER_ID:
+                state["record"] = AJ_STATE_SCHEMA
             else:
                 raise FixtureError("internal")
             state["order"] = ctx.order_id
@@ -2615,9 +2756,23 @@ class LocalFixtureOwner:
             "SLAIF_FIXTURE_PORT": str(ci.CONTROLLER_PORT),
         }
         self.env_base = env_base
+        ctx = self._owner_context
+        # The closed fail-closed law at the scenario SELECTION
+        # site: a canonical 017-aj bound owner whose frozen
+        # context is missing is a closed refusal BEFORE the
+        # fixture create — never a fall-through to the legacy
+        # diagnostic scenario or the original profile (the
+        # original form keeps its legitimate historical
+        # default byte-for-byte).
+        if ctx is None and self.optin["order"] == AJ_ORDER_ID:
+            raise FixtureError("local-aj-context-unmeasured")
         env = dict(env_base)
         env["SLAIF_FIXTURE_MODE"] = "main"
-        env["SLAIF_FIXTURE_SCENARIO"] = "diagnostic"
+        # The CLOSED scenario is selected BEFORE startup by the
+        # owner's OWN frozen entry (the verified binding is the
+        # sole authority; ambient env / HTTP / caller-ready values
+        # never select or redefine it).
+        env["SLAIF_FIXTURE_SCENARIO"] = _entry_scenario(ctx.order_id if ctx is not None else None)
         env["SLAIF_FIXTURE_AUTH_TOKEN"] = self.run_token
         # The protected generated env file (0600 under the owned
         # 0700 env directory): the values never appear on argv.
@@ -2626,7 +2781,6 @@ class LocalFixtureOwner:
         self.env_file, self.env_file_digest = create_env_file(self._env_dir, self.run_token)
         ci.bind_env_files({str(self.env_file)})
         self._publish_state_required()
-        ctx = self._owner_context
         # The exact fresh create NAME intent is persisted in the
         # protected state BEFORE docker create, and the exact fresh
         # CID registration is persisted BEFORE any start (the shared
@@ -2717,11 +2871,12 @@ class LocalFixtureOwner:
             env_base,
             self.ledger,
             profile=ctx.profile if ctx is not None else None,
+            entry_order=ctx.order_id if ctx is not None else None,
         )
         if (
             observed["wire_requests"] != 0
             or observed["diagnostic_state"] != "unobserved"
-            or observed["scenario"] != "diagnostic"
+            or observed["scenario"] != _entry_scenario(ctx.order_id if ctx is not None else None)
         ):
             raise FixtureError("local-prepared-state")
         self.prepared = {
@@ -2743,12 +2898,14 @@ class LocalFixtureOwner:
         is held (prepared, not yet finished)."""
         if self.target_cid is None or self.phase in ("teardown", "publish", "start"):
             raise FixtureError("local-observe-unavailable")
+        ctx = self._owner_context
         return ci.observe_controller_on(
             self.guarded,
             self.target_cid,
             self.env_base,
             self.ledger,
-            profile=self._owner_context.profile if self._owner_context is not None else None,
+            profile=ctx.profile if ctx is not None else None,
+            entry_order=ctx.order_id if ctx is not None else None,
         )
 
     def hold_start(self) -> str:
@@ -2982,12 +3139,14 @@ class LocalFixtureOwner:
         # — the identity baseline for this finish, whatever the
         # held instance's wire history is (S Python consume, an
         # external subject, or none at all).
+        ctx = self._owner_context
         self.finish_observed = ci.observe_controller_on(
             self.guarded,
             cid,
             self.env_base,
             self.ledger,
-            profile=self._owner_context.profile if self._owner_context is not None else None,
+            profile=ctx.profile if ctx is not None else None,
+            entry_order=ctx.order_id if ctx is not None else None,
         )
         self.ledger.reserve_http(2, 2)
         export_result = ci._exec(
@@ -3024,9 +3183,23 @@ class LocalFixtureOwner:
             raise FixtureError("export-overbound")
         # HOST INDEPENDENT closed-object revalidation: the DECODED
         # selected payload itself must be a valid closed record (the
-        # client's proof is not the host's proof).
+        # client's proof is not the host's proof).  The canonical
+        # 017-aj entry's closed format-capture scenario carries the
+        # DISTINCT three-field format payload (the closed record tag
+        # selects the full or the safe partial format law); the
+        # untagged six-field legacy form is drift under AJ and is
+        # refused, never relabelled.
+        ctx_is_aj = ctx is not None and ctx.order_id == AJ_ORDER_ID
         try:
-            selected = fixture_export.validate_payload(payload)
+            if ctx_is_aj:
+                selected = fixture_export.validate_selected_payload(payload)
+                if selected.get("record") not in (
+                    model.SCHEMA_FORMAT_EXPORT,
+                    model.SCHEMA_FORMAT_EXPORT_PARTIAL,
+                ):
+                    raise ValueError("format-payload-tag")
+            else:
+                selected = fixture_export.validate_payload(payload)
         except ValueError:
             raise FixtureError("export-invalid") from None
         snapshot = selected["snapshot"]
@@ -3040,35 +3213,44 @@ class LocalFixtureOwner:
         ledger_requests = snapshot["controller_ledger"]["requests"]
         if ledger_requests < self.finish_observed["wire_requests"]:
             raise FixtureError("export-identity-mismatch")
-        position = selected["observed_at_position"]
-        if self.finish_observed["diagnostic_state"] == "unobserved":
-            if selected["diagnostic"] != {"state": "unobserved"} or position is not None:
-                raise FixtureError("export-identity-mismatch")
+        if ctx_is_aj:
+            # The AJ format scenario carries NO legacy one-shot
+            # diagnostic position: the truthful format coordinates
+            # (issued calls, case/result positions, the model POST
+            # truth) live inside the validated snapshot, and the
+            # observed diagnostic state is a measured fact, never
+            # interpreted as format consumption or absence.
+            self.finish_position = None
         else:
-            if (
-                selected["diagnostic"] == {"state": "unobserved"}
-                or not isinstance(position, int)
-                or isinstance(position, bool)
-                or position < 0
-            ):
-                raise FixtureError("export-identity-mismatch")
-        if self.consumed is not None:
-            # The S PYTHON REHEARSAL keeps its exact Python-specific
-            # qualification: the first admitted auth-binding POST
-            # consumed the one-shot no-tools diagnostic at causal
-            # position 0 against the fixed single-source metadata,
-            # the diagnostic scenario issued nothing, and the
-            # controller's own ledger counts exactly the three auth
-            # POSTs plus the two exporter commands.
-            if selected["diagnostic"] != model.bounds_diagnostic(
-                fixture_standin._fixed_request([])
-            ):
-                raise FixtureError("export-identity-mismatch")
-            if position != 0 or snapshot["issued_calls"] != []:
-                raise FixtureError("export-identity-mismatch")
-            if ledger_requests != 5:
-                raise FixtureError("controller-ledger-mismatch")
-        self.finish_position = position
+            position = selected["observed_at_position"]
+            if self.finish_observed["diagnostic_state"] == "unobserved":
+                if selected["diagnostic"] != {"state": "unobserved"} or position is not None:
+                    raise FixtureError("export-identity-mismatch")
+            else:
+                if (
+                    selected["diagnostic"] == {"state": "unobserved"}
+                    or not isinstance(position, int)
+                    or isinstance(position, bool)
+                    or position < 0
+                ):
+                    raise FixtureError("export-identity-mismatch")
+            if self.consumed is not None:
+                # The S PYTHON REHEARSAL keeps its exact Python-specific
+                # qualification: the first admitted auth-binding POST
+                # consumed the one-shot no-tools diagnostic at causal
+                # position 0 against the fixed single-source metadata,
+                # the diagnostic scenario issued nothing, and the
+                # controller's own ledger counts exactly the three auth
+                # POSTs plus the two exporter commands.
+                if selected["diagnostic"] != model.bounds_diagnostic(
+                    fixture_standin._fixed_request([])
+                ):
+                    raise FixtureError("export-identity-mismatch")
+                if position != 0 or snapshot["issued_calls"] != []:
+                    raise FixtureError("export-identity-mismatch")
+                if ledger_requests != 5:
+                    raise FixtureError("controller-ledger-mismatch")
+            self.finish_position = position
         self.finish_ledger_requests = ledger_requests
         self.ledger.charge_http(2, 2, 2, 0)
         self.export_payload = payload
@@ -3618,6 +3800,8 @@ class LocalFixtureOwner:
                         validate_af_owner_run_evidence(evidence)
                     elif self._owner_context.order_id == AH_ORDER_ID:
                         validate_ah_owner_run_evidence(evidence)
+                    elif self._owner_context.order_id == AJ_ORDER_ID:
+                        validate_aj_owner_run_evidence(evidence)
                     else:
                         raise FixtureError("internal")
                 else:
@@ -3626,6 +3810,11 @@ class LocalFixtureOwner:
                 validate_local_evidence(evidence)
             self._evidence_sha = hashlib.sha256(payload).hexdigest()
             ci._retain_evidence(self.evidence_out, payload, self._evidence_sha, self.work)
+            # the protected writer returned verified success:
+            # the retention receipt is earned (a failure or
+            # unverified result at this seam never sets it,
+            # even when bytes reached the destination)
+            self._evidence_retained = True
         except BaseException as exc:
             publish_exception = exc
         if publish_exception is not None and pass_ok:
@@ -3904,10 +4093,10 @@ class LocalFixtureOwner:
         return self._outcome if self._converged else None
 
     def devpts_inventory(self) -> fixture_prep.DevptsObservation:
-        """The AF / AH bounded fixture-namespace devpts
-        inventory (017-ae software): the ONE exact NON-PTY
-        probe form admitted for the canonical 017-af and
-        017-ah entries,
+        """The AF / AH / AJ bounded fixture-namespace devpts
+        inventory (017-ae software, extended by 017-ai):
+        the ONE exact NON-PTY probe form admitted for the
+        canonical 017-af, 017-ah and 017-aj entries,
         selected from this owner's OWN frozen context (a
         caller can never mint it; every other entry's guard
         refuses the form — AB and AD keep their byte-for-byte
@@ -3923,7 +4112,7 @@ class LocalFixtureOwner:
         measured namespace root, never assumed from the
         process identity)."""
         ctx = self._owner_context
-        if ctx is None or ctx.order_id not in (AF_ORDER_ID, AH_ORDER_ID):
+        if ctx is None or ctx.order_id not in (AF_ORDER_ID, AH_ORDER_ID, AJ_ORDER_ID):
             raise FixtureError("local-devpts-not-admitted")
         if self.status != "running":
             # the attach-baseline window is the LIVE prepared
@@ -4029,7 +4218,17 @@ class LocalFixtureOwner:
             raise FixtureError("internal")
         cid = self.target_cid
         assert cid is not None
-        if self.consumed is not None:
+        if self._owner_context is not None and self._owner_context.order_id == AJ_ORDER_ID:
+            # The canonical 017-aj entry selects its OWN closed
+            # format-capture scenario before startup: the fixture is
+            # consumed by that scenario's workload, and the
+            # truthful consumption facts are the validated format
+            # snapshot's model POSTs and case qualifications (the
+            # AJ format traffic does not consume the legacy
+            # one-shot diagnostic; its observed diagnostic state is
+            # recorded as measured, never interpreted).
+            fixture_consumed_by = "format-capture"
+        elif self.consumed is not None:
             fixture_consumed_by = "python-rehearsal"
         elif self.finish_observed["diagnostic_state"] == "unobserved":
             fixture_consumed_by = "unobserved"
@@ -4232,6 +4431,8 @@ class LocalFixtureOwner:
             record_tag, scope = AF_OWNER_RUN_EVIDENCE_SCHEMA, AF_OWNER_RUN_SCOPE
         elif ctx.order_id == AH_ORDER_ID:
             record_tag, scope = AH_OWNER_RUN_EVIDENCE_SCHEMA, AH_OWNER_RUN_SCOPE
+        elif ctx.order_id == AJ_ORDER_ID:
+            record_tag, scope = AJ_OWNER_RUN_EVIDENCE_SCHEMA, AJ_OWNER_RUN_SCOPE
         else:
             raise FixtureError("internal")
         return {
@@ -4296,6 +4497,11 @@ _PREPARED_DISPOSITION = {
     "python-rehearsal": "consumed-by-python-rehearsal",
     "unobserved": "finished-unconsumed",
     "external": "consumed-by-external-subject",
+    # The canonical 017-aj entry consumes the fixture through its
+    # OWN closed format-capture workload: the truthful consumption
+    # facts are the validated format snapshot's model POSTs and case
+    # qualifications, never a legacy diagnostic consumption.
+    "format-capture": "consumed-by-format-capture",
 }
 
 
@@ -4437,7 +4643,12 @@ def _validate_subject_facts(
         raise FixtureError("local-evidence-invalid")
 
 
-def _validate_prepared_entry(entry: object, consumed_by: str) -> None:
+def _validate_prepared_entry(
+    entry: object,
+    consumed_by: str,
+    *,
+    entry_order: str | None = None,
+) -> None:
     if (
         not isinstance(entry, dict)
         or set(entry)
@@ -4450,10 +4661,15 @@ def _validate_prepared_entry(entry: object, consumed_by: str) -> None:
     ):
         raise FixtureError("local-evidence-invalid")
     observed = entry["observed"]
+    # The observed PREPARE state is the ACTUAL closed measurement
+    # for the entry's OWN scenario: the AJ entry's closed
+    # format-capture scenario keeps the exact same closed
+    # zero-traffic initial state under its own declared scenario.
+    expected_scenario = rprofile.AJ_FORMAT_SCENARIO if entry_order == AJ_ORDER_ID else "diagnostic"
     if (
         not isinstance(observed, dict)
         or set(observed) != {"scenario", "wire_requests", "diagnostic_state"}
-        or observed["scenario"] != "diagnostic"
+        or observed["scenario"] != expected_scenario
         or observed["wire_requests"] != 0
         or observed["diagnostic_state"] != "unobserved"
     ):
@@ -4467,6 +4683,7 @@ def _validate_phases(
     subject_uid: int = ci.SUBJECT_UID,
     subject_gid: int = ci.SUBJECT_UID,
     tmpfs_budgets: tuple[tuple[str, int, int, int], ...] | None = None,
+    entry_order: str | None = None,
 ) -> str:
     """Closed validation of the phase facts for the exact
     CONSUMPTION VARIANT: the S python-rehearsal record carries the
@@ -4538,11 +4755,18 @@ def _validate_phases(
         or workspace["uid"] != subject_uid
     ):
         raise FixtureError("local-evidence-invalid")
+    expected_prepare_scenario = (
+        rprofile.AJ_FORMAT_SCENARIO if entry_order == AJ_ORDER_ID else "diagnostic"
+    )
     if (
         not isinstance(prepare["observed"], dict)
         or set(prepare["observed"]) != {"scenario", "wire_requests", "diagnostic_state"}
         or prepare["observed"]
-        != {"scenario": "diagnostic", "wire_requests": 0, "diagnostic_state": "unobserved"}
+        != {
+            "scenario": expected_prepare_scenario,
+            "wire_requests": 0,
+            "diagnostic_state": "unobserved",
+        }
     ):
         raise FixtureError("local-evidence-invalid")
     if consumed_by == "python-rehearsal":
@@ -4597,7 +4821,8 @@ def _validate_phases(
         or finish["export_revalidated"] is not True
         or not isinstance(finish["observed_at_finish"], dict)
         or set(finish["observed_at_finish"]) != {"scenario", "wire_requests", "diagnostic_state"}
-        or finish["observed_at_finish"]["scenario"] != "diagnostic"
+        or finish["observed_at_finish"]["scenario"]
+        != (rprofile.AJ_FORMAT_SCENARIO if entry_order == AJ_ORDER_ID else "diagnostic")
         or not _is_int(finish["observed_at_finish"]["wire_requests"])
         or finish["observed_at_finish"]["diagnostic_state"] not in ("unobserved", "observed")
         or not _is_int(finish["retained_capture_bytes"], minimum=1)
@@ -4617,7 +4842,15 @@ def _validate_phases(
         or ledger_requests < observed["wire_requests"]
     ):
         raise FixtureError("local-evidence-invalid")
-    if observed["diagnostic_state"] == "unobserved":
+    if consumed_by == "format-capture":
+        # The AJ format scenario carries NO legacy one-shot
+        # diagnostic position (the truthful format coordinates are
+        # inside the validated snapshot); the observed diagnostic
+        # state is a measured fact, never interpreted as format
+        # consumption or absence of traffic.
+        if position is not None:
+            raise FixtureError("local-evidence-invalid")
+    elif observed["diagnostic_state"] == "unobserved":
         if position is not None:
             raise FixtureError("local-evidence-invalid")
     elif not _is_int(position, minimum=0):
@@ -4635,6 +4868,10 @@ def _validate_phases(
     elif consumed_by == "unobserved":
         if observed["diagnostic_state"] != "unobserved":
             raise FixtureError("local-evidence-invalid")
+    elif consumed_by == "format-capture":
+        # no legacy diagnostic assertion (see above): the format
+        # workload's truthful facts are in the validated snapshot
+        pass
     elif consumed_by != "external":
         raise FixtureError("local-evidence-invalid")
     elif observed["diagnostic_state"] != "observed":
@@ -4647,7 +4884,13 @@ def _validate_phases(
     return str(cids.pop())
 
 
-def _validate_export(export: object, consumed_by: str, observed_wire: int) -> dict[str, object]:
+def _validate_export(
+    export: object,
+    consumed_by: str,
+    observed_wire: int,
+    *,
+    entry_order: str | None = None,
+) -> dict[str, object]:
     """Closed revalidation of the retained export binding for the
     EXACT CONSUMPTION VARIANT: the decoded selected payload must be
     a closed record whose one-shot diagnostic and causal position
@@ -4678,6 +4921,34 @@ def _validate_export(export: object, consumed_by: str, observed_wire: int) -> di
     # record, including the diagnostic-state identity against the
     # closed single-source derivation (the embedded bytes can never
     # carry raw or foreign content).
+    if entry_order == AJ_ORDER_ID:
+        # The AJ entry's retained export is the DISTINCT closed
+        # format-capture payload: the closed record tag selects the
+        # full or the safe partial format law, and the untagged
+        # six-field legacy form is drift under AJ, refused and never
+        # relabelled.  The format snapshot's own closed law already
+        # re-validates the issued calls, the case coordinates and
+        # the truthful model-POST ledger count; the retained-binding
+        # law here is the SAME measured wire-history relation (the
+        # observed wire plus exactly the two exporter commands).
+        try:
+            selected = fixture_export.validate_selected_payload(decoded)
+        except ValueError:
+            raise FixtureError("local-evidence-invalid") from None
+        if selected.get("record") not in (
+            model.SCHEMA_FORMAT_EXPORT,
+            model.SCHEMA_FORMAT_EXPORT_PARTIAL,
+        ):
+            raise FixtureError("local-evidence-invalid")
+        snapshot = selected["snapshot"]
+        ledger = snapshot["controller_ledger"]["requests"]
+        if (
+            not _is_int(ledger)
+            or not _is_int(observed_wire, minimum=0)
+            or ledger != observed_wire + 2
+        ):
+            raise FixtureError("local-evidence-invalid")
+        return selected
     try:
         selected = fixture_export.validate_payload(decoded)
     except ValueError:
@@ -4729,6 +5000,7 @@ def _validate_local_evidence_core(
     subject_uid: int,
     subject_gid: int,
     tmpfs_budgets: tuple[tuple[str, int, int, int], ...] | None,
+    entry_order: str | None = None,
 ) -> None:
     """The PRIVATE structural core of the S-shaped evidence
     validation: exact key sets at EVERY level, exact closed
@@ -4874,7 +5146,15 @@ def _validate_local_evidence_core(
             raise FixtureError("local-evidence-invalid")
         return
     # -- pass variant --
-    if record["fixture_consumed_by"] not in ("python-rehearsal", "unobserved", "external"):
+    if entry_order == AJ_ORDER_ID:
+        # The AJ entry's closed format-capture variant ONLY: the
+        # canonical AJ owner binding is the selection authority
+        # (passed by the AJ wrapper from its own verified record
+        # tag/order), and every historical entry and default keeps
+        # the strict legacy vocabulary.
+        if record["fixture_consumed_by"] != "format-capture":
+            raise FixtureError("local-evidence-invalid")
+    elif record["fixture_consumed_by"] not in ("python-rehearsal", "unobserved", "external"):
         raise FixtureError("local-evidence-invalid")
     if record["deadline_expired"] is not False:
         raise FixtureError("local-evidence-invalid")
@@ -4884,8 +5164,13 @@ def _validate_local_evidence_core(
         subject_uid=subject_uid,
         subject_gid=subject_gid,
         tmpfs_budgets=tmpfs_budgets,
+        entry_order=entry_order,
     )
-    _validate_prepared_entry(record["prepared"], record["fixture_consumed_by"])
+    _validate_prepared_entry(
+        record["prepared"],
+        record["fixture_consumed_by"],
+        entry_order=entry_order,
+    )
     if record["prepared"]["cid"] != target_cid:
         raise FixtureError("local-evidence-invalid")
     for key in ("engine_version", "runtime_name", "runtime_version"):
@@ -4941,13 +5226,19 @@ def _validate_local_evidence_core(
         record["export"],
         record["fixture_consumed_by"],
         record["phases"]["finish"]["observed_at_finish"]["wire_requests"],
+        entry_order=entry_order,
     )
     # The outer FINISH SUMMARY is the measured payload itself: the
     # retained causal position and the controller ledger in the
     # summary must EQUAL the decoded snapshot/position values (the
     # two range-checked sides are one measurement, never two).
     finish_block = record["phases"]["finish"]
-    if finish_block["observed_at_position"] != selected_export["observed_at_position"]:
+    if entry_order == AJ_ORDER_ID:
+        # The AJ format payload carries no legacy observed_at_position:
+        # the retained summary must keep the honest absent fact.
+        if finish_block["observed_at_position"] is not None:
+            raise FixtureError("local-evidence-invalid")
+    elif finish_block["observed_at_position"] != selected_export["observed_at_position"]:
         raise FixtureError("local-evidence-invalid")
     if (
         finish_block["controller_ledger_requests"]
@@ -5410,6 +5701,82 @@ def validate_ah_owner_run_evidence(record: dict) -> None:
         )
     except FixtureError:
         raise FixtureError("ah-owner-run-evidence-invalid") from None
+
+
+def validate_aj_owner_run_evidence(record: dict) -> None:
+    """Closed-schema validation of the DISTINCT owner-UID AJ
+    terminal record (017-ai sealed INERT entry): the SAME closed
+    measured owner state, cleanup and publication law as the AB
+    wrapper, under the canonical 017-aj native-process format
+    qualification entry's OWN distinct record/scope tags and
+    order binding:
+
+    * ``identity`` — the frozen owner identity substructure
+      THIS owner collected and derived (never caller-authored),
+      through the SAME shared structural core (canonical
+      profile name, strict ID laws, one-element primary-GID
+      group vector, production codec re-derivation of both
+      digests) — closed data integrity, never a measured-
+      authority claim;
+    * ``teardown_proof`` — the literal exact-CID-membership
+      marker (the owner-UID subject removal proof is exact
+      registered-CID lifetime membership; the S-shaped teardown
+      dict stays byte-for-byte the original).
+
+    The order is the CANONICAL 017-aj entry ONLY: an AJ-tagged
+    record of any other order id is refused, and the AB, AD, AF
+    and AH tags are separate closed grammars (never widened to
+    the AJ entry, including for equal-numeric identities).
+    Every shared measured substructure is validated through the
+    SAME private S-shaped structural core over the AJ extras
+    stripped — with the frozen AJ subject UID/GID and the
+    derived owner tmpfs budgets wired through (the measured
+    owner facts are validated as-is, NEVER normalized to 21002;
+    the public v1 S/native/AB/AD/AF/AH wrappers keep their
+    closed laws byte-for-byte).
+    """
+    if not isinstance(record, dict):
+        raise FixtureError("aj-owner-run-evidence-invalid")
+    if (
+        record.get("record") != AJ_OWNER_RUN_EVIDENCE_SCHEMA
+        or record.get("scope") != AJ_OWNER_RUN_SCOPE
+        or record.get("status") not in ("pass", "fail")
+    ):
+        raise FixtureError("aj-owner-run-evidence-invalid")
+    # The canonical 017-aj entry ONLY: the AJ-tagged grammar is
+    # the distinct owner-UID record of 017-aj, and no other
+    # order id may carry it (the AB/AD/AF/AH tags and the
+    # native-scope generic order law are separate closed
+    # grammars).
+    if record.get("order") != AJ_ORDER_ID:
+        raise FixtureError("aj-owner-run-evidence-invalid")
+    if record.get("teardown_proof") != "exact-cid-membership":
+        raise FixtureError("aj-owner-run-evidence-invalid")
+    identity = record.get("identity")
+    law = _identity_substructure_law(identity)
+    if law is None:
+        raise FixtureError("aj-owner-run-evidence-invalid")
+    subject_uid, subject_gid, _expected_groups, description = law
+    reduced = {
+        key: value for key, value in record.items() if key not in ("identity", "teardown_proof")
+    }
+    reduced["record"] = NATIVE_OWNER_RUN_EVIDENCE_SCHEMA
+    reduced["scope"] = NATIVE_OWNER_RUN_SCOPE
+    try:
+        _native_key_grammar(reduced)
+    except FixtureError:
+        raise FixtureError("aj-owner-run-evidence-invalid") from None
+    try:
+        profile_view = rprofile.owner_runtime_profile(description)
+        _validate_local_evidence_core(
+            _native_s_envelope(reduced),
+            subject_uid=subject_uid,
+            subject_gid=subject_gid,
+            tmpfs_budgets=ci.owner_tmpfs_budgets(profile_view),
+            entry_order=AJ_ORDER_ID,
+        )
+    except FixtureError:
+        raise FixtureError("aj-owner-run-evidence-invalid") from None
 
 
 # -- the sealed owner launch + the thin rehearsal driver ----------------------------

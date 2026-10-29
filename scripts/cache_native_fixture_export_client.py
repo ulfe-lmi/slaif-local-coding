@@ -196,6 +196,102 @@ def validate_payload(payload: bytes) -> dict:
     return selected
 
 
+def validate_format_payload(payload: bytes) -> dict:
+    """Closed-object proof of the DISTINCT selected
+    format-capture payload BEFORE any publication: the exact
+    three-field top level (record tag, quiesce, snapshot), the
+    model-validated quiesce record, and the nested format
+    snapshot RE-VALIDATED by the closed format-snapshot law
+    (strict pinned wrapper re-parse, immutable seed identity,
+    closed chains, the typed issued-identity law).  The TOTAL
+    serialized payload (tag + quiesce + snapshot) is bounded at
+    the 256 KiB selected-capture bound; the owner's outer
+    identity metadata (binding/identity/CID) is added by the
+    owner and bounded by the SAME total at the consumer and
+    producer seams — this payload bound is the transport's
+    share of that total, never a replacement for it.  Raises
+    ValueError on any violation.  The original selected
+    payload's exact historical field set and law are unchanged
+    (``validate_payload`` is never widened)."""
+    try:
+        selected = json.loads(payload.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("format-payload-not-closed") from None
+    if not isinstance(selected, dict) or set(selected) != {
+        "record",
+        "quiesce",
+        "snapshot",
+    }:
+        raise ValueError("format-payload-fields")
+    if selected["record"] != model.SCHEMA_FORMAT_EXPORT:
+        raise ValueError("format-payload-tag")
+    model.validate_quiesce_record(selected["quiesce"])
+    model.validate_format_snapshot_record(selected["snapshot"])
+    if len(payload) > model.FORMAT_SNAPSHOT_MAX_BYTES:
+        raise ValueError("format-payload-overbound")
+    return selected
+
+
+def validate_format_payload_partial(payload: bytes) -> dict:
+    """Closed-object proof of the DISTINCT safe PARTIAL selected
+    format-capture payload BEFORE any publication: the exact
+    three-field top level (record tag, quiesce, snapshot), the
+    model-validated quiesce record, and the nested PARTIAL
+    snapshot RE-VALIDATED by the closed partial-snapshot law
+    (strict pinned wrapper re-parse of every retained frame,
+    immutable seed identity, the typed issued-identity prefix
+    law, honest pending facts, the closed not-qualified fact).
+    The TOTAL serialized payload (tag + quiesce + snapshot) is
+    bounded at the 256 KiB selected-capture bound; the owner's
+    outer identity metadata (binding/identity/CID) is added by
+    the owner and bounded by the SAME total at the consumer and
+    producer seams — this payload bound is the transport's
+    share of that total, never a replacement for it.  Raises
+    ValueError on any violation.  The COMPLETE format payload's
+    exact law is unchanged (``validate_format_payload``), and
+    the original six-field payload's exact historical field set
+    and law are never widened (``validate_payload``)."""
+    try:
+        selected = json.loads(payload.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("format-payload-not-closed") from None
+    if not isinstance(selected, dict) or set(selected) != {
+        "record",
+        "quiesce",
+        "snapshot",
+    }:
+        raise ValueError("format-payload-fields")
+    if selected["record"] != model.SCHEMA_FORMAT_EXPORT_PARTIAL:
+        raise ValueError("format-payload-tag")
+    model.validate_quiesce_record(selected["quiesce"])
+    model.validate_format_snapshot_record_partial(selected["snapshot"])
+    if len(payload) > model.FORMAT_SNAPSHOT_MAX_BYTES:
+        raise ValueError("format-payload-overbound")
+    return selected
+
+
+def validate_selected_payload(payload: bytes) -> dict:
+    """The closed dispatcher over the DISTINCT selected payload
+    forms: the payload's closed record tag selects its
+    validator (the COMPLETE format-capture tag and the safe
+    PARTIAL format-capture tag are the canonical 017-aj entry's
+    scenario forms; the original six-field payload — which
+    carries NO record tag — keeps its exact historical law
+    unchanged).  A malformed object is a refusal of every
+    form."""
+    try:
+        selected = json.loads(payload.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        raise ValueError("payload-not-closed") from None
+    if isinstance(selected, dict):
+        tag = selected.get("record")
+        if tag == model.SCHEMA_FORMAT_EXPORT:
+            return validate_format_payload(payload)
+        if tag == model.SCHEMA_FORMAT_EXPORT_PARTIAL:
+            return validate_format_payload_partial(payload)
+    return validate_payload(payload)
+
+
 def _run(deadline: float) -> None:
     # -- quiesce ---------------------------------------------------------
     sock = _connect(deadline)
@@ -231,7 +327,9 @@ def _run(deadline: float) -> None:
         if sock.recv(1):
             raise ValueError("frame-extra")
         # closed-object proof BEFORE any raw payload emission
-        validate_payload(payload)
+        # (the payload's closed record tag selects its DISTINCT
+        # validator; see validate_selected_payload)
+        validate_selected_payload(payload)
     finally:
         sock.close()
     out("export-sha256 " + hashlib.sha256(payload).hexdigest())

@@ -1243,11 +1243,12 @@ _match_docker_exec_hold = _make_docker_exec_hold_matcher(f"{SUBJECT_UID}:{SUBJEC
 
 
 def _make_devpts_probe_matcher(subject_user: str):
-    """The ONE exact AF-only devpts probe form (017-ae): the
-    native attach-binding phase's read-only inventory
-    operation, admitted for the canonical 017-af entry ONLY
-    (the entry is selected by the owner's OWN bound
-    order — a caller flag can never mint it).  The closed
+    """The ONE exact devpts probe form (017-ae; the AJ entry
+    017-ai): the native attach-binding phase's read-only
+    inventory operation, admitted for the canonical
+    017-af / 017-ah / 017-aj entries ONLY (the entry is
+    selected by the owner's OWN bound order — a caller flag
+    can never mint it).  The closed
     form is EXACT and NON-PTY: no ``-it`` (a PTY attach would
     allocate and contaminate the measured namespace), no
     controller user (the frozen subject ``uid:gid`` only), no
@@ -1334,9 +1335,10 @@ def _owner_argv_matchers(profile: rprofile.RuntimeProfile, order_id: str | None 
     user).  A per-owner matcher tuple — no global mutable
     identity binding.  The ONE new native-specific operation
     (the read-only devpts probe) is admitted for the canonical
-    017-af entry ONLY, selected from the owner's OWN bound
-    order id: the AB/AD/default guards keep the byte-for-byte
-    old closed forms and refuse the new probe argv."""
+    017-af / 017-ah / 017-aj entries ONLY, selected from the
+    owner's OWN bound order id: the AB/AD/default guards keep
+    the byte-for-byte old closed forms and refuse the new
+    probe argv."""
     return (
         _match_docker_ps,
         _match_docker_version,
@@ -1358,7 +1360,12 @@ def _owner_argv_matchers(profile: rprofile.RuntimeProfile, order_id: str | None 
         _match_runtime_version,
     ) + (
         (_make_devpts_probe_matcher(profile.exec_user),)
-        if order_id in (rprofile.AF_ORDER_ID, rprofile.AH_ORDER_ID)
+        if order_id
+        in (
+            rprofile.AF_ORDER_ID,
+            rprofile.AH_ORDER_ID,
+            rprofile.AJ_ORDER_ID,
+        )
         else ()
     )
 
@@ -3086,7 +3093,12 @@ def measure_controller_confinement_on(
 
 
 def observe_controller_on(
-    executor, cid, env_base, ledger, profile: rprofile.RuntimeProfile | None = None
+    executor,
+    cid,
+    env_base,
+    ledger,
+    profile: rprofile.RuntimeProfile | None = None,
+    entry_order: str | None = None,
 ) -> dict[str, object]:
     """Bounded trusted NON-CONSUMING observation of the ACTUAL
     controller state on an already-prepared exact CID (local 017-s
@@ -3100,14 +3112,51 @@ def observe_controller_on(
     does not by itself prove zero provider traffic)."""
     if profile is not None and profile.profile != rprofile.PROFILE_OWNER_UID:
         raise FixtureError("observe-profile-invalid")
+    # The owner's OWN frozen entry is the closed scenario
+    # authority for the declared-scenario revalidation: the
+    # historical two-scenario set stays byte-for-byte for every
+    # non-AJ entry (the hosted CI path included), and the
+    # canonical 017-aj entry expects its OWN closed
+    # format-capture scenario and NOTHING else.  A foreign or
+    # unknown entry id is a closed refusal, never a silent
+    # acceptance (ambient env / HTTP / caller-ready values never
+    # select a scenario).
+    if entry_order is not None and entry_order not in (
+        rprofile.AB_ORDER_ID,
+        rprofile.AD_ORDER_ID,
+        rprofile.AF_ORDER_ID,
+        rprofile.AH_ORDER_ID,
+        rprofile.AJ_ORDER_ID,
+    ):
+        raise FixtureError("observe-entry-invalid")
+    # The AJ entry expects its OWN closed format-capture
+    # scenario and NOTHING else (a legacy scenario reported
+    # under the AJ entry is drift: a closed refusal); every
+    # other entry keeps the historical two-scenario set
+    # byte-for-byte.
+    expected_scenarios = (
+        (rprofile.AJ_FORMAT_SCENARIO,)
+        if entry_order == rprofile.AJ_ORDER_ID
+        else ("diagnostic", "tool-cycle")
+    )
     subject_uid = profile.subject_uid if profile is not None else SUBJECT_UID
     exec_user = profile.exec_user if profile is not None else None
+    # The EXISTING owner-set container scenario key, carried
+    # into the owned stand-in's observe exec as transport DATA
+    # only (never origin/admission/readiness authority): the
+    # stand-in selects its closed observe grammar from it, and
+    # the host re-validates the record against its OWN verified
+    # entry below.  Historical entries keep the exec env
+    # byte-for-byte unchanged.
+    exec_env = dict(env_base)
+    if entry_order == rprofile.AJ_ORDER_ID:
+        exec_env["SLAIF_FIXTURE_SCENARIO"] = rprofile.AJ_FORMAT_SCENARIO
     result = _exec(
         executor,
         cid,
         subject_uid,
         ["python3", STANDIN_PATH, "--mode", "observe"],
-        dict(env_base),
+        exec_env,
         exec_user=exec_user,
     )
     if result.returncode != 0:
@@ -3127,7 +3176,7 @@ def observe_controller_on(
         or record["wire_requests"] < 0
     ):
         raise FixtureError("observe-record-state")
-    if record["scenario"] not in ("diagnostic", "tool-cycle") or record["diagnostic_state"] not in (
+    if record["scenario"] not in expected_scenarios or record["diagnostic_state"] not in (
         "unobserved",
         "observed",
     ):

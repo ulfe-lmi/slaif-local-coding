@@ -2687,3 +2687,59 @@ def test_y_readiness_lifecycle_reason_closed_vocabulary() -> None:
     ):
         assert token in flocal._CI_REASONS
         assert token in flocal._FAILURE_REASONS
+
+
+def test_aj_entry_scenario_closed_selection() -> None:
+    # 017-ai: the CLOSED new-entry scenario selection — the
+    # canonical 017-aj entry declares its OWN closed
+    # format-capture scenario; the original default (None) and
+    # every historical entry keep ``diagnostic`` byte-for-byte;
+    # a foreign or unknown entry id is a closed refusal at the
+    # selection seam (never a silent fallback) — the SAME closed
+    # entry set the observer-seam helper enforces.
+    assert flocal._entry_scenario(None) == "diagnostic"
+    assert flocal._entry_scenario(flocal.AJ_ORDER_ID) == "format-capture"
+    for order in (
+        flocal.AB_ORDER_ID,
+        flocal.AD_ORDER_ID,
+        flocal.AF_ORDER_ID,
+        flocal.AH_ORDER_ID,
+    ):
+        assert flocal._entry_scenario(order) == "diagnostic"
+    with pytest.raises(flocal.FixtureError, match="local-entry-scenario-invalid"):
+        flocal._entry_scenario("017-xx")
+    # the historical two-scenario set stays byte-for-byte for
+    # the original default and every non-AJ entry
+    assert flocal._entry_scenario_set(None) == ("diagnostic", "tool-cycle")
+    for order in (
+        flocal.AB_ORDER_ID,
+        flocal.AD_ORDER_ID,
+        flocal.AF_ORDER_ID,
+        flocal.AH_ORDER_ID,
+    ):
+        assert flocal._entry_scenario_set(order) == ("diagnostic", "tool-cycle")
+    # the AJ observer expects the closed format-capture scenario
+    # and NOTHING else — legacy scenario drift is refused
+    assert flocal._entry_scenario_set(flocal.AJ_ORDER_ID) == ("format-capture",)
+    with pytest.raises(flocal.FixtureError, match="local-entry-scenario-invalid"):
+        flocal._entry_scenario_set("017-xx")
+
+
+def test_aj_selection_reasons_closed_vocabulary() -> None:
+    # 017-ai: the closed new-entry selection/observe tokens are
+    # members of the control-path closed reason vocabulary, so
+    # the actual control error path neither loses a reason nor
+    # rejects its own record (the owner-evidence and driver
+    # startup-record validation reuse the SAME sets).
+    for token in (
+        "local-entry-scenario-invalid",
+        "local-aj-context-unmeasured",
+        "local-af-order-path-mismatch",
+        "local-ah-order-path-mismatch",
+        "local-aj-order-path-mismatch",
+    ):
+        assert token in flocal._LOCAL_REASONS
+        assert token in flocal._FAILURE_REASONS
+    for token in ("observe-entry-invalid", "observe-profile-invalid"):
+        assert token in flocal._CI_REASONS
+        assert token in flocal._FAILURE_REASONS

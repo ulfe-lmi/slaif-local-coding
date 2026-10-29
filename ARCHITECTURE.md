@@ -860,7 +860,81 @@ AD remains PARTIAL (by the immutable round reports). The
 retained actual bytes (0600 owner evidence / native run
 record / stage log under the private AH root, the consumed
 `.oap-local/017-ah/` admission journal, and the root review
-records) are inventoried in the immutable round report.
+records) are inventoried in the immutable round report.Round 017-ai completes the two bounded software
+prerequisites after the AH actual attempt.
+First it repairs the one stale CI test
+hermetically: the AG-round test that asserted
+the future AH order was ABSENT from the real
+developer checkout became incorrect the moment
+AH was activated (the order is committed and
+its one-attempt namespace consumed), so its
+absence/non-mutation proof now runs wholly
+inside owned synthetic repositories, with an
+activated-checkout-shaped synthetic control
+proving the sealed-entry law holds for an
+activated checkout without ever reading or
+mutating the real spent namespace — no skip,
+xfail or weakened validation, and no
+production code changed for the repair.
+Second it fixes ONE explicit future sealed
+entry, `017-aj`, for the native format
+qualification: the entry is inert under this
+round (proven hermetically, refused before
+admission), selects a closed bounded
+format-capture scenario before startup from
+the owner's own verified frozen binding (no
+ambient environment, HTTP or caller flag can
+select it), and composes the existing
+owner/controller/devpts/quiesce/export/
+publication machinery with no new runner,
+transport or framework. The closed workload
+is code-defined: at most eight bounded
+synthetic seed files (128 KiB total) whose
+identity is retained from pre-launch
+originals, four serial cases (a complete
+exit-0 literal file read; a running exec with
+causally associated empty-stdin polls whose
+output arrives in multiple non-empty chunks; a
+successful empty output; and a deliberate
+bounded truncation with actual formatter
+evidence, always non-acquiring), at most
+sixteen issued semantic calls and twenty model
+POSTs, and a 256 KiB total serialized
+selected-record cap enforced at export,
+consumption and publication. Only exact
+verified selected frames are retained —
+actual IDs, associations, wrapper ordering,
+chunk and truncation facts — with no
+reconstruction from digests and no raw
+unknown output; a distinct closed partial form
+keeps honest pending states without minting
+qualification. Publication keeps the ordered
+separation: the owner's own successfully
+retained evidence FIRST (a same-owner
+retention receipt, independent of cleanup
+status), the protected selected capture
+record SECOND, and the same pending-pass
+journal LAST; the AJ qualification journal
+passes only for an actual cleanup pass, a
+native-ready verdict, the strict full four-
+case format qualification and protected
+retention — anything less closes it terminal
+FAIL while preserving the owner's actual
+outcome and the native verdict, and a later
+finalize can never upgrade it. All of this is
+software-only: the full twelve-fixture-suite
+regression is green at 1071 cases (pre-commit
+development capture; the prescribed locked B
+gate at the final delivery head is the final
+qualification), the new entry is exercised
+only over one coherent fake process world
+with every started owner reaped, and no
+actual AJ fixture operation, native launch,
+Docker operation, worker stop, model or
+Gateway call occurred. The actual capture
+belongs to the separately activated `017-aj`
+order; D09 remains NOT RUN and no native-
+ready, whole-017 or v1 runtime claim is made.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact

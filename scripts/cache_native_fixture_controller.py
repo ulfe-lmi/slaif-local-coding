@@ -73,6 +73,7 @@ import errno
 import hashlib
 import hmac
 import json
+import math
 import os
 import re
 import socket
@@ -182,6 +183,36 @@ def env_int(name: str, default: int) -> int:
         return int(os.environ.get(name, str(default)))
     except ValueError:
         raise ControllerError("env-invalid") from None
+
+
+def format_clamped_deadline_anchor(relative_seconds: int) -> float:
+    """The format scenario's ledger deadline ANCHOR: the SAME
+    original owner absolute END transported by the existing
+    trusted config channel (``SLAIF_FIXTURE_DEADLINE_ABS``, set
+    by the owner's prepare-target as the repr of its monotonic
+    END anchor), intersected with the controller's own relative
+    bound at ONE clock reading — never a fresh
+    controller-relative window at controller startup, and never
+    a relative remainder re-anchored at a LATER clock reading
+    (that would extend the original owner END by the elapsed
+    setup time).  The returned absolute monotonic anchor is
+    stored as the ledger deadline itself.  A missing, malformed
+    or already-past anchor is a closed refusal.  Every other
+    scenario keeps its historical relative meaning unchanged
+    (this helper is used only for the format scenario)."""
+    raw = os.environ.get("SLAIF_FIXTURE_DEADLINE_ABS")
+    if raw is None:
+        raise ControllerError("format-deadline-unbound")
+    try:
+        anchor = float(raw)
+    except ValueError:
+        raise ControllerError("format-deadline-unbound") from None
+    if not math.isfinite(anchor) or anchor <= 0:
+        raise ControllerError("format-deadline-unbound")
+    now = time.monotonic()
+    if anchor - now <= 0:
+        raise ControllerError("format-deadline-expired")
+    return min(anchor, now + float(relative_seconds))
 
 
 def prepare_root() -> None:
@@ -373,7 +404,7 @@ class Provider:
         exporter_uid: int | None = None,
         auth_token: str | None = None,
     ):
-        if scenario not in ("diagnostic", "tool-cycle"):
+        if scenario not in ("diagnostic", "tool-cycle", "format-capture"):
             raise ControllerError("scenario-invalid")
         self.scenario = scenario
         self.originals_dir = originals_dir
@@ -424,6 +455,28 @@ class Provider:
         self.observed_at_position: int | None = None
         self._seeded_originals_sha: str | None = None
         self._verified_originals: list[bytes] | None = None
+        # Closed serial format-capture scenario state (017-ai):
+        # awaiting-first-post -> awaiting-result (one outstanding
+        # issued call at a time) -> done.  Every transition is
+        # fenced under the scenario lock with the locally
+        # allocated immutable causal position; the retained
+        # issued entries keep the EXACT closed argument shapes
+        # (typed), the per-case results keep the EXACT received
+        # wrapper text, and nothing is re-issued or re-
+        # retained.  A format request body can never select,
+        # switch or advance this state.
+        self._fmt_state = "awaiting-first-post"
+        self._fmt_case_index = 0
+        self._fmt_outstanding: dict | None = None
+        self._fmt_session: int | None = None
+        self._fmt_polls = 0
+        # the finite model-POST counter: EVERY POST that reaches
+        # the semantic step counts, accepted or refused
+        self._fmt_posts = 0
+        self._fmt_cum = 0
+        self._fmt_cases: list[dict] = []
+        self._fmt_issued: list[dict] = []
+        self._fmt_retained_results: list[tuple[str, str]] = []
 
     # -- seeded originals (fixed BEFORE any service start) -----------------
     def seed_originals(self) -> str:
@@ -445,6 +498,155 @@ class Provider:
         _total, digest, _originals = originals_identity(self.originals_dir)
         self._seeded_originals_sha = digest
         return digest
+
+    # -- format seeds (published BEFORE any service start) ------------
+    def seed_format_seeds(self) -> None:
+        """Publish the IMMUTABLE pre-launch seed set into the
+        subject-readable mirror seam (``model.FORMAT_SEED_DIR``)
+        BEFORE any service start: the copies are byte-identical
+        to the code-defined originals, and the published set is
+        sealed read-only (mode-0555 directory, mode-0444 files).
+        The seam is created as a restrictive OWNED writable
+        directory, fully written and bounded-verified, and only
+        THEN sealed — the controller is a nonroot UID under
+        cap-drop-ALL, so it can never write into a 0555 root:
+        the seal comes last, never first.  The seam law is
+        REJECT-ALL-PREEXISTING: the seam is published once per
+        fresh scenario container and no legitimate caller ever
+        reseeds an existing root, so ANY pre-existing root at
+        this call — even a correctly sealed one — is untrusted
+        and is never adopted, completed, rewritten or read; a
+        partial or foreign seam is refused exactly the same
+        way.  The fresh root is opened O_NOFOLLOW directly
+        after mkdir and fstat'd from its own descriptor
+        (directory, owned by this controller, mode 0700)
+        before any file is created, so a swapped name is
+        refused, never followed.  Every published file is then
+        bounded-re-verified through the SAME held directory fd
+        (O_NOFOLLOW | O_NONBLOCK opens; a planted FIFO or
+        symlink is refused by the fstat regularity law without
+        blocking) and only THEN sealed.  The snapshot's seed
+        identity comes from the code-defined pre-launch bytes,
+        never from these child-readable copies."""
+        root = model.FORMAT_SEED_DIR
+        me = os.getuid()
+        my_gid = os.getgid()
+        if os.path.lexists(root):
+            # reject-all-preexisting: never adopted, completed,
+            # rewritten or read
+            raise ControllerError("format-seed-untrusted")
+        try:
+            os.mkdir(root, 0o700)
+        except FileExistsError:
+            # a raced creator is refused, never adopted
+            raise ControllerError("format-seed-untrusted") from None
+        try:
+            root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        except OSError:
+            raise ControllerError("format-seed-untrusted") from None
+        try:
+            ost = os.fstat(root_fd)
+            if (
+                not stat_mod.S_ISDIR(ost.st_mode)
+                or ost.st_uid != me
+                or ost.st_gid != my_gid
+                or stat_mod.S_IMODE(ost.st_mode) != 0o700
+            ):
+                raise ControllerError("format-seed-untrusted")
+            for name, data in model.FORMAT_SEED_FILES:
+                try:
+                    fd = os.open(
+                        name,
+                        os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                        0o600,
+                        dir_fd=root_fd,
+                    )
+                except FileExistsError:
+                    # a root we just created cannot contain
+                    # pre-existing entries: any hit is untrusted
+                    raise ControllerError("format-seed-untrusted") from None
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(data)
+            # bounded complete verification THROUGH THE SAME
+            # HELD directory fd (no re-resolution, no symlink
+            # follow), then the read-only seal through the fd
+            # (files first, root last — the subject sees only
+            # the sealed set)
+            self._format_verify_sealed_set(root_fd, want_file_mode=0o600)
+            for name, _data in model.FORMAT_SEED_FILES:
+                fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                    dir_fd=root_fd,
+                )
+                try:
+                    os.fchmod(fd, model.FORMAT_SEED_FILE_MODE)
+                finally:
+                    os.close(fd)
+            os.fchmod(root_fd, model.FORMAT_SEED_DIR_MODE)
+        finally:
+            os.close(root_fd)
+
+    def _format_verify_sealed_set(self, root_fd: int, want_file_mode: int = 0o444) -> None:
+        """Bounded re-verification of the complete published set
+        THROUGH THE HELD root directory fd: every seed file is
+        opened O_NOFOLLOW | O_NONBLOCK relative to that fd
+        — the OPENED OBJECT is the check target (a swapped or
+        planted symlink is refused, never followed, and a
+        planted FIFO is refused by the fstat regularity law
+        without blocking) — and fstat'd from its own
+        descriptor: a regular file owned by this controller,
+        at the exact expected mode, and byte-identical to the
+        immutable code-defined original (bounded full read
+        capped at the expected length plus one; a missing,
+        overlong, linked or non-regular entry is a closed
+        refusal, never an adopted or completed seam).  The
+        complete-set law (no extra entries are ever adopted)
+        lives in the reject-all-preexisting public entry,
+        which never reuses a pre-existing root.  The resolved
+        root is never re-opened by path."""
+        me = os.getuid()
+        my_gid = os.getgid()
+        for name, data in model.FORMAT_SEED_FILES:
+            try:
+                fd = os.open(
+                    name,
+                    os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                    dir_fd=root_fd,
+                )
+            except OSError:
+                raise ControllerError("format-seed-untrusted") from None
+            try:
+                st = os.fstat(fd)
+                if (
+                    not stat_mod.S_ISREG(st.st_mode)
+                    or st.st_uid != me
+                    or st.st_gid != my_gid
+                    or stat_mod.S_IMODE(st.st_mode) != want_file_mode
+                ):
+                    raise ControllerError("format-seed-untrusted")
+                if st.st_size != len(data):
+                    raise ControllerError("format-seed-copy-mismatch")
+                if self._format_read_bounded(fd, len(data) + 1) != data:
+                    raise ControllerError("format-seed-copy-mismatch")
+            finally:
+                os.close(fd)
+
+    @staticmethod
+    def _format_read_bounded(fd: int, limit: int) -> bytes:
+        """Read up to ``limit`` bytes from an already-opened
+        descriptor; the result is shorter only at EOF (a single
+        os.read is never relied on for a full regular-file
+        read)."""
+        parts: list[bytes] = []
+        total = 0
+        while total < limit:
+            piece = os.read(fd, limit - total)
+            if not piece:
+                break
+            total += len(piece)
+            parts.append(piece)
+        return b"".join(parts)
 
     # -- ledger accounting (globally serialized) -------------------------
     def _account(self, name: str) -> None:
@@ -567,6 +769,18 @@ class Provider:
             return "200 OK", "application/json", self._state_body()
         if method != "POST" or path != ROUTE_RESPONSES or position is None:
             return self._error("route")
+        # The finite model-POST bound is fenced at the route:
+        # EVERY model POST to the fixture route counts —
+        # accepted or refused (an auth/JSON refusal below is a
+        # consumed POST, never free) — BEFORE any auth, JSON or
+        # semantic gate, and distinct from the cumulative
+        # controller/export request ledger.
+        if self.scenario == "format-capture":
+            with self.scenario_lock:
+                self._fmt_posts += 1
+                post_bound = self._fmt_posts > model.FORMAT_MAX_POSTS
+            if post_bound:
+                return self._error("format-post-bound")
         # Closed local synthetic auth binding (017-s): checked BEFORE
         # any semantic step, so a refused authorization can never
         # observe or advance the scenario.  The comparison is a
@@ -598,6 +812,8 @@ class Provider:
                     return self._error("tools-overbound")
             if self.scenario == "diagnostic":
                 return self._diagnostic_step(payload, position)
+            if self.scenario == "format-capture":
+                return self._format_step(payload, position)
             if self.scenario_state == "awaiting-issue":
                 return self._issue_step(payload, position)
             if self.scenario_state == "awaiting-results":
@@ -725,6 +941,642 @@ class Provider:
             ),
         )
 
+    # -- closed serial format-capture scenario (017-ai) -----------------
+    def _format_step(self, payload: dict, position: int) -> tuple[str, str, bytes]:
+        """The closed serial ONE-outstanding format-capture step
+        (host-selected; a request body can never select, switch
+        or advance it):
+
+        - the FIRST admitted POST carries NO tool history at
+          all (preloaded results or echoed calls are refused);
+          the controller issues the first case's exec call.
+        - every later POST carries the COMPLETE accumulated
+          history: every retained issued call (echoed with the
+          TYPED-exact closed arguments) plus every retained
+          result (byte-identical wrapper), plus the ONE
+          outstanding result.  The outstanding result is
+          verified against the closed per-case law of the
+          immutable pre-launch seed; a deviation is a closed
+          refusal, never a partial pass.
+        - after each accepted result the controller issues the
+          next closed call at THIS POST's position (the next
+          case's exec in the closed case order, or the next
+          bounded empty-stdin poll of the ONE running
+          process): the same POST that validated the prior
+          result issues the next call at that very position
+          (equality of the result and issue positions is
+          legal).
+        - once all four cases complete, the scenario is done
+          and the fixed final message answers; anything after
+          the terminal state is scenario-bounded.
+
+        Every LATER post is a small bounded proposal/transition:
+        the verified frame, the proposed continuation and the
+        applicable NEXT actual offered tool shape plus the
+        original owner END at this return are all verified
+        BEFORE any semantic commit (result retention, stream
+        session/offset, case finalization, registry advance).
+        A refusal at any staged point adopts no state: the
+        retained history stays frozen and the outstanding call
+        stays outstanding, never stranded.  No potentially
+        refusing check runs AFTER the semantic commit: the
+        continuation's offered shape and the original END are
+        both verified at this POST's pre-commit return, and the
+        post-commit issuance performs no fallible re-check, so
+        an expiry crossing the commit point can neither strand
+        the adopted result nor mint a call after a refusal.
+        The consumed model-POST count is fenced at the route
+        (every POST to the fixture route counts, accepted or
+        refused), distinct from the cumulative controller/export
+        request ledger.
+        """
+        if not isinstance(position, int) or isinstance(position, bool) or position < 0:
+            return self._error("causal-position")
+        if self._fmt_state == "done":
+            return self._error("scenario-bounded")
+        if self._fmt_state == "awaiting-first-post":
+            if _has_preloaded_outputs(payload):
+                return self._error("preloaded-result")
+            input_items = payload.get("input")
+            if isinstance(input_items, list) and any(
+                isinstance(item, dict) and item.get("type") == "function_call"
+                for item in input_items
+            ):
+                return self._error("format-history")
+            return self._format_issue_exec(0, position, payload.get("tools"))
+        if self._fmt_outstanding is None:
+            return self._error("format-chain-deviation")
+        # the outstanding result must arrive on a request
+        # STRICTLY AFTER its own issuance, gated BEFORE any
+        # result state mutation (the legitimate
+        # result_position == NEXT issue_position of the same
+        # POST is checked at issuance, never here)
+        if position <= self._fmt_outstanding["issue_position"]:
+            return self._error("causal-order")
+        history = self._format_verify_history(payload)
+        if history is None:
+            return self._error("format-history")
+        wrapper_text, outstanding = history
+        (
+            error,
+            continuation,
+            stream_proposal,
+            trunc_tokens,
+        ) = self._format_verify_case_result(wrapper_text, outstanding)
+        if error is not None:
+            return self._error(error)
+        # STAGE the continuation BEFORE any semantic commit: the
+        # applicable NEXT actual offered tool shape is verified
+        # ONCE here (the closed in-memory capability decision
+        # against THIS POST's tools region), the next call's
+        # finite budgets are checked, and the SMALL prepared
+        # transition (the closed tool name, the closed call id,
+        # the TYPED closed arguments, the causal position and
+        # the phase) is built — all while the shared state is
+        # still unchanged.  A staged refusal adopts no
+        # result/session/offset, advances no case and issues no
+        # call: the outstanding call stays outstanding for a
+        # later valid POST, never stranded.
+        next_case_index = (
+            self._fmt_case_index + 1
+            if continuation == "next-case" and self._fmt_case_index < len(model.FORMAT_CASES) - 1
+            else None
+        )
+        stage_error, prepared = self._format_stage_next(
+            continuation,
+            stream_proposal,
+            next_case_index,
+            payload.get("tools"),
+            position,
+        )
+        if stage_error is not None:
+            return self._error(stage_error)
+        # the final END commit fence: the original owner END at
+        # THIS return.  An expired anchor cannot adopt the
+        # verified frame or issue the prepared call (state
+        # equality on that refusal).  Every potentially
+        # refusing check — frame verification, the applicable
+        # offered shape, the finite budgets and this fence —
+        # has now completed ONCE, before any semantic adoption.
+        try:
+            with self.ledger_lock:
+                self.ledger.require_within_deadline()
+        except model.BudgetExceeded:
+            return self._error("scenario-deadline-expired")
+        # COMMIT the prepared transition: retain the result
+        # EXACTLY ONCE (the frozen fingerprint is never
+        # re-advanced or re-retained), apply the stream
+        # session/offset and the recovered truncation budget,
+        # then bind the prepared call — no offered-schema work
+        # and no further deadline read run after the adoption.
+        self._format_retain_result(wrapper_text, position, outstanding)
+        if stream_proposal is not None:
+            session, cum = stream_proposal
+            self._fmt_session = session
+            self._fmt_cum = cum
+            self._fmt_cases[self._fmt_case_index]["session_id"] = session
+        if trunc_tokens is not None:
+            self._fmt_cases[self._fmt_case_index]["truncated_effective_tokens"] = trunc_tokens
+        if continuation == "poll":
+            self._format_commit_issue(prepared)
+            return self._format_issue_response(
+                prepared["call_id"],
+                prepared["name"],
+                prepared["arguments"],
+                prepared["position"],
+            )
+        # the case is complete
+        self._format_finalize_case()
+        if next_case_index is not None:
+            self._fmt_case_index = next_case_index
+            self._format_commit_issue(prepared)
+            return self._format_issue_response(
+                prepared["call_id"],
+                prepared["name"],
+                prepared["arguments"],
+                prepared["position"],
+            )
+        self._fmt_state = "done"
+        return (
+            "200 OK",
+            "text/event-stream",
+            self._sse(
+                response_id="resp_slaif_final",
+                items=[_final_message()],
+            ),
+        )
+
+    def _format_register_issue(
+        self, name: str, call_id: str, arguments: dict, position: int
+    ) -> dict | None:
+        """Issue ONE closed call at the POST position: the
+        registry binding (family/name/call id/typed argument
+        digest/causal position) plus the controller's OWN
+        retained entry with the EXACT argument shape (the
+        registry's closed export omits the arguments; the
+        snapshot law requires them).  A budget or identity
+        refusal is a fixed closed failure."""
+        digest = model.sha256_bytes(model.canonical_bytes(arguments))
+        try:
+            self.registry.issue("function", name, call_id, digest, position)
+        except model.FixtureError:
+            return None
+        self._fmt_issued.append(
+            {
+                "family": "function",
+                "name": name,
+                "call_id": call_id,
+                "position": position,
+                "arguments_sha256": digest,
+                "arguments": arguments,
+            }
+        )
+        return {"call_id": call_id, "issue_position": position}
+
+    def _format_new_case_record(
+        self, spec: dict, call_id: str, position: int, arguments: dict
+    ) -> dict:
+        # HONEST internal facts at issuance: the case is PENDING
+        # with NO result retained — completion/exit/verified are
+        # committed by _format_finalize_case ONLY after the full
+        # verified chain (a partial state never presents
+        # placeholders as observed facts, and is never exported:
+        # format_snapshot_record refuses a non-done scenario)
+        return {
+            "case": spec["case"],
+            "kind": spec["kind"],
+            "seed_files": list(spec["seed_files"]),
+            "command": spec["command"],
+            "call_id": call_id,
+            "call_position": position,
+            "arguments_sha256": model.sha256_bytes(model.canonical_bytes(arguments)),
+            "status": "pending",
+            "exit": None,
+            "session_id": None,
+            "results": [],
+            "output_bytes": 0,
+            "output_sha256": model.sha256_bytes(b""),
+            "nonempty_pieces": 0,
+            "polls": 0,
+            "truncated": False,
+            "truncated_effective_tokens": None,
+            "crlf": False,
+            "non_ascii": False,
+            "verified": False,
+        }
+
+    def _format_issue_response(
+        self, call_id: str, name: str, arguments: dict, position: int
+    ) -> tuple[str, str, bytes]:
+        item = {
+            "type": "function_call",
+            "id": f"msg_slaif_fmt_{position}",
+            "call_id": call_id,
+            "name": name,
+            "arguments": json.dumps(arguments, sort_keys=True, separators=(",", ":")),
+        }
+        return (
+            "200 OK",
+            "text/event-stream",
+            self._sse(response_id=f"resp_slaif_fmt_{position}", items=[item]),
+        )
+
+    def _format_issue_exec(
+        self, case_index: int, position: int, tools: object
+    ) -> tuple[str, str, bytes]:
+        spec = model.FORMAT_CASES[case_index]
+        if len(self._fmt_issued) >= model.FORMAT_MAX_ISSUED:
+            return self._error("format-issue-bound")
+        expected = model.format_expected_exec_arguments(spec)
+        # the closed tool must be OFFERED in this POST's tools
+        # region in the exact closed shape BEFORE any issuance
+        # or state adoption (bounded in-memory capability
+        # decision; the raw schema is never retained)
+        if not model.format_offered_tool_available(tools, model.FORMAT_EXEC_TOOL, expected):
+            return self._error("format-tools-unoffered")
+        # the SAME original owner END at THIS return: an expired
+        # anchor cannot issue the call — checked AFTER the
+        # bounded offer verification and BEFORE any
+        # registry/state commit: this refusal adopts no call,
+        # no outstanding and no case record, and never extends
+        # the END or uses the cleanup grace.  (The continuation
+        # issuances never take this path: their offer
+        # verification and the END fence complete ONCE, before
+        # the semantic commit, in _format_stage_next and the
+        # step's final END commit fence.)
+        try:
+            with self.ledger_lock:
+                self.ledger.require_within_deadline()
+        except model.BudgetExceeded:
+            return self._error("scenario-deadline-expired")
+        call_id = f"slaif-fmt-{case_index}-{position}"
+        registered = self._format_register_issue(
+            model.FORMAT_EXEC_TOOL, call_id, expected, position
+        )
+        if registered is None:
+            return self._error("issue-rejected")
+        self._fmt_outstanding = {**registered, "phase": "exec"}
+        self._fmt_state = "awaiting-result"
+        self._fmt_cases.append(self._format_new_case_record(spec, call_id, position, expected))
+        return self._format_issue_response(call_id, model.FORMAT_EXEC_TOOL, expected, position)
+
+    def _format_verify_history(self, payload: dict) -> tuple[str, dict] | None:
+        """The closed accumulated-history law (the receiver
+        NEVER coerces): the POST's input must carry EXACTLY the
+        retained issued calls — each echoed once, under its own
+        family/name, with the TYPED-exact closed arguments
+        (a same-ID changed argument, a bool/float standing in
+        for a required integer, a duplicated or foreign ID, or
+        a malformed argument object is a refusal) and the
+        digest binding to the canonical bytes of the TYPED
+        EXPECTED shape — plus EXACTLY the retained results
+        (byte-identical wrappers; the frozen fingerprints are
+        never re-advanced or re-retained) and the ONE
+        outstanding result.  The item ORDER within the request
+        carries no execution meaning (set-level law).  Returns
+        (the outstanding wrapper text, the outstanding
+        descriptor) or None (a fixed refusal)."""
+        input_items = payload.get("input")
+        if not isinstance(input_items, list):
+            return None
+        call_items = [
+            item
+            for item in input_items
+            if isinstance(item, dict) and item.get("type") == "function_call"
+        ]
+        result_items = [
+            item
+            for item in input_items
+            if isinstance(item, dict) and item.get("type") == "function_call_output"
+        ]
+        expected_calls = self._fmt_issued
+        if len(call_items) != len(expected_calls):
+            return None
+        for call in expected_calls:
+            matches = [item for item in call_items if item.get("call_id") == call["call_id"]]
+            if len(matches) != 1:
+                return None
+            item = matches[0]
+            if item.get("name") != call["name"]:
+                return None
+            raw_args = item.get("arguments")
+            if not isinstance(raw_args, str):
+                return None
+            try:
+                decoded = json.loads(
+                    raw_args, object_pairs_hook=model._format_reject_duplicate_keys
+                )
+            except ValueError:
+                return None
+            if not model.format_arguments_exact(decoded, call["arguments"]):
+                return None
+            if model.sha256_bytes(model.canonical_bytes(decoded)) != call["arguments_sha256"]:
+                return None
+        expected_result_ids = [cid for cid, _w in self._fmt_retained_results]
+        expected_result_ids = expected_result_ids + [self._fmt_outstanding["call_id"]]
+        if len(result_items) != len(expected_result_ids):
+            return None
+        result_map: dict[str, list[str]] = {}
+        for item in result_items:
+            cid = item.get("call_id")
+            output = item.get("output")
+            if not isinstance(cid, str) or not isinstance(output, str):
+                return None
+            result_map.setdefault(cid, []).append(output)
+        if len(result_map) != len(expected_result_ids):
+            return None
+        for cid in expected_result_ids:
+            if len(result_map.get(cid, [])) != 1:
+                return None
+        for cid, wrapper in self._fmt_retained_results:
+            if result_map[cid][0] != wrapper:
+                return None
+        return result_map[self._fmt_outstanding["call_id"]][0], self._fmt_outstanding
+
+    def _format_verify_case_result(
+        self, wrapper_text: str, outstanding: dict
+    ) -> tuple[str | None, str | None, tuple[int | None, int] | None, int | None]:
+        """The closed per-case law at arrival: the strict
+        pinned wrapper parse and per-result transport law
+        (grammar, bounds, omission marker), the per-frame
+        token-count metadata against the frame's OWN observed
+        bytes (the truncated case: against the frame's
+        original pre-truncation seed bytes), and the
+        kind-specific output law against the immutable
+        pre-launch seed (raw-byte law, declared chain,
+        unique bounded truncation match, the multi-chunk
+        qualification at stream completion).  TENTATIVE: it
+        adopts no state.  Returns
+        (error_code, continuation, stream_proposal,
+        truncation_tokens): on success the error is None, the
+        continuation is 'poll' (the ONE running process awaits
+        its next bounded empty-stdin poll) or 'next-case' (the
+        case is complete), stream_proposal is the (session,
+        cumulative-offset) pair for the stream case or None,
+        and truncation_tokens is the uniquely recovered
+        effective budget of the truncated case or None."""
+        case_index = self._fmt_case_index
+        spec = model.FORMAT_CASES[case_index]
+        case = self._fmt_cases[case_index]
+        try:
+            facts, data = model.format_frame_output_facts(wrapper_text)
+        except model.FixtureError:
+            return ("format-frame-deviation", None, None, None)
+        count = facts["original_token_count"]
+        if count is not None:
+            if spec["kind"] == "truncated":
+                expected_count = model._approx_token_count_bytes(
+                    len(model._format_expected_bytes(spec))
+                )
+            else:
+                expected_count = model._approx_token_count_bytes(len(data))
+            if count != expected_count:
+                return ("format-frame-deviation", None, None, None)
+        if spec["kind"] == "stream":
+            return self._format_verify_stream_frame(spec, case, facts, data, outstanding)
+        # single-final case: the ONE frame must be completed
+        if facts["exit_code"] != 0:
+            return ("format-chain-deviation", None, None, None)
+        if spec["kind"] == "read":
+            if data != model._format_expected_bytes(spec):
+                return ("format-seed-mismatch", None, None, None)
+        elif spec["kind"] == "empty":
+            if data != b"":
+                return ("format-seed-mismatch", None, None, None)
+        else:
+            # the deliberate bounded truncation: the observed
+            # output is the PINNED formatter applied to the
+            # immutable seed under exactly ONE effective token
+            # budget within the offered budget (recovered by
+            # unique match, never assumed); the recovered
+            # budget is PROPOSED here and committed only by the
+            # caller after the continuation is staged
+            seed_text = model._format_expected_bytes(spec).decode("utf-8")
+            matches = [
+                tokens
+                for tokens in range(1, model.FORMAT_TRUNCATED_MAX_OUTPUT_TOKENS + 1)
+                if model.format_truncate_text(seed_text, tokens).encode("utf-8") == data
+            ]
+            if len(matches) != 1:
+                return ("format-truncation-mismatch", None, None, None)
+            return (None, "next-case", None, matches[0])
+        return (None, "next-case", None, None)
+
+    def _format_verify_stream_frame(
+        self, spec: dict, case: dict, facts: dict, data: bytes, outstanding: dict
+    ) -> tuple[str | None, str | None, tuple[int | None, int] | None, None]:
+        """The stream case's declared chain
+        (initial-running-poll-final): the initial frame MUST be
+        a running result carrying the observed positive
+        session identity; a poll's running frame carries the
+        SAME session, the completion frame (exit 0) may omit
+        it (pinned) but a present one must match.  Each
+        frame's output is the next unverified SLICE of the
+        immutable expected full bytes (the transport's
+        delivery grouping is observed, never declared — the
+        cumulative offset is the only structure), and at
+        completion the cumulative output is complete with at
+        least TWO nonempty observed pieces (the multi-chunk
+        qualification).  TENTATIVE: every check runs against
+        local session/offset values ONLY; the shared state is
+        never written here (the caller commits the returned
+        (session, cumulative-offset) proposal after the
+        continuation is staged and the original END verified
+        at return), so a refused frame adopts no poll identity
+        and advances no source offset (a later valid handling
+        sees uncorrupted state)."""
+        session = facts["session_id"]
+        running = facts["exit_code"] is None
+        if outstanding["phase"] == "exec":
+            if not running:
+                return ("format-chain-deviation", None, None, None)
+            if not isinstance(session, int) or isinstance(session, bool) or session <= 0:
+                return ("format-chain-deviation", None, None, None)
+            tentative_session: int | None = session
+            tentative_cum = 0
+        else:
+            if running:
+                if session != self._fmt_session:
+                    return ("format-chain-deviation", None, None, None)
+            elif facts["exit_code"] != 0:
+                return ("format-chain-deviation", None, None, None)
+            elif session is not None and session != self._fmt_session:
+                return ("format-chain-deviation", None, None, None)
+            tentative_session = self._fmt_session
+            tentative_cum = self._fmt_cum
+        total = len(model._format_expected_bytes(spec))
+        if tentative_cum + len(data) > total:
+            return ("format-seed-mismatch", None, None, None)
+        expected_slice = model._format_expected_bytes(spec)[
+            tentative_cum : tentative_cum + len(data)
+        ]
+        if data != expected_slice:
+            return ("format-seed-mismatch", None, None, None)
+        tentative_cum += len(data)
+        if running:
+            return (None, "poll", (tentative_session, tentative_cum), None)
+        if tentative_cum != total:
+            return ("format-seed-mismatch", None, None, None)
+        nonempty = sum(
+            1
+            for entry in case["results"]
+            if model.parse_native_tool_wrapper(entry["wrapper"])["output"] != ""
+        )
+        if data:
+            nonempty += 1
+        if nonempty < 2:
+            return ("format-multichunk-deviation", None, None, None)
+        return (None, "next-case", (tentative_session, tentative_cum), None)
+
+    def _format_stage_next(
+        self,
+        continuation: str,
+        stream_proposal: tuple[int | None, int] | None,
+        next_case_index: int | None,
+        tools: object,
+        position: int,
+    ) -> tuple[str | None, dict | None]:
+        """Bounded local staging of the PROPOSED continuation,
+        completed ONCE and entirely BEFORE the final END commit
+        fence: the applicable NEXT actual offered tool shape is
+        verified here (the closed in-memory capability decision
+        against THIS POST's tools region), the next call's
+        finite budgets are checked, and the SMALL prepared
+        transition (closed tool name, closed call id, TYPED
+        closed arguments, causal position, phase) is built.
+        Adopts no state itself.  Returns (error_code,
+        prepared_descriptor): a staged refusal returns its
+        closed error with no descriptor, and the terminal
+        continuation (all cases complete) returns no
+        descriptor.  The commit applies the prepared
+        descriptor with no further schema work or deadline
+        read."""
+        if continuation == "poll":
+            if self._fmt_polls >= model.FORMAT_MAX_POLLS:
+                return "format-poll-bound", None
+            if len(self._fmt_issued) >= model.FORMAT_MAX_ISSUED:
+                return "format-issue-bound", None
+            session = stream_proposal[0] if stream_proposal is not None else self._fmt_session
+            if not isinstance(session, int) or isinstance(session, bool) or session <= 0:
+                return "format-chain-deviation", None
+            expected = model.format_expected_poll_arguments(session)
+            if not model.format_offered_tool_available(tools, model.FORMAT_POLL_TOOL, expected):
+                return "format-tools-unoffered", None
+            return None, {
+                "name": model.FORMAT_POLL_TOOL,
+                "call_id": f"slaif-fmt-{self._fmt_case_index}-{position}",
+                "arguments": expected,
+                "position": position,
+                "phase": "poll",
+            }
+        # continuation == "next-case": the next closed case's
+        # exec (when one remains) must be issuable at this
+        # POST's position
+        if next_case_index is None:
+            return None, None
+        if len(self._fmt_issued) >= model.FORMAT_MAX_ISSUED:
+            return "format-issue-bound", None
+        expected = model.format_expected_exec_arguments(model.FORMAT_CASES[next_case_index])
+        if not model.format_offered_tool_available(tools, model.FORMAT_EXEC_TOOL, expected):
+            return "format-tools-unoffered", None
+        return None, {
+            "name": model.FORMAT_EXEC_TOOL,
+            "call_id": f"slaif-fmt-{next_case_index}-{position}",
+            "arguments": expected,
+            "position": position,
+            "phase": "exec",
+            "case_index": next_case_index,
+        }
+
+    def _format_commit_issue(self, prepared: dict) -> None:
+        """The COMMIT-side binding of the staged prepared
+        transition: the registry entry plus the controller's
+        OWN retained entry (and, for the exec phase, the next
+        case record), applied AFTER the final END commit fence.
+        NO offered-schema verification and NO deadline read run
+        here — every potentially refusing check completed once
+        before the fence, and only the prepared typed closed
+        arguments are bound.  The registry's own identity and
+        budget laws are data-integrity invariants already
+        established by the staged bounds (the finite issue
+        bound, the strictly monotonic position, the unique
+        closed call id) and cannot newly refuse."""
+        digest = model.sha256_bytes(model.canonical_bytes(prepared["arguments"]))
+        try:
+            self.registry.issue(
+                "function",
+                prepared["name"],
+                prepared["call_id"],
+                digest,
+                prepared["position"],
+            )
+        except model.FixtureError:
+            raise ControllerError("issue-rejected") from None
+        self._fmt_issued.append(
+            {
+                "family": "function",
+                "name": prepared["name"],
+                "call_id": prepared["call_id"],
+                "position": prepared["position"],
+                "arguments_sha256": digest,
+                "arguments": prepared["arguments"],
+            }
+        )
+        if prepared["phase"] == "exec":
+            self._fmt_cases.append(
+                self._format_new_case_record(
+                    model.FORMAT_CASES[prepared["case_index"]],
+                    prepared["call_id"],
+                    prepared["position"],
+                    prepared["arguments"],
+                )
+            )
+        else:
+            self._fmt_polls += 1
+        self._fmt_outstanding = {
+            "call_id": prepared["call_id"],
+            "issue_position": prepared["position"],
+            "phase": prepared["phase"],
+        }
+
+    def _format_retain_result(self, wrapper_text: str, position: int, outstanding: dict) -> None:
+        case = self._fmt_cases[self._fmt_case_index]
+        case["results"].append(
+            {
+                "call_id": outstanding["call_id"],
+                "issued_position": outstanding["issue_position"],
+                "result_position": position,
+                "wrapper": wrapper_text,
+            }
+        )
+        self._fmt_retained_results.append((outstanding["call_id"], wrapper_text))
+
+    def _format_finalize_case(self) -> None:
+        """Fill the COMPLETE case record from the retained
+        verified frames (the closed transport byte law held
+        slice by slice, so the retained concatenation IS the
+        verified full output): the dual numeric coordinates,
+        the poll count, the output identity and the closed
+        byte facts."""
+        case = self._fmt_cases[self._fmt_case_index]
+        pieces = [
+            model.parse_native_tool_wrapper(entry["wrapper"])["output"].encode()
+            for entry in case["results"]
+        ]
+        output = b"".join(pieces)
+        case["output_bytes"] = len(output)
+        case["output_sha256"] = model.sha256_bytes(output)
+        case["nonempty_pieces"] = sum(1 for piece in pieces if piece)
+        case["polls"] = len(case["results"]) - 1 if case["kind"] == "stream" else 0
+        case["truncated"] = case["kind"] == "truncated"
+        case["crlf"] = b"\r\n" in output
+        case["non_ascii"] = any(b >= 0x80 for b in output)
+        # the verified full chain committed: completion is a
+        # measured fact now, never an issuance placeholder
+        case["status"] = "completed"
+        case["exit"] = 0
+        case["verified"] = True
+
     def _sse(self, response_id: str, items: list[dict]) -> bytes:
         """Exact 0.164.0 wire subset (public source, tag
         6aaac694803004a63c6f393d153c96d22521a6b9): response.created,
@@ -787,6 +1639,7 @@ class Provider:
             "preloaded-result": "inbound call results are refused at this scenario state",
             "malformed-result": "call result shape is not supported",
             "scenario-bounded": "declared scenario is bounded",
+            "scenario-deadline-expired": "the scenario deadline is expired at this request",
             "causal-position": "causal request position is not closed",
             "causal-order": "result request is not after issuance",
             "slaif_fixture_unissued": "call identity not runtime issued",
@@ -794,6 +1647,21 @@ class Provider:
             "slaif_fixture_partial": "call result set is incomplete",
             "issue-rejected": "issuance was refused",
             "tools-overbound": "offered tools exceed the finite bound",
+            "format-history": "accumulated tool history is not the retained set",
+            "format-frame-deviation": "tool result frame is not the pinned closed form",
+            "format-chain-deviation": "tool result chain is not the declared form",
+            "format-multichunk-deviation": "stream case did not deliver multiple nonempty pieces",
+            "format-seed-mismatch": "observed output differs from the immutable seed",
+            "format-truncation-mismatch": "truncated output has no unique effective budget",
+            "format-poll-bound": "empty-stdin poll bound exceeded",
+            "format-not-ready": "format scenario is not complete",
+            "format-seed-untrusted": "format seed seam is untrusted",
+            "format-seed-copy-mismatch": "format seed copy is not the immutable original",
+            "format-tools-unoffered": "the closed format tool is not offered in the closed shape",
+            "format-post-bound": "the finite model-POST bound is exceeded",
+            "format-issue-bound": "the finite issued-call bound is exceeded",
+            "format-deadline-unbound": "the owner absolute END is not bound",
+            "format-deadline-expired": "the owner absolute END is already past",
             "request-truncated": "request is incomplete",
             "request-overbound": "request exceeds the finite bound",
             "request-grammar": "request grammar is not supported",
@@ -920,6 +1788,145 @@ class Provider:
         }
         model.validate_snapshot_record(record)
         return record
+
+    def format_snapshot_record(self) -> dict:
+        """The DISTINCT closed format-capture snapshot record
+        (the canonical 017-aj entry's scenario): the four
+        COMPLETE case records (retained verified wrappers with
+        their dual numeric coordinates), the complete ordered
+        issued registry WITH the exact closed argument shapes
+        (typed), the immutable pre-launch seed identity, and
+        the controller's own ledger totals — RE-VALIDATED by
+        the closed format-snapshot law before export: a
+        non-complete or deviant scenario is a closed refusal,
+        never a partial record (an honest unqualified state,
+        never a minted pass)."""
+        if self._fmt_state != "done" or len(self._fmt_cases) != len(model.FORMAT_CASES):
+            raise ControllerError("format-not-ready")
+        with self.ledger_lock:
+            controller_ledger = {
+                "requests": self.ledger.requests,
+                "output_bytes": self.ledger.output_bytes,
+            }
+        seed_total = sum(len(data) for _name, data in model.FORMAT_SEED_FILES)
+        record = {
+            "record": model.SCHEMA_FORMAT_SNAPSHOT,
+            "synthetic": True,
+            "issued_calls": [dict(entry) for entry in self._fmt_issued],
+            "cases": [dict(case) for case in self._fmt_cases],
+            "seed": [
+                [name, model.sha256_bytes(data), len(data)]
+                for name, data in model.FORMAT_SEED_FILES
+            ],
+            "seed_total_bytes": seed_total,
+            "originals_bytes": seed_total,
+            "originals_sha256": model.sha256_bytes(
+                b"".join(data for _name, data in model.FORMAT_SEED_FILES)
+            ),
+            "exporter_uid": self.exporter_uid,
+            "exported_before_teardown": True,
+            "model_posts": self._fmt_posts,
+            "controller_ledger": controller_ledger,
+            "polls": self._fmt_polls,
+            "final_state": "done",
+        }
+        model.validate_format_snapshot_record(record)
+        return record
+
+    def format_snapshot_record_partial(self) -> dict:
+        """The DISTINCT safe PARTIAL format-capture snapshot
+        record (the canonical 017-aj entry's scenario, non-
+        complete state): the ordered issued-registry prefix
+        (typed closed argument shapes), the issued-case prefix —
+        every entry before the last a COMPLETE verified case
+        record, at most ONE pending case (the last) carrying
+        only its retained verified frames — the immutable pre-
+        launch seed identity, the controller's own ledger totals,
+        the ACTUAL non-resettable ISSUED poll counter (the
+        per-case pending retained poll counts are explicitly
+        separate), and the ACTUAL non-done final state,
+        RE-VALIDATED by the closed partial-snapshot law before
+        export: every
+        retained wrapper is re-verified against the immutable
+        seed, no completion/exit/verified placeholder exists in
+        the form, and a deviant or unknown state is a closed
+        refusal — never a capture-ready fact and never a minted
+        pass (the complete form keeps its exact historical
+        law)."""
+        if self._fmt_state == "done":
+            raise ControllerError("format-not-partial")
+        with self.ledger_lock:
+            controller_ledger = {
+                "requests": self.ledger.requests,
+                "output_bytes": self.ledger.output_bytes,
+            }
+        cases: list[dict] = []
+        for case in self._fmt_cases:
+            if case["verified"]:
+                cases.append(dict(case))
+            else:
+                results = [dict(entry) for entry in case["results"]]
+                # the per-case RETAINED poll count: explicitly
+                # separate from the global issued counter
+                case_polls = len(results) - 1 if case["kind"] == "stream" and results else 0
+                cases.append(
+                    {
+                        "case": case["case"],
+                        "kind": case["kind"],
+                        "seed_files": list(case["seed_files"]),
+                        "command": case["command"],
+                        "call_id": case["call_id"],
+                        "call_position": case["call_position"],
+                        "arguments_sha256": case["arguments_sha256"],
+                        "status": "pending",
+                        "results": results,
+                        "polls": case_polls,
+                    }
+                )
+        seed_total = sum(len(data) for _name, data in model.FORMAT_SEED_FILES)
+        record = {
+            "record": model.SCHEMA_FORMAT_SNAPSHOT_PARTIAL,
+            "synthetic": True,
+            "issued_calls": [dict(entry) for entry in self._fmt_issued],
+            "cases": cases,
+            "seed": [
+                [name, model.sha256_bytes(data), len(data)]
+                for name, data in model.FORMAT_SEED_FILES
+            ],
+            "seed_total_bytes": seed_total,
+            "originals_bytes": seed_total,
+            "originals_sha256": model.sha256_bytes(
+                b"".join(data for _name, data in model.FORMAT_SEED_FILES)
+            ),
+            "exporter_uid": self.exporter_uid,
+            "exported_before_teardown": True,
+            "model_posts": self._fmt_posts,
+            "controller_ledger": controller_ledger,
+            # the ACTUAL non-resettable ISSUED poll counter (the
+            # transactional FSM commits the next poll with every
+            # accepted running result): never decremented or
+            # relabeled for codec acceptance
+            "polls": self._fmt_polls,
+            "final_state": self._fmt_state,
+            "qualification": model.FORMAT_QUALIFICATION_NOT_QUALIFIED,
+        }
+        model.validate_format_snapshot_record_partial(record)
+        return record
+
+    def format_capture_record(self) -> dict:
+        """The DISTINCT closed format-capture record for the
+        current state: the COMPLETE snapshot if and only if the
+        scenario is done, otherwise the DISTINCT safe PARTIAL
+        form.  The closed pair law: the complete export tag
+        pairs with the complete snapshot, the partial export tag
+        with the partial snapshot — the owner's outer identity
+        metadata is bounded by the SAME 256 KiB total at the
+        consumer and producer seams.  A deviant state is a
+        closed refusal from the re-validation, never a minted
+        pass and never silently relabeled."""
+        if self._fmt_state == "done":
+            return self.format_snapshot_record()
+        return self.format_snapshot_record_partial()
 
 
 # -- bounded process scans (fail closed on degraded evidence) --------------------
@@ -1153,6 +2160,34 @@ class Exporter:
         return struct.unpack("iii", cred)[0]
 
     def _build_payload(self) -> bytes:
+        if self.provider.scenario == "format-capture":
+            # The DISTINCT selected format payload: the quiesce
+            # record plus the format capture record ONLY — the
+            # COMPLETE snapshot if and only if the scenario is
+            # done, otherwise the DISTINCT safe PARTIAL form
+            # (honest pending facts, never a minted pass) — and
+            # the closed export tag paired with it (the
+            # original six-field payload's exact historical
+            # field set and law are never widened).  The TOTAL
+            # serialized payload is bounded at the 256 KiB
+            # selected-capture bound; the owner's outer
+            # identity metadata (binding/identity/CID) is
+            # bounded by the SAME total at the consumer and
+            # producer seams.
+            snapshot = self.provider.format_capture_record()
+            selected = {
+                "record": (
+                    model.SCHEMA_FORMAT_EXPORT
+                    if snapshot["record"] == model.SCHEMA_FORMAT_SNAPSHOT
+                    else model.SCHEMA_FORMAT_EXPORT_PARTIAL
+                ),
+                "quiesce": self._quiesce_record,
+                "snapshot": snapshot,
+            }
+            payload = json.dumps(selected, sort_keys=True, separators=(",", ":")).encode()
+            if len(payload) > model.FORMAT_SNAPSHOT_MAX_BYTES:
+                raise ControllerError("export-overbound")
+            return payload
         if self.provider._seeded_originals_sha is None:
             raise ControllerError("originals-unseeded")
         snapshot = self.provider.snapshot_record()
@@ -1286,7 +2321,7 @@ def main() -> int:
         )
         return 2
     scenario = os.environ.get("SLAIF_FIXTURE_SCENARIO", "diagnostic")
-    if scenario not in ("diagnostic", "tool-cycle"):
+    if scenario not in ("diagnostic", "tool-cycle", "format-capture"):
         log_closed(
             {
                 "record": "slaif-fixture-controller-v1",
@@ -1300,7 +2335,19 @@ def main() -> int:
         port = env_int("SLAIF_FIXTURE_PORT", 18443)
         deadline = env_int("SLAIF_FIXTURE_DEADLINE", 1800)
         ledger = model.FixtureLedger()
-        ledger.set_deadline(min(deadline, ledger.budgets.lifetime_seconds))
+        if scenario == "format-capture":
+            # the SAME original owner absolute END (the existing
+            # trusted config transport, already set by the
+            # owner's prepare-target): the format scenario's
+            # ledger deadline is that absolute anchor clamped at
+            # ONE clock reading — never a fresh window, and the
+            # anchor itself is stored (no later-clock
+            # re-derivation that would extend the owner END);
+            # the old relative meaning stays unchanged for
+            # every other scenario
+            ledger.set_deadline_absolute(format_clamped_deadline_anchor(deadline))
+        else:
+            ledger.set_deadline(min(deadline, ledger.budgets.lifetime_seconds))
         ledger_lock = threading.Lock()
         registry = model.IssuedRegistry(ledger.budgets.max_requests)
         # Local 017-s synthetic auth binding: the host selects it via
@@ -1318,6 +2365,12 @@ def main() -> int:
         exporter = Exporter(provider, ledger, ledger_lock, mode)
         # Seed the fixed originals BEFORE ownership verification.
         provider.seed_originals()
+        # The format seed seam (subject-readable mirror of the
+        # immutable pre-launch originals) is published BEFORE
+        # ownership verification as well: a pre-existing
+        # mismatched copy is a closed refusal at construction.
+        if scenario == "format-capture":
+            provider.seed_format_seeds()
         # Seed the registry file BEFORE ownership verification.
         with open(CTL_ISSUED_REGISTRY, "w", encoding="ascii") as handle:
             json.dump({"synthetic": True, "count": registry.count()}, handle, sort_keys=True)

@@ -1744,6 +1744,25 @@ def observe_mode() -> int:
         refusal = _subject_identity_refusal(True)
         if refusal is not None:
             return fail(refusal)
+        # The closed scenario grammar for this observe
+        # transport: the unset default AND the explicitly
+        # carried historical values (the historical owners set
+        # the EXISTING container scenario key explicitly at
+        # prepare time) keep the historical two-scenario set
+        # byte-for-byte; the canonical AJ transport selects its
+        # OWN closed format-capture expectation and NOTHING
+        # else.  The key is transport data only — never
+        # origin/admission/readiness authority — and the
+        # host revalidates the record against its OWN verified
+        # entry below this closed grammar (any other carried
+        # value is a closed refusal).
+        carried = env_str("SLAIF_FIXTURE_SCENARIO", "")
+        if carried == "format-capture":
+            allowed_scenarios = ("format-capture",)
+        elif carried in ("", "diagnostic", "tool-cycle"):
+            allowed_scenarios = ("diagnostic", "tool-cycle")
+        else:
+            return fail("observe-transport")
         status, content_type, body = _provider_get("/state", deadline)
         if status != 200 or content_type != "application/json":
             return fail("observe-wire")
@@ -1755,7 +1774,7 @@ def observe_mode() -> int:
             not isinstance(record, dict)
             or set(record) != {"record", "scenario", "wire_requests", "diagnostic"}
             or record["record"] != "slaif-fixture-state-v1"
-            or record["scenario"] not in ("diagnostic", "tool-cycle")
+            or record["scenario"] not in allowed_scenarios
             or not isinstance(record["wire_requests"], int)
             or isinstance(record["wire_requests"], bool)
             or not (0 <= record["wire_requests"] <= 512)

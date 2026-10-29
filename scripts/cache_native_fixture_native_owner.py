@@ -89,6 +89,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_native_fixture_binding as oap_binding  # noqa: E402
 import cache_native_fixture_ci as ci  # noqa: E402
 import cache_native_fixture_local as local  # noqa: E402
+import cache_native_fixture_model as fmodel  # noqa: E402
 import cache_native_fixture_native_prep as prep  # noqa: E402
 import cache_native_fixture_runtime_profile as rprofile  # noqa: E402
 
@@ -133,6 +134,19 @@ AF_NATIVE_RUN_SCHEMA = rprofile.AF_NATIVE_RUN_SCHEMA
 # the original tag refuses every identity-bearing binding.
 AH_ORDER_ID = rprofile.AH_ORDER_ID
 AH_NATIVE_RUN_SCHEMA = rprofile.AH_NATIVE_RUN_SCHEMA
+# The canonical FUTURE 017-aj native-process format
+# QUALIFICATION entry (INERT in 017-ai: software only —
+# never activated, admitted or launched here) and its
+# DISTINCT versioned identity-bearing native-run terminal
+# tag: the SAME closed measured facts as the AH tag PLUS
+# the frozen owner-identity substructure AND the nested
+# attach-binding record (or an honest None) AND the nested
+# selected native format-capture record (or an honest None)
+# under the AJ entry's own tag-pair law (the AH tag remains
+# AH-only, even for equal-numeric identities); the original
+# tag refuses every identity-bearing binding.
+AJ_ORDER_ID = rprofile.AJ_ORDER_ID
+AJ_NATIVE_RUN_SCHEMA = rprofile.AJ_NATIVE_RUN_SCHEMA
 # the owner's closed terminal outcomes (the attempt record
 # vocabulary, never a caller boolean)
 NATIVE_RUN_OUTCOMES = frozenset({"pass", "fail", "aborted"})
@@ -188,6 +202,7 @@ NATIVE_OWNER_REASONS = frozenset(
         "native-owner-subject-cid-mismatch",
         "native-owner-subject-binary-mismatch",
         "native-owner-identity-unmeasured",
+        "native-owner-evidence-unretained",
         "native-owner-evidence-exists",
         "native-owner-evidence-env",
         "native-owner-journal-unverified",
@@ -212,6 +227,7 @@ NATIVE_OWNER_REASONS = frozenset(
         "native-owner-attach-devpts-mode-mismatch",
         "native-owner-attach-devpts-owner-mismatch",
         "native-owner-attach-identity-drift",
+        "native-owner-format-capture-invalid",
         "internal",
     }
 )
@@ -288,6 +304,8 @@ def parse_native_run_record(record: object) -> dict:
         expected_keys = _NATIVE_RUN_KEYS | {"identity", "attach_binding"}
     elif tag == AH_NATIVE_RUN_SCHEMA:
         expected_keys = _NATIVE_RUN_KEYS | {"identity", "attach_binding"}
+    elif tag == AJ_NATIVE_RUN_SCHEMA:
+        expected_keys = _NATIVE_RUN_KEYS | {"identity", "attach_binding", "format_capture"}
     elif tag == NATIVE_RUN_SCHEMA:
         expected_keys = _NATIVE_RUN_KEYS
     else:
@@ -337,6 +355,7 @@ def parse_native_run_record(record: object) -> dict:
         AD_NATIVE_RUN_SCHEMA,
         AF_NATIVE_RUN_SCHEMA,
         AH_NATIVE_RUN_SCHEMA,
+        AJ_NATIVE_RUN_SCHEMA,
     )
     identity_triple: tuple[int, int, tuple[int, ...]] | None = None
     if identity_entry:
@@ -344,6 +363,7 @@ def parse_native_run_record(record: object) -> dict:
             AD_NATIVE_RUN_SCHEMA: (AD_ORDER_ID, rprofile.AD_ORDER_PATH),
             AF_NATIVE_RUN_SCHEMA: (AF_ORDER_ID, rprofile.AF_ORDER_PATH),
             AH_NATIVE_RUN_SCHEMA: (AH_ORDER_ID, rprofile.AH_ORDER_PATH),
+            AJ_NATIVE_RUN_SCHEMA: (AJ_ORDER_ID, rprofile.AJ_ORDER_PATH),
         }[tag]
         if binding["order_id"] != entry_order or binding["order_path"] != entry_path:
             raise FixtureError("native-owner-record-malformed")
@@ -351,7 +371,7 @@ def parse_native_run_record(record: object) -> dict:
         if law is None:
             raise FixtureError("native-owner-record-malformed")
         identity_triple = (law[0], law[1], law[2])
-    elif binding["order_id"] in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID):
+    elif binding["order_id"] in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID, AJ_ORDER_ID):
         raise FixtureError("native-owner-record-malformed")
     native = record["native_record"]
     native_facts = None
@@ -379,7 +399,7 @@ def parse_native_run_record(record: object) -> dict:
     # — when a native record is present — to that record's
     # measured CID
     attach = None
-    if tag in (AF_NATIVE_RUN_SCHEMA, AH_NATIVE_RUN_SCHEMA):
+    if tag in (AF_NATIVE_RUN_SCHEMA, AH_NATIVE_RUN_SCHEMA, AJ_NATIVE_RUN_SCHEMA):
         attach = record["attach_binding"]
         if attach is not None:
             try:
@@ -392,6 +412,23 @@ def parse_native_run_record(record: object) -> dict:
             ):
                 raise FixtureError("native-owner-record-malformed")
             if native_facts is not None and attach.get("cid") != native_facts.cid:
+                raise FixtureError("native-owner-record-malformed")
+    # The AJ entry's nested selected native format-capture
+    # record: RE-DERIVED by the closed consumer against the
+    # OUTER binding record and the frozen identity (a copied
+    # or replayed record never mints authority), cross-bound
+    # to the measured CID when a native record is present.
+    format_capture = None
+    if tag == AJ_NATIVE_RUN_SCHEMA:
+        format_capture = record["format_capture"]
+        if format_capture is not None:
+            try:
+                prep.parse_format_capture_record(format_capture, binding)
+            except prep.FixtureError:
+                raise FixtureError("native-owner-record-malformed") from None
+            if format_capture.get("identity") != record["identity"]:
+                raise FixtureError("native-owner-record-malformed")
+            if native_facts is not None and format_capture.get("cid") != native_facts.cid:
                 raise FixtureError("native-owner-record-malformed")
     refusal = record["native_refusal"]
     if refusal is not None and (not isinstance(refusal, str) or refusal not in prep.PREP_REASONS):
@@ -417,12 +454,101 @@ def parse_native_run_record(record: object) -> dict:
         # the AF / AH entry's ready verdict additionally
         # requires the measured attach binding (a missing
         # attach is an honest None, never a ready handoff)
-        or (tag in (AF_NATIVE_RUN_SCHEMA, AH_NATIVE_RUN_SCHEMA) and attach is None)
+        # the AJ entry keeps the SAME native handoff
+        # readiness law: the format capture is a DISTINCT
+        # ordered qualification fact carried in its own field
+        # (never this verdict) — a measured native-ready
+        # handoff with an unsupported or partial format
+        # stays truthfully representable and retainable, with
+        # the format NOT qualified and no final
+        # qualification pass; the later qualification gate
+        # reads BOTH facts explicitly
+        or tag in (AF_NATIVE_RUN_SCHEMA, AH_NATIVE_RUN_SCHEMA, AJ_NATIVE_RUN_SCHEMA)
+        and attach is None
     ):
         raise FixtureError("native-owner-record-malformed")
     if refusal is not None and (native is not None or verdict["ready"] is True):
         raise FixtureError("native-owner-record-malformed")
     return record
+
+
+def _aj_format_capture_record(
+    owner: local.LocalFixtureOwner,
+    binding: OrderRunBinding,
+    owner_identity: dict | None,
+) -> dict | None:
+    """The AJ entry's measured selected native format-capture
+    record (017-ai software): the retained selected export
+    payload of THIS SAME completed owner (the owner's OWN
+    finish retained it — a caller can never supply one) is
+    byte-bounded BEFORE any decode, validated in FULL by
+    the ACTUAL shared selected-export dispatcher (the
+    exact export key set, the closed quiesce record, the
+    export-tag versus nested-tag coherence, the nested
+    snapshot law) and admitted under the AJ entry's
+    explicit full/partial-only law, then re-wrapped in the
+    DISTINCT identity-bearing format-capture record (the
+    workflow's OWN immutable binding, the owner's frozen
+    identity substructure, the owner's measured CID) which
+    is RE-VALIDATED by the closed consumer — including the
+    256 KiB TOTAL SERIALIZED selected-capture bound over
+    the WHOLE record.  An honest None (the finish
+    retained no selected capture) is preserved; a
+    malformed, untagged, invalid-quiesce, over-bound or
+    non-snapshot payload is a closed non-echoing refusal
+    (never a purported capture, never a partial laundered
+    as full)."""
+    if owner_identity is None:
+        raise FixtureError("native-owner-identity-unmeasured")
+    payload = owner.export_payload
+    if payload is None:
+        return None
+    if not isinstance(payload, (bytes, bytearray)):
+        raise FixtureError("native-owner-format-capture-invalid")
+    # The existing shared export validators already cap
+    # the ENTIRE raw export payload at the 256 KiB
+    # selected-capture bound — that SAME existing bound is
+    # enforced here on the original object's length
+    # (O(1), no copy) before ANY conversion, decode or
+    # parse allocation.
+    if not payload or len(payload) > fmodel.FORMAT_SNAPSHOT_MAX_BYTES:
+        raise FixtureError("native-owner-format-capture-invalid")
+    raw = bytes(payload)
+    # The FULL measured export is validated at this
+    # producer seam by the ACTUAL shared selected-payload
+    # dispatcher (exact export key set, closed quiesce
+    # record, export-tag versus nested-snapshot-tag
+    # coherence, the nested snapshot law) — never a raw
+    # decode plus a tag peek.
+    try:
+        selected = ci.fixture_export.validate_selected_payload(raw)
+    except (ValueError, TypeError):
+        raise FixtureError("native-owner-format-capture-invalid") from None
+    # The AJ entry's explicit closed law: the full and
+    # the safe partial export tags ONLY — an untagged
+    # legacy payload (which the dispatcher validates
+    # under its historical six-field law) can never
+    # masquerade as a format capture here.
+    if not isinstance(selected, dict) or selected.get("record") not in (
+        fmodel.SCHEMA_FORMAT_EXPORT,
+        fmodel.SCHEMA_FORMAT_EXPORT_PARTIAL,
+    ):
+        raise FixtureError("native-owner-format-capture-invalid")
+    snapshot = selected.get("snapshot")
+    if not isinstance(snapshot, dict):
+        raise FixtureError("native-owner-format-capture-invalid")
+    outer: dict[str, object] = {
+        "record": rprofile.AJ_NATIVE_FORMAT_CAPTURE_SCHEMA,
+        "binding": binding.to_record(),
+        "identity": owner_identity,
+        "cid": owner.target_cid,
+        "snapshot": snapshot,
+    }
+    try:
+        prep.parse_format_capture_record(outer, binding)
+    except (FixtureError, ValueError, TypeError):
+        raise FixtureError("native-owner-format-capture-invalid") from None
+    return outer
 
 
 def _write_native_run_record(path: Path, record: dict, work: Path | None = None) -> None:
@@ -493,7 +619,7 @@ class NativeOwnerRun:
     ) -> None:
         if not isinstance(binding, OrderRunBinding):
             raise FixtureError("native-owner-binding-invalid")
-        # The fixed canonical 017-ad / 017-af entries resolve
+        # The fixed canonical 017-ad / 017-af / 017-aj entries resolve
         # ONLY at their unique committed order paths (the
         # resolver applies the same closed law): a directly-
         # constructed binding carrying the entry's order id at
@@ -505,6 +631,8 @@ class NativeOwnerRun:
         if binding.order_id == AF_ORDER_ID and binding.order_path != rprofile.AF_ORDER_PATH:
             raise FixtureError("native-owner-order-path-mismatch")
         if binding.order_id == AH_ORDER_ID and binding.order_path != rprofile.AH_ORDER_PATH:
+            raise FixtureError("native-owner-order-path-mismatch")
+        if binding.order_id == AJ_ORDER_ID and binding.order_path != rprofile.AJ_ORDER_PATH:
             raise FixtureError("native-owner-order-path-mismatch")
         self._binding: OrderRunBinding = binding
         self._repo = Path(str(repo))
@@ -582,20 +710,25 @@ class NativeOwnerRun:
                 proc_root=proc_root,
             )
             # the FROZEN owner-UID subject identity of the
-            # canonical 017-ad / 017-af entries: the SAME real
-            # owner's OWN bounded OS identity collection
-            # (already frozen in the owner's immutable context
-            # AFTER its original won admission, BEFORE external
-            # work) is applied as the workflow's subject law —
-            # the AD / AF runs never measure the fixed 21002
-            # subject, and the original entries never collect
-            # (their context stays None, the workflow keeps
-            # the fixed-21002 law byte-for-byte).  An AD / AF
-            # owner without a frozen context is a closed
-            # refusal, never a silent fallback to the original
-            # profile.
+            # canonical 017-ad / 017-af / 017-ah / 017-aj
+            # entries: the SAME real owner's OWN bounded OS
+            # identity collection (already frozen in the
+            # owner's immutable context AFTER its original won
+            # admission, BEFORE external work) is applied as
+            # the workflow's subject law — these runs never
+            # measure the fixed 21002 subject, and the original
+            # entries never collect (their context stays None,
+            # the workflow keeps the fixed-21002 law
+            # byte-for-byte).  A canonical owner-UID entry
+            # without a frozen context is a closed refusal,
+            # never a silent fallback to the original profile.
             subject_identity: tuple[int, int, tuple[int, ...]] | None = None
-            if binding.order_id in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID):
+            if binding.order_id in (
+                AD_ORDER_ID,
+                AF_ORDER_ID,
+                AH_ORDER_ID,
+                AJ_ORDER_ID,
+            ):
                 ctx = self._owner._owner_context
                 if ctx is None:
                     raise FixtureError("native-owner-identity-unmeasured")
@@ -693,8 +826,24 @@ class NativeOwnerRun:
         remaining = anchor + local.CLEANUP_GRACE_SECONDS - time.monotonic()
         if remaining <= 0:
             raise FixtureError("native-owner-patience")
+        # The FROZEN owner context (the owner's OWN verified
+        # binding's closed entry, collected before any external
+        # work) is the control-response entry authority: the
+        # canonical owner-UID entries validate under their OWN
+        # frozen entry (the AJ entry declares the closed
+        # format-capture scenario), and the original entries
+        # keep the historical generic default (None) — many
+        # original orders are not in the owner-UID allowlist
+        # and are never suddenly refused.
+        frozen_entry = (
+            self._owner._owner_context.order_id if self._owner._owner_context is not None else None
+        )
         response = local._control_client(
-            self._control_dir, command, self._run_id, min(local._CLIENT_TIMEOUT, remaining)
+            self._control_dir,
+            command,
+            self._run_id,
+            min(local._CLIENT_TIMEOUT, remaining),
+            entry_order=frozen_entry,
         )
         if isinstance(response, dict) and response.get("ok") is False:
             reason = response.get("reason")
@@ -797,7 +946,8 @@ class NativeOwnerRun:
                 raise FixtureError("native-owner-subject-cid-mismatch")
             if expectation.binary_sha256 != artifact["binary_sha256"]:
                 raise FixtureError("native-owner-subject-binary-mismatch")
-        # The AF entry's attach-binding gate (017-ae): the
+        # The AF / AH / AJ entry's attach-binding gate
+        # (017-ae; the AJ entry 017-ai): the
         # measured attach receipt must already exist (no
         # resampling at registration — the allocation is
         # measured ONCE in the attach phase), and the
@@ -805,11 +955,11 @@ class NativeOwnerRun:
         # expected tty_nr exactly (the expected PTY comes
         # from the owned attach, never from the subject
         # itself; an unobserved or foreign expectation can
-        # never bind the AF entry).  A refused registration
+        # never bind the entry).  A refused registration
         # may retry CORRECTED parameters against the SAME
         # already-measured receipt (the workflow's staged
         # law), never a resampled allocation.
-        if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID):
+        if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID, AJ_ORDER_ID):
             if self._attach_receipt is None:
                 raise FixtureError("native-owner-attach-binding-missing")
             if not isinstance(expectation, prep.SubjectExpectation) or not (
@@ -843,10 +993,10 @@ class NativeOwnerRun:
             owner._revalidate_identity_context()
             if owner.deadline.anchor - time.monotonic() <= 0:
                 raise FixtureError("native-owner-patience")
-            # the AF entry measures through its OWN default
-            # exact registered-CID channel ONLY: a
-            # caller-supplied channel is a closed refusal (no
-            # bypass of the scoped/birth-bound reads)
+            # the AF / AH / AJ entry measures through its
+            # OWN default exact registered-CID channel ONLY:
+            # a caller-supplied channel is a closed refusal
+            # (no bypass of the scoped/birth-bound reads)
             if channel is not None:
                 raise FixtureError("native-owner-attach-channel-invalid")
         # The AD entry's closed native executable-measurement
@@ -866,6 +1016,7 @@ class NativeOwnerRun:
             AD_ORDER_ID,
             AF_ORDER_ID,
             AH_ORDER_ID,
+            AJ_ORDER_ID,
         ):
             if not isinstance(owner.target_cid, str):
                 raise FixtureError("native-owner-registration-unmeasured")
@@ -873,7 +1024,7 @@ class NativeOwnerRun:
             if end - time.monotonic() <= 0:
                 raise FixtureError("native-owner-patience")
             channel = build_ad_native_channel(owner.target_cid, end)
-        if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID):
+        if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID, AJ_ORDER_ID):
             # the MEASURED native namespace/device frame: the
             # subject's own mount view compared against the
             # independently measured private allocation
@@ -1126,8 +1277,9 @@ class NativeOwnerRun:
             raise FixtureError("native-owner-attach-identity-drift")
 
     def collect_attach_baseline(self) -> prep.DevptsObservation:
-        """The AF / AH attach-baseline collection (017-ae
-        software): after prepare and the separately measured
+        """The AF / AH / AJ attach-baseline collection
+        (017-ae software; the AJ entry 017-ai): after prepare
+        and the separately measured
         stop, the owner's ONE bounded devpts inventory
         freezes the attach-baseline snapshot.  The phase is
         ONE-SHOT and NON-RESETTABLE: the attempt is consumed
@@ -1145,7 +1297,7 @@ class NativeOwnerRun:
         at the owner's actual use site; the budget is the
         owner's OWN absolute END anchor (no grace, no fresh
         phase window)."""
-        if self._binding.order_id not in (AF_ORDER_ID, AH_ORDER_ID):
+        if self._binding.order_id not in (AF_ORDER_ID, AH_ORDER_ID, AJ_ORDER_ID):
             raise FixtureError("native-owner-attach-not-admitted")
         if (
             self._attach_baseline_attempted
@@ -1187,10 +1339,11 @@ class NativeOwnerRun:
         return self._attach_baseline
 
     def derive_attach_expectation(self) -> dict[str, object]:
-        """The AF / AH attach expectation derivation
-        (017-ae software): ONE further bounded inventory
-        observation after the frozen baseline; the unique
-        fresh owned allocation is derived by the pure core
+        """The AF / AH / AJ attach expectation derivation
+        (017-ae software; the AJ entry 017-ai): ONE further
+        bounded inventory observation after the frozen
+        baseline; the unique fresh owned allocation is
+        derived by the pure core
         and the DISTINCT identity-bearing attach-binding
         receipt is frozen (its expected proc tty_nr is the
         derived expected PTY — the provenance the later
@@ -1218,7 +1371,7 @@ class NativeOwnerRun:
         identity is revalidated at the owner's actual use
         site; the budget is the owner's OWN absolute END
         anchor."""
-        if self._binding.order_id not in (AF_ORDER_ID, AH_ORDER_ID):
+        if self._binding.order_id not in (AF_ORDER_ID, AH_ORDER_ID, AJ_ORDER_ID):
             raise FixtureError("native-owner-attach-not-admitted")
         owner = self._owner
         if owner is None or self._thread is None:
@@ -1508,12 +1661,35 @@ class NativeOwnerRun:
         # propagates unchanged.
         self._publication_attempted = True
         try:
+            # The AJ owner-FIRST publication ordering (017-ai):
+            # the protected selected native capture is the
+            # SECOND publication and it requires the FIRST
+            # owner evidence actually retained by this SAME
+            # completed owner's own protected writer — the
+            # owner's RAM retention receipt, set only after
+            # the protected writer returned verified success
+            # (independent of the cleanup/evidence status: a
+            # cleanup-failed or aborted owner whose failure
+            # evidence WAS retained keeps its representable
+            # honest-failure publication, and a post-commit
+            # unverified result never sets the receipt even
+            # when the bytes reached the destination).  A
+            # precomputed digest or a merely existing
+            # matching file is not a retention receipt.  The
+            # refusal is BEFORE any AJ native/capture
+            # destination is created; the one-shot transition
+            # is preserved (the refused attempt stays
+            # terminal, no fresh-path retry) and the
+            # historical entry behavior is unchanged.
+            if self._binding.order_id == AJ_ORDER_ID and not owner._evidence_retained:
+                raise FixtureError("native-owner-evidence-unretained")
             subject = workflow.subject_receipt
             stop_recorded = workflow.stop_receipt is not None
             native_record: dict | None = None
             native_refusal: str | None = None
             # The frozen owner identity substructure of the
-            # DISTINCT 017-ad / 017-af identity-bearing
+            # DISTINCT 017-ad / 017-af / 017-ah / 017-aj
+            # identity-bearing
             # records: derived from THIS owner's OWN immutable
             # context (the real owner's own bounded OS
             # identity collection and production-code
@@ -1522,10 +1698,15 @@ class NativeOwnerRun:
             # whose records keep their exact historical key
             # set (no identity key at all).
             owner_identity: dict | None = None
-            if self._binding.order_id in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID):
+            if self._binding.order_id in (
+                AD_ORDER_ID,
+                AF_ORDER_ID,
+                AH_ORDER_ID,
+                AJ_ORDER_ID,
+            ):
                 ctx = owner._owner_context
                 if ctx is None:
-                    # an AD / AF / AH run without the frozen
+                    # an AD / AF / AH / AJ run without the frozen
                     # context can never mint an honest
                     # identity-bearing record: a closed
                     # refusal, never a fallback to the
@@ -1545,7 +1726,8 @@ class NativeOwnerRun:
                 and subject is not None
                 and stop_recorded
                 and (
-                    self._binding.order_id not in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID)
+                    self._binding.order_id
+                    not in (AD_ORDER_ID, AF_ORDER_ID, AH_ORDER_ID, AJ_ORDER_ID)
                     or owner_identity is not None
                 )
             ):
@@ -1581,10 +1763,11 @@ class NativeOwnerRun:
             verdict = workflow.finalize(native_record)
             journal_state = self._verify_journal_for_publication(outcome)
             # The DISTINCT identity-bearing terminal tag of
-            # the canonical 017-ad / 017-af / 017-ah entries
-            # (the SAME closed measured facts PLUS the frozen
-            # owner-identity substructure; the AF and AH
-            # entries ADDITIONALLY carry the nested
+            # the canonical 017-ad / 017-af / 017-ah /
+            # 017-aj entries (the SAME closed measured facts
+            # PLUS the frozen owner-identity substructure;
+            # the AF / AH / AJ entries ADDITIONALLY carry the
+            # nested
             # attach-binding record, or an honest None); the
             # original tag keeps its exact historical key set
             # for every other entry.
@@ -1592,6 +1775,7 @@ class NativeOwnerRun:
                 AD_ORDER_ID,
                 AF_ORDER_ID,
                 AH_ORDER_ID,
+                AJ_ORDER_ID,
             )
             record_tag = (
                 AD_NATIVE_RUN_SCHEMA
@@ -1600,6 +1784,8 @@ class NativeOwnerRun:
                 if self._binding.order_id == AF_ORDER_ID
                 else AH_NATIVE_RUN_SCHEMA
                 if self._binding.order_id == AH_ORDER_ID
+                else AJ_NATIVE_RUN_SCHEMA
+                if self._binding.order_id == AJ_ORDER_ID
                 else NATIVE_RUN_SCHEMA
             )
             record: dict[str, object] = {
@@ -1616,15 +1802,26 @@ class NativeOwnerRun:
             }
             if identity_entry:
                 record["identity"] = owner_identity
-            if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID):
+            if self._binding.order_id in (AF_ORDER_ID, AH_ORDER_ID, AJ_ORDER_ID):
                 # The nested attach-binding record of the AF /
-                # AH entry: the retained measured receipt (the
+                # AH / AJ entry: the retained measured receipt (the
                 # frozen owner context is its authority — a
                 # copied or replayed record never mints
                 # authority) or an honest None (the attach
                 # phase never bound — the closed consumer
                 # refuses a ready verdict without it)
                 record["attach_binding"] = self._attach_receipt
+            format_capture = None
+            if self._binding.order_id == AJ_ORDER_ID:
+                # The AJ entry's nested selected native
+                # format-capture record (017-ai software):
+                # built from THIS owner's OWN retained
+                # selected export payload and re-validated
+                # by the closed consumer (256 KiB TOTAL
+                # SERIALIZED bound); an honest None when
+                # the finish retained no selected capture.
+                format_capture = _aj_format_capture_record(owner, self._binding, owner_identity)
+                record["format_capture"] = format_capture
             parse_native_run_record(record)
             _write_native_run_record(Path(str(native_evidence_out)), record, owner.work)
         except FixtureError:
@@ -1646,14 +1843,52 @@ class NativeOwnerRun:
         # closed failure that preserves the retained bytes
         # AND the actual journal facts as-is (never a normal
         # qualified success, never an overwrite or retry).
+        #
+        # The AJ QUALIFICATION journal gate (017-ai): for
+        # the canonical AJ entry the same journal's terminal
+        # outcome is the qualification verdict, composed
+        # from the DISTINCT ordered facts — the owner's
+        # ACTUAL cleanup outcome, the native handoff
+        # readiness verdict, the strict full four-case
+        # format qualification (the safe partial tag is
+        # explicitly not-qualified) and the successful
+        # required protected retention (implicit: reached
+        # post-retention).  A cleanup-pass / native-ready
+        # owner with an unqualified or absent format
+        # closes the AJ qualification journal terminal
+        # FAIL — never pass — while the owner's actual
+        # outcome and the native verdict stay preserved
+        # unchanged in the retained record; the one-shot
+        # journal can never be later upgraded by a cached
+        # outcome or by finalize_attempt.
+        journal_outcome = outcome
+        if outcome == "pass" and self._binding.order_id == AJ_ORDER_ID:
+            qualified = (
+                verdict.ready is True
+                and format_capture is not None
+                and format_capture["snapshot"].get("record") == fmodel.SCHEMA_FORMAT_SNAPSHOT
+            )
+            if not qualified:
+                journal_outcome = "fail"
         token = oap_binding.record_order_attempt(
-            self._repo, self._binding.order_id, self._run_id, outcome
+            self._repo, self._binding.order_id, self._run_id, journal_outcome
         )
         if outcome == "pass":
             if token != "finalized":
                 raise FixtureError("native-owner-finalization-unverified")
         elif token not in ("finalized", "terminal-preserved"):
             raise FixtureError("native-owner-finalization-unverified")
+        # The composition's cached outcome is the ACTUAL
+        # qualification-finalization outcome (the journal
+        # gate's result — for the AJ entry that is the
+        # qualification verdict, not merely the cleanup
+        # outcome): a later finalize_attempt followup
+        # requests the SAME terminal status and can never
+        # request a pass for a partially qualified run,
+        # while the retained record's owner_outcome field
+        # and the owner's physical terminal state preserve
+        # the ACTUAL cleanup outcome unchanged.
+        self._outcome = journal_outcome
         self._attempt_token = token
         self._published = True
         return record
