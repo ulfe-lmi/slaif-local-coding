@@ -1477,6 +1477,58 @@ never a self-test in this round. D09 remains
 `NOT RUN`; no native-ready, whole-017 or v1
 runtime claim; ALL 018–024 remain mandatory.
 
+Round 017-aj activated, and its ONE admitted
+ACTUAL attempt was executed to terminal PASS
+(attempt head P; operator terminal exit 0; every
+fact in the immutable round records): a reviewed
+private non-Codex operator under ONE managed
+foreground procedure drove the SAME worker
+(stopped once, exact-group TSTP, monitor ON
+before any setter) into the pinned 0.164.0
+native in the exact owned CID (image 404-
+verified at teardown), registered against an
+independently measured expected PTY (never
+MKDEV), frozen identity 1001:1001 groups [1001],
+synthetic env attached explicitly; the current
+exe was MEASURED via the registered-CID channel
+as the pinned artifact. From ONE closed input
+line the four serial cases byte-verified
+against the immutable pre-launch seed
+originals: complete 494 B read; genuine
+initial-running exec, 1536 B output (CRLF/
+non-ASCII), ONE poll, TWO non-empty pieces;
+successful 0 B empty output; bounded
+truncation at the effective token budget, never
+acquiring. Measured: 5 issued calls, 1 poll, 7
+model POSTs (planned min 6; the ONE extra
+purpose UNMEASURED, no trace/forensics);
+controller export ledger 9 requests / 7561
+output bytes; host 2 API requests (2 admitted /
+0 refused) plus 38 Docker admissions; healthz 1;
+the physical 16 cumulative TCP-handler cap
+preserved, exact admission count NOT retained.
+Quiesce closed-pass (0/0); the 8252 B retained
+FULL four-case capture (exporter uid 21001)
+revalidated BEFORE teardown and qualified by
+the shared strict full consumer (the only form
+that qualifies). Publication kept the ordered
+separation: the owner's OWN retention receipt
+FIRST, the retained AJ record (publication-time
+`attempt=running`) SECOND, the ONE pass journal
+entry LAST; one-shot, no fresh-path retry, no
+cached-finalize upgrade; ALL EIGHT separate
+facts verified. The SAME Bash job restored the
+worker foreground with the saved TTY
+attributes (TCSANOW, no input flush, readback
+equal) and the functional input was verified by
+the root with an actual read-only tool probe.
+The ONE admission is terminal (never
+reset/retried/relabeled); no source/helper/test/
+lock/workflow file changed; bounded process
+deviations disclosed in the immutable records.
+D09 remains `NOT RUN`; no whole-017 or v1
+runtime claim; 018–024 remain mandatory.
+
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
 planned meanings of numeric 006-008 are historical planning prose, not live

@@ -936,6 +936,60 @@ belongs to the separately activated `017-aj`
 order; D09 remains NOT RUN and no native-
 ready, whole-017 or v1 runtime claim is made.
 
+Round 017-aj (activated separately, executed as the
+ONE admitted actual attempt) completes the real
+native format qualification on the bounded
+reference fixture. A reviewed private non-Codex
+operator under ONE managed foreground procedure
+drove the SAME coding worker (stopped once, by
+exact-group TSTP with the monitor already ON) into
+the pinned 0.164.0 native inside the exact owned
+container, registered against an independently
+measured expected PTY, with the frozen owner
+identity and a synthetic environment attached
+explicitly. From ONE closed input line, the four
+serial format cases ran and were byte-verified
+against the immutable pre-launch seed originals:
+a complete 494 B file read; a genuine
+initial-running exec whose 1536 B output (CRLF and
+non-ASCII) arrived in two non-empty pieces over
+its single associated poll; a successful 0 B
+empty output; and a deliberate bounded
+truncation at the effective token budget that
+never acquired. The measured totals are five
+issued calls, one poll and seven model POSTs: the
+planned minimum was six, and the ONE extra POST's
+purpose is UNMEASURED, with no body/status trace
+or forensic inference retained. The separate
+controller export ledger, host API and Docker
+admission counts are preserved as distinct facts;
+the exact physical TCP admission count is NOT
+retained. The 8252 B retained FULL four-case
+capture, revalidated before teardown and
+qualified by the shared strict full consumer
+(the only form that ever qualifies), was
+published in the ordered separation: the
+owner's own successful retention receipt FIRST,
+the retained AJ record carrying its
+publication-time `attempt=running` fact SECOND,
+and the ONE pass journal entry LAST, one-shot
+with no fresh-path retry and no
+cached-finalize upgrade. All eight separate
+qualification facts were verified, the
+exact-CID and image teardown was 404-verified,
+and the SAME Bash job restored the worker in the
+foreground with the saved TTY attributes
+(readback-equal, no input flush), whose
+functional input was verified by the root with
+an actual read-only tool probe. The ONE
+admission is terminal: it was never reset,
+retried or relabeled, and no source, helper,
+test, lock or workflow file changed in this
+round. The bounded process deviations are
+disclosed in the immutable round records. D09
+remains NOT RUN; no whole-017 or v1 runtime
+claim is made; 018-024 remain mandatory.
+
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact
 configuration is described in [the configuration reference](docs/ADAPTER-CONFIGURATION.md);

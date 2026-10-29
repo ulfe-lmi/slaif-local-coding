@@ -1713,6 +1713,63 @@ or v1 runtime claim; the later ACTUAL
 qualification belongs to the separately
 activated `017-aj` order, strategy-chosen.
 
+Round 017-aj (the ONE actual attempt) adds NO
+tests and changes NO source, helper, test,
+lock or workflow file. Its evidence is the
+actual bounded-fixture qualification
+executed under ONE reviewed private
+non-Codex operator, ONE managed foreground
+procedure and the ONE terminal admission
+(attempt head P; operator terminal exit 0;
+facts in the immutable round records): the
+SAME worker stopped once by exact-group
+TSTP (monitor ON before any setter); the
+pinned 0.164.0 native in the exact owned CID
+against an independently measured expected
+PTY (never MKDEV); frozen identity 1001:1001
+groups [1001]; synthetic env attached
+explicitly; current exe MEASURED via the
+registered-CID channel as the pinned
+artifact. The four serial cases
+byte-verified against the immutable
+pre-launch seed originals (complete 494 B
+read; initial-running 1536 B output, CRLF
+and non-ASCII, ONE poll, TWO non-empty
+pieces; 0 B empty output; bounded
+non-acquiring truncation). Measured: 5
+issued calls, 1 poll, 7 model POSTs
+(planned minimum 6; the ONE extra POST's
+purpose UNMEASURED, no trace or forensics);
+controller export ledger 9 requests / 7561
+output bytes; host 2 API requests (2
+admitted / 0 refused) plus 38 Docker
+admissions; healthz 1; the physical 16
+cumulative TCP-handler cap preserved, exact
+admission count NOT retained. Quiesce
+closed-pass (0/0); the 8252 B retained
+FULL four-case capture revalidated BEFORE
+teardown and qualified by the shared
+strict full consumer (the only form that
+qualifies); publication in the ordered
+separation (owner's OWN retention receipt
+FIRST, retained AJ record SECOND, ONE pass
+journal entry LAST; one-shot, no
+fresh-path retry, no cached-finalize
+upgrade); ALL EIGHT separate facts
+verified; exact-CID and image teardown
+404-verified. The SAME Bash job restored
+the worker foreground with the saved TTY
+attributes (TCSANOW, no input flush,
+readback equal) and functional input was
+verified by the root with an actual
+read-only tool probe. The ONE admission is
+terminal (never reset, retried or
+relabeled); the bounded process
+deviations are disclosed in the immutable
+round records. D09 remains NOT RUN; no
+whole-017 or v1 runtime claim; 018-024
+remain mandatory.
+
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
 [docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).

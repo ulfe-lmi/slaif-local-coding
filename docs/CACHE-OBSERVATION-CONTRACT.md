@@ -3895,6 +3895,68 @@ preserved CI hermetic failure is documented below).
   activated `017-aj` order, strategy-
   chosen.
 
+- Round 017-aj (the ONE actual attempt) executed
+  the ACTUAL native format qualification that
+  017-ai landed inertly, on the bounded
+  reference fixture, under ONE reviewed
+  private non-Codex operator, ONE managed
+  foreground procedure and the ONE terminal
+  admission (attempt head P; operator terminal
+  exit 0; every fact in the immutable round
+  records). The SAME coding worker was stopped
+  once, by exact-group TSTP with the monitor
+  already ON before any setter, and the pinned
+  0.164.0 native ran in the exact owned CID
+  against an independently measured expected
+  PTY (never MKDEV), frozen identity 1001:1001
+  groups [1001], synthetic environment attached
+  explicitly, current exe MEASURED through the
+  registered-CID channel as the pinned
+  artifact. From ONE closed input line the four
+  serial cases byte-verified against the
+  immutable pre-launch seed originals:
+  complete 494 B read; genuine
+  initial-running exec, 1536 B output (CRLF
+  and non-ASCII), ONE poll, TWO non-empty
+  pieces; successful 0 B empty output; bounded
+  truncation at the effective token budget,
+  never acquiring. Measured: 5 issued calls, 1
+  poll, 7 model POSTs (planned minimum 6; the
+  ONE extra POST's purpose UNMEASURED, no trace
+  or forensics); controller export ledger 9
+  requests / 7561 output bytes; host 2 API
+  requests (2 admitted / 0 refused) plus 38
+  Docker admissions; healthz 1; the physical 16
+  cumulative TCP-handler cap preserved, exact
+  physical TCP admission count NOT retained.
+  Quiesce closed-pass (0/0); the 8252 B
+  retained FULL four-case capture (exporter uid
+  21001) was revalidated BEFORE teardown and
+  qualified by the shared strict full consumer,
+  the only form that ever qualifies.
+  Publication kept the ordered separation: the
+  owner's OWN successful retention receipt
+  FIRST, the retained AJ record
+  (publication-time attempt=running) SECOND,
+  the ONE pass journal entry LAST, one-shot
+  with no fresh-path retry and no
+  cached-finalize upgrade; ALL EIGHT separate
+  facts verified; exact-CID and image teardown
+  404-verified with the sentinel surviving and
+  the env file holding key names plus sha
+  only. The SAME Bash job restored the worker
+  foreground with the saved TTY attributes
+  (TCSANOW, no input flush, readback equal),
+  and functional input was verified by the
+  root with an actual read-only tool probe. The
+  ONE admission is terminal (never reset,
+  retried or relabeled); no source, helper,
+  test, lock or workflow file changed in this
+  round; the bounded process deviations are
+  disclosed in the immutable round records.
+  D09 remains NOT RUN; no native-ready,
+  whole-017 or v1 runtime claim; 018-024 remain
+  the mandatory planned succession.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 
