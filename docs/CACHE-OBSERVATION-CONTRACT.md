@@ -3942,9 +3942,14 @@ preserved CI hermetic failure is documented below).
   with no fresh-path retry and no
   cached-finalize upgrade; ALL EIGHT separate
   facts verified; exact-CID and image teardown
-  404-verified with the sentinel surviving and
-  the env file holding key names plus sha
-  only. The SAME Bash job restored the worker
+  404-verified with the sentinel surviving;
+  the synthetic env file (holding the
+  attempt's CODEX_HOME and provider-key
+  values) lived inside the exact CID and is
+  gone with that container teardown, while
+  the retained metadata records key names
+  plus sha only. The SAME Bash job restored
+  the worker
   foreground with the saved TTY attributes
   (TCSANOW, no input flush, readback equal),
   and functional input was verified by the
@@ -3954,9 +3959,13 @@ preserved CI hermetic failure is documented below).
   test, lock or workflow file changed in this
   round; the bounded process deviations are
   disclosed in the immutable round records.
-  D09 remains NOT RUN; no native-ready,
-  whole-017 or v1 runtime claim; 018-024 remain
-  the mandatory planned succession.
+  D09 remains NOT RUN; the measured
+  native_ready=true verdict is bounded to
+  this reference-fixture attempt and
+  recorded in those immutable records; no
+  generic native-ready, whole-017 or v1
+  runtime claim; 018-024 remain the
+  mandatory planned succession.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 

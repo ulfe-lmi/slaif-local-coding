@@ -1766,9 +1766,12 @@ read-only tool probe. The ONE admission is
 terminal (never reset, retried or
 relabeled); the bounded process
 deviations are disclosed in the immutable
-round records. D09 remains NOT RUN; no
-whole-017 or v1 runtime claim; 018-024
-remain mandatory.
+round records. D09 remains NOT RUN; the
+measured native_ready=true verdict is
+bounded to this reference-fixture attempt
+and recorded in those immutable records; no
+generic native-ready, whole-017 or v1
+runtime claim; 018-024 remain mandatory.
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in

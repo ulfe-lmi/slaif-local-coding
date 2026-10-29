@@ -1526,8 +1526,12 @@ The ONE admission is terminal (never
 reset/retried/relabeled); no source/helper/test/
 lock/workflow file changed; bounded process
 deviations disclosed in the immutable records.
-D09 remains `NOT RUN`; no whole-017 or v1
-runtime claim; 018–024 remain mandatory.
+D09 remains `NOT RUN`; the measured
+native_ready=true verdict is bounded to
+this reference-fixture attempt (immutable
+round records); no generic native-ready,
+whole-017 or v1 runtime claim; 018–024
+remain mandatory.
 
 objectives 018–024 remain the planned inert draft succession for the v1
 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original

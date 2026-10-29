@@ -986,9 +986,13 @@ admission is terminal: it was never reset,
 retried or relabeled, and no source, helper,
 test, lock or workflow file changed in this
 round. The bounded process deviations are
-disclosed in the immutable round records. D09
-remains NOT RUN; no whole-017 or v1 runtime
-claim is made; 018-024 remain mandatory.
+disclosed in the immutable round records.
+The measured native_ready=true verdict is
+bounded to this reference-fixture attempt
+and is recorded in those immutable records;
+no generic native-ready, whole-017 or v1
+runtime claim is made; 018-024 remain
+mandatory.
 
 This guide explains the components, data flow and design limits. For deployment,
 start with [QUICKSTART.md](QUICKSTART.md) or [INSTALL.md](INSTALL.md). Exact
