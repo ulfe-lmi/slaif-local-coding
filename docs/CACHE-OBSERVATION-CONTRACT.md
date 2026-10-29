@@ -3943,12 +3943,12 @@ preserved CI hermetic failure is documented below).
   cached-finalize upgrade; ALL EIGHT separate
   facts verified; exact-CID and image teardown
   404-verified with the sentinel surviving;
-  the synthetic env file (holding the
-  attempt's CODEX_HOME and provider-key
-  values) lived inside the exact CID and is
-  gone with that container teardown, while
-  the retained metadata records key names
-  plus sha only. The SAME Bash job restored
+  the host-side synthetic env file (holding
+  the attempt's CODEX_HOME and provider-key
+  values), explicitly used by the Docker
+  attach, was removed during the owned
+  cleanup, while the retained metadata
+  records key names plus sha only. The SAME Bash job restored
   the worker
   foreground with the saved TTY attributes
   (TCSANOW, no input flush, readback equal),
