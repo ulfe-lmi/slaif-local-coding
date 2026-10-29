@@ -15,7 +15,7 @@
     "synthetic": true,
     "observed_format_authority": "codex-0.149.0 API-boundary shapes; see tests/fixtures/codex/0.149.0/README.md for the sanitized authority record",
     "parser_versions": {
-      "observer": "cache-bundle-observation/1",
+      "observer": "cache-bundle-observation/2",
       "envelope": "codex-project-instructions/v1",
       "read_grammar": "literal-shell-read/v1",
       "tool_wrapper": "codex-exec-wrapper/v1"

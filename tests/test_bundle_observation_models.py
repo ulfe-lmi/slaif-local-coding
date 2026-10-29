@@ -300,7 +300,7 @@ class TestInputImmutability:
 
 class TestVersionConstants:
     def test_versions_are_stable_identifiers(self) -> None:
-        assert OBSERVER_VERSION == "cache-bundle-observation/1"
+        assert OBSERVER_VERSION == "cache-bundle-observation/2"
         assert ENVELOPE_FORMAT == "codex-project-instructions/v1"
         assert READ_GRAMMAR == "literal-shell-read/v1"
         assert TOOL_WRAPPER_FORMAT == "codex-exec-wrapper/v1"

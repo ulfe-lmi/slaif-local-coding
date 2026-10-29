@@ -1,0 +1,54 @@
+{
+  "model": "synthetic-bundle-model",
+  "messages": [
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "type": "function",
+          "id": "call_pc_exec_1",
+          "function": {
+            "name": "exec_command",
+            "arguments": "{\"cmd\": \"cat A.md\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_pc_exec_1",
+      "content": "Chunk ID: 9a8b7c\nWall time: 0.1234 seconds\nProcess running with session ID 9203\nOriginal token count: 41\nOutput:\nChat first chunk line\r\n"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "type": "function",
+          "id": "call_pc_poll_1",
+          "function": {
+            "name": "write_stdin",
+            "arguments": "{\"session_id\": 9203, \"chars\": \"\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call_pc_poll_1",
+      "content": "Chunk ID: 5c6d7e\nWall time: 0.6789 seconds\nProcess exited with code 0\nOriginal token count: 88\nOutput:\nChat final chunk line\r\n"
+    }
+  ],
+  "_fixture": {
+    "synthetic": true,
+    "observed_format_authority": "SYNTHETIC-DERIVED from the qualified 017-aj reference-fixture capture (pinned 0.164.0, rust-v0.164.0; run e51da1e9; report oap/reports/017-aj-native-process-format-qualification.md): native wrapper text form copied from the byte-verified selected frames (record.format_capture.snapshot.cases[*].results[*].wrapper); command/path/call-ID/session/output values adapted; not a fresh actual-client trace; no seed recovery; no customer/private history",
+    "parser_versions": {
+      "observer": "cache-bundle-observation/2",
+      "envelope": "codex-project-instructions/v1",
+      "read_grammar": "literal-shell-read/v1",
+      "tool_wrapper": "codex-exec-wrapper/v1",
+      "native_tool_wrapper": "codex-native-exec-wrapper/v1",
+      "process_grammar": "process-chunk/v1"
+    },
+    "note": "Chat equivalent of the complete chain: assistant tool_calls plus tool messages over the same pinned wrapper format."
+  }
+}

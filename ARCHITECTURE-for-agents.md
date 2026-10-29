@@ -579,8 +579,9 @@ round reports `oap/reports/017-*.md`, and the versioned normative contract is
 Current earned scope, inert pure-observation package
 `src/slaif_local_coding/constitution/bundles/` (never active in the adapter;
 legacy detector unchanged): the D01-D08 root/path/read/result/span observation
-slices, with the D10 composition matrix and the D09 unsupported/partial
-negative matrix retained. The binding read-grammar, call/result pairing,
+slices, plus the D09 process/chunk collector (pure inert slice, 017-al;
+observation contract section 5a), with the D10 composition matrix and the D09
+unsupported/partial negative matrix retained. The binding read-grammar, call/result pairing,
 eligibility-independent identity inventory, numeric structural causality,
 complete-inventory no-retention preflight bounds and private-ID
 representation law is normative in the `Read observation` item of the
@@ -588,9 +589,12 @@ representation law is normative in the `Read observation` item of the
 and is versioned in observation contract section 5 ("Tool call/result pairing
 and wrapper (D05)") with the section-8 bound defaults and the section-9
 privacy/identity law; the required-syntax acceptance matrix (D01-D10: EARNED /
-RECOGNIZED-ONLY / UNSUPPORTED / NOT RUN) is section 11b. D09 (actual-trace /
-multi-chunk process-completion plus the process/chunk collector) remains NOT
-RUN.
+RECOGNIZED-ONLY / UNSUPPORTED / NOT RUN) is section 11b. The D09 process/
+chunk collector is EARNED as a pure inert slice (observation contract section
+5a; `tests/test_bundle_process_chunks.py`); the D09 actual-trace process-
+completion qualification remains NOT RUN, and ordinary already-exited native
+single-final frames stay OUTSIDE public acquisition (legacy `MALFORMED_WRAPPER`
+gap, contract section 5a).
 
 Serial native-fixture qualification law (current binding scope; the canonical
 per-round normative detail is observation contract sections 11a-11p): one RAM
@@ -638,10 +642,12 @@ is inert and input-gated (no actual capture, collector or model call; section
 
 017 current earned/unearned scope and qualified-status lineage (the detailed per-round history, including the software-only observation and native-fixture prerequisite work, is in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round reports): the D01-D08 observation slices and the inert native-fixture software (the 17 fixture helpers) are earned at their bounded scopes, with no v1 runtime; the actual native-fixture attempts are at their exact immutable reports - 017-x `oap/reports/017-x-live-python-executable-capability.md` (bounded Python-only capability, closed terminal FAIL), 017-y `oap/reports/017-y-readiness-diagnosis-and-executable-capability.md` (readiness diagnosis, closed PASS, the executable a closed UNKNOWN), 017-ab `oap/reports/017-ab-owner-uid-python-capability-qualification.md` (bounded Python-only capability, closed terminal PASS at diagnostic scope), 017-ad `oap/reports/017-ad-owner-uid-native-handoff-qualification.md` (closed PARTIAL, the ordered native handoff NOT RUN - never PASS, never waived), 017-af `oap/reports/017-af-owner-uid-native-pty-qualification.md` (closed FAILED, one admission spent forever), 017-ah `oap/reports/017-ah-owner-uid-native-pty-requalification.md` (qualified at the bounded diagnostic scope), and 017-aj `oap/reports/017-aj-native-process-format-qualification.md` (qualified the real native format at the bounded reference-fixture scope; the measured native_ready=true verdict is bounded to that attempt); the bounded process qualifications of AH and AJ are preserved by those exact references.
 
-D09 remains NOT RUN; no GENERIC native-compatibility, whole-017 or v1 runtime
-claim is made. The EACH seven required literal families and D09 remain
-mandatory; whole-017 acceptance plus merge plus remote-main verification
-precedes 018-024. objectives 018-024 remain the planned inert draft succession
+The D09 actual-trace process-completion qualification remains NOT RUN (the
+pure inert process/chunk collector slice is earned in 017-al, observation
+contract section 5a); no GENERIC native-compatibility, whole-017 or v1
+runtime claim is made. The EACH seven required literal families and the D09
+actual-trace qualification remain mandatory; whole-017 acceptance plus merge
+plus remote-main verification precedes 018-024. objectives 018-024 remain the planned inert draft succession
 for the v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the
 original planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric

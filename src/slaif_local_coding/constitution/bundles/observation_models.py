@@ -11,6 +11,24 @@ converts those offsets to UTF-8 byte offsets over the same string; the two
 domains are never mixed.  Digests are computed over the exact observed bytes
 (``str.encode("utf-8")``) and never assert anything about the original
 filesystem encoding.
+
+Version law: ``cache-bundle-observation/2`` (round 017-al) extends the
+``/1`` contract additively for the D09 process/chunk collector: the pinned
+native exec-wrapper format identity ``codex-native-exec-wrapper/v1``, the
+process grammar ``process-chunk/v1``, the ``NativeWrapperFacts`` /
+``ProcessPiece`` / ``ProcessPoll`` / ``ProcessObservation`` models, the
+``ProcessOutcome`` enum, the four new ``process_*``
+limitations plus ``wrapper_header_over_bound``, the new
+``ObservationReport.processes`` field (default empty) and five
+new ``ObservationBounds`` fields with fixed defaults.  Every ``/1`` field keeps
+its exact meaning and single-result behavior, and old ``/1`` reports remain
+loadable (the new fields take their empty defaults).  A ``/2`` report
+requires a ``/2`` consumer because it carries the additive ``processes``
+field: raw ``/1`` and ``/2`` reports differ by exactly the additive fields
+and the ``observer_version`` string — the additive-field projection (drop
+``processes``) is the accurate comparison, not equality modulo
+``observer_version`` alone.  The legacy ``codex-exec-wrapper/v1`` grammar
+keeps its exact law (including source-is-source).
 """
 
 from __future__ import annotations
@@ -23,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import core_schema
 
 #: Identity of this pure observation implementation.
-OBSERVER_VERSION = "cache-bundle-observation/1"
+OBSERVER_VERSION = "cache-bundle-observation/2"
 
 #: Versioned root-envelope delimiter contract (see the observation contract).
 ENVELOPE_FORMAT = "codex-project-instructions/v1"
@@ -33,6 +51,14 @@ READ_GRAMMAR = "literal-shell-read/v1"
 
 #: Versioned observed Codex exec wrapper format.
 TOOL_WRAPPER_FORMAT = "codex-exec-wrapper/v1"
+
+#: Versioned pinned-native exec wrapper format (objective 017-al, D09): the
+#: pinned 0.164.0 function_tool_response text wrapper.  Distinct from the
+#: legacy ``codex-exec-wrapper/v1`` grammar; the two formats never mix.
+NATIVE_TOOL_WRAPPER_FORMAT = "codex-native-exec-wrapper/v1"
+
+#: Versioned D09 process/chunk association grammar (objective 017-al).
+PROCESS_CHUNK_GRAMMAR = "process-chunk/v1"
 
 #: SHA-256 of the empty source; a proven zero-byte read is a complete empty
 #: version carrying exactly this digest.
@@ -94,16 +120,22 @@ PRIVATE_ID_PLACEHOLDER = "<private-id>"
 def _redact_private_ids(value: object) -> object:
     """Redact private ID values in a dumped model structure.
 
-    Only observed non-empty ``call_id`` values are replaced by the
-    fixed placeholder; the observable no-ID state (``""``) is preserved,
-    and every other field, enum, count, location, span and digest is
-    unchanged.
+    Observed private ID values are replaced by the fixed placeholder:
+    non-empty ``call_id`` / ``exec_call_id`` / ``poll_call_id`` string
+    values and every observed ``session_id`` value (exact process
+    identity, never echoed).  The observable no-ID state (``""``) is
+    preserved, and every other field, enum, count, location, span and
+    digest is unchanged.
     """
+
+    _PRIVATE_ID_KEYS = ("call_id", "exec_call_id", "poll_call_id", "session_id")
 
     if isinstance(value, dict):
         redacted: dict[str, object] = {}
         for key, item in value.items():
-            if key == "call_id" and isinstance(item, str) and item != "":
+            if key in _PRIVATE_ID_KEYS and (
+                (isinstance(item, str) and item != "") or (key == "session_id" and item is not None)
+            ):
                 redacted[key] = PRIVATE_ID_PLACEHOLDER
             else:
                 redacted[key] = _redact_private_ids(item)
@@ -146,6 +178,37 @@ class ReadOutcome(StrEnum):
     NONZERO_EXIT = "nonzero_exit"
     TRUNCATED = "truncated"
     PARTIAL = "partial"
+    MISSING_BODY = "missing_body"
+    UNSUPPORTED = "unsupported"
+
+
+class ProcessOutcome(StrEnum):
+    """D09 process-chain completion state (objective 017-al).
+
+    Each state is distinct and never conflated: ``COMPLETE`` requires
+    every associated observed piece to be present, coherent,
+    untruncated, within bounds and a proven final success; a prior
+    truncation invalidates whole-source completion even on final
+    exit zero.  ``RUNNING`` means no frame in this request proved
+    completion (never a completion claim).  ``TRUNCATED`` and
+    ``NONZERO_EXIT`` preserve the honest terminal-frame facts.
+    ``MISSING_BODY`` is the reserved state for a final frame with no
+    output section; under the closed native grammar such a frame cannot
+    prove completion (a missing body is a closed-wrapper validation
+    refusal, not a proven exit fact — the absence of the delimiter does
+    not establish that exit text is absent), so the state is never
+    emitted: a missing body is surfaced as the frame-level
+    ``MISSING_OUTPUT_BODY`` refusal reason inside an ``UNSUPPORTED``
+    observation, distinct from a proven empty output (a complete empty
+    piece).
+    ``UNSUPPORTED`` covers chains whose closed grammar or identity
+    was not established; a full source is never fabricated.
+    """
+
+    COMPLETE = "complete"
+    TRUNCATED = "truncated"
+    NONZERO_EXIT = "nonzero_exit"
+    RUNNING = "running"
     MISSING_BODY = "missing_body"
     UNSUPPORTED = "unsupported"
 
@@ -232,6 +295,12 @@ class Limitation(StrEnum):
     MISSING_OUTPUT_BODY = "missing_output_body"
     MALFORMED_WRAPPER = "malformed_wrapper"
     OUTPUT_OVER_BOUND = "output_over_bound"
+    # Process/chunk observation (D09, objective 017-al)
+    PROCESS_SESSION_CONFLICT = "process_session_conflict"
+    PROCESS_POLL_INVALID = "process_poll_invalid"
+    PROCESS_CHAIN_CONFLICT = "process_chain_conflict"
+    PROCESS_TRUNCATED = "process_truncated"
+    WRAPPER_HEADER_OVER_BOUND = "wrapper_header_over_bound"
     # Read plan grammar (D06/D07/D08)
     CD_TARGET_UNSUPPORTED = "cd_target_unsupported"
     ECHO_TARGET_UNSUPPORTED = "echo_target_unsupported"
@@ -388,6 +457,166 @@ class WrapperFacts(_Frozen):
     reasons: tuple[Limitation, ...] = ()
 
 
+class NativeWrapperFacts(_Frozen):
+    """Parsed pinned-native exec-wrapper metadata (D09, objective 017-al).
+
+    Distinct versioned format identity from the legacy
+    ``codex-exec-wrapper/v1`` grammar: the pinned 0.164.0
+    function_tool_response text wrapper — header sections in the fixed
+    order (optional chunk ID, mandatory wall time, optional exit or
+    running section, optional original token count) over the exact
+    ``Output:`` delimiter line, which is LF-terminated even when the
+    output is empty.  Dispatch is on bounded header evidence only:
+    text after the delimiter is the exact output section and is never
+    re-parsed as header (the version-bound native truncation fact is
+    read from the output section and can only ever mark the frame
+    truncated — never complete).  The chunk ID is private transport
+    metadata: only its presence is retained, never its value.  The
+    session ID is exact process identity, usable internally for
+    association while operational ``str``/``repr`` suppress it.
+    """
+
+    wrapper_format: str = NATIVE_TOOL_WRAPPER_FORMAT
+    chunk_id_present: bool = False
+    wall_time_present: bool = False
+    exit_code: int | None = Field(default=None, ge=-(2**31), le=2**31 - 1)
+    session_id: int | None = Field(default=None, gt=0, le=2**31 - 1)
+    original_token_count: int | None = Field(default=None, ge=0)
+    output_present: bool
+    output_span: CharSpan | None = None
+    output_char_length: int | None = Field(default=None, ge=0)
+    output_byte_length: int | None = Field(default=None, ge=0)
+    #: Version-bound native truncation fact (pinned warning / omission
+    #: marker in the output section); never a completeness proof.
+    truncated: bool = False
+    reasons: tuple[Limitation, ...] = ()
+
+    def __repr__(self) -> str:
+        return operational_repr(self)
+
+    def __str__(self) -> str:
+        return operational_repr(self)
+
+
+class ProcessPiece(_Frozen):
+    """One exact observed output slice of a process chain (D09).
+
+    ``char_span`` is relative to the exact decoded JSON string that
+    carried THIS result's text (the per-result domain; never a
+    concatenated string that never existed in the request).  An empty
+    piece is exact (a proven empty output retains the delimiter LF)
+    and cannot inflate the nonempty-piece proof.  Raw piece text never
+    enters the report: spans, lengths and the transient whole-bundle
+    digest are the retained facts.
+    """
+
+    piece_index: int = Field(ge=0)
+    result_location: str
+    char_span: CharSpan
+    char_length: int = Field(ge=0)
+    byte_length: int = Field(ge=0)
+    empty: bool
+
+
+class ProcessPoll(_Frozen):
+    """One causally associated empty-stdin poll and its own result (D09).
+
+    Positions are exact numeric structural positions; the poll's
+    result follows its own issued call (never a positional guess).
+    ``wrapper`` carries the pinned-native facts of the poll's own
+    result text and ``piece`` its exact output slice.
+    """
+
+    poll_call_id: str
+    poll_call_location: str
+    poll_position: int = Field(ge=0)
+    result_location: str
+    result_position: int = Field(ge=0)
+    wrapper: NativeWrapperFacts
+    piece: ProcessPiece
+
+    def __repr__(self) -> str:
+        return operational_repr(self)
+
+    def __str__(self) -> str:
+        return operational_repr(self)
+
+
+class ProcessObservation(_Frozen):
+    """D09 per-request process/chunk observation (inert, objective 017-al).
+
+    Models the original exec occurrence, each causally associated
+    empty-stdin poll and its own result, the exact original source
+    pieces in causal order, and the final process completion.  The
+    earned outer attribution is computed on the transient ordered
+    concatenation of the exact pieces and mapped back onto the
+    original pieces (``region_piece_spans``); ``bundle_digest`` is the
+    digest of the exact earned region bytes.  Raw source never enters
+    the report, no dummy span over a concatenated string is minted,
+    and the occurrence-hash law holds (one attributable occurrence
+    may carry its exact member digest; boundaryless multiple
+    occurrences stay unknown).  ``proven_executed`` is nonempty only
+    when the original exec command is itself a complete all-cat parse
+    (the actual sleep-bearing stream command stays unearned);
+    ``requested_members`` preserves the exact original command's
+    finite parsed data in every outcome.
+    """
+
+    process_grammar: str = PROCESS_CHUNK_GRAMMAR
+    endpoint: str
+    #: Exact observed exec call ID; internal association data stays
+    #: exact, operational ``str``/``repr`` suppress it.
+    exec_call_id: str
+    exec_call_location: str
+    exec_call_position: int = Field(ge=0)
+    initial_result_location: str
+    initial_result_position: int = Field(ge=0)
+    initial_wrapper: NativeWrapperFacts
+    requested_members: tuple[NormalizedPath, ...] = ()
+    proven_executed: tuple[str, ...] = ()
+    #: Exact member digest per proven occurrence; the occurrence-hash law
+    #: holds — one attributable file occurrence covering a proven region
+    #: carries its exact digest, boundaryless multiple occurrences stay
+    #: unknown (``None``), and no per-member hash is otherwise invented.
+    member_digests: tuple[str | None, ...] = ()
+    #: Per-piece sub-spans (aligned with ``pieces``; offsets relative to
+    #: the exact decoded JSON string that carried each piece's result
+    #: text — ABSOLUTE offsets in the global span law: the output-local
+    #: region clip plus the owning piece's ``char_span.start``;
+    #: ``None`` = no region overlap for that piece) of the earned outer
+    #: region mapped back from the transient joined view onto the
+    #: original pieces.  No span over a detached output substring or a
+    #: virtual joined string.  Empty when no region is proven.
+    region_piece_spans: tuple[CharSpan | None, ...] = ()
+    #: Character length of the earned outer region over the transient
+    #: joined view (``None`` when no region is proven).
+    proven_region_char_length: int | None = Field(default=None, ge=0)
+    #: Number of DISTINCT proven members (the earned width; never the
+    #: chunk/piece count); ``None`` unless the outcome is earned —
+    #: nonacquiring states never invent earned width.
+    distinct_member_count: int | None = Field(default=None, ge=0)
+    #: Distinct-member slot width (mirrors the read-observation law).
+    slot_width: int | None = Field(default=None, ge=0)
+    polls: tuple[ProcessPoll, ...] = ()
+    final_result_location: str | None = None
+    final_result_position: int | None = Field(default=None, ge=0)
+    final_wrapper: NativeWrapperFacts | None = None
+    pieces: tuple[ProcessPiece, ...] = ()
+    piece_count: int = Field(ge=0)
+    nonempty_piece_count: int = Field(ge=0)
+    total_char_length: int = Field(ge=0)
+    total_byte_length: int = Field(ge=0)
+    outcome: ProcessOutcome
+    bundle_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    reasons: tuple[Limitation, ...] = ()
+
+    def __repr__(self) -> str:
+        return operational_repr(self)
+
+    def __str__(self) -> str:
+        return operational_repr(self)
+
+
 class ReadObservation(_Frozen):
     """One paired call/result read observation (D03-D05).
 
@@ -445,7 +674,8 @@ class ObservationReport(_Frozen):
     The report carries spans, digests, counts and fixed reasons only; it never
     carries raw source content, and it never derives identity from text.
     Operational ``str``/``repr`` never echo private call/result ID values
-    (fixed enums, counts, locations and digests remain observable).
+    or process session IDs (fixed enums, counts, locations and digests
+    remain observable).
     """
 
     observer_version: str = OBSERVER_VERSION
@@ -454,6 +684,11 @@ class ObservationReport(_Frozen):
     roots: RootScanResult
     reads: tuple[ReadObservation, ...] = ()
     unpaired: tuple[UnpairedRecord, ...] = ()
+    #: D09 process/chunk observations (objective 017-al); empty when the
+    #: payload carries no qualifying native process chain.  Additive in
+    #: ``cache-bundle-observation/2``; every ``/1`` field and behavior is
+    #: preserved unchanged.
+    processes: tuple[ProcessObservation, ...] = ()
 
     def __repr__(self) -> str:
         return operational_repr(self)
@@ -477,3 +712,17 @@ class ObservationBounds(_Frozen):
     max_output_chars: int = Field(default=1_000_000, ge=1, le=10_000_000)
     max_wrapper_header_lines: int = Field(default=8, ge=1, le=64)
     max_tools: int = Field(default=128, ge=1, le=10_000)
+    # D09 process/chunk bounds (objective 017-al): fixed defaults,
+    # enforced by a no-retention preflight before any process piece is
+    # allocated or retained (observation contract section 5a).
+    #: Independent process chains per request.
+    max_process_sessions: int = Field(default=4, ge=1, le=10_000)
+    #: Empty-stdin polls per chain.
+    max_process_polls: int = Field(default=12, ge=1, le=10_000)
+    #: Pieces per chain (one initial frame plus the bounded polls).
+    max_process_pieces: int = Field(default=13, ge=1, le=10_000)
+    #: Cumulative source characters over one chain's ordered pieces.
+    max_process_source_chars: int = Field(default=1_000_000, ge=1, le=10_000_000)
+    #: Cumulative exact UTF-8 source BYTES over one chain's ordered
+    #: pieces; enforced before any piece retention or concatenation copy.
+    max_process_source_bytes: int = Field(default=1_000_000, ge=1, le=10_000_000)

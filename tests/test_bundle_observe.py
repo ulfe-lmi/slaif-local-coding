@@ -256,7 +256,11 @@ class TestFixtureSelfIdentification:
             meta = payload.get("_fixture")
             assert meta is not None, path.name
             assert meta["synthetic"] is True
-            assert "codex-0.149.0" in meta["observed_format_authority"]
+            authority = meta["observed_format_authority"]
+            # Legacy fixtures cite the codex-0.149.0 API-boundary record;
+            # D09 process fixtures are SYNTHETIC-DERIVED from the pinned
+            # 0.164.0 qualified AJ capture.
+            assert "codex-0.149.0" in authority or "0.164.0" in authority, path.name
             assert meta["parser_versions"]["observer"] == OBSERVER_VERSION
             assert meta["parser_versions"]["envelope"] == ENVELOPE_FORMAT
             assert meta["parser_versions"]["read_grammar"] == READ_GRAMMAR

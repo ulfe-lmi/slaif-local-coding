@@ -1,0 +1,40 @@
+{
+  "model": "synthetic-bundle-model",
+  "input": [
+    {
+      "type": "function_call",
+      "call_id": "call_proc_exec_1",
+      "name": "exec_command",
+      "arguments": "{\"cmd\": \"cat A.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_proc_exec_1",
+      "output": "Chunk ID: 0a1b2c\nWall time: 0.1234 seconds\nProcess running with session ID 9203\nOriginal token count: 41\nOutput:\nFirst chunk line one\r\nSecond chunk line two\r\n"
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_proc_poll_1",
+      "name": "write_stdin",
+      "arguments": "{\"session_id\": 9203, \"chars\": \"\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_proc_poll_1",
+      "output": "Chunk ID: 3d4e5f\nWall time: 0.6789 seconds\nProcess exited with code 0\nOriginal token count: 88\nOutput:\nFinal chunk line one\r\nFinal chunk line two\r\n"
+    }
+  ],
+  "_fixture": {
+    "synthetic": true,
+    "observed_format_authority": "SYNTHETIC-DERIVED from the qualified 017-aj reference-fixture capture (pinned 0.164.0, rust-v0.164.0; run e51da1e9; report oap/reports/017-aj-native-process-format-qualification.md): native wrapper text form copied from the byte-verified selected frames (record.format_capture.snapshot.cases[*].results[*].wrapper); command/path/call-ID/session/output values adapted; not a fresh actual-client trace; no seed recovery; no customer/private history",
+    "parser_versions": {
+      "observer": "cache-bundle-observation/2",
+      "envelope": "codex-project-instructions/v1",
+      "read_grammar": "literal-shell-read/v1",
+      "tool_wrapper": "codex-exec-wrapper/v1",
+      "native_tool_wrapper": "codex-native-exec-wrapper/v1",
+      "process_grammar": "process-chunk/v1"
+    },
+    "note": "Provenance multi-piece chain: running initial frame plus one closed empty-stdin poll final frame; the pinned 0.164.0 wrapper text form of the qualified AJ selected frames with adapted values."
+  }
+}

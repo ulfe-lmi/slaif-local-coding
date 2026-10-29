@@ -1,0 +1,40 @@
+{
+  "model": "synthetic-bundle-model",
+  "input": [
+    {
+      "type": "function_call",
+      "call_id": "call_tr_exec_1",
+      "name": "exec_command",
+      "arguments": "{\"cmd\": \"cat A.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_tr_exec_1",
+      "output": "Chunk ID: a0b1c2\nWall time: 0.1111 seconds\nProcess running with session ID 9203\nOriginal token count: 20\nOutput:\nTruncated head line\r\n"
+    },
+    {
+      "type": "function_call",
+      "call_id": "call_tr_poll_1",
+      "name": "write_stdin",
+      "arguments": "{\"session_id\": 9203, \"chars\": \"\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_tr_poll_1",
+      "output": "Chunk ID: d3e4f5\nWall time: 0.2222 seconds\nProcess exited with code 0\nOriginal token count: 512\nOutput:\nWarning: truncated output (original token count: 512)\nTotal output lines: 64\n\nhead line\r\n\u2026256 tokens truncated\u2026\r\ntail line\r\n"
+    }
+  ],
+  "_fixture": {
+    "synthetic": true,
+    "observed_format_authority": "SYNTHETIC-DERIVED from the qualified 017-aj reference-fixture capture (pinned 0.164.0, rust-v0.164.0; run e51da1e9; report oap/reports/017-aj-native-process-format-qualification.md): native wrapper text form copied from the byte-verified selected frames (record.format_capture.snapshot.cases[*].results[*].wrapper); command/path/call-ID/session/output values adapted; not a fresh actual-client trace; no seed recovery; no customer/private history",
+    "parser_versions": {
+      "observer": "cache-bundle-observation/2",
+      "envelope": "codex-project-instructions/v1",
+      "read_grammar": "literal-shell-read/v1",
+      "tool_wrapper": "codex-exec-wrapper/v1",
+      "native_tool_wrapper": "codex-native-exec-wrapper/v1",
+      "process_grammar": "process-chunk/v1"
+    },
+    "note": "Truncated final frame: the pinned two-line native warning over the head/marker/tail body lives in the output section AFTER the delimiter and can only ever mark the chain truncated, never complete."
+  }
+}

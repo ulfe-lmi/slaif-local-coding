@@ -749,6 +749,169 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
   execution metadata (`Process exited with code 1`, `Truncated: true`, …)
   remains source and never redefines wrapper status.
 
+### 5a. Process/chunk observation (D09; pure inert slice earned in 017-al)
+
+The D09 process/chunk collector is implemented as an inert pure slice
+(`process_chunks.py`; process grammar `process-chunk/v1`; observer
+version `cache-bundle-observation/2`) over the pinned native 0.164.0
+`function_tool_response` exec-wrapper format
+(`codex-native-exec-wrapper/v1` — a distinct versioned format identity
+from the legacy `codex-exec-wrapper/v1`; the legacy single-result
+surface is unchanged and honestly types native frames
+non-acquiring).  It is inert: never wired into the adapter request
+execution path, no observed command is executed, and no filesystem or
+network access occurs.  It runs through the public `observe_request`
+under the same selected-endpoint domain / suppression law as the read
+surface, and its result is the additive `ObservationReport.processes`
+tuple.
+
+**Native wrapper grammar (closed; dispatch on bounded header evidence
+only).**  Header sections in the fixed order — optional `Chunk ID: `
+(six lowercase hex; presence retained, value never retained),
+mandatory `Wall time: ` (bounded four-decimal seconds), optional
+`Process exited with code ` or `Process running with session ID `
+(strict i32, mutually exclusive), optional `Original token count: `
+(bounded unsigned) — over the exact `Output:` delimiter line
+(LF-terminated even when the output is empty).  Everything after the
+delimiter is the exact output section and is never re-parsed as
+header.  The version-bound native truncation fact (the pinned two-line
+warning over the head/marker/tail body, or a pinned omission marker
+inside the output section) can only ever mark the frame truncated —
+never complete.  Source text resembling wrapper metadata cannot change
+header facts.  Header discovery is bounded: the delimiter is located
+inside the window of `max_wrapper_header_lines * 44` characters plus
+the delimiter, before any slice or split.  A header the configured cap
+cannot classify — no delimiter in the bounded window while the string
+extends beyond it, or more lines than the cap within it — is the fixed
+`WRAPPER_HEADER_OVER_BOUND` resource refusal (decided WITHOUT searching
+the source body for `Output` metadata; the complete header is never
+inspected), distinct from the `MALFORMED_WRAPPER` grammar verdict over
+a fully visible header.
+
+**Chain law (closed grammar; one selected endpoint domain).**
+
+- **Exec occurrence.** An eligible `exec_command`/`shell_command` call
+  with an exact string ID and EXACTLY ONE causally following result
+  whose bounded native header proves a running session (session section
+  present, exit section absent) claims the session.  Bounded header
+  identity is decided separately from body eligibility: a competing
+  owner with an over-bound or otherwise ineligible body still claims
+  its session and is never silently dropped.
+- **Session ownership.** The session must be established by exactly
+  ONE eligible exec occurrence in the request (across ALL eligible
+  execs, even when the command is not an earned read).  A second
+  running frame with the same session is
+  `PROCESS_SESSION_CONFLICT`.  Any other unresolved known-native
+  running claim — a duplicated or pre-call exec result, or a
+  `write_stdin` result whose header session contradicts or cannot be
+  attributed to the poll's closed argument session — is negative-only
+  ambiguity: it invalidates the claimed session without proving
+  execution, and the affected chain is `PROCESS_SESSION_CONFLICT`.
+  Such records never acquire, and malformed poll arguments are never
+  accepted as execution evidence.
+- **Polls.** A bare `write_stdin` call whose arguments are EXACTLY the
+  closed empty-stdin shape `{"session_id": <strict positive int
+  matching the chain session>, "chars": ""}`.  A matching-session poll
+  with nonempty/invalid/absent chars or extra keys is
+  `PROCESS_POLL_INVALID` and invalidates the affected chain even when
+  a later clean poll returns exit 0; a missing or duplicated result, a
+  pre-call result, an after-final position, or a colliding call ID is a
+  typed `PROCESS_CHAIN_CONFLICT` invalidation — never filtered away as
+  "not a chain poll".  A poll whose closed argument session is proven
+  different (a valid int) is an unrelated unique opaque call for the
+  addressed chain (it neither joins nor poisons) — including when its
+  own result is a native final frame, whose closed header carries no
+  session (the strict different-SID final control); a poll whose
+  result carries no parseable native claim at all is likewise
+  unrelated.  An UNASSIGNABLE argument session (malformed/absent/
+  non-int identity, undecodable arguments) whose bounded own result
+  records contain a KNOWN native frame — a well-formed running, final,
+  or unknown-status header (duplicated results never repair) — is
+  negative uncertainty, NOT opaque: a poll ISSUED after the exec issue
+  and before the chain's terminal RESULT (no terminal result: the
+  chain is still open) is potentially associated with that open chain,
+  and its native record prevents complete-source proof even when the
+  result is delivered late (late delivery is retained; it can still
+  hide a piece).  The affected chain is a typed
+  `PROCESS_CHAIN_CONFLICT`: the SID is never coerced, no execution or
+  owner is inferred.  A poll issued before the exec issue, or after
+  the terminal result, is isolated (prior/future numeric chronology),
+  and unknown unique opaque tool families are isolated in all of these
+  cases.  No generic poll option support is claimed (extra argument
+  keys have no declared compatible grammar).
+- **Blocked anchors.** A known-native result whose bounded header is
+  unclassifiable because the configured header cap is exhausted is a
+  blocked anchor: the bounds prevent a complete owner inventory, so
+  every claimant and every exec-origin anchor carries the fixed
+  non-acquiring `OVER_BOUND` (never a good-looking owner selected from
+  an incomplete inventory; a blocked exec keeps its honest record even
+  with no valid claimant).  A poll-origin anchor invalidates the
+  actual exec claimants but is never itself observed (a `write_stdin`
+  call is not an original exec and no process origin is invented);
+  with only poll-origin anchors no process observation exists and the
+  read surface keeps its honest bookkeeping.  A fully visible
+  malformed header claims nothing.  Unknown unique opaque tool
+  families can never assert session ownership in any of these cases.
+- **Completion.** Earned only when every associated frame parses,
+  every piece is within its per-frame bound, the cumulative source is
+  within the declared character AND exact UTF-8 byte bounds (both
+  checked before any piece retention or concatenation copy), the final
+  frame proves exit zero, and no frame is truncated (a truncated frame
+  anywhere invalidates whole-source completion even on final exit
+  zero).  Outcomes `COMPLETE` / `TRUNCATED` / `NONZERO_EXIT` /
+  `RUNNING` / `UNSUPPORTED` are distinct; `MISSING_BODY` is reserved
+  and never emitted (a missing body is a closed-wrapper validation
+  refusal, surfaced as the frame-level `MISSING_OUTPUT_BODY` reason
+  inside an `UNSUPPORTED` observation), distinct from a proven empty
+  output (a complete empty piece retaining the delimiter LF).
+- **Outer attribution.** The earned outer attribution is computed on
+  the transient ordered concatenation under the existing outer-region
+  law (single / plan / loop) and mapped back onto the original pieces
+  as absolute per-piece sub-spans (no dummy span over a virtual joined
+  string); the occurrence-hash law holds (one attributable occurrence
+  may carry its exact member digest; boundaryless multiple occurrences
+  stay unknown); raw source never enters the report;
+  `requested_members` preserves the exact original command's finite
+  parsed data in every outcome; `proven_executed` is nonempty only for
+  a complete all-cat parse of the original command.
+
+**Bounds (fixed defaults; decided before work/retention).**
+`max_process_sessions=4` distinct sessions, `max_process_polls=12`
+accepted polls per chain, `max_process_pieces=13` pieces per chain
+(1 initial + accepted polls), `max_process_source_chars=1_000_000`
+and `max_process_source_bytes=1_000_000` cumulative.  The complete
+owner inventory is decided from bounded header facts BEFORE any full
+frame body work (the session count is a preflight over the header
+facts); the per-chain poll/piece ceilings are decided before the
+over-limit candidate frame is parsed or retained (an at-limit chain
+stays exactly at the bound); the cumulative char/byte bounds are
+decided before any piece is allocated or retained.  Over any of them
+is a fixed non-acquiring `OVER_BOUND` — no piece retention, no
+selection.
+
+**Versioning and compatibility.**  Observer version
+`cache-bundle-observation/2` is additive only: all `/1` fields, enums
+and behavior are unchanged.  New: `NativeWrapperFacts`,
+`ProcessPiece`, `ProcessPoll`, `ProcessObservation`, `ProcessOutcome`,
+five new limitation values (the four `process_*` values plus
+`wrapper_header_over_bound`), `ObservationReport.processes` (default
+empty), five new `ObservationBounds` fields, and two new grammar
+constants.  A `/2` report on a payload without a qualifying native
+chain equals the `/1` report modulo the observer-version string and
+the empty `processes` field; a `/2` report carrying processes requires
+a `/2` consumer (additive-field projection is the accurate comparison,
+not raw equality modulo the version alone).
+
+**Honest gaps.**  Ordinary already-exited native execs (single-final
+frames) remain OUTSIDE public acquisition: the legacy grammar does not
+recognize the pinned native token-count section, so such single-result
+frames stay honestly typed non-acquiring (`MALFORMED_WRAPPER`) on the
+unchanged legacy surface and no process chain exists (the recorded gap
+for the whole-017 literal audit).  The actual sleep-bearing stream
+command stays unearned; the pure-cat adaptations are the
+SYNTHETIC-DERIVED positives.  Actual-trace process-completion
+qualification remains a requirement, not a claim of this slice.
+
 ## 6. Bundle attribution (D05)
 
 A successful complete `cat A.md B.md` result is **one ordered, whole
@@ -789,18 +952,25 @@ tool (`unsupported_tool`,
 `pre_call_result`, `nonzero_exit`, `unknown_completion`,
 `truncated_output`, `process_running`, `write_stdin_chunk`,
 `multi_chunk_deferred`, `missing_output_body`, `malformed_wrapper`,
-`output_over_bound`), plan (`cd_target_unsupported`,
-`echo_target_unsupported`, `outer_boundary_unproven`), loop
+`output_over_bound`), plan
+(`cd_target_unsupported`, `echo_target_unsupported`,
+`outer_boundary_unproven`), loop
 (`loop_form_unsupported`, `loop_variable_unsupported`,
 `loop_template_unsupported`, `loop_guard_unsupported`,
-`loop_iteration_unproven`).
+`loop_iteration_unproven`), process
+(`process_session_conflict`, `process_poll_invalid`,
+`process_chain_conflict`, `process_truncated`,
+`wrapper_header_over_bound`).
 
 ## 8. Boundedness
 
 `ObservationBounds` (defaults: 1024 items, 1,000,000 item chars, 512 label
 **UTF-8 bytes**, 100,000 environment chars, 128 commands, 4,096 command
-chars, 32 operands, 256 path bytes, 128 outputs, 1,000,000 output chars, 8
-wrapper header lines, 128 tools) bounds every scan; the complete
+chars, 32 operands, 256 path bytes, 128 outputs, 1,000,000 output
+chars, 8 wrapper header lines, 4 process sessions, 12 process
+polls, 13 process pieces, 1,000,000 process source chars,
+1,000,000 process source bytes, 128 tools) bounds every scan; the
+complete
 call/result inventory is bounded by `max_items` per inspected
 container — outer `input`/`messages` lists and, since round 017-p,
 each nested assistant `tool_calls` list individually, by an O(1)
@@ -809,7 +979,14 @@ record is retained, and `max_commands` /
 `max_outputs` are enforced on the **complete** relevant inventory
 (all schema-position call records and all result records, including
 invalid IDs) before any identity map or diagnostic is built (section
-5, complete-inventory bounds).  The derived argument-decode bound is
+5, complete-inventory bounds).  Process/chunk observation (section
+5a) applies the same preflight discipline: the complete owner
+inventory is decided from bounded header facts BEFORE any full frame
+body work, the per-chain poll/piece ceilings are decided before the
+over-limit candidate frame is parsed or retained, and the cumulative
+character and exact UTF-8 byte bounds are checked before any piece
+retention or concatenation copy.  The derived argument-decode bound
+is
 `12 * max_argument_chars + 128` (the documented
 conservative JSON-encoding worst case).  Parsing is linear; adversarial
 input (multi-megabyte items, huge item counts, unterminated envelopes,
@@ -839,6 +1016,13 @@ shared `max_operands` budget (never multiplied per iteration).
   only, and token representations carry spans and flags only; no
   exception path re-raises with raw command, workdir, body or source
   text.
+- Process/chunk observation keeps call and session IDs exact in the
+  typed report; operational `str`/`repr` of `NativeWrapperFacts` and
+  `ProcessPoll` — and of the reports containing them — suppress
+  `exec_call_id`, `poll_call_id` and `session_id` through the fixed
+  `<private-id>` placeholder.  The native chunk ID is retained as
+  presence only (its value never enters the report), and no raw piece
+  text is ever retained.
 - No filesystem or network access occurs anywhere in this package; observed
   commands are never executed.
 
@@ -861,6 +1045,14 @@ authority and the parser versions above:
   real-format `Chunk ID:` header and the explicitly earned compatible
   `Chunk Id:` variant are exercised
   (`read_handoff_wrapper_format_responses.json`).
+- **Process/chunk shapes** (`process_*` fixtures): SYNTHETIC-DERIVED
+  from the qualified 017-aj reference-fixture capture (pinned 0.164.0;
+  run `e51da1e99c4341a48c6ca9f0e9ff62e6`; report
+  `oap/reports/017-aj-native-process-format-qualification.md`).  The
+  wrapper text form is copied from the byte-verified selected frames;
+  command, path, call-ID and session values are adapted synthetic
+  values.  No new native observation occurred and no seed was
+  recovered.
 
 Root capture and synthetic supplemental read shapes are distinct; no fixture
 claims to be a fresh actual-client trace, and no private audit history, task
@@ -1373,7 +1565,7 @@ slice versus remaining gap):
 | D06 | Chained reads with `ls`, labels and unrelated output | all-cat `&&` plans and outer-label/outer-region composition: tests/test_bundle_compound_reads.py::TestChainedReadPlans, ::TestEchoOuterBoundaries, ::TestOuterRegionComposition, ::TestOuterSourceRegions — this slice does NOT earn the `ls` form (see the ls+cat literal row above: `ls` is typed unsupported, non-acquiring) | the ls+cat required-syntax variant remains pending scope audit; strategic acceptance PENDING |
 | D07 | Literal loop, supported wildcard evidence, explicit `workdir`/`cd` | guarded echoless loop forms (one complete ordered bundle; ordered policy files; per-call workdir; absolute template): tests/test_bundle_literal_loops.py::TestHumanForms::test_guarded_echoless_forms_are_earned, ::test_guarded_loop_is_one_complete_ordered_bundle, ::test_guarded_template_loop_proves_ordered_policy_files, ::test_per_call_workdir_resolves_expanded_relative_members; literal `cd`: tests/test_bundle_compound_reads.py::TestLiteralCdTransitions — this slice does NOT earn the literal unguarded/labeled human forms (typed `LOOP_ITERATION_UNPROVEN`/`OUTER_BOUNDARY_UNPROVEN`, recognized membership non-removable) or wildcard membership (`GLOB_UNPROVEN`) | the unguarded/labeled loop required-syntax variants remain pending scope audit; strategic acceptance PENDING |
 | D08 | Read succeeds/later fails; earlier fails/later succeeds | per-read evidence distinguished from global exit as CONSERVATIVE uncertainty: tests/test_bundle_compound_reads.py::TestPerReadVersusGlobalExit (a nonzero chain proves NO read and no digest — requested members preserved, wrapper status recorded; earlier-failure/later-success, truncated chain, process-running, malformed-Unicode, chat composition, mixed suppression) — these negatives prove conservative uncertainty, NOT per-read completion where no completion evidence exists | strategic acceptance PENDING |
-| D09 | Truncation, partial `head`/`sed`, missing output, multi-chunk process | typed partial/truncation UNSUPPORTED/unsupported negatives only: tests/test_bundle_d10_matrix.py::TestUnsupportedAndPartialMatrix (command substitution `$()`/backticks, partial `head`/`sed`, known truncated/missing/running/unknown wrappers — never complete whole-file acquisitions) | `NOT RUN`: genuine multi-chunk process completion and the process/chunk association remain for a later same-PR suffix (a later exact order may authorize one bounded reviewed actual capture, then the process/chunk collector) |
+| D09 | Truncation, partial `head`/`sed`, missing output, multi-chunk process | typed partial/truncation UNSUPPORTED/unsupported negatives (unchanged): tests/test_bundle_d10_matrix.py::TestUnsupportedAndPartialMatrix (command substitution `$()`/backticks, partial `head`/`sed`, known truncated/missing/running/unknown wrappers — never complete whole-file acquisitions); PLUS the D09 process/chunk collector EARNED at PURE INERT scope (contract section 5a): tests/test_bundle_process_chunks.py — TestNativeWrapperParser, TestPollArgumentLaw, TestChainLaw, TestUnidentifiedPollLaw, TestIdentityCollisions, TestBounds, TestRegionAndDigests, TestComposition, TestPrivacy (82 focused tests over SYNTHETIC-DERIVED pinned 0.164.0 frames; TestUnidentifiedPollLaw runs through the public `observe_request` composition entry, the low-level parser/bounds cases stay direct) | `NOT RUN`: actual-trace process-completion qualification remains a requirement; ordinary already-exited native single-final frames stay OUTSIDE public acquisition (legacy `MALFORMED_WRAPPER` gap, section 5a); strategic acceptance PENDING |
 | D10 | Duplicate/mismatched call IDs, command substitution, unexecuted branch; wire-family inventory | eligibility-independent call-ID inventory, structural-position causality, the composition matrix, the unsupported/partial matrix and the wire-family/inventory bounds: tests/test_bundle_d10_matrix.py::TestIdentityConflictPrecedesEligibility, ::TestStructuralCausality, ::TestD10MatrixComposition, ::TestUnsupportedAndPartialMatrix, ::TestWireFamilyInventoryAndBounds, ::TestInventoryAllocationAndIdRepresentation | strategic acceptance PENDING |
 
 `head`/`tail`/`sed`/pipes/glob/Python-reader families remain typed

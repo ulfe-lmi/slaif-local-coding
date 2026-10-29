@@ -1,11 +1,13 @@
 """Inert pure observation stage for the dependency-bundle cache rework.
 
-This package implements the bounded pure-observation slice (D01-D08) of
+This package implements the bounded pure-observation slice (D01-D09) of
 Objective 017: versioned root-envelope, literal shell-read, finite
-read-plan (D06/D07/D08) and literal-loop (D07) observation, and tool-
-result pairing with exact source spans and typed limitations.  It is
-deliberately **not** wired into the legacy request execution path, the
-graph/cache/compiler, or any runtime stage; see
+read-plan (D06/D07/D08) and literal-loop (D07) observation, tool-
+result pairing with exact source spans and typed limitations, and the
+D09 native process/chunk chain collector (``process-chunk/v1`` over the
+pinned ``codex-native-exec-wrapper/v1`` grammar).  It is deliberately
+**not** wired into the legacy request execution path, the graph/cache/
+compiler, or any runtime stage; see
 ``docs/CACHE-OBSERVATION-CONTRACT.md``.
 """
 
@@ -31,18 +33,25 @@ from ..bundles.literal_loops import (
 from ..bundles.observation_models import (
     EMPTY_SOURCE_SHA256,
     ENVELOPE_FORMAT,
+    NATIVE_TOOL_WRAPPER_FORMAT,
     OBSERVER_VERSION,
     PRIVATE_ID_PLACEHOLDER,
+    PROCESS_CHUNK_GRAMMAR,
     READ_GRAMMAR,
     TOOL_WRAPPER_FORMAT,
     CharSpan,
     Limitation,
+    NativeWrapperFacts,
     NormalizedPath,
     ObservationBounds,
     ObservationReport,
     OccurrenceKind,
     PathContext,
     PathForm,
+    ProcessObservation,
+    ProcessOutcome,
+    ProcessPiece,
+    ProcessPoll,
     ReadCommandParse,
     ReadObservation,
     ReadOutcome,
@@ -65,6 +74,7 @@ from ..bundles.observe import (
     observe_request,
     select_endpoint,
 )
+from ..bundles.process_chunks import observe_processes, parse_native_wrapper
 from ..bundles.read_grammar import (
     UnwrappedCommand,
     parse_read_command,
@@ -81,7 +91,9 @@ __all__ = [
     "EMPTY_SOURCE_SHA256",
     "ENVELOPE_FORMAT",
     "LOOP_GRAMMAR",
+    "NATIVE_TOOL_WRAPPER_FORMAT",
     "OBSERVER_VERSION",
+    "PROCESS_CHUNK_GRAMMAR",
     "READ_GRAMMAR",
     "TOOL_WRAPPER_FORMAT",
     "LoopOperand",
@@ -91,10 +103,15 @@ __all__ = [
     "parse_literal_loop",
     "CharSpan",
     "Limitation",
+    "NativeWrapperFacts",
     "NormalizedPath",
     "ObservationBounds",
     "ObservationReport",
     "OccurrenceKind",
+    "ProcessObservation",
+    "ProcessOutcome",
+    "ProcessPiece",
+    "ProcessPoll",
     "ENDPOINT_CHAT",
     "ENDPOINT_MIXED",
     "ENDPOINT_RESPONSES",
@@ -122,8 +139,10 @@ __all__ = [
     "canonical_payload_fingerprint",
     "contains_lone_surrogates",
     "normalize_read_path",
+    "observe_processes",
     "observe_reads",
     "observe_request",
+    "parse_native_wrapper",
     "parse_read_command",
     "parse_wrapper",
     "raw_argument_bound",

@@ -128,9 +128,11 @@ identity, confinement, expected-PTY, publication / qualification) is normative
 in the compact `## Objective boundaries` section and versioned in observation
 contract sections 11a-11p. D10 keeps its composition matrix and D09 keeps
 its unsupported / partial-negative matrix as required acceptance surfaces,
-without any process-completion claim; D09 process / chunk completion itself
-remains NOT RUN, to be exercised in the PURE collector, and the audit /
-remediation of the EACH seven required literal read families remains
+without any process-completion claim; the D09 process / chunk collector is
+exercised by the named pure suite `tests/test_bundle_process_chunks.py`
+(017-al, pure inert, observation contract section 5a), while the D09
+actual-trace process-completion qualification remains NOT RUN, and the
+audit / remediation of the EACH seven required literal read families remains
 outstanding. No GENERIC native-compatibility, whole-017 or v1 runtime claim
 is made (the bounded AJ native_ready=true verdict above stays the only
 native readiness recorded). Whole-017 acceptance, merge and remote-main
@@ -182,7 +184,7 @@ the protected model host. CI owns the canonical executions:
 | `docker` | Fresh built image, actual platform/dependency/wheel identity, signed ingress, readiness, hardening, lifecycle and teardown. |
 | `operator-session` | Documented pull-based operator lifecycle against a synthetic registry and fake upstream. |
 | `docker-published` | Authenticated pull and qualification of the recorded immutable digest after publication. |
-| `cache-native-containment` | Disposable hosted-runner containment capability proof: pinned-base fixture image, explicit confinement surface (network none, read-only rootfs, nonroot uid, cap-drop ALL, no-new-privileges, seccomp=builtin, bounded memory/pids/CPU/tmpfs), ordered token-bound parent-death proof, verified image removal. No secrets forwarded; D09 remains `NOT RUN`. |
+| `cache-native-containment` | Disposable hosted-runner containment capability proof: pinned-base fixture image, explicit confinement surface (network none, read-only rootfs, nonroot uid, cap-drop ALL, no-new-privileges, seccomp=builtin, bounded memory/pids/CPU/tmpfs), ordered token-bound parent-death proof, verified image removal. No secrets forwarded; the D09 actual-trace process-completion qualification remains `NOT RUN`. |
 
 Before an image is published, `docker-published` reports an explicit
 prepublication `NOT RUN` for image qualification while recording registry facts.

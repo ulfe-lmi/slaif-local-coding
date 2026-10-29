@@ -21,6 +21,14 @@ never by precedence, never as two real calls.  The explicit validated
 endpoint context is caller-supplied route authority: untrusted body text or
 headers cannot assert it.
 
+Process-domain law: on one selected endpoint the D09 process/chunk
+collector runs over the same decoded payload under the same selection,
+bounds and suppression law as the read surface (the report's additive
+``processes`` field): the native running -> empty-stdin-poll
+multi-piece chain is the only acquired shape (see the observation
+contract section 5a); mixed and unknown selections carry no process
+observation, and the legacy single-result read surface is untouched.
+
 Root-domain law: only the actual selected **Responses** domain can
 establish a root from its user ``input_text`` container.  An explicit Chat
 selection never borrows root authority from an ignored Responses ``input``;
@@ -51,6 +59,7 @@ from ..bundles.observation_models import (
     UnpairedRecord,
     canonical_payload_fingerprint,
 )
+from ..bundles.process_chunks import observe_processes
 from ..bundles.root_envelopes import scan_root_envelopes
 from ..bundles.tool_results import observe_reads
 
@@ -191,6 +200,13 @@ def observe_request(
             selected_endpoint=selected,
             suppress_acquisition=suppress,
         )
+        processes = observe_processes(
+            payload,
+            effective_context,
+            effective_bounds,
+            selected_endpoint=selected,
+            suppress_acquisition=suppress,
+        )
     else:
         # No selected domain: nothing is acquired.  An explicit endpoint
         # whose container is absent (or an invalid value) is a typed
@@ -204,10 +220,12 @@ def observe_request(
         else:
             unpaired = ()
         reads = ()
+        processes = ()
     return ObservationReport(
         endpoint=selected,
         input_fingerprint=canonical_payload_fingerprint(payload),
         roots=roots,
         reads=reads,
         unpaired=unpaired,
+        processes=processes,
     )
