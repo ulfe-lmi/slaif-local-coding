@@ -139,12 +139,14 @@ SCOPE (017-am): the original selected AJ frames (hash-verified native run
 record) fed through the public composition with an EXPLICIT carrier
 conversion, both endpoints, four cases (section 11q) — the sleep-bearing
 stream command remains an UNEARNED read grammar (process complete, no
-source attribution), and the audit / remediation of the EACH seven
-required literal read families remains outstanding. No GENERIC native-compatibility, whole-017 or v1 runtime claim
+source attribution), and the EACH seven required literal read
+families were concretely audited in 017-am (the residual 5/6/7
+uncertainties are preserved as process qualifications). No GENERIC native-compatibility, whole-017 or v1 runtime claim
 is made (the bounded AJ native_ready=true verdict above stays the only
 native readiness recorded). Whole-017 acceptance, merge and remote-main
-verification must complete BEFORE 018-024 may begin; the later ACTUAL
-qualification belongs to the separately activated orders, strategy-chosen.
+verification completed under the 017-am decision (merged to main at
+ffaabf4b); 018-024 proceed under separately activated orders,
+strategy-chosen (018 active, 018-a foundation slice).
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in

@@ -10,6 +10,12 @@ already-exited single-final frames).  It is deliberately
 **not** wired into the legacy request execution path, the graph/cache/
 compiler, or any runtime stage; see
 ``docs/CACHE-OBSERVATION-CONTRACT.md``.
+
+Objective 018-a adds the inert trusted-namespace graph foundation
+(``cache-graph/v1`` / ``reference-grammar/v1``): bounded raw-reference
+scanning, lexical resolution, the fixed-point graph builder and the
+public bounded graph observation composition
+(``graph_observation``).  The 017 modules are unchanged in that slice.
 """
 
 from __future__ import annotations
@@ -22,6 +28,32 @@ from ..bundles.compound_reads import (
     ReadPlanParse,
     parse_read_plan,
     plan_source_region,
+)
+from ..bundles.graph import build_graph, resolve_reference
+from ..bundles.graph_models import (
+    GRAPH_CONTRACT_VERSION,
+    REFERENCE_GRAMMAR,
+    ROOT_FILENAME,
+    CandidateStatus,
+    CandidateSyntax,
+    GraphBounds,
+    GraphEdge,
+    GraphLimitation,
+    GraphNamespace,
+    GraphOutcome,
+    GraphSnapshot,
+    NodeStatus,
+    ReferenceCandidate,
+    SourceDocument,
+    SourceKind,
+    SourceOccurrence,
+    UnresolvedOriginCandidate,
+    make_graph_namespace,
+)
+from ..bundles.graph_observation import (
+    GraphRequest,
+    observe_graph,
+    observe_graph_batch,
 )
 from ..bundles.literal_loops import (
     LOOP_GRAMMAR,
@@ -84,6 +116,11 @@ from ..bundles.read_grammar import (
     tokenize_literal,
     unwrap_call_arguments,
     unwrap_supported_arguments,
+)
+from ..bundles.references import (
+    ReferenceScan,
+    classify_target,
+    scan_references,
 )
 from ..bundles.root_envelopes import scan_root_envelopes
 from ..bundles.shell_tokens import LiteralToken, tokenize_command
@@ -158,4 +195,31 @@ __all__ = [
     "unwrap_supported_arguments",
     "utf8_byte_span",
     "validate_workspace",
+    # Objective 018-a: trusted-namespace graph foundation (cache-graph/v1).
+    "GRAPH_CONTRACT_VERSION",
+    "REFERENCE_GRAMMAR",
+    "ROOT_FILENAME",
+    "CandidateStatus",
+    "CandidateSyntax",
+    "GraphBounds",
+    "GraphEdge",
+    "GraphLimitation",
+    "GraphNamespace",
+    "GraphOutcome",
+    "GraphSnapshot",
+    "GraphRequest",
+    "NodeStatus",
+    "ReferenceCandidate",
+    "ReferenceScan",
+    "SourceDocument",
+    "SourceKind",
+    "SourceOccurrence",
+    "UnresolvedOriginCandidate",
+    "build_graph",
+    "classify_target",
+    "make_graph_namespace",
+    "observe_graph",
+    "observe_graph_batch",
+    "resolve_reference",
+    "scan_references",
 ]
