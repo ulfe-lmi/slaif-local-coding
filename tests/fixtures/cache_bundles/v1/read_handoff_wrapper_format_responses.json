@@ -1,0 +1,27 @@
+{
+  "model": "synthetic-bundle-model",
+  "input": [
+    {
+      "type": "function_call",
+      "call_id": "call_handoff_1",
+      "name": "exec_command",
+      "arguments": "{\"cmd\": \"cat A.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_handoff_1",
+      "output": "Chunk ID: handoff-1\nWall time: 0.010 seconds\nProcess exited with code 0\nOutput:\nMUST follow the exact source bytes.\n"
+    }
+  ],
+  "_fixture": {
+    "synthetic": true,
+    "observed_format_authority": "root envelope shapes: codex-0.149.0 API-boundary record (tests/fixtures/codex/0.149.0/README.md, root-only sanitized capture); read wrapper shape: human handoff 6.2 documented real format (docs/CACHE-REWORK.md) with synthetic supplemental values; not a fresh actual-client trace",
+    "parser_versions": {
+      "observer": "cache-bundle-observation/2",
+      "envelope": "codex-project-instructions/v1",
+      "read_grammar": "literal-shell-read/v1",
+      "tool_wrapper": "codex-exec-wrapper/v1"
+    },
+    "note": "Human-handoff 6.2 real-format exec wrapper (Chunk ID: + Wall time:) with exact source span."
+  }
+}

@@ -25,6 +25,26 @@ uv run --frozen python scripts/artifact_policy_check.py --dist dist --inspect
 uv run --frozen python scripts/artifact_policy_check.py --dist dist --install-smoke
 ```
 
+The full pytest suite requires the verified non-root **process-local umask
+022** test context on this development host:
+
+```bash
+umask 022
+uv run --frozen pytest -q
+```
+
+The canonical host umask 0002 makes newly owned pytest tmp fixtures group-
+writable, which the safe-evidence validators correctly reject as
+`destination_component_writable` before the tests' intended later rejection
+classes (12 ordering failures); umask 077 masks the intentionally 0755
+untrusted-cache fixture to 0700 and breaks one separate fixture-mode
+expectation. At accepted 016, umask 022 passed the complete gate with 1543
+passed, 27 skipped, 0 failed. Never change global/home permissions to avoid
+this context, never loosen the intentional permission-negative fixtures (the
+0755 untrusted-cache directory; the execute-only-ancestor test that skips on
+UID 0), and create explicitly protected temporary roots/files with 0700/0600
+where a test requires them.
+
 Artifact tests build fresh artifacts and compare provenance with the actual
 source-input map. An intentional README/source change can require a new accepted
 wheel identity and regenerated provenance; never suppress a mismatch just to
@@ -79,6 +99,57 @@ layers, per the ledger's owning stage, are:
 - bounded actual-model and genuine-Codex qualification with synthetic
   tasks, serial bounded requests and complete teardown.
 
+Stage 017 (tracked in the stage ledger) has landed the D01-D08 observation
+slices of the first item as the inert pure observation package
+`src/slaif_local_coding/constitution/bundles/` (never active in the adapter;
+the legacy detector unchanged), exercised by the named pure suites
+`tests/test_bundle_*.py` over the versioned synthetic fixtures in
+`tests/fixtures/cache_bundles/v1/` and the canonical sanitized 0.149.0
+fixture; the offline process-capture utility `scripts/real_client_capture.py`
+is inert and input-gated (`tests/test_real_client_capture.py`; observation
+contract section 12). The per-round corrections, the per-suite test counts and
+the actual-attempt outcomes are NOT restated here: the per-criterion EARNED /
+RECOGNIZED-ONLY / UNSUPPORTED / NOT RUN states are in the required-syntax
+matrix (observation contract section 11b), and the per-round historic counts
+and measured outcomes are in [the stage
+ledger](docs/CACHE-REWORK-LEDGER.md) and the immutable OAP round reports.
+The serial native-fixture qualification lineage (its exact immutable
+report paths are listed in the compact qualified-status lineage) is:
+017-x (bounded Python-only capability, closed terminal FAIL),
+017-y (readiness diagnosis, closed PASS, the executable a closed UNKNOWN),
+017-ab (bounded Python-only capability, closed terminal PASS at diagnostic
+scope), 017-ad (closed PARTIAL, the ordered native handoff NOT RUN - never
+PASS, never waived), 017-af (closed FAILED, one admission spent forever),
+017-ah (qualified at the bounded diagnostic scope), and 017-aj (qualified the
+real native format at the bounded reference-fixture scope; the measured
+native_ready=true verdict is bounded to that attempt). The binding
+native-fixture law (frozen bounds, one-attempt / spent-namespace, owner-UID
+identity, confinement, expected-PTY, publication / qualification) is normative
+in the compact `## Objective boundaries` section and versioned in observation
+contract sections 11a-11q. D10 keeps its composition matrix and D09 keeps
+its unsupported / partial-negative matrix as required acceptance surfaces;
+the D09 process / chunk collector is exercised by the named pure suite
+`tests/test_bundle_process_chunks.py` (017-al pure inert collector plus
+017-am already-exited single-final acquisition and the final-cat
+execution-evidence contract, observation contract sections 5a and 11q,
+with the read-surface evidence tests in
+`tests/test_bundle_tool_results.py::TestFinalCatEvidence`).  The D09
+actual-trace process-completion qualification is qualified AT BOUNDED
+SCOPE (017-am): the original selected AJ frames (hash-verified native run
+record) fed through the public composition with an EXPLICIT carrier
+conversion, both endpoints, four cases (section 11q) — the sleep-bearing
+stream command remains an UNEARNED read grammar (process complete, no
+source attribution), and the audit / remediation of the EACH seven
+required literal read families remains outstanding. No GENERIC native-compatibility, whole-017 or v1 runtime claim
+is made (the bounded AJ native_ready=true verdict above stays the only
+native readiness recorded). Whole-017 acceptance, merge and remote-main
+verification must complete BEFORE 018-024 may begin; the later ACTUAL
+qualification belongs to the separately activated orders, strategy-chosen.
+
+All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
+contract is documented in
+[docs/CACHE-OBSERVATION-CONTRACT.md](docs/CACHE-OBSERVATION-CONTRACT.md).
+
 A stage-scoped synthetic unit/fake test proves its named mechanism within
 that stage; it never substitutes for actual-model, genuine-Codex,
 native-compaction or artifact qualification. A criterion passes only after its own
@@ -120,6 +191,7 @@ the protected model host. CI owns the canonical executions:
 | `docker` | Fresh built image, actual platform/dependency/wheel identity, signed ingress, readiness, hardening, lifecycle and teardown. |
 | `operator-session` | Documented pull-based operator lifecycle against a synthetic registry and fake upstream. |
 | `docker-published` | Authenticated pull and qualification of the recorded immutable digest after publication. |
+| `cache-native-containment` | Disposable hosted-runner containment capability proof: pinned-base fixture image, explicit confinement surface (network none, read-only rootfs, nonroot uid, cap-drop ALL, no-new-privileges, seccomp=builtin, bounded memory/pids/CPU/tmpfs), ordered token-bound parent-death proof, verified image removal. No secrets forwarded; the D09 actual-trace process-completion qualification remains `NOT RUN`. |
 
 Before an image is published, `docker-published` reports an explicit
 prepublication `NOT RUN` for image qualification while recording registry facts.

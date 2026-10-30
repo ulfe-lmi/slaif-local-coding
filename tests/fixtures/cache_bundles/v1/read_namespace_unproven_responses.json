@@ -1,0 +1,27 @@
+{
+  "model": "synthetic-bundle-model",
+  "input": [
+    {
+      "type": "function_call",
+      "call_id": "call_ns_1",
+      "name": "ns/exec_command",
+      "arguments": "{\"cmd\": \"cat A.md\"}"
+    },
+    {
+      "type": "function_call_output",
+      "call_id": "call_ns_1",
+      "output": "Process exited with code 0\nOutput:\nnamespace\n"
+    }
+  ],
+  "_fixture": {
+    "synthetic": true,
+    "observed_format_authority": "root envelope shapes: codex-0.149.0 API-boundary record (tests/fixtures/codex/0.149.0/README.md, root-only sanitized capture); read call/result and wrapper shapes: human handoff 6.2 documented format (docs/CACHE-REWORK.md) with synthetic supplemental values; not a fresh actual-client trace",
+    "parser_versions": {
+      "observer": "cache-bundle-observation/2",
+      "envelope": "codex-project-instructions/v1",
+      "read_grammar": "literal-shell-read/v1",
+      "tool_wrapper": "codex-exec-wrapper/v1"
+    },
+    "note": "Namespace-qualified tool name without supported-envelope evidence: never a suffix-name guess."
+  }
+}

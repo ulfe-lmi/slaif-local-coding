@@ -774,21 +774,65 @@ class Qualification:
 
     # -- phases ------------------------------------------------------------
     def _do_verify_wheel_binding(self) -> dict:
-        manifest = json.loads(
-            (REPO_ROOT / "packaging" / "release_provenance_manifest.json").read_text(
-                encoding="utf-8"
+        if self.mode == "published":
+            # The pulled image is a published (frozen) artifact: its wheel is
+            # the one recorded in the frozen release provenance manifest, and
+            # the CI step passes exactly that recorded hash.
+            manifest = json.loads(
+                (REPO_ROOT / "packaging" / "release_provenance_manifest.json").read_text(
+                    encoding="utf-8"
+                )
             )
-        )
-        wheel = manifest["artifacts"]["wheel"]
-        if wheel["sha256"] != self.args.wheel_sha256:
+            wheel = manifest["artifacts"]["wheel"]
+            if wheel["sha256"] != self.args.wheel_sha256:
+                raise QualificationError(
+                    "verify_wheel_binding",
+                    "wheel_hash_mismatch",
+                    "pulled image wheel does not match the frozen release manifest",
+                )
+            return {
+                "wheel_sha256": wheel["sha256"],
+                "artifact_state": "frozen",
+                "manifest_status": manifest["status"],
+                "image_bound_to_committed_artifact": True,
+            }
+        # Build mode: state-aware wheel binding. The CI build step selects
+        # the expected wheel from the current artifact state (frozen RC10
+        # release manifest, or the current-development provenance manifest in
+        # the development state) via dev_provenance_manifest.py --emit-state.
+        # This phase enforces that same selection — never only the frozen
+        # release manifest — and emit_state fails closed on a missing or
+        # stale development manifest.
+        scripts_dir = str(REPO_ROOT / "scripts")
+        added = scripts_dir not in sys.path
+        if added:
+            sys.path.insert(0, scripts_dir)
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "dev_provenance_manifest",
+                REPO_ROOT / "scripts" / "dev_provenance_manifest.py",
+            )
+            if spec is None or spec.loader is None:
+                raise QualificationError("verify_wheel_binding", "checker_unavailable")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        finally:
+            if added:
+                sys.path.pop(0)
+        state_file = self.workdir / ".ci-artifact-state-qualification.env"
+        self.workdir.mkdir(parents=True, exist_ok=True)
+        values = module.emit_state(REPO_ROOT, state_file)
+        expected = values["expected_wheel_sha256"]
+        if expected != self.args.wheel_sha256:
             raise QualificationError(
                 "verify_wheel_binding",
                 "wheel_hash_mismatch",
-                "freshly built wheel does not match the committed provenance manifest",
+                "freshly built wheel does not match the state-bound provenance manifest",
             )
         return {
-            "wheel_sha256": wheel["sha256"],
-            "manifest_status": manifest["status"],
+            "wheel_sha256": self.args.wheel_sha256,
+            "artifact_state": values["state"],
+            "qualification_label": values["qualification_label"],
             "image_bound_to_committed_artifact": True,
         }
 

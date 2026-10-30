@@ -154,7 +154,12 @@ hash/compile/update graph incrementally. Adapter never reads client filesystem.
 
 ## Dependency-bundle cache law (v1 profile, normative target)
 
-Not implemented in this stage; every statement is the approved target contract.
+As of stage 017-a (observation proof corrected in 017-b, and the
+remaining literal-grammar and actual-endpoint proof in 017-c), the pure
+root/read/result/span observation slice (D01-D05) is implemented as inert
+typed modules under `src/slaif_local_coding/constitution/bundles/`; they are
+not active in the adapter request execution path, the legacy detector is
+unchanged, and every other statement below is the approved target contract.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -187,7 +192,72 @@ evidence is distinct from the global exit status. Unknown, partial or
 truncated output never becomes complete; a typed unsupported observation
 preserves the uncertain span and exposes a limitation. Client-workspace
 absolute paths normalize to repository-relative form only under proven
-workspace context; they never become adapter-host reads.
+workspace context; they never become adapter-host reads. Earned in 017-d
+(inert, `literal-read-plan/v1`): finite all-cat / literal-cd `&&` plans
+with absolute literal `cd` transitions (per-call workdir takes precedence),
+bounded literal `echo` prefix/suffix outer boundaries proven at their exact
+positions, whole-plan bounds, and the law that a global nonzero in a chain
+proves no per-read completion; loops, wildcards, semicolon and other
+non-earned forms remain explicitly typed unsupported. Corrected in 017-e:
+quoting does not disable `echo`'s option parser, so option-like dash-leading
+quoted literals are implementation-sensitive, typed unsupported, and never
+earn a boundary; and every observation produced through the finite-plan
+parser carries the actual `literal-read-plan/v1` identity across all
+outcomes, while observations the single grammar actually earned keep
+`literal-shell-read/v1` (the grammar label never changes outcome or
+digests). Corrected in 017-m (per-request pairing identity and
+causality, section D05 of the observation contract): the relevant
+schema-evidenced call identities are inventoried independently of read
+eligibility — an unknown/ineligible tool call never acquires a source,
+but its ID colliding with an eligible call ID is a typed
+`DUPLICATE_CALL_ID` conflict, never filtered away; unrelated unique
+unknown calls are neither recorded nor allowed to poison separate
+valid chains; arbitrary nested text objects carrying id/name are not
+call records; absent/null/empty IDs are typed `MISSING_CALL_ID` and
+present non-string IDs `MALFORMED_CALL_ID`, both observable, never
+pairing, never inventing an ID — and a result attaches to its
+matching call only when its exact numeric structural position follows
+the call's (the `input` item index; the Chat `messages` index of the
+assistant message carrying the call), never from lexical call IDs,
+JSONPath string sorting or JSONPath evaluation; a result before its
+matching call keeps its chain typed `PRE_CALL_RESULT` and
+non-removable with no bundle/member digest, no source span and no
+proven-executed claim, while missing initial calls remain
+unsupported. Corrected in 017-n (identity-inventory boundaries,
+section D05 of the observation contract): the Responses
+`custom_tool_call` identity joins the call inventory alongside
+`function_call` — identity bookkeeping only (no custom-tool read
+parsing/execution/acquisition, opaque input never reinterpreted, no
+generic unknown-family wildcard), so an exact colliding ID makes the
+ambiguous eligible chain typed/non-removable with no acquired
+digest/span/proven members while a unique unrelated opaque custom
+call neither records nor poisons a valid chain; `max_commands`/
+`max_outputs` bound the **complete** relevant inventory (unsupported
+names, opaque custom records, missing/empty/malformed IDs, invalid
+result IDs) by a no-retention preflight decided before any record tuple, location string, identity map or diagnostic is built or retained — a
+fixed non-acquiring `OVER_BOUND`, never a silently truncated inventory; each inspected outer `input`/`messages` list AND each assistant `tool_calls` list is individually O(1) length-tested against the existing per-container item bound before iteration, parsing or retention (017-p; `max_items` is never a total across lists, and an at-limit nested list still passes), selected-domain scoping under explicit endpoint
+selection, mixed bounded across inspected domains; absent/
+null/empty and non-string result IDs are fixed typed non-echoing
+unpaired limitations (`MISSING_RESULT_ID`/`MALFORMED_RESULT_ID`),
+never invented, hashed, attached or acquired; opaque result families such as `custom_tool_call_output` do not participate in the pairing bookkeeping. The exact internal call/result IDs stay usable for pairing and bookkeeping, while the operational `str`/`repr` of report, read and unpaired objects never echo private ID values (a non-empty `call_id` renders as the fixed `<private-id>` placeholder; the empty no-ID state stays exact; no ID is invented, hashed or re-serialized, and no private value becomes a metric label). Earned in 017-f
+(inert, `literal-loop/v1`): finite literal
+`for var in list; do ...; done` loops with the earned `f`/`d` variable
+names, clean literal iteration lists, double-quoted one-reference
+filename templates, the exact `|| exit 1` guard on each `cat`, and the
+whole-loop expanded-operand budget never multiplied per iteration; an
+all-success guarded pure-cat loop earns one ordered whole-source bundle
+under a wrapper-proven exit-zero/untruncated/present completion,
+unguarded or echo-labeled forms stay non-removable with typed
+iteration/outer-attribution limitations, and every observation the
+loop parser evaluates carries `literal-loop/v1`. Corrected in 017-g:
+the unquoted `;` is its own syntactic element (a standalone token),
+so a quoted prefix plus a literal suffix touching the list separator
+(`for f in "A".md;`) stays one unearned word typed `QUOTED_OPERAND`
+— never two members (`A` and `.md`) — with attached and spaced
+separator forms observing identically and the plain/whole-word quoted
+controls unchanged; the member-digest prose follows the occurrence
+law (one member occurrence covering the entire attributable region
+proves that file's digest; distinct slot width alone never does).
 
 **Admission.** `lean` admits a whole bundle only when every member is
 graph-eligible and may admit an isolated eligible portion when boundaries are
@@ -494,14 +564,106 @@ Merged (verified 2026-09-14): 000 pass-through+image policy/live fixtures
 (PR #3); 003 injection/acquisition/rehydration (PR #4/#5); 004 real
 Codex+security/ops (PR #6, real-E2E accepted fixture-scoped); 005 gateway
 integration+cutover contract (PR #7; the live cutover itself remains a
-separate human-authorized act); 006 signed-request replay hardening (PR #8);
-007 current Gateway contract CI (PR #9); 008 durable acceptance evidence
-(PR #10). Objectives 009–015 are merged through PR #22 (the release-candidate
-line; it concluded with the private RC10 candidate). Cutover NOT
-performed; NOT released. Objective 016 (open PR): dependency-bundle cache
-rework contracts — handoff, plan, reconciled architecture/law, stage ledger.
-Objectives 017–024 are the planned inert draft succession for the v1
-implementation stages (see `docs/CACHE-REWORK-LEDGER.md`). The original
-planned meanings of numeric 006-008 are historical planning prose, not live
-identifiers. Strategy may revise only from verified evidence. One numeric
+separate human-authorized act); 006 signed-request replay hardening
+(PR #8); 007 current Gateway contract CI (PR #9); 008 durable acceptance
+evidence (PR #10). Objectives 009-015 are merged through PR #22
+(release-candidate line; it concluded with the private RC10 candidate).
+Cutover NOT performed; NOT released. Objective 016 (merged PR #24, merge
+`96c790423f6f0097a56a0b12bacda8a9b6da6aba`): dependency-bundle cache rework
+contracts (handoff, plan, reconciled architecture/law, stage ledger).
+Objective 017 is active. The per-round history (017-a through 017-aj) is NOT
+restated here; it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP
+round reports `oap/reports/017-*.md`, and the versioned normative contract is
+`docs/CACHE-OBSERVATION-CONTRACT.md`.
+
+Current earned scope, inert pure-observation package
+`src/slaif_local_coding/constitution/bundles/` (never active in the adapter;
+legacy detector unchanged): the D01-D08 root/path/read/result/span observation
+slices, plus the D09 process/chunk collector (pure inert slice: the 017-al
+collector plus the 017-am already-exited single-final acquisition and the
+final-cat execution-evidence contract; observation contract sections 5a and
+11q), with the D10 composition matrix and the D09
+unsupported/partial negative matrix retained. The binding read-grammar, call/result pairing,
+eligibility-independent identity inventory, numeric structural causality,
+complete-inventory no-retention preflight bounds and private-ID
+representation law is normative in the `Read observation` item of the
+`## Dependency-bundle cache law (v1 profile, normative target)` section above,
+and is versioned in observation contract section 5 ("Tool call/result pairing
+and wrapper (D05)") with the section-8 bound defaults and the section-9
+privacy/identity law; the required-syntax acceptance matrix (D01-D10: EARNED /
+RECOGNIZED-ONLY / UNSUPPORTED / NOT RUN) is section 11b. The D09 process/
+chunk collector is EARNED as a pure inert slice (observation contract section
+5a; `tests/test_bundle_process_chunks.py`); the already-exited native
+single-final gap is CLOSED at its bounded scope in 017-am (the per-request
+count is over completed history, default `max_process_immediate_execs=128`),
+and the D09 actual-trace process-completion qualification is qualified AT
+BOUNDED SCOPE in 017-am (the original selected AJ frames, hash-verified
+record, through the public composition with an explicit carrier conversion,
+both endpoints; contract section 11q) — the sleep-bearing stream command
+stays a DELIBERATE unearned read grammar (order section 2 requires exactly
+this: process completion only, no read acquisition invented for
+sleep/sed-style commands), and pinned native frames WITH the token-count
+section stay legacy-non-acquiring on the unchanged legacy surface (the
+intersection keeps its positive legacy reads for final headers WITHOUT that
+section).
+
+Serial native-fixture qualification law (current binding scope; the canonical
+per-round normative detail is observation contract sections 11a-11p): one RAM
+owner / absolute 1800 s END / cumulative ledger / single 600 s convergence
+grace (the grace is convergence, never fresh measurement); the native
+current-executable is measured through the existing unprivileged registered-CID
+channel as the ACTUAL current bytes with coherent before/after frames and
+bounded streaming at exactly 320 MiB (335544320 bytes) / 10 s, clamped at use
+to the SAME remaining owner END with no artifact-hash fallback (section 11l;
+the original Python 16 MiB / 10 s is section 11h); devpts 96 slave rows /
+65536 drained B / 5 s and subject metadata 5 s clamped at use/return, an
+expired/equal END refuses (section 11m); sealed-entry canonical-path plus
+one-attempt admission, where a changed head/directory/phase never resets the
+attempt and the namespace is spent forever (section 11f/11j); the ORIGINAL fixture defaults stay fixed 21001/21002; the owner-UID profile is
+selected ONLY by its own verified canonical sealed entries, with strict disjoint
+tags and records (disjoint from the original even for equal numeric IDs), and is
+never a global switch (each real/effective/saved UID triple internally equal and each GID triple internally equal independently - UID and GID may differ, as in the legal 1001:1002 fake control - with both subject IDs distinct from controller 21001, nonroot 1..4294967294, and expected groups exactly the primary GID), revalidated by comparison at every identity-bound use and never rebased, and no caller flag establishes
+measured origin (section 11j); membership is exact registered-CID plus owned
+PID/birth lifetimes only (no global host UID/name/argv scan; verified-gone
+only; a failed query is not absence; a zero group/session observation is never
+authority) (section 11j/11o); confinement is the frozen verified local Unix Docker selection with a frozen per-owner env (the overriding context selection removed, explicit remote selection refused before any mutation), rootfs-readonly private PID/mount/IPC/UTS/network namespaces, no host mounts, cap-drop-ALL / no-new-privileges / seccomp, frozen resource ceilings, and empirical keyring denial under the matching host UID (matching UID is not proof of safe containment) (sections 11a/11j); the expected PTY is a one-shot same-fixture
+devpts allocation (never subject-derived / host-devpts / MKDEV) with the node
+GID per the measured devpts policy (section 11m); the exact-group stop requires
+the measured monitor ON first, `jobs -l` binds the SAME job/birth/Bash/TTY, the
+saved TTY attributes are restored TCSANOW with no input flush read back equal,
+and physical foreground is separate from a real functional tool-input probe
+(section 11p); the native-format selected-capture is a closed own-entry
+scenario frozen before startup (at most 8 seed files / 128 KiB whose identity
+is retained from the immutable pre-launch seed originals; at most 16 semantic
+calls / 20 model POSTs / 16 physical TCP handlers / a 256 KiB TOTAL serialized
+outer cap checked before decode/copy); it retains ONLY the exact received
+known-synthetic call/result frames byte-verified against those immutable
+pre-launch originals (actual IDs, association, wrapper ordering and chunk and
+truncation facts), with no reconstruction from digests and no raw unknown
+output, no private source, no private-history, no full-request, header, auth,
+prompt or schema blob retained; publication keeps the ordered separation (the SAME owner's successful protected retention receipt
+FIRST, the protected selected capture record SECOND, the same pending-pass
+journal LAST, one-shot, no fresh-path retry; the AJ qualification journal
+passes only for an actual cleanup pass + native-ready verdict + strict full
+four-case format qualification + protected retention, anything less terminal
+FAIL, partial never PASS, a cached finalize never upgrades) (sections
+11m-11p). The offline process-capture utility (`scripts/real_client_capture.py`)
+is inert and input-gated (no actual capture, collector or model call; section
+12.x).
+
+017 current earned/unearned scope and qualified-status lineage (the detailed per-round history, including the software-only observation and native-fixture prerequisite work, is in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round reports): the D01-D08 observation slices and the inert native-fixture software (the 17 fixture helpers) are earned at their bounded scopes, with no v1 runtime; the actual native-fixture attempts are at their exact immutable reports - 017-x `oap/reports/017-x-live-python-executable-capability.md` (bounded Python-only capability, closed terminal FAIL), 017-y `oap/reports/017-y-readiness-diagnosis-and-executable-capability.md` (readiness diagnosis, closed PASS, the executable a closed UNKNOWN), 017-ab `oap/reports/017-ab-owner-uid-python-capability-qualification.md` (bounded Python-only capability, closed terminal PASS at diagnostic scope), 017-ad `oap/reports/017-ad-owner-uid-native-handoff-qualification.md` (closed PARTIAL, the ordered native handoff NOT RUN - never PASS, never waived), 017-af `oap/reports/017-af-owner-uid-native-pty-qualification.md` (closed FAILED, one admission spent forever), 017-ah `oap/reports/017-ah-owner-uid-native-pty-requalification.md` (qualified at the bounded diagnostic scope), and 017-aj `oap/reports/017-aj-native-process-format-qualification.md` (qualified the real native format at the bounded reference-fixture scope; the measured native_ready=true verdict is bounded to that attempt); the bounded process qualifications of AH and AJ are preserved by those exact references.  The AL round report is `oap/reports/017-al-pure-process-chunk-observation.md` (scoped decision ACCEPTED WITH PROCESS QUALIFICATIONS, all ten SELF checks green; the scoped acceptance remains binding and whole-017 is unaccepted).
+
+The D09 actual-trace process-completion qualification is qualified AT
+BOUNDED SCOPE in 017-am (contract section 11q; converted carriers, one
+qualified record — not an original whole API request and not a new actual
+attempt); the sleep-bearing stream command stays a DELIBERATE unearned read
+grammar (not a pending requirement), and the whole-017 native-single
+literal audit remains the recorded gap; no GENERIC native-compatibility,
+whole-017 or v1 runtime claim is made. The EACH seven
+required literal families and their audit / remediation remain mandatory;
+whole-017 acceptance plus merge plus remote-main verification precedes
+018-024. objectives 018-024 remain the planned inert draft succession
+for the v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the
+original planned meanings of numeric 006-008 are historical planning prose, not
+live identifiers. Strategy may revise only from verified evidence. One numeric
 objective=one PR; coding never merges.
