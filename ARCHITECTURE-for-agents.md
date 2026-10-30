@@ -579,8 +579,10 @@ round reports `oap/reports/017-*.md`, and the versioned normative contract is
 Current earned scope, inert pure-observation package
 `src/slaif_local_coding/constitution/bundles/` (never active in the adapter;
 legacy detector unchanged): the D01-D08 root/path/read/result/span observation
-slices, plus the D09 process/chunk collector (pure inert slice, 017-al;
-observation contract section 5a), with the D10 composition matrix and the D09
+slices, plus the D09 process/chunk collector (pure inert slice: the 017-al
+collector plus the 017-am already-exited single-final acquisition and the
+final-cat execution-evidence contract; observation contract sections 5a and
+11q), with the D10 composition matrix and the D09
 unsupported/partial negative matrix retained. The binding read-grammar, call/result pairing,
 eligibility-independent identity inventory, numeric structural causality,
 complete-inventory no-retention preflight bounds and private-ID
@@ -591,10 +593,19 @@ and wrapper (D05)") with the section-8 bound defaults and the section-9
 privacy/identity law; the required-syntax acceptance matrix (D01-D10: EARNED /
 RECOGNIZED-ONLY / UNSUPPORTED / NOT RUN) is section 11b. The D09 process/
 chunk collector is EARNED as a pure inert slice (observation contract section
-5a; `tests/test_bundle_process_chunks.py`); the D09 actual-trace process-
-completion qualification remains NOT RUN, and ordinary already-exited native
-single-final frames stay OUTSIDE public acquisition (legacy `MALFORMED_WRAPPER`
-gap, contract section 5a).
+5a; `tests/test_bundle_process_chunks.py`); the already-exited native
+single-final gap is CLOSED at its bounded scope in 017-am (the per-request
+count is over completed history, default `max_process_immediate_execs=128`),
+and the D09 actual-trace process-completion qualification is qualified AT
+BOUNDED SCOPE in 017-am (the original selected AJ frames, hash-verified
+record, through the public composition with an explicit carrier conversion,
+both endpoints; contract section 11q) — the sleep-bearing stream command
+stays a DELIBERATE unearned read grammar (order section 2 requires exactly
+this: process completion only, no read acquisition invented for
+sleep/sed-style commands), and pinned native frames WITH the token-count
+section stay legacy-non-acquiring on the unchanged legacy surface (the
+intersection keeps its positive legacy reads for final headers WITHOUT that
+section).
 
 Serial native-fixture qualification law (current binding scope; the canonical
 per-round normative detail is observation contract sections 11a-11p): one RAM
@@ -640,14 +651,18 @@ FAIL, partial never PASS, a cached finalize never upgrades) (sections
 is inert and input-gated (no actual capture, collector or model call; section
 12.x).
 
-017 current earned/unearned scope and qualified-status lineage (the detailed per-round history, including the software-only observation and native-fixture prerequisite work, is in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round reports): the D01-D08 observation slices and the inert native-fixture software (the 17 fixture helpers) are earned at their bounded scopes, with no v1 runtime; the actual native-fixture attempts are at their exact immutable reports - 017-x `oap/reports/017-x-live-python-executable-capability.md` (bounded Python-only capability, closed terminal FAIL), 017-y `oap/reports/017-y-readiness-diagnosis-and-executable-capability.md` (readiness diagnosis, closed PASS, the executable a closed UNKNOWN), 017-ab `oap/reports/017-ab-owner-uid-python-capability-qualification.md` (bounded Python-only capability, closed terminal PASS at diagnostic scope), 017-ad `oap/reports/017-ad-owner-uid-native-handoff-qualification.md` (closed PARTIAL, the ordered native handoff NOT RUN - never PASS, never waived), 017-af `oap/reports/017-af-owner-uid-native-pty-qualification.md` (closed FAILED, one admission spent forever), 017-ah `oap/reports/017-ah-owner-uid-native-pty-requalification.md` (qualified at the bounded diagnostic scope), and 017-aj `oap/reports/017-aj-native-process-format-qualification.md` (qualified the real native format at the bounded reference-fixture scope; the measured native_ready=true verdict is bounded to that attempt); the bounded process qualifications of AH and AJ are preserved by those exact references.
+017 current earned/unearned scope and qualified-status lineage (the detailed per-round history, including the software-only observation and native-fixture prerequisite work, is in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round reports): the D01-D08 observation slices and the inert native-fixture software (the 17 fixture helpers) are earned at their bounded scopes, with no v1 runtime; the actual native-fixture attempts are at their exact immutable reports - 017-x `oap/reports/017-x-live-python-executable-capability.md` (bounded Python-only capability, closed terminal FAIL), 017-y `oap/reports/017-y-readiness-diagnosis-and-executable-capability.md` (readiness diagnosis, closed PASS, the executable a closed UNKNOWN), 017-ab `oap/reports/017-ab-owner-uid-python-capability-qualification.md` (bounded Python-only capability, closed terminal PASS at diagnostic scope), 017-ad `oap/reports/017-ad-owner-uid-native-handoff-qualification.md` (closed PARTIAL, the ordered native handoff NOT RUN - never PASS, never waived), 017-af `oap/reports/017-af-owner-uid-native-pty-qualification.md` (closed FAILED, one admission spent forever), 017-ah `oap/reports/017-ah-owner-uid-native-pty-requalification.md` (qualified at the bounded diagnostic scope), and 017-aj `oap/reports/017-aj-native-process-format-qualification.md` (qualified the real native format at the bounded reference-fixture scope; the measured native_ready=true verdict is bounded to that attempt); the bounded process qualifications of AH and AJ are preserved by those exact references.  The AL round report is `oap/reports/017-al-pure-process-chunk-observation.md` (scoped decision ACCEPTED WITH PROCESS QUALIFICATIONS, all ten SELF checks green; the scoped acceptance remains binding and whole-017 is unaccepted).
 
-The D09 actual-trace process-completion qualification remains NOT RUN (the
-pure inert process/chunk collector slice is earned in 017-al, observation
-contract section 5a); no GENERIC native-compatibility, whole-017 or v1
-runtime claim is made. The EACH seven required literal families and the D09
-actual-trace qualification remain mandatory; whole-017 acceptance plus merge
-plus remote-main verification precedes 018-024. objectives 018-024 remain the planned inert draft succession
+The D09 actual-trace process-completion qualification is qualified AT
+BOUNDED SCOPE in 017-am (contract section 11q; converted carriers, one
+qualified record — not an original whole API request and not a new actual
+attempt); the sleep-bearing stream command stays a DELIBERATE unearned read
+grammar (not a pending requirement), and the whole-017 native-single
+literal audit remains the recorded gap; no GENERIC native-compatibility,
+whole-017 or v1 runtime claim is made. The EACH seven
+required literal families and their audit / remediation remain mandatory;
+whole-017 acceptance plus merge plus remote-main verification precedes
+018-024. objectives 018-024 remain the planned inert draft succession
 for the v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the
 original planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric

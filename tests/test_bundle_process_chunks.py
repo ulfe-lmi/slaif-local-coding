@@ -18,11 +18,14 @@ from typing import Any
 from slaif_local_coding.constitution.bundles import (
     EMPTY_SOURCE_SHA256,
     NATIVE_TOOL_WRAPPER_FORMAT,
+    FinalCatEvidence,
     Limitation,
     ObservationBounds,
     PathContext,
     ProcessObservation,
     ProcessOutcome,
+    ReadOutcome,
+    UnpairedRecord,
     observe_processes,
     observe_request,
     parse_native_wrapper,
@@ -1222,13 +1225,43 @@ class TestComposition:
         assert obs.reasons == (Limitation.PROCESS_TRUNCATED,)
         assert obs.bundle_digest is None
 
-    def test_fixture_single_final_has_no_chain_and_legacy_gap(self) -> None:
+    def test_fixture_single_final_is_acquired_and_legacy_gap_remains(self) -> None:
+        # 017-am: the already-exited single-final frame is acquired on
+        # the process surface: the result is its own initial and
+        # terminal result (zero polls, exactly one piece, no invented
+        # session).  This frame's empty output is a complete empty
+        # version (the delimiter LF is retained).
         payload = load("process_single_final_no_chain_responses.json")
         report = observe_request(payload, context=_CTX)
-        assert report.processes == ()
-        # The unchanged legacy surface types the pinned native frame
-        # non-acquiring (it does not recognize the Original token count
-        # section): the recorded C6 gap for already-exited native execs.
+        assert len(report.processes) == 1
+        obs = report.processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.polls == ()
+        assert obs.pieces[0].empty is True
+        # The proven empty source keeps its real zero-width carrier
+        # span (absolute in the result's decoded JSON string), never
+        # None.
+        assert obs.pieces[0].char_span.start == obs.pieces[0].char_span.end
+        assert obs.proven_region_char_length == 0
+        assert obs.region_piece_spans == (obs.pieces[0].char_span,)
+        assert obs.piece_count == 1
+        assert obs.nonempty_piece_count == 0
+        assert obs.bundle_digest == EMPTY_SOURCE_SHA256
+        assert obs.member_digests == (EMPTY_SOURCE_SHA256,)
+        assert obs.proven_executed == ("A.md",)
+        assert obs.distinct_member_count == 1
+        assert obs.initial_result_position == obs.final_result_position
+        assert obs.initial_wrapper.exit_code == 0
+        assert obs.initial_wrapper.session_id is None
+        assert obs.final_wrapper is not None
+        assert obs.final_wrapper.exit_code == 0
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+        # The unchanged legacy surface still types the pinned native
+        # frame non-acquiring (it does not recognize the Original token
+        # count section): pinned frames WITH that section stay
+        # non-acquiring there (the grammars intersect only on final
+        # headers WITHOUT it).
         assert len(report.reads) == 1
         assert Limitation.MALFORMED_WRAPPER in report.reads[0].reasons
 
@@ -1293,3 +1326,590 @@ class TestPrivacy:
         # Presence only: the chunk value is never retained.
         dump = facts.model_dump(mode="json")
         assert "0a1b2c" not in json.dumps(dump) and "3d4e5f" not in json.dumps(dump)
+
+
+class TestSingleFinal:
+    """Already-exited native single-final acquisition (objective 017-am).
+
+    All cases go through the PUBLIC ``observe_request`` composition
+    (Responses and Chat); the result is its own initial and terminal
+    result — zero polls, exactly one piece, no invented session, no
+    coordinate into a virtual joined string.
+    """
+
+    @staticmethod
+    def _final_no_tokens(chunk: str, wall: str, code: int, body: str) -> str:
+        return (
+            f"Chunk ID: {chunk}\n"
+            f"Wall time: {wall} seconds\n"
+            f"Process exited with code {code}\n"
+            f"Output:\n{body}"
+        )
+
+    @staticmethod
+    def _chat_payload(call_id: str, cmd: str, text: str) -> dict[str, Any]:
+        return {
+            "model": "synthetic-bundle-model",
+            "messages": [
+                {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "id": call_id,
+                            "function": {
+                                "name": "exec_command",
+                                "arguments": json.dumps({"cmd": cmd}),
+                            },
+                        }
+                    ],
+                },
+                {"role": "tool", "tool_call_id": call_id, "content": text},
+            ],
+        }
+
+    def test_earned_single_relative_is_acquired(self) -> None:
+        payload = _payload(
+            _exec("sf1", "cat A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "alpha\n")),
+        )
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "responses"
+        assert len(report.processes) == 1
+        obs = report.processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.reasons == ()
+        assert obs.exec_call_id == "sf1"
+        assert obs.polls == ()
+        assert obs.piece_count == 1
+        assert obs.nonempty_piece_count == 1
+        # The result is its own initial and terminal result: no
+        # invented session, no duplicated bytes as a second piece.
+        assert obs.initial_wrapper.session_id is None
+        assert obs.final_wrapper is not None
+        assert obs.final_wrapper.session_id is None
+        assert obs.initial_wrapper.exit_code == 0
+        assert obs.final_wrapper.exit_code == 0
+        assert obs.initial_result_position == obs.final_result_position
+        assert obs.initial_result_location == obs.final_result_location
+        # The earned region is the single piece's own text: the absolute
+        # carrier span, mapped back onto the one piece.
+        piece = obs.pieces[0]
+        assert piece.piece_index == 0
+        assert obs.region_piece_spans == (piece.char_span,)
+        assert piece.char_length == 6
+        assert piece.byte_length == 6
+        assert obs.proven_region_char_length == 6
+        assert obs.bundle_digest == _digest("alpha\n")
+        assert obs.proven_executed == ("A.md",)
+        assert obs.member_digests == (obs.bundle_digest,)
+        assert len(obs.requested_members) == 1
+        assert obs.distinct_member_count == 1
+        assert obs.slot_width == 1
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+        # The pinned frame stays non-acquiring on the unchanged legacy
+        # surface (it does not recognize the Original token count
+        # section).
+        assert len(report.reads) == 1
+        assert Limitation.MALFORMED_WRAPPER in report.reads[0].reasons
+
+    def test_earned_single_absolute_is_acquired(self) -> None:
+        payload = _payload(
+            _exec("sf1", "cat /work/A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "alpha\n")),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.proven_executed == ("A.md",)
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+
+    def test_earned_compound_plan_is_acquired(self) -> None:
+        payload = _payload(
+            _exec("sf1", "cat A.md && cat B.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "alpha\nbeta\n")),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.proven_executed == ("A.md", "B.md")
+        assert obs.member_digests == (None, None)
+        assert obs.distinct_member_count == 2
+        assert obs.bundle_digest == _digest("alpha\nbeta\n")
+        # The final cat is the LAST statement only.
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (1,)
+
+    def test_earned_cd_transition_plan_is_acquired(self) -> None:
+        payload = _payload(
+            _exec("sf1", "cd /work && cat A.md B.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "alpha\nbeta\n")),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.proven_executed == ("A.md", "B.md")
+        assert obs.final_cat_member_indexes == (0, 1)
+
+    def test_unearned_command_empty_output_is_complete(self) -> None:
+        payload = _payload(
+            _exec("sf1", "true"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "")),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        # Process completion is earned; source attribution is not.
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.pieces[0].empty is True
+        assert obs.pieces[0].char_span.start == obs.pieces[0].char_span.end
+        assert obs.bundle_digest is None
+        assert obs.proven_executed == ()
+        assert obs.region_piece_spans == ()
+        assert obs.distinct_member_count is None
+        assert obs.final_cat_evidence is FinalCatEvidence.UNKNOWN
+        assert obs.final_cat_member_indexes == ()
+
+    def test_unearned_command_nonempty_output_is_complete_no_region(self) -> None:
+        # The actual sleep-bearing stream command shape: process
+        # completion COMPLETE while source attribution stays absent.
+        payload = _payload(
+            _exec("sf1", "sleep 1 && cat /tmp/slaif-format-seed/read-0"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "stream\n")),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.bundle_digest is None
+        assert obs.proven_executed == ()
+        # The finite parsed data is preserved in every outcome (the
+        # unproven member stays typed, never executed or resolved).
+        assert len(obs.requested_members) == 1
+        assert obs.requested_members[0].normalized is None
+
+    def test_unicode_crlf_body_is_exact(self) -> None:
+        body = "h\u00e9llo\r\nw\u00f6rld\n"
+        payload = _payload(
+            _exec("sf1", "cat A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, body)),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        piece = obs.pieces[0]
+        assert piece.char_length == len(body)
+        assert piece.byte_length == len(body.encode("utf-8"))
+        assert obs.bundle_digest == sha256_hex(body)
+
+    def test_nonzero_exit_is_typed(self) -> None:
+        payload = _payload(
+            _exec("sf1", "cat A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 1, 0, "partial\n")),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.NONZERO_EXIT
+        assert obs.bundle_digest is None
+        assert obs.proven_executed == ()
+        assert obs.final_cat_evidence is FinalCatEvidence.NOT_PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+
+    def test_unknown_status_frame_carries_no_observation(self) -> None:
+        frame = "Chunk ID: 6e7f8a\nWall time: 0.0032 seconds\nOutput:\nbody\n"
+        payload = _payload(_exec("sf1", "cat A.md"), _out("sf1", frame))
+        assert observe_request(payload, context=_CTX).processes == ()
+
+    def test_missing_output_section_stays_honest(self) -> None:
+        frame = (
+            "Chunk ID: 6e7f8a\n"
+            "Wall time: 0.0032 seconds\n"
+            "Process exited with code 0\n"
+            "Original token count: 0\n"
+        )
+        payload = _payload(_exec("sf1", "cat A.md"), _out("sf1", frame))
+        report = observe_request(payload, context=_CTX)
+        # No closed native wrapper: no process observation; the legacy
+        # surface keeps its honest typing (no Output: marker in the
+        # legacy grammar).
+        assert report.processes == ()
+        assert len(report.reads) == 1
+        assert Limitation.MALFORMED_WRAPPER in report.reads[0].reasons
+
+    def test_truncated_single_final_is_typed(self) -> None:
+        frame = (
+            "Chunk ID: 6e7f8a\n"
+            "Wall time: 0.0032 seconds\n"
+            "Process exited with code 0\n"
+            "Original token count: 99\n"
+            "Output:\n"
+            "Warning: truncated output (original token count: 99)\n"
+            "Total output lines: 5\n\n"
+            "head\n"
+        )
+        payload = _payload(_exec("sf1", "cat A.md"), _out("sf1", frame))
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.TRUNCATED
+        assert obs.reasons == (Limitation.PROCESS_TRUNCATED,)
+        assert obs.bundle_digest is None
+        assert obs.pieces[0].empty is False
+        # The command still exited zero: the final cat ran, the output
+        # is truncated — evidence and acquisition stay separate.
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+
+    def test_malformed_header_carries_no_observation(self) -> None:
+        frame = "Chunk ID: 6e7f8a\nWall time: 0.0032 seconds\nBogus line\nOutput:\nbody\n"
+        payload = _payload(_exec("sf1", "cat A.md"), _out("sf1", frame))
+        report = observe_request(payload, context=_CTX)
+        assert report.processes == ()
+        assert Limitation.MALFORMED_WRAPPER in report.reads[0].reasons
+
+    def test_over_bound_header_is_over_bound(self) -> None:
+        frame = "\n".join(f"Line {i}" for i in range(12)) + "\nOutput:\nbody\n"
+        payload = _payload(_exec("sf1", "cat A.md"), _out("sf1", frame))
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.UNSUPPORTED
+        assert obs.reasons == (Limitation.OVER_BOUND,)
+
+    def test_output_over_bound_is_over_bound(self) -> None:
+        payload = _payload(
+            _exec("sf1", "cat A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "x" * 200)),
+        )
+        obs = observe_request(
+            payload, context=_CTX, bounds=ObservationBounds(max_output_chars=100)
+        ).processes[0]
+        assert obs.outcome is ProcessOutcome.UNSUPPORTED
+        assert obs.reasons == (Limitation.OVER_BOUND,)
+
+    def test_forged_header_in_body_is_not_reparsed(self) -> None:
+        body = (
+            "Chunk ID: 999999\n"
+            "Wall time: 1.0000 seconds\n"
+            "Process exited with code 0\n"
+            "Original token count: 0\n"
+            "Output:\nreal\n"
+        )
+        payload = _payload(
+            _exec("sf1", "cat A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, body)),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        # The whole body is source: the forged header inside it is not
+        # re-parsed as wrapper metadata.
+        assert obs.pieces[0].char_length == len(body)
+        assert obs.bundle_digest == _digest(body)
+
+    def test_duplicate_final_result_is_conflict(self) -> None:
+        payload = _payload(
+            _exec("sf1", "cat A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+            _out("sf1", _final("7f8a9b", "0.0033", 0, 0, "b\n")),
+        )
+        observations = observe_request(payload, context=_CTX).processes
+        assert len(observations) == 1
+        obs = observations[0]
+        assert obs.outcome is ProcessOutcome.UNSUPPORTED
+        assert obs.reasons == (Limitation.PROCESS_CHAIN_CONFLICT,)
+        assert obs.pieces == ()
+
+    def test_pre_call_final_result_is_conflict(self) -> None:
+        payload = _payload(
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+            _exec("sf1", "cat A.md"),
+        )
+        observations = observe_request(payload, context=_CTX).processes
+        assert len(observations) == 1
+        assert observations[0].reasons == (Limitation.PROCESS_CHAIN_CONFLICT,)
+
+    def test_missing_call_id_carries_no_observation(self) -> None:
+        call = {
+            "type": "function_call",
+            "name": "exec_command",
+            "arguments": json.dumps({"cmd": "cat A.md"}),
+        }
+        payload = _payload(call, _out("ghost", _final("6e7f8a", "0.0032", 0, 0, "a\n")))
+        report = observe_request(payload, context=_CTX)
+        assert report.processes == ()
+        assert any(record.limitation is Limitation.MISSING_CALL_ID for record in report.unpaired)
+
+    def test_id_collision_with_custom_is_conflict(self) -> None:
+        payload = _payload(
+            _exec("sf1", "cat A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+            {"type": "custom_tool_call", "call_id": "sf1", "input": "x"},
+        )
+        observations = observe_request(payload, context=_CTX).processes
+        assert len(observations) == 1
+        assert observations[0].reasons == (Limitation.PROCESS_CHAIN_CONFLICT,)
+
+    def test_opaque_custom_isolation(self) -> None:
+        payload = _payload(
+            {"type": "custom_tool_call", "call_id": "x1", "input": "cat A.md"},
+            _out("x1", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+        )
+        assert observe_request(payload, context=_CTX).processes == ()
+
+    def test_single_final_does_not_repair_running_chain(self) -> None:
+        payload = _payload(
+            _exec("r1", "sleep 5"),
+            _out("r1", _running(7, "111111", "0.0001", 0, "start\n")),
+            _exec("s1", "cat A.md"),
+            _out("s1", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+        )
+        observations = observe_request(payload, context=_CTX).processes
+        by_call = {obs.exec_call_id: obs for obs in observations}
+        assert by_call["r1"].outcome is ProcessOutcome.RUNNING
+        assert by_call["r1"].reasons == (Limitation.PROCESS_RUNNING,)
+        assert by_call["s1"].outcome is ProcessOutcome.COMPLETE
+
+    def test_chat_endpoint_single_final(self) -> None:
+        payload = self._chat_payload(
+            "pc_sf_1", "cat A.md", _final("6e7f8a", "0.0032", 0, 0, "alpha\n")
+        )
+        report = observe_request(payload, context=_CTX)
+        assert report.endpoint == "chat"
+        obs = report.processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.bundle_digest == _digest("alpha\n")
+
+    def test_mixed_envelope_single_final_suppressed(self) -> None:
+        payload = {
+            "model": "synthetic-bundle-model",
+            "input": [
+                _exec("sf1", "cat A.md"),
+                _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+            ],
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        assert observe_request(payload, context=_CTX).processes == ()
+
+    def test_cumulative_history_is_acquired_at_default(self) -> None:
+        # The immediate count is over COMPLETED history (not
+        # concurrency): a bounded history of single-final execs ahead of
+        # the current read must stay viable at the default bound.
+        items: list[dict[str, Any]] = []
+        for i in range(5):
+            items.append(_exec(f"c{i}", "true"))
+            items.append(_out(f"c{i}", _final("6e7f8a", "0.0032", 0, 0, "")))
+        items.append(_exec("cur", "cat A.md"))
+        items.append(_out("cur", _final("6e7f8a", "0.0032", 0, 0, "a\n")))
+        observations = observe_request(_payload(*items), context=_CTX).processes
+        assert len(observations) == 6
+        by_call = {obs.exec_call_id: obs for obs in observations}
+        assert by_call["cur"].outcome is ProcessOutcome.COMPLETE
+        assert by_call["cur"].bundle_digest == _digest("a\n")
+
+    def test_configured_bound_one_over_is_over_bound(self) -> None:
+        # A stricter configured cap (4) over five candidates: every
+        # candidate is a fixed non-acquiring OVER_BOUND, decided before
+        # any full-body work.
+        items: list[dict[str, Any]] = []
+        for i in range(5):
+            items.append(_exec(f"c{i}", f"cat F{i}.md"))
+            items.append(_out(f"c{i}", _final("6e7f8a", "0.0032", 0, 0, f"f{i}\n")))
+        observations = observe_request(
+            _payload(*items),
+            context=_CTX,
+            bounds=ObservationBounds(max_process_immediate_execs=4),
+        ).processes
+        assert len(observations) == 5
+        assert all(
+            obs.outcome is ProcessOutcome.UNSUPPORTED
+            and obs.reasons == (Limitation.OVER_BOUND,)
+            and obs.pieces == ()
+            for obs in observations
+        )
+
+    def test_default_bound_boundary(self) -> None:
+        # Default boundary control: exactly 128 single-finals acquire at
+        # the default immediate bound.  One more (129) exec call already
+        # exceeds the EXISTING default max_commands/max_outputs (128), so
+        # the complete-inventory preflight refuses the whole request
+        # FIRST: no process observation is built (processes == ()) and
+        # the read surface keeps its fixed unpaired OVER_BOUND record —
+        # the immediate cap is never even reached.
+        def _items(n: int) -> list[dict[str, Any]]:
+            items: list[dict[str, Any]] = []
+            for i in range(n):
+                items.append(_exec(f"c{i}", f"cat F{i}.md"))
+                items.append(_out(f"c{i}", _final("6e7f8a", "0.0032", 0, 0, f"f{i}\n")))
+            return items
+
+        at_limit = observe_request(_payload(*_items(128)), context=_CTX).processes
+        assert len(at_limit) == 128
+        # At-limit is a real acquisition: every one carries its exact
+        # source digest, not just a count.
+        for index, obs in enumerate(at_limit):
+            assert obs.outcome is ProcessOutcome.COMPLETE
+            assert obs.bundle_digest == _digest(f"f{index}\n")
+        over = observe_request(_payload(*_items(129)), context=_CTX)
+        assert over.processes == ()
+        assert over.reads == ()
+        assert over.unpaired == (
+            UnpairedRecord(location="$", call_id="", limitation=Limitation.OVER_BOUND),
+        )
+
+    def test_immediate_cap_isolated_above_inventory_bound(self) -> None:
+        # The new immediate 128 cap, isolated from the inventory
+        # ceilings: with explicitly higher max_commands/max_outputs
+        # (130/130) the complete-inventory preflight passes for 129
+        # final candidates, and the immediate count alone decides — all
+        # 129 are fixed non-acquiring OVER_BOUND before any full-frame
+        # body work (no pieces, no region, no digest).  One below the
+        # cap (128) acquires under the same explicit ceilings.
+        bounds = ObservationBounds(max_commands=130, max_outputs=130)
+        items: list[dict[str, Any]] = []
+        for i in range(129):
+            items.append(_exec(f"c{i}", f"cat F{i}.md"))
+            items.append(_out(f"c{i}", _final("6e7f8a", "0.0032", 0, 0, f"f{i}\n")))
+        over = observe_request(_payload(*items), context=_CTX, bounds=bounds).processes
+        assert len(over) == 129
+        assert all(
+            obs.outcome is ProcessOutcome.UNSUPPORTED
+            and obs.reasons == (Limitation.OVER_BOUND,)
+            and obs.pieces == ()
+            and obs.bundle_digest is None
+            for obs in over
+        )
+        below = observe_request(_payload(*items[:-2]), context=_CTX, bounds=bounds).processes
+        assert len(below) == 128
+        for index, obs in enumerate(below):
+            assert obs.outcome is ProcessOutcome.COMPLETE
+            assert obs.bundle_digest == _digest(f"f{index}\n")
+
+    def test_blocked_exec_anchor_preserves_single_final_refusal(self) -> None:
+        # A blocked exec-origin header prevents a complete owner
+        # inventory: the good-looking immediate single-final must not
+        # be dropped by the early refusal — it stays a fixed
+        # non-acquiring OVER_BOUND (no selection from an incomplete
+        # inventory, no body parse).
+        blocked = "\n".join(f"Line {i}" for i in range(12)) + "\nOutput:\nbody\n"
+        payload = _payload(
+            _exec("tgt", "cat A.md"),
+            _out("tgt", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+            _exec("blk", "true"),
+            _out("blk", blocked),
+        )
+        processes = observe_request(payload, context=_CTX).processes
+        by_call = {obs.exec_call_id: obs for obs in processes}
+        assert set(by_call) == {"tgt", "blk"}
+        for call in ("tgt", "blk"):
+            assert by_call[call].outcome is ProcessOutcome.UNSUPPORTED
+            assert by_call[call].reasons == (Limitation.OVER_BOUND,)
+            assert by_call[call].pieces == ()
+            assert by_call[call].bundle_digest is None
+
+    def test_blocked_poll_anchor_preserves_single_final_refusal(self) -> None:
+        # A blocked POLL-origin header invalidates the actual exec
+        # claimants but is never itself observed: the immediate
+        # single-final still carries its fixed non-acquiring
+        # OVER_BOUND, and no poll is turned into an exec origin.
+        blocked = "\n".join(f"Line {i}" for i in range(12)) + "\nOutput:\nbody\n"
+        payload = _payload(
+            _exec("tgt", "cat A.md"),
+            _out("tgt", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+            _poll("blk", 901),
+            _out("blk", blocked),
+        )
+        processes = observe_request(payload, context=_CTX).processes
+        assert [obs.exec_call_id for obs in processes] == ["tgt"]
+        obs = processes[0]
+        assert obs.outcome is ProcessOutcome.UNSUPPORTED
+        assert obs.reasons == (Limitation.OVER_BOUND,)
+        assert obs.pieces == ()
+        assert obs.bundle_digest is None
+
+    def test_session_cap_keeps_single_final_independent(self) -> None:
+        # The session cap (default 4) bounds running-chain ownership
+        # only: a fifth running chain makes every claimant a fixed
+        # OVER_BOUND, but the already-exited single-final claims no
+        # session and stays decided by its own independent count law —
+        # acquired here, never dropped by the session refusal.
+        items: list[dict[str, Any]] = [
+            _exec("tgt", "cat A.md"),
+            _out("tgt", _final("6e7f8a", "0.0032", 0, 0, "a\n")),
+        ]
+        for i in range(5):
+            items.append(_exec(f"run{i}", "true"))
+            items.append(_out(f"run{i}", _running(500 + i, "6e7f8a", "0.0032", 0, "x\n")))
+        processes = observe_request(_payload(*items), context=_CTX).processes
+        by_call = {obs.exec_call_id: obs for obs in processes}
+        assert set(by_call) == {"tgt", "run0", "run1", "run2", "run3", "run4"}
+        target = by_call["tgt"]
+        assert target.outcome is ProcessOutcome.COMPLETE
+        assert target.bundle_digest == _digest("a\n")
+        for i in range(5):
+            claimant = by_call[f"run{i}"]
+            assert claimant.outcome is ProcessOutcome.UNSUPPORTED
+            assert claimant.reasons == (Limitation.OVER_BOUND,)
+            assert claimant.pieces == ()
+
+    def test_ls_cat_form_is_complete_no_region(self) -> None:
+        payload = _payload(
+            _exec("sf1", "ls -la /work && cat /work/A.md"),
+            _out("sf1", _final("6e7f8a", "0.0032", 0, 0, "drwx A.md\nalpha\n")),
+        )
+        report = observe_request(payload, context=_CTX)
+        obs = report.processes[0]
+        # Process completion earned; the listing makes the source
+        # unattributable (no region, no digest).
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.bundle_digest is None
+        assert obs.proven_executed == ()
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+        # The legacy surface keeps its structurally-mixed typing.
+        assert len(report.reads) == 1
+        assert Limitation.OUTER_BOUNDARY_UNPROVEN in report.reads[0].reasons
+        assert Limitation.COMMAND_UNSUPPORTED in report.reads[0].reasons
+
+    def test_loop_forms_prove_final_iteration_only(self) -> None:
+        payload = _payload(
+            _exec("sf1", 'for f in A.md B.md; do echo "=== $f ==="; cat "$f"; done'),
+            _out(
+                "sf1",
+                _final("6e7f8a", "0.0032", 0, 0, "=== A.md ===\nalpha\n=== B.md ===\nbeta\n"),
+            ),
+        )
+        obs = observe_request(payload, context=_CTX).processes[0]
+        assert obs.outcome is ProcessOutcome.COMPLETE
+        assert obs.proven_executed == ()
+        assert len(obs.requested_members) == 2
+        # Global exit zero proves only the FINAL iteration's cat.
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (1,)
+        payload2 = _payload(
+            _exec("sf2", 'for d in alpha beta; do cat "policies/$d/AGENTS.md"; done'),
+            _out("sf2", _final("6e7f8a", "0.0032", 0, 0, "one\ntwo\n")),
+        )
+        obs2 = observe_request(payload2, context=_CTX).processes[0]
+        assert obs2.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs2.final_cat_member_indexes == (1,)
+
+    def test_intersection_no_token_section_is_legacy_removable_plus_process(self) -> None:
+        # The grammars INTERSECT on final headers WITHOUT the pinned
+        # Original token count section: the existing positive legacy
+        # read is preserved AND the process surface adds a consistent
+        # second observation.
+        payload = _payload(
+            _exec("sf1", "cat A.md"),
+            _out("sf1", self._final_no_tokens("6e7f8a", "0.0032", 0, "alpha\n")),
+        )
+        report = observe_request(payload, context=_CTX)
+        assert len(report.processes) == 1
+        assert report.processes[0].outcome is ProcessOutcome.COMPLETE
+        assert len(report.reads) == 1
+        assert report.reads[0].outcome is ReadOutcome.COMPLETE
+        assert report.reads[0].removable is True
+        assert report.reads[0].bundle_digest is not None
+
+    def test_session_bound_not_consumed_by_single_finals(self) -> None:
+        items: list[dict[str, Any]] = [
+            _exec("r0", "sleep 5"),
+            _out("r0", _running(7, "111111", "0.0001", 0, "start\n")),
+        ]
+        for i in range(4):
+            items.append(_exec(f"s{i}", f"cat F{i}.md"))
+            items.append(_out(f"s{i}", _final("6e7f8a", "0.0032", 0, 0, f"f{i}\n")))
+        observations = observe_request(_payload(*items), context=_CTX).processes
+        # Four single-finals do NOT count against max_process_sessions:
+        # the one running chain (at its own bound of 1) plus all four
+        # single-finals are observed.
+        assert len(observations) == 5
+        assert sum(1 for obs in observations if obs.outcome is ProcessOutcome.COMPLETE) == 4

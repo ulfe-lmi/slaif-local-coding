@@ -9,6 +9,7 @@ from typing import Any
 
 from slaif_local_coding.constitution.bundles import (
     EMPTY_SOURCE_SHA256,
+    FinalCatEvidence,
     Limitation,
     ObservationBounds,
     ObservationReport,
@@ -930,3 +931,89 @@ class TestEndpointSelection:
         assert report.endpoint == "unknown"
         assert report.reads == ()
         assert report.unpaired == ()
+
+
+class TestFinalCatEvidence:
+    """Final-cat execution evidence (objective 017-am): the typed
+    proven / not-proven / unknown status plus the exact final-cat
+    member occurrences, shared by the legacy read surface and the D09
+    process surface.  All cases go through the PUBLIC
+    ``observe_request`` composition; evidence never changes
+    acquisition."""
+
+    def _read(self, command: str, output: str = "", exit_code: int = 0) -> ReadObservation:
+        body = f"Process exited with code {exit_code}\nOutput:\n{output}"
+        report = observe_request(call_payload(command, body), context=_CTX)
+        assert len(report.reads) == 1
+        return report.reads[0]
+
+    def test_single_complete_proves_all_operands(self) -> None:
+        obs = self._read("cat A.md", "alpha\n")
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+        two = self._read("cat A.md B.md", "alpha\nbeta\n")
+        assert two.outcome is ReadOutcome.COMPLETE
+        assert two.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert two.final_cat_member_indexes == (0, 1)
+
+    def test_plan_final_cat_proves_final_operands_only(self) -> None:
+        obs = self._read("cat A.md && cat B.md", "alpha\nbeta\n")
+        assert obs.outcome is ReadOutcome.COMPLETE
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (1,)
+
+    def test_ls_cat_plan_proves_final_cat_with_read_reasons(self) -> None:
+        obs = self._read("ls -la /work && cat /work/A.md", "drwx A.md\nalpha\n")
+        assert obs.outcome is ReadOutcome.UNSUPPORTED
+        assert Limitation.OUTER_BOUNDARY_UNPROVEN in obs.reasons
+        assert Limitation.COMMAND_UNSUPPORTED in obs.reasons
+        assert obs.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+
+    def test_loop_forms_prove_final_iteration_only(self) -> None:
+        family6 = self._read('for f in A.md B.md; do echo "=== $f ==="; cat "$f"; done')
+        assert family6.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert family6.final_cat_member_indexes == (1,)
+        assert Limitation.LOOP_ITERATION_UNPROVEN in family6.reasons
+        family7 = self._read('for d in alpha beta; do cat "policies/$d/AGENTS.md"; done')
+        assert family7.final_cat_evidence is FinalCatEvidence.PROVEN
+        assert family7.final_cat_member_indexes == (1,)
+        assert Limitation.LOOP_ITERATION_UNPROVEN in family7.reasons
+
+    def test_nonzero_exit_is_not_proven_with_indices(self) -> None:
+        obs = self._read("cat A.md", "alpha\n", exit_code=1)
+        assert obs.outcome is ReadOutcome.NONZERO_EXIT
+        assert Limitation.NONZERO_EXIT in obs.reasons
+        assert obs.final_cat_evidence is FinalCatEvidence.NOT_PROVEN
+        assert obs.final_cat_member_indexes == (0,)
+
+    def test_running_wrapper_keeps_shape_unknown(self) -> None:
+        payload = call_payload(
+            "cat A.md",
+            ("Chunk Id: abc\nWall time: 0.1 seconds\nProcess is still running\nOutput:\nalpha\n"),
+        )
+        report = observe_request(payload, context=_CTX)
+        assert len(report.reads) == 1
+        obs = report.reads[0]
+        assert Limitation.PROCESS_RUNNING in obs.reasons
+        # No exit fact: unknown status, but the closed-form shape
+        # (the member indexes) is preserved.
+        assert obs.final_cat_evidence is FinalCatEvidence.UNKNOWN
+        assert obs.final_cat_member_indexes == (0,)
+
+    def test_unguarded_prefixes_are_unknown(self) -> None:
+        for command in (
+            "true && cat A.md",
+            "exit 0 && cat A.md",
+            "exec true && cat A.md",
+            "cd /outside && cat A.md",
+            "cat A.md ; exit 0 && cat B.md",
+            "cat $X.md && cat B.md",
+            'for f in A B; do exit 0; cat "$f"; done',
+            'for f in A; do cat "$f"; echo hi; done',
+        ):
+            obs = self._read(command, "alpha\n")
+            assert obs.outcome is ReadOutcome.UNSUPPORTED, command
+            assert obs.final_cat_evidence is FinalCatEvidence.UNKNOWN, command
+            assert obs.final_cat_member_indexes == (), command

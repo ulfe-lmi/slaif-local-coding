@@ -102,12 +102,14 @@ by these negatives.
 
 | Constant | Value | Covers |
 |---|---|---|
-| `OBSERVER_VERSION` | `cache-bundle-observation/1` | this pure observation stage |
+| `OBSERVER_VERSION` | `cache-bundle-observation/3` | this pure observation stage |
 | `ENVELOPE_FORMAT` | `codex-project-instructions/v1` | root delimiter contract |
 | `READ_GRAMMAR` | `literal-shell-read/v1` | command grammar |
 | `TOOL_WRAPPER_FORMAT` | `codex-exec-wrapper/v1` | exec wrapper text form |
 | `READ_PLAN_GRAMMAR` | `literal-read-plan/v1` | finite read-plan grammar (D06-D08) |
 | `LOOP_GRAMMAR` | `literal-loop/v1` | finite literal-loop grammar (D07) |
+| `PROCESS_CHUNK_GRAMMAR` | `process-chunk/v2` | D09 process/chunk grammar (section 5a) |
+| `NATIVE_TOOL_WRAPPER_FORMAT` | `codex-native-exec-wrapper/v1` | pinned native 0.164.0 exec-wrapper form (section 5a) |
 
 Modules: `observation_models.py` (typed results, spans, digests, bounds),
 `client_paths.py` (literal client-workspace path normalization),
@@ -752,13 +754,16 @@ echo_stmt   := 'echo' quoted_literal | quoted_echo_template
 ### 5a. Process/chunk observation (D09; pure inert slice earned in 017-al)
 
 The D09 process/chunk collector is implemented as an inert pure slice
-(`process_chunks.py`; process grammar `process-chunk/v1`; observer
-version `cache-bundle-observation/2`) over the pinned native 0.164.0
+(`process_chunks.py`; process grammar `process-chunk/v2`; observer
+version `cache-bundle-observation/3`) over the pinned native 0.164.0
 `function_tool_response` exec-wrapper format
 (`codex-native-exec-wrapper/v1` — a distinct versioned format identity
 from the legacy `codex-exec-wrapper/v1`; the legacy single-result
-surface is unchanged and honestly types native frames
-non-acquiring).  It is inert: never wired into the adapter request
+surface is unchanged.  The two grammars INTERSECT on final headers
+WITHOUT the pinned `Original token count:` section: such frames keep
+their existing positive legacy reads and may carry a consistent second
+process observation, while pinned frames WITH the section stay
+legacy-non-acquiring).  It is inert: never wired into the adapter request
 execution path, no observed command is executed, and no filesystem or
 network access occurs.  It runs through the public `observe_request`
 under the same selected-endpoint domain / suppression law as the read
@@ -797,6 +802,41 @@ a fully visible header.
   identity is decided separately from body eligibility: a competing
   owner with an over-bound or otherwise ineligible body still claims
   its session and is never silently dropped.
+- **Single-final (already-exited; earned in 017-am).** An eligible
+  `exec_command`/`shell_command` call with an exact non-empty string ID
+  and EXACTLY ONE causally following result whose bounded CLOSED native
+  header proves an actual exit (exit section present, running section
+  absent — mutually exclusive in the closed grammar) is an
+  already-exited single-final occurrence: the result is its own initial
+  AND terminal result (zero polls, exactly one piece, no invented
+  session, no dummy piece, no coordinate into a virtual joined string).
+  The complete-request count is a pure count over the bounded header
+  facts gathered in the complete owner inventory (which precedes ALL
+  body work): over `max_process_immediate_execs` EVERY candidate is a
+  fixed non-acquiring `OVER_BOUND` and no over-bound candidate frame
+  body is ever parsed (no selection); the count class is independent
+  of chain body work (on the normal path the immediate assembly runs
+  after ordinary-chain collection).
+  Duplicated or pre-call final results, and a call ID colliding with
+  any other schema record, are fixed non-acquiring
+  `PROCESS_CHAIN_CONFLICT` records (one per call) — never selected, and
+  the final-cat evidence of an ambiguous record stays `unknown`.  A
+  blocked-anchor inventory refusal INCLUDES every candidate as a fixed
+  non-acquiring `OVER_BOUND` (no selection from an incomplete
+  inventory), and the session-cap refusal leaves the candidates decided
+  by their own independent count law (a single-final claims no session,
+  consumes no session, and never repairs a running chain).  Body
+  refusals stay typed and non-acquiring: `OUTPUT_OVER_BOUND` stays
+  `OVER_BOUND`; any other frame refusal is a typed `UNSUPPORTED`; a
+  pinned truncation warning is `TRUNCATED` with the retained pieces and
+  no complete-source claim; a proven nonzero exit is `NONZERO_EXIT`;
+  exit zero is `COMPLETE`.  An earned region (with its digest)
+  requires BOTH the earned complete all-cat parse of the original
+  command AND the successful outer-attribution proof of that parse in
+  the exact output (proven output boundaries are necessary: an earned
+  plan with echo boundaries can correctly return NO region on
+  mismatching or colliding output).  Process `COMPLETE` alone is never
+  sufficient for a region.
 - **Session ownership.** The session must be established by exactly
   ONE eligible exec occurrence in the request (across ALL eligible
   execs, even when the command is not an earned read).  A second
@@ -879,38 +919,79 @@ a fully visible header.
 `max_process_sessions=4` distinct sessions, `max_process_polls=12`
 accepted polls per chain, `max_process_pieces=13` pieces per chain
 (1 initial + accepted polls), `max_process_source_chars=1_000_000`
-and `max_process_source_bytes=1_000_000` cumulative.  The complete
-owner inventory is decided from bounded header facts BEFORE any full
-frame body work (the session count is a preflight over the header
-facts); the per-chain poll/piece ceilings are decided before the
-over-limit candidate frame is parsed or retained (an at-limit chain
-stays exactly at the bound); the cumulative char/byte bounds are
-decided before any piece is allocated or retained.  Over any of them
-is a fixed non-acquiring `OVER_BOUND` — no piece retention, no
-selection.
+and `max_process_source_bytes=1_000_000` cumulative,
+`max_process_immediate_execs=128` already-exited single-final
+occurrences per request (a count over COMPLETED history, not
+concurrency; aligned with the existing `max_commands`/`max_outputs`
+default 128; a configurable stricter cap is always permitted).  The
+complete call/owner inventory is decided from bounded header facts
+BEFORE any full frame body work (the session count is a preflight
+over the header facts); the per-chain poll/piece ceilings are
+decided before the over-limit candidate frame is parsed or retained
+(an at-limit chain stays exactly at the bound); the per-request
+immediate-exec count is a pure count over those same bounded header
+facts, and the over-bound refusal is applied BEFORE any over-bound
+candidate frame body is parsed (the blocked-anchor and session-cap
+early returns include the immediate candidates per the single-final
+law; the count class is independent of chain body work); the
+cumulative char/byte bounds are decided before any piece is
+allocated or retained.  Over any of them is a fixed non-acquiring
+`OVER_BOUND` — no piece retention, no selection.
 
 **Versioning and compatibility.**  Observer version
-`cache-bundle-observation/2` is additive only: all `/1` fields, enums
-and behavior are unchanged.  New: `NativeWrapperFacts`,
-`ProcessPiece`, `ProcessPoll`, `ProcessObservation`, `ProcessOutcome`,
-five new limitation values (the four `process_*` values plus
-`wrapper_header_over_bound`), `ObservationReport.processes` (default
-empty), five new `ObservationBounds` fields, and two new grammar
-constants.  A `/2` report on a payload without a qualifying native
-chain equals the `/1` report modulo the observer-version string and
-the empty `processes` field; a `/2` report carrying processes requires
-a `/2` consumer (additive-field projection is the accurate comparison,
-not raw equality modulo the version alone).
+`cache-bundle-observation/3` (grammar `process-chunk/v2`) is additive
+on `/2`: the retained `/1`/`/2` field meanings and read-acquisition
+semantics are preserved, and the intentional changes are EXACTLY: the
+process grammar value advance; the new
+`ObservationBounds.max_process_immediate_execs` (default 128); the new
+`FinalCatEvidence` enum plus the additive `final_cat_evidence`
+(default unknown) and `final_cat_member_indexes` (default empty)
+fields on BOTH `ReadObservation` and `ProcessObservation`; the
+recognized `ls` statement kind and `ls_cat_shape` shape fact; and the
+already-exited single-final acquisition, which can emit process
+observations where a `/2` report emitted none (the single-final gap
+below is closed at this bounded scope).  The `/2` additions (the
+process models, the five limitation values,
+`ObservationReport.processes`, the five bounds fields, the two grammar
+constants) are retained unchanged.
 
-**Honest gaps.**  Ordinary already-exited native execs (single-final
-frames) remain OUTSIDE public acquisition: the legacy grammar does not
-recognize the pinned native token-count section, so such single-result
-frames stay honestly typed non-acquiring (`MALFORMED_WRAPPER`) on the
-unchanged legacy surface and no process chain exists (the recorded gap
-for the whole-017 literal audit).  The actual sleep-bearing stream
-command stays unearned; the pure-cat adaptations are the
-SYNTHETIC-DERIVED positives.  Actual-trace process-completion
-qualification remains a requirement, not a claim of this slice.
+  FORWARD LOADING of actual old serialized reports is separately
+  verified: the old-wheel producer's actual reports load in the
+  current models preserving every old field and their actual
+  per-report identity strings (new fields take their unknown/empty
+  defaults).  That is NOT a promise about EXECUTING the current
+  observer on the same payload: the intentional new recognition
+  changes the diagnostics where it fires (measured on the exact
+  `ls -la /work && cat /work/A.md` payload, old source reasons
+  `[command_unsupported, outer_boundary_unproven]` versus current
+  `[outer_boundary_unproven, command_unsupported]`, acquisition
+  unchanged), so there is no universal raw-tuple equality between
+  old-source and current-source reports even after dropping additive
+  fields — additive-field projection (dropping `processes` and the
+  `final_cat_*` pair per field family) is a comparison tool over
+  preserved field meanings, not an equality guarantee.  A NEW `/3`
+  report requires a consumer that supports `/3`: even unknown/default
+  new fields may be serialized, and an old strict model can reject an
+  unmodified new wire report — forward loading of old reports is
+  distinct from backward acceptance of new reports.
+
+**Honest gaps.**  The already-exited single-final gap is CLOSED at
+this bounded scope (section 5a single-final law; default
+`max_process_immediate_execs=128`): qualified evidence is the
+SYNTHETIC-DERIVED pinned 0.164.0 frames (public composition tests)
+plus the bounded ACTUAL-trace qualification below — the original
+selected AJ frames (hash-verified native run record) fed through the
+public composition with an EXPLICIT carrier conversion, both
+endpoints.  The unchanged legacy single-result surface still honestly
+types pinned native frames WITH the token-count section
+non-acquiring (`MALFORMED_WRAPPER`); the intersection (final headers
+WITHOUT that section) keeps its positive legacy reads.  The actual
+sleep-bearing stream command stays an UNEARNED read grammar (process
+`COMPLETE`, no source attribution); the pure-cat adaptations are the
+SYNTHETIC-DERIVED positives.  The per-family residual limitations for
+the seven required-syntax literals are exact in section 11q — no
+family is claimed beyond its measured state.  Strategic acceptance
+remains PENDING; whole-017 is unaccepted.
 
 ## 6. Bundle attribution (D05)
 
@@ -969,7 +1050,8 @@ tool (`unsupported_tool`,
 chars, 32 operands, 256 path bytes, 128 outputs, 1,000,000 output
 chars, 8 wrapper header lines, 4 process sessions, 12 process
 polls, 13 process pieces, 1,000,000 process source chars,
-1,000,000 process source bytes, 128 tools) bounds every scan; the
+1,000,000 process source bytes, 128 process immediate execs,
+128 tools) bounds every scan; the
 complete
 call/result inventory is bounded by `max_items` per inspected
 container — outer `input`/`messages` lists and, since round 017-p,
@@ -983,9 +1065,13 @@ invalid IDs) before any identity map or diagnostic is built (section
 5a) applies the same preflight discipline: the complete owner
 inventory is decided from bounded header facts BEFORE any full frame
 body work, the per-chain poll/piece ceilings are decided before the
-over-limit candidate frame is parsed or retained, and the cumulative
-character and exact UTF-8 byte bounds are checked before any piece
-retention or concatenation copy.  The derived argument-decode bound
+over-limit candidate frame is parsed or retained, the per-request
+immediate-exec count is a pure count over the same bounded header
+facts with its over-bound refusal applied before any over-bound
+candidate frame body is parsed (the blocked-anchor and session-cap
+refusals include the immediate candidates per section 5a), and the
+cumulative character and exact UTF-8 byte bounds are checked before
+any piece retention or concatenation copy.  The derived argument-decode bound
 is
 `12 * max_argument_chars + 128` (the documented
 conservative JSON-encoding worst case).  Parsing is linear; adversarial
@@ -1022,7 +1108,9 @@ shared `max_operands` budget (never multiplied per iteration).
   `exec_call_id`, `poll_call_id` and `session_id` through the fixed
   `<private-id>` placeholder.  The native chunk ID is retained as
   presence only (its value never enters the report), and no raw piece
-  text is ever retained.
+  text is ever retained.  The single-final surface introduces NO new
+  private field: a closed final frame carries no session section, and
+  the exec call ID stays under the existing `<private-id>` law.
 - No filesystem or network access occurs anywhere in this package; observed
   commands are never executed.
 
@@ -1547,10 +1635,10 @@ Handoff 6.2 literals:
 | `cat A.md` | EARNED | tests/test_bundle_read_grammar.py::TestSupportedForms::test_single_relative_operand; tests/test_bundle_tool_results.py::TestWholeBundles::test_single_complete_read |
 | `cat /work/A.md` | EARNED | tests/test_bundle_read_grammar.py::TestSupportedForms::test_absolute_workspace_operands; tests/test_bundle_client_paths.py::TestAbsolutePaths::test_simple_absolute_under_workspace |
 | `cd /work && cat A.md B.md` | EARNED | tests/test_bundle_compound_reads.py::TestLiteralCdTransitions (class); tests/test_bundle_read_grammar.py::TestSupportedForms::test_two_operands_in_order |
-| `cat A.md && cat B.md` | EARNED | tests/test_bundle_compound_reads.py::TestChainedReadPlans (all-cat `&&` plans: one ordered bundle, order/duplicate preservation) |
-| `ls -la /work && cat /work/A.md` | UNSUPPORTED (ls read) / RECOGNIZED-ONLY (requested member) | the `ls` family is a typed NON-ACQUIRING read: tests/test_bundle_compound_reads.py::TestPlanNegatives::test_ls_family_is_not_a_read_and_mixes_output asserts `COMMAND_UNSUPPORTED` + `OUTER_BOUNDARY_UNPROVEN` (requested A exists as finite parsed data; nothing is proven), and ::TestMixedOutputNegatives::test_ls_family_exit_zero_is_not_support asserts `UNSUPPORTED`, no digest, no proven members and non-removable even with global exit 0; the earned D06 slice is the all-cat chained plans and outer-label regions, which do not earn the ls form |
-| `for f in A.md B.md; do echo "=== $f ==="; cat "$f"; done` | RECOGNIZED-ONLY (labeled unguarded loop) | membership is finite parsed data (variable/list/echo/cat kinds, members A.md B.md) with the exact typed limitations `LOOP_ITERATION_UNPROVEN` + `OUTER_BOUNDARY_UNPROVEN` and no bundle digest: tests/test_bundle_literal_loops.py::TestHumanForms::test_unguarded_echo_form_membership_is_recognized; recognized membership is not proven execution and is not removable at composition: ::TestHumanForms::test_unguarded_echo_form_is_not_removable_at_composition; the EARNED loop slice is the guarded echoless form (::TestHumanForms::test_guarded_echoless_forms_are_earned, ::test_guarded_loop_is_one_complete_ordered_bundle, ::test_guarded_template_loop_proves_ordered_policy_files) |
-| `for d in alpha beta; do cat "policies/$d/AGENTS.md"; done` | RECOGNIZED-ONLY (unguarded template loop) | membership is finite parsed data with `LOOP_ITERATION_UNPROVEN` (recognized requested membership, not proven execution): tests/test_bundle_literal_loops.py::TestHumanForms::test_unguarded_template_form_membership_is_recognized; non-removable at composition: ::TestHumanForms::test_unguarded_template_form_is_not_removable_at_composition; the EARNED slice requires the exact per-iteration `\|\| exit 1` guard (contract section 4b) |
+| `cat A.md && cat B.md` | EARNED | tests/test_bundle_compound_reads.py::TestChainedReadPlans (all-cat `&&` plans: one ordered bundle, order/duplicate preservation); final-cat evidence `PROVEN` on the FINAL operand only, index (1,) (tests/test_bundle_tool_results.py::TestFinalCatEvidence::test_plan_final_cat_proves_final_operands_only) |
+| `ls -la /work && cat /work/A.md` | UNSUPPORTED (ls read) / RECOGNIZED-ONLY (requested member) / RECOGNIZED (ls kind + shape) | the `ls` family is a typed NON-ACQUIRING read: tests/test_bundle_compound_reads.py::TestPlanNegatives::test_ls_family_is_not_a_read_and_mixes_output asserts `COMMAND_UNSUPPORTED` + `OUTER_BOUNDARY_UNPROVEN` (requested A exists as finite parsed data; nothing is proven), and ::TestMixedOutputNegatives::test_ls_family_exit_zero_is_not_support asserts `UNSUPPORTED`, no digest, no proven members and non-removable even with global exit 0; the earned D06 slice is the all-cat chained plans and outer-label regions, which do not earn the ls form.  Since 017-am the exact bounded `ls` form is a RECOGNIZED statement kind (`PlanStatementKind.LS`; ::TestLsFamily) and the leading-clean-ls-then-cat shape is recorded (`ls_cat_shape`) for the final-cat evidence contract: the plan stays `UNSUPPORTED` but carries `FinalCatEvidence.PROVEN` with the final-cat member index (tests/test_bundle_tool_results.py::TestFinalCatEvidence::test_ls_cat_plan_proves_final_cat_with_read_reasons) — evidence, never acquisition |
+| `for f in A.md B.md; do echo "=== $f ==="; cat "$f"; done` | RECOGNIZED-ONLY (labeled unguarded loop) | membership is finite parsed data (variable/list/echo/cat kinds, members A.md B.md) with the exact typed limitations `LOOP_ITERATION_UNPROVEN` + `OUTER_BOUNDARY_UNPROVEN` and no bundle digest: tests/test_bundle_literal_loops.py::TestHumanForms::test_unguarded_echo_form_membership_is_recognized; recognized membership is not proven execution and is not removable at composition: ::TestHumanForms::test_unguarded_echo_form_is_not_removable_at_composition; the EARNED loop slice is the guarded echoless form (::TestHumanForms::test_guarded_echoless_forms_are_earned, ::test_guarded_loop_is_one_complete_ordered_bundle, ::test_guarded_template_loop_proves_ordered_policy_files).  Since 017-am the closed form carries final-cat execution evidence `PROVEN` on the FINAL iteration's cat only, index (1,) (tests/test_bundle_tool_results.py::TestFinalCatEvidence::test_loop_forms_prove_final_iteration_only) — the loop's global exit zero proves only that final cat; evidence, never acquisition |
+| `for d in alpha beta; do cat "policies/$d/AGENTS.md"; done` | RECOGNIZED-ONLY (unguarded template loop) | membership is finite parsed data with `LOOP_ITERATION_UNPROVEN` (recognized requested membership, not proven execution): tests/test_bundle_literal_loops.py::TestHumanForms::test_unguarded_template_form_membership_is_recognized; non-removable at composition: ::TestHumanForms::test_unguarded_template_form_is_not_removable_at_composition; the EARNED slice requires the exact per-iteration `\|\| exit 1` guard (contract section 4b).  Since 017-am the closed form carries final-cat execution evidence `PROVEN` on the FINAL iteration's cat only, index (1,) (tests/test_bundle_tool_results.py::TestFinalCatEvidence::test_loop_forms_prove_final_iteration_only) — evidence, never acquisition |
 
 D01-D10 criterion-by-criterion (actual module/test, exact earned
 slice versus remaining gap):
@@ -1565,7 +1653,7 @@ slice versus remaining gap):
 | D06 | Chained reads with `ls`, labels and unrelated output | all-cat `&&` plans and outer-label/outer-region composition: tests/test_bundle_compound_reads.py::TestChainedReadPlans, ::TestEchoOuterBoundaries, ::TestOuterRegionComposition, ::TestOuterSourceRegions — this slice does NOT earn the `ls` form (see the ls+cat literal row above: `ls` is typed unsupported, non-acquiring) | the ls+cat required-syntax variant remains pending scope audit; strategic acceptance PENDING |
 | D07 | Literal loop, supported wildcard evidence, explicit `workdir`/`cd` | guarded echoless loop forms (one complete ordered bundle; ordered policy files; per-call workdir; absolute template): tests/test_bundle_literal_loops.py::TestHumanForms::test_guarded_echoless_forms_are_earned, ::test_guarded_loop_is_one_complete_ordered_bundle, ::test_guarded_template_loop_proves_ordered_policy_files, ::test_per_call_workdir_resolves_expanded_relative_members; literal `cd`: tests/test_bundle_compound_reads.py::TestLiteralCdTransitions — this slice does NOT earn the literal unguarded/labeled human forms (typed `LOOP_ITERATION_UNPROVEN`/`OUTER_BOUNDARY_UNPROVEN`, recognized membership non-removable) or wildcard membership (`GLOB_UNPROVEN`) | the unguarded/labeled loop required-syntax variants remain pending scope audit; strategic acceptance PENDING |
 | D08 | Read succeeds/later fails; earlier fails/later succeeds | per-read evidence distinguished from global exit as CONSERVATIVE uncertainty: tests/test_bundle_compound_reads.py::TestPerReadVersusGlobalExit (a nonzero chain proves NO read and no digest — requested members preserved, wrapper status recorded; earlier-failure/later-success, truncated chain, process-running, malformed-Unicode, chat composition, mixed suppression) — these negatives prove conservative uncertainty, NOT per-read completion where no completion evidence exists | strategic acceptance PENDING |
-| D09 | Truncation, partial `head`/`sed`, missing output, multi-chunk process | typed partial/truncation UNSUPPORTED/unsupported negatives (unchanged): tests/test_bundle_d10_matrix.py::TestUnsupportedAndPartialMatrix (command substitution `$()`/backticks, partial `head`/`sed`, known truncated/missing/running/unknown wrappers — never complete whole-file acquisitions); PLUS the D09 process/chunk collector EARNED at PURE INERT scope (contract section 5a): tests/test_bundle_process_chunks.py — TestNativeWrapperParser, TestPollArgumentLaw, TestChainLaw, TestUnidentifiedPollLaw, TestIdentityCollisions, TestBounds, TestRegionAndDigests, TestComposition, TestPrivacy (82 focused tests over SYNTHETIC-DERIVED pinned 0.164.0 frames; TestUnidentifiedPollLaw runs through the public `observe_request` composition entry, the low-level parser/bounds cases stay direct) | `NOT RUN`: actual-trace process-completion qualification remains a requirement; ordinary already-exited native single-final frames stay OUTSIDE public acquisition (legacy `MALFORMED_WRAPPER` gap, section 5a); strategic acceptance PENDING |
+| D09 | Truncation, partial `head`/`sed`, missing output, multi-chunk process | typed partial/truncation UNSUPPORTED/unsupported negatives (unchanged): tests/test_bundle_d10_matrix.py::TestUnsupportedAndPartialMatrix (command substitution `$()`/backticks, partial `head`/`sed`, known truncated/missing/running/unknown wrappers — never complete whole-file acquisitions); PLUS the D09 process/chunk collector EARNED at PURE INERT scope (contract section 5a): tests/test_bundle_process_chunks.py — TestNativeWrapperParser, TestPollArgumentLaw, TestUnidentifiedPollLaw, TestChainLaw, TestIdentityCollisions, TestBounds, TestRegionAndDigests, TestComposition, TestPrivacy, TestSingleFinal (116 focused tests over SYNTHETIC-DERIVED pinned 0.164.0 frames; TestUnidentifiedPollLaw and TestSingleFinal run through the public `observe_request` composition entry, the low-level parser/bounds cases stay direct); PLUS the final-cat execution evidence contract (section 5a): tests/test_bundle_tool_results.py::TestFinalCatEvidence (7 public composition tests, both surfaces share one helper); PLUS the bounded ACTUAL-trace qualification (section 11q): the original selected AJ frames through the public composition, both endpoints, four cases | actual sleep-bearing stream command stays an UNEARNED read grammar (process `COMPLETE`, no source attribution); a NEW actual single-final attempt is not required (the qualified AJ actual frames already cover the already-exited form at bounded scope); the legacy `MALFORMED_WRAPPER` typing of pinned WITH-token-section frames on the unchanged legacy surface remains the recorded intersection boundary; strategic acceptance PENDING |
 | D10 | Duplicate/mismatched call IDs, command substitution, unexecuted branch; wire-family inventory | eligibility-independent call-ID inventory, structural-position causality, the composition matrix, the unsupported/partial matrix and the wire-family/inventory bounds: tests/test_bundle_d10_matrix.py::TestIdentityConflictPrecedesEligibility, ::TestStructuralCausality, ::TestD10MatrixComposition, ::TestUnsupportedAndPartialMatrix, ::TestWireFamilyInventoryAndBounds, ::TestInventoryAllocationAndIdRepresentation | strategic acceptance PENDING |
 
 `head`/`tail`/`sed`/pipes/glob/Python-reader families remain typed
@@ -4158,6 +4246,121 @@ preserved CI hermetic failure is documented below).
   generic native-ready, whole-017 or v1
   runtime claim; 018-024 remain the
   mandatory planned succession.
+
+### 11q. Round 017-am: native single already-exited and original-syntax
+evidence (D09)
+
+017-am closes the already-exited single-final gap at this bounded
+scope, qualifies the bounded actual AJ trace, and adds the final-cat
+execution-evidence contract shared by the legacy read surface and the
+process surface.  No new actual attempt, no client/model/provider
+startup, no legacy runtime semantics change (additive-only
+`cache-bundle-observation/3` / `process-chunk/v2`); all observation is
+inert (section 5a).
+
+**Single final (section 5a law, earned in 017-am).**  An eligible
+exec-family call with an exact non-empty string ID and exactly one
+causally following CLOSED native final frame (exit proven, running
+absent) acquires through the public composition: zero polls, exactly
+one piece, no invented session, no dummy piece, no coordinate into a
+virtual joined string.  The per-request count (default
+`max_process_immediate_execs=128`, a count over completed history, not
+concurrency; aligned with the existing `max_commands`/`max_outputs`
+default 128) is a pure count over the bounded header facts of the
+complete owner inventory (which precedes all body work); over-bound,
+every candidate is a fixed non-acquiring `OVER_BOUND` and no
+over-bound candidate frame body is ever parsed.  Duplicated/pre-call final results and
+colliding IDs are fixed non-acquiring `PROCESS_CHAIN_CONFLICT`;
+blocked-anchor refusals include every candidate as `OVER_BOUND`; the
+session cap leaves candidates decided by their own independent count
+law (a single-final claims no session and never repairs a running
+chain).  Body refusals stay typed: `OUTPUT_OVER_BOUND` → `OVER_BOUND`;
+other frame refusals → typed `UNSUPPORTED`; pinned truncation →
+`TRUNCATED` (retained pieces, no complete-source claim); proven
+nonzero → `NONZERO_EXIT`; exit zero → `COMPLETE` — an earned region (with its digest)
+requires BOTH the earned complete all-cat parse AND the successful
+outer-attribution proof in the exact output (process `COMPLETE` alone
+is never sufficient for a region).  The two grammars
+intersect on final headers WITHOUT the pinned token-count section
+(existing positive legacy reads preserved + a consistent second
+process observation); pinned frames WITH the section stay
+legacy-non-acquiring.
+
+**Final-cat execution evidence.**  `FinalCatEvidence`
+(`proven` / `not_proven` / `unknown`) plus
+`final_cat_member_indexes` (indices, occurrence order, into the form's
+`requested_members`) are carried on BOTH `ReadObservation` and
+`ProcessObservation`.  The WHOLE recognized structural form must be
+closed before any proof: a single read only when complete and clean
+(all operands are the final cat); a plan only when EVERY statement is
+a clean earned safe kind (cat / cd / echo / the exact bounded ls form
+— unknown, control, branch, `exit` or `exec` prefixes, structural
+reasons on any statement, or an unsupported `cd` target break the
+inference) and the LAST statement is a clean cat (only its operands —
+an earlier cat in the chain is not the final one); a loop only when
+closed and valid (every body statement a clean cat/echo and only the
+declared unguarded/outer-boundary uncertainties) with the last body
+statement a clean cat — a loop's global exit zero proves ONLY the
+FINAL iteration's cat.  Exit zero → `proven`; proven nonzero →
+`not_proven`; no exit fact → `unknown` (the shape indexes are still
+carried when the closed form holds).  Ambiguous records (duplicated or
+pre-call final results, collided IDs) keep `unknown`.  Evidence never
+changes acquisition (outcome, digest, removal, region).
+
+**Per-family evidence (the seven required-syntax literals; commands
+unchanged; legacy read semantics unchanged):**
+
+| # | Command | Legacy read (unchanged) | Process (017-am) | Final-cat evidence |
+| --- | --- | --- | --- | --- |
+| 1 | `cat A.md` | EARNED, removable | single-final `COMPLETE`, region + exact digest | `proven` (0,) |
+| 2 | `cat /work/A.md` | EARNED, removable | single-final `COMPLETE`, region + exact digest | `proven` (0,) |
+| 3 | `cd /work && cat A.md B.md` | EARNED, removable | single-final `COMPLETE`, region + exact digest | `proven` (0, 1) |
+| 4 | `cat A.md && cat B.md` | EARNED, removable | single-final `COMPLETE`, region + exact digest | `proven` (1,) — final cat only |
+| 5 | `ls -la /work && cat /work/A.md` | `UNSUPPORTED` (ls is not a read; `COMMAND_UNSUPPORTED` + `OUTER_BOUNDARY_UNPROVEN`) | single-final `COMPLETE`, NO region (listing output unattributable; `proven_executed` empty) | `proven` (0,) with the read reasons |
+| 6 | `for f in A.md B.md; do echo "=== $f ==="; cat "$f"; done` | RECOGNIZED-ONLY (`LOOP_ITERATION_UNPROVEN` + `OUTER_BOUNDARY_UNPROVEN`, non-removable) | single-final `COMPLETE`, NO region (`proven_executed` empty) | `proven` (1,) — final iteration only |
+| 7 | `for d in alpha beta; do cat "policies/$d/AGENTS.md"; done` | RECOGNIZED-ONLY (`LOOP_ITERATION_UNPROVEN`, non-removable) | single-final `COMPLETE`, NO region (`proven_executed` empty) | `proven` (1,) — final iteration only |
+
+Actual evidence: tests/test_bundle_process_chunks.py::TestSingleFinal
+(34 public composition tests), ::TestLsFamily
+(tests/test_bundle_compound_reads.py, 4 parser tests),
+tests/test_bundle_tool_results.py::TestFinalCatEvidence (7 public
+composition tests); negatives include `true && cat A.md`,
+`exit 0 && cat A.md`, `exec true && cat A.md`,
+`cd /outside && cat A.md` (`OUTSIDE_WORKSPACE`),
+`cat A.md ; exit 0 && cat B.md` (structural reasons on the first
+statement), `cat $X.md && cat B.md`, loop `exit 0` body, and loop
+ending in `echo` — all `unknown` with no indexes, never acquiring.
+
+**Bounded actual-trace qualification (no new attempt).**  The
+qualified AJ native run record
+(`aj-native-run-record.json`, 12503 B, SHA-256
+`72a1db20a88fa06d3580fafc89e0b28209206e69d8722d537ef0ec440560f4a3`,
+`format_capture.snapshot`, known-synthetic, hash-verified) carries the
+original selected argument/ID/wrapper values.  Fed through the public
+`observe_request` with an EXPLICIT carrier conversion (Responses
+`input` items and Chat `messages`/`tool_calls`; the carrier structures
+are a documented conversion, not a retained actual provider request,
+and controller POST numbers are not offsets) under the stated
+workspace context `/tmp/slaif-format-seed` (the qualified container's
+seed directory; the observer never resolves against the adapter
+host), BOTH endpoints give: `read-complete` single-final `COMPLETE`
+with the exact 494-byte source (digest `cad7d4cb…`, region earned);
+`running-chunks` chain `COMPLETE` with two nonempty pieces
+(432 + 1104 = 1536 bytes, qualified output digest `30b4c9a1…`), ONE
+empty-stdin poll, final frame without session — and NO source region
+(the sleep-bearing command is not an earned read grammar);
+`empty-output` single-final `COMPLETE` with one exact empty piece
+(0 bytes, delimiter LF retained) and no region; `bounded-truncated`
+`TRUNCATED` with the retained 200-byte piece and no complete-source
+claim.  Input invariance and operational-privacy reprs hold.
+
+**Honest limits.**  The actual-trace qualification is bounded
+(converted carriers, one qualified record; not an original whole API
+request, not a new actual attempt, and not whole-017 or v1
+runtime evidence).  Families 5/6/7 remain non-acquiring on the
+unchanged legacy read surface.  The sleep-bearing stream command
+remains unearned as a read.  Strategic acceptance PENDING; whole-017
+unaccepted; 018-024 remain the mandatory planned succession.
 
 ## 12. Offline process-capture utility (rounds 017-i/017-j/017-k/017-l, inert)
 

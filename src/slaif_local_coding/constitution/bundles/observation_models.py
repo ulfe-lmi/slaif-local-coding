@@ -12,23 +12,45 @@ domains are never mixed.  Digests are computed over the exact observed bytes
 (``str.encode("utf-8")``) and never assert anything about the original
 filesystem encoding.
 
-Version law: ``cache-bundle-observation/2`` (round 017-al) extends the
+Version law: ``cache-bundle-observation/2`` (round 017-al) extended the
 ``/1`` contract additively for the D09 process/chunk collector: the pinned
 native exec-wrapper format identity ``codex-native-exec-wrapper/v1``, the
-process grammar ``process-chunk/v1``, the ``NativeWrapperFacts`` /
-``ProcessPiece`` / ``ProcessPoll`` / ``ProcessObservation`` models, the
-``ProcessOutcome`` enum, the four new ``process_*``
-limitations plus ``wrapper_header_over_bound``, the new
-``ObservationReport.processes`` field (default empty) and five
-new ``ObservationBounds`` fields with fixed defaults.  Every ``/1`` field keeps
-its exact meaning and single-result behavior, and old ``/1`` reports remain
-loadable (the new fields take their empty defaults).  A ``/2`` report
-requires a ``/2`` consumer because it carries the additive ``processes``
-field: raw ``/1`` and ``/2`` reports differ by exactly the additive fields
-and the ``observer_version`` string — the additive-field projection (drop
-``processes``) is the accurate comparison, not equality modulo
-``observer_version`` alone.  The legacy ``codex-exec-wrapper/v1`` grammar
-keeps its exact law (including source-is-source).
+process grammar (``process-chunk/v1`` at introduction), the
+``NativeWrapperFacts`` / ``ProcessPiece`` / ``ProcessPoll`` /
+``ProcessObservation`` models, the ``ProcessOutcome`` enum, the four new
+``process_*`` limitations plus ``wrapper_header_over_bound``, the new
+``ObservationReport.processes`` field (default empty) and five new
+``ObservationBounds`` fields with fixed defaults.  ``cache-bundle-observation/3``
+(round 017-am) extends ``/2`` for the already-exited native single-final
+acquisition.  The intentional changes are exactly: the process grammar
+value advances to ``process-chunk/v2`` (the closed chain law gains the
+degenerate zero-poll single-final shape), one new ``ObservationBounds``
+field (``max_process_immediate_execs``) with a fixed default, the new
+``FinalCatEvidence`` enum with additive ``final_cat_evidence``
+(default ``unknown``) and ``final_cat_member_indexes`` (default empty)
+fields on ``ReadObservation`` and ``ProcessObservation``
+(execution/success evidence for the final ``cat`` statement of a
+recognized command form, tied to its exact member occurrences,
+separate from acquisition), and the new
+single-final preflight, which can emit a process observation for a
+payload where ``/2`` emitted none (a closed native single-final frame
+with no running chain).  Every other ``/1``/``/2`` field keeps its exact
+meaning and single-result behavior, and old serialized reports remain
+loadable, preserving their actual identity strings (a ``/1`` or ``/2``
+report keeps its own ``observer_version`` and process-grammar values —
+identity is per-report data, never rewritten).  ``/2`` and ``/3`` reports
+carry additive fields (``processes``; for ``/3`` also the
+``final_cat_evidence`` / ``final_cat_member_indexes`` pair), so raw
+reports of different versions are not equal modulo the
+``observer_version`` string: the additive-field projection per field
+family (drop ``processes`` and the ``final_cat_*`` pair) is the
+accurate comparison.  The legacy
+``codex-exec-wrapper/v1`` grammar keeps its exact law (including
+source-is-source): the two grammars INTERSECT on final headers without
+the pinned ``Original token count:`` section, where existing positive
+legacy reads are preserved unchanged (the process surface may add a
+consistent second observation there); pinned native frames WITH that
+section stay non-acquiring on the legacy surface.
 """
 
 from __future__ import annotations
@@ -41,7 +63,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import core_schema
 
 #: Identity of this pure observation implementation.
-OBSERVER_VERSION = "cache-bundle-observation/2"
+OBSERVER_VERSION = "cache-bundle-observation/3"
 
 #: Versioned root-envelope delimiter contract (see the observation contract).
 ENVELOPE_FORMAT = "codex-project-instructions/v1"
@@ -57,8 +79,10 @@ TOOL_WRAPPER_FORMAT = "codex-exec-wrapper/v1"
 #: legacy ``codex-exec-wrapper/v1`` grammar; the two formats never mix.
 NATIVE_TOOL_WRAPPER_FORMAT = "codex-native-exec-wrapper/v1"
 
-#: Versioned D09 process/chunk association grammar (objective 017-al).
-PROCESS_CHUNK_GRAMMAR = "process-chunk/v1"
+#: Versioned D09 process/chunk association grammar (objective 017-al;
+#: advanced to ``process-chunk/v2`` in 017-am for the already-exited native
+#: single-final shape — the pinned wire format is unchanged).
+PROCESS_CHUNK_GRAMMAR = "process-chunk/v2"
 
 #: SHA-256 of the empty source; a proven zero-byte read is a complete empty
 #: version carrying exactly this digest.
@@ -211,6 +235,37 @@ class ProcessOutcome(StrEnum):
     RUNNING = "running"
     MISSING_BODY = "missing_body"
     UNSUPPORTED = "unsupported"
+
+
+class FinalCatEvidence(StrEnum):
+    """Final-``cat`` execution/success evidence (objective 017-am).
+
+    Whether a recognized command form ends in a ``cat`` statement whose
+    execution the wrapper's global exit status proves — evidence only,
+    separate from acquisition (outcome, spans, digests and
+    proven-executed members are unchanged):
+
+    - ``PROVEN``: the form's final statement is a clean ``cat`` and the
+      wrapper proves exit zero (an ``&&`` chain or single cat proves the
+      final ``cat`` succeeded; an unguarded loop proves only the FINAL
+      iteration's ``cat`` — earlier iterations stay
+      ``LOOP_ITERATION_UNPROVEN``);
+    - ``NOT_PROVEN``: the form ends in a clean ``cat`` but the wrapper
+      proves a nonzero exit (no per-statement success is identified);
+    - ``unknown`` (default): the form does not end in a recognized
+      final ``cat`` (no read form, final statement not a clean cat), or
+      no exit fact is proven at all (running, unknown completion).
+
+    The associated ``final_cat_member_indexes`` field identifies the
+    EXACT final-``cat`` member occurrences (indices into
+    ``requested_members``): a bare status cannot distinguish ``cat
+    A.md B.md`` (both operands) from ``cat A.md && cat B.md`` (final
+    ``B.md`` only) or an unguarded loop (last iteration only).
+    """
+
+    PROVEN = "proven"
+    NOT_PROVEN = "not_proven"
+    UNKNOWN = "unknown"
 
 
 class PathForm(StrEnum):
@@ -547,7 +602,11 @@ class ProcessObservation(_Frozen):
 
     Models the original exec occurrence, each causally associated
     empty-stdin poll and its own result, the exact original source
-    pieces in causal order, and the final process completion.  The
+    pieces in causal order, and the final process completion.  Two
+    shapes exist under ``process-chunk/v2``: the running -> poll ->
+    final chain, and the already-exited single-final exec result, which
+    is its own initial and terminal result (zero polls, exactly one
+    piece, no invented session).  The
     earned outer attribution is computed on the transient ordered
     concatenation of the exact pieces and mapped back onto the
     original pieces (``region_piece_spans``); ``bundle_digest`` is the
@@ -559,7 +618,12 @@ class ProcessObservation(_Frozen):
     when the original exec command is itself a complete all-cat parse
     (the actual sleep-bearing stream command stays unearned);
     ``requested_members`` preserves the exact original command's
-    finite parsed data in every outcome.
+    finite parsed data in every outcome.  ``final_cat_evidence`` /
+    ``final_cat_member_indexes`` (objective 017-am) is execution/
+    success evidence for the final ``cat`` statement of a recognized
+    command form, tied to its exact member occurrences and decided
+    from the terminal frame's exit fact — evidence only, never
+    acquisition.
     """
 
     process_grammar: str = PROCESS_CHUNK_GRAMMAR
@@ -579,6 +643,16 @@ class ProcessObservation(_Frozen):
     #: carries its exact digest, boundaryless multiple occurrences stay
     #: unknown (``None``), and no per-member hash is otherwise invented.
     member_digests: tuple[str | None, ...] = ()
+    #: Final-``cat`` execution/success evidence (objective 017-am,
+    #: additive in ``cache-bundle-observation/3``; default ``unknown``).
+    final_cat_evidence: FinalCatEvidence = FinalCatEvidence.UNKNOWN
+    #: Exact final-``cat`` member occurrences (objective 017-am):
+    #: indices (occurrence order) into ``requested_members`` of the
+    #: final ``cat`` statement's operands; nonempty exactly when the
+    #: command form ends in a clean final ``cat`` (shape fact,
+    #: independent of the exit fact).  Execution proof only — never
+    #: acquisition (no source, digest or removal follows).
+    final_cat_member_indexes: tuple[int, ...] = ()
     #: Per-piece sub-spans (aligned with ``pieces``; offsets relative to
     #: the exact decoded JSON string that carried each piece's result
     #: text — ABSOLUTE offsets in the global span law: the output-local
@@ -622,7 +696,13 @@ class ReadObservation(_Frozen):
 
     Requested members and proven-executed members are distinct.  Individual
     member digests stay ``None`` unless boundaries are actually proven; the
-    bundle digest is never a per-file hash.
+    bundle digest is never a per-file hash.  ``final_cat_evidence`` /
+    ``final_cat_member_indexes`` (objective 017-am, additive in
+    ``cache-bundle-observation/3``; defaults ``unknown`` / empty) is
+    execution/success evidence for the final ``cat`` statement of a
+    recognized command form, tied to its exact member occurrences and
+    decided from the wrapper's exit status — evidence only, never
+    acquisition.
     """
 
     read_grammar: str = READ_GRAMMAR
@@ -644,6 +724,16 @@ class ReadObservation(_Frozen):
     removable: bool = False
     bundle_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     member_digests: tuple[str | None, ...] = ()
+    #: Final-``cat`` execution/success evidence (objective 017-am,
+    #: additive in ``cache-bundle-observation/3``; default ``unknown``).
+    final_cat_evidence: FinalCatEvidence = FinalCatEvidence.UNKNOWN
+    #: Exact final-``cat`` member occurrences (objective 017-am):
+    #: indices (occurrence order) into ``requested_members`` of the
+    #: final ``cat`` statement's operands; nonempty exactly when the
+    #: command form ends in a clean final ``cat`` (shape fact,
+    #: independent of the exit fact).  Execution proof only — never
+    #: acquisition (no source, digest or removal follows).
+    final_cat_member_indexes: tuple[int, ...] = ()
     reasons: tuple[Limitation, ...] = ()
 
     def __repr__(self) -> str:
@@ -684,10 +774,11 @@ class ObservationReport(_Frozen):
     roots: RootScanResult
     reads: tuple[ReadObservation, ...] = ()
     unpaired: tuple[UnpairedRecord, ...] = ()
-    #: D09 process/chunk observations (objective 017-al); empty when the
-    #: payload carries no qualifying native process chain.  Additive in
-    #: ``cache-bundle-observation/2``; every ``/1`` field and behavior is
-    #: preserved unchanged.
+    #: D09 process/chunk observations (objective 017-al; the already-exited
+    #: native single-final shape added in 017-am); empty when the payload
+    #: carries no qualifying native process chain or single-final frame.
+    #: Additive in ``cache-bundle-observation/2``/``3``; every ``/1`` field
+    #: and behavior is preserved unchanged.
     processes: tuple[ProcessObservation, ...] = ()
 
     def __repr__(self) -> str:
@@ -726,3 +817,14 @@ class ObservationBounds(_Frozen):
     #: Cumulative exact UTF-8 source BYTES over one chain's ordered
     #: pieces; enforced before any piece retention or concatenation copy.
     max_process_source_bytes: int = Field(default=1_000_000, ge=1, le=10_000_000)
+    #: D09 immediate-exec observations per request (objective 017-am): the
+    #: already-exited native single-final exec results (zero-poll).  The
+    #: count is over COMPLETED history in the request (not concurrency);
+    #: the default aligns with the existing ``max_commands`` /
+    #: ``max_outputs`` inventory defaults.  This complete-request count is
+    #: decided from bounded header facts BEFORE any full-frame body work
+    #: or retention; it does NOT count against ``max_process_sessions``
+    #: (a final frame carries no session section), and the zero-poll
+    #: result trivially satisfies the poll ceiling with exactly one piece
+    #: and the cumulative char/byte bounds.
+    max_process_immediate_execs: int = Field(default=128, ge=1, le=10_000)

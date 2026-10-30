@@ -97,6 +97,11 @@ class PlanStatementKind(StrEnum):
     CAT = "cat"
     CD = "cd"
     ECHO = "echo"
+    #: Bounded listing statement (objective 017-am): the exact earned
+    #: ``ls`` form (see ``_parse_statement``).  A recognized non-read:
+    #: it never acquires a source, and a mixed plan carrying it keeps
+    #: its structurally-mixed typing.
+    LS = "ls"
     OTHER = "other"
 
 
@@ -141,6 +146,11 @@ class ReadPlanParse(_Frozen):
     statements: tuple[PlanStatement, ...] = ()
     requested_members: tuple[NormalizedPath, ...] = ()
     cd_transitions: tuple[str, ...] = ()
+    #: Objective 017-am (additive): true when the statements are exactly
+    #: one or more clean ``ls`` statements followed by one or more clean
+    #: ``cat`` statements (the bounded ``ls … && cat …`` shape).
+    #: Recognition only — the mixed plan stays non-acquiring.
+    ls_cat_shape: bool = False
     reasons: tuple[Limitation, ...] = ()
 
 
@@ -311,6 +321,31 @@ def _parse_statement(
             0,
         )
 
+    if value == "ls":
+        # The exact bounded ls form (objective 017-am): a bare unquoted
+        # ``ls`` (the executable checks above already reject operators,
+        # quote limitations and quoting), zero or more unquoted literal
+        # dash options, and at most one unquoted literal non-dash path.
+        # Anything else stays typed exactly as today (OTHER /
+        # COMMAND_UNSUPPORTED).  Recognition only: a listing never
+        # acquires a source and contributes no members.
+        non_dash = 0
+        for token in rest:
+            if token.operator is not None or token.quote_limitation is not None or token.quoted:
+                return _other(Limitation.COMMAND_UNSUPPORTED), 0
+            if token.value.startswith("-"):
+                continue
+            non_dash += 1
+            if non_dash > 1:
+                return _other(Limitation.COMMAND_UNSUPPORTED), 0
+        return (
+            PlanStatement(
+                kind=PlanStatementKind.LS,
+                raw_span=CharSpan(start=chunk[0].raw_start, end=chunk[-1].raw_end),
+            ),
+            0,
+        )
+
     reason = (
         Limitation.FRAGMENT_COMMAND
         if value in _FRAGMENT_EXECUTABLES
@@ -334,6 +369,24 @@ def parse_read_plan(
     module docstring for the earned surface and the whole-plan bound law.
     """
 
+    def _ls_cat_shape(statements_: tuple[PlanStatement, ...]) -> bool:
+        """The bounded shape: one or more clean LS then one or more
+        clean CAT (objective 017-am; recognition only)."""
+
+        i = 0
+        while (
+            i < len(statements_)
+            and statements_[i].kind is PlanStatementKind.LS
+            and not statements_[i].reasons
+        ):
+            i += 1
+        if i < 1 or i >= len(statements_):
+            return False
+        return all(
+            statement.kind is PlanStatementKind.CAT and not statement.reasons
+            for statement in statements_[i:]
+        )
+
     def _finish(
         reasons: list[Limitation],
         statements: tuple[PlanStatement, ...] = (),
@@ -341,6 +394,7 @@ def parse_read_plan(
         requested: tuple[NormalizedPath, ...] = (),
         cd_transitions: tuple[str, ...] = (),
         length: int = 0,
+        ls_cat_shape: bool = False,
     ) -> ReadPlanParse:
         ordered: list[Limitation] = []
         for reason in reasons:
@@ -357,6 +411,7 @@ def parse_read_plan(
             statements=statements,
             requested_members=requested,
             cd_transitions=cd_transitions,
+            ls_cat_shape=ls_cat_shape,
             reasons=tuple(ordered),
         )
 
@@ -441,12 +496,19 @@ def parse_read_plan(
         # Any structurally mixed statement in a multi-statement plan
         # makes the combined output unattributable as pure file bytes:
         # listing rows, diagnostics and label lines are never swallowed
-        # into a file bundle.
+        # into a file bundle.  An earned LS statement is structurally
+        # mixed exactly like an OTHER one (the listing extent is not
+        # proven) and additionally marks the command family as not a
+        # pure read: both reasons are kept for LS-containing plans.
         if any(
-            statement.reasons or statement.kind is PlanStatementKind.OTHER
+            statement.reasons
+            or statement.kind is PlanStatementKind.OTHER
+            or statement.kind is PlanStatementKind.LS
             for statement in statements
         ):
             reasons.append(Limitation.OUTER_BOUNDARY_UNPROVEN)
+        if any(statement.kind is PlanStatementKind.LS for statement in statements):
+            reasons.append(Limitation.COMMAND_UNSUPPORTED)
         # An echo strictly between reads is an unknown internal boundary:
         # a printed delimiter is not a universal boundary oracle.
         cat_indexes = [
@@ -464,6 +526,7 @@ def parse_read_plan(
         requested=tuple(requested),
         cd_transitions=tuple(cd_transitions),
         length=len(command),
+        ls_cat_shape=_ls_cat_shape(tuple(statements)),
     )
 
 

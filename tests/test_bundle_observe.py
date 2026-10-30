@@ -261,7 +261,17 @@ class TestFixtureSelfIdentification:
             # D09 process fixtures are SYNTHETIC-DERIVED from the pinned
             # 0.164.0 qualified AJ capture.
             assert "codex-0.149.0" in authority or "0.164.0" in authority, path.name
-            assert meta["parser_versions"]["observer"] == OBSERVER_VERSION
+            # Fixtures are immutable qualified artifacts: each records the
+            # observer version it was created/verified under (the /2
+            # fixtures keep their /2 self-identification; 017-am fixtures
+            # record /3).  The law is a known versioned lineage, not tip
+            # equality.
+            assert meta["parser_versions"]["observer"] in {
+                "cache-bundle-observation/1",
+                "cache-bundle-observation/2",
+                "cache-bundle-observation/3",
+            }
+            assert meta["parser_versions"]["observer"].startswith("cache-bundle-observation/")
             assert meta["parser_versions"]["envelope"] == ENVELOPE_FORMAT
             assert meta["parser_versions"]["read_grammar"] == READ_GRAMMAR
             assert meta["parser_versions"]["tool_wrapper"] == TOOL_WRAPPER_FORMAT

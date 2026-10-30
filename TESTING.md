@@ -126,14 +126,21 @@ native_ready=true verdict is bounded to that attempt). The binding
 native-fixture law (frozen bounds, one-attempt / spent-namespace, owner-UID
 identity, confinement, expected-PTY, publication / qualification) is normative
 in the compact `## Objective boundaries` section and versioned in observation
-contract sections 11a-11p. D10 keeps its composition matrix and D09 keeps
-its unsupported / partial-negative matrix as required acceptance surfaces,
-without any process-completion claim; the D09 process / chunk collector is
-exercised by the named pure suite `tests/test_bundle_process_chunks.py`
-(017-al, pure inert, observation contract section 5a), while the D09
-actual-trace process-completion qualification remains NOT RUN, and the
-audit / remediation of the EACH seven required literal read families remains
-outstanding. No GENERIC native-compatibility, whole-017 or v1 runtime claim
+contract sections 11a-11q. D10 keeps its composition matrix and D09 keeps
+its unsupported / partial-negative matrix as required acceptance surfaces;
+the D09 process / chunk collector is exercised by the named pure suite
+`tests/test_bundle_process_chunks.py` (017-al pure inert collector plus
+017-am already-exited single-final acquisition and the final-cat
+execution-evidence contract, observation contract sections 5a and 11q,
+with the read-surface evidence tests in
+`tests/test_bundle_tool_results.py::TestFinalCatEvidence`).  The D09
+actual-trace process-completion qualification is qualified AT BOUNDED
+SCOPE (017-am): the original selected AJ frames (hash-verified native run
+record) fed through the public composition with an EXPLICIT carrier
+conversion, both endpoints, four cases (section 11q) — the sleep-bearing
+stream command remains an UNEARNED read grammar (process complete, no
+source attribution), and the audit / remediation of the EACH seven
+required literal read families remains outstanding. No GENERIC native-compatibility, whole-017 or v1 runtime claim
 is made (the bounded AJ native_ready=true verdict above stays the only
 native readiness recorded). Whole-017 acceptance, merge and remote-main
 verification must complete BEFORE 018-024 may begin; the later ACTUAL

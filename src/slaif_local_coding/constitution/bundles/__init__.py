@@ -4,8 +4,9 @@ This package implements the bounded pure-observation slice (D01-D09) of
 Objective 017: versioned root-envelope, literal shell-read, finite
 read-plan (D06/D07/D08) and literal-loop (D07) observation, tool-
 result pairing with exact source spans and typed limitations, and the
-D09 native process/chunk chain collector (``process-chunk/v1`` over the
-pinned ``codex-native-exec-wrapper/v1`` grammar).  It is deliberately
+D09 native process/chunk collector (``process-chunk/v2`` over the
+pinned ``codex-native-exec-wrapper/v1`` grammar; running chains and
+already-exited single-final frames).  It is deliberately
 **not** wired into the legacy request execution path, the graph/cache/
 compiler, or any runtime stage; see
 ``docs/CACHE-OBSERVATION-CONTRACT.md``.
@@ -40,6 +41,7 @@ from ..bundles.observation_models import (
     READ_GRAMMAR,
     TOOL_WRAPPER_FORMAT,
     CharSpan,
+    FinalCatEvidence,
     Limitation,
     NativeWrapperFacts,
     NormalizedPath,
@@ -89,6 +91,7 @@ from ..bundles.tool_results import observe_reads, parse_wrapper
 
 __all__ = [
     "EMPTY_SOURCE_SHA256",
+    "FinalCatEvidence",
     "ENVELOPE_FORMAT",
     "LOOP_GRAMMAR",
     "NATIVE_TOOL_WRAPPER_FORMAT",

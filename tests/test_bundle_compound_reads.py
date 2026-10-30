@@ -351,6 +351,60 @@ class TestPlanNegatives:
         assert Limitation.COMMAND_OVER_BOUND in result.reasons
 
 
+class TestLsFamily:
+    """Bounded ls recognition (objective 017-am): a clean ls is a
+    recognized non-read statement; the leading-clean-ls-then-cat shape
+    is recorded for the final-cat evidence contract and never acquires
+    by itself."""
+
+    def test_bare_ls_forms_are_recognized_and_not_reads(self) -> None:
+        for command in ("ls", "ls -la", "ls -la /work"):
+            result = plan(command)
+            assert len(result.statements) == 1
+            statement = result.statements[0]
+            assert statement.kind is PlanStatementKind.LS
+            assert statement.reasons == ()
+            # A plan without any cat statement is not a read at all.
+            assert result.complete is False
+            assert result.reasons == (Limitation.COMMAND_UNSUPPORTED,)
+            assert result.ls_cat_shape is False
+            assert members(result) == ()
+
+    def test_out_of_shape_ls_forms_stay_other(self) -> None:
+        for command in (
+            "ls /work /work2",
+            'ls "/work"',
+            "ls -la --color=always /work /work2",
+        ):
+            result = plan(command)
+            assert result.statements[0].kind is PlanStatementKind.OTHER
+            assert Limitation.COMMAND_UNSUPPORTED in result.statements[0].reasons
+            assert result.complete is False
+            assert result.ls_cat_shape is False
+            assert members(result) == ()
+
+    def test_ls_cat_shape_is_recognized_and_structurally_mixed(self) -> None:
+        result = plan("ls -la /work && cat /work/A.md")
+        assert result.complete is False
+        # The listing keeps the combined output unattributable and the
+        # family typed as not a pure read.
+        assert Limitation.OUTER_BOUNDARY_UNPROVEN in result.reasons
+        assert Limitation.COMMAND_UNSUPPORTED in result.reasons
+        assert members(result) == ("A.md",)
+        assert result.ls_cat_shape is True
+
+    def test_ls_cat_shape_negatives(self) -> None:
+        for command in (
+            "cat A.md",
+            "ls /work && cd /work2 && cat A.md",
+            "ls /work && cat $X.md",
+            "cat A.md && ls",
+            "ls /work && cat A.md && ls",
+        ):
+            result = plan(command)
+            assert result.ls_cat_shape is False, command
+
+
 class TestWholePlanBounds:
     """Whole-plan bounds, never per-segment multiplication."""
 

@@ -103,21 +103,26 @@ from typing import Any
 
 from ..bundles.compound_reads import (
     READ_PLAN_GRAMMAR,
+    PlanStatementKind,
+    ReadPlanParse,
     parse_read_plan,
     plan_source_region,
 )
 from ..bundles.literal_loops import (
     LOOP_GRAMMAR,
     LoopParse,
+    LoopStatementKind,
     parse_literal_loop,
 )
 from ..bundles.observation_models import (
     EMPTY_SOURCE_SHA256,
     CharSpan,
     ExitStatus,
+    FinalCatEvidence,
     Limitation,
     ObservationBounds,
     PathContext,
+    ReadCommandParse,
     ReadObservation,
     ReadOutcome,
     TruncationStatus,
@@ -696,6 +701,148 @@ def _result_entries(
     return responses, responses_defects, chat, chat_defects
 
 
+#: Plan statement kinds with the ordinary-program exit semantics the
+#: global-exit inference requires (each statement runs to completion and
+#: returns its own exit status; the unquoted ``&&`` chain short-circuits
+#: on failure).  Unknown, control-flow, branch, ``exit`` or ``exec``
+#: prefixes are typed ``OTHER`` and can never earn the proof.
+_SAFE_PLAN_STATEMENT_KINDS = frozenset(
+    {
+        PlanStatementKind.CAT,
+        PlanStatementKind.CD,
+        PlanStatementKind.ECHO,
+        PlanStatementKind.LS,
+    }
+)
+#: Loop body statement kinds with the same ordinary-program semantics
+#: (``break`` / ``continue`` / ``exit`` and unsupported bodies are typed
+#: ``OTHER`` or incomplete and can never earn the proof).
+_SAFE_LOOP_BODY_KINDS = frozenset({LoopStatementKind.CAT, LoopStatementKind.ECHO})
+#: Loop-level reasons that are DECLARED unguarded/outer-boundary
+#: uncertainties on otherwise closed valid loop forms — the only loop
+#: reasons compatible with the final-cat exit inference.
+_ALLOWED_LOOP_EVIDENCE_REASONS = frozenset(
+    {
+        Limitation.LOOP_ITERATION_UNPROVEN,
+        Limitation.OUTER_BOUNDARY_UNPROVEN,
+    }
+)
+
+
+def final_cat_evidence(
+    parse: ReadCommandParse | ReadPlanParse | LoopParse | None,
+    exit_zero: bool | None,
+) -> tuple[FinalCatEvidence, tuple[int, ...]]:
+    """Final-``cat`` execution evidence and its exact member occurrences.
+
+    Shared by the legacy read surface and the D09 process surface
+    (objective 017-am).  ``exit_zero`` is the wrapper's proven global
+    exit fact: ``True`` for proven zero, ``False`` for proven nonzero,
+    ``None`` when no exit is proven.  Returns ``(status,
+    member_indexes)`` where ``member_indexes`` are the indices
+    (occurrence order) into the form's ``requested_members`` of the
+    final ``cat`` statement's operands — nonempty exactly when the form
+    ends in a clean final ``cat`` (a shape fact, independent of the
+    exit fact).
+
+    The WHOLE recognized structural form must be closed before any
+    proof: a single read only when it is a complete clean cat (ALL its
+    operands are the final cat); a plan only when EVERY statement is an
+    explicitly earned safe kind (cat / cd / echo / the exact ls form —
+    unknown, control, branch, ``exit`` or ``exec`` prefixes are typed
+    ``OTHER`` and break the inference: e.g. ``exit 0 && cat A.md`` exits
+    zero without running the cat) and the LAST statement is a clean
+    cat (only its operands — an earlier cat in the chain is not the
+    final one); a loop only when it is a closed valid form (complete,
+    every body statement an earned clean cat/echo, and only the
+    declared unguarded/outer-boundary loop-level uncertainties
+    present) with the last body statement a clean cat — an unguarded
+    loop's global exit zero proves only the FINAL iteration's ``cat``
+    (earlier iterations stay ``LOOP_ITERATION_UNPROVEN``).  Anything
+    else is ``unknown``.  Evidence never changes acquisition (outcome,
+    spans, digests, proven-executed members, removability).
+    """
+
+    ends_in_final_cat = False
+    member_indexes: tuple[int, ...] = ()
+    if isinstance(parse, ReadCommandParse):
+        if parse.complete:
+            ends_in_final_cat = True
+            member_indexes = tuple(range(len(parse.operands)))
+    elif isinstance(parse, ReadPlanParse):
+        if parse.statements and all(
+            statement.kind in _SAFE_PLAN_STATEMENT_KINDS and statement.reasons == ()
+            for statement in parse.statements
+        ):
+            last = parse.statements[-1]
+            if last.kind is PlanStatementKind.CAT and last.cat_operands:
+                ends_in_final_cat = True
+                member_indexes = _final_cat_tail_indexes(
+                    len(parse.requested_members), len(last.cat_operands)
+                )
+    elif isinstance(parse, LoopParse):
+        if (
+            parse.is_loop_attempt
+            and parse.complete
+            and parse.statements
+            and all(
+                statement.kind in _SAFE_LOOP_BODY_KINDS and statement.reasons == ()
+                for statement in parse.statements
+            )
+            and set(parse.reasons) <= _ALLOWED_LOOP_EVIDENCE_REASONS
+        ):
+            last_body = parse.statements[-1]
+            if last_body.kind is LoopStatementKind.CAT and last_body.cat_operands:
+                ends_in_final_cat = True
+                member_indexes = _final_cat_tail_indexes(
+                    len(parse.requested_members), len(last_body.cat_operands)
+                )
+    if not ends_in_final_cat:
+        return FinalCatEvidence.UNKNOWN, ()
+    if exit_zero is None:
+        return FinalCatEvidence.UNKNOWN, member_indexes
+    return (
+        FinalCatEvidence.PROVEN if exit_zero else FinalCatEvidence.NOT_PROVEN,
+        member_indexes,
+    )
+
+
+def _final_cat_tail_indexes(total_members: int, final_cat_operands: int) -> tuple[int, ...]:
+    """Indexes of the final ``cat`` statement's operands in member order.
+
+    ``requested_members`` is the exact statement-order concatenation of
+    every ``cat`` statement's operands (a loop's is the iteration-
+    expanded order), so the LAST clean ``cat`` statement's operands are
+    the tail of the list.
+    """
+
+    if final_cat_operands < 1 or total_members < final_cat_operands:
+        return ()
+    return tuple(range(total_members - final_cat_operands, total_members))
+
+
+def _with_final_cat_evidence(
+    observation: ReadObservation,
+    parse: ReadCommandParse | ReadPlanParse | LoopParse | None,
+    wrapper: WrapperFacts,
+) -> ReadObservation:
+    """Attach the final-``cat`` evidence pair decided from the wrapper."""
+
+    if wrapper.exit_status is ExitStatus.ZERO:
+        exit_zero: bool | None = True
+    elif wrapper.exit_status is ExitStatus.NONZERO:
+        exit_zero = False
+    else:
+        exit_zero = None
+    status, member_indexes = final_cat_evidence(parse, exit_zero)
+    return observation.model_copy(
+        update={
+            "final_cat_evidence": status,
+            "final_cat_member_indexes": member_indexes,
+        }
+    )
+
+
 def _build_loop_observation(
     *,
     call_id: str,
@@ -730,17 +877,22 @@ def _build_loop_observation(
     if not loop.complete:
         # Structurally unsupported loop: no acquisition; the original
         # wrapper/global status is preserved as recorded facts.
-        return ReadObservation(
-            call_id=call_id,
-            endpoint=endpoint,
-            call_location=call_location,
-            result_location=result_location,
-            read_grammar=LOOP_GRAMMAR,
-            requested_members=loop.requested_members,
-            outcome=ReadOutcome.UNSUPPORTED,
-            completeness=ReadOutcome.UNSUPPORTED,
-            wrapper=parse_wrapper(output_text, bounds),
-            reasons=loop.reasons,
+        loop_unsupported_wrapper = parse_wrapper(output_text, bounds)
+        return _with_final_cat_evidence(
+            ReadObservation(
+                call_id=call_id,
+                endpoint=endpoint,
+                call_location=call_location,
+                result_location=result_location,
+                read_grammar=LOOP_GRAMMAR,
+                requested_members=loop.requested_members,
+                outcome=ReadOutcome.UNSUPPORTED,
+                completeness=ReadOutcome.UNSUPPORTED,
+                wrapper=loop_unsupported_wrapper,
+                reasons=loop.reasons,
+            ),
+            loop,
+            loop_unsupported_wrapper,
         )
     loop_wrapper = parse_wrapper(output_text, bounds)
     loop_content_span = (
@@ -749,25 +901,8 @@ def _build_loop_observation(
         else None
     )
     if Limitation.PROCESS_RUNNING in loop_wrapper.reasons:
-        return ReadObservation(
-            call_id=call_id,
-            endpoint=endpoint,
-            call_location=call_location,
-            result_location=result_location,
-            read_grammar=LOOP_GRAMMAR,
-            requested_members=loop.requested_members,
-            outcome=ReadOutcome.UNSUPPORTED,
-            completeness=ReadOutcome.UNSUPPORTED,
-            wrapper=loop_wrapper,
-            reasons=(Limitation.PROCESS_RUNNING,),
-        )
-    if loop_wrapper.reasons == () and loop_wrapper.output_present and loop_content_span is not None:
-        loop_content = output_text[loop_content_span.start : loop_content_span.end]
-        if contains_lone_surrogates(loop_content):
-            # Unhashable content is rejected before any UTF-8 hashing:
-            # the observation is typed, non-removable, and carries no
-            # digest (ineligible for later graph/cache admission).
-            return ReadObservation(
+        return _with_final_cat_evidence(
+            ReadObservation(
                 call_id=call_id,
                 endpoint=endpoint,
                 call_location=call_location,
@@ -777,11 +912,36 @@ def _build_loop_observation(
                 outcome=ReadOutcome.UNSUPPORTED,
                 completeness=ReadOutcome.UNSUPPORTED,
                 wrapper=loop_wrapper,
-                content_span=loop_content_span,
-                removable=False,
-                bundle_digest=None,
-                member_digests=(),
-                reasons=(Limitation.MALFORMED_UNICODE,),
+                reasons=(Limitation.PROCESS_RUNNING,),
+            ),
+            loop,
+            loop_wrapper,
+        )
+    if loop_wrapper.reasons == () and loop_wrapper.output_present and loop_content_span is not None:
+        loop_content = output_text[loop_content_span.start : loop_content_span.end]
+        if contains_lone_surrogates(loop_content):
+            # Unhashable content is rejected before any UTF-8 hashing:
+            # the observation is typed, non-removable, and carries no
+            # digest (ineligible for later graph/cache admission).
+            return _with_final_cat_evidence(
+                ReadObservation(
+                    call_id=call_id,
+                    endpoint=endpoint,
+                    call_location=call_location,
+                    result_location=result_location,
+                    read_grammar=LOOP_GRAMMAR,
+                    requested_members=loop.requested_members,
+                    outcome=ReadOutcome.UNSUPPORTED,
+                    completeness=ReadOutcome.UNSUPPORTED,
+                    wrapper=loop_wrapper,
+                    content_span=loop_content_span,
+                    removable=False,
+                    bundle_digest=None,
+                    member_digests=(),
+                    reasons=(Limitation.MALFORMED_UNICODE,),
+                ),
+                loop,
+                loop_wrapper,
             )
         if loop.reasons == ():
             # An all-success guarded pure-cat loop with a proven
@@ -804,42 +964,50 @@ def _build_loop_observation(
                 loop_member_digests: tuple[str | None, ...] = (loop_digest,)
             else:
                 loop_member_digests = tuple(None for _ in range(loop_distinct))
-            return ReadObservation(
-                call_id=call_id,
-                endpoint=endpoint,
-                call_location=call_location,
-                result_location=result_location,
-                read_grammar=LOOP_GRAMMAR,
-                requested_members=loop.requested_members,
-                proven_executed=loop_proven,
-                distinct_member_count=loop_distinct,
-                slot_width=loop_distinct,
-                outcome=ReadOutcome.COMPLETE,
-                completeness=ReadOutcome.COMPLETE,
-                wrapper=loop_wrapper,
-                content_span=loop_content_span,
-                removable=True,
-                bundle_digest=sha256_hex(loop_content),
-                member_digests=loop_member_digests,
+            return _with_final_cat_evidence(
+                ReadObservation(
+                    call_id=call_id,
+                    endpoint=endpoint,
+                    call_location=call_location,
+                    result_location=result_location,
+                    read_grammar=LOOP_GRAMMAR,
+                    requested_members=loop.requested_members,
+                    proven_executed=loop_proven,
+                    distinct_member_count=loop_distinct,
+                    slot_width=loop_distinct,
+                    outcome=ReadOutcome.COMPLETE,
+                    completeness=ReadOutcome.COMPLETE,
+                    wrapper=loop_wrapper,
+                    content_span=loop_content_span,
+                    removable=True,
+                    bundle_digest=sha256_hex(loop_content),
+                    member_digests=loop_member_digests,
+                ),
+                loop,
+                loop_wrapper,
             )
         # A recognized loop whose per-iteration execution or outer
         # attribution is not proven (an unguarded cat, a body echo, or a
         # member-level limitation): the deterministic requested members
         # are preserved, but the output is not attributable as a pure
         # source bundle — non-removable, no bundle digest.
-        return ReadObservation(
-            call_id=call_id,
-            endpoint=endpoint,
-            call_location=call_location,
-            result_location=result_location,
-            read_grammar=LOOP_GRAMMAR,
-            requested_members=loop.requested_members,
-            outcome=ReadOutcome.UNSUPPORTED,
-            completeness=ReadOutcome.UNSUPPORTED,
-            wrapper=loop_wrapper,
-            content_span=loop_content_span,
-            removable=False,
-            reasons=loop.reasons,
+        return _with_final_cat_evidence(
+            ReadObservation(
+                call_id=call_id,
+                endpoint=endpoint,
+                call_location=call_location,
+                result_location=result_location,
+                read_grammar=LOOP_GRAMMAR,
+                requested_members=loop.requested_members,
+                outcome=ReadOutcome.UNSUPPORTED,
+                completeness=ReadOutcome.UNSUPPORTED,
+                wrapper=loop_wrapper,
+                content_span=loop_content_span,
+                removable=False,
+                reasons=loop.reasons,
+            ),
+            loop,
+            loop_wrapper,
         )
     # The wrapper is not proven: the global exit status alone is no
     # per-iteration proof — a nonzero in a guarded loop identifies no
@@ -866,18 +1034,22 @@ def _build_loop_observation(
     else:
         loop_outcome = ReadOutcome.UNSUPPORTED
         loop_completeness = ReadOutcome.UNSUPPORTED
-    return ReadObservation(
-        call_id=call_id,
-        endpoint=endpoint,
-        call_location=call_location,
-        result_location=result_location,
-        read_grammar=LOOP_GRAMMAR,
-        requested_members=loop.requested_members,
-        outcome=loop_outcome,
-        completeness=loop_completeness,
-        wrapper=loop_wrapper,
-        content_span=loop_content_span,
-        reasons=tuple(loop_reasons),
+    return _with_final_cat_evidence(
+        ReadObservation(
+            call_id=call_id,
+            endpoint=endpoint,
+            call_location=call_location,
+            result_location=result_location,
+            read_grammar=LOOP_GRAMMAR,
+            requested_members=loop.requested_members,
+            outcome=loop_outcome,
+            completeness=loop_completeness,
+            wrapper=loop_wrapper,
+            content_span=loop_content_span,
+            reasons=tuple(loop_reasons),
+        ),
+        loop,
+        loop_wrapper,
     )
 
 
@@ -1013,17 +1185,22 @@ def _build_observation(
             # Typed unsupported plan: no acquisition; the original
             # wrapper/global status is preserved as recorded facts.
             cid, ep, loc, rloc = _common()
-            return ReadObservation(
-                call_id=cid,
-                endpoint=ep,
-                call_location=loc,
-                result_location=rloc,
-                read_grammar=READ_PLAN_GRAMMAR,
-                requested_members=plan.requested_members,
-                outcome=ReadOutcome.UNSUPPORTED,
-                completeness=ReadOutcome.UNSUPPORTED,
-                wrapper=parse_wrapper(output_text, bounds),
-                reasons=plan.reasons,
+            plan_typed_wrapper = parse_wrapper(output_text, bounds)
+            return _with_final_cat_evidence(
+                ReadObservation(
+                    call_id=cid,
+                    endpoint=ep,
+                    call_location=loc,
+                    result_location=rloc,
+                    read_grammar=READ_PLAN_GRAMMAR,
+                    requested_members=plan.requested_members,
+                    outcome=ReadOutcome.UNSUPPORTED,
+                    completeness=ReadOutcome.UNSUPPORTED,
+                    wrapper=plan_typed_wrapper,
+                    reasons=plan.reasons,
+                ),
+                plan,
+                plan_typed_wrapper,
             )
         plan_wrapper = parse_wrapper(output_text, bounds)
         plan_content_span = (
@@ -1033,17 +1210,21 @@ def _build_observation(
         )
         if Limitation.PROCESS_RUNNING in plan_wrapper.reasons:
             cid, ep, loc, rloc = _common()
-            return ReadObservation(
-                call_id=cid,
-                endpoint=ep,
-                call_location=loc,
-                result_location=rloc,
-                read_grammar=READ_PLAN_GRAMMAR,
-                requested_members=plan.requested_members,
-                outcome=ReadOutcome.UNSUPPORTED,
-                completeness=ReadOutcome.UNSUPPORTED,
-                wrapper=plan_wrapper,
-                reasons=(Limitation.PROCESS_RUNNING,),
+            return _with_final_cat_evidence(
+                ReadObservation(
+                    call_id=cid,
+                    endpoint=ep,
+                    call_location=loc,
+                    result_location=rloc,
+                    read_grammar=READ_PLAN_GRAMMAR,
+                    requested_members=plan.requested_members,
+                    outcome=ReadOutcome.UNSUPPORTED,
+                    completeness=ReadOutcome.UNSUPPORTED,
+                    wrapper=plan_wrapper,
+                    reasons=(Limitation.PROCESS_RUNNING,),
+                ),
+                plan,
+                plan_wrapper,
             )
         if (
             plan_wrapper.reasons == ()
@@ -1056,21 +1237,25 @@ def _build_observation(
                 # the observation is typed, non-removable, and carries no
                 # digest (ineligible for later graph/cache admission).
                 cid, ep, loc, rloc = _common()
-                return ReadObservation(
-                    call_id=cid,
-                    endpoint=ep,
-                    call_location=loc,
-                    result_location=rloc,
-                    read_grammar=READ_PLAN_GRAMMAR,
-                    requested_members=plan.requested_members,
-                    outcome=ReadOutcome.UNSUPPORTED,
-                    completeness=ReadOutcome.UNSUPPORTED,
-                    wrapper=plan_wrapper,
-                    content_span=plan_content_span,
-                    removable=False,
-                    bundle_digest=None,
-                    member_digests=(),
-                    reasons=(Limitation.MALFORMED_UNICODE,),
+                return _with_final_cat_evidence(
+                    ReadObservation(
+                        call_id=cid,
+                        endpoint=ep,
+                        call_location=loc,
+                        result_location=rloc,
+                        read_grammar=READ_PLAN_GRAMMAR,
+                        requested_members=plan.requested_members,
+                        outcome=ReadOutcome.UNSUPPORTED,
+                        completeness=ReadOutcome.UNSUPPORTED,
+                        wrapper=plan_wrapper,
+                        content_span=plan_content_span,
+                        removable=False,
+                        bundle_digest=None,
+                        member_digests=(),
+                        reasons=(Limitation.MALFORMED_UNICODE,),
+                    ),
+                    plan,
+                    plan_wrapper,
                 )
             region, region_reasons = plan_source_region(plan, plan_content)
             if region is not None:
@@ -1093,44 +1278,52 @@ def _build_observation(
                 else:
                     plan_member_digests = tuple(None for _ in range(plan_distinct))
                 cid, ep, loc, rloc = _common()
-                return ReadObservation(
+                return _with_final_cat_evidence(
+                    ReadObservation(
+                        call_id=cid,
+                        endpoint=ep,
+                        call_location=loc,
+                        result_location=rloc,
+                        read_grammar=READ_PLAN_GRAMMAR,
+                        requested_members=plan.requested_members,
+                        proven_executed=plan_proven,
+                        distinct_member_count=plan_distinct,
+                        slot_width=plan_distinct,
+                        outcome=ReadOutcome.COMPLETE,
+                        completeness=ReadOutcome.COMPLETE,
+                        wrapper=plan_wrapper,
+                        content_span=CharSpan(
+                            start=plan_content_span.start + region.start,
+                            end=plan_content_span.start + region.end,
+                        ),
+                        removable=True,
+                        bundle_digest=sha256_hex(source),
+                        member_digests=plan_member_digests,
+                    ),
+                    plan,
+                    plan_wrapper,
+                )
+            # A complete plan whose output boundary cannot be proven
+            # (collision, unknown internal boundary or extra output):
+            # typed, non-removable, and no digest is issued.
+            cid, ep, loc, rloc = _common()
+            return _with_final_cat_evidence(
+                ReadObservation(
                     call_id=cid,
                     endpoint=ep,
                     call_location=loc,
                     result_location=rloc,
                     read_grammar=READ_PLAN_GRAMMAR,
                     requested_members=plan.requested_members,
-                    proven_executed=plan_proven,
-                    distinct_member_count=plan_distinct,
-                    slot_width=plan_distinct,
-                    outcome=ReadOutcome.COMPLETE,
-                    completeness=ReadOutcome.COMPLETE,
+                    outcome=ReadOutcome.UNSUPPORTED,
+                    completeness=ReadOutcome.UNSUPPORTED,
                     wrapper=plan_wrapper,
-                    content_span=CharSpan(
-                        start=plan_content_span.start + region.start,
-                        end=plan_content_span.start + region.end,
-                    ),
-                    removable=True,
-                    bundle_digest=sha256_hex(source),
-                    member_digests=plan_member_digests,
-                )
-            # A complete plan whose output boundary cannot be proven
-            # (collision, unknown internal boundary or extra output):
-            # typed, non-removable, and no digest is issued.
-            cid, ep, loc, rloc = _common()
-            return ReadObservation(
-                call_id=cid,
-                endpoint=ep,
-                call_location=loc,
-                result_location=rloc,
-                read_grammar=READ_PLAN_GRAMMAR,
-                requested_members=plan.requested_members,
-                outcome=ReadOutcome.UNSUPPORTED,
-                completeness=ReadOutcome.UNSUPPORTED,
-                wrapper=plan_wrapper,
-                content_span=plan_content_span,
-                removable=False,
-                reasons=region_reasons,
+                    content_span=plan_content_span,
+                    removable=False,
+                    reasons=region_reasons,
+                ),
+                plan,
+                plan_wrapper,
             )
         # The wrapper is not proven: the global exit status alone is no
         # per-command proof — a nonzero in an '&&' chain identifies no
@@ -1155,18 +1348,22 @@ def _build_observation(
             plan_outcome = ReadOutcome.UNSUPPORTED
             plan_completeness = ReadOutcome.UNSUPPORTED
         cid, ep, loc, rloc = _common()
-        return ReadObservation(
-            call_id=cid,
-            endpoint=ep,
-            call_location=loc,
-            result_location=rloc,
-            read_grammar=READ_PLAN_GRAMMAR,
-            requested_members=plan.requested_members,
-            outcome=plan_outcome,
-            completeness=plan_completeness,
-            wrapper=plan_wrapper,
-            content_span=plan_content_span,
-            reasons=tuple(plan_reasons),
+        return _with_final_cat_evidence(
+            ReadObservation(
+                call_id=cid,
+                endpoint=ep,
+                call_location=loc,
+                result_location=rloc,
+                read_grammar=READ_PLAN_GRAMMAR,
+                requested_members=plan.requested_members,
+                outcome=plan_outcome,
+                completeness=plan_completeness,
+                wrapper=plan_wrapper,
+                content_span=plan_content_span,
+                reasons=tuple(plan_reasons),
+            ),
+            plan,
+            plan_wrapper,
         )
 
     wrapper = parse_wrapper(output_text, bounds)
@@ -1175,16 +1372,20 @@ def _build_observation(
     )
     if Limitation.PROCESS_RUNNING in wrapper.reasons:
         cid, ep, loc, rloc = _common()
-        return ReadObservation(
-            call_id=cid,
-            endpoint=ep,
-            call_location=loc,
-            result_location=rloc,
-            requested_members=parsed.operands,
-            outcome=ReadOutcome.UNSUPPORTED,
-            completeness=ReadOutcome.UNSUPPORTED,
-            wrapper=wrapper,
-            reasons=(Limitation.PROCESS_RUNNING,),
+        return _with_final_cat_evidence(
+            ReadObservation(
+                call_id=cid,
+                endpoint=ep,
+                call_location=loc,
+                result_location=rloc,
+                requested_members=parsed.operands,
+                outcome=ReadOutcome.UNSUPPORTED,
+                completeness=ReadOutcome.UNSUPPORTED,
+                wrapper=wrapper,
+                reasons=(Limitation.PROCESS_RUNNING,),
+            ),
+            parsed,
+            wrapper,
         )
 
     reasons: list[Limitation] = []
@@ -1209,20 +1410,24 @@ def _build_observation(
             # observation is typed, non-removable, and carries no digest
             # (ineligible for later graph/cache admission).
             cid, ep, loc, rloc = _common()
-            return ReadObservation(
-                call_id=cid,
-                endpoint=ep,
-                call_location=loc,
-                result_location=rloc,
-                requested_members=parsed.operands,
-                outcome=ReadOutcome.UNSUPPORTED,
-                completeness=ReadOutcome.UNSUPPORTED,
-                wrapper=wrapper,
-                content_span=content_span,
-                removable=False,
-                bundle_digest=None,
-                member_digests=(),
-                reasons=(Limitation.MALFORMED_UNICODE,),
+            return _with_final_cat_evidence(
+                ReadObservation(
+                    call_id=cid,
+                    endpoint=ep,
+                    call_location=loc,
+                    result_location=rloc,
+                    requested_members=parsed.operands,
+                    outcome=ReadOutcome.UNSUPPORTED,
+                    completeness=ReadOutcome.UNSUPPORTED,
+                    wrapper=wrapper,
+                    content_span=content_span,
+                    removable=False,
+                    bundle_digest=None,
+                    member_digests=(),
+                    reasons=(Limitation.MALFORMED_UNICODE,),
+                ),
+                parsed,
+                wrapper,
             )
         # Wrapper proves exit zero, no truncation marker, exact body present:
         # the content region is the complete attributable source.
@@ -1267,23 +1472,27 @@ def _build_observation(
             completeness = ReadOutcome.UNSUPPORTED
 
     cid, ep, loc, rloc = _common()
-    return ReadObservation(
-        call_id=cid,
-        endpoint=ep,
-        call_location=loc,
-        result_location=rloc,
-        requested_members=parsed.operands,
-        proven_executed=proven,
-        distinct_member_count=distinct,
-        slot_width=distinct,
-        outcome=outcome,
-        completeness=completeness,
-        wrapper=wrapper,
-        content_span=content_span,
-        removable=removable,
-        bundle_digest=bundle_digest,
-        member_digests=member_digests,
-        reasons=tuple(reasons),
+    return _with_final_cat_evidence(
+        ReadObservation(
+            call_id=cid,
+            endpoint=ep,
+            call_location=loc,
+            result_location=rloc,
+            requested_members=parsed.operands,
+            proven_executed=proven,
+            distinct_member_count=distinct,
+            slot_width=distinct,
+            outcome=outcome,
+            completeness=completeness,
+            wrapper=wrapper,
+            content_span=content_span,
+            removable=removable,
+            bundle_digest=bundle_digest,
+            member_digests=member_digests,
+            reasons=tuple(reasons),
+        ),
+        parsed,
+        wrapper,
     )
 
 
