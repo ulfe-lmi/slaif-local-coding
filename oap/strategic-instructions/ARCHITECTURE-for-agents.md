@@ -571,9 +571,12 @@ evidence (PR #10). Objectives 009-015 are merged through PR #22
 Cutover NOT performed; NOT released. Objective 016 (merged PR #24, merge
 `96c790423f6f0097a56a0b12bacda8a9b6da6aba`): dependency-bundle cache rework
 contracts (handoff, plan, reconciled architecture/law, stage ledger).
-Objective 017 is active. The per-round history (017-a through 017-aj) is NOT
-restated here; it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP
-round reports `oap/reports/017-*.md`, and the versioned normative contract is
+Objective 017 was ACCEPTED at its bounded pure-observation scope WITH
+PROCESS QUALIFICATIONS (017-am decision, `reviews/017-am-decision.md`) and
+merged to main at ffaabf4b; objective 018 is active (018-a foundation
+slice). The per-round history (017-a through 017-am) is NOT restated here;
+it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
+reports `oap/reports/017-*.md`, and the versioned normative contract is
 `docs/CACHE-OBSERVATION-CONTRACT.md`.
 
 Current earned scope, inert pure-observation package
@@ -651,19 +654,23 @@ FAIL, partial never PASS, a cached finalize never upgrades) (sections
 is inert and input-gated (no actual capture, collector or model call; section
 12.x).
 
-017 current earned/unearned scope and qualified-status lineage (the detailed per-round history, including the software-only observation and native-fixture prerequisite work, is in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round reports): the D01-D08 observation slices and the inert native-fixture software (the 17 fixture helpers) are earned at their bounded scopes, with no v1 runtime; the actual native-fixture attempts are at their exact immutable reports - 017-x `oap/reports/017-x-live-python-executable-capability.md` (bounded Python-only capability, closed terminal FAIL), 017-y `oap/reports/017-y-readiness-diagnosis-and-executable-capability.md` (readiness diagnosis, closed PASS, the executable a closed UNKNOWN), 017-ab `oap/reports/017-ab-owner-uid-python-capability-qualification.md` (bounded Python-only capability, closed terminal PASS at diagnostic scope), 017-ad `oap/reports/017-ad-owner-uid-native-handoff-qualification.md` (closed PARTIAL, the ordered native handoff NOT RUN - never PASS, never waived), 017-af `oap/reports/017-af-owner-uid-native-pty-qualification.md` (closed FAILED, one admission spent forever), 017-ah `oap/reports/017-ah-owner-uid-native-pty-requalification.md` (qualified at the bounded diagnostic scope), and 017-aj `oap/reports/017-aj-native-process-format-qualification.md` (qualified the real native format at the bounded reference-fixture scope; the measured native_ready=true verdict is bounded to that attempt); the bounded process qualifications of AH and AJ are preserved by those exact references.  The AL round report is `oap/reports/017-al-pure-process-chunk-observation.md` (scoped decision ACCEPTED WITH PROCESS QUALIFICATIONS, all ten SELF checks green; the scoped acceptance remains binding and whole-017 is unaccepted).
+017 current earned/unearned scope and qualified-status lineage (the detailed per-round history, including the software-only observation and native-fixture prerequisite work, is in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round reports): the D01-D08 observation slices and the inert native-fixture software (the 17 fixture helpers) are earned at their bounded scopes, with no v1 runtime; the actual native-fixture attempts are at their exact immutable reports - 017-x `oap/reports/017-x-live-python-executable-capability.md` (bounded Python-only capability, closed terminal FAIL), 017-y `oap/reports/017-y-readiness-diagnosis-and-executable-capability.md` (readiness diagnosis, closed PASS, the executable a closed UNKNOWN), 017-ab `oap/reports/017-ab-owner-uid-python-capability-qualification.md` (bounded Python-only capability, closed terminal PASS at diagnostic scope), 017-ad `oap/reports/017-ad-owner-uid-native-handoff-qualification.md` (closed PARTIAL, the ordered native handoff NOT RUN - never PASS, never waived), 017-af `oap/reports/017-af-owner-uid-native-pty-qualification.md` (closed FAILED, one admission spent forever), 017-ah `oap/reports/017-ah-owner-uid-native-pty-requalification.md` (qualified at the bounded diagnostic scope), and 017-aj `oap/reports/017-aj-native-process-format-qualification.md` (qualified the real native format at the bounded reference-fixture scope; the measured native_ready=true verdict is bounded to that attempt); the bounded process qualifications of AH and AJ are preserved by those exact references.  The 017-am round report is `oap/reports/017-am-native-single-and-original-syntax-evidence.md` (whole-objective decision ACCEPTED AT THE BOUNDED PURE-OBSERVATION SCOPE WITH PROCESS QUALIFICATIONS under 017-am, closing numeric 017 for merge; merged to main at ffaabf4b; strategic decision `reviews/017-am-decision.md`); the earlier scoped round decisions (including the AL report `oap/reports/017-al-pure-process-chunk-observation.md`, scoped decision ACCEPTED WITH PROCESS QUALIFICATIONS, all ten SELF checks green) remain binding as recorded.
 
 The D09 actual-trace process-completion qualification is qualified AT
 BOUNDED SCOPE in 017-am (contract section 11q; converted carriers, one
 qualified record — not an original whole API request and not a new actual
 attempt); the sleep-bearing stream command stays a DELIBERATE unearned read
-grammar (not a pending requirement), and the whole-017 native-single
-literal audit remains the recorded gap; no GENERIC native-compatibility,
-whole-017 or v1 runtime claim is made. The EACH seven
-required literal families and their audit / remediation remain mandatory;
-whole-017 acceptance plus merge plus remote-main verification precedes
-018-024. objectives 018-024 remain the planned inert draft succession
-for the v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the
-original planned meanings of numeric 006-008 are historical planning prose, not
+grammar (not a pending requirement); the EACH seven required literal
+families and the whole-017 native-single literal audit were concretely
+audited in 017-am (families 1-4 earn exact source; families 5/6/7 keep
+their exact residual uncertainties, preserved as process qualifications);
+no GENERIC native-compatibility or v1 runtime claim is made. Objective
+017 is ACCEPTED at the bounded pure-observation scope with process
+qualifications and merged to main at ffaabf4b (017-am decision,
+`reviews/017-am-decision.md`); objective 018 is active (018-a: inert
+graph-foundation slice, contract `docs/CACHE-GRAPH-CONTRACT.md`) and
+objectives 018-b/c+ and 019-024 remain the mandatory unearned v1
+implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the original
+planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric
 objective=one PR; coding never merges.
