@@ -13,11 +13,14 @@ bounded ORIGINAL GraphRequest batch, the accepted 017 observation
 the 018-a root/workspace binding law and the accepted 018-b
 `_proof_collect` core (shared ledger state, no weaker observer) into
 ONE pure causal-history state machine over the immutable
-`CausalHistoryState`. This slice itself is IMPLEMENTED and PENDING
-strategic acceptance: like 018-a/018-b/018-c (all ACCEPTED at their
-bounded inert scopes with process qualifications) it is delivered as
-inert code on PR 26, which stays unmerged until the whole numeric 018
-is complete. It is pure, bounded and never active in the adapter
+`CausalHistoryState`. This slice itself is IMPLEMENTED and
+ACCEPTED at its bounded inert causal-occurrence-ledger scope WITH
+process qualifications (strategic decision
+`S/reviews/018-d-decision.md`); like 018-a/018-b/018-c (all
+ACCEPTED at their bounded inert scopes with process
+qualifications) it is delivered as inert code on PR 26, which stays
+unmerged until the whole numeric 018 is complete. It is pure,
+bounded and never active in the adapter
 runtime; no command string is executed and no model/native/client/
 service facility is started. It earns the C05 CAUSAL MECHANISM at its
 bounded scope (replay does not roll state back; new observations are

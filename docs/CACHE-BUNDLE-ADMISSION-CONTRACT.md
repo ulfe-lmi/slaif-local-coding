@@ -13,13 +13,16 @@ single evidenced root/workspace binding (the 018-a law, including the
 competing-root-path-read refusal), the accepted 018-b bundle-proof pass
 (the same shared source ledger) and the NEW bounded AND/OR
 raw-reference closure into ONE bounded lean/greedy admission snapshot.
-This slice itself is IMPLEMENTED and PENDING strategic acceptance:
-like 018-a and 018-b (both ACCEPTED at their bounded inert scopes with
-process qualifications) it is delivered as inert code on PR 26, which
-stays unmerged until the whole numeric 018 is complete. It is pure,
+This slice itself is IMPLEMENTED and ACCEPTED at its bounded inert
+admission/structural-identity scope WITH process qualifications
+(strategic decision `S/reviews/018-c-decision.md`); like 018-a and
+018-b (both ACCEPTED at their bounded inert scopes with process
+qualifications) it is delivered as inert code on PR 26, which stays
+unmerged until the whole numeric 018 is complete. It is pure,
 bounded and never active in the adapter runtime; no
-command string is executed and no model/native/client/service facility
-is started. It earns G03-G05, the structural (not runtime) C01/C02/C06
+command string is executed and no model/native/client/service
+facility is started. It earns G03-G05, the structural (not runtime)
+C01/C02/C06
 slices and the continuing G01/G02/S01 foundation scope on top of the
 accepted 018-a (graph foundation) and 018-b (bundle-proof bridge)
 slices. Compilation, RAM retention, overlap/replay invalidation,

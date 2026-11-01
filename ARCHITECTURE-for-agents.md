@@ -162,9 +162,13 @@ accepted 018-b bundle-proof bridge slice (contract
 `docs/CACHE-BUNDLE-PROOF-CONTRACT.md`), plus the implemented 018-c
 bundle-admission and structural-identity slice ACCEPTED at its
 bounded inert scope with process qualifications (contract
-`docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`) and the implemented
-018-d causal-occurrence-ledger slice PENDING strategic acceptance
-(contract `docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`), all as
+`docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`), the implemented
+018-d causal-occurrence-ledger slice ACCEPTED at its bounded inert
+causal-occurrence-ledger scope with process qualifications
+(contract `docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`) and the
+implemented 018-e nonroot currentness-overlay slice PENDING
+strategic acceptance (contract
+`docs/CACHE-CURRENTNESS-CONTRACT.md`), all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
@@ -172,7 +176,7 @@ the v1 runtime remains planned and inactive, and the remaining
 statements below (compilation, RAM ownership, replacement, recovery,
 budgets) are the approved target contract.
 
-**Causal-occurrence ledger (018-d inert, pending acceptance).**
+**Causal-occurrence ledger (018-d inert, ACCEPTED at its bounded scope).**
 The 018-d kernel keeps three identities distinct: the semantic
 source/content key (the accepted 018-c structural key), the
 completed read occurrence (one retained verbatim original proof
@@ -201,6 +205,27 @@ scope, the 14 history bounds with one shared per-transition work
 ledger, and the `causal-arguments-json/v1` recipe are versioned in
 `docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`; the stage stays inert
 and inactive.
+
+**Nonroot currentness overlay (018-e inert, pending acceptance).**
+The 018-e derivation takes an ACTUAL retained 018-d causal-history
+state and its ACTUAL namespace (plus explicit currentness bounds)
+and, in ONE pure bounded charged operation, derives which NONROOT
+source facts and ownership groups are CURRENT_KNOWN, CURRENT_OPAQUE,
+STALE, CONTENT_CONFLICT or OWNERSHIP_AMBIGUITY, with the full
+reverse path index: the semantic content key, the retained
+occurrence and the local revision stay distinct (the overlay is a
+fourth derived identity, never conflated with any of them);
+chronology comes only from actual frozen parent edges (frozen
+frontiers are partial-order evidence, never a clock; no new clock or
+ordering source); an unissued observation adds no edge of its own
+(a later trusted child may name it a parent); the versioned
+opaque-group recipe binds the group-local semantic ownership shape
+plus bound version identities, never principal/session keys; the
+six currentness bounds run on one shared per-derivation work ledger
+with pre-copy refusals. The exact scope is versioned in
+`docs/CACHE-CURRENTNESS-CONTRACT.md`; it earns the C04/C05
+currentness/overlap MECHANISM at its bounded scope only and the
+stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -621,7 +646,10 @@ bundle-proof scope with process qualifications; 018-c implemented inert
 bundle-admission/identity slice ACCEPTED at its bounded inert
 admission/structural-identity scope with process qualifications
 (decision `S/reviews/018-c-decision.md`); 018-d implemented inert
-causal-occurrence-ledger slice pending strategic acceptance). The
+causal-occurrence-ledger slice ACCEPTED at its bounded inert
+causal-occurrence-ledger scope with process qualifications (decision
+`S/reviews/018-d-decision.md`); 018-e implemented inert nonroot
+currentness-overlay slice pending strategic acceptance). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -726,8 +754,12 @@ bundle-admission and structural-identity slice ACCEPTED at its
 bounded inert scope with process qualifications (strategic decision
 `S/reviews/018-c-decision.md`, contract
 `docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`); 018-d: implemented inert
-causal-occurrence-ledger slice pending strategic acceptance, contract
-`docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`) and the remaining 018
+causal-occurrence-ledger slice ACCEPTED at its bounded inert
+causal-occurrence-ledger scope with process qualifications (strategic
+decision `S/reviews/018-d-decision.md`, contract
+`docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`); 018-e: implemented inert
+nonroot currentness-overlay slice pending strategic acceptance,
+contract `docs/CACHE-CURRENTNESS-CONTRACT.md`) and the remaining 018
 current-version/overlap/edge-withdrawal work (C04/C05 current-version
 acceptance, version-owned ordinary-edge and group-certificate
 withdrawal) and the explicit root-refresh authority-lineage
