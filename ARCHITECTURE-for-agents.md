@@ -184,8 +184,13 @@ edges; receipt arrival, new call IDs, HTTP/arrival positions,
 equal or different digests, lexical order and registration or
 revision numbers never establish source freshness, and no new
 clock or ordering source is introduced. Original complete but
-unissued history is retained UNANCHORED and stays INCOMPARABLE
-(unknown or incomplete IDs are UNKNOWN, never SAME); a
+unissued history is retained UNANCHORED and adds NO temporal edge
+by itself: a known completed unanchored fact may later be named as
+a trusted frontier parent and is then BEFORE its descendant (even
+before its own late receipt), the same known completed ID is SAME,
+distinct known UNCONNECTED events are INCOMPARABLE, and unknown
+or incomplete IDs are UNKNOWN (never a SAME shortcut); later
+trusted facts, never arrival order, establish edges. A
 deliberately new version after an older one needs a genuinely new
 completed occurrence with a valid descendant issuance. A native
 multi-piece read takes the INITIAL EXEC issuance frontier, and

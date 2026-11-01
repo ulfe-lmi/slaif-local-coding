@@ -108,8 +108,11 @@ compiler-hit, actual-receipt, wire or recovery claim.
   binds the occurrence ID, call identity, the verbatim accepted
   018-b `BundleProof` and an `anchored` flag. A
   `ResultFingerprintRecord` binds the selected evidenced result
-  facts plus the per-piece completion fact (the exact exit code, or
-  None while the process piece is incomplete) — NEVER
+  facts plus the per-piece completion fact (the exact exit code,
+  or None while the process piece is incomplete or on original
+  surfaces with NO applicable per-piece completion fact, such as
+  the legacy proof surface, where complete records may also retain
+  None — completion is never synthesized there) — NEVER
   credential-bearing wrappers:
   per observed piece in causal order the exact original
   output-slice fact `(piece_index, char_length, byte_length,
