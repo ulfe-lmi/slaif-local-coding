@@ -146,7 +146,14 @@ is made (the bounded AJ native_ready=true verdict above stays the only
 native readiness recorded). Whole-017 acceptance, merge and remote-main
 verification completed under the 017-am decision (merged to main at
 ffaabf4b); 018-024 proceed under separately activated orders,
-strategy-chosen (018 active, 018-a foundation slice).
+strategy-chosen (018 active: 018-a foundation slice ACCEPTED at its
+bounded inert graph-foundation scope with process qualifications (the
+018-a strategic decision, `reviews/018-a-decision.md`; contract
+[docs/CACHE-GRAPH-CONTRACT.md](docs/CACHE-GRAPH-CONTRACT.md)), 018-b is an implemented inert bundle-proof bridge slice pending
+strategic acceptance (contract
+[docs/CACHE-BUNDLE-PROOF-CONTRACT.md](docs/CACHE-BUNDLE-PROOF-CONTRACT.md);
+`tests/test_bundle_proof.py`), and 018-c+ and 019-024 remain mandatory
+unearned stages).
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in

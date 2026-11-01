@@ -20,6 +20,24 @@ public bounded graph observation composition
 
 from __future__ import annotations
 
+from ..bundles.bundle_proof import observe_bundle_proof, observe_bundle_proofs
+from ..bundles.bundle_proof_models import (
+    BUNDLE_PROOF_CONTRACT_VERSION,
+    BundleLimitation,
+    BundleMarkerFact,
+    BundleMarkerRole,
+    BundlePiece,
+    BundleProof,
+    BundleProofBounds,
+    BundleProofKind,
+    BundleProofNamespace,
+    BundleProofOutcome,
+    BundleProofSnapshot,
+    BundleSegment,
+    BundleSourceRole,
+    BundleSurface,
+    make_bundle_proof_namespace,
+)
 from ..bundles.client_paths import normalize_read_path, validate_workspace
 from ..bundles.compound_reads import (
     READ_PLAN_GRAMMAR,
@@ -222,4 +240,22 @@ __all__ = [
     "observe_graph_batch",
     "resolve_reference",
     "scan_references",
+    # Objective 018-b: inert bundle-proof bridge (cache-bundle-proof/v1).
+    "BUNDLE_PROOF_CONTRACT_VERSION",
+    "BundleLimitation",
+    "BundleMarkerFact",
+    "BundleMarkerRole",
+    "BundlePiece",
+    "BundleProof",
+    "BundleProofBounds",
+    "BundleProofKind",
+    "BundleProofNamespace",
+    "BundleProofOutcome",
+    "BundleProofSnapshot",
+    "BundleSegment",
+    "BundleSourceRole",
+    "BundleSurface",
+    "make_bundle_proof_namespace",
+    "observe_bundle_proof",
+    "observe_bundle_proofs",
 ]

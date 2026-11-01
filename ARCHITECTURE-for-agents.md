@@ -573,8 +573,10 @@ Cutover NOT performed; NOT released. Objective 016 (merged PR #24, merge
 contracts (handoff, plan, reconciled architecture/law, stage ledger).
 Objective 017 was ACCEPTED at its bounded pure-observation scope WITH
 PROCESS QUALIFICATIONS (017-am decision, `reviews/017-am-decision.md`) and
-merged to main at ffaabf4b; objective 018 is active (018-a foundation
-slice). The per-round history (017-a through 017-am) is NOT restated here;
+merged to main at ffaabf4b; objective 018 is active (018-a
+foundation slice ACCEPTED at its bounded inert graph-foundation
+scope with process qualifications; 018-b implemented inert
+bundle-proof slice pending strategic acceptance). The per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
 `docs/CACHE-OBSERVATION-CONTRACT.md`.
@@ -668,9 +670,12 @@ no GENERIC native-compatibility or v1 runtime claim is made. Objective
 017 is ACCEPTED at the bounded pure-observation scope with process
 qualifications and merged to main at ffaabf4b (017-am decision,
 `reviews/017-am-decision.md`); objective 018 is active (018-a: inert
-graph-foundation slice, contract `docs/CACHE-GRAPH-CONTRACT.md`) and
-objectives 018-b/c+ and 019-024 remain the mandatory unearned v1
-implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the original
+graph-foundation slice ACCEPTED at its bounded inert
+graph-foundation scope with process qualifications, contract
+`docs/CACHE-GRAPH-CONTRACT.md`; 018-b: implemented inert
+bundle-proof bridge slice pending strategic acceptance, contract
+`docs/CACHE-BUNDLE-PROOF-CONTRACT.md`) and objectives 018-c+ and
+019-024 remain the mandatory unearned v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the original
 planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric
 objective=one PR; coding never merges.
