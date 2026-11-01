@@ -260,5 +260,12 @@ states in `docs/CACHE-REWORK-LEDGER.md`. No automatic acceptance follows
 from this document or from green focused tests: objective 017 is
 ACCEPTED at its bounded pure-observation scope with process
 qualifications and merged to main at ffaabf4b (017-am decision);
-018-a is inert implementation pending strategic review; broader 018
-admission/version/replay/overlap and 019–024 remain mandatory.
+018-a is ACCEPTED at its bounded inert graph-foundation scope with
+process qualifications (strategic decision `reviews/018-a-decision.md`);
+018-b is accepted at its bounded inert bundle-proof scope with
+process qualifications; 018-c is accepted at its bounded inert
+admission/structural-identity scope with process qualifications
+(strategic decision `S/reviews/018-c-decision.md`); 018-d is an
+implemented inert causal-occurrence-ledger slice pending strategic
+acceptance; broader 018 current-version/overlap/edge-withdrawal work
+and 019–024 remain mandatory.

@@ -160,14 +160,42 @@ their bounded scopes; observation contract
 foundation slice (contract `docs/CACHE-GRAPH-CONTRACT.md`) and the
 accepted 018-b bundle-proof bridge slice (contract
 `docs/CACHE-BUNDLE-PROOF-CONTRACT.md`), plus the implemented 018-c
-bundle-admission and structural-identity slice PENDING strategic
-acceptance (contract `docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`), all as
+bundle-admission and structural-identity slice ACCEPTED at its
+bounded inert scope with process qualifications (contract
+`docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`) and the implemented
+018-d causal-occurrence-ledger slice PENDING strategic acceptance
+(contract `docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`), all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
 the v1 runtime remains planned and inactive, and the remaining
 statements below (compilation, RAM ownership, replacement, recovery,
 budgets) are the approved target contract.
+
+**Causal-occurrence ledger (018-d inert, pending acceptance).**
+The 018-d kernel keeps three identities distinct: the semantic
+source/content key (the accepted 018-c structural key), the
+completed read occurrence (one retained verbatim original proof
+with its FIRST original provenance) and the local revision (a
+CAS/serialization fence, never a clock). The frozen SPECIFIC-
+request trusted issuance frontiers supply partial-order evidence
+only: only actual frozen parent evidence establishes temporal
+edges; receipt arrival, new call IDs, HTTP/arrival positions,
+equal or different digests, lexical order and registration or
+revision numbers never establish source freshness, and no new
+clock or ordering source is introduced. Original complete but
+unissued history is retained UNANCHORED and stays INCOMPARABLE
+(unknown or incomplete IDs are UNKNOWN, never SAME); a
+deliberately new version after an older one needs a genuinely new
+completed occurrence with a valid descendant issuance. A native
+multi-piece read takes the INITIAL EXEC issuance frontier, and
+the native poll's producing call/result stays bound to the
+ORIGINAL initial-EXEC owner even when every binding/body/status/
+session fact is identical (no session-number clock). The exact
+scope, the 14 history bounds with one shared per-transition work
+ledger, and the `causal-arguments-json/v1` recipe are versioned in
+`docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`; the stage stays inert
+and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -585,7 +613,11 @@ merged to main at ffaabf4b; objective 018 is active (018-a
 foundation slice ACCEPTED at its bounded inert graph-foundation
 scope with process qualifications; 018-b ACCEPTED at its bounded inert
 bundle-proof scope with process qualifications; 018-c implemented inert
-bundle-admission/identity slice pending strategic acceptance). The per-round history (017-a through 017-am) is NOT restated here;
+bundle-admission/identity slice ACCEPTED at its bounded inert
+admission/structural-identity scope with process qualifications
+(decision `S/reviews/018-c-decision.md`); 018-d implemented inert
+causal-occurrence-ledger slice pending strategic acceptance). The
+per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
 `docs/CACHE-OBSERVATION-CONTRACT.md`.
@@ -685,11 +717,19 @@ graph-foundation scope with process qualifications, contract
 ACCEPTED at its bounded inert bundle-proof scope with process
 qualifications, strategic decision `reviews/018-b-decision.md`, contract
 `docs/CACHE-BUNDLE-PROOF-CONTRACT.md`; 018-c: implemented inert
-bundle-admission and structural-identity slice pending strategic
-acceptance, contract `docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`) and the
-remaining 018 stages (C04/C05/version/edge-withdrawal and the remaining
-G/C/S criteria) plus objectives 019-024 remain the mandatory unearned v1
-implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the original
+bundle-admission and structural-identity slice ACCEPTED at its
+bounded inert scope with process qualifications (strategic decision
+`S/reviews/018-c-decision.md`, contract
+`docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`); 018-d: implemented inert
+causal-occurrence-ledger slice pending strategic acceptance, contract
+`docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`) and the remaining 018
+current-version/overlap/edge-withdrawal work (C04/C05 current-version
+acceptance, version-owned ordinary-edge and group-certificate
+withdrawal) and the explicit root-refresh authority-lineage
+contract (same-root refresh/currentness; reserved, not granted, by
+`docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`) plus objectives 019-024
+remain the mandatory unearned v1 implementation stages (see
+`docs/CACHE-REWORK-LEDGER.md`); the original
 planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric
 objective=one PR; coding never merges.

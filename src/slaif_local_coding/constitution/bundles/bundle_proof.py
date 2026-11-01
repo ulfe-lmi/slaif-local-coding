@@ -1164,7 +1164,32 @@ class _ProofPassResult:
     refusal_reason: BundleLimitation | None
 
 
-def _proof_pass(
+@dataclass
+class _ProofCollectResult:
+    """The result of the private collection core (candidate
+    enumeration, the same-occurrence consistency law and the
+    competing-root-path refusal) BEFORE the old per-path conflict
+    policy is applied.
+
+    ``bundles`` retains EVERY distinct complete post-seam occurrence,
+    including multiple versions of a nonroot file proven by different
+    real calls (the 018-d causal-kernel law); ``seam_conflict``
+    surfaces the same-occurrence mismatch; ``refusal_outcome`` /
+    ``refusal_reason`` are set exactly when the pass refuses the whole
+    snapshot (a budget crossing, a diagnostics-full overflow at a
+    candidate step, or a competing root-path read); on a refusal
+    ``bundles`` is empty and ``candidates_inspected`` the measured
+    counter at the stopping point.
+    """
+
+    bundles: list[BundleProof]
+    seam_conflict: bool
+    candidates_inspected: int
+    refusal_outcome: BundleProofOutcome | None
+    refusal_reason: BundleLimitation | None
+
+
+def _proof_collect(
     requests: tuple[GraphRequest, ...],
     contexts: list[PathContext],
     reports: list[Any],
@@ -1176,10 +1201,10 @@ def _proof_pass(
     budget: _BudgetState,
     diagnostics: list[BundleLimitation],
     note_diagnostic: Callable[[BundleLimitation], bool],
-    base_diagnostic_count: int,
-) -> _ProofPassResult:
-    """The private collector core shared by the accepted public
-    wrapper and the 018-c admission composition.
+) -> _ProofCollectResult:
+    """The private collection core shared by the accepted public
+    wrapper, the 018-c admission composition and the 018-d causal
+    kernel.
 
     One bounded candidate pass over the ALREADY COLLECTED 017 facts
     (the validated reports, contexts and root binding) with the SAME
@@ -1190,26 +1215,29 @@ def _proof_pass(
     already-parsed 017 metadata, every inspected body is accounted
     before any owned copy, and the same-occurrence consistency law
     compares the full proof signature before retention.  The
-    diagnostics bound is enforced through the caller's
-    ``note_diagnostic`` callback (``False`` refuses the pass with
-    the bounded ``DIAGNOSTICS_FULL``) so the TOTAL emitted bound is
-    the caller's single finite budget.  The accepted public
-    wrapper's signature and every result are unchanged by this
-    factoring.
+    competing-root-path refusal (the 018-a law) is applied here.  The
+    OLD per-path source-conflict policy is deliberately NOT applied:
+    ``bundles`` retains every distinct complete post-seam occurrence,
+    including multiple versions of a nonroot file proven by different
+    real calls; ``_apply_conflict_policy`` restores the accepted
+    018-b/c behavior for the old public surfaces.  The diagnostics
+    bound is enforced through the caller's ``note_diagnostic``
+    callback (``False`` refuses the pass with the bounded
+    ``DIAGNOSTICS_FULL``) so the TOTAL emitted bound is the caller's
+    single finite budget.
     """
     candidates_inspected = 0
-    max_diagnostics = effective.max_diagnostics
 
-    def _refuse(outcome: BundleProofOutcome, reason: BundleLimitation) -> _ProofPassResult:
-        return _ProofPassResult(
+    def _refuse(outcome: BundleProofOutcome, reason: BundleLimitation) -> _ProofCollectResult:
+        return _ProofCollectResult(
             bundles=[],
-            conflicts=(),
+            seam_conflict=False,
             candidates_inspected=candidates_inspected,
             refusal_outcome=outcome,
             refusal_reason=reason,
         )
 
-    def _over_bound(reason: BundleLimitation | None = None) -> _ProofPassResult:
+    def _over_bound(reason: BundleLimitation | None = None) -> _ProofCollectResult:
         effective_reason = reason if reason is not None else ledger.refusal
         if effective_reason is None:
             raise _fixed("a budget refusal was recorded without a reason")
@@ -1362,6 +1390,36 @@ def _proof_pass(
             if member.normalized == ROOT_FILENAME and segment.member_digest != root_digest:
                 return _refuse(BundleProofOutcome.ROOT_CONFLICT, BundleLimitation.COMPETING_ROOTS)
 
+    return _ProofCollectResult(
+        bundles=bundles,
+        seam_conflict=seam_conflict,
+        candidates_inspected=candidates_inspected,
+        refusal_outcome=None,
+        refusal_reason=None,
+    )
+
+
+def _apply_conflict_policy(
+    collected: _ProofCollectResult,
+    diagnostics: list[BundleLimitation],
+    base_diagnostic_count: int,
+    max_diagnostics: int,
+) -> _ProofPassResult:
+    """The accepted OLD per-path source-conflict policy plus the
+    bounded final diagnostic bound at every public exit.  The 018-b/c
+    public surfaces keep this exact behavior; the 018-d kernel
+    consumes ``_proof_collect`` directly and does not apply this
+    policy (it retains distinct nonroot versions as evidence)."""
+    if collected.refusal_outcome is not None:
+        return _ProofPassResult(
+            bundles=[],
+            conflicts=(),
+            candidates_inspected=collected.candidates_inspected,
+            refusal_outcome=collected.refusal_outcome,
+            refusal_reason=collected.refusal_reason,
+        )
+    bundles: list[BundleProof] = list(collected.bundles)
+
     # --- Per-path source conflict (proven single-occurrence digests) --
     path_digests: dict[str, str] = {}
     conflict_paths: set[str] = set()
@@ -1391,20 +1449,72 @@ def _proof_pass(
         ]
 
     conflicts: tuple[BundleLimitation, ...] = ()
-    if seam_conflict:
+    if collected.seam_conflict:
         conflicts = (BundleLimitation.SEAM_CONFLICT,)
     elif source_conflict:
         conflicts = (BundleLimitation.SOURCE_CONFLICT,)
 
     # --- Bounded final diagnostic at every public exit ----------------
     if len(conflicts) + len(diagnostics) + base_diagnostic_count > max_diagnostics:
-        return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.DIAGNOSTICS_FULL)
+        return _ProofPassResult(
+            bundles=[],
+            conflicts=(),
+            candidates_inspected=collected.candidates_inspected,
+            refusal_outcome=BundleProofOutcome.OVER_BOUND,
+            refusal_reason=BundleLimitation.DIAGNOSTICS_FULL,
+        )
     return _ProofPassResult(
         bundles=bundles,
         conflicts=conflicts,
-        candidates_inspected=candidates_inspected,
+        candidates_inspected=collected.candidates_inspected,
         refusal_outcome=None,
         refusal_reason=None,
+    )
+
+
+def _proof_pass(
+    requests: tuple[GraphRequest, ...],
+    contexts: list[PathContext],
+    reports: list[Any],
+    namespace: BundleProofNamespace,
+    effective: BundleProofBounds,
+    root_digest: str,
+    ledger: _BridgeSourceLedger,
+    search: _SearchLedger,
+    budget: _BudgetState,
+    diagnostics: list[BundleLimitation],
+    note_diagnostic: Callable[[BundleLimitation], bool],
+    base_diagnostic_count: int,
+) -> _ProofPassResult:
+    """The private collector core shared by the accepted public
+    wrapper and the 018-c admission composition.
+
+    Composition of ``_proof_collect`` (candidate enumeration, the
+    same-occurrence consistency law, the competing-root-path refusal
+    and the cumulative ledger/preflight law) and
+    ``_apply_conflict_policy`` (the accepted per-path source-conflict
+    filter plus the bounded final diagnostic check).  The accepted
+    public wrapper's signature and every result are unchanged by this
+    factoring.
+    """
+    collected = _proof_collect(
+        requests,
+        contexts,
+        reports,
+        namespace,
+        effective,
+        root_digest,
+        ledger,
+        search,
+        budget,
+        diagnostics,
+        note_diagnostic,
+    )
+    return _apply_conflict_policy(
+        collected,
+        diagnostics,
+        base_diagnostic_count,
+        effective.max_diagnostics,
     )
 
 

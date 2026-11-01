@@ -69,6 +69,7 @@ from slaif_local_coding.constitution.bundles import (
     GraphRequest,
     MemberClass,
     NodeStatus,
+    ObservationBounds,
     PathContext,
     make_bundle_admission_namespace,
     make_bundle_proof_namespace,
@@ -1461,6 +1462,216 @@ def test_max_depth_least_derivation_at_limit_one_over() -> None:
     }
     over = single(payload, depth=2)
     _assert_whole_empty_refusal(over, AdmissionLimitation.DERIVATION_DEPTH_OVER_BOUND)
+
+
+# --- Inherited limit propagation (durable 72 ROOT controls) -------------
+#
+# Durable port of the 72 known-synthetic controls that ROOT executed
+# against the 018-c final source (the final-limit-propagation probe):
+# the remaining graph node/batch ceilings, the inherited proof
+# budgets (bundle/member counts, segment slots, marker and the exact
+# cumulative marker-search windows) and BOTH path ceilings, exercised
+# on BOTH read endpoints in BOTH namespace modes through the ORIGINAL
+# admission batch API.  A crossed path ceiling is a per-candidate
+# nonacquisition (COMPLETE outcome, root retained, no file entries,
+# at least one typed limitation), never a fabricated global
+# whole-empty failure.  Every payload is inline known-synthetic; no S
+# runtime path dependency.
+
+
+def _limit_requests(
+    root: str, reads: tuple[tuple[str, str], ...], endpoint: str
+) -> tuple[GraphRequest, GraphRequest]:
+    """Root envelope request (Responses-only root authority) plus one
+    read request on the given endpoint."""
+    items: list[dict[str, Any]] = [root_item(root)]
+    frames: list[tuple[str, str, str]] = []
+    for index, (cmd, body) in enumerate(reads):
+        cid = f"synthetic-limit-{index}"
+        frame = frame_legacy("c1", body)
+        if endpoint == "responses":
+            items.extend((exec_call(cid, cmd), out_item(cid, frame)))
+        else:
+            frames.append((cid, cmd, frame))
+    if endpoint == "responses":
+        read_payload: dict[str, Any] = {"input": items[1:]}
+    else:
+        read_payload = chat_payload(*frames)
+    return (
+        GraphRequest(payload={"input": [items[0]]}, endpoint="responses", context=None),
+        GraphRequest(payload=read_payload, endpoint=endpoint, context=None),
+    )
+
+
+def _limit_check(
+    label: str,
+    endpoint: str,
+    mode: AdmissionMode,
+    requests: tuple[GraphRequest, GraphRequest],
+    ns: BundleAdmissionNamespace,
+    *,
+    complete: bool,
+    reason: str | None = None,
+    nonacquisition: bool = False,
+) -> None:
+    """The exact probe pass criterion over ONE original batch, with
+    the original payloads required to stay byte-identical."""
+    original = [copy.deepcopy(r.payload) for r in requests]
+    snap = observe_bundle_admission_batch(requests, ns)
+    values = [x.value for x in (*snap.conflicts, *snap.diagnostics, *snap.observation_limitations)]
+    if nonacquisition:
+        ok = (
+            snap.outcome is AdmissionOutcome.COMPLETE
+            and snap.root_entry is not None
+            and not snap.entries
+            and bool(values)
+        )
+    elif complete:
+        ok = (
+            snap.outcome is AdmissionOutcome.COMPLETE
+            and snap.root_entry is not None
+            and bool(snap.entries)
+        )
+    else:
+        ok = (
+            snap.outcome is AdmissionOutcome.OVER_BOUND
+            and reason in [x.value for x in snap.conflicts]
+            and snap.root_entry is None
+            and not snap.entries
+            and not snap.source_proofs
+        )
+    assert ok, (
+        f"{label} ({endpoint}/{mode.value}): outcome={snap.outcome.value} "
+        f"reasons={values} entries={len(snap.entries)}"
+    )
+    assert [r.payload for r in requests] == original, f"{label}: original payload mutated"
+
+
+@pytest.mark.parametrize("mode", [AdmissionMode.LEAN, AdmissionMode.GREEDY])
+@pytest.mark.parametrize("endpoint", ["responses", "chat"])
+def test_inherited_limit_propagation_matrix(mode: AdmissionMode, endpoint: str) -> None:
+    group = _limit_requests(
+        "A.md B.md", (("cat A.md B.md", "C.md"), ("cat C.md", "leaf")), endpoint
+    )
+    for cap in (4, 3):
+        _limit_check(
+            f"graph_nodes_{cap}",
+            endpoint,
+            mode,
+            group,
+            make_ns(mode, graph_bounds=GraphBounds(max_nodes=cap)),
+            complete=(cap == 4),
+            reason="nodes_over_bound",
+        )
+    single = _limit_requests("A.md", (("cat A.md", "alpha"),), endpoint)
+    for cap in (2, 1):
+        _limit_check(
+            f"graph_requests_{cap}",
+            endpoint,
+            mode,
+            single,
+            make_ns(mode, graph_bounds=GraphBounds(max_requests=cap)),
+            complete=(cap == 2),
+            reason="batch_over_bound",
+        )
+    two = _limit_requests("A.md B.md", (("cat A.md", "alpha"), ("cat B.md", "beta")), endpoint)
+    for cap in (2, 1):
+        _limit_check(
+            f"proof_bundles_{cap}",
+            endpoint,
+            mode,
+            two,
+            make_ns(mode, proof_bounds=BundleProofBounds(max_bundles=cap)),
+            complete=(cap == 2),
+            reason="bundles_over_bound",
+        )
+    members = _limit_requests("A.md B.md", (("cat A.md B.md", "alphabeta"),), endpoint)
+    for cap in (2, 1):
+        _limit_check(
+            f"proof_members_{cap}",
+            endpoint,
+            mode,
+            members,
+            make_ns(mode, proof_bounds=BundleProofBounds(max_members=cap)),
+            complete=(cap == 2),
+            reason="members_over_bound",
+        )
+    segments = _limit_requests(
+        "A.md B.md C.md",
+        (
+            (
+                "cat A.md && echo 'M1' && cat B.md && echo 'M2' && cat C.md && echo 'M3'",
+                "alphaM1\nbetaM2\ngammaM3\n",
+            ),
+        ),
+        endpoint,
+    )
+    for cap in (4, 3):
+        _limit_check(
+            f"proof_segments_{cap}",
+            endpoint,
+            mode,
+            segments,
+            make_ns(mode, proof_bounds=BundleProofBounds(max_segments=cap)),
+            complete=(cap == 4),
+            reason="segments_over_bound",
+        )
+    marker = _limit_requests(
+        "A.md B.md", (("cat A.md && echo 'MM' && cat B.md", "alphaMM\nbeta"),), endpoint
+    )
+    for cap in (3, 2):
+        _limit_check(
+            f"proof_marker_{cap}",
+            endpoint,
+            mode,
+            marker,
+            make_ns(mode, proof_bounds=BundleProofBounds(max_marker=cap)),
+            complete=(cap == 3),
+            reason="marker_over_bound",
+        )
+    search = _limit_requests(
+        "A.md B.md C.md D.md",
+        (
+            ("cat A.md && echo 'M' && cat B.md", "alphaM\nbeta"),
+            ("cat C.md && echo 'N' && cat D.md", "gammaN\ndelta"),
+        ),
+        endpoint,
+    )
+    for cap in (23, 22):
+        _limit_check(
+            f"proof_marker_search_{cap}",
+            endpoint,
+            mode,
+            search,
+            make_ns(mode, proof_bounds=BundleProofBounds(max_marker_search=cap)),
+            complete=(cap == 23),
+            reason="marker_search_over_bound",
+        )
+    long_name = "LONGNAME.md"
+    path_len = len(long_name.encode("utf-8"))
+    path_reqs = _limit_requests(long_name, ((f"cat {long_name}", "leaf"),), endpoint)
+    for scope in ("graph", "observation"):
+        for cap in (path_len, path_len - 1):
+            if scope == "graph":
+                ns = make_ns(mode, graph_bounds=GraphBounds(max_path_bytes=cap))
+            else:
+                ns = make_bundle_admission_namespace(
+                    IDENTITY,
+                    model_identity="synthetic-admission-model",
+                    config_fingerprint=FINGERPRINT,
+                    workspace=WORKSPACE,
+                    mode=mode,
+                    observation_bounds=ObservationBounds(max_path_bytes=cap),
+                )
+            _limit_check(
+                f"{scope}_member_path_{cap}",
+                endpoint,
+                mode,
+                path_reqs,
+                ns,
+                complete=(cap == path_len),
+                nonacquisition=(cap < path_len),
+            )
 
 
 # --- Actual supported-version refusal -------------------------------------

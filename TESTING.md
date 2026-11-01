@@ -154,10 +154,15 @@ bounded scope with process qualifications (the 018-b strategic decision,
 `reviews/018-b-decision.md`; contract
 [docs/CACHE-BUNDLE-PROOF-CONTRACT.md](docs/CACHE-BUNDLE-PROOF-CONTRACT.md);
 `tests/test_bundle_proof.py`), 018-c is an implemented inert
-bundle-admission and structural-identity slice pending strategic acceptance
-(contract
+bundle-admission and structural-identity slice ACCEPTED at its bounded
+inert admission/structural-identity scope with process qualifications
+(strategic decision `S/reviews/018-c-decision.md`; contract
 [docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md](docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md);
 `tests/test_bundle_admission.py`, `tests/test_bundle_admission_vectors.py`),
+018-d is an implemented inert causal-occurrence-ledger slice pending
+strategic acceptance (contract
+[docs/CACHE-CAUSAL-HISTORY-CONTRACT.md](docs/CACHE-CAUSAL-HISTORY-CONTRACT.md);
+`tests/test_causal_history.py`, `tests/test_causal_history_models.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned
 stages).
 
