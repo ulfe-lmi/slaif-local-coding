@@ -1,0 +1,848 @@
+{
+  "version": "018c-group-depth-preemption/v1",
+  "created_utc": "2026-11-01T05:01:47.801862+00:00",
+  "status": "PREPARED_NOT_EXECUTED",
+  "scope": "Knownsynthetic ORIGINAL API input only; all command strings data, never execute; expected newadmission is a required target, not result.",
+  "cases": [
+    {
+      "name": "group-shortcut-repairs-old-depth-refusal",
+      "endpoint": "responses",
+      "variant": "legacy",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-0",
+                "output": "Chunk ID: c1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nT.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat X.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-1",
+                "output": "Chunk ID: c1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nY.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat Y.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-2",
+                "output": "Chunk ID: c1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nT.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-3",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat T.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-3",
+                "output": "Chunk ID: c1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "graph_max_depth": 2,
+      "new_admission_expected": "complete; T leastANDORdepth2; ordinary oldgraph Tdepth3 does not preempt it",
+      "expected_file_entries": 4,
+      "expected_group_targets": [
+        "T.md"
+      ]
+    },
+    {
+      "name": "group-shortcut-repairs-old-depth-refusal",
+      "endpoint": "responses",
+      "variant": "native-no-tokens",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nT.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat X.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nY.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat Y.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nT.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-3",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat T.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-3",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "graph_max_depth": 2,
+      "new_admission_expected": "complete; T leastANDORdepth2; ordinary oldgraph Tdepth3 does not preempt it",
+      "expected_file_entries": 4,
+      "expected_group_targets": [
+        "T.md"
+      ]
+    },
+    {
+      "name": "group-shortcut-repairs-old-depth-refusal",
+      "endpoint": "responses",
+      "variant": "native-tokens",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nT.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat X.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nY.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat Y.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nT.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-3",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat T.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-3",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "graph_max_depth": 2,
+      "new_admission_expected": "complete; T leastANDORdepth2; ordinary oldgraph Tdepth3 does not preempt it",
+      "expected_file_entries": 4,
+      "expected_group_targets": [
+        "T.md"
+      ]
+    },
+    {
+      "name": "group-shortcut-repairs-old-depth-refusal",
+      "endpoint": "responses",
+      "variant": "chunks",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9600\nOriginal token count: 1\nOutput:\nT."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-poll-0",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9600, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-poll-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat X.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9601\nOriginal token count: 1\nOutput:\nY."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9601, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-poll-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat Y.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9602\nOriginal token count: 1\nOutput:\nT."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9602, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-poll-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-3",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat T.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-3",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9603\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-depth-poll-3",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9603, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-depth-poll-3",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "graph_max_depth": 2,
+      "new_admission_expected": "complete; T leastANDORdepth2; ordinary oldgraph Tdepth3 does not preempt it",
+      "expected_file_entries": 4,
+      "expected_group_targets": [
+        "T.md"
+      ]
+    },
+    {
+      "name": "group-shortcut-repairs-old-depth-refusal",
+      "endpoint": "chat",
+      "variant": "legacy",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-0",
+                "content": "Chunk ID: c1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nT.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat X.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-1",
+                "content": "Chunk ID: c1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nY.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat Y.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-2",
+                "content": "Chunk ID: c1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nT.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-3",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat T.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-3",
+                "content": "Chunk ID: c1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "graph_max_depth": 2,
+      "new_admission_expected": "complete; T leastANDORdepth2; ordinary oldgraph Tdepth3 does not preempt it",
+      "expected_file_entries": 4,
+      "expected_group_targets": [
+        "T.md"
+      ]
+    },
+    {
+      "name": "group-shortcut-repairs-old-depth-refusal",
+      "endpoint": "chat",
+      "variant": "native-no-tokens",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nT.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat X.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nY.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat Y.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nT.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-3",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat T.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-3",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "graph_max_depth": 2,
+      "new_admission_expected": "complete; T leastANDORdepth2; ordinary oldgraph Tdepth3 does not preempt it",
+      "expected_file_entries": 4,
+      "expected_group_targets": [
+        "T.md"
+      ]
+    },
+    {
+      "name": "group-shortcut-repairs-old-depth-refusal",
+      "endpoint": "chat",
+      "variant": "native-tokens",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nT.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat X.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nY.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat Y.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nT.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-3",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat T.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-3",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "graph_max_depth": 2,
+      "new_admission_expected": "complete; T leastANDORdepth2; ordinary oldgraph Tdepth3 does not preempt it",
+      "expected_file_entries": 4,
+      "expected_group_targets": [
+        "T.md"
+      ]
+    },
+    {
+      "name": "group-shortcut-repairs-old-depth-refusal",
+      "endpoint": "chat",
+      "variant": "chunks",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9600\nOriginal token count: 1\nOutput:\nT."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-poll-0",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9600, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-poll-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat X.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9601\nOriginal token count: 1\nOutput:\nY."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9601, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-poll-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat Y.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9602\nOriginal token count: 1\nOutput:\nT."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9602, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-poll-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-3",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat T.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-3",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9603\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-depth-poll-3",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9603, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-depth-poll-3",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "graph_max_depth": 2,
+      "new_admission_expected": "complete; T leastANDORdepth2; ordinary oldgraph Tdepth3 does not preempt it",
+      "expected_file_entries": 4,
+      "expected_group_targets": [
+        "T.md"
+      ]
+    }
+  ]
+}

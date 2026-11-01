@@ -1,0 +1,828 @@
+{
+  "version": "018c-interning-provenance-inputs/v1",
+  "created_utc": "2026-11-01T05:31:16.825082+00:00",
+  "status": "PREPARED_NOT_EXECUTED",
+  "scope": "Knownsynthetic ORIGINAL API data; never execute command strings. Newadmission expectation is NOT a result.",
+  "cases": [
+    {
+      "name": "AB-A-Aagain-original-carriers",
+      "endpoint": "responses",
+      "layout": "same-request",
+      "variant": "legacy",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-0",
+                "output": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalphabeta"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-1",
+                "output": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalpha"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-2",
+                "output": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalpha"
+              }
+            ]
+          }
+        }
+      ],
+      "new_admission_expected": "2 FILEentries +separate requiredROOT; sameAentryidentity reused, all3 originalproof carriers retained separately; not compiler/cachehit evidence"
+    },
+    {
+      "name": "AB-A-Aagain-original-carriers",
+      "endpoint": "responses",
+      "layout": "same-request",
+      "variant": "chunks",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9700\nOriginal token count: 1\nOutput:\nalph"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-poll-0",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9700, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-poll-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nabeta"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9701\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9701, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-poll-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9702\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9702, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-poll-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              }
+            ]
+          }
+        }
+      ],
+      "new_admission_expected": "2 FILEentries +separate requiredROOT; sameAentryidentity reused, all3 originalproof carriers retained separately; not compiler/cachehit evidence"
+    },
+    {
+      "name": "AB-A-Aagain-original-carriers",
+      "endpoint": "responses",
+      "layout": "split-requests",
+      "variant": "legacy",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-0",
+                "output": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalphabeta"
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-1",
+                "output": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalpha"
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-2",
+                "output": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalpha"
+              }
+            ]
+          }
+        }
+      ],
+      "new_admission_expected": "2 FILEentries +separate requiredROOT; sameAentryidentity reused, all3 originalproof carriers retained separately; not compiler/cachehit evidence"
+    },
+    {
+      "name": "AB-A-Aagain-original-carriers",
+      "endpoint": "responses",
+      "layout": "split-requests",
+      "variant": "chunks",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9700\nOriginal token count: 1\nOutput:\nalph"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-poll-0",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9700, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-poll-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nabeta"
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9701\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9701, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-poll-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9702\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-intern-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9702, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-intern-poll-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              }
+            ]
+          }
+        }
+      ],
+      "new_admission_expected": "2 FILEentries +separate requiredROOT; sameAentryidentity reused, all3 originalproof carriers retained separately; not compiler/cachehit evidence"
+    },
+    {
+      "name": "AB-A-Aagain-original-carriers",
+      "endpoint": "chat",
+      "layout": "same-request",
+      "variant": "legacy",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-0",
+                "content": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalphabeta"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-1",
+                "content": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalpha"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-2",
+                "content": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalpha"
+              }
+            ]
+          }
+        }
+      ],
+      "new_admission_expected": "2 FILEentries +separate requiredROOT; sameAentryidentity reused, all3 originalproof carriers retained separately; not compiler/cachehit evidence"
+    },
+    {
+      "name": "AB-A-Aagain-original-carriers",
+      "endpoint": "chat",
+      "layout": "same-request",
+      "variant": "chunks",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9700\nOriginal token count: 1\nOutput:\nalph"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-poll-0",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9700, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-poll-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nabeta"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9701\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9701, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-poll-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9702\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9702, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-poll-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              }
+            ]
+          }
+        }
+      ],
+      "new_admission_expected": "2 FILEentries +separate requiredROOT; sameAentryidentity reused, all3 originalproof carriers retained separately; not compiler/cachehit evidence"
+    },
+    {
+      "name": "AB-A-Aagain-original-carriers",
+      "endpoint": "chat",
+      "layout": "split-requests",
+      "variant": "legacy",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-0",
+                "content": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalphabeta"
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-1",
+                "content": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalpha"
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-2",
+                "content": "Chunk ID: l1\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nalpha"
+              }
+            ]
+          }
+        }
+      ],
+      "new_admission_expected": "2 FILEentries +separate requiredROOT; sameAentryidentity reused, all3 originalproof carriers retained separately; not compiler/cachehit evidence"
+    },
+    {
+      "name": "AB-A-Aagain-original-carriers",
+      "endpoint": "chat",
+      "layout": "split-requests",
+      "variant": "chunks",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9700\nOriginal token count: 1\nOutput:\nalph"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-poll-0",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9700, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-poll-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nabeta"
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9701\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9701, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-poll-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9702\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-intern-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9702, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-intern-poll-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              }
+            ]
+          }
+        }
+      ],
+      "new_admission_expected": "2 FILEentries +separate requiredROOT; sameAentryidentity reused, all3 originalproof carriers retained separately; not compiler/cachehit evidence"
+    }
+  ]
+}

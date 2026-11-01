@@ -333,6 +333,10 @@ pure-observation scope with process qualifications and merged to main
 at ffaabf4b (017-am decision); 018-a is ACCEPTED at the bounded
 inert graph-foundation scope with process qualifications
 (strategic decision `reviews/018-a-decision.md`; PR 26 remains
-unmerged until the rest of numeric 018 is complete); 018-b is an implemented inert slice pending
-strategic acceptance; broader 018 admission/version/replay/overlap
-and 019–024 remain mandatory.
+unmerged until the rest of numeric 018 is complete); 018-b is
+ACCEPTED AT THE BOUNDED INERT BUNDLE-PROOF SCOPE WITH PROCESS
+QUALIFICATIONS (strategic decision `reviews/018-b-decision.md`); 018-c is
+an implemented inert admission/identity slice pending strategic
+acceptance (contract `docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`); the
+remaining 018 stages (C04/C05/version/edge-withdrawal chronology and the
+remaining G/C/S criteria) and 019–024 remain mandatory.

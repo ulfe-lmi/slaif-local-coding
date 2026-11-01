@@ -15,11 +15,43 @@ Objective 018-a adds the inert trusted-namespace graph foundation
 (``cache-graph/v1`` / ``reference-grammar/v1``): bounded raw-reference
 scanning, lexical resolution, the fixed-point graph builder and the
 public bounded graph observation composition
-(``graph_observation``).  The 017 modules are unchanged in that slice.
+(``graph_observation``).  Objective 018-b adds the inert bundle-proof
+bridge (``cache-bundle-proof/v1``).  Objective 018-c adds the inert
+lean/greedy bundle-admission and structural-identity composition
+(``cache-bundle-admission/v1``).  The 017 modules are unchanged in
+those slices.
 """
 
 from __future__ import annotations
 
+from ..bundles.bundle_admission import (
+    observe_bundle_admission,
+    observe_bundle_admission_batch,
+)
+from ..bundles.bundle_admission_models import (
+    ADMISSION_CONTRACT_VERSION,
+    AdmissionLimitation,
+    AdmissionMode,
+    AdmissionOutcome,
+    BoundaryClass,
+    BundleAdmissionBounds,
+    BundleAdmissionNamespace,
+    BundleAdmissionSnapshot,
+    BundleEntry,
+    BundleKeyRecord,
+    EligibilityNode,
+    EntryClass,
+    GroupCertificate,
+    MemberClass,
+    OffgraphSourceNode,
+    OrdinaryRelationship,
+    OwnershipGroup,
+    PathAssociation,
+    RootEnvelopeOccurrence,
+    SourceVersionObservation,
+    UnresolvedOriginRecord,
+    make_bundle_admission_namespace,
+)
 from ..bundles.bundle_proof import observe_bundle_proof, observe_bundle_proofs
 from ..bundles.bundle_proof_models import (
     BUNDLE_PROOF_CONTRACT_VERSION,
@@ -258,4 +290,30 @@ __all__ = [
     "make_bundle_proof_namespace",
     "observe_bundle_proof",
     "observe_bundle_proofs",
+    # Objective 018-c: inert bundle-admission composition
+    # (cache-bundle-admission/v1).
+    "ADMISSION_CONTRACT_VERSION",
+    "AdmissionLimitation",
+    "AdmissionMode",
+    "AdmissionOutcome",
+    "BundleAdmissionBounds",
+    "BundleAdmissionNamespace",
+    "BundleAdmissionSnapshot",
+    "BundleEntry",
+    "BundleKeyRecord",
+    "BoundaryClass",
+    "EligibilityNode",
+    "EntryClass",
+    "GroupCertificate",
+    "MemberClass",
+    "OffgraphSourceNode",
+    "OrdinaryRelationship",
+    "OwnershipGroup",
+    "PathAssociation",
+    "RootEnvelopeOccurrence",
+    "SourceVersionObservation",
+    "UnresolvedOriginRecord",
+    "make_bundle_admission_namespace",
+    "observe_bundle_admission",
+    "observe_bundle_admission_batch",
 ]

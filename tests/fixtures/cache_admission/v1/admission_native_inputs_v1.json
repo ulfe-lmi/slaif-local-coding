@@ -1,0 +1,4630 @@
+{
+  "version": "018c-independent-native-inputs/v1",
+  "status": "PREPARED_NOT_EXECUTED",
+  "created_utc": "2026-11-01T04:16:48.424455+00:00",
+  "authority": "Exact active018-c order. Known-synthetic ORIGINAL API inputs only; command strings are data and must never execute. Expected labels are review targets, not test results. Root AGENTS.md itself always additionally required.",
+  "cases": [
+    {
+      "name": "reachable-boundaryless",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nalpha beta"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md"
+      ],
+      "expectation": "both",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "reachable-boundaryless",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nalpha"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\n beta"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md"
+      ],
+      "expectation": "both",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "reachable-boundaryless",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nalpha"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\n beta"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md"
+      ],
+      "expectation": "both",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "reachable-boundaryless",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nalpha beta"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md"
+      ],
+      "expectation": "both",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "reachable-boundaryless",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nalpha"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\n beta"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md"
+      ],
+      "expectation": "both",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "reachable-boundaryless",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nalpha"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\n beta"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md"
+      ],
+      "expectation": "both",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "mixed-same-base",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "mixed-same-base",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "mixed-same-base",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "mixed-same-base",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "mixed-same-base",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "mixed-same-base",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "all-suppliers-common-base",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "all-suppliers-common-base",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-2",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "all-suppliers-common-base",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-2",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "all-suppliers-common-base",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "all-suppliers-common-base",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-2",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "all-suppliers-common-base",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-2",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "unrelated-singleton",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "no-file-entries-no-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "unrelated-singleton",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "no-file-entries-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "unrelated-singleton",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "no-file-entries-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "unrelated-singleton",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "no-file-entries-no-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "unrelated-singleton",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "no-file-entries-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "unrelated-singleton",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "no-file-entries-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "group-unlocked-by-later-independent-source",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat X.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nB.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-2",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "X.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "group-unlocked-by-later-independent-source",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat X.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nB."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-2",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9003\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-3",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9003, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-3",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "X.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "group-unlocked-by-later-independent-source",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat X.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nB."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-2",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9003\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-3",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9003, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-3",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "X.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "group-unlocked-by-later-independent-source",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat X.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nB.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-2",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "X.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "group-unlocked-by-later-independent-source",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat X.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nB."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-2",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9003\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-3",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9003, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-3",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "X.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "group-unlocked-by-later-independent-source",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md X.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat X.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nB."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-2",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9003\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-3",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9003, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-3",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "X.md",
+        "B.md",
+        "C.md"
+      ],
+      "expectation": "both-group-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "different-directories",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nd1/A.md d2/B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat d1/A.md d2/B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "d1/A.md",
+        "d2/B.md"
+      ],
+      "expectation": "both-unresolved-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "different-directories",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nd1/A.md d2/B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat d1/A.md d2/B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "d1/A.md",
+        "d2/B.md"
+      ],
+      "expectation": "both-unresolved-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "different-directories",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nd1/A.md d2/B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat d1/A.md d2/B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "d1/A.md",
+        "d2/B.md"
+      ],
+      "expectation": "both-unresolved-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "different-directories",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nd1/A.md d2/B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat d1/A.md d2/B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "d1/A.md",
+        "d2/B.md"
+      ],
+      "expectation": "both-unresolved-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "different-directories",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nd1/A.md d2/B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat d1/A.md d2/B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "d1/A.md",
+        "d2/B.md"
+      ],
+      "expectation": "both-unresolved-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "different-directories",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nd1/A.md d2/B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat d1/A.md d2/B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "d1/A.md",
+        "d2/B.md"
+      ],
+      "expectation": "both-unresolved-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "no-group-self-bootstrap",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nB.md C.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-B-no-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "no-group-self-bootstrap",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nB.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\n C.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-B-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "no-group-self-bootstrap",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nB.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\n C.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-B-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "no-group-self-bootstrap",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nB.md C.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-B-no-C",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "no-group-self-bootstrap",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nB.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\n C.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-B-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "no-group-self-bootstrap",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nB.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\n C.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "greedy-only-no-B-no-C",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "alternate-shorter-group-depth",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md E.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nD.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat E.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-2",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nD.md"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-3",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat D.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-3",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md",
+        "D.md",
+        "E.md"
+      ],
+      "expectation": "both-depth2",
+      "max_depth": 2,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "alternate-shorter-group-depth",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md E.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nD."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-2",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat E.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9003\nOriginal token count: 1\nOutput:\nD."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-3",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9003, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-3",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-3",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat D.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-3",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9004\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-4",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9004, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-4",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md",
+        "D.md",
+        "E.md"
+      ],
+      "expectation": "both-depth2",
+      "max_depth": 2,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "alternate-shorter-group-depth",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md E.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-1",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat C.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-1",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nD."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-2",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-2",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-2",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat E.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-2",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9003\nOriginal token count: 1\nOutput:\nD."
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-3",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9003, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-3",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-3",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat D.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-3",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9004\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-4",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9004, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-4",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md",
+        "D.md",
+        "E.md"
+      ],
+      "expectation": "both-depth2",
+      "max_depth": 2,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "alternate-shorter-group-depth",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md E.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nC.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nD.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat E.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-2",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nD.md"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-3",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat D.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-3",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nleaf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md",
+        "D.md",
+        "E.md"
+      ],
+      "expectation": "both-depth2",
+      "max_depth": 2,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "alternate-shorter-group-depth",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md E.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nD."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-2",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat E.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9003\nOriginal token count: 1\nOutput:\nD."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-3",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9003, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-3",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-3",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat D.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-3",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9004\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-4",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9004, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-4",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md",
+        "D.md",
+        "E.md"
+      ],
+      "expectation": "both-depth2",
+      "max_depth": 2,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "alternate-shorter-group-depth",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md E.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nC."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-1",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat C.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-1",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9002\nOriginal token count: 1\nOutput:\nD."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-2",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9002, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-2",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-2",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat E.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-2",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9003\nOriginal token count: 1\nOutput:\nD."
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-3",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9003, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-3",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nmd"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-3",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat D.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-3",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9004\nOriginal token count: 1\nOutput:\nle"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-4",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9004, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-4",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naf"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "C.md",
+        "D.md",
+        "E.md"
+      ],
+      "expectation": "both-depth2",
+      "max_depth": 2,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "root-back-cycle",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nAGENTS.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "AGENTS.md"
+      ],
+      "expectation": "both-root-depth0",
+      "max_depth": 1,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "root-back-cycle",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nAGEN"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nTS.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "AGENTS.md"
+      ],
+      "expectation": "both-root-depth0",
+      "max_depth": 1,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "root-back-cycle",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nAGEN"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nTS.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "AGENTS.md"
+      ],
+      "expectation": "both-root-depth0",
+      "max_depth": 1,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "root-back-cycle",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nAGENTS.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "AGENTS.md"
+      ],
+      "expectation": "both-root-depth0",
+      "max_depth": 1,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "root-back-cycle",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nAGEN"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\nTS.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "AGENTS.md"
+      ],
+      "expectation": "both-root-depth0",
+      "max_depth": 1,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "root-back-cycle",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md B.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md B.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nAGEN"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nTS.md"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md",
+        "B.md",
+        "AGENTS.md"
+      ],
+      "expectation": "both-root-depth0",
+      "max_depth": 1,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "repeated-occurrence-width1",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naa"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-unknown-member-digest",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "repeated-occurrence-width1",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\na"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\na"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-unknown-member-digest",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "repeated-occurrence-width1",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"cat A.md A.md\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\na"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\na"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-unknown-member-digest",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "repeated-occurrence-width1",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\naa"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-unknown-member-digest",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "repeated-occurrence-width1",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\na"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\na"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-unknown-member-digest",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "repeated-occurrence-width1",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"cat A.md A.md\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\na"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\na"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-unknown-member-digest",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "guarded-singleton",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"for f in A.md; do cat \\\"$f\\\" || exit 1; done\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nalpha"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-key-equivalent-standalone",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "guarded-singleton",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"for f in A.md; do cat \\\"$f\\\" || exit 1; done\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\npha"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-key-equivalent-standalone",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "guarded-singleton",
+      "endpoint": "responses",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-0",
+                "name": "exec_command",
+                "arguments": "{\"cmd\": \"for f in A.md; do cat \\\"$f\\\" || exit 1; done\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-0",
+                "output": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "type": "function_call",
+                "call_id": "synthetic-review-poll-1",
+                "name": "write_stdin",
+                "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+              },
+              {
+                "type": "function_call_output",
+                "call_id": "synthetic-review-poll-1",
+                "output": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-key-equivalent-standalone",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    },
+    {
+      "name": "guarded-singleton",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"for f in A.md; do cat \\\"$f\\\" || exit 1; done\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\nalpha"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-key-equivalent-standalone",
+      "max_depth": null,
+      "variant": "native-final-tokens"
+    },
+    {
+      "name": "guarded-singleton",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"for f in A.md; do cat \\\"$f\\\" || exit 1; done\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\npha"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-key-equivalent-standalone",
+      "max_depth": null,
+      "variant": "native-chunks-final-no-tokens"
+    },
+    {
+      "name": "guarded-singleton",
+      "endpoint": "chat",
+      "requests": [
+        {
+          "endpoint": "responses",
+          "payload": {
+            "input": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "input_text",
+                    "text": "# AGENTS.md instructions for /work\n\n<INSTRUCTIONS>\nA.md\n</INSTRUCTIONS>\n"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "endpoint": "chat",
+          "payload": {
+            "messages": [
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-0",
+                    "type": "function",
+                    "function": {
+                      "name": "exec_command",
+                      "arguments": "{\"cmd\": \"for f in A.md; do cat \\\"$f\\\" || exit 1; done\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-0",
+                "content": "Chunk ID: abc123\nWall time: 0.0000 seconds\nProcess running with session ID 9001\nOriginal token count: 1\nOutput:\nal"
+              },
+              {
+                "role": "assistant",
+                "tool_calls": [
+                  {
+                    "id": "synthetic-review-poll-1",
+                    "type": "function",
+                    "function": {
+                      "name": "write_stdin",
+                      "arguments": "{\"session_id\": 9001, \"chars\": \"\"}"
+                    }
+                  }
+                ]
+              },
+              {
+                "role": "tool",
+                "tool_call_id": "synthetic-review-poll-1",
+                "content": "Chunk ID: def456\nWall time: 0.0000 seconds\nProcess exited with code 0\nOriginal token count: 1\nOutput:\npha"
+              }
+            ]
+          }
+        }
+      ],
+      "expected_reachable_file_paths": [
+        "A.md"
+      ],
+      "expectation": "both-key-equivalent-standalone",
+      "max_depth": null,
+      "variant": "native-chunks-final-tokens"
+    }
+  ]
+}

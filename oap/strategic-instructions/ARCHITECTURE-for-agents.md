@@ -154,12 +154,20 @@ hash/compile/update graph incrementally. Adapter never reads client filesystem.
 
 ## Dependency-bundle cache law (v1 profile, normative target)
 
-As of stage 017-a (observation proof corrected in 017-b, and the
-remaining literal-grammar and actual-endpoint proof in 017-c), the pure
-root/read/result/span observation slice (D01-D05) is implemented as inert
-typed modules under `src/slaif_local_coding/constitution/bundles/`; they are
-not active in the adapter request execution path, the legacy detector is
-unchanged, and every other statement below is the approved target contract.
+Current inert scope: the accepted 017 observation package (D01-D10 at
+their bounded scopes; observation contract
+`docs/CACHE-OBSERVATION-CONTRACT.md`), the accepted 018-a graph-
+foundation slice (contract `docs/CACHE-GRAPH-CONTRACT.md`) and the
+accepted 018-b bundle-proof bridge slice (contract
+`docs/CACHE-BUNDLE-PROOF-CONTRACT.md`), plus the implemented 018-c
+bundle-admission and structural-identity slice PENDING strategic
+acceptance (contract `docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`), all as
+inert typed modules under
+`src/slaif_local_coding/constitution/bundles/`; they are not active in
+the adapter request execution path, the legacy detector is unchanged,
+the v1 runtime remains planned and inactive, and the remaining
+statements below (compilation, RAM ownership, replacement, recovery,
+budgets) are the approved target contract.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -575,8 +583,9 @@ Objective 017 was ACCEPTED at its bounded pure-observation scope WITH
 PROCESS QUALIFICATIONS (017-am decision, `reviews/017-am-decision.md`) and
 merged to main at ffaabf4b; objective 018 is active (018-a
 foundation slice ACCEPTED at its bounded inert graph-foundation
-scope with process qualifications; 018-b implemented inert
-bundle-proof slice pending strategic acceptance). The per-round history (017-a through 017-am) is NOT restated here;
+scope with process qualifications; 018-b ACCEPTED at its bounded inert
+bundle-proof scope with process qualifications; 018-c implemented inert
+bundle-admission/identity slice pending strategic acceptance). The per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
 `docs/CACHE-OBSERVATION-CONTRACT.md`.
@@ -672,10 +681,15 @@ qualifications and merged to main at ffaabf4b (017-am decision,
 `reviews/017-am-decision.md`); objective 018 is active (018-a: inert
 graph-foundation slice ACCEPTED at its bounded inert
 graph-foundation scope with process qualifications, contract
-`docs/CACHE-GRAPH-CONTRACT.md`; 018-b: implemented inert
-bundle-proof bridge slice pending strategic acceptance, contract
-`docs/CACHE-BUNDLE-PROOF-CONTRACT.md`) and objectives 018-c+ and
-019-024 remain the mandatory unearned v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the original
+`docs/CACHE-GRAPH-CONTRACT.md`; 018-b: bundle-proof bridge slice
+ACCEPTED at its bounded inert bundle-proof scope with process
+qualifications, strategic decision `reviews/018-b-decision.md`, contract
+`docs/CACHE-BUNDLE-PROOF-CONTRACT.md`; 018-c: implemented inert
+bundle-admission and structural-identity slice pending strategic
+acceptance, contract `docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md`) and the
+remaining 018 stages (C04/C05/version/edge-withdrawal and the remaining
+G/C/S criteria) plus objectives 019-024 remain the mandatory unearned v1
+implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the original
 planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric
 objective=one PR; coding never merges.

@@ -44,6 +44,8 @@ shell facility is imported or used; no observed command is executed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from .bundle_proof_models import (
@@ -1141,6 +1143,271 @@ def _seam_signature(proof: BundleProof) -> tuple[object, ...]:
     )
 
 
+@dataclass
+class _ProofPassResult:
+    """The result of one bounded proof pass over collected 017 facts.
+
+    ``refusal_outcome`` / ``refusal_reason`` are set exactly when the
+    pass refuses the whole snapshot (a budget crossing, a
+    diagnostics-full overflow, or a competing root-path read); on a
+    refusal ``bundles`` is empty.  On a non-refused pass
+    ``conflicts`` carries the retained closed-vocabulary conflicts
+    and ``candidates_inspected`` the measured counter at the stopping
+    point.  Candidate-level diagnostics are appended by the caller's
+    ``note_diagnostic`` callback to the caller's own bounded list.
+    """
+
+    bundles: list[BundleProof]
+    conflicts: tuple[BundleLimitation, ...]
+    candidates_inspected: int
+    refusal_outcome: BundleProofOutcome | None
+    refusal_reason: BundleLimitation | None
+
+
+def _proof_pass(
+    requests: tuple[GraphRequest, ...],
+    contexts: list[PathContext],
+    reports: list[Any],
+    namespace: BundleProofNamespace,
+    effective: BundleProofBounds,
+    root_digest: str,
+    ledger: _BridgeSourceLedger,
+    search: _SearchLedger,
+    budget: _BudgetState,
+    diagnostics: list[BundleLimitation],
+    note_diagnostic: Callable[[BundleLimitation], bool],
+    base_diagnostic_count: int,
+) -> _ProofPassResult:
+    """The private collector core shared by the accepted public
+    wrapper and the 018-c admission composition.
+
+    One bounded candidate pass over the ALREADY COLLECTED 017 facts
+    (the validated reports, contexts and root binding) with the SAME
+    cumulative ledger state: every selected candidate is counted
+    before dedup or refusal, both ACTUAL path ceilings are enforced
+    before any member charge or source/proof copy, the cumulative
+    member preflight is charged before any fetch from
+    already-parsed 017 metadata, every inspected body is accounted
+    before any owned copy, and the same-occurrence consistency law
+    compares the full proof signature before retention.  The
+    diagnostics bound is enforced through the caller's
+    ``note_diagnostic`` callback (``False`` refuses the pass with
+    the bounded ``DIAGNOSTICS_FULL``) so the TOTAL emitted bound is
+    the caller's single finite budget.  The accepted public
+    wrapper's signature and every result are unchanged by this
+    factoring.
+    """
+    candidates_inspected = 0
+    max_diagnostics = effective.max_diagnostics
+
+    def _refuse(outcome: BundleProofOutcome, reason: BundleLimitation) -> _ProofPassResult:
+        return _ProofPassResult(
+            bundles=[],
+            conflicts=(),
+            candidates_inspected=candidates_inspected,
+            refusal_outcome=outcome,
+            refusal_reason=reason,
+        )
+
+    def _over_bound(reason: BundleLimitation | None = None) -> _ProofPassResult:
+        effective_reason = reason if reason is not None else ledger.refusal
+        if effective_reason is None:
+            raise _fixed("a budget refusal was recorded without a reason")
+        return _refuse(BundleProofOutcome.OVER_BOUND, effective_reason)
+
+    # --- Candidate enumeration (reads then processes, deterministic) ---
+    positives: dict[tuple[int, str, str], list[BundleProof]] = {}
+    for request_index, request in enumerate(requests):
+        context = contexts[request_index]
+        payload = request.payload
+        report = reports[request_index]
+        for read in report.reads:
+            if not (read.wrapper.output_present and read.wrapper.output_span is not None):
+                continue  # no proven output: not a source candidate
+            candidates_inspected += 1
+            if candidates_inspected > effective.max_bundles:
+                return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.BUNDLES_OVER_BOUND)
+            # Both ACTUAL path ceilings (graph + observation) bound
+            # every normalized represented member BEFORE any member
+            # charge or source/proof copy: a violation is a fixed
+            # typed non-acquisition (candidate diagnostic), never an
+            # over-bound acquisition.
+            path_reason = _member_paths_within_bounds(read.requested_members, namespace)
+            if path_reason is not None:
+                if not note_diagnostic(path_reason):
+                    return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.DIAGNOSTICS_FULL)
+                continue
+            # The cumulative member preflight is charged BEFORE any
+            # output-carrier fetch: the represented member count is
+            # already-parsed 017 metadata (the order's preflight law:
+            # at-limit stays at-limit, the first over-bound proven
+            # candidate is a fixed typed snapshot refusal, never a
+            # post-fetch or post-allocation discard).
+            budget.charge(len(read.requested_members))
+            if budget.refusal is not None:
+                return _over_bound(budget.refusal)
+            # The full output body is charged BEFORE any owned copy.
+            read_span = read.wrapper.output_span
+            read_carrier = _carrier_string(payload, read.result_location)
+            if (
+                read_carrier is not None
+                and read_span is not None
+                and read_span.end <= len(read_carrier)
+            ):
+                read_bytes = _utf8_byte_length_range(read_carrier, read_span.start, read_span.end)
+                if read_bytes is not None:
+                    ledger.account(read_bytes)
+            if ledger.refusal is not None:
+                return _over_bound()
+            proof, reason = _read_bundle(
+                request_index,
+                read,
+                payload,
+                context,
+                namespace,
+                effective,
+                search,
+                budget,
+                root_digest,
+            )
+            if reason is not None and reason in _BUDGET_REASONS:
+                return _over_bound(budget.refusal if budget.refusal is not None else reason)
+            if budget.refusal is not None:
+                return _over_bound(budget.refusal)
+            if reason is not None:
+                if not note_diagnostic(reason):
+                    return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.DIAGNOSTICS_FULL)
+            elif proof is not None:
+                key = (request_index, read.call_id, read.result_location)
+                positives.setdefault(key, []).append(proof)
+        for proc in report.processes:
+            if proc.outcome is not ProcessOutcome.COMPLETE:
+                continue  # no complete paired process proof: no candidate
+            candidates_inspected += 1
+            if candidates_inspected > effective.max_bundles:
+                return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.BUNDLES_OVER_BOUND)
+            # Both ACTUAL path ceilings (graph + observation) bound
+            # every normalized represented member BEFORE any member
+            # charge or source/proof copy (same law as the read path).
+            path_reason = _member_paths_within_bounds(proc.requested_members, namespace)
+            if path_reason is not None:
+                if not note_diagnostic(path_reason):
+                    return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.DIAGNOSTICS_FULL)
+                continue
+            # The cumulative member preflight is charged BEFORE any
+            # piece/body reconstruction from already-parsed 017
+            # member metadata (the same preflight law as the read
+            # path).
+            budget.charge(len(proc.requested_members))
+            if budget.refusal is not None:
+                return _over_bound(budget.refusal)
+            # Every native piece reconstruction is charged BEFORE any
+            # owned copy (the cumulative exact byte length is the
+            # 017-proven total over the ordered pieces).
+            ledger.account(proc.total_byte_length)
+            if ledger.refusal is not None:
+                return _over_bound()
+            proof, reason = _process_bundle(
+                request_index,
+                proc,
+                payload,
+                context,
+                namespace,
+                effective,
+                search,
+                budget,
+                root_digest,
+            )
+            if reason is not None and reason in _BUDGET_REASONS:
+                return _over_bound(budget.refusal if budget.refusal is not None else reason)
+            if budget.refusal is not None:
+                return _over_bound(budget.refusal)
+            if reason is not None:
+                if not note_diagnostic(reason):
+                    return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.DIAGNOSTICS_FULL)
+            elif proof is not None:
+                key = (request_index, proc.exec_call_id, proc.initial_result_location)
+                positives.setdefault(key, []).append(proof)
+
+    # --- Same-occurrence consistency law (before retention) -----------
+    bundles: list[BundleProof] = []
+    seam_conflict = False
+    for proofs in positives.values():
+        if len(proofs) == 1:
+            bundles.append(proofs[0])
+            continue
+        signatures = [_seam_signature(proof) for proof in proofs]
+        if len(set(signatures)) == 1:
+            # The same physical occurrence carrying the SAME proof
+            # signature is ONE record (read primary).
+            bundles.append(next((p for p in proofs if p.surface is BundleSurface.READ), proofs[0]))
+        else:
+            # A mismatched proof acquires NOTHING from that occurrence;
+            # ready is refused.
+            seam_conflict = True
+
+    # --- Conflicting root-path read (the 018-a law, graph.py) ---------
+    # A tool read at the root path with different content is a
+    # competing effective root: no reset/supersession, typed conflict
+    # (a tool read never establishes the root).  Only an independently
+    # proven SINGLE-occurrence root-path member digest is compared
+    # against the established root digest; a boundaryless or repeated
+    # group never infers a root hash, and a same-bytes root-path read
+    # is consistent.  The refusal retains no bundles.
+    for proof in bundles:
+        for segment in proof.segments:
+            if segment.member_digest is None:
+                continue  # no single-occurrence proof: never inferred
+            member = proof.requested_members[segment.member_positions[0]]
+            if member.normalized == ROOT_FILENAME and segment.member_digest != root_digest:
+                return _refuse(BundleProofOutcome.ROOT_CONFLICT, BundleLimitation.COMPETING_ROOTS)
+
+    # --- Per-path source conflict (proven single-occurrence digests) --
+    path_digests: dict[str, str] = {}
+    conflict_paths: set[str] = set()
+    for proof in bundles:
+        for segment in proof.segments:
+            if segment.member_digest is None:
+                continue
+            member = proof.requested_members[segment.member_positions[0]]
+            path = member.normalized
+            if path is None:
+                continue  # defensive (the resolved-member law)
+            if path in path_digests and path_digests[path] != segment.member_digest:
+                conflict_paths.add(path)
+            else:
+                path_digests.setdefault(path, segment.member_digest)
+    source_conflict = bool(conflict_paths)
+    if source_conflict:
+        bundles = [
+            proof
+            for proof in bundles
+            if not any(
+                segment.member_digest is not None
+                and proof.requested_members[segment.member_positions[0]].normalized
+                in conflict_paths
+                for segment in proof.segments
+            )
+        ]
+
+    conflicts: tuple[BundleLimitation, ...] = ()
+    if seam_conflict:
+        conflicts = (BundleLimitation.SEAM_CONFLICT,)
+    elif source_conflict:
+        conflicts = (BundleLimitation.SOURCE_CONFLICT,)
+
+    # --- Bounded final diagnostic at every public exit ----------------
+    if len(conflicts) + len(diagnostics) + base_diagnostic_count > max_diagnostics:
+        return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.DIAGNOSTICS_FULL)
+    return _ProofPassResult(
+        bundles=bundles,
+        conflicts=conflicts,
+        candidates_inspected=candidates_inspected,
+        refusal_outcome=None,
+        refusal_reason=None,
+    )
+
+
 def observe_bundle_proofs(
     requests: tuple[GraphRequest, ...],
     namespace: BundleProofNamespace,
@@ -1333,30 +1600,6 @@ def observe_bundle_proofs(
 
     diagnostics: list[BundleLimitation] = []
 
-    def _diagnostics_full() -> BundleProofSnapshot:
-        return _bundle_refusal(
-            namespace,
-            BundleProofOutcome.OVER_BOUND,
-            (BundleLimitation.DIAGNOSTICS_FULL,),
-            request_count,
-            (),
-            candidates_inspected,
-            ledger.total_bytes,
-            search.total_bytes,
-        )
-
-    def _note_diagnostic(reason: BundleLimitation) -> BundleProofSnapshot | None:
-        """Retain one candidate-level fixed diagnostic only while the
-        TOTAL emitted diagnostics (candidate reasons + observation /
-        global limitations) stay at the finite bound.  The bound is
-        enforced BEFORE retention/append: overflow is the bounded
-        ``DIAGNOSTICS_FULL`` refusal, never a truncated or unbounded
-        reason list (no silent truncation, no governance loss)."""
-        if len(diagnostics) + len(ordered_limitations) + 1 > max_diagnostics:
-            return _diagnostics_full()
-        diagnostics.append(reason)
-        return None
-
     # Every root occurrence (duplicates included) is an inspected
     # source body: measured and accounted BEFORE any bridge-owned copy;
     # only the first occurrence is copied (its digest is already bound
@@ -1409,237 +1652,63 @@ def observe_bundle_proofs(
             search.total_bytes,
         )
 
-    # --- Candidate enumeration (reads then processes, deterministic) ---
-    positives: dict[tuple[int, str, str], list[BundleProof]] = {}
-    for request_index, request in enumerate(requests):
-        context = contexts[request_index]
-        payload = request.payload
-        report = reports[request_index]
-        for read in report.reads:
-            if not (read.wrapper.output_present and read.wrapper.output_span is not None):
-                continue  # no proven output: not a source candidate
-            candidates_inspected += 1
-            if candidates_inspected > effective.max_bundles:
-                return _bundle_refusal(
-                    namespace,
-                    BundleProofOutcome.OVER_BOUND,
-                    (BundleLimitation.BUNDLES_OVER_BOUND,),
-                    request_count,
-                    ordered_limitations,
-                    candidates_inspected,
-                    ledger.total_bytes,
-                    search.total_bytes,
-                )
-            # Both ACTUAL path ceilings (graph + observation) bound
-            # every normalized represented member BEFORE any member
-            # charge or source/proof copy: a violation is a fixed
-            # typed non-acquisition (candidate diagnostic), never an
-            # over-bound acquisition.
-            path_reason = _member_paths_within_bounds(read.requested_members, namespace)
-            if path_reason is not None:
-                refusal = _note_diagnostic(path_reason)
-                if refusal is not None:
-                    return refusal
-                continue
-            # The cumulative member preflight is charged BEFORE any
-            # output-carrier fetch: the represented member count is
-            # already-parsed 017 metadata (the order's preflight law:
-            # at-limit stays at-limit, the first over-bound proven
-            # candidate is a fixed typed snapshot refusal, never a
-            # post-fetch or post-allocation discard).
-            budget.charge(len(read.requested_members))
-            if budget.refusal is not None:
-                return _over_bound(budget.refusal)
-            # The full output body is charged BEFORE any owned copy.
-            read_span = read.wrapper.output_span
-            read_carrier = _carrier_string(payload, read.result_location)
-            if (
-                read_carrier is not None
-                and read_span is not None
-                and read_span.end <= len(read_carrier)
-            ):
-                read_bytes = _utf8_byte_length_range(read_carrier, read_span.start, read_span.end)
-                if read_bytes is not None:
-                    ledger.account(read_bytes)
-            if ledger.refusal is not None:
-                return _over_bound()
-            proof, reason = _read_bundle(
-                request_index,
-                read,
-                payload,
-                context,
-                namespace,
-                effective,
-                search,
-                budget,
-                root_digest,
-            )
-            if reason is not None and reason in _BUDGET_REASONS:
-                return _over_bound(budget.refusal if budget.refusal is not None else reason)
-            if budget.refusal is not None:
-                return _over_bound(budget.refusal)
-            if reason is not None:
-                refusal = _note_diagnostic(reason)
-                if refusal is not None:
-                    return refusal
-            elif proof is not None:
-                key = (request_index, read.call_id, read.result_location)
-                positives.setdefault(key, []).append(proof)
-        for proc in report.processes:
-            if proc.outcome is not ProcessOutcome.COMPLETE:
-                continue  # no complete paired process proof: no candidate
-            candidates_inspected += 1
-            if candidates_inspected > effective.max_bundles:
-                return _bundle_refusal(
-                    namespace,
-                    BundleProofOutcome.OVER_BOUND,
-                    (BundleLimitation.BUNDLES_OVER_BOUND,),
-                    request_count,
-                    ordered_limitations,
-                    candidates_inspected,
-                    ledger.total_bytes,
-                    search.total_bytes,
-                )
-            # Both ACTUAL path ceilings (graph + observation) bound
-            # every normalized represented member BEFORE any member
-            # charge or source/proof copy (same law as the read path).
-            path_reason = _member_paths_within_bounds(proc.requested_members, namespace)
-            if path_reason is not None:
-                refusal = _note_diagnostic(path_reason)
-                if refusal is not None:
-                    return refusal
-                continue
-            # The cumulative member preflight is charged BEFORE any
-            # piece/body reconstruction from already-parsed 017
-            # member metadata (the same preflight law as the read
-            # path).
-            budget.charge(len(proc.requested_members))
-            if budget.refusal is not None:
-                return _over_bound(budget.refusal)
-            # Every native piece reconstruction is charged BEFORE any
-            # owned copy (the cumulative exact byte length is the
-            # 017-proven total over the ordered pieces).
-            ledger.account(proc.total_byte_length)
-            if ledger.refusal is not None:
-                return _over_bound()
-            proof, reason = _process_bundle(
-                request_index,
-                proc,
-                payload,
-                context,
-                namespace,
-                effective,
-                search,
-                budget,
-                root_digest,
-            )
-            if reason is not None and reason in _BUDGET_REASONS:
-                return _over_bound(budget.refusal if budget.refusal is not None else reason)
-            if budget.refusal is not None:
-                return _over_bound(budget.refusal)
-            if reason is not None:
-                refusal = _note_diagnostic(reason)
-                if refusal is not None:
-                    return refusal
-            elif proof is not None:
-                key = (request_index, proc.exec_call_id, proc.initial_result_location)
-                positives.setdefault(key, []).append(proof)
+    def _note_diagnostic(reason: BundleLimitation) -> bool:
+        """Retain one candidate-level fixed diagnostic only while the
+        TOTAL emitted diagnostics (candidate reasons + observation /
+        global limitations) stay at the finite bound.  The bound is
+        enforced BEFORE retention/append: overflow is the bounded
+        ``DIAGNOSTICS_FULL`` refusal, never a truncated or unbounded
+        reason list (no silent truncation, no governance loss)."""
+        if len(diagnostics) + len(ordered_limitations) + 1 > max_diagnostics:
+            return False
+        diagnostics.append(reason)
+        return True
 
-    # --- Same-occurrence consistency law (before retention) -----------
-    bundles: list[BundleProof] = []
-    seam_conflict = False
-    for proofs in positives.values():
-        if len(proofs) == 1:
-            bundles.append(proofs[0])
-            continue
-        signatures = [_seam_signature(proof) for proof in proofs]
-        if len(set(signatures)) == 1:
-            # The same physical occurrence carrying the SAME proof
-            # signature is ONE record (read primary).
-            bundles.append(next((p for p in proofs if p.surface is BundleSurface.READ), proofs[0]))
-        else:
-            # A mismatched proof acquires NOTHING from that occurrence;
-            # ready is refused.
-            seam_conflict = True
-
-    # --- Conflicting root-path read (the 018-a law, graph.py) ---------
-    # A tool read at the root path with different content is a
-    # competing effective root: no reset/supersession, typed conflict
-    # (a tool read never establishes the root).  Only an independently
-    # proven SINGLE-occurrence root-path member digest is compared
-    # against the established root digest; a boundaryless or repeated
-    # group never infers a root hash, and a same-bytes root-path read
-    # is consistent.  The refusal retains no bundles.
-    for proof in bundles:
-        for segment in proof.segments:
-            if segment.member_digest is None:
-                continue  # no single-occurrence proof: never inferred
-            member = proof.requested_members[segment.member_positions[0]]
-            if member.normalized == ROOT_FILENAME and segment.member_digest != root_digest:
-                return _bundle_refusal(
-                    namespace,
-                    BundleProofOutcome.ROOT_CONFLICT,
-                    (BundleLimitation.COMPETING_ROOTS,),
-                    request_count,
-                    ordered_limitations,
-                    candidates_inspected,
-                    ledger.total_bytes,
-                    search.total_bytes,
-                )
-
-    # --- Per-path source conflict (proven single-occurrence digests) --
-    path_digests: dict[str, str] = {}
-    conflict_paths: set[str] = set()
-    for proof in bundles:
-        for segment in proof.segments:
-            if segment.member_digest is None:
-                continue
-            member = proof.requested_members[segment.member_positions[0]]
-            path = member.normalized
-            if path is None:
-                continue  # defensive (the resolved-member law)
-            if path in path_digests and path_digests[path] != segment.member_digest:
-                conflict_paths.add(path)
-            else:
-                path_digests.setdefault(path, segment.member_digest)
-    source_conflict = bool(conflict_paths)
-    if source_conflict:
-        bundles = [
-            proof
-            for proof in bundles
-            if not any(
-                segment.member_digest is not None
-                and proof.requested_members[segment.member_positions[0]].normalized
-                in conflict_paths
-                for segment in proof.segments
-            )
-        ]
-
-    conflicts: tuple[BundleLimitation, ...] = ()
-    if seam_conflict:
-        conflicts = (BundleLimitation.SEAM_CONFLICT,)
-    elif source_conflict:
-        conflicts = (BundleLimitation.SOURCE_CONFLICT,)
-
-    # --- Bounded final diagnostic at every public exit ----------------
-    if len(conflicts) + len(diagnostics) + len(ordered_limitations) > max_diagnostics:
+    result = _proof_pass(
+        requests,
+        contexts,
+        reports,
+        namespace,
+        effective,
+        root_digest,
+        ledger,
+        search,
+        budget,
+        diagnostics,
+        _note_diagnostic,
+        len(ordered_limitations),
+    )
+    candidates_inspected = result.candidates_inspected
+    if result.refusal_reason is not None:
+        # A diagnostics-full overflow refuses with NO copied
+        # limitations (one bounded fixed reason); every other
+        # refusal retains the observed limitations.
+        limitations: tuple[Limitation, ...] = (
+            ()
+            if result.refusal_reason is BundleLimitation.DIAGNOSTICS_FULL
+            else ordered_limitations
+        )
+        refusal_outcome = result.refusal_outcome
+        if refusal_outcome is None:
+            raise _fixed("a proof pass refusal carries its outcome")
         return _bundle_refusal(
             namespace,
-            BundleProofOutcome.OVER_BOUND,
-            (BundleLimitation.DIAGNOSTICS_FULL,),
+            refusal_outcome,
+            (result.refusal_reason,),
             request_count,
-            (),
+            limitations,
             candidates_inspected,
             ledger.total_bytes,
             search.total_bytes,
         )
+    conflicts = result.conflicts
     outcome = BundleProofOutcome.VERSION_CONFLICT if conflicts else BundleProofOutcome.COMPLETE
     return BundleProofSnapshot(
         namespace=namespace,
         outcome=outcome,
         root_path=ROOT_FILENAME,
         root_digest=root_digest,
-        bundles=tuple(bundles),
+        bundles=tuple(result.bundles),
         conflicts=conflicts,
         diagnostics=tuple(diagnostics),
         observation_limitations=ordered_limitations,
