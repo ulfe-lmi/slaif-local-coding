@@ -1562,6 +1562,31 @@ def observe_bundle_proofs(
             # ready is refused.
             seam_conflict = True
 
+    # --- Conflicting root-path read (the 018-a law, graph.py) ---------
+    # A tool read at the root path with different content is a
+    # competing effective root: no reset/supersession, typed conflict
+    # (a tool read never establishes the root).  Only an independently
+    # proven SINGLE-occurrence root-path member digest is compared
+    # against the established root digest; a boundaryless or repeated
+    # group never infers a root hash, and a same-bytes root-path read
+    # is consistent.  The refusal retains no bundles.
+    for proof in bundles:
+        for segment in proof.segments:
+            if segment.member_digest is None:
+                continue  # no single-occurrence proof: never inferred
+            member = proof.requested_members[segment.member_positions[0]]
+            if member.normalized == ROOT_FILENAME and segment.member_digest != root_digest:
+                return _bundle_refusal(
+                    namespace,
+                    BundleProofOutcome.ROOT_CONFLICT,
+                    (BundleLimitation.COMPETING_ROOTS,),
+                    request_count,
+                    ordered_limitations,
+                    candidates_inspected,
+                    ledger.total_bytes,
+                    search.total_bytes,
+                )
+
     # --- Per-path source conflict (proven single-occurrence digests) --
     path_digests: dict[str, str] = {}
     conflict_paths: set[str] = set()

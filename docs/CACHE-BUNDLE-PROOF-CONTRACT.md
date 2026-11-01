@@ -62,6 +62,16 @@ claim.
   `workspace_unproven`; an explicit path context disagreeing with the
   evidenced workspace is `root_conflict` with `WORKSPACE_MISMATCH` /
   `ROOT_CONTEXT_MISMATCH`.
+- A conflicting root-path read (a tool read at the root path with
+  different content) is a competing effective root: `root_conflict`
+  with the fixed `COMPETING_ROOTS` reason and NO retained bundles
+  (no reset/supersession; a tool read never establishes the root).
+  Only an independently proven SINGLE-occurrence root-path member
+  digest (the segment `member_digest` law: exactly one attributable
+  occurrence; compared by normalized path against the established
+  root digest) is compared — a boundaryless or repeated group never
+  infers a root hash, a nested `AGENTS.md` is a different path, and
+  a same-bytes root-path read is consistent.
 - When no context is supplied, supported reads are re-observed under
   the derived root workspace (explicit workdir/mismatch rules
   preserved); the derived context never invents authority.

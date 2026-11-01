@@ -855,6 +855,154 @@ class TestRootAndNamespaceBinding:
         assert BundleLimitation.COMPETING_ROOTS in snap.conflicts
         assert snap.bundles == ()
 
+    # --- Conflicting root-path read (the 018-a law, graph.py) --------
+    # A tool read at the root path with DIFFERENT content is a
+    # competing effective root: ROOT_CONFLICT + COMPETING_ROOTS with
+    # no retained bundles.  Only a proven SINGLE-occurrence root-path
+    # member digest is compared; boundaryless/repeated groups never
+    # infer a root hash, and a same-bytes read is consistent.
+
+    def test_conflicting_root_path_read_refuses(self) -> None:
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat AGENTS.md"),
+            out_item("call-a", frame_legacy("c1", "Conflicting root bytes.")),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is BundleProofOutcome.ROOT_CONFLICT
+        assert BundleLimitation.COMPETING_ROOTS in snap.conflicts
+        assert snap.bundles == ()
+
+    def test_conflicting_root_path_read_refuses_native_without_token(self) -> None:
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat AGENTS.md"),
+            out_item("call-a", frame_native_final("0a1b2c", "Conflicting root bytes.")),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is BundleProofOutcome.ROOT_CONFLICT
+        assert BundleLimitation.COMPETING_ROOTS in snap.conflicts
+        assert snap.bundles == ()
+
+    def test_conflicting_root_path_read_refuses_native_with_token(self) -> None:
+        # The token line makes the frame legacy-malformed: only the
+        # native process surface proves the region; the conflict law
+        # still applies to that proven single occurrence.
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat AGENTS.md"),
+            out_item("call-a", frame_native_final("0a1b2c", "Conflicting root bytes.", tokens=25)),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is BundleProofOutcome.ROOT_CONFLICT
+        assert BundleLimitation.COMPETING_ROOTS in snap.conflicts
+        assert snap.bundles == ()
+
+    def test_conflicting_root_path_read_refuses_chat_carrier(self) -> None:
+        chat = chat_payload(
+            ("call-a", "cat AGENTS.md", frame_legacy("c1", "Conflicting root bytes."))
+        )
+        requests = (
+            GraphRequest(
+                payload=responses_payload(root_item(WORKSPACE, ROOT_TEXT)),
+                endpoint="responses",
+                context=None,
+            ),
+            GraphRequest(payload=chat, endpoint="chat", context=None),
+        )
+        snap = observe_bundle_proofs(requests, make_ns())
+        assert snap.outcome is BundleProofOutcome.ROOT_CONFLICT
+        assert BundleLimitation.COMPETING_ROOTS in snap.conflicts
+        assert snap.bundles == ()
+
+    def test_conflicting_root_path_read_refuses_partition_group(self) -> None:
+        body = A_BODY + "MID\n" + "Conflicting root bytes."
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat A.md && echo 'MID' && cat AGENTS.md"),
+            out_item("call-a", frame_legacy("c1", body)),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is BundleProofOutcome.ROOT_CONFLICT
+        assert BundleLimitation.COMPETING_ROOTS in snap.conflicts
+        assert snap.bundles == ()
+
+    def test_conflicting_root_path_read_refuses_absolute_root_path(self) -> None:
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat /work/AGENTS.md"),
+            out_item("call-a", frame_legacy("c1", "Conflicting root bytes.")),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is BundleProofOutcome.ROOT_CONFLICT
+        assert BundleLimitation.COMPETING_ROOTS in snap.conflicts
+        assert snap.bundles == ()
+
+    def test_conflicting_root_path_read_refuses_empty_root_path(self) -> None:
+        # An empty single-occurrence root-path read is DIFFERENT
+        # content from the nonempty root envelope: still a conflict.
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat AGENTS.md"),
+            out_item("call-a", frame_legacy("c1", "")),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is BundleProofOutcome.ROOT_CONFLICT
+        assert BundleLimitation.COMPETING_ROOTS in snap.conflicts
+        assert snap.bundles == ()
+
+    def test_same_bytes_root_path_read_is_consistent(self) -> None:
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat AGENTS.md"),
+            out_item("call-a", frame_legacy("c1", ROOT_TEXT)),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is BundleProofOutcome.COMPLETE
+        assert len(snap.bundles) == 1
+        assert snap.bundles[0].root_digest == sha256_hex(ROOT_TEXT)
+        assert snap.bundles[0].source_digest == sha256_hex(ROOT_TEXT)
+
+    def test_boundaryless_group_never_infers_root_hash(self) -> None:
+        # A boundaryless A + AGENTS.md group has no per-file digest:
+        # the root hash is NEVER inferred from it (no conflict).
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat A.md AGENTS.md"),
+            out_item("call-a", frame_legacy("c1", A_BODY + "Conflicting root bytes.")),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is not BundleProofOutcome.ROOT_CONFLICT
+        assert snap.outcome is BundleProofOutcome.COMPLETE
+        assert len(snap.bundles) == 1
+        assert snap.bundles[0].segments[0].member_digest is None
+
+    def test_repeated_root_occurrence_never_infers_root_hash(self) -> None:
+        # Two attributable occurrences of the root path in one
+        # boundaryless group: no per-file digest, no inference.
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat AGENTS.md AGENTS.md"),
+            out_item("call-a", frame_legacy("c1", "first" + "second")),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is not BundleProofOutcome.ROOT_CONFLICT
+        assert snap.outcome is BundleProofOutcome.COMPLETE
+        assert snap.bundles[0].segments[0].member_positions == (0, 1)
+        assert snap.bundles[0].segments[0].member_digest is None
+
+    def test_nested_agents_path_is_not_the_root_path(self) -> None:
+        # A nested AGENTS.md is a different path: never the root.
+        payload = responses_payload(
+            root_item(WORKSPACE, ROOT_TEXT),
+            exec_call("call-a", "cat docs/AGENTS.md"),
+            out_item("call-a", frame_legacy("c1", "Conflicting root bytes.")),
+        )
+        snap = observe_bundle_proofs(batch(payload), make_ns())
+        assert snap.outcome is BundleProofOutcome.COMPLETE
+        assert len(snap.bundles) == 1
+        assert snap.bundles[0].requested_members[0].normalized == "docs/AGENTS.md"
+
     def test_repeated_same_root_is_idempotent(self) -> None:
         payload = responses_payload(
             root_item(WORKSPACE, ROOT_TEXT),
