@@ -1663,9 +1663,7 @@ class ResultFingerprintRecord(_GraphFrozen):
 
     @field_validator("piece_completion")
     @classmethod
-    def _v_piece_completion(
-        cls, value: tuple[int | None, ...]
-    ) -> tuple[int | None, ...]:
+    def _v_piece_completion(cls, value: tuple[int | None, ...]) -> tuple[int | None, ...]:
         for exit_code in value:
             if exit_code is None:
                 continue
@@ -1934,9 +1932,7 @@ def validate_causal_history_state(
             observed_bindings[result.call_id] = binding
         # Per-piece observed bindings (the poll calls of a retained
         # chain): the same immutable same-ID law, charged per binding.
-        for bind_index, (pcid, pendpoint, ptool, pfp) in enumerate(
-            result.piece_call_bindings
-        ):
+        for bind_index, (pcid, pendpoint, ptool, pfp) in enumerate(result.piece_call_bindings):
             if not unit():
                 return CausalHistoryLimitation.WORK_UNITS_OVER_BOUND
             piece_binding = (pendpoint, ptool, pfp)
