@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 228,
+      "entry_count": 233,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "3ea340996c56b1b6e2ec045c8d1e3efd886a0aedccaaad743685e19ee5adfac6",
-      "size_bytes": 1333721
+      "sha256": "3eafb146e417c72c0aa72aef7b8c4667d714c1a384d011c2e10c82828351eb72",
+      "size_bytes": 1441209
     },
     "wheel": {
-      "entry_count": 46,
+      "entry_count": 48,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "ba36d15a3ae86d2731b4b5298779604965fa64fdf71945cb3a662827d12eadd4",
-      "size_bytes": 268183
+      "sha256": "5ffce3836fc5c6f41b74fed432dfce456cdc83a15f53ce72cf948da21d90f15b",
+      "size_bytes": 319143
     }
   },
   "frozen_publication": {
@@ -21,8 +21,8 @@
     "source_commit": "255b3f42912e3947908fc8868eccb6bcec874a08",
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
-  "objective": "016-b",
-  "qualification_label": "development-source-cd938ea2d3a8d4d72a2ef7a0b942a08f26a915d1; not a release candidate; not released",
+  "objective": "018-d",
+  "qualification_label": "development-source-f75f4d346178b933eb096617c342e03d75698055; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "cd938ea2d3a8d4d72a2ef7a0b942a08f26a915d1",
+  "source_commit": "f75f4d346178b933eb096617c342e03d75698055",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -51,10 +51,11 @@
     "docs/ADAPTER-CONFIGURATION.md": "8da874d2036eb9de2ff99c1e9e195d856061bae5dcdeb030d766d6f6268a9e8f",
     "docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md": "a2fbfa2e9036f196e271c0fe56a60f4aebe13856efecc178dd2b4b8e89953499",
     "docs/CACHE-BUNDLE-PROOF-CONTRACT.md": "6e8a4c47acbe906ba21193c0c5dfa0ee61ff649f75accde309378aded4bf0061",
-    "docs/CACHE-GRAPH-CONTRACT.md": "01b036e4723d96c70db006045e34070bac30b6ec1088454bdacfbac5b4dff5ca",
+    "docs/CACHE-CAUSAL-HISTORY-CONTRACT.md": "703a7287393b1032b4e2f90035ca305a21035cee73718b902bc3576a6bb3a7ae",
+    "docs/CACHE-GRAPH-CONTRACT.md": "d09c3d0a2e9ed3e2e0bf6ca3fb5fd681e3880d30f4697ad87ff790f984df552c",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "dca62b0ca6d0c01c5d3fa10e4afb8b454570286e49c7dcfcb0ea9503692f9bff",
     "docs/CACHE-OBSERVATION-CONTRACT.md": "3cc68340ef0a0f202d1081c116ccfe272cf7ba6c5df4165c2793e008e74c23a9",
-    "docs/CACHE-REWORK-LEDGER.md": "5ac358847ee425c62ca2eef4d3434e64f4ff66cd10122e3b39a550771ddb1eb7",
+    "docs/CACHE-REWORK-LEDGER.md": "a1362b61aed9c8daace5aa20dc128d1a3eaad8093b1b03e3abccac1f1297d7b0",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
@@ -87,8 +88,10 @@
     "src/slaif_local_coding/constitution/bundles/__init__.py": "5e2c3b427ef4a81122ec7c14161f0efdfee580e7cb8ae434b4cb92c858eb4513",
     "src/slaif_local_coding/constitution/bundles/bundle_admission.py": "472bceee5eb38d12f887371a7c2ec38bab881bec95a9a91874425a34abcbc5b8",
     "src/slaif_local_coding/constitution/bundles/bundle_admission_models.py": "380e86894fa26c0e3553c0b819ea0ea76927c701f4805b1778dc75056fe5a1f8",
-    "src/slaif_local_coding/constitution/bundles/bundle_proof.py": "c049b307aa01884cf098b6eeb4541b9863cfe8da8d79762c99a971b8fd79c4c7",
+    "src/slaif_local_coding/constitution/bundles/bundle_proof.py": "41e957b927824c8e73ddb5c2be7750fe25b3de5796d9de29283b1ce3a9e26e0c",
     "src/slaif_local_coding/constitution/bundles/bundle_proof_models.py": "7049732e8be21cf511209e28f4a21d5e7ccfc462df1f11680c973181bd2e5dc3",
+    "src/slaif_local_coding/constitution/bundles/causal_history.py": "5a684aeb03b1fceca0e18da30b83b2d96e3426e08c09e63d0e59f5d38c96f00b",
+    "src/slaif_local_coding/constitution/bundles/causal_history_models.py": "32b0ebad1b221649cf16b0fdb1306ba8fe3d544281f77f8ce026c070cba1d6d8",
     "src/slaif_local_coding/constitution/bundles/client_paths.py": "ce4312f4e81f868076974bfbd519fc8c3a62ef2d5f30f2a5200b48078a0976e9",
     "src/slaif_local_coding/constitution/bundles/compound_reads.py": "a73d5ea778e52e699652d33ca3fc03a906f4758effa0f7bf2223871cd40093ca",
     "src/slaif_local_coding/constitution/bundles/graph.py": "9a67557b33da42e5b980d6515f43ac83ccd3ee8f6c33b19a71b3b33180877a54",
@@ -184,7 +187,7 @@
     "tests/test_acceptance_harness.py": "eb19dc893b15288aa8fcb5d61bf685b280a04ff14a8043742368e12f9adf7e8b",
     "tests/test_app.py": "7165fdd1ba4c22a707d5536d30593ad496ab8cec41932269c7171700bcbadb32",
     "tests/test_boot_contract.py": "df2add7e565981c2ab7937209b1ce7954aec5f787974faad5bd8ff43f70240b6",
-    "tests/test_bundle_admission.py": "9b020dcc213632325462cefcf3ebbc7a0bd285c3fc73f1e2d89a664c9f7af50d",
+    "tests/test_bundle_admission.py": "d4f9f9433504761551dc4f1131977648e4151dfca35b0e4d818c019080c09044",
     "tests/test_bundle_admission_vectors.py": "abdfef92859321d94f69828355b5201d21bb0934644266b9c6fff638c4099e5f",
     "tests/test_bundle_client_paths.py": "f67d9c8fd33290349aa51a86ef006c6c4cdd15ad2f3bc3cd564378dfad868c9b",
     "tests/test_bundle_compound_reads.py": "08b29ad836ab72b530e6d8a6df6f287c626503b82d7ad8c8841931db82a106e1",
@@ -219,6 +222,8 @@
     "tests/test_cache_native_fixture_standin.py": "8ddfa150319582759061d6c3458d994e8634976214fb082304c8ecf9df156f79",
     "tests/test_capture_helper.py": "92222840bc226051bfe8aa1f07eff422e86a99c4540c67f2428ce00e75472f91",
     "tests/test_capture_tool_types.py": "716ba13b6cffe27f27a69e3c7734ae619e55f37f7730859f9b657a35d98162d9",
+    "tests/test_causal_history.py": "20070616df94f0e1a98d520d74f4d7b6a6e32deadcda65d109703ed93703f4ed",
+    "tests/test_causal_history_models.py": "7424a94223cb819b059479f654dfa4b6ff532169ab17a2be55c3b08fc7d3de46",
     "tests/test_codex_namespace_tool_envelope.py": "4a1b42f8ecc2117017ce66a9707fc2429c2113a86203f42176d6aa6d6fb917fb",
     "tests/test_compiler.py": "db8bf97de206b0510cb9524c79f588805ae5a6c6f21fc048fce0de015e008ab2",
     "tests/test_compiler_truncation.py": "8925461d9cac2dcec481788cb3daf3e460fae16f08a6b2a24f4c554c361406fa",
