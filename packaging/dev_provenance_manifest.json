@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 243,
+      "entry_count": 247,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "70cc77eabf0db289a600f4704adc320499a2f785e3f0fd26a026e7378b33817a",
-      "size_bytes": 1550921
+      "sha256": "6f85f82a9781e1d943903b6f3532aff6d398041df30276a4955093dc418dbff4",
+      "size_bytes": 1604646
     },
     "wheel": {
-      "entry_count": 52,
+      "entry_count": 54,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "1991df422ea02539a641a9f19a4e70976519ac91f7b3b96df28a05292a574db2",
-      "size_bytes": 361223
+      "sha256": "473e92e383763ec58596b105a41e027eb512e23c220e2085657d9901e0726680",
+      "size_bytes": 384950
     }
   },
   "frozen_publication": {
@@ -21,8 +21,8 @@
     "source_commit": "255b3f42912e3947908fc8868eccb6bcec874a08",
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
-  "objective": "018-f",
-  "qualification_label": "development-source-d8d40b428d6127a3377c1c84108dca73249ed687; not a release candidate; not released",
+  "objective": "018-g",
+  "qualification_label": "development-source-c5c0c8542f1b1a0532bc91bc4a87a06f123da0bf; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "d8d40b428d6127a3377c1c84108dca73249ed687",
+  "source_commit": "c5c0c8542f1b1a0532bc91bc4a87a06f123da0bf",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -52,12 +52,13 @@
     "docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md": "96281617c3482477f990bbd2c292cec3be9d782922e48f0d2a3708d7192a491b",
     "docs/CACHE-BUNDLE-PROOF-CONTRACT.md": "6e8a4c47acbe906ba21193c0c5dfa0ee61ff649f75accde309378aded4bf0061",
     "docs/CACHE-CAUSAL-HISTORY-CONTRACT.md": "14851d79f7a640cd2854a8e3649c8abb36e848ae52e9a9e69303940c63472c3c",
+    "docs/CACHE-CURRENT-ADMISSION-CONTRACT.md": "47dc00683fb0e16c0be437c24e5984c26eef2a817ef01f5e701802a5f016a292",
     "docs/CACHE-CURRENT-GRAPH-CONTRACT.md": "bf89d597f53f475bf5cc68f6eb654db8d304ddc076a91d84639caeb6ff992520",
     "docs/CACHE-CURRENTNESS-CONTRACT.md": "5845117154734005e8caa68a11feb5853ab5c538cfdde31104a3fb0e25ac7215",
     "docs/CACHE-GRAPH-CONTRACT.md": "d09c3d0a2e9ed3e2e0bf6ca3fb5fd681e3880d30f4697ad87ff790f984df552c",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "dca62b0ca6d0c01c5d3fa10e4afb8b454570286e49c7dcfcb0ea9503692f9bff",
     "docs/CACHE-OBSERVATION-CONTRACT.md": "3cc68340ef0a0f202d1081c116ccfe272cf7ba6c5df4165c2793e008e74c23a9",
-    "docs/CACHE-REWORK-LEDGER.md": "560d6fd0db37d97992d95e2acce690ab6674a8727c74a266b2e1c5a3108a6caf",
+    "docs/CACHE-REWORK-LEDGER.md": "b0465336cb8c7f728bf14913a1c8d64ac96e43dff23f3af24c7f50adad2888f2",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
@@ -96,7 +97,9 @@
     "src/slaif_local_coding/constitution/bundles/causal_history_models.py": "14f15786af4c9adbd16cc679605511f0f5aea1598f0efe2568e598179ed8d2db",
     "src/slaif_local_coding/constitution/bundles/client_paths.py": "ce4312f4e81f868076974bfbd519fc8c3a62ef2d5f30f2a5200b48078a0976e9",
     "src/slaif_local_coding/constitution/bundles/compound_reads.py": "a73d5ea778e52e699652d33ca3fc03a906f4758effa0f7bf2223871cd40093ca",
-    "src/slaif_local_coding/constitution/bundles/current_graph.py": "658cb37ff95c45dce987fac7ce338a4d25f7ae745562977d87c09270343b3555",
+    "src/slaif_local_coding/constitution/bundles/current_admission.py": "370465a8d5ca1a423f768d535ce759515ca201f1236c9fa711d923105ee78f9a",
+    "src/slaif_local_coding/constitution/bundles/current_admission_models.py": "64b4e1f387e8d6fd8e53e799cd32dffb52605809443fd8cb5138ab3cf0303daf",
+    "src/slaif_local_coding/constitution/bundles/current_graph.py": "863583120d0d779480baaadb71431d98739d5d63226111e764f94c5f7a2d6dcb",
     "src/slaif_local_coding/constitution/bundles/current_graph_models.py": "6b886d1f1c6fd4bf98f7784773be422084411efbd4e56e5f8c4b632884dd9278",
     "src/slaif_local_coding/constitution/bundles/currentness.py": "d43c177e9fc7f01e51abb34a31f38b82eca33aae9622ca04dcb01170f1357203",
     "src/slaif_local_coding/constitution/bundles/currentness_models.py": "53194d386bdc9281443edc4a6c3e79b7bc1ec8b648aa046049da04a8b964cf27",
@@ -234,6 +237,7 @@
     "tests/test_compiler.py": "db8bf97de206b0510cb9524c79f588805ae5a6c6f21fc048fce0de015e008ab2",
     "tests/test_compiler_truncation.py": "8925461d9cac2dcec481788cb3daf3e460fae16f08a6b2a24f4c554c361406fa",
     "tests/test_compose_pull_canonical.py": "6b9fc4df713719dc523d66f929ffef0fe7eadbbc6a62ac2117724fe92cbbffe8",
+    "tests/test_current_admission.py": "17d18ade5c5ed4afb3d6a9d03b00546c861add54944605b10bb768e4e836c027",
     "tests/test_current_gateway_contract.py": "ba9a741da0a41d6532887670c335af141879f6775366c1403f41737c281266f0",
     "tests/test_current_graph.py": "461f039c3bf79a79d9aa4324da01e9b9cfbe0987ee2179f98eb60afcf2e3e31f",
     "tests/test_current_graph_models.py": "9eb55ae9f0a214e73bba4bbcc62f4e6d610ec8a6c7f733d174cefc097d13f772",
