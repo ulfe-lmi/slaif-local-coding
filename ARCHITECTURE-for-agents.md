@@ -171,8 +171,13 @@ at its bounded inert currentness/overlap-overlay scope with
 process qualifications (strategic decision
 `S/reviews/018-e-decision.md` + addendum; contract
 `docs/CACHE-CURRENTNESS-CONTRACT.md`), plus the implemented 018-f
-current-graph-closure slice PENDING strategic acceptance (contract
-`docs/CACHE-CURRENT-GRAPH-CONTRACT.md`), all as
+current-graph-closure slice ACCEPTED at its bounded inert
+current-graph scope with process qualifications (strategic decision
+`S/reviews/018-f-decision.md`; contract
+`docs/CACHE-CURRENT-GRAPH-CONTRACT.md`) and the implemented 018-g
+current-bundle-admission slice PENDING strategic acceptance at its
+bounded inert scope (contract
+`docs/CACHE-CURRENT-ADMISSION-CONTRACT.md`), all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
@@ -231,7 +236,7 @@ with pre-copy refusals. The exact scope is versioned in
 currentness/overlap MECHANISM at its bounded scope only and the
 stage stays inert and inactive.
 
-**Current graph closure (018-f inert, pending acceptance).**
+**Current graph closure (018-f inert, ACCEPTED at its bounded scope).**
 The 018-f derivation takes an ACTUAL 018-d causal-history state
 and its ACTUAL namespace (plus explicit current-graph and 018-e
 currentness bounds) and, in ONE pure bounded charged operation,
@@ -263,6 +268,46 @@ charged). The exact scope is versioned in
 `docs/CACHE-CURRENT-GRAPH-CONTRACT.md`; it earns the C04/C05
 current graph MECHANISM at its bounded scope only and the stage
 stays inert and inactive.
+
+**Current bundle admission (018-g inert, PENDING acceptance).**
+The 018-g derivation takes the ACTUAL retained 018-d state and
+namespace (plus the NEW current-admission bounds and the ACTUAL
+supplied 018-e/018-f derivation bounds) and, in ONE pure bounded
+charged operation, derives the accepted 018-f current graph in the
+SAME run AND the current admission entries with the canonical 018-c
+semantic keys: the root entry always retains the actual RootAnchor
+typed fields (no invented kind/status/envelope; the exact EMPTY
+root legal), the per-owned-group currentness truth table excludes
+stale, conflicting, ambiguous and root-bearing opaque groups
+BEFORE entry planning (no greedy isolation rule; lean admits only
+independently CURRENT all-eligible segments; a genuine descendant
+singleton conservatively stales an opaque group even when the bytes
+equal the old aggregate), entries are interned by distinct content
+key retaining the FIRST compatible original proof by identity and
+ALL distinct original same-content-compatible witness coordinates
+(canonical full-coordinate order, never acquisition order), the
+complete reverse member index maps every represented member path to
+ALL admitted content keys (attempts charged before dedup), and the
+emitted admission reasons are RETAINED as the actual bounded
+sorted/deduplicated tuple with the emitted count bound to its
+length under BOTH the new and the inherited admission caps in the
+same domain (a normal derivation emits at most ONE fixed
+candidate_unproven; the public first-over of the diagnostics caps
+is unreachable and is closed only by constructor-level controls;
+018-f graph diagnostics stay F output by reference). The NEW
+per-derivation current-admission bound sets (total work 1048576,
+cumulative entry-source bytes 16777216, diagnostics 64) run on ONE
+shared outer ledger with the ACTUAL supplied F-subtree ceiling
+enforced independently on the same outer (the essential positive:
+F cap exactly F's cost, G total above it, full G succeeds); the
+stage-level admission work runs under the ACTUAL inherited
+GraphBounds work ceiling on the G admission stage; the 28-field
+scope key is recomputed from the actual fields on every
+construction (derivation-only bound changes bind the new scope key
+but NOT the semantic key records). The exact scope is versioned in
+`docs/CACHE-CURRENT-ADMISSION-CONTRACT.md`; it earns the whole-018
+current-version admission MECHANISM at its bounded scope only and
+the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -689,8 +734,11 @@ causal-occurrence-ledger scope with process qualifications (decision
 currentness-overlay slice ACCEPTED at its bounded inert
 currentness/overlap-overlay scope with process qualifications
 (decision `S/reviews/018-e-decision.md` + addendum); 018-f
-implemented inert current-graph-closure slice pending strategic
-acceptance). The
+implemented inert current-graph-closure slice ACCEPTED at its
+bounded inert current-graph scope with process qualifications
+(decision `S/reviews/018-f-decision.md`); 018-g implemented inert
+current-bundle-admission slice PENDING strategic acceptance at its
+bounded inert scope). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -803,10 +851,16 @@ nonroot currentness-overlay slice ACCEPTED at its bounded inert
 currentness/overlap-overlay scope with process qualifications
 (strategic decision `S/reviews/018-e-decision.md` + addendum,
 contract `docs/CACHE-CURRENTNESS-CONTRACT.md`); 018-f: implemented
-inert current-graph-closure slice pending strategic acceptance,
-contract `docs/CACHE-CURRENT-GRAPH-CONTRACT.md`) and the remaining 018
-current-version/overlap work (C04/C05 current-version acceptance,
-version-owned edge/certificate withdrawal end-to-end acceptance) and
+inert current-graph-closure slice ACCEPTED at its bounded inert
+current-graph scope with process qualifications (strategic decision
+`S/reviews/018-f-decision.md`, contract
+`docs/CACHE-CURRENT-GRAPH-CONTRACT.md`); 018-g: implemented inert
+current-bundle-admission slice PENDING strategic acceptance at its
+bounded inert scope, contract
+`docs/CACHE-CURRENT-ADMISSION-CONTRACT.md`) and the remaining 018
+current-version/overlap work beyond this mechanism (C04/C05
+current-version acceptance, version-owned edge/certificate
+withdrawal end-to-end acceptance) and
 the explicit root-refresh authority-lineage
 contract (same-root refresh/currentness; reserved, not granted, by
 `docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`) plus objectives 019-024

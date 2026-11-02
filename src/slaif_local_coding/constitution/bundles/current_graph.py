@@ -115,6 +115,7 @@ from .currentness_models import (
     CurrentnessBounds,
     CurrentnessLimitation,
     CurrentnessOutcome,
+    CurrentnessOverlay,
     CurrentnessPathRecord,
     CurrentnessResult,
     CurrentnessStatus,
@@ -881,7 +882,8 @@ def derive_current_graph(
     outer = _OuterLedger(effective_bounds)
     stage = _StageLedger(ns.graph_bounds)
     try:
-        return _derive_graph(state, ns, effective_bounds, currentness_bounds, outer, stage)
+        result, _ = _derive_graph(state, ns, effective_bounds, currentness_bounds, outer, stage)
+        return result
     except _OuterOverflow as overflow:
         return _refuse(state, CurrentGraphOutcome.REFUSED_OVER_BOUND, (overflow.limitation,))
     except _StageOverflow as overflow:
@@ -897,26 +899,31 @@ def _derive_graph(
     currentness_bounds: CurrentnessBounds | None,
     outer: _OuterLedger,
     stage: _StageLedger,
-) -> CurrentGraphResult:
+) -> tuple[CurrentGraphResult, CurrentnessOverlay | None]:
     # --- Charged 018-d history validation (own domain + shared outer) ---
+    #
+    # The second tuple element is the ACTUAL already-derived 018-e
+    # overlay of this SAME run (private factoring for the 018-g
+    # composition, which must reuse it instead of repeating a public
+    # E/F call with fresh fuel); refusal outcomes carry None.
     state_limitation = validate_causal_history_state(state, ns.history_bounds, work=outer.unit)
     if state_limitation is CausalHistoryLimitation.WORK_UNITS_OVER_BOUND:
         return _refuse(
             state,
             CurrentGraphOutcome.REFUSED_OVER_BOUND,
             (CurrentGraphLimitation.HISTORY_WORK_UNITS_OVER_BOUND,),
-        )
+        ), None
     if state_limitation is not None:
         return _refuse(
             state,
             CurrentGraphOutcome.REFUSED_STATE_MALFORMED,
             (CurrentGraphLimitation.STATE_MALFORMED,),
-        )
+        ), None
 
     # --- ACTUAL 018-e currentness through the private shared-work seam ---
     currentness_result = _currentness._derive(state, ns, currentness_bounds, outer=outer.charge)
     if currentness_result.outcome is not CurrentnessOutcome.OK:
-        return _refusal_from_currentness(state, currentness_result)
+        return _refusal_from_currentness(state, currentness_result), None
     overlay = currentness_result.overlay
     assert overlay is not None  # ok carries its overlay (model law)
 
@@ -927,7 +934,7 @@ def _derive_graph(
             state,
             CurrentGraphOutcome.REFUSED_NO_ROOT,
             (CurrentGraphLimitation.ROOT_MISSING,),
-        )
+        ), None
     _validate_anchor(state, ns, anchor, outer, stage)
 
     # --- Actual path records and proof index (charged builds) -------
@@ -1043,7 +1050,7 @@ def _derive_graph(
                     bounds=ns.graph_bounds,
                 )
                 if scan.limitation is not None:
-                    return _scan_limitation_refusal(state, scan.limitation)
+                    return _scan_limitation_refusal(state, scan.limitation), None
                 opaque[key] = _OpaqueSupplier(
                     identity=group.opaque_identity,
                     group_digest=segment.digest,
@@ -1369,7 +1376,7 @@ def _derive_graph(
     while progress:
         phase = ordinary_phase()
         if isinstance(phase, CurrentGraphResult):
-            return phase
+            return phase, None
         progress = phase | certificate_phase(False)
     certificate_phase(True)
 
@@ -1442,7 +1449,7 @@ def _derive_graph(
                 state,
                 CurrentGraphOutcome.REFUSED_OVER_BOUND,
                 (CurrentGraphLimitation.GRAPH_DEPTH_OVER_BOUND,),
-            )
+            ), None
 
     # --- Output assembly (deterministic, version-owned) -------------
     # Every emitted output association (node, edge, certificate,
@@ -1665,9 +1672,12 @@ def _derive_graph(
         unreachable_current_paths=unreachable,
         emitted_reasons=emitted,
     )
-    return CurrentGraphResult(
-        outcome=CurrentGraphOutcome.OK,
-        state=state,
-        overlay=graph,
-        diagnostics=(),
+    return (
+        CurrentGraphResult(
+            outcome=CurrentGraphOutcome.OK,
+            state=state,
+            overlay=graph,
+            diagnostics=(),
+        ),
+        overlay,
     )

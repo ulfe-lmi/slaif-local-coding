@@ -170,10 +170,16 @@ with process qualifications (strategic decision
 `S/reviews/018-e-decision.md` + addendum; contract
 [docs/CACHE-CURRENTNESS-CONTRACT.md](docs/CACHE-CURRENTNESS-CONTRACT.md);
 `tests/test_currentness.py`, `tests/test_currentness_models.py`),
-018-f is an implemented inert current-graph-closure slice pending
-strategic acceptance (contract
+018-f is an implemented inert current-graph-closure slice
+ACCEPTED at its bounded inert current-graph scope with process
+qualifications (the 018-f strategic decision,
+`S/reviews/018-f-decision.md`; contract
 [docs/CACHE-CURRENT-GRAPH-CONTRACT.md](docs/CACHE-CURRENT-GRAPH-CONTRACT.md);
 `tests/test_current_graph.py`, `tests/test_current_graph_models.py`),
+018-g is an implemented inert current-bundle-admission slice PENDING
+strategic acceptance at its bounded inert scope (contract
+[docs/CACHE-CURRENT-ADMISSION-CONTRACT.md](docs/CACHE-CURRENT-ADMISSION-CONTRACT.md);
+`tests/test_current_admission.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned
 stages).
 
