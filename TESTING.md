@@ -165,9 +165,15 @@ ACCEPTED at its bounded inert scope with process qualifications
 [docs/CACHE-CAUSAL-HISTORY-CONTRACT.md](docs/CACHE-CAUSAL-HISTORY-CONTRACT.md);
 `tests/test_causal_history.py`, `tests/test_causal_history_models.py`),
 018-e is an implemented inert nonroot currentness-overlay slice
-pending strategic acceptance (contract
+ACCEPTED at its bounded inert currentness/overlap-overlay scope
+with process qualifications (strategic decision
+`S/reviews/018-e-decision.md` + addendum; contract
 [docs/CACHE-CURRENTNESS-CONTRACT.md](docs/CACHE-CURRENTNESS-CONTRACT.md);
 `tests/test_currentness.py`, `tests/test_currentness_models.py`),
+018-f is an implemented inert current-graph-closure slice pending
+strategic acceptance (contract
+[docs/CACHE-CURRENT-GRAPH-CONTRACT.md](docs/CACHE-CURRENT-GRAPH-CONTRACT.md);
+`tests/test_current_graph.py`, `tests/test_current_graph_models.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned
 stages).
 

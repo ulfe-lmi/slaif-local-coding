@@ -17,10 +17,11 @@ CONTENT_CONFLICT or OWNERSHIP_AMBIGUITY, and indexes the overlapping
 represented paths. It does NOT select current graph reachability or
 admission, compile, inject, replace, or own RAM services. It is
 delivered as inert code on PR 26 (which stays unmerged until the
-whole numeric 018 is complete), IMPLEMENTED and PENDING strategic
-acceptance at its bounded inert scope: like the accepted 017, 018-a,
-018-b, 018-c and 018-d slices it is pure and never active in the
-adapter runtime; no command string is executed and no
+whole numeric 018 is complete), ACCEPTED at its bounded inert
+scope WITH process qualifications (strategic decision
+`S/reviews/018-e-decision.md` and addendum): like the accepted
+017, 018-a, 018-b, 018-c and 018-d slices it is pure and never
+active in the adapter runtime; no command string is executed and no
 model/native/client/service facility is started. It earns the
 C04/C05 currentness/overlap MECHANISM at its bounded scope only;
 current graph reachability/admission integration, version-owned

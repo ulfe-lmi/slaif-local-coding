@@ -20,6 +20,7 @@ HTTP/SSE observer and no new metrics.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from .bundle_admission_models import (
@@ -72,6 +73,17 @@ class _LedgerOverflow(Exception):
         self.limitation = limitation
 
 
+class _OuterLedgerOverflow(Exception):
+    """A private OUTER shared total-work ledger (the 018-f seam)
+    crossed its ceiling.
+
+    This is NOT a currentness-domain limit: the 018-e ledgers keep
+    their own scopes; the outer derivation maps this crossing to its
+    own closed refusal.  The public currentness entry never supplies
+    an outer ledger.
+    """
+
+
 class _CurrentnessLedger:
     """ONE shared charged ledger over the ENTIRE derivation.
 
@@ -95,9 +107,15 @@ class _CurrentnessLedger:
         "member_spent",
         "diag_cap",
         "diag_spent",
+        "outer",
     )
 
-    def __init__(self, bounds: CurrentnessBounds) -> None:
+    def __init__(
+        self,
+        bounds: CurrentnessBounds,
+        *,
+        outer: Callable[[], None] | None = None,
+    ) -> None:
         self.work_cap = bounds.max_work_units
         self.work_spent = 0
         self.pair_cap = bounds.max_relation_pairs
@@ -110,11 +128,17 @@ class _CurrentnessLedger:
         self.member_spent = 0
         self.diag_cap = bounds.max_diagnostics
         self.diag_spent = 0
+        # Private 018-f seam: an OUTER shared total-work ledger,
+        # charged on every unit AFTER the 018-e domain ceiling
+        # passes; absent for every legacy public caller.
+        self.outer = outer
 
     def unit(self) -> bool:
         if self.work_spent + 1 > self.work_cap:
             raise _LedgerOverflow(CurrentnessLimitation.WORK_UNITS_OVER_BOUND)
         self.work_spent += 1
+        if self.outer is not None:
+            self.outer()
         return True
 
     def pair(self) -> None:
@@ -443,6 +467,25 @@ def derive_currentness_overlay(
     fences are O(1) in the historical state; every later scan is
     charged on the ONE shared derivation ledger.
     """
+    return _derive(state, ns, bounds)
+
+
+def _derive(
+    state: CausalHistoryState,
+    ns: CausalHistoryNamespace,
+    bounds: CurrentnessBounds | None,
+    *,
+    outer: Callable[[], None] | None = None,
+) -> CurrentnessResult:
+    """Private derivation seam (the 018-f factoring).
+
+    Identical to the public entry, except the private ``outer``
+    shared total-work ledger may be charged on EVERY derivation unit
+    in ADDITION to the 018-e domain ceilings (raising
+    ``_OuterLedgerOverflow`` on its crossing).  The public entry
+    passes none, so the accepted public signature and default
+    behavior are unchanged.
+    """
     # --- Early O(1) fences (no scan/copy of the historical state) ---
     if state.history_key != ns.history_key:
         return _refusal(
@@ -462,7 +505,7 @@ def derive_currentness_overlay(
         )
     except Exception:
         raise ValueError("currentness bounds failed the actual currentness validation") from None
-    ledger = _CurrentnessLedger(effective)
+    ledger = _CurrentnessLedger(effective, outer=outer)
     # --- Charged cross-record integrity (the ONE shared ledger) ---
     try:
         state_refusal = validate_causal_history_state(state, ns.history_bounds, work=ledger.unit)
