@@ -139,12 +139,49 @@ SCOPE (017-am): the original selected AJ frames (hash-verified native run
 record) fed through the public composition with an EXPLICIT carrier
 conversion, both endpoints, four cases (section 11q) — the sleep-bearing
 stream command remains an UNEARNED read grammar (process complete, no
-source attribution), and the audit / remediation of the EACH seven
-required literal read families remains outstanding. No GENERIC native-compatibility, whole-017 or v1 runtime claim
+source attribution), and the EACH seven required literal read
+families were concretely audited in 017-am (the residual 5/6/7
+uncertainties are preserved as process qualifications). No GENERIC native-compatibility, whole-017 or v1 runtime claim
 is made (the bounded AJ native_ready=true verdict above stays the only
 native readiness recorded). Whole-017 acceptance, merge and remote-main
-verification must complete BEFORE 018-024 may begin; the later ACTUAL
-qualification belongs to the separately activated orders, strategy-chosen.
+verification completed under the 017-am decision (merged to main at
+ffaabf4b); 018-024 proceed under separately activated orders,
+strategy-chosen (018 active: 018-a foundation slice ACCEPTED at its
+bounded inert graph-foundation scope with process qualifications (the
+018-a strategic decision, `reviews/018-a-decision.md`; contract
+[docs/CACHE-GRAPH-CONTRACT.md](docs/CACHE-GRAPH-CONTRACT.md)), 018-b is an implemented inert bundle-proof bridge slice ACCEPTED at its
+bounded scope with process qualifications (the 018-b strategic decision,
+`reviews/018-b-decision.md`; contract
+[docs/CACHE-BUNDLE-PROOF-CONTRACT.md](docs/CACHE-BUNDLE-PROOF-CONTRACT.md);
+`tests/test_bundle_proof.py`), 018-c is an implemented inert
+bundle-admission and structural-identity slice ACCEPTED at its bounded
+inert admission/structural-identity scope with process qualifications
+(strategic decision `S/reviews/018-c-decision.md`; contract
+[docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md](docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md);
+`tests/test_bundle_admission.py`, `tests/test_bundle_admission_vectors.py`),
+018-d is an implemented inert causal-occurrence-ledger slice
+ACCEPTED at its bounded inert scope with process qualifications
+(strategic decision `S/reviews/018-d-decision.md`; contract
+[docs/CACHE-CAUSAL-HISTORY-CONTRACT.md](docs/CACHE-CAUSAL-HISTORY-CONTRACT.md);
+`tests/test_causal_history.py`, `tests/test_causal_history_models.py`),
+018-e is an implemented inert nonroot currentness-overlay slice
+ACCEPTED at its bounded inert currentness/overlap-overlay scope
+with process qualifications (strategic decision
+`S/reviews/018-e-decision.md` + addendum; contract
+[docs/CACHE-CURRENTNESS-CONTRACT.md](docs/CACHE-CURRENTNESS-CONTRACT.md);
+`tests/test_currentness.py`, `tests/test_currentness_models.py`),
+018-f is an implemented inert current-graph-closure slice
+ACCEPTED at its bounded inert current-graph scope with process
+qualifications (the 018-f strategic decision,
+`S/reviews/018-f-decision.md`; contract
+[docs/CACHE-CURRENT-GRAPH-CONTRACT.md](docs/CACHE-CURRENT-GRAPH-CONTRACT.md);
+`tests/test_current_graph.py`, `tests/test_current_graph_models.py`),
+018-g is an implemented inert current-bundle-admission slice PENDING
+strategic acceptance at its bounded inert scope (contract
+[docs/CACHE-CURRENT-ADMISSION-CONTRACT.md](docs/CACHE-CURRENT-ADMISSION-CONTRACT.md);
+`tests/test_current_admission.py`),
+and the remaining 018 stages plus 019-024 remain mandatory unearned
+stages).
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
@@ -191,7 +228,7 @@ the protected model host. CI owns the canonical executions:
 | `docker` | Fresh built image, actual platform/dependency/wheel identity, signed ingress, readiness, hardening, lifecycle and teardown. |
 | `operator-session` | Documented pull-based operator lifecycle against a synthetic registry and fake upstream. |
 | `docker-published` | Authenticated pull and qualification of the recorded immutable digest after publication. |
-| `cache-native-containment` | Disposable hosted-runner containment capability proof: pinned-base fixture image, explicit confinement surface (network none, read-only rootfs, nonroot uid, cap-drop ALL, no-new-privileges, seccomp=builtin, bounded memory/pids/CPU/tmpfs), ordered token-bound parent-death proof, verified image removal. No secrets forwarded; the D09 actual-trace process-completion qualification remains `NOT RUN`. |
+| `cache-native-containment` | Disposable hosted-runner containment capability proof: pinned-base fixture image, explicit confinement surface (network none, read-only rootfs, nonroot uid, cap-drop ALL, no-new-privileges, seccomp=builtin, bounded memory/pids/CPU/tmpfs), ordered token-bound parent-death proof, verified image removal. No secrets forwarded; the job is a fake/disposable capability proof and never a new actual attempt - the D09 actual-trace process-completion qualification is qualified AT BOUNDED SCOPE in 017-am (observation contract section 11q). |
 
 Before an image is published, `docker-published` reports an explicit
 prepublication `NOT RUN` for image qualification while recording registry facts.
