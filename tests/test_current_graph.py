@@ -1963,6 +1963,120 @@ def _build_diag_hist(mode: AdmissionMode, endpoint: str, cap: int) -> Hist:
 
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_i_root_only_group_supplies_nothing(mode: AdmissionMode, endpoint: str) -> None:
+    """I: a read group whose members are ALL the root file is
+    CURRENT_OPAQUE in the ACTUAL 018-e overlay but supplies nothing
+    in 018-f: the root-only membership scan is a charged per-member
+    walk, the group is skipped, no group supplier or alternate
+    root-text supplier appears, and the derivation is OK at the
+    measured smallest outer cap (first over refused)."""
+    h = Hist(mode, endpoint)
+    h.boot_root("Read `A.md` first.")
+    h.read("c-r1", "Root bytes.\n", cmd="cat AGENTS.md AGENTS.md")
+    ov = overlay_of(h)
+    assert [(g.members, g.group_status) for g in ov.groups] == [
+        (("AGENTS.md", "AGENTS.md"), CurrentnessStatus.CURRENT_OPAQUE)
+    ]
+    g = h.graph_ok()
+    assert [s.kind for s in g.suppliers] == [CurrentGraphSupplierKind.ROOT]
+    assert node(g, "AGENTS.md").status is CurrentGraphStatus.CURRENT_KNOWN
+    assert node(g, "A.md").status is CurrentGraphStatus.DISCOVERED_UNACQUIRED
+
+    def probe(cap: int) -> bool:
+        return (
+            h.graph(bounds=CurrentGraphBounds(max_total_work_units=cap)).outcome
+            is CurrentGraphOutcome.OK
+        )
+
+    work = _smallest_ok(1, 1 << 20, probe)
+    assert (
+        h.graph(bounds=CurrentGraphBounds(max_total_work_units=work)).outcome
+        is CurrentGraphOutcome.OK
+    )
+    assert_refused(
+        h.graph(bounds=CurrentGraphBounds(max_total_work_units=work - 1)),
+        h.state,
+        CurrentGraphOutcome.REFUSED_OVER_BOUND,
+        CurrentGraphLimitation.TOTAL_WORK_UNITS_OVER_BOUND,
+    )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_i_supplier_interning_witness_deferred_charged(mode: AdmissionMode, endpoint: str) -> None:
+    """I: ONE occurrence with TWO proven singleton groups of the
+    SAME path/digest (cat A.md && echo MARK && cat A.md) interns
+    ONE source supplier whose raw witness list receives the SAME
+    occurrence twice: duplicate witness elimination and ordering
+    are deferred to the charged output retention (final witnesses
+    deduplicated/sorted, BOTH original group coordinates retained),
+    and the outer cap boundary lands on the charged total (first
+    over refused)."""
+    h = Hist(mode, endpoint)
+    h.boot_root("Read `A.md` first.")
+    seg = "A same.\n"
+    # The 017 partitioned law: the request result output carries the
+    # marker line, but the retained original source is the EXACT
+    # concatenated segment bytes (the proven marker delimiters are
+    # not source bytes).
+    h.observe(
+        read_request(
+            endpoint,
+            "c-r1",
+            seg + "MARK\n" + seg,
+            cmd="cat A.md && echo 'MARK' && cat A.md",
+        ),
+        note="read:c-r1",
+    )
+    occurrences = h.state.occurrences
+    assert len(occurrences) == 1
+    occurrence = occurrences[-1]
+    assert occurrence.call_id == "c-r1"
+    assert occurrence.endpoint == endpoint
+    occ = occurrence.occurrence_id
+    proof = occurrence.proof
+    assert proof.source_text == seg + seg
+    assert proof.source_digest == _sha(seg + seg)
+    assert [t.member_positions for t in proof.segments] == [(0,), (1,)]
+    assert [t.member_digest for t in proof.segments] == [_sha(seg), _sha(seg)]
+    ov = overlay_of(h)
+    assert sorted((g.members, g.group_index, g.group_status) for g in ov.groups) == [
+        (("A.md",), 0, CurrentnessStatus.CURRENT_KNOWN),
+        (("A.md",), 1, CurrentnessStatus.CURRENT_KNOWN),
+    ]
+    g = h.graph_ok()
+    source = [s for s in g.suppliers if s.kind is CurrentGraphSupplierKind.SOURCE]
+    assert len(source) == 1
+    s0 = source[0]
+    assert s0.path == "A.md"
+    assert s0.digest == _sha(seg)
+    assert s0.witnesses == (occ,)  # deduplicated by the charged retention
+    assert len(s0.coordinates) == 2
+    assert tuple(c.group_index for c in s0.coordinates) == (0, 1)
+    assert all(c.occurrence_id == occ for c in s0.coordinates)
+    assert node(g, "A.md").witnesses == (occ,)
+    assert node(g, "A.md").depth == 1
+
+    def probe(cap: int) -> bool:
+        return (
+            h.graph(bounds=CurrentGraphBounds(max_total_work_units=cap)).outcome
+            is CurrentGraphOutcome.OK
+        )
+
+    work = _smallest_ok(1, 1 << 20, probe)
+    ok = h.graph(bounds=CurrentGraphBounds(max_total_work_units=work))
+    assert ok.outcome is CurrentGraphOutcome.OK
+    assert ok.state is h.state
+    assert_refused(
+        h.graph(bounds=CurrentGraphBounds(max_total_work_units=work - 1)),
+        h.state,
+        CurrentGraphOutcome.REFUSED_OVER_BOUND,
+        CurrentGraphLimitation.TOTAL_WORK_UNITS_OVER_BOUND,
+    )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
 def test_i_diagnostic_caps_at_limit_first_over(mode: AdmissionMode, endpoint: str) -> None:
     """I: the NEW outer diagnostic domain (CurrentGraphBounds.
     max_diagnostics) and the inherited stage diagnostic domain

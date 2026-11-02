@@ -304,6 +304,27 @@ recovery, client or root-refresh claim.
   supported domain). The only remaining built-in ``sorted`` is
   the typed-refusal construction, outside the collection-charge
   scope.
+- Actual-operation completeness: supplier witness lists are
+  retained RAW during selection (a repeated contributing group
+  may re-append an already-present witness occurrence);
+  duplicate witness elimination and ordering are DEFERRED to the
+  charged output retention (``_sort_witnesses``, which accounts
+  over the FULL input length, duplicates counted), so no
+  uncharged membership scan or in-place sort runs mid-selection.
+  The root-only group membership scan, the depth-table
+  construction (one per reachable path plus the root
+  assignment), every per-member depth inspection in the
+  relaxation, the per-supplier usable-depth maximum walk
+  (computed lazily, charged once per supplier, only when a
+  usable certificate needs it), and every coordinate tuple copy
+  at output reserve their linear lengths on both ledgers BEFORE
+  the operation. Per-supplier certificate output metadata
+  (sorted possible origins, supplier tuple, usable-depth base,
+  deduplicated witnesses) is interned ONCE per supplier and
+  reused by every certificate that supplier emitted (one charged
+  key construction + probe per certificate record), so the set
+  walks, dedup sorts and witness retention are charged once per
+  supplier, not re-charged per candidate.
 - A target-cap test must reach THAT cap with the other caps
   valid (pre-copy sentinels prove the refusal happens before the
   inspection it bounds). Cost assertions are EXACT-FIXTURE/ID

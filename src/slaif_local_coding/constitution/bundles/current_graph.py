@@ -1000,15 +1000,22 @@ def _derive_graph(
                 # A repeated contributing group retains its own
                 # original coordinate even when the witness
                 # occurrence is already present.
-                outer.unit()  # association attempt (charged before dedup)
+                outer.unit()  # association attempt (charged before append)
                 stage.unit()
                 supplier.coordinates.append(origin)
-                if group.occurrence_id not in supplier.witnesses:
-                    supplier.witnesses.append(group.occurrence_id)
-                    supplier.witnesses.sort()
+                # Duplicate witness elimination and ordering are
+                # DEFERRED to the charged output retention
+                # (_sort_witnesses), which accounts over the FULL
+                # input length (duplicates counted); no uncharged
+                # membership scan or in-place sort runs here.
+                supplier.witnesses.append(group.occurrence_id)
         else:  # CURRENT_OPAQUE
+            # The root-only membership scan is a linear per-member
+            # walk: reserved on BOTH ledgers before it runs.
+            outer.units(len(group.members))
+            stage.units(len(group.members))
             if all(member == ROOT_FILENAME for member in group.members):
-                continue  # a root-only group supplies nothing (no byte work)
+                continue  # a root-only group supplies nothing
             if len(group.members) < 2:
                 raise _Malformed(CurrentGraphLimitation.STATE_MALFORMED)
             offset, segment = _segment_at(proof, group.group_index, outer, stage)
@@ -1047,12 +1054,13 @@ def _derive_graph(
                     scan=scan,
                 )
             else:
-                outer.unit()  # association attempt (charged before dedup)
+                # Repeated group: retain its original coordinate;
+                # witness dedup/ordering is deferred to the charged
+                # output retention (full input length accounted).
+                outer.unit()  # association attempt (charged before append)
                 stage.unit()
                 opaque_supplier.coordinates.append(origin)
-                if group.occurrence_id not in opaque_supplier.witnesses:
-                    opaque_supplier.witnesses.append(group.occurrence_id)
-                    opaque_supplier.witnesses.sort()
+                opaque_supplier.witnesses.append(group.occurrence_id)
 
     # --- Joint least fixed point from the immutable root ------------
     # The root closure node is retained like any other node: its
@@ -1366,6 +1374,10 @@ def _derive_graph(
     certificate_phase(True)
 
     # --- Least complete AND/OR depth relaxation (charged) -----------
+    # Depth-table construction: one unit per reachable path plus
+    # the root assignment, reserved on BOTH ledgers before the walk.
+    outer.units(len(R) + 1)
+    stage.units(len(R) + 1)
     depth: dict[str, int] = {path: _DEPTH_INF for path in R}
     depth[ROOT_FILENAME] = 0
     # Usable-certificate selection: the charged sort, then the
@@ -1402,6 +1414,8 @@ def _derive_graph(
             stage.units(len(cert.supplier.members))
             cert_members = {m for m in cert.supplier.members if m != ROOT_FILENAME}
             for member in _sorted(cert_members, None, outer, stage):
+                outer.unit()  # per-member depth inspection
+                stage.unit()
                 if depth[member] >= _DEPTH_INF:
                     cert_depth = None
                     break
@@ -1472,29 +1486,66 @@ def _derive_graph(
             )
         )
     certificate_tuples = []
+    # Per-supplier immutable output metadata (sorted possible
+    # origins, supplier tuple, usable-depth base, deduplicated
+    # witnesses) is built ONCE per supplier and reused by every
+    # certificate that supplier emitted: the set walks, dedup sorts
+    # and witness retention are charged once per supplier, not
+    # re-charged per candidate.
+    supplier_out: dict[
+        tuple[str, str, tuple[str, ...]],
+        tuple[tuple[str, ...], tuple[str, ...], int | None, tuple[str, ...]],
+    ] = {}
     for cert in _sorted(certificates.values(), lambda c: c.key, outer, stage):
         outer.unit()  # certificate record emission
         stage.unit()
         cert_supplier = cert.supplier
-        # Per-certificate possible-origin and supplier set walks
-        # (linear, reserved BEFORE), then two charged dedup sorts.
-        outer.units(2 * len(cert_supplier.members))
-        stage.units(2 * len(cert_supplier.members))
-        origin_set = set(cert_supplier.members)
-        cert_supplier_set = {m for m in cert_supplier.members if m != ROOT_FILENAME}
+        outer.unit()  # supplier-output cache key construction + probe
+        stage.unit()
+        out_key = (
+            cert_supplier.identity,
+            cert_supplier.group_digest,
+            cert_supplier.members,
+        )
+        cached = supplier_out.get(out_key)
+        if cached is None:
+            # Per-supplier possible-origin and supplier set walks
+            # (linear, reserved BEFORE), then the charged dedup
+            # sorts; the usable-depth walk is computed LAZILY on
+            # the first usable certificate that needs it (an
+            # unusable/offgraph certificate never performs a depth
+            # lookup for supplier paths absent from the fixed
+            # point).
+            outer.units(2 * len(cert_supplier.members))
+            stage.units(2 * len(cert_supplier.members))
+            origin_set = set(cert_supplier.members)
+            cert_supplier_set = {m for m in cert_supplier.members if m != ROOT_FILENAME}
+            possible_origins = tuple(_sorted(origin_set, None, outer, stage))
+            suppliers = tuple(_sorted(cert_supplier_set, None, outer, stage))
+            witnesses = _sort_witnesses(cert_supplier.witnesses, outer, stage)
+            cached = (possible_origins, suppliers, None, witnesses)
+            supplier_out[out_key] = cached
+        possible_origins, suppliers, depth_base, witnesses = cached
+        if cert.usable and depth_base is None:
+            # Charged usable-depth member walk: reserved BEFORE the
+            # walk, computed ONCE per supplier.
+            outer.units(len(suppliers))
+            stage.units(len(suppliers))
+            depth_base = 1 + max(depth[m] for m in suppliers)
+            supplier_out[out_key] = (possible_origins, suppliers, depth_base, witnesses)
         certificate_tuples.append(
             CurrentGraphCertificate(
                 group_identity=cert_supplier.identity,
                 group_digest=cert_supplier.group_digest,
                 members=cert_supplier.members,
                 candidate=cert.candidate,
-                possible_origins=tuple(_sorted(origin_set, None, outer, stage)),
-                suppliers=tuple(_sorted(cert_supplier_set, None, outer, stage)),
+                possible_origins=possible_origins,
+                suppliers=suppliers,
                 resolved_target=cert.resolved_target,
-                depth=(1 + max(depth[m] for m in cert_supplier_set) if cert.usable else None),
+                depth=depth_base if cert.usable else None,
                 usable=cert.usable,
                 reasons=cert.reasons,
-                witnesses=_sort_witnesses(cert_supplier.witnesses, outer, stage),
+                witnesses=witnesses,
             )
         )
         emitted += len(cert.reasons)
@@ -1527,6 +1578,9 @@ def _derive_graph(
         prov = proven[(path, digest)]
         outer.unit()  # supplier record emission
         stage.unit()
+        # Coordinate tuple copy: linear owned copy reserved BEFORE.
+        outer.units(len(prov.coordinates))
+        stage.units(len(prov.coordinates))
         supplier_tuples.append(
             CurrentGraphSupplier(
                 kind=CurrentGraphSupplierKind.SOURCE,
@@ -1541,6 +1595,9 @@ def _derive_graph(
         opaque_supplier = opaque[(identity, group_digest, members)]
         outer.unit()  # supplier record emission
         stage.unit()
+        # Coordinate tuple copy: linear owned copy reserved BEFORE.
+        outer.units(len(opaque_supplier.coordinates))
+        stage.units(len(opaque_supplier.coordinates))
         supplier_tuples.append(
             CurrentGraphSupplier(
                 kind=CurrentGraphSupplierKind.GROUP,
