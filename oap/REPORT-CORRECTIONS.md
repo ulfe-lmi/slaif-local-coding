@@ -103,3 +103,35 @@ These are bounded process/evidence qualifications reconciled
 append-only; they do not rerun any successful product check merely
 for labels, do not alter implementation, acceptance, or product
 behavior, and do not affect the 018-f bounded inert acceptance.
+
+## 018-g — 2026-11-10
+
+Append-only process/evidence qualifications for the immutable 018-g
+round report `oap/reports/018-g-current-bundle-admission.md` (remote
+SELF `3e2cf1f30b1874d47a3ed2e3558f7b499634a9a8`, sole parent B
+`6bde106d73001104752f8eef9542fc459338847a`):
+
+- `baseline-suite-v1.log` was observed 0644/0B beneath the 0700
+  workroot: no exposure is identified, and the later mode does not
+  prove the original creation was 0600.
+- `proto-cd-scenarios-v1.py` was actually executed and then patched
+  at the SAME path; the earlier exact versions are not proven
+  preserved.
+- `probe-k1-sites-v1`: the earlier 3200->3539B rewrite was observed,
+  but the earlier execution is not independently established.
+- `measure-g-thresholds` failed/fixed versions are not independently
+  proven preserved.
+- The G report's "not preserved" wording: the ROOT qualification is
+  exact survival / earlier-byte execution uncertainty, not proof of
+  destruction or fabricated reconstructed sources.
+- The G preliminary 5092-passing/2-failing suite's exact failures
+  were DIRTY/UNTRACKED mapped inputs at that source, not an actual
+  CI failure; the final manifest B and the g1 gate resolved the
+  gate.
+
+These are bounded process/evidence qualifications reconciled
+append-only; no tests or builds are repeated solely for this
+clarification, no implementation, acceptance or product behavior is
+altered, and the 018-g acceptance at its bounded inert scope WITH
+process qualifications (`S/reviews/018-g-decision.md`) stands as
+recorded.

@@ -1189,6 +1189,19 @@ class _ProofCollectResult:
     refusal_reason: BundleLimitation | None
 
 
+class _HOuterOverflow(Exception):
+    """018-h private seam signal: the ONE H outer work ledger was
+    exhausted inside the shared proof pass.  Only the H composition
+    installs the charge seam (the ``lineage_context`` keyword);
+    every public
+    caller runs with no context and can never raise this.  The H
+    composition catches it at its boundary and emits its fixed
+    over-bound refusal with the EXACT prior H state.
+    """
+
+    __slots__ = ()
+
+
 def _proof_collect(
     requests: tuple[GraphRequest, ...],
     contexts: list[PathContext],
@@ -1201,6 +1214,8 @@ def _proof_collect(
     budget: _BudgetState,
     diagnostics: list[BundleLimitation],
     note_diagnostic: Callable[[BundleLimitation], bool],
+    *,
+    lineage_context: Any = None,
 ) -> _ProofCollectResult:
     """The private collection core shared by the accepted public
     wrapper, the 018-c admission composition and the 018-d causal
@@ -1243,6 +1258,20 @@ def _proof_collect(
             raise _fixed("a budget refusal was recorded without a reason")
         return _refuse(BundleProofOutcome.OVER_BOUND, effective_reason)
 
+    def _charge_outer() -> None:
+        # 018-h private seam (H context only): ONE H outer unit
+        # BEFORE the operation it gates.  A crossing records the
+        # exhaustion on the lineage context and raises the fixed
+        # private signal; the H composition maps it to its own
+        # bounded refusal (the D-domain ledgers above keep their
+        # exact semantics and stay separate).  ``lineage_context``
+        # is deliberately DISTINCT from the per-request
+        # ``context`` PathContext local of the candidate loops.
+        if lineage_context is not None:
+            if not lineage_context.outer_charge():
+                lineage_context.outer_exhausted = True
+                raise _HOuterOverflow()
+
     # --- Candidate enumeration (reads then processes, deterministic) ---
     positives: dict[tuple[int, str, str], list[BundleProof]] = {}
     for request_index, request in enumerate(requests):
@@ -1252,9 +1281,12 @@ def _proof_collect(
         for read in report.reads:
             if not (read.wrapper.output_present and read.wrapper.output_span is not None):
                 continue  # no proven output: not a source candidate
+            _charge_outer()
             candidates_inspected += 1
             if candidates_inspected > effective.max_bundles:
                 return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.BUNDLES_OVER_BOUND)
+            for _member in read.requested_members:
+                _charge_outer()
             # Both ACTUAL path ceilings (graph + observation) bound
             # every normalized represented member BEFORE any member
             # charge or source/proof copy: a violation is a fixed
@@ -1287,6 +1319,7 @@ def _proof_collect(
                     ledger.account(read_bytes)
             if ledger.refusal is not None:
                 return _over_bound()
+            _charge_outer()
             proof, reason = _read_bundle(
                 request_index,
                 read,
@@ -1311,9 +1344,12 @@ def _proof_collect(
         for proc in report.processes:
             if proc.outcome is not ProcessOutcome.COMPLETE:
                 continue  # no complete paired process proof: no candidate
+            _charge_outer()
             candidates_inspected += 1
             if candidates_inspected > effective.max_bundles:
                 return _refuse(BundleProofOutcome.OVER_BOUND, BundleLimitation.BUNDLES_OVER_BOUND)
+            for _member in proc.requested_members:
+                _charge_outer()
             # Both ACTUAL path ceilings (graph + observation) bound
             # every normalized represented member BEFORE any member
             # charge or source/proof copy (same law as the read path).
@@ -1335,6 +1371,7 @@ def _proof_collect(
             ledger.account(proc.total_byte_length)
             if ledger.refusal is not None:
                 return _over_bound()
+            _charge_outer()
             proof, reason = _process_bundle(
                 request_index,
                 proc,
@@ -1362,12 +1399,58 @@ def _proof_collect(
     seam_conflict = False
     for proofs in positives.values():
         if len(proofs) == 1:
+            _charge_outer()
             bundles.append(proofs[0])
             continue
-        signatures = [_seam_signature(proof) for proof in proofs]
+        signatures = []
+        signature_walks: list[int] = []
+        for proof in proofs:
+            # Honest upper pre-reservation for _seam_signature's
+            # nested construction, charged BEFORE any of it runs:
+            # one unit per requested member, proven-executed path,
+            # piece, segment and marker visited, PLUS one unit per
+            # inner piece_span of every segment and marker (the
+            # nested tuple comprehensions over segment.piece_spans
+            # and marker.piece_spans).  The reservation's own
+            # precomputation -- one len() visit per segment and per
+            # marker to count those inner spans -- is charged
+            # visit-by-visit immediately before each visit, never
+            # after.
+            inner_spans = 0
+            for segment in proof.segments:
+                _charge_outer()
+                inner_spans += len(segment.piece_spans)
+            for marker in proof.markers:
+                _charge_outer()
+                inner_spans += len(marker.piece_spans)
+            walk = (
+                1
+                + len(proof.requested_members)
+                + len(proof.proven_executed)
+                + len(proof.pieces)
+                + len(proof.segments)
+                + len(proof.markers)
+                + inner_spans
+            )
+            signature_walks.append(walk)
+            for _unit in range(walk):
+                _charge_outer()
+            signatures.append(_seam_signature(proof))
+        # set(signatures): the recursive tuple hash of EVERY
+        # signature (a tuple hash walks all stored elements,
+        # duplicates included) plus one insertion/dedup attempt per
+        # signature (a hit may equality-compare one stored element,
+        # bounded by one further element walk of the inserted
+        # signature).  Charged BEFORE the set is constructed;
+        # duplicate attempts are counted, never skipped before
+        # their charged walk.
+        for walk in signature_walks:
+            for _unit in range(2 * walk):
+                _charge_outer()
         if len(set(signatures)) == 1:
             # The same physical occurrence carrying the SAME proof
             # signature is ONE record (read primary).
+            _charge_outer()
             bundles.append(next((p for p in proofs if p.surface is BundleSurface.READ), proofs[0]))
         else:
             # A mismatched proof acquires NOTHING from that occurrence;
@@ -1386,9 +1469,29 @@ def _proof_collect(
         for segment in proof.segments:
             if segment.member_digest is None:
                 continue  # no single-occurrence proof: never inferred
+            _charge_outer()
             member = proof.requested_members[segment.member_positions[0]]
             if member.normalized == ROOT_FILENAME and segment.member_digest != root_digest:
-                return _refuse(BundleProofOutcome.ROOT_CONFLICT, BundleLimitation.COMPETING_ROOTS)
+                # 018-h relaxed READ-acquisition law (H context only):
+                # the exception is narrow -- a proven SINGLETON
+                # root-path member of a ONE-MEMBER proof at position
+                # 0 with a foreign digest is a refresh SOURCE
+                # candidate and is retained here; AUTHORITY is
+                # decided only by the H composition (issuance/
+                # receipt + proven bootstrap ancestry), never in
+                # this collector.  Mixed/boundaryless/multi-member
+                # root segments and every no-context run keep the
+                # exact old refusal (no global relaxation).
+                if (
+                    lineage_context is None
+                    or not lineage_context.root_read_acquisition
+                    or len(proof.requested_members) != 1
+                    or segment.member_positions != (0,)
+                ):
+                    return _refuse(
+                        BundleProofOutcome.ROOT_CONFLICT,
+                        BundleLimitation.COMPETING_ROOTS,
+                    )
 
     return _ProofCollectResult(
         bundles=bundles,

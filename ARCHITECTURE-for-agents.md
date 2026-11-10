@@ -174,10 +174,14 @@ process qualifications (strategic decision
 current-graph-closure slice ACCEPTED at its bounded inert
 current-graph scope with process qualifications (strategic decision
 `S/reviews/018-f-decision.md`; contract
-`docs/CACHE-CURRENT-GRAPH-CONTRACT.md`) and the implemented 018-g
-current-bundle-admission slice PENDING strategic acceptance at its
-bounded inert scope (contract
-`docs/CACHE-CURRENT-ADMISSION-CONTRACT.md`), all as
+`docs/CACHE-CURRENT-GRAPH-CONTRACT.md`), plus the implemented 018-g
+current-bundle-admission slice ACCEPTED at its bounded inert scope
+with process qualifications (strategic decision
+`S/reviews/018-g-decision.md`; contract
+`docs/CACHE-CURRENT-ADMISSION-CONTRACT.md`) and the implemented
+018-h root-authority-lineage slice PENDING strategic acceptance at
+its bounded inert scope (contract
+`docs/CACHE-ROOT-LINEAGE-CONTRACT.md`), all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
@@ -269,7 +273,8 @@ charged). The exact scope is versioned in
 current graph MECHANISM at its bounded scope only and the stage
 stays inert and inactive.
 
-**Current bundle admission (018-g inert, PENDING acceptance).**
+**Current bundle admission (018-g inert, ACCEPTED at its bounded
+scope).**
 The 018-g derivation takes the ACTUAL retained 018-d state and
 namespace (plus the NEW current-admission bounds and the ACTUAL
 supplied 018-e/018-f derivation bounds) and, in ONE pure bounded
@@ -308,6 +313,63 @@ but NOT the semantic key records). The exact scope is versioned in
 `docs/CACHE-CURRENT-ADMISSION-CONTRACT.md`; it earns the whole-018
 current-version admission MECHANISM at its bounded scope only and
 the stage stays inert and inactive.
+
+**Root-authority lineage (018-h inert, PENDING acceptance).**
+The 018-h composition takes the ACTUAL retained 018-d causal-
+history state and its ACTUAL namespace (derived into the NEW
+versioned root-lineage namespace; the NEW root-lineage bounds on
+ONE shared per-operation outer) and, in pure bounded charged
+operations, earns genuine supported versions of the SAME effective
+root: the bootstrap remains the accepted legitimate effective
+Responses AGENTS envelope with exact source bytes, workspace and
+first original spans (the exact EMPTY root legal; rootless empty
+state cannot bootstrap); a REFRESH SOURCE must be an ACTUAL
+accepted complete whole singleton read of the EXACT normalized
+root path (one member occurrence, one attributable proven region
+covering the complete source; opaque/mixed/repeated/partial/
+truncated/nonzero/unsupported reads grant nothing) on EITHER read
+endpoint; SOURCE acquisition and AUTHORITY are separate (a
+matching INTERNAL trusted issuance/receipt with proven frozen
+causal ancestry to the bootstrap root fact; read ID novelty,
+receipt arrival, digests, revisions and body flags are never
+clocks or trust; the DERIVED issued/authority flags are re-
+derived for ALL facts after every accepted D transition, stored
+bits never trusted); complete but unissued root reads are
+retained as UNPROVEN source, never selected (fixed
+ROOT_SOURCE_UNPROVEN limitation); known same-scope root envelopes
+are context evidence only (replays are no-ops, no rollback), an
+unknown changed envelope without independent same-batch accepted
+root-read authority refuses the whole transition with the exact
+prior state, and the selected current root is a DISTINCT derived
+causal-maximal source fact (causal dominance over frozen parents
+only; equal incomparable maximal witnesses ALL retained,
+differing maximal sources an explicit ROOT_CONTENT_CONFLICT with
+no selected source; a child of one branch cannot causally
+dominate the other (equal-byte surviving maximal sources can be
+compatible), a genuine child of ALL can; delayed older receipts
+never override proven descendants). The original RootAnchor, every
+historical proof binding and occurrence ID are preserved by
+identity (retained by bounded immutable reference, never copied
+per witness); the H state wraps the actual D state (no nested
+revalidation) and is NOT authority to pass a forged D state to
+public F/G; an H-PRIVATE charged coherence check retains the
+accepted builder invariant (every piece producer binding derives
+from the SAME original request endpoint, and every completed
+occurrence joins its complete owning result record which retains
+the exact piece-producer association of the retained proof --
+missing/rewritten ownership is refused, the retained proof alone
+cannot re-prove it) without changing the old public D
+observed-binding law. The NEW bounds (root facts 1024,
+retained root source bytes 16777216, total work 1048576 PER
+operation, diagnostics 64 PER result; stricter positives allowed)
+run on ONE outer per operation coupled to the ACTUAL D work (D-
+local domains stay independent; no global min, no resets; the
+original-batch max_requests domain preserved). The exact scope is
+versioned in `docs/CACHE-ROOT-LINEAGE-CONTRACT.md`; it earns the
+explicit same-root refresh/authority-lineage MECHANISM at its
+bounded inert scope only (PENDING acceptance), the current-root-
+aware graph/admission composition remains a later mandatory
+same-018 stage, and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -737,7 +799,10 @@ currentness/overlap-overlay scope with process qualifications
 implemented inert current-graph-closure slice ACCEPTED at its
 bounded inert current-graph scope with process qualifications
 (decision `S/reviews/018-f-decision.md`); 018-g implemented inert
-current-bundle-admission slice PENDING strategic acceptance at its
+current-bundle-admission slice ACCEPTED at its bounded inert scope
+with process qualifications (strategic decision
+`S/reviews/018-g-decision.md`); 018-h implemented inert
+root-authority-lineage slice PENDING strategic acceptance at its
 bounded inert scope). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
@@ -855,15 +920,20 @@ inert current-graph-closure slice ACCEPTED at its bounded inert
 current-graph scope with process qualifications (strategic decision
 `S/reviews/018-f-decision.md`, contract
 `docs/CACHE-CURRENT-GRAPH-CONTRACT.md`); 018-g: implemented inert
-current-bundle-admission slice PENDING strategic acceptance at its
-bounded inert scope, contract
-`docs/CACHE-CURRENT-ADMISSION-CONTRACT.md`) and the remaining 018
+current-bundle-admission slice ACCEPTED at its bounded inert scope
+with process qualifications (strategic decision
+`S/reviews/018-g-decision.md`, contract
+`docs/CACHE-CURRENT-ADMISSION-CONTRACT.md`); 018-h: implemented
+inert root-authority-lineage slice PENDING strategic acceptance at
+its bounded inert scope, contract
+`docs/CACHE-ROOT-LINEAGE-CONTRACT.md`) and the remaining 018
 current-version/overlap work beyond this mechanism (C04/C05
 current-version acceptance, version-owned edge/certificate
 withdrawal end-to-end acceptance) and
-the explicit root-refresh authority-lineage
-contract (same-root refresh/currentness; reserved, not granted, by
-`docs/CACHE-CAUSAL-HISTORY-CONTRACT.md`) plus objectives 019-024
+the root-aware current graph/admission composition that consumes
+the 018-h accepted interface (recomputed root closure,
+withdraw/restore entries and canonical root/authority keys under
+one outer budget) plus objectives 019-024
 remain the mandatory unearned v1 implementation stages (see
 `docs/CACHE-REWORK-LEDGER.md`); the original
 planned meanings of numeric 006-008 are historical planning prose, not

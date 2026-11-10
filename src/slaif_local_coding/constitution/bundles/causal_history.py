@@ -68,8 +68,9 @@ EXPLICIT ``expected_revision``):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from ..cache import RequestIdentity
 from .bundle_admission_models import ADMISSION_CONTRACT_VERSION
@@ -119,6 +120,7 @@ from .observation_models import (
     OBSERVER_VERSION,
     CharSpan,
     Limitation,
+    ObservationBounds,
     ObservationReport,
     PathContext,
     ProcessOutcome,
@@ -193,6 +195,13 @@ _PENDING_OUTCOMES = frozenset(
 # --- The ONE shared per-transition ledgers ----------------------------
 
 
+class _UnitLedger(Protocol):
+    """The minimal work-unit charging surface shared by the D
+    transition ledger and the 018-h H-coupled adapter (H-D3)."""
+
+    def unit(self) -> bool: ...
+
+
 class _HistoryWorkLedger:
     """The ONE shared PER-TRANSITION work-unit ledger (order law).
 
@@ -219,6 +228,98 @@ class _HistoryWorkLedger:
             return False
         self.units += 1
         return True
+
+
+class _RootLineageContext:
+    """Narrow validated PRIVATE context for the 018-h root-lineage
+    composition (design-018h-v2 resolutions of H-D1/D2/D3 + v2.1).
+
+    Only the H composition constructs one:
+
+    - ``known_root_digests``: the PRE-BATCH known root-body digests
+      ({bootstrap} union retained root-fact digests) for the relaxed
+      ENVELOPE law;
+    - ``relaxed_envelope_law``: a changed same-scope envelope digest
+      is context evidence when pre-batch known, otherwise DEFERRED to
+      the composition's atomic same-batch verification (the envelope
+      grants no ordering and no authority here);
+    - ``root_read_acquisition``: a proven SINGLETON root-path member
+      read with a foreign digest is a refresh SOURCE candidate,
+      retained instead of the old whole-pass COMPETING_ROOTS refusal
+      (authority is decided only by the composition);
+    - ``outer_charge``: the ONE H outer work-charge callback (raises
+      nothing; returns False exactly when the H outer is exhausted,
+      recorded on ``outer_exhausted``).
+
+    The context NEVER grants authority and NEVER modifies requests:
+    the old public APIs (no context) keep their exact refusal laws.
+    Fixed private repr (no digests, no callback).
+    """
+
+    __slots__ = (
+        "known_root_digests",
+        "relaxed_envelope_law",
+        "root_read_acquisition",
+        "outer_charge",
+        "outer_exhausted",
+    )
+
+    def __init__(
+        self,
+        known_root_digests: frozenset[str],
+        relaxed_envelope_law: bool,
+        root_read_acquisition: bool,
+        outer_charge: Callable[[], bool],
+    ) -> None:
+        self.known_root_digests = known_root_digests
+        self.relaxed_envelope_law = relaxed_envelope_law
+        self.root_read_acquisition = root_read_acquisition
+        self.outer_charge = outer_charge
+        self.outer_exhausted = False
+
+    def __repr__(self) -> str:
+        return "_RootLineageContext(<private>)"
+
+
+class _CoupledHistoryWorkLedger:
+    """H-D3 coupling adapter over the ACTUAL D work ledger.
+
+    Every ``work.unit()`` debit first debits the ONE H outer through
+    the context callback, then the ACTUAL D ledger.  The D ceiling
+    keeps its exact domain and semantics (a D crossing still maps to
+    the D ``WORK_UNITS_OVER_BOUND`` path); an H outer crossing is
+    recorded on ``context.outer_exhausted`` so the H composition can
+    emit its own fixed over-bound refusal with the EXACT prior H
+    state.  No global minimum, no resets; both ceilings stay
+    independent.
+    """
+
+    __slots__ = ("_inner", "_context")
+
+    def __init__(
+        self,
+        inner: _HistoryWorkLedger,
+        context: _RootLineageContext,
+    ) -> None:
+        self._inner = inner
+        self._context = context
+
+    @property
+    def units(self) -> int:
+        return self._inner.units
+
+    @property
+    def refused(self) -> CausalHistoryLimitation | None:
+        return self._inner.refused
+
+    def unit(self) -> bool:
+        if self._inner.refused is not None or self._context.outer_exhausted:
+            return False
+        if not self._context.outer_charge():
+            self._context.outer_exhausted = True
+            self._inner.refused = CausalHistoryLimitation.WORK_UNITS_OVER_BOUND
+            return False
+        return self._inner.unit()
 
 
 class _ArgumentByteLedger:
@@ -501,7 +602,7 @@ def _producer_call_binding(
     call_location: str,
     hb: HistoryBounds,
     arg_bytes: _ArgumentByteLedger,
-    work: _HistoryWorkLedger,
+    work: _UnitLedger,
 ) -> tuple[tuple[str, str] | None, CausalHistoryLimitation | None]:
     """The ACTUAL observed producing call's immutable binding
     ``(tool_name, argument_fingerprint)`` at its EXACT original call
@@ -676,7 +777,7 @@ def _selected_piece_fact(
 def _proof_piece_facts(
     payload: dict[str, Any],
     proof: BundleProof,
-    work: _HistoryWorkLedger,
+    work: _UnitLedger,
 ) -> tuple[tuple[int, int, int, str], ...] | None:
     """The selected immutable piece facts of one retained proof,
     measured from the EXACT original carriers (each slice charges the
@@ -724,6 +825,157 @@ class _CollectFacts:
     root_provenance: tuple[int, RootOccurrence] | None
     candidate_diagnostics: tuple[BundleLimitation, ...]
     bundles: tuple[BundleProof, ...]
+    #: 018-h relaxed envelope law (H context runs only): the changed
+    #: same-scope envelope digests DEFERRED to the composition's atomic
+    #: same-batch known-authoritative-source verification.  Every
+    #: old-law run (no context) keeps this empty and its exact refusals.
+    envelope_deferred_digests: frozenset[str] = frozenset()
+
+
+def _sort_comparison_reservation(n: int) -> int:
+    """Conservative comparison reservation for the canonical key
+    sort of ONE dict with ``n`` keys in the inherited full-payload
+    fingerprint (018-h, H-C2 measurement follow-up; supersedes the
+    rejected n*(ceil(log2 n)+1) upper claim).
+
+    ``json.dumps(sort_keys=True)`` sorts every dict's keys with the
+    interpreter's built-in list sort (pinned CPython 3.12 Timsort).
+    Its comparisons come from three bounded phases: the adjacent run
+    scan compares each adjacent pair once; the interval-halving
+    binary insertion compares each inserted element against DISTINCT
+    midpoints of a shrinking interval; and the binary/galloping
+    merges retire one of the two compared elements from the run being
+    merged on every comparison, so two elements that have merged can
+    never be re-compared against each other in any later merge (they
+    stay in the same run).  Each unordered pair of elements is
+    therefore compared at most twice per sort (run-scan/insertion
+    handoff plus at most one merge meeting), so the comparison count
+    is bounded by ``2 * C(n, 2) = n * (n - 1)`` -- the number of
+    ORDERED pairs of distinct elements.  That is the reservation
+    charged before serialization: a conservative upper bound derived
+    for the actual pinned sort implementation, without asserting a
+    tight Timsort worst case (a decision-tree lower bound or an
+    unproven n*log2(n) upper is never relabelled as reservation law).
+    The measured 512-key ignored-dict control sorted with 3943
+    comparisons versus 261120 reserved here; the exhaustion sentinel
+    targets this reservation, not the raw sort.  Single-key dicts
+    sort trivially.
+    """
+    if n < 2:
+        return 0
+    return n * (n - 1)
+
+
+def _payload_tree_preflight(payload: dict[str, Any], outer_charge: Callable[[], bool]) -> bool:
+    """H-private bounded preflight over the ACTUAL decoded payload
+    tree (018-h, H-C2 law; H context runs only).
+
+    The inherited full-payload canonical fingerprint
+    (``canonical_payload_fingerprint``) serializes the ENTIRE
+    decoded payload -- including unknown/ignored nested fields that
+    the 017 collectors never visit -- so the container lengths and
+    declared 017 ceilings alone do not bound that work.  Before any
+    inherited observation runs, this pre-walk visits the actual
+    tree ONCE, charging the ONE H outer BEFORE each container
+    entry, each scalar value, each 64-character chunk of every
+    string key/value (strings charged by ACTUAL length, so
+    arbitrary nested/ignored body content is accounted, never a
+    renamed unbounded primitive) and -- before visiting each dict's
+    entries -- the honest upper comparison reservation for that
+    dict's canonical key sort (``_sort_comparison_reservation``;
+    the measured 512-key ignored dict alone sorts with 3943
+    comparisons, which a single tree walk does not cover).  A crossing
+    returns False BEFORE any observer/fingerprint work; the old 017
+    public path never runs this preflight (byte-identical).
+    """
+    stack: list[Any] = [payload]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            for _comparison in range(_sort_comparison_reservation(len(value))):
+                if not outer_charge():
+                    return False
+            items = value.items()
+            for key, item in items:
+                if not outer_charge():
+                    return False
+                if isinstance(key, str):
+                    for _chunk in range((len(key) + 63) // 64 or 1):
+                        if not outer_charge():
+                            return False
+                if isinstance(item, (dict, list)):
+                    stack.append(item)
+                else:
+                    if not outer_charge():
+                        return False
+                    if isinstance(item, str):
+                        for _chunk in range((len(item) + 63) // 64 or 1):
+                            if not outer_charge():
+                                return False
+        elif isinstance(value, list):
+            for item in value:
+                if not outer_charge():
+                    return False
+                if isinstance(item, (dict, list)):
+                    stack.append(item)
+                else:
+                    if not outer_charge():
+                        return False
+                    if isinstance(item, str):
+                        for _chunk in range((len(item) + 63) // 64 or 1):
+                            if not outer_charge():
+                                return False
+        else:
+            if not outer_charge():
+                return False
+            if isinstance(value, str):
+                for _chunk in range((len(value) + 63) // 64 or 1):
+                    if not outer_charge():
+                        return False
+    return True
+
+
+def _observation_reservation(payload: dict[str, Any], ob: ObservationBounds) -> int:
+    """The honest conservative H-outer reservation for ONE inherited
+    017 pass over ONE decoded payload (018-h, H-V2-4 law).
+
+    The accepted 017 collectors (root scan, read inventory/pairing,
+    process chunks) visit a number of structural elements bounded by
+    the ACTUAL O(1) container lengths plus the DECLARED 017 ceilings
+    they themselves enforce before any retention.  One H work unit is
+    reserved per structural element visit (item, call record, output
+    record, poll/piece, parse op); linear text scans inside those
+    elements stay in the char/byte domain under their declared 017
+    preflights.  The full-payload canonical fingerprint traversal is
+    covered by the H-private ``_payload_tree_preflight`` pre-walk
+    (charged before this reservation, H context only).  The
+    reservation is charged in full BEFORE the pass runs: an upper
+    reservation, never a lower bound, never a flat unbounded pass.
+    """
+    input_items = payload.get("input")
+    input_len = len(input_items) if isinstance(input_items, list) else 0
+    messages = payload.get("messages")
+    messages_len = len(messages) if isinstance(messages, list) else 0
+    input_bound = min(input_len, ob.max_items) + 1
+    messages_bound = min(messages_len, ob.max_items) + 1
+    return (
+        1  # endpoint selection
+        + 1  # root-scan container enumeration
+        + input_bound  # per user input item classification
+        + 1  # read inventory preflight stream
+        + input_bound  # per input item inventory visit
+        + 1
+        + messages_bound  # per chat message inventory visit
+        + ob.max_commands  # per call record (preflight + collection)
+        + ob.max_outputs  # per output record (preflight + collection)
+        + 1  # collection pass container visit
+        + ob.max_commands  # per command parse op
+        + ob.max_outputs  # per output wrapper parse op
+        + 1  # process pass preflight
+        + ob.max_process_sessions  # per session structural op
+        + ob.max_process_polls  # per poll/piece structural op
+        + 1  # report construction
+    )
 
 
 def _proof_budget_reason(refusal: BundleLimitation | None) -> CausalHistoryLimitation:
@@ -736,6 +988,8 @@ def _collect(
     requests: tuple[GraphRequest, ...],
     ns: CausalHistoryNamespace,
     prior: CausalHistoryState,
+    *,
+    context: _RootLineageContext | None = None,
 ) -> tuple[_CollectFacts | None, _CollectRefusal | None]:
     """The bounded original-input collection phase.
 
@@ -768,10 +1022,53 @@ def _collect(
         )
 
     # --- 017 observation pass (actual effective 017 ceilings) ---------
-    reports = [
-        observe_request(request.payload, request.context, ns.observation_bounds, request.endpoint)
-        for request in requests
-    ]
+    if context is None:
+        reports = [
+            observe_request(
+                request.payload, request.context, ns.observation_bounds, request.endpoint
+            )
+            for request in requests
+        ]
+    else:
+        # 018-h (H-V2-4): the inherited 017 pass work is reserved
+        # into the ONE H outer BEFORE any observation runs (per
+        # request, the honest conservative reservation from actual
+        # O(1) container lengths + declared 017 ceilings).
+        outer_charge = context.outer_charge
+        reports = []
+        for request in requests:
+            # 018-h (H-C2): the H-private bounded payload pre-walk
+            # charges the actual tree BEFORE any inherited
+            # observation/fingerprint runs.
+            if not _payload_tree_preflight(request.payload, outer_charge):
+                return (
+                    None,
+                    _CollectRefusal(
+                        CausalHistoryOutcome.REFUSED_OVER_BOUND,
+                        (CausalHistoryLimitation.WORK_UNITS_OVER_BOUND,),
+                        (),
+                    ),
+                )
+            for _reserved in range(
+                _observation_reservation(request.payload, ns.observation_bounds)
+            ):
+                if not outer_charge():
+                    return (
+                        None,
+                        _CollectRefusal(
+                            CausalHistoryOutcome.REFUSED_OVER_BOUND,
+                            (CausalHistoryLimitation.WORK_UNITS_OVER_BOUND,),
+                            (),
+                        ),
+                    )
+            reports.append(
+                observe_request(
+                    request.payload,
+                    request.context,
+                    ns.observation_bounds,
+                    request.endpoint,
+                )
+            )
 
     def _limitations() -> tuple[Limitation, ...]:
         collected: set[Limitation] = set()
@@ -792,18 +1089,88 @@ def _collect(
     ]
     root_content: str | None = None
     root_provenance: tuple[int, RootOccurrence] | None = None
+    envelope_deferred_digests: frozenset[str] = frozenset()
     if authoritative:
-        identities = {(occ.scope_label, occ.digest) for _, occ in authoritative}
+        # 018-h: every root-inventory visit charges the ONE H outer
+        # BEFORE it (context runs only; old-law runs are unchanged).
+        if context is not None:
+            for _request_index, _root_occ in authoritative:
+                if not context.outer_charge():
+                    return (
+                        None,
+                        _CollectRefusal(
+                            CausalHistoryOutcome.REFUSED_OVER_BOUND,
+                            (CausalHistoryLimitation.WORK_UNITS_OVER_BOUND,),
+                            (),
+                        ),
+                    )
+        identities: set[tuple[str | None, str | None]] = set()
+        for _request_index, root_occ in authoritative:
+            identities.add((root_occ.scope_label, root_occ.digest))
+        scope_label: str | None
+        root_digest: str | None
         if len(identities) > 1:
-            return (
-                None,
-                _CollectRefusal(
-                    CausalHistoryOutcome.REFUSED_ROOT_CONFLICT,
-                    (CausalHistoryLimitation.COMPETING_ROOTS,),
-                    ordered_limitations,
-                ),
+            scopes = {scope for scope, _digest in identities}
+            digests = {digest for _scope, digest in identities}
+            if (
+                len(scopes) > 1
+                or None in scopes
+                or any(digest is None for digest in digests)
+                or context is None
+                or not context.relaxed_envelope_law
+                or prior.root is None
+            ):
+                return (
+                    None,
+                    _CollectRefusal(
+                        CausalHistoryOutcome.REFUSED_ROOT_CONFLICT,
+                        (CausalHistoryLimitation.COMPETING_ROOTS,),
+                        ordered_limitations,
+                    ),
+                )
+            # 018-h relaxed multi-envelope batch: every distinct
+            # SAME-SCOPE envelope must be a validated known source
+            # (pre-batch) or be atomically verified by the
+            # composition after the actual source facts are earned.
+            # H-C1: the ACTUAL observed scope is validated against
+            # the actual ns workspace BEFORE the immutable
+            # acquisition context is substituted (a same-foreign-
+            # scope multi-envelope batch keeps the exact old
+            # workspace refusals; no latest-root-by-position).
+            actual_scope = next(iter(scopes))
+            if actual_scope is None:
+                raise _fixed("a None envelope scope was refused above the multi branch")
+            actual_workspace = validate_workspace(actual_scope, graph_bounds.max_path_bytes)
+            if actual_workspace is None or actual_workspace != actual_scope:
+                return (
+                    None,
+                    _CollectRefusal(
+                        CausalHistoryOutcome.REFUSED_ROOT_CONFLICT,
+                        (CausalHistoryLimitation.WORKSPACE_UNPROVEN,),
+                        ordered_limitations,
+                    ),
+                )
+            if actual_workspace != ns.workspace:
+                return (
+                    None,
+                    _CollectRefusal(
+                        CausalHistoryOutcome.REFUSED_ROOT_CONFLICT,
+                        (CausalHistoryLimitation.WORKSPACE_MISMATCH,),
+                        ordered_limitations,
+                    ),
+                )
+            # The acquisition binding is the IMMUTABLE bootstrap
+            # anchor context (no positional winner; envelopes are
+            # context evidence only, never a latest-root choice).
+            envelope_deferred_digests = frozenset(
+                digest
+                for digest in digests
+                if digest is not None and digest not in context.known_root_digests
             )
-        scope_label, root_digest = next(iter(identities))
+            scope_label = actual_scope
+            root_digest = prior.root.root_digest
+        else:
+            scope_label, root_digest = next(iter(identities))
         if scope_label is None or root_digest is None:
             return (
                 None,
@@ -851,16 +1218,43 @@ def _collect(
         if prior_root is not None:
             # A later batch's root must be the SAME root: competing
             # digests or a scope change keep the existing explicit
-            # refusal (no reset, no supersession).
+            # refusal (no reset, no supersession).  018-h relaxed
+            # law (H context only): a changed same-scope envelope is
+            # known-source context evidence when its digest is
+            # pre-batch known, otherwise it is DEFERRED to the
+            # composition's atomic same-batch verification (the
+            # envelope grants no ordering; no new event is minted
+            # here, and the collector never mints authority).
             if prior_root.root_digest != root_digest:
-                return (
-                    None,
-                    _CollectRefusal(
-                        CausalHistoryOutcome.REFUSED_ROOT_CONFLICT,
-                        (CausalHistoryLimitation.COMPETING_ROOTS,),
-                        ordered_limitations,
-                    ),
-                )
+                if context is not None and context.relaxed_envelope_law and prior.root is not None:
+                    if root_digest not in context.known_root_digests:
+                        envelope_deferred_digests = frozenset(
+                            set(envelope_deferred_digests) | {root_digest}
+                        )
+                    # The changed same-scope envelope (known
+                    # historical source or deferred new source) is
+                    # context/source evidence only: the acquisition
+                    # binding stays the ACTUAL immutable bootstrap
+                    # anchor context BEFORE proof/ID creation
+                    # (envelopes grant no ordering, mint no events
+                    # and never rebind retained root identity -- an
+                    # already observed original read must replay
+                    # with its original identity, and a same-batch
+                    # read keeps the bootstrap root binding while
+                    # its earned source verifies the deferred
+                    # envelope atomically in the composition).
+                    scope_label = prior_root.workspace
+                    root_digest = prior_root.root_digest
+                    workspace = prior_root.workspace
+                else:
+                    return (
+                        None,
+                        _CollectRefusal(
+                            CausalHistoryOutcome.REFUSED_ROOT_CONFLICT,
+                            (CausalHistoryLimitation.COMPETING_ROOTS,),
+                            ordered_limitations,
+                        ),
+                    )
             if prior_root.workspace != workspace:
                 return (
                     None,
@@ -923,15 +1317,40 @@ def _collect(
                 )
 
     # --- Derived-workspace re-observation (the 018-a law) --------------
+    # (the per-request original context local is named
+    # ``request_context``: the ``context`` parameter is the 018-h
+    # private lineage context and must stay unshadowed).
     contexts: list[PathContext] = []
     for index, request in enumerate(requests):
-        context = request.context
-        if context is not None and context.workspace is not None:
-            contexts.append(context)
+        request_context = request.context
+        if request_context is not None and request_context.workspace is not None:
+            contexts.append(request_context)
             continue
+        if context is not None:
+            if not _payload_tree_preflight(request.payload, context.outer_charge):
+                return (
+                    None,
+                    _CollectRefusal(
+                        CausalHistoryOutcome.REFUSED_OVER_BOUND,
+                        (CausalHistoryLimitation.WORK_UNITS_OVER_BOUND,),
+                        (),
+                    ),
+                )
+            for _reserved in range(
+                _observation_reservation(request.payload, ns.observation_bounds)
+            ):
+                if not context.outer_charge():
+                    return (
+                        None,
+                        _CollectRefusal(
+                            CausalHistoryOutcome.REFUSED_OVER_BOUND,
+                            (CausalHistoryLimitation.WORK_UNITS_OVER_BOUND,),
+                            (),
+                        ),
+                    )
         derived = PathContext(
             workspace=workspace,
-            workdir=context.workdir if context is not None else None,
+            workdir=request_context.workdir if request_context is not None else None,
         )
         reports[index] = observe_request(
             request.payload, derived, ns.observation_bounds, request.endpoint
@@ -968,6 +1387,16 @@ def _collect(
     # only the first occurrence is copied (its digest is already
     # bound by the single (scope_label, digest) identity).
     for request_index, root_occ in authoritative:
+        if context is not None:
+            if not context.outer_charge():
+                return (
+                    None,
+                    _CollectRefusal(
+                        CausalHistoryOutcome.REFUSED_OVER_BOUND,
+                        (CausalHistoryLimitation.WORK_UNITS_OVER_BOUND,),
+                        (),
+                    ),
+                )
         carrier = _carrier_string(requests[request_index].payload, root_occ.location)
         span = root_occ.content_span
         if carrier is None or span is None or span.end > len(carrier):
@@ -995,7 +1424,13 @@ def _collect(
         if root_content is None:
             root_content = carrier[span.start : span.end]
             root_provenance = (request_index, root_occ)
-            if sha256_hex(root_content) != root_digest:
+            # 017 self-integrity: the copied bytes must match the
+            # 017-computed digest of THIS occurrence (in every old-law
+            # run the single-identity law makes it identical to the
+            # binding-digest check; the relaxed multi-envelope batch
+            # binds copies to their own occurrence digests).
+            expected_digest = root_occ.digest if root_occ.digest is not None else root_digest
+            if sha256_hex(root_content) != expected_digest:
                 # Defensive 017 integrity defect: the root is not
                 # acquired (no echo of the content).
                 return (
@@ -1063,6 +1498,7 @@ def _collect(
         budget,
         diagnostics,
         _note_diagnostic,
+        lineage_context=context,
     )
     if result.refusal_outcome is not None:
         if result.refusal_outcome not in _PROOF_OUTCOME_MAP or result.refusal_reason is None:
@@ -1103,6 +1539,7 @@ def _collect(
             root_provenance=root_provenance,
             candidate_diagnostics=tuple(diagnostics),
             bundles=tuple(result.bundles),
+            envelope_deferred_digests=envelope_deferred_digests,
         ),
         None,
     )
@@ -1135,15 +1572,37 @@ def observe_causal_history(
     once per accepted state-changing transition and the EXACT prior
     state is preserved on every refusal and on replay.
     """
+    return _observe_causal_history_core(requests, ns, state, expected_revision)
+
+
+def _observe_causal_history_core(
+    requests: tuple[GraphRequest, ...],
+    ns: CausalHistoryNamespace,
+    state: CausalHistoryState,
+    expected_revision: int,
+    *,
+    context: _RootLineageContext | None = None,
+    deferred_sink: list[frozenset[str]] | None = None,
+) -> CausalHistoryTransition:
+    """The exact observation transition body, factored for the 018-h
+    private seam: an optional root-lineage context couples the ONE H
+    outer into the inherited collection/scan work (H-D3) and carries
+    the relaxed envelope / read-acquisition law (H-D1).  The public
+    wrapper runs it with NO context: byte-identical old law.  When a
+    deferral sink is supplied and the transition is ACCEPTED, the
+    batch's deferred envelope digests are appended to it (the
+    composition's atomic verification input).
+    """
     gated = _gate(state, ns, expected_revision)
     if gated is not None:
         return gated
     hb: HistoryBounds = ns.history_bounds
-    work = _HistoryWorkLedger(hb.max_work_units)
+    inner = _HistoryWorkLedger(hb.max_work_units)
+    work: _UnitLedger = _CoupledHistoryWorkLedger(inner, context) if context is not None else inner
     arg_bytes = _ArgumentByteLedger(hb.max_total_argument_bytes)
     cap = hb.max_diagnostics
 
-    facts, refusal = _collect(requests, ns, state)
+    facts, refusal = _collect(requests, ns, state, context=context)
     if refusal is not None:
         return _bounded_refusal(
             state, refusal.outcome, refusal.diagnostics, refusal.limitations, cap
@@ -2638,9 +3097,15 @@ def observe_causal_history(
     ):
         # A pure idempotent transition (exact replays only, no new
         # evidence and no root acquisition): no revision advance, no
-        # state mutation.  A legitimate root-only bootstrap IS a state
-        # change (the anchor is retained) and advances the revision
-        # exactly once.
+        # state mutation.  A legitimate root-only bootstrap IS a
+        # state change (the anchor is retained) and advances the
+        # revision exactly once.  018-h (H-C3): a DEFERRED unknown
+        # changed envelope must reach the composition's atomic check
+        # on this arm too -- a replay cannot verify it (replays earn
+        # no new facts), so the composition refuses the whole
+        # transition with the EXACT prior H state.
+        if deferred_sink is not None:
+            deferred_sink.append(facts.envelope_deferred_digests)
         return _transition(
             state,
             CausalHistoryOutcome.REPLAYED,
@@ -2693,6 +3158,8 @@ def observe_causal_history(
     validation = validate_causal_history_state(candidate, bounds=hb, work=work.unit)
     if validation is not None:
         return _bounded_refusal(state, _validator_outcome(validation), (validation,), (), cap)
+    if deferred_sink is not None:
+        deferred_sink.append(facts.envelope_deferred_digests)
     return _transition(
         candidate,
         CausalHistoryOutcome.ACCEPTED,
@@ -2760,7 +3227,7 @@ def _trusted_shape_refusal(
 def _frontier_preflight(
     parent_frontier: tuple[str, ...],
     hb: HistoryBounds,
-    work: _HistoryWorkLedger,
+    work: _UnitLedger,
 ) -> tuple[tuple[str, ...] | None, CausalHistoryLimitation | None]:
     """The frozen-frontier preflight: the ACTUAL length is checked
     BEFORE any dedup/validation/work, then EVERY member charges the
@@ -2788,7 +3255,7 @@ def _canonical_trusted_binding(
     arguments: str,
     hb: HistoryBounds,
     arg_bytes: _ArgumentByteLedger,
-    work: _HistoryWorkLedger,
+    work: _UnitLedger,
 ) -> tuple[str | None, CausalHistoryLimitation | None, CausalHistoryOutcome | None]:
     """The SAME canonical argument recipe over the trusted binding
     (shared argument-byte and work ledgers, never reset).  Returns
@@ -2832,7 +3299,7 @@ class _WorkOverflowError(ValueError):
 def _ancestors_of(
     start: str,
     parent_map: dict[str, list[str]],
-    work: _HistoryWorkLedger,
+    work: _UnitLedger,
 ) -> set[str]:
     """Bounded iterative ancestor closure over the frozen parent
     evidence (child -> parent direction: every parent is an EARLIER
@@ -2881,11 +3348,41 @@ def register_issuance(
     validation, the retention caps are cumulative and checked before
     any copy/retention, the revision overflow refuses first, and
     every refusal/replay preserves the EXACT prior state."""
+    return _register_issuance_core(
+        state,
+        ns,
+        call_id,
+        endpoint,
+        tool_name,
+        arguments,
+        parent_frontier,
+        expected_revision,
+    )
+
+
+def _register_issuance_core(
+    state: CausalHistoryState,
+    ns: CausalHistoryNamespace,
+    call_id: str,
+    endpoint: str,
+    tool_name: str,
+    arguments: str,
+    parent_frontier: tuple[str, ...] | list[str],
+    expected_revision: int,
+    *,
+    context: _RootLineageContext | None = None,
+) -> CausalHistoryTransition:
+    """The exact registration body, factored for the 018-h private
+    seam (H-D3): an optional root-lineage context couples the ONE H
+    outer into the ACTUAL D work ledger.  The public wrapper runs
+    it with NO context: byte-identical old law.
+    """
     gated = _gate(state, ns, expected_revision)
     if gated is not None:
         return gated
     hb: HistoryBounds = ns.history_bounds
-    work = _HistoryWorkLedger(hb.max_work_units)
+    inner = _HistoryWorkLedger(hb.max_work_units)
+    work: _UnitLedger = _CoupledHistoryWorkLedger(inner, context) if context is not None else inner
     arg_bytes = _ArgumentByteLedger(hb.max_total_argument_bytes)
     cap = hb.max_diagnostics
     shape = _trusted_shape_refusal(
@@ -3128,11 +3625,41 @@ def register_receipt(
     retention caps are cumulative and checked before any
     copy/retention, the revision overflow refuses first, and every
     refusal/replay preserves the EXACT prior state."""
+    return _register_receipt_core(
+        state,
+        ns,
+        call_id,
+        endpoint,
+        tool_name,
+        arguments,
+        parent_frontier,
+        expected_revision,
+    )
+
+
+def _register_receipt_core(
+    state: CausalHistoryState,
+    ns: CausalHistoryNamespace,
+    call_id: str,
+    endpoint: str,
+    tool_name: str,
+    arguments: str,
+    parent_frontier: tuple[str, ...] | list[str],
+    expected_revision: int,
+    *,
+    context: _RootLineageContext | None = None,
+) -> CausalHistoryTransition:
+    """The exact registration body, factored for the 018-h private
+    seam (H-D3): an optional root-lineage context couples the ONE H
+    outer into the ACTUAL D work ledger.  The public wrapper runs
+    it with NO context: byte-identical old law.
+    """
     gated = _gate(state, ns, expected_revision)
     if gated is not None:
         return gated
     hb: HistoryBounds = ns.history_bounds
-    work = _HistoryWorkLedger(hb.max_work_units)
+    inner = _HistoryWorkLedger(hb.max_work_units)
+    work: _UnitLedger = _CoupledHistoryWorkLedger(inner, context) if context is not None else inner
     arg_bytes = _ArgumentByteLedger(hb.max_total_argument_bytes)
     cap = hb.max_diagnostics
     shape = _trusted_shape_refusal(
