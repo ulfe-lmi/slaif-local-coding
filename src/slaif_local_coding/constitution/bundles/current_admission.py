@@ -51,8 +51,9 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
+from typing import cast
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from . import current_graph as _current_graph
 from . import currentness as _currentness
@@ -404,151 +405,24 @@ def _derive_admission(
         root_entry = _build_root_entry(admission_ns, ns, anchor, outer, stage_g, workspace_bytes)
         total_entry_bytes = anchor.source_byte_length
 
-        # --- Reverse-index association (attempts charged BEFORE dedup) --
-        path_keys: dict[str, set[str]] = {}
-        attempts = 0
-
-        def _associate(path: str, key: str) -> None:
-            nonlocal attempts
-            outer.unit()
-            stage_g.unit()
-            if attempts + 1 > ns.bounds.max_reverse_associations:
-                raise _GOverflow(CurrentAdmissionLimitation.REVERSE_ASSOCIATIONS_OVER_BOUND)
-            attempts += 1
-            path_keys.setdefault(path, set()).add(key)
-
-        _associate(ROOT_FILENAME, root_entry.content_key)
-        entries: dict[str, CurrentAdmissionEntry] = {}
-        member_occ_charged = 1  # the required root member occurrence
-        unproven = False
-
-        for occurrence in state.occurrences:
-            outer.unit()
-            stage_g.unit()  # the proof plan visit
-            proof = occurrence.proof
-            groups = groups_by_occ.get(occurrence.occurrence_id)
-            if groups is None:
-                raise _current_graph._Malformed(CurrentGraphLimitation.STATE_MALFORMED)
-
-            whole_ok = True
-            root_owned_opaque = False
-            for group in groups:
-                outer.unit()
-                stage_g.unit()  # the group currentness/ownership inspection
-                if group.group_status not in (
-                    CurrentnessStatus.CURRENT_KNOWN,
-                    CurrentnessStatus.CURRENT_OPAQUE,
-                ):
-                    whole_ok = False
-                outer.units(len(group.members))
-                stage_g.units(len(group.members))  # the root-membership walk
-                if (
-                    group.boundary_class is BoundaryClass.BOUNDARYLESS
-                    and ROOT_FILENAME in group.members
-                ):
-                    root_owned_opaque = True
-
-            member_flags: list[bool] = []
-            for member in proof.requested_members:
-                outer.unit()
-                stage_g.unit()  # the member eligibility inspection
-                member_flags.append(member.normalized is not None and member.normalized in eligible)
-
-            plans = _currentness_plans(
-                proof,
-                ns.mode,
+        # --- Shared assembly core (018-i private factoring) ----------
+        entries, path_keys, attempts, member_occ_charged, total_entry_bytes, diagnostics = (
+            _assemble_file_entries(
+                state,
+                ns,
+                admission_ns,
+                root_digest,
+                g_bounds,
+                workspace_bytes,
+                root_entry.content_key,
+                total_entry_bytes,
+                groups_by_occ,
                 eligible,
-                groups,
-                whole_ok,
-                root_owned_opaque,
-                member_flags,
+                CurrentAdmissionEntry,
                 outer,
                 stage_g,
             )
-
-            admitted_any = False
-            for plan in plans:
-                admitted, classes, aggregate, content_key, key_record = _entry_descriptor(
-                    admission_ns, root_digest, proof, plan, eligible, outer, stage_g
-                )
-                for occurrence_path in key_record.member_occurrences:
-                    _associate(occurrence_path, content_key)
-                outer.unit()
-                stage_g.unit()  # the interning lookup/identity
-                existing = entries.get(content_key)
-                plan_len = len(plan)
-                outer.units(1 + 2 * plan_len)
-                stage_g.units(1 + 2 * plan_len)
-                # 1 witness construction + the two LINEAR segment-index
-                # passes (nonnegativity, strict-increasing adjacency)
-                witness = CurrentAdmissionWitness(
-                    occurrence_id=occurrence.occurrence_id,
-                    request_index=proof.request_index,
-                    call_position=proof.call_position,
-                    result_position=proof.result_position,
-                    segment_indices=plan,
-                )
-                if existing is not None:
-                    # Known duplicate key: charged witness retention, NO
-                    # new source ownership (the distinct key already
-                    # counted its source bytes once).
-                    merged = _merge_witnesses(existing, witness, outer, stage_g)
-                    entries[content_key] = existing.model_copy(update={"witnesses": merged})
-                else:
-                    region_bytes = 0
-                    region_chars = 0
-                    for position in plan:
-                        outer.unit()
-                        stage_g.unit()  # the proven byte/char fact walk
-                        segment = proof.segments[position]
-                        region_bytes += segment.byte_length
-                        region_chars += segment.char_length
-                    segments_of_proof = len(proof.segments)
-                    member_occ = len(key_record.member_occurrences)
-                    if region_bytes > ns.graph_bounds.max_single_source_bytes:
-                        raise _GOverflow(CurrentAdmissionLimitation.ENTRY_SOURCE_BYTES_OVER_BOUND)
-                    if total_entry_bytes + region_bytes > g_bounds.max_total_entry_source_bytes:
-                        raise _GOverflow(
-                            CurrentAdmissionLimitation.TOTAL_ENTRY_SOURCE_BYTES_OVER_BOUND
-                        )
-                    if 1 + len(entries) + 1 > ns.bounds.max_entries:
-                        raise _GOverflow(CurrentAdmissionLimitation.ENTRIES_OVER_BOUND)
-                    member_count = len(key_record.member_occurrences)
-                    if member_occ_charged + member_count > ns.bounds.max_member_occurrences:
-                        raise _GOverflow(CurrentAdmissionLimitation.MEMBER_OCCURRENSES_OVER_BOUND)
-                    _charge_entry_model(
-                        outer,
-                        stage_g,
-                        segments_of_proof,
-                        plan_len,
-                        member_occ,
-                        len(key_record.ownership_groups),
-                        region_chars,
-                        region_bytes,
-                        workspace_bytes,
-                    )
-                    entry = CurrentAdmissionEntry(
-                        entry_class=EntryClass.FILE_BUNDLE_ENTRY,
-                        content_key=content_key,
-                        key_record=key_record,
-                        width=len(set(admitted)),
-                        member_classes=classes,
-                        root_digest=root_digest,
-                        proof=proof,
-                        admitted_segments=plan,
-                        witnesses=(witness,),
-                    )
-                    entries[content_key] = entry
-                    total_entry_bytes += region_bytes
-                    member_occ_charged += member_count
-                admitted_any = True
-            if not admitted_any:
-                unproven = True
-
-        diagnostics: tuple[CurrentAdmissionLimitation, ...] = ()
-        if unproven:
-            outer.adiam()
-            diagnostics = (CurrentAdmissionLimitation.CANDIDATE_UNPROVEN,)
+        )
 
         # --- Reverse-index rows (NEW G-owned typed rows, charged) -------
         path_associations: list[CurrentAdmissionPathAssociation] = []
@@ -698,6 +572,7 @@ def _currentness_plans(
     member_flags: Sequence[bool],
     outer: _GOuter,
     stage_g: _GStage,
+    root_incompatible: frozenset[int] = frozenset(),
 ) -> tuple[tuple[int, ...], ...]:
     """The current-admission truth table (the exact original rows,
     filtered by the ACTUAL per-owned-group currentness and the
@@ -777,6 +652,8 @@ def _currentness_plans(
                 group.boundary_class is BoundaryClass.BOUNDARYLESS
                 and ROOT_FILENAME in group.members
             ):
+                continue
+            if group.group_index in root_incompatible:
                 continue
             segment = segments[group.group_index]
             outer.units(len(segment.member_positions))
@@ -938,6 +815,225 @@ def _entry_descriptor(
         content_key=content_key,
     )
     return tuple(admitted), tuple(classes), aggregate, content_key, key_record
+
+
+def _assemble_file_entries[EntryT: BaseModel](
+    state: CausalHistoryState,
+    ns: CausalHistoryNamespace,
+    admission_ns: BundleAdmissionNamespace,
+    root_digest: str,
+    g_bounds: CurrentAdmissionBounds,
+    workspace_bytes: int,
+    root_content_key: str,
+    initial_entry_bytes: int,
+    groups_by_occ: dict[str, list[CurrentnessGroupRecord]],
+    eligible: dict[str, int],
+    file_entry_cls: type[EntryT],
+    outer: _GOuter,
+    stage_g: _GStage,
+    selected_root_digest: str | None = None,
+) -> tuple[
+    dict[str, EntryT],
+    dict[str, set[str]],
+    int,
+    int,
+    int,
+    tuple[CurrentAdmissionLimitation, ...],
+]:
+    """The shared admission assembly core (018-i private factoring).
+
+    The ACTUAL 018-g per-occurrence planning/interning law,
+    extracted verbatim from the public derivation: reverse-index
+    association (attempts charged BEFORE dedup), the charged
+    proof/group/member/plan walks, the entry-bytes and
+    entries/member-occurrence cap crossings, the witness
+    construction/merge and the entry model construction through
+    the supplied ``file_entry_cls`` (the accepted 018-g entry for
+    the public law; the 018-i entry for the composition -- the
+    constructor field set is identical for file entries); the root
+    row associates the supplied ``root_content_key``.  Returns
+    the interned entries, the reverse-index key map (root row
+    included), the association attempts, the charged member
+    occurrences, the total charged entry source bytes and the
+    bounded admission diagnostics.
+    """
+    total_entry_bytes = initial_entry_bytes
+    # --- Reverse-index association (attempts charged BEFORE dedup) --
+    path_keys: dict[str, set[str]] = {}
+    attempts = 0
+
+    def _associate(path: str, key: str) -> None:
+        nonlocal attempts
+        outer.unit()
+        stage_g.unit()
+        if attempts + 1 > ns.bounds.max_reverse_associations:
+            raise _GOverflow(CurrentAdmissionLimitation.REVERSE_ASSOCIATIONS_OVER_BOUND)
+        attempts += 1
+        path_keys.setdefault(path, set()).add(key)
+
+    _associate(ROOT_FILENAME, root_content_key)
+    entries: dict[str, EntryT] = {}
+    member_occ_charged = 1  # the required root member occurrence
+    unproven = False
+
+    for occurrence in state.occurrences:
+        outer.unit()
+        stage_g.unit()  # the proof plan visit
+        proof = occurrence.proof
+        groups = groups_by_occ.get(occurrence.occurrence_id)
+        if groups is None:
+            raise _current_graph._Malformed(CurrentGraphLimitation.STATE_MALFORMED)
+
+        whole_ok = True
+        root_owned_opaque = False
+        root_incompatible: set[int] = set()
+        for group in groups:
+            outer.unit()
+            stage_g.unit()  # the group currentness/ownership inspection
+            if group.group_status not in (
+                CurrentnessStatus.CURRENT_KNOWN,
+                CurrentnessStatus.CURRENT_OPAQUE,
+            ):
+                whole_ok = False
+            outer.units(len(group.members))
+            stage_g.units(len(group.members))  # the root-membership walk
+            if ROOT_FILENAME in group.members:
+                if group.boundary_class is BoundaryClass.BOUNDARYLESS:
+                    root_owned_opaque = True
+                if selected_root_digest is not None:
+                    # The 018-i selected-root compatibility law: a
+                    # root-bearing group's root bytes must be PROVEN
+                    # equal to the ACTUAL selected governing digest
+                    # before the group may supply ANY ordinary
+                    # member: only a PROVEN single-root-member group
+                    # whose proven member digest equals the selected
+                    # digest is compatible; a stale/changed root read
+                    # (or unproven root bytes) supplies nothing and
+                    # blocks the whole-bundle row, exactly as the
+                    # root-owned opaque region does.  The public
+                    # 018-g bootstrap law (selected_root_digest None)
+                    # is unchanged.
+                    outer.unit()
+                    stage_g.unit()  # the selected-root compatibility check
+                    if not (
+                        group.boundary_class is BoundaryClass.PROVEN
+                        and group.members == (ROOT_FILENAME,)
+                        and proof.segments[group.group_index].member_digest == selected_root_digest
+                    ):
+                        root_owned_opaque = True
+                        root_incompatible.add(group.group_index)
+
+        member_flags: list[bool] = []
+        for member in proof.requested_members:
+            outer.unit()
+            stage_g.unit()  # the member eligibility inspection
+            member_flags.append(member.normalized is not None and member.normalized in eligible)
+
+        plans = _currentness_plans(
+            proof,
+            ns.mode,
+            eligible,
+            groups,
+            whole_ok,
+            root_owned_opaque,
+            member_flags,
+            outer,
+            stage_g,
+            root_incompatible=frozenset(root_incompatible),
+        )
+
+        admitted_any = False
+        for plan in plans:
+            admitted, classes, aggregate, content_key, key_record = _entry_descriptor(
+                admission_ns, root_digest, proof, plan, eligible, outer, stage_g
+            )
+            for occurrence_path in key_record.member_occurrences:
+                _associate(occurrence_path, content_key)
+            outer.unit()
+            stage_g.unit()  # the interning lookup/identity
+            existing = entries.get(content_key)
+            plan_len = len(plan)
+            outer.units(1 + 2 * plan_len)
+            stage_g.units(1 + 2 * plan_len)
+            # 1 witness construction + the two LINEAR segment-index
+            # passes (nonnegativity, strict-increasing adjacency)
+            witness = CurrentAdmissionWitness(
+                occurrence_id=occurrence.occurrence_id,
+                request_index=proof.request_index,
+                call_position=proof.call_position,
+                result_position=proof.result_position,
+                segment_indices=plan,
+            )
+            if existing is not None:
+                # Known duplicate key: charged witness retention, NO
+                # new source ownership (the distinct key already
+                # counted its source bytes once).
+                merged = _merge_witnesses(
+                    cast("CurrentAdmissionEntry", existing), witness, outer, stage_g
+                )  # the merge only reads the retained witness tuple
+                entries[content_key] = existing.model_copy(update={"witnesses": merged})
+            else:
+                region_bytes = 0
+                region_chars = 0
+                for position in plan:
+                    outer.unit()
+                    stage_g.unit()  # the proven byte/char fact walk
+                    segment = proof.segments[position]
+                    region_bytes += segment.byte_length
+                    region_chars += segment.char_length
+                segments_of_proof = len(proof.segments)
+                member_occ = len(key_record.member_occurrences)
+                if region_bytes > ns.graph_bounds.max_single_source_bytes:
+                    raise _GOverflow(CurrentAdmissionLimitation.ENTRY_SOURCE_BYTES_OVER_BOUND)
+                if total_entry_bytes + region_bytes > g_bounds.max_total_entry_source_bytes:
+                    raise _GOverflow(CurrentAdmissionLimitation.TOTAL_ENTRY_SOURCE_BYTES_OVER_BOUND)
+                if 1 + len(entries) + 1 > ns.bounds.max_entries:
+                    raise _GOverflow(CurrentAdmissionLimitation.ENTRIES_OVER_BOUND)
+                member_count = len(key_record.member_occurrences)
+                if member_occ_charged + member_count > ns.bounds.max_member_occurrences:
+                    raise _GOverflow(CurrentAdmissionLimitation.MEMBER_OCCURRENSES_OVER_BOUND)
+                _charge_entry_model(
+                    outer,
+                    stage_g,
+                    segments_of_proof,
+                    plan_len,
+                    member_occ,
+                    len(key_record.ownership_groups),
+                    region_chars,
+                    region_bytes,
+                    workspace_bytes,
+                )
+                entry = file_entry_cls(
+                    entry_class=EntryClass.FILE_BUNDLE_ENTRY,
+                    content_key=content_key,
+                    key_record=key_record,
+                    width=len(set(admitted)),
+                    member_classes=classes,
+                    root_digest=root_digest,
+                    proof=proof,
+                    admitted_segments=plan,
+                    witnesses=(witness,),
+                )
+                entries[content_key] = entry
+                total_entry_bytes += region_bytes
+                member_occ_charged += member_count
+            admitted_any = True
+        if not admitted_any:
+            unproven = True
+
+    diagnostics: tuple[CurrentAdmissionLimitation, ...] = ()
+    if unproven:
+        outer.adiam()
+        diagnostics = (CurrentAdmissionLimitation.CANDIDATE_UNPROVEN,)
+
+    return (
+        entries,
+        path_keys,
+        attempts,
+        member_occ_charged,
+        total_entry_bytes,
+        diagnostics,
+    )
 
 
 def _build_root_entry(

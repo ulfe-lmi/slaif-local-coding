@@ -292,8 +292,11 @@ current-graph scope, with process qualifications; strategic decision
 current-bundle-admission slice (at its bounded inert
 current-admission scope, with process qualifications; strategic
 decision `S/reviews/018-g-decision.md`) and the implemented 018-h
-root-authority-lineage slice PENDING strategic acceptance at its
-bounded inert scope (contracts
+root-authority-lineage slice (at its bounded inert
+root-authority-lineage scope, with process qualifications;
+strategic decision `S/reviews/018-h-decision.md`) and the
+implemented 018-i current-root-composition slice PENDING
+strategic acceptance at its bounded inert scope (contracts
 [docs/CACHE-GRAPH-CONTRACT.md](docs/CACHE-GRAPH-CONTRACT.md),
 [docs/CACHE-BUNDLE-PROOF-CONTRACT.md](docs/CACHE-BUNDLE-PROOF-CONTRACT.md),
 [docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md](docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md),
@@ -303,7 +306,9 @@ bounded inert scope (contracts
 and
 [docs/CACHE-CURRENT-ADMISSION-CONTRACT.md](docs/CACHE-CURRENT-ADMISSION-CONTRACT.md)
 and
-[docs/CACHE-ROOT-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-LINEAGE-CONTRACT.md));
+[docs/CACHE-ROOT-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-LINEAGE-CONTRACT.md)
+and
+[docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md](docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md));
 all of it is inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`, never active in the
 adapter request execution path, and the v1 runtime mechanism remains

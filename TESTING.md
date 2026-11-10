@@ -182,10 +182,16 @@ qualifications (the 018-g strategic decision,
 `S/reviews/018-g-decision.md`; contract
 [docs/CACHE-CURRENT-ADMISSION-CONTRACT.md](docs/CACHE-CURRENT-ADMISSION-CONTRACT.md);
 `tests/test_current_admission.py`),
-018-h is an implemented inert root-authority-lineage slice PENDING
-strategic acceptance at its bounded inert scope (contract
+018-h is an implemented inert root-authority-lineage slice
+ACCEPTED at its bounded inert root-authority-lineage scope with
+process qualifications (the 018-h strategic decision,
+`S/reviews/018-h-decision.md`; contract
 [docs/CACHE-ROOT-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-LINEAGE-CONTRACT.md);
 `tests/test_root_lineage.py`),
+018-i is an implemented inert current-root-composition slice
+PENDING strategic acceptance at its bounded inert scope (contract
+[docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md](docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md);
+`tests/test_current_root_composition.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned
 stages).
 

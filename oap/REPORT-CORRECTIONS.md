@@ -135,3 +135,56 @@ clarification, no implementation, acceptance or product behavior is
 altered, and the 018-g acceptance at its bounded inert scope WITH
 process qualifications (`S/reviews/018-g-decision.md`) stands as
 recorded.
+
+## 018-h — 2026-11-10
+
+Append-only process/evidence qualifications for the immutable 018-h
+round report `oap/reports/018-h-root-authority-lineage.md` (remote
+SELF `1b9d1d0e966970096961888f35bf26eafd7f8af5`, sole parent B
+`bbe60ba7da7b45f6bd4017d7f1674d9cf2e94d26`, source A
+`0e878444f8529bf8e8c31626d09b458d6fcff736`):
+
+- Manual capture overwrites: the worker acknowledged 12 capture
+  overwrites, while the ROOT current metadata independently
+  records 13 wrong-basename error pairs (empty `.out` plus
+  python source-not-found `.err`). The 13 pairs are NOT
+  independent proof that all 13 overwrote earlier files: earlier
+  exact-byte survival for the distinct paths is uncertain, the
+  initial no-overwrite statement was corrected by the audit, and
+  no old bytes were reconstructed or relabeled.
+- The executed `probe-e-f-oracles-v1.py` was then patched with
+  `sed -i` at the SAME path before the v2/v3 captures (an
+  immutable-manual-source rule breach); the exact earlier v1
+  bytes are not proven preserved, and the current source is not
+  the original failed version.
+- An extra detached `setsid`/`nohup` full pytest (background,
+  umask 077) was observed at B: it is NOT the ordered
+  foreground-managed exact-15/nonroot-child gate. It recorded two
+  actual failures (umask-077 fixture effects on the
+  untrusted-fallback and explicit-0755 containment fixtures),
+  then an owner-terminated SIGTERM surfaced as
+  KeyboardInterrupt with no terminal exit captured; the
+  later status note was appended into the `.out` and must be
+  distinguished from the original captured stdout. It never
+  establishes a final pass.
+- The post-publication next-control wait was adopted with a
+  detached `setsid` reader whose launch metadata `wait_session 0`
+  was WRONG (a tty_nr, not a SID); ownership was recovered with
+  ONE foreground-managed receipt monitor for the existing reader
+  PID/birth, and the monitor itself never opens or reads the
+  FIFO.
+- The 018-h report omitted the standalone
+  repository/PR-URL/mode/base/head fields from its authoritative
+  GitHub state block; the independently verified facts (PR 26,
+  branch `oap/018-cache-graph-bundles`, base
+  `ffaabf4b4d9ce3a9cb7a48e12ab7d8847999adef`, B
+  `bbe60ba7da7b45f6bd4017d7f1674d9cf2e94d26`, SELF
+  `1b9d1d0e966970096961888f35bf26eafd7f8af5`) remain binding as
+  recorded.
+
+These are bounded process/evidence qualifications reconciled
+append-only; no tests or builds are repeated solely for this
+clarification, no implementation, acceptance or product behavior
+is altered, and the 018-h acceptance at its bounded inert
+root-authority-lineage scope WITH process qualifications
+(`S/reviews/018-h-decision.md`) stands as recorded.

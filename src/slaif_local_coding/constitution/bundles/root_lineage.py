@@ -2622,6 +2622,126 @@ def register_root_receipt(
     )
 
 
+def _selection_kernel(
+    h_state: RootLineageState,
+    d_state: CausalHistoryState,
+    outer: _HOuter,
+) -> RootSelectionResult:
+    """The charged causal-maximal selection compute.
+
+    PRIVATE factoring for the 018-i composition: the ACTUAL
+    selection law of the public query, extracted verbatim -- a fact
+    B dominates A iff A is the bootstrap anchor or A's occurrence
+    is a strict ancestor of B's occurrence; ALL maximal witnesses
+    with ONE equal source digest are OK; differing maximal sources
+    are an explicit ROOT_CONTENT_CONFLICT with NO selected source;
+    no authoritative fact at all is the honest NO_SELECTED_ROOT;
+    retained complete but unproven root reads expose the fixed
+    ROOT_SOURCE_UNPROVEN limitation.  Every step charges the
+    supplied H outer exactly as in the public query (the
+    composition supplies its own H-domain adapter, so the
+    independent H ceiling keeps binding beneath the composition
+    total)."""
+    scope_key = h_state.lineage_key
+    revision = h_state.revision
+
+    def _refused(limitation: RootLineageLimitation) -> RootSelectionResult:
+        return RootSelectionResult(
+            outcome=RootSelectionOutcome.REFUSED,
+            limitations=(limitation,),
+            lineage_key=scope_key,
+            revision=revision,
+        )
+
+    parent_map: dict[str, list[str]] = {}
+    for link in d_state.parent_links:
+        if not outer.unit():
+            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+        parent_map.setdefault(link.child, []).append(link.parent)
+    authoritative: list[RootLineageFact] = []
+    unproven = False
+    for fact in h_state.root_facts:
+        if not outer.unit():
+            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+        if fact.authority:
+            authoritative.append(fact)
+        elif fact.provenance.kind == "read":
+            unproven = True
+    limitations: tuple[RootLineageLimitation, ...] = (
+        (RootLineageLimitation.ROOT_SOURCE_UNPROVEN,) if unproven else ()
+    )
+    if not authoritative:
+        if not outer.units(_RESULT_BUILD_UNITS):
+            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+        return RootSelectionResult(
+            outcome=RootSelectionOutcome.NO_SELECTED_ROOT,
+            limitations=limitations,
+            lineage_key=scope_key,
+            revision=revision,
+        )
+    ancestors: dict[tuple[str, str], set[str]] = {}
+    for fact in authoritative:
+        key = _provenance_key(fact.provenance)
+        if not outer.unit():
+            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+        if fact.provenance.kind == "read":
+            try:
+                ancestors[key] = _ancestors_of(fact.provenance.occurrence_id, parent_map, outer)
+            except _WorkOverflowError:
+                return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+        else:
+            ancestors[key] = set()
+    dominated: set[tuple[str, str]] = set()
+    for a in authoritative:
+        key_a = _provenance_key(a.provenance)
+        for b in authoritative:
+            if not outer.unit():
+                return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+            if a is b:
+                continue
+            key_b = _provenance_key(b.provenance)
+            if a.provenance.kind == "envelope" and b.provenance.kind == "read":
+                dominated.add(key_a)
+            elif (
+                a.provenance.kind == "read"
+                and b.provenance.kind == "read"
+                and a.provenance.occurrence_id in ancestors[key_b]
+            ):
+                dominated.add(key_a)
+    maximal_list: list[RootLineageFact] = []
+    for f in authoritative:
+        if not outer.unit():
+            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+        if _provenance_key(f.provenance) not in dominated:
+            maximal_list.append(f)
+    if len(maximal_list) > 1 and not outer.units(len(maximal_list) * (len(maximal_list) - 1)):
+        return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+    maximal = tuple(sorted(maximal_list, key=lambda f: _provenance_key(f.provenance)))
+    digests: set[str] = set()
+    for f in maximal:
+        if not outer.unit():
+            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+        digests.add(f.source_digest)
+    if not outer.units(_RESULT_BUILD_UNITS + _RESULT_FACT_UNITS * len(maximal)):
+        return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
+    if len(digests) == 1:
+        return RootSelectionResult(
+            outcome=RootSelectionOutcome.OK,
+            selected_source_digest=maximal[0].source_digest,
+            witness_facts=maximal,
+            limitations=limitations,
+            lineage_key=scope_key,
+            revision=revision,
+        )
+    return RootSelectionResult(
+        outcome=RootSelectionOutcome.ROOT_CONTENT_CONFLICT,
+        witness_facts=maximal,
+        limitations=limitations,
+        lineage_key=scope_key,
+        revision=revision,
+    )
+
+
 def select_current_root(
     h_state: RootLineageState,
     ns: RootLineageNamespace,
@@ -2711,90 +2831,4 @@ def select_current_root(
     if problem is not None:
         return _refused(problem)
     d_state = h_state.d_state
-    parent_map: dict[str, list[str]] = {}
-    for link in d_state.parent_links:
-        if not outer.unit():
-            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-        parent_map.setdefault(link.child, []).append(link.parent)
-    authoritative: list[RootLineageFact] = []
-    unproven = False
-    for fact in h_state.root_facts:
-        if not outer.unit():
-            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-        if fact.authority:
-            authoritative.append(fact)
-        elif fact.provenance.kind == "read":
-            unproven = True
-    limitations: tuple[RootLineageLimitation, ...] = (
-        (RootLineageLimitation.ROOT_SOURCE_UNPROVEN,) if unproven else ()
-    )
-    if not authoritative:
-        if not outer.units(_RESULT_BUILD_UNITS):
-            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-        return RootSelectionResult(
-            outcome=RootSelectionOutcome.NO_SELECTED_ROOT,
-            limitations=limitations,
-            lineage_key=scope_key,
-            revision=revision,
-        )
-    ancestors: dict[tuple[str, str], set[str]] = {}
-    for fact in authoritative:
-        key = _provenance_key(fact.provenance)
-        if not outer.unit():
-            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-        if fact.provenance.kind == "read":
-            try:
-                ancestors[key] = _ancestors_of(fact.provenance.occurrence_id, parent_map, outer)
-            except _WorkOverflowError:
-                return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-        else:
-            ancestors[key] = set()
-    dominated: set[tuple[str, str]] = set()
-    for a in authoritative:
-        key_a = _provenance_key(a.provenance)
-        for b in authoritative:
-            if not outer.unit():
-                return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-            if a is b:
-                continue
-            key_b = _provenance_key(b.provenance)
-            if a.provenance.kind == "envelope" and b.provenance.kind == "read":
-                dominated.add(key_a)
-            elif (
-                a.provenance.kind == "read"
-                and b.provenance.kind == "read"
-                and a.provenance.occurrence_id in ancestors[key_b]
-            ):
-                dominated.add(key_a)
-    maximal_list: list[RootLineageFact] = []
-    for f in authoritative:
-        if not outer.unit():
-            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-        if _provenance_key(f.provenance) not in dominated:
-            maximal_list.append(f)
-    if len(maximal_list) > 1 and not outer.units(len(maximal_list) * (len(maximal_list) - 1)):
-        return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-    maximal = tuple(sorted(maximal_list, key=lambda f: _provenance_key(f.provenance)))
-    digests: set[str] = set()
-    for f in maximal:
-        if not outer.unit():
-            return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-        digests.add(f.source_digest)
-    if not outer.units(_RESULT_BUILD_UNITS + _RESULT_FACT_UNITS * len(maximal)):
-        return _refused(RootLineageLimitation.WORK_UNITS_OVER_BOUND)
-    if len(digests) == 1:
-        return RootSelectionResult(
-            outcome=RootSelectionOutcome.OK,
-            selected_source_digest=maximal[0].source_digest,
-            witness_facts=maximal,
-            limitations=limitations,
-            lineage_key=scope_key,
-            revision=revision,
-        )
-    return RootSelectionResult(
-        outcome=RootSelectionOutcome.ROOT_CONTENT_CONFLICT,
-        witness_facts=maximal,
-        limitations=limitations,
-        lineage_key=scope_key,
-        revision=revision,
-    )
+    return _selection_kernel(h_state, d_state, outer)

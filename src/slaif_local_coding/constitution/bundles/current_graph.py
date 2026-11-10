@@ -601,6 +601,88 @@ def _validate_anchor(
             raise _Malformed(CurrentGraphLimitation.STATE_MALFORMED)
 
 
+def _validate_selected_root_region(
+    text: str,
+    digest: str,
+    state: CausalHistoryState,
+    ns: CausalHistoryNamespace,
+    outer: _OuterLedger,
+    stage: _StageLedger,
+) -> None:
+    """Fresh charged validation of the ACTUAL SELECTED root region.
+
+    The 018-i private seam (I2): the selected root scanner region
+    is prefight and charged EXACTLY ONCE in the actual F
+    document/source-byte stage domains BEFORE the F scan.  The H
+    phase already validated the ACTUAL immutable bootstrap anchor
+    (and the composition kernel validates the typed same-run
+    selection binding before this call), so the bootstrap integrity
+    is REUSED through that narrow typed context: the anchor
+    document/source-byte domains are NOT charged again for the
+    bootstrap bytes -- but any actually repeated validation here is
+    still charged: the selected region shape, the O(1) character
+    count against the inherited single-source byte cap AND the
+    remaining inspected-source allowance, the charged no-copy UTF-8
+    byte walk with early exit (isolated surrogates refuse before any
+    owned copy), the ONE document/source-byte stage charge for the
+    selected region, the digest recheck from the ONE owned encode,
+    and the retained occurrence root bindings against the ACTUAL
+    anchor digest (D-state coherence).  Every failure is a fixed
+    typed refusal, never an uncaught exception."""
+    outer.unit()
+    stage.unit()
+    if not isinstance(text, str):
+        raise _Malformed(CurrentGraphLimitation.ROOT_MALFORMED)
+    outer.unit()
+    stage.unit()
+    if not isinstance(digest, str) or len(digest) != 64 or not set(digest) <= _HEX_DIGITS:
+        raise _Malformed(CurrentGraphLimitation.ROOT_MALFORMED)
+    outer.unit()
+    stage.unit()
+    cap = min(
+        ns.graph_bounds.max_single_source_bytes,
+        ns.graph_bounds.max_total_inspected_source_bytes - stage.bytes_spent,
+    )
+    if len(text) > cap:
+        raise _StageOverflow(CurrentGraphLimitation.GRAPH_SOURCE_BYTES_OVER_BOUND)
+    try:
+        actual_bytes = _utf8_byte_length_range(text, 0, len(text), cap)
+    except _BadUtf8:
+        raise _Malformed(CurrentGraphLimitation.ROOT_MALFORMED) from None
+    if actual_bytes > cap:
+        raise _StageOverflow(CurrentGraphLimitation.GRAPH_SOURCE_BYTES_OVER_BOUND)
+    outer.unit()
+    stage.document()
+    stage.source_bytes(actual_bytes)
+    outer.unit()
+    stage.unit()
+    root_bytes = text.encode("utf-8")
+    if _sha256_hex(root_bytes) != digest:
+        raise _Malformed(CurrentGraphLimitation.ROOT_MALFORMED)
+    anchor = state.root
+    outer.unit()
+    stage.unit()
+    if (
+        anchor is None
+        or not isinstance(anchor.root_digest, str)
+        or len(anchor.root_digest) != 64
+        or not set(anchor.root_digest) <= _HEX_DIGITS
+    ):
+        raise _Malformed(CurrentGraphLimitation.ROOT_MALFORMED)
+    outer.unit()
+    stage.unit()
+    if anchor.workspace != ns.workspace:
+        raise _Malformed(CurrentGraphLimitation.ROOT_MALFORMED)
+    for occurrence in state.occurrences:
+        outer.unit()
+        stage.unit()
+        if (
+            occurrence.proof.root_path != ROOT_FILENAME
+            or occurrence.proof.root_digest != anchor.root_digest
+        ):
+            raise _Malformed(CurrentGraphLimitation.STATE_MALFORMED)
+
+
 def _segment_at(
     proof: BundleProof,
     group_index: int,
@@ -899,6 +981,9 @@ def _derive_graph(
     currentness_bounds: CurrentnessBounds | None,
     outer: _OuterLedger,
     stage: _StageLedger,
+    *,
+    root_text: str | None = None,
+    root_digest: str | None = None,
 ) -> tuple[CurrentGraphResult, CurrentnessOverlay | None]:
     # --- Charged 018-d history validation (own domain + shared outer) ---
     #
@@ -935,7 +1020,24 @@ def _derive_graph(
             CurrentGraphOutcome.REFUSED_NO_ROOT,
             (CurrentGraphLimitation.ROOT_MISSING,),
         ), None
-    _validate_anchor(state, ns, anchor, outer, stage)
+    if root_text is None:
+        # The public bootstrap law (unchanged): the anchor region is
+        # the single charged F inspection point for the root.
+        _validate_anchor(state, ns, anchor, outer, stage)
+        scan_body = anchor.root_text
+        governing_digest = anchor.root_digest
+    else:
+        # The 018-i private seam: the ACTUAL selected root scanner
+        # region is prefight/charged ONCE in the F document/
+        # source-byte domains; the bootstrap integrity is reused
+        # through the narrow typed same-run validated context.
+        # (root_text is root_digest iff both are supplied; the
+        # composition kernel validates the binding before the call.)
+        if root_digest is None:
+            raise _Malformed(CurrentGraphLimitation.ROOT_MALFORMED)
+        _validate_selected_root_region(root_text, root_digest, state, ns, outer, stage)
+        scan_body = root_text
+        governing_digest = root_digest
 
     # --- Actual path records and proof index (charged builds) -------
     path_records: dict[str, CurrentnessPathRecord] = {}
@@ -1079,7 +1181,7 @@ def _derive_graph(
     R: dict[str, _Node] = {
         ROOT_FILENAME: _Node(
             CurrentGraphStatus.CURRENT_KNOWN,
-            anchor.root_digest,
+            governing_digest,
             ROOT_OWNER,
             (),
         )
@@ -1313,10 +1415,11 @@ def _derive_graph(
                 raise _Malformed(CurrentGraphLimitation.STATE_MALFORMED)
             if path == ROOT_FILENAME:
                 # The root region already paid its document/
-                # source-byte domains at anchor validation (the
-                # single charged inspection point for that region);
-                # only the scan work is charged here.
-                body = anchor.root_text
+                # source-byte domains at anchor validation (or, in
+                # the 018-i seam, at selected-region validation --
+                # the single charged inspection point for that
+                # region); only the scan work is charged here.
+                body = scan_body
             else:
                 supplier = proven[(path, node_digest)]
                 offset, segment = _segment_at(
@@ -1578,7 +1681,7 @@ def _derive_graph(
         CurrentGraphSupplier(
             kind=CurrentGraphSupplierKind.ROOT,
             path=ROOT_FILENAME,
-            digest=anchor.root_digest,
+            digest=governing_digest,
         )
     ]
     for path, digest in _sorted(proven, None, outer, stage):
@@ -1631,7 +1734,7 @@ def _derive_graph(
     scope_key = current_graph_scope_key(
         state.history_key,
         ns.workspace,
-        anchor.root_digest,
+        governing_digest,
         CURRENT_GRAPH_CONTRACT_VERSION,
         CURRENT_GRAPH_POLICY_VERSION,
         ns.graph_version,
@@ -1650,7 +1753,7 @@ def _derive_graph(
         revision=state.revision,
         workspace=ns.workspace,
         root_path=ROOT_FILENAME,
-        root_digest=anchor.root_digest,
+        root_digest=governing_digest,
         graph_version=ns.graph_version,
         reference_version=ns.reference_version,
         proof_version=ns.proof_version,
