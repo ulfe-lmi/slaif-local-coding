@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 251,
+      "entry_count": 255,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "5813e9afc659096d0e95e00a99b2799b81e1c57a5c8ba9e73a2b3dbe9e2aa6db",
-      "size_bytes": 1691125
+      "sha256": "7d5bf58f5145ea558eb1a31471276111572047c7b90898a1a137becf3bae0088",
+      "size_bytes": 1743313
     },
     "wheel": {
-      "entry_count": 56,
+      "entry_count": 58,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "959b6d991ebba5160180195ac8c7bb734feaabf5a079507488fd4cfcf77a7d70",
-      "size_bytes": 429723
+      "sha256": "48ed8288876fd9ab98f13fc7e55e1c08f85695cf3f621940fb0b68e45a983044",
+      "size_bytes": 456861
     }
   },
   "frozen_publication": {
@@ -21,8 +21,8 @@
     "source_commit": "255b3f42912e3947908fc8868eccb6bcec874a08",
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
-  "objective": "018-h",
-  "qualification_label": "development-source-0e878444f8529bf8e8c31626d09b458d6fcff736; not a release candidate; not released",
+  "objective": "018-i",
+  "qualification_label": "development-source-8ad47631a9658b6a186741fc3bd2868faed3465a; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "0e878444f8529bf8e8c31626d09b458d6fcff736",
+  "source_commit": "8ad47631a9658b6a186741fc3bd2868faed3465a",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -54,11 +54,12 @@
     "docs/CACHE-CAUSAL-HISTORY-CONTRACT.md": "14851d79f7a640cd2854a8e3649c8abb36e848ae52e9a9e69303940c63472c3c",
     "docs/CACHE-CURRENT-ADMISSION-CONTRACT.md": "47dc00683fb0e16c0be437c24e5984c26eef2a817ef01f5e701802a5f016a292",
     "docs/CACHE-CURRENT-GRAPH-CONTRACT.md": "bf89d597f53f475bf5cc68f6eb654db8d304ddc076a91d84639caeb6ff992520",
+    "docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md": "94f3ead53b8b1d72c3dc52a4c2a39206bf4d48e605e4d641bf17e3b8f01b8d7b",
     "docs/CACHE-CURRENTNESS-CONTRACT.md": "5845117154734005e8caa68a11feb5853ab5c538cfdde31104a3fb0e25ac7215",
     "docs/CACHE-GRAPH-CONTRACT.md": "d09c3d0a2e9ed3e2e0bf6ca3fb5fd681e3880d30f4697ad87ff790f984df552c",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "dca62b0ca6d0c01c5d3fa10e4afb8b454570286e49c7dcfcb0ea9503692f9bff",
     "docs/CACHE-OBSERVATION-CONTRACT.md": "3cc68340ef0a0f202d1081c116ccfe272cf7ba6c5df4165c2793e008e74c23a9",
-    "docs/CACHE-REWORK-LEDGER.md": "f73174a64f55df46b1e4bf69117c95bf37302a09a14af96e34aecc8dd781083f",
+    "docs/CACHE-REWORK-LEDGER.md": "4ae060947682ddaf50cbabfbd97772e34ce3838fdb66eda9f615942655bf0b99",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/CACHE-ROOT-LINEAGE-CONTRACT.md": "ac583a1a0913515327e1ba6ea91902f897aefd00b90e25739bd4d2c199ccf1db",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
@@ -98,10 +99,12 @@
     "src/slaif_local_coding/constitution/bundles/causal_history_models.py": "14f15786af4c9adbd16cc679605511f0f5aea1598f0efe2568e598179ed8d2db",
     "src/slaif_local_coding/constitution/bundles/client_paths.py": "ce4312f4e81f868076974bfbd519fc8c3a62ef2d5f30f2a5200b48078a0976e9",
     "src/slaif_local_coding/constitution/bundles/compound_reads.py": "a73d5ea778e52e699652d33ca3fc03a906f4758effa0f7bf2223871cd40093ca",
-    "src/slaif_local_coding/constitution/bundles/current_admission.py": "370465a8d5ca1a423f768d535ce759515ca201f1236c9fa711d923105ee78f9a",
+    "src/slaif_local_coding/constitution/bundles/current_admission.py": "7d566a7f618ab3fdf4676a810df0d57b17b5fea8c5a338a88a4a5df0cadb14ba",
     "src/slaif_local_coding/constitution/bundles/current_admission_models.py": "64b4e1f387e8d6fd8e53e799cd32dffb52605809443fd8cb5138ab3cf0303daf",
-    "src/slaif_local_coding/constitution/bundles/current_graph.py": "863583120d0d779480baaadb71431d98739d5d63226111e764f94c5f7a2d6dcb",
+    "src/slaif_local_coding/constitution/bundles/current_graph.py": "b9cab5a73d9bdb6506d6c18068fe9ca96fd1f14d76d2155442ff4230dde4deec",
     "src/slaif_local_coding/constitution/bundles/current_graph_models.py": "6b886d1f1c6fd4bf98f7784773be422084411efbd4e56e5f8c4b632884dd9278",
+    "src/slaif_local_coding/constitution/bundles/current_root_composition.py": "b0901fb61c4898730214cb8b45aad113d32d6c399bf3b250b720400e00fd6bb4",
+    "src/slaif_local_coding/constitution/bundles/current_root_composition_models.py": "b1ea8956e06e83112794c47f9ea151a1b561b31f71dd5bbd1a7e316ba7f32e3f",
     "src/slaif_local_coding/constitution/bundles/currentness.py": "d43c177e9fc7f01e51abb34a31f38b82eca33aae9622ca04dcb01170f1357203",
     "src/slaif_local_coding/constitution/bundles/currentness_models.py": "53194d386bdc9281443edc4a6c3e79b7bc1ec8b648aa046049da04a8b964cf27",
     "src/slaif_local_coding/constitution/bundles/graph.py": "9a67557b33da42e5b980d6515f43ac83ccd3ee8f6c33b19a71b3b33180877a54",
@@ -114,7 +117,7 @@
     "src/slaif_local_coding/constitution/bundles/read_grammar.py": "2ad0e07971274e5ccab94a8c33a1beee86d6c6fef249cbcd83f6e030bfe94f45",
     "src/slaif_local_coding/constitution/bundles/references.py": "2c7a51260ab58e22eb9f4e9f793e74fb05e5491ffb34ccf4088f3d02a2924ad2",
     "src/slaif_local_coding/constitution/bundles/root_envelopes.py": "9212e5fe33dea102131696997da27a619667042d6c0bd51f57bde1473a801444",
-    "src/slaif_local_coding/constitution/bundles/root_lineage.py": "9413c25f573a26ba90cad80f45426d0783168a799f2a6f1cb5cf71cac1650778",
+    "src/slaif_local_coding/constitution/bundles/root_lineage.py": "5e1ef9022ec3321cd3435236dc3f910e7a6da77e809c241fe60fff3e9ebdc9cc",
     "src/slaif_local_coding/constitution/bundles/root_lineage_models.py": "fd1fa79dc8744cd49621de11cc20b67f68b1cea026c2ebbf1436a146b318f871",
     "src/slaif_local_coding/constitution/bundles/shell_tokens.py": "99161042191b2ad0d68196a440fbfc7eeb04717aea1dccbc424fffb5ab1c98f0",
     "src/slaif_local_coding/constitution/bundles/tool_results.py": "742394bb969adfe45a91d66dd0ef456c56edc4085c7863ee73c086a63dce6d5d",
@@ -244,6 +247,7 @@
     "tests/test_current_gateway_contract.py": "ba9a741da0a41d6532887670c335af141879f6775366c1403f41737c281266f0",
     "tests/test_current_graph.py": "461f039c3bf79a79d9aa4324da01e9b9cfbe0987ee2179f98eb60afcf2e3e31f",
     "tests/test_current_graph_models.py": "9eb55ae9f0a214e73bba4bbcc62f4e6d610ec8a6c7f733d174cefc097d13f772",
+    "tests/test_current_root_composition.py": "d7fd1a76f25173d7cfe73551fd7e9b7e047900f1ccdeed29d5e827872e7ed548",
     "tests/test_currentness.py": "7946e75f4c25a97aba0ea4a5806a6c0f1273bd396ca98e23808d1dfa93068f75",
     "tests/test_currentness_models.py": "874133b5af2336aad9e712028fec6a0cb3f163f26ebe30bfdd08ccd48ae0d5a8",
     "tests/test_cutover_state_machine.py": "d8825a83af141324674474ff65f6745396baf1b5c6567dd1a041f44de09ccca8",
