@@ -30,10 +30,13 @@ from enum import StrEnum
 from pydantic import BaseModel, Field, InstanceOf, field_validator, model_validator
 
 from .bundle_admission_models import (
+    AdmissionMode,
+    BoundaryClass,
     BundleAdmissionBounds,
     BundleKeyRecord,
     EntryClass,
     MemberClass,
+    OwnershipGroup,
 )
 from .bundle_proof_models import (
     ROOT_FILENAME,
@@ -193,23 +196,113 @@ def _fence_key_record_bounds(key_record: BundleKeyRecord, field: str) -> None:
         _closed_bounds_fence(actual, f"{field}.{name}")
 
 
-#: ONE dump pass over the four carried bound models: two units per
-#: declared field (the accepted per-field charge convention).
-BOUND_DUMP_UNITS = 2 * sum(len(m.model_fields) for _, m in _KEY_RECORD_BOUND_FIELDS)
-#: The fixed-string payload ceiling both canonical payload builds
-#: serialize: the four 256-char identity strings, the 64-char
-#: route, the exact 64-hex config fingerprint and the five 128-char
-#: version tags plus the short mode value.
-_IDENTITY_PAYLOAD_CEILING = 4 * 256 + 64 + 64 + 5 * 128 + 16
+#: The fixed part of the L01 closed entry / key-record metadata
+#: fence: the entry scalar / enum / container checks, the key-record
+#: scalar / enum / digest / identity / version checks, the per-group
+#: closed shape law, the entry / record class / vector / width joins
+#: and the ownership partition fixed cost (the O(n) tuple walks are
+#: charged separately against the ACTUAL tuple lengths in
+#: ``canonical_rekey_units``).  The kernel reserves exactly this
+#: (plus the bound-model fence) before every entry model path that
+#: can reach the walk.
+ENTRY_METADATA_FENCE_UNITS = 48
+
+#: The root entry's key record has exactly ONE occurrence, ONE
+#: class and ONE ownership index, so the L01 fence O(n) walk term
+#: (``5 * (mo + mc + total_indices)``) is the fixed 15 for it.
+ROOT_ENTRY_FENCE_WALK_UNITS = 15
+
+
+def _json_metadata_byte_ceiling(value: object) -> int:
+    """A closed upper bound on the UTF-8 byte length of the exact
+    ``json.dumps(value, sort_keys=True, separators=(",", ":"))``
+    serialization of METADATA-only values (str / int / bool / None /
+    list / tuple / dict of those).  Strings bind their ACTUAL UTF-8
+    byte length plus the two JSON quotes; ints bound their digit
+    length (a value never exceeds its declared ``le``); each list /
+    dict element carries one separator byte and each container its
+    two brackets / braces.  A JSON field count is never substituted
+    for serialized byte length (L01)."""
+    if value is None or isinstance(value, bool):
+        return 4
+    if isinstance(value, int):
+        return len(str(abs(value))) + 1
+    if isinstance(value, str):
+        return len(value.encode("utf-8")) + 2
+    if isinstance(value, (list, tuple)):
+        return 2 + sum(_json_metadata_byte_ceiling(item) + 1 for item in value)
+    if isinstance(value, dict):
+        return 2 + sum(
+            _json_metadata_byte_ceiling(key) + _json_metadata_byte_ceiling(item) + 3
+            for key, item in value.items()
+        )
+    raise TypeError("the closed byte ceiling covers metadata values only")
+
+
+def _bound_dump_byte_ceiling(model_cls: type[BaseModel]) -> int:
+    """The closed JSON byte ceiling of ONE ``model_dump(mode="json")``
+    serialization of ``model_cls``: every int field at its declared
+    ``le`` (the maximum value carries the maximum digit count) under
+    the exact field names, computed once at import time (L01)."""
+    ceiling: dict[str, object] = {}
+    for name, field_info in model_cls.model_fields.items():
+        high = None
+        for meta in field_info.metadata:
+            candidate = getattr(meta, "le", None)
+            if candidate is not None:
+                high = candidate
+        ceiling[name] = high if high is not None else 0
+    return _json_metadata_byte_ceiling(ceiling)
+
+
+#: ONE dump pass of each carried bound model at its declared
+#: ceilings (closed JSON byte lengths, not field counts).
+_BOUND_DUMP_CEILINGS: dict[type[BaseModel], int] = {
+    model_cls: _bound_dump_byte_ceiling(model_cls) for _, model_cls in _KEY_RECORD_BOUND_FIELDS
+}
+#: ONE dump pass over the four carried bound models (closed bytes).
+BOUND_DUMP_UNITS = sum(_BOUND_DUMP_CEILINGS.values())
+#: The exact ``_key_canonical`` canonical dict key names (the
+#: accepted 018-c recipe fields; the name bytes are part of the
+#: serialized payload and are charged as such).
+_KEY_CANONICAL_NAMES: tuple[str, ...] = (
+    "admission_version",
+    "graph_version",
+    "reference_version",
+    "proof_version",
+    "observation_version",
+    "mode",
+    "authority_class",
+    "principal",
+    "session",
+    "repository",
+    "route",
+    "config_fingerprint",
+    "model_identity",
+    "workspace",
+    "root_digest",
+    "admission_bounds",
+    "proof_bounds",
+    "graph_bounds",
+    "observation_bounds",
+    "member_occurrences",
+    "member_classes",
+    "aggregate_source_digest",
+    "ownership_groups",
+)
 
 
 def canonical_rekey_units(key_record: BundleKeyRecord) -> int:
-    """A closed upper bound on the K01 per-entry ACTUAL canonical
-    re-derivation performed by ``_check_selected_root_binding``.
+    """A closed upper bound on the L01 per-entry ACTUAL metadata
+    fence plus the K01 per-entry ACTUAL canonical re-derivation
+    performed by ``_check_selected_root_binding``.
 
-    The accepted recipe performs exactly: the closed bound fence
-    (``KEY_RECORD_FENCE_UNITS``), the two retained digest
-    comparisons, the content-key agreement comparison and then
+    The accepted recipe performs exactly: the L01 closed entry /
+    key-record / ownership metadata fence (fixed scalar / enum /
+    container checks plus the O(n) tuple walks, the distinct-path
+    set build and the ownership partition), the two retained
+    digest comparisons, the entry / record metadata joins, the
+    content-key agreement comparison and then
     ``_canonical_entry_key``, which the accepted helpers execute
     as THREE 4-bound-model dump passes (the two
     ``_canonical_namespace_fields`` builds -- the first in
@@ -218,49 +311,102 @@ def canonical_rekey_units(key_record: BundleKeyRecord) -> int:
     ``_key_canonical`` build), two namespace payload builds, one
     key payload build and FIVE sha256 passes (two over the
     namespace payload, two over the scoped-key payload and one
-    over the canonical payload).  Each term below upper-bounds one
-    of those at the ACTUAL field lengths (the actual workspace
-    length and the actual member/ownership tuple lengths), so the
-    kernel may charge the sum once per planned entry BEFORE the
-    construction that performs it: a crossing is refused before
-    the re-derivation may serialize or hash, never after a
-    partial pass.
+    over the canonical payload).  Every serialized term is bounded
+    at the ACTUAL record length where the length belongs to the
+    record (workspace, member occurrence paths, member-class
+    values, ownership-group fields) and at the declared field
+    ceilings where it does not (identity strings, version tags,
+    bound-model ints at their ``le`` values): a field count is
+    never a serialized length.  The kernel may therefore charge
+    the sum once per planned entry BEFORE the construction that
+    performs it: a crossing is refused before the re-derivation
+    may serialize or hash, never after a partial pass.
     """
-    ws = len(key_record.workspace)
-    mo = len(key_record.member_occurrences)
-    mc = len(key_record.member_classes)
-    og = len(key_record.ownership_groups)
-    # The canonical namespace payload: the twelve identity/version
-    # strings under the fixed ceiling plus the four bound-model
-    # JSON serializations.
-    payload_a = 2 * _IDENTITY_PAYLOAD_CEILING + 4 * BOUND_DUMP_UNITS + 32
-    # The canonical key payload: payload A plus the two 64-hex
-    # digests, the workspace and the member/ownership tuples.
-    payload_b = payload_a + 2 * 64 + ws + 2 * mo + 2 * mc + 8 * og + 32
-    # One scoped-key pass: the namespace key + NUL + workspace
-    # concatenation, encode and sha256.
-    scoped = 4 * 64 + 4 * ws + 8
-    # One ``_canonical_namespace_fields`` build: the four bound
-    # dumps AND their four JSON serializations, the payload list
-    # and the outer JSON encode.
-    namespace_build = 2 * BOUND_DUMP_UNITS + 32 + payload_a
-    # ``_entry_admission_namespace``: one build, both sha256
-    # passes, and the namespace model construction (assignments,
-    # field validators and the bound-integrity RE-build plus its
-    # two sha256 passes).
-    namespace_rebuild = (
-        namespace_build + payload_a + scoped + 32 + namespace_build + 2 * payload_a + scoped
+    occurrences = key_record.member_occurrences
+    classes = key_record.member_classes
+    groups = key_record.ownership_groups
+    mo = len(occurrences)
+    mc = len(classes)
+    total_indices = sum(len(g.member_occurrence_indices) for g in groups)
+
+    def s(n: int) -> int:
+        # One JSON string element under a declared n-char ceiling.
+        return _json_metadata_byte_ceiling("x" * n)
+
+    bound_strings = sum(
+        _BOUND_DUMP_CEILINGS[model_cls] + 2 for _, model_cls in _KEY_RECORD_BOUND_FIELDS
     )
-    # ``_key_canonical``: the canonical dict, the four bound dumps
-    # and their serializations, the tuple list comprehensions and
+    # One ``_canonical_namespace_fields`` payload: the eleven
+    # identity / version strings under their declared ceilings plus
+    # the short mode value, then the four bound-model JSON dumps as
+    # string elements.
+    namespace_payload = 2 + (4 * s(256) + 2 * s(64) + 5 * s(128) + s(16) + bound_strings) + 15
+    workspace_bytes = len(key_record.workspace.encode("utf-8"))
+    # The scoped-key input: the 64-hex namespace key, NUL and the
+    # ACTUAL workspace UTF-8 bytes.
+    scoped_input = 64 + 1 + workspace_bytes
+    one_build = sum(_BOUND_DUMP_CEILINGS.values()) + namespace_payload
+    # ``_entry_admission_namespace``: TWO builds, FOUR sha256
+    # passes (two over the namespace payload, two over the scoped
+    # key), the one workspace encode walk and the namespace model
+    # construction.
+    namespace_rebuild = (
+        2 * one_build
+        + 2 * (namespace_payload + 64)
+        + 2 * (scoped_input + 64)
+        + 1
+        + workspace_bytes
+        + 40
+    )
+    # ``_key_canonical``: the four bound dumps, the canonical dict
+    # at the ACTUAL member / class / group / workspace lengths and
     # the outer JSON encode.
-    key_build = 2 * BOUND_DUMP_UNITS + 22 + 6 * mo + 2 * mc + 4 * og + payload_b
+    member_list = 2 + sum(_json_metadata_byte_ceiling(p) + 1 for p in occurrences)
+    class_list = 2 + sum(_json_metadata_byte_ceiling(c.value) + 1 for c in classes)
+    group_items: list[int] = []
+    for group in groups:
+        index_list = 2 + sum(len(str(index)) + 2 for index in group.member_occurrence_indices)
+        group_items.append(
+            2
+            + len("member_occurrence_indices")
+            + 3
+            + index_list
+            + len("boundary_class")
+            + 3
+            + _json_metadata_byte_ceiling(group.boundary_class.value)
+            + len("group_digest")
+            + 3
+            + (_json_metadata_byte_ceiling(group.group_digest) if group.group_digest else 4)
+            + 2
+        )
+    group_list = 2 + sum(group_items) + (len(group_items) - 1)
+    key_names = 2 + sum(len(n) + 3 for n in _KEY_CANONICAL_NAMES) + (len(_KEY_CANONICAL_NAMES) - 1)
+    key_payload = (
+        key_names
+        + 5 * s(128)
+        + 2 * s(16)
+        + 4 * s(256)
+        + s(64)
+        + s(64)
+        + _json_metadata_byte_ceiling(key_record.workspace)
+        + 2 * s(64)
+        + bound_strings
+        + member_list
+        + class_list
+        + group_list
+    )
+    key_build = sum(_BOUND_DUMP_CEILINGS.values()) + key_payload
+    # The L01 closed metadata fence: the fixed checks plus the O(n)
+    # tuple / set / partition walks at the ACTUAL tuple lengths.
+    fence_walks = ENTRY_METADATA_FENCE_UNITS + 5 * (mo + mc + total_indices)
     return (
-        KEY_RECORD_FENCE_UNITS  # the closed bound fence (second per-entry pass)
+        KEY_RECORD_FENCE_UNITS  # the closed bound-model fence pass
+        + fence_walks  # the L01 closed metadata fence
         + 3  # the two digest + the one content-key comparisons
         + namespace_rebuild  # _entry_admission_namespace
         + key_build  # _key_canonical
-        + payload_b  # the final canonical sha256
+        + key_payload
+        + 64  # the final canonical sha256
     )
 
 
@@ -274,11 +420,214 @@ def row_shape_units(keys: tuple[str, ...]) -> int:
     return 2 + 5 * n + n * n.bit_length()
 
 
+def _fence_entry_metadata(entry: CurrentRootCompositionEntry, field: str) -> None:
+    """The L01 CLOSED actual-field metadata fence for one retained
+    entry and its nested key record, BEFORE any accepted helper may
+    serialize, hash or walk it.
+
+    Typed model construction does not prove the field shape after a
+    model_copy bypass, and the accepted canonical recipe dereferences
+    ``mode.value`` / ``member_classes`` / group fields directly: an
+    unchecked raw string there is an uncaught ``AttributeError``,
+    never a validation refusal.  This fence therefore closes the
+    COMPLETE bounded metadata shape -- the entry scalar / enum /
+    container fields, the key-record scalar / enum / digest /
+    identity / version fields, the four carried bound models, the
+    member occurrence / class / ownership-group containers under the
+    ACTUAL inherited admission cap, the accepted per-group closed
+    law and the exact ownership partition -- before any element is
+    visited by a serializer.  A forged container or an overcount
+    refuses with ONE fixed private error before its elements are
+    touched: no serialization traversal, no raw value echo, no
+    invented larger cap and no coercion masquerading as an actual
+    enum (the classes are StrEnums -- equality alone would accept a
+    raw string).  Charged bounded METADATA work only (reserved by
+    ``ENTRY_METADATA_FENCE_UNITS`` plus the O(n) terms of
+    ``canonical_rekey_units`` on the I outer); no source rewalk.
+    """
+    if not isinstance(entry.entry_class, EntryClass):
+        raise _fixed(f"{field}.entry_class must be the actual entry class")
+    member_classes = entry.member_classes
+    if not isinstance(member_classes, tuple):
+        raise _fixed(f"{field}.member_classes must be a tuple")
+    for value in member_classes:
+        if not isinstance(value, MemberClass):
+            raise _fixed(f"{field}.member_classes must hold actual member classes")
+    if not member_classes:
+        raise _fixed(f"{field}.member_classes must not be empty")
+    width = entry.width
+    if not isinstance(width, int) or isinstance(width, bool) or width < 1:
+        raise _fixed(f"{field}.width must be an actual positive integer")
+    segments = entry.admitted_segments
+    if not isinstance(segments, tuple):
+        raise _fixed(f"{field}.admitted_segments must be a tuple")
+    for index in segments:
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+            raise _fixed(f"{field}.admitted_segments must hold actual nonnegative integers")
+    if entry.root_text is not None and not isinstance(entry.root_text, str):
+        raise _fixed(f"{field}.root_text must be str or None")
+    length = entry.root_source_byte_length
+    if length is not None and (
+        not isinstance(length, int) or isinstance(length, bool) or length < 0
+    ):
+        raise _fixed(f"{field}.root_source_byte_length must be an actual nonnegative integer")
+    if entry.root_provenance is not None and not isinstance(
+        entry.root_provenance, (EnvelopeRootProvenance, ReadRootProvenance)
+    ):
+        raise _fixed(f"{field}.root_provenance must be an actual retained provenance")
+    if entry.proof is not None and not isinstance(entry.proof, BundleProof):
+        raise _fixed(f"{field}.proof must be the actual retained proof")
+    if not isinstance(entry.content_key, str) or len(entry.content_key) != 64:
+        raise _fixed(f"{field}.content_key must be an actual 64-hex digest")
+    if not isinstance(entry.root_digest, str) or len(entry.root_digest) != 64:
+        raise _fixed(f"{field}.root_digest must be an actual 64-hex digest")
+    witnesses = entry.witnesses
+    if not isinstance(witnesses, tuple):
+        raise _fixed(f"{field}.witnesses must be a tuple")
+    for witness in witnesses:
+        if not isinstance(witness, CurrentAdmissionWitness):
+            raise _fixed(f"{field}.witnesses must hold actual witnesses")
+        if not isinstance(witness.occurrence_id, str):
+            raise _fixed(f"{field}.witness occurrence id must be str")
+        for name in ("request_index", "call_position", "result_position"):
+            value = getattr(witness, name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise _fixed(f"{field}.witness {name} must be an actual nonnegative integer")
+        if not isinstance(witness.segment_indices, tuple):
+            raise _fixed(f"{field}.witness segment indices must be a tuple")
+        for index in witness.segment_indices:
+            if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+                raise _fixed(f"{field}.witness segment index must be an actual nonnegative integer")
+    kr = entry.key_record
+    if not isinstance(kr, BundleKeyRecord):
+        raise _fixed(f"{field}.key_record must be the actual key record")
+    if not isinstance(kr.mode, AdmissionMode):
+        raise _fixed(f"{field}.key_record.mode must be the actual admission mode")
+    if not isinstance(kr.authority_class, EntryClass):
+        raise _fixed(f"{field}.key_record.authority_class must be the actual entry class")
+    for name in (
+        "admission_version",
+        "graph_version",
+        "reference_version",
+        "proof_version",
+        "observation_version",
+    ):
+        value = getattr(kr, name)
+        if not isinstance(value, str) or not 1 <= len(value) <= 128:
+            raise _fixed(f"{field}.key_record.{name} must be an actual version tag")
+    for name in ("principal", "session", "repository", "model_identity"):
+        value = getattr(kr, name)
+        if not isinstance(value, str) or not 1 <= len(value) <= 256:
+            raise _fixed(f"{field}.key_record.{name} must be an actual identity text")
+    route = kr.route
+    if not isinstance(route, str) or not 1 <= len(route) <= 64:
+        raise _fixed(f"{field}.key_record.route must be an actual route text")
+    if not isinstance(kr.workspace, str) or not kr.workspace:
+        raise _fixed(f"{field}.key_record.workspace must be an actual nonempty path")
+    for name in ("config_fingerprint", "root_digest", "aggregate_source_digest"):
+        value = getattr(kr, name)
+        if not isinstance(value, str) or len(value) != 64:
+            raise _fixed(f"{field}.key_record.{name} must be an actual 64-hex digest")
+    # The four carried bound models (closed scalar fence) BEFORE
+    # any cap below can be read from them.
+    _fence_key_record_bounds(kr, f"{field}.key_record")
+    occurrences = kr.member_occurrences
+    if not isinstance(occurrences, tuple):
+        raise _fixed(f"{field}.key_record.member_occurrences must be a tuple")
+    if not occurrences:
+        raise _fixed(f"{field}.key_record.member_occurrences must not be empty")
+    for path in occurrences:
+        if not isinstance(path, str) or not path:
+            raise _fixed(f"{field}.key_record.member_occurrences must hold actual paths")
+    if len(occurrences) > kr.admission_bounds.max_member_occurrences:
+        raise _fixed(f"{field}.key_record.member_occurrences exceed the actual admission cap")
+    record_classes = kr.member_classes
+    if not isinstance(record_classes, tuple):
+        raise _fixed(f"{field}.key_record.member_classes must be a tuple")
+    for value in record_classes:
+        if not isinstance(value, MemberClass):
+            raise _fixed(f"{field}.key_record.member_classes must hold actual member classes")
+    if len(record_classes) != len(occurrences):
+        raise _fixed(f"{field}.key_record.member_classes must align with the occurrences")
+    groups = kr.ownership_groups
+    if not isinstance(groups, tuple) or not groups:
+        raise _fixed(f"{field}.key_record.ownership_groups must be a nonempty tuple")
+    covered: set[int] = set()
+    for group in groups:
+        if not isinstance(group, OwnershipGroup):
+            raise _fixed(f"{field}.key_record.ownership_groups must hold actual groups")
+        if (
+            not isinstance(group.group_index, int)
+            or isinstance(group.group_index, bool)
+            or group.group_index < 0
+        ):
+            raise _fixed(f"{field}.key_record.group index must be an actual nonnegative integer")
+        indices = group.member_occurrence_indices
+        if not isinstance(indices, tuple) or not indices:
+            raise _fixed(f"{field}.key_record.group indices must be a nonempty tuple")
+        if len(set(indices)) != len(indices):
+            raise _fixed(f"{field}.key_record.group indices must be distinct")
+        if indices != tuple(sorted(indices)):
+            raise _fixed(f"{field}.key_record.group indices must be increasing")
+        for index in indices:
+            if (
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or not 0 <= index < len(occurrences)
+            ):
+                raise _fixed(f"{field}.key_record.group indices must index the occurrences")
+        if not isinstance(group.boundary_class, BoundaryClass):
+            raise _fixed(f"{field}.key_record.group boundary must be the actual boundary class")
+        if group.group_digest is not None and (
+            not isinstance(group.group_digest, str) or len(group.group_digest) != 64
+        ):
+            raise _fixed(f"{field}.key_record.group digest must be 64-hex or None")
+        if group.boundary_class is BoundaryClass.PROVEN and group.group_digest is None:
+            raise _fixed(f"{field}.key_record.a proven group requires its exact digest")
+        if group.boundary_class is BoundaryClass.BOUNDARYLESS and len(indices) == 1:
+            raise _fixed(f"{field}.key_record.a boundaryless group is never a singleton")
+        covered.update(indices)
+    if covered != set(range(len(occurrences))):
+        raise _fixed(f"{field}.key_record.groups must partition the occurrences exactly")
+    # The closed branch shape (metadata only, no source walk): the
+    # root entry carries the retained root bytes/provenance and NO
+    # proof/witnesses/segments; the file entry carries the retained
+    # proof/witnesses and NO root bytes/provenance.  A
+    # model_copy-bypassed entry must obey the same closed shape at
+    # the parent boundaries as at construction.
+    if entry.entry_class is EntryClass.ROOT_ENTRY:
+        if segments:
+            raise _fixed(f"{field}.a root entry admits the root, not proof segments")
+        if entry.root_text is None or entry.root_provenance is None:
+            raise _fixed(f"{field}.a root entry carries its retained root bytes and provenance")
+        if entry.proof is not None:
+            raise _fixed(f"{field}.a root entry never embeds a file-tool proof")
+        if witnesses:
+            raise _fixed(f"{field}.a root entry is evidenced, never a fabricated read witness")
+        if occurrences != (ROOT_FILENAME,):
+            raise _fixed(f"{field}.a root entry is one occurrence at the normalized root")
+        if tuple(member_classes) != (MemberClass.ELIGIBLE,):
+            raise _fixed(f"{field}.the root is one always-eligible root-occurrence member")
+        if kr.aggregate_source_digest != entry.root_digest:
+            raise _fixed(f"{field}.the root aggregate digest equals the root digest")
+    else:
+        if entry.root_text is not None:
+            raise _fixed(f"{field}.retained root bytes belong to the root entry only")
+        if length is not None:
+            raise _fixed(f"{field}.retained root byte length belongs to the root entry only")
+        if entry.root_provenance is not None:
+            raise _fixed(f"{field}.retained root provenance belongs to the root entry only")
+        if entry.proof is None:
+            raise _fixed(f"{field}.a file entry keeps its retained original proof")
+        if not witnesses:
+            raise _fixed(f"{field}.a file entry retains its original proof witnesses")
+
+
 def _check_selected_root_binding(admission: CurrentRootCompositionAdmission) -> None:
-    """J01/K01: EVERY retained entry (root entry and file entries)
-    must bind the SELECTED governing root digest of the admission
-    it lives in, and its ACTUAL canonical key must RE-DERIVE from
-    its ACTUAL key record.
+    """J01/K01/L01: EVERY retained entry (root entry and file
+    entries) must bind the SELECTED governing root digest of the
+    admission it lives in, and its ACTUAL canonical key must
+    RE-DERIVE from its ACTUAL key record.
 
     A genuine earlier admission entry for the SAME nonroot source
     under a CHANGED governing root is self-consistent (its key
@@ -291,19 +640,34 @@ def _check_selected_root_binding(admission: CurrentRootCompositionAdmission) -> 
     ACTUAL nested key record fields and must reproduce the entry
     key, which must also equal the key record's own content key --
     comparing tags/digests or entry==record key alone is never the
-    law.  The closed bound fence runs BEFORE the recipe may
-    serialize any carried bound model.  Charged METADATA work
-    only (one closed re-derivation pass per entry); no source
+    law.  L01 completes the parent boundary: BEFORE the recipe may
+    serialize or hash anything, the L01 closed metadata fence
+    closes the ACTUAL entry / key-record / ownership field shapes
+    (scalar types, enum instances, containers, counts under the
+    ACTUAL inherited cap, the accepted per-group law and the
+    exact ownership partition) -- a model_copy-forged raw string or
+    forged container yields ONE fixed private refusal, never an
+    uncaught AttributeError from the recipe's enum dereference --
+    and the bounded entry / record metadata joins (entry class,
+    authority vector, width against the distinct record paths) run
+    BEFORE the re-derivation.  Charged METADATA work only (one
+    closed fence + re-derivation pass per entry); no source
     rewalk.  Runs on the ACTUAL fields so a model_copy-bypassed
     nested admission/entry cannot be trusted by class membership
     or by a skipped leaf law.
     """
     for entry in (admission.root_entry, *admission.entries):
+        _fence_entry_metadata(entry, "entry")
+        if entry.entry_class is not entry.key_record.authority_class:
+            raise _fixed("entry class must equal the key record authority class")
+        if tuple(entry.member_classes) != tuple(entry.key_record.member_classes):
+            raise _fixed("entry authority vector must equal the key record vector")
+        if entry.width != len(set(entry.key_record.member_occurrences)):
+            raise _fixed("entry width must equal the distinct key record member paths")
         if entry.root_digest != admission.root_digest:
             raise _fixed("every file entry binds the selected governing root digest")
         if entry.key_record.root_digest != admission.root_digest:
             raise _fixed("every file entry key record binds the selected governing root digest")
-        _fence_key_record_bounds(entry.key_record, "key_record")
         if entry.key_record.content_key != entry.content_key:
             raise _fixed("every entry key record content key agrees with the entry")
         if _canonical_entry_key(entry.key_record) != entry.content_key:
@@ -584,12 +948,15 @@ class CurrentRootCompositionEntry(_GraphFrozen):
 
     @model_validator(mode="after")
     def _v_entry(self) -> CurrentRootCompositionEntry:
-        # The closed pre-dump fence (I8): the accepted
+        # The L01 closed pre-dump metadata fence: the accepted
         # ``_canonical_entry_key`` re-derivation below serializes the
-        # key record's carried bound models, so a model_copy-forged
-        # bound field must refuse HERE -- before the first serializer
-        # traversal, with the fixed private error.
-        _fence_key_record_bounds(self.key_record, "key_record")
+        # key record's carried bound models and dereferences its
+        # enum fields directly, so a model_copy-forged scalar, enum,
+        # container or group must refuse HERE -- before the first
+        # serializer traversal or element visit, with the fixed
+        # private error (the leaf path is fenced exactly like the
+        # parent boundaries).
+        _fence_entry_metadata(self, "entry")
         if self.key_record.authority_class != self.entry_class:
             raise _fixed("key record authority class must equal the entry class")
         if self.key_record.root_digest != self.root_digest:

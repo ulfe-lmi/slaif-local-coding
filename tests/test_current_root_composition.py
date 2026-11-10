@@ -33,6 +33,9 @@ from slaif_local_coding.constitution.bundles import (
 from slaif_local_coding.constitution.bundles import (
     current_root_composition_models as crcm,
 )
+from slaif_local_coding.constitution.bundles import (
+    currentness as currentness_mod,
+)
 from slaif_local_coding.constitution.bundles.bundle_admission import (
     observe_bundle_admission_batch,
 )
@@ -77,8 +80,10 @@ from slaif_local_coding.constitution.bundles.current_root_composition_models imp
     CurrentRootCompositionLimitation,
     CurrentRootCompositionOutcome,
 )
+from slaif_local_coding.constitution.bundles.currentness import _evidenced_equal
 from slaif_local_coding.constitution.bundles.currentness_models import (
     CurrentnessBounds,
+    opaque_group_identity,
 )
 from slaif_local_coding.constitution.bundles.graph_models import GraphBounds
 from slaif_local_coding.constitution.bundles.graph_observation import GraphRequest
@@ -303,6 +308,252 @@ def admission_field_data(
     data = {name: getattr(admission, name) for name in CurrentRootCompositionAdmission.model_fields}
     data.update(overrides)
     return data
+
+
+def current_field_data(current: CurrentRootComposition, **overrides: Any) -> dict[str, Any]:
+    data = {name: getattr(current, name) for name in CurrentRootComposition.model_fields}
+    data.update(overrides)
+    return data
+
+
+def _l01_malformed_entry(
+    entry: CurrentRootCompositionEntry, kind: str
+) -> CurrentRootCompositionEntry:
+    """One model_copy-forged nested shape (constructor-only input)."""
+    kr = entry.key_record
+    if kind == "authority-class-raw":
+        record = kr.model_copy(update={"authority_class": kr.authority_class.value})
+    elif kind == "principal-empty":
+        record = kr.model_copy(update={"principal": ""})
+    elif kind == "route-over":
+        record = kr.model_copy(update={"route": "x" * 65})
+    elif kind == "digest-short":
+        record = kr.model_copy(update={"root_digest": "0" * 63})
+    elif kind == "occurrences-list":
+        record = kr.model_copy(update={"member_occurrences": list(kr.member_occurrences)})
+    elif kind == "occurrences-empty-path":
+        record = kr.model_copy(
+            update={"member_occurrences": tuple("" for _ in kr.member_occurrences)}
+        )
+    elif kind == "classes-empty":
+        record = kr.model_copy(update={"member_classes": ()})
+    elif kind == "groups-empty":
+        record = kr.model_copy(update={"ownership_groups": ()})
+    elif kind == "group-index-out-of-range":
+        group = kr.ownership_groups[0].model_copy(update={"member_occurrence_indices": (5,)})
+        record = kr.model_copy(update={"ownership_groups": (group,)})
+    elif kind == "group-index-duplicate":
+        group = kr.ownership_groups[0].model_copy(update={"member_occurrence_indices": (0, 0)})
+        record = kr.model_copy(update={"ownership_groups": (group,)})
+    elif kind == "group-boundaryless-singleton":
+        group = kr.ownership_groups[0].model_copy(
+            update={"boundary_class": BoundaryClass.BOUNDARYLESS, "group_digest": None}
+        )
+        record = kr.model_copy(update={"ownership_groups": (group,)})
+    elif kind == "occurrences-over-cap":
+        bounds = kr.admission_bounds.model_copy(update={"max_member_occurrences": 1})
+        record = kr.model_copy(
+            update={
+                "member_occurrences": kr.member_occurrences + ("B.md",),
+                "admission_bounds": bounds,
+            }
+        )
+    elif kind == "width-bool":
+        return entry.model_copy(update={"width": True})
+    elif kind == "width-zero":
+        return entry.model_copy(update={"width": 0})
+    elif kind == "entry-classes-raw":
+        return entry.model_copy(update={"member_classes": (entry.member_classes[0].value,)})
+    elif kind == "segments-list":
+        return entry.model_copy(update={"admitted_segments": list(entry.admitted_segments)})
+    elif kind == "witnesses-list":
+        return entry.model_copy(update={"witnesses": list(entry.witnesses)})
+    else:
+        raise AssertionError(kind)
+    return entry.model_copy(update={"key_record": record})
+
+
+def _e_expected_counts(state: RootLineageState) -> dict[str, int]:
+    """L02: the four E collection-domain counts derived
+    INDEPENDENTLY from the genuine retained D metadata
+    (occurrences, proof segments, member positions and the frozen
+    parent links) -- the E charging law re-derived here, never a
+    binary search of the same refusal outcome:
+
+    - ``max_paths``: one per distinct nonroot member path at its
+      first claim;
+    - ``max_groups``: one per (occurrence, proof segment);
+    - ``max_witness_memberships``: one per claim row, one per
+      DISTINCT overlapping occurrence per path, one per DISTINCT
+      maximal-witness occurrence per path, one per DISTINCT blocker
+      witness per (group, path) row and one per emitted row;
+    - ``max_relation_pairs``: every ACTUAL relation attempt
+      (dominance comparisons plus group-row comparisons, duplicates
+      charged, the same-occurrence self-clock never charged) under
+      the frozen-edge relation law.
+    """
+    d = state.d_state
+    parent_map: dict[str, list[str]] = {}
+    for link in d.parent_links:
+        parent_map.setdefault(link.child, []).append(link.parent)
+    occurrence_ids = {occ.occurrence_id for occ in d.occurrences}
+    ancestor_cache: dict[str, frozenset[str]] = {}
+
+    def ancestors_of(start: str) -> frozenset[str]:
+        if start not in ancestor_cache:
+            seen: set[str] = {start}
+            stack = [start]
+            while stack:
+                node = stack.pop()
+                for parent in parent_map.get(node, ()):
+                    if parent not in seen:
+                        seen.add(parent)
+                        stack.append(parent)
+            ancestor_cache[start] = frozenset(seen)
+        return ancestor_cache[start]
+
+    relation_memo: dict[tuple[str, str], str] = {}
+
+    def relation(a: str, b: str) -> str:
+        if a not in occurrence_ids or b not in occurrence_ids:
+            return "unknown"
+        if a == b:
+            return "same"
+        first, second = (a, b) if a < b else (b, a)
+        if (first, second) not in relation_memo:
+            if first in ancestors_of(second):
+                relation_memo[(first, second)] = "before"
+            elif second in ancestors_of(first):
+                relation_memo[(first, second)] = "after"
+            else:
+                relation_memo[(first, second)] = "incomparable"
+        stored = relation_memo[(first, second)]
+        if (a, b) != (first, second):
+            stored = {"before": "after", "after": "before"}.get(stored, stored)
+        return stored
+
+    paths = 0
+    groups = 0
+    memberships = 0
+    pairs = 0
+    path_claims: dict[str, list[tuple[str, int, str | None, str]]] = {}
+    group_facts: list[
+        tuple[str, int, tuple[str, ...], str | None, tuple[str | None, ...], str, str]
+    ] = []
+    for occurrence in d.occurrences:
+        proof = occurrence.proof
+        root_path = proof.root_path
+        for group_index, segment in enumerate(proof.segments):
+            groups += 1
+            positions = segment.member_positions
+            digest = segment.member_digest
+            if len(positions) == 1 and digest is not None:
+                boundary = BoundaryClass.PROVEN
+                group_digest: str = digest
+                member_digests: tuple[str | None, ...] = (digest,)
+            elif len(positions) == 1:
+                raise AssertionError("a singleton without a digest is malformed state")
+            else:
+                boundary = BoundaryClass.BOUNDARYLESS
+                group_digest = segment.digest
+                member_digests = (None,) * len(positions)
+            members: list[str] = []
+            for position in positions:
+                normalized = proof.requested_members[position].normalized
+                assert normalized is not None
+                members.append(normalized)
+            identity = opaque_group_identity(boundary, tuple(members), group_digest, member_digests)
+            group_facts.append(
+                (
+                    occurrence.occurrence_id,
+                    group_index,
+                    tuple(members),
+                    group_digest,
+                    member_digests,
+                    identity,
+                    root_path,
+                )
+            )
+            for local_index, member_path in enumerate(members):
+                if member_path == root_path:
+                    continue
+                if member_path not in path_claims:
+                    paths += 1
+                    path_claims[member_path] = []
+                memberships += 1
+                path_claims[member_path].append(
+                    (
+                        occurrence.occurrence_id,
+                        group_index,
+                        member_digests[local_index],
+                        identity,
+                    )
+                )
+    maximal_by_path: dict[str, list[tuple[str, int, str | None, str]]] = {}
+    for path in sorted(path_claims):
+        claims = path_claims[path]
+        maximal: list[tuple[str, int, str | None, str]] = []
+        for claim in claims:
+            dominated = False
+            for other in claims:
+                if other is claim or other[0] == claim[0]:
+                    continue
+                pairs += 1
+                if relation(claim[0], other[0]) == "before":
+                    dominated = True
+                    break
+            if not dominated:
+                maximal.append(claim)
+        maximal_by_path[path] = maximal
+        seen_overlap: set[str] = set()
+        for claim in claims:
+            if claim[0] not in seen_overlap:
+                memberships += 1
+            seen_overlap.add(claim[0])
+        seen_witness: set[str] = set()
+        for claim in maximal:
+            if claim[0] not in seen_witness:
+                memberships += 1
+            seen_witness.add(claim[0])
+    for (
+        occurrence_id,
+        group_index,
+        group_members,
+        _group_digest,
+        member_digests,
+        identity,
+        group_root_path,
+    ) in sorted(group_facts, key=lambda fact: (fact[0], fact[1])):
+        nonroot_paths = sorted({member for member in group_members if member != group_root_path})
+        for path in nonroot_paths:
+            own_digest: str | None = None
+            for local_index, member_path in enumerate(group_members):
+                if member_path == path:
+                    own_digest = member_digests[local_index]
+                    break
+            row_witnesses: set[str] = set()
+            for claim in maximal_by_path[path]:
+                if claim[0] == occurrence_id and claim[1] == group_index:
+                    continue
+                if claim[0] == occurrence_id:
+                    rel = "incomparable"
+                else:
+                    pairs += 1
+                    rel = relation(occurrence_id, claim[0])
+                if _evidenced_equal(own_digest, identity, claim[2], claim[3]):
+                    continue
+                if rel == "after":
+                    continue
+                if claim[0] not in row_witnesses:
+                    memberships += 1
+                row_witnesses.add(claim[0])
+            memberships += 1
+    return {
+        "max_paths": paths,
+        "max_groups": groups,
+        "max_witness_memberships": memberships,
+        "max_relation_pairs": pairs,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -3311,3 +3562,304 @@ def test_j03_new_construction_precharge_sentinels(
     assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
     assert adm_counts, "the admission construction completes before the crossing"
     assert res_ok == [], "the pre-charge reservation prevented the OK result"
+
+
+# ---------------------------------------------------------------------------
+# L. 018-l: L01 closed nested metadata fences + L02 E before-target counts
+# ---------------------------------------------------------------------------
+
+_L01_MATRIX_KINDS = (
+    "authority-class-raw",
+    "principal-empty",
+    "route-over",
+    "digest-short",
+    "occurrences-list",
+    "occurrences-empty-path",
+    "classes-empty",
+    "groups-empty",
+    "group-index-out-of-range",
+    "group-index-duplicate",
+    "group-boundaryless-singleton",
+    "occurrences-over-cap",
+    "width-bool",
+    "width-zero",
+    "entry-classes-raw",
+    "segments-list",
+    "witnesses-list",
+)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_l01_nested_scalar_fence_refused(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L01: a model_copy-forged nested key-record SCALAR -- the raw
+    string admission mode, or the raw string member-class vector
+    (the classes are StrEnums, so equality alone would accept the
+    raw value) -- inside a GENUINELY EARNED OK admission / result
+    refuses with ONE fixed private ValidationError at BOTH parent
+    boundaries.  The malformed record NEVER reaches the accepted
+    canonical recipe: a spy on the ACTUAL ``_canonical_entry_key``
+    (delegating to the real recipe) counts exactly ONE visit -- the
+    valid root entry's re-derivation -- before the fence refusal, in
+    every mode and endpoint.  Constructor-only forged input; the
+    genuine acquisition preconditions are asserted first."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-l01-scalarfence")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None and adm.entries
+    entry = adm.entries[0]
+    real_key = crcm._canonical_entry_key  # type: ignore[attr-defined]
+    visits = {"n": 0}
+
+    def spy_key(key_record: Any) -> str:
+        visits["n"] += 1
+        return real_key(key_record)
+
+    monkeypatch.setattr(crcm, "_canonical_entry_key", spy_key)
+    cases = (
+        ("mode", mode.value),
+        ("member_classes", tuple(c.value for c in entry.key_record.member_classes)),
+    )
+    for field, value in cases:
+        record = entry.key_record.model_copy(update={field: value})
+        bad = entry.model_copy(update={"key_record": record})
+        entries = (bad,)
+        for parent in ("admission", "result"):
+            visits["n"] = 0
+            if parent == "admission":
+                with pytest.raises(ValidationError):
+                    CurrentRootCompositionAdmission(**admission_field_data(adm, entries=entries))
+            else:
+                with pytest.raises(ValidationError):
+                    CurrentRootComposition(
+                        **current_field_data(
+                            r, admission=adm.model_copy(update={"entries": entries})
+                        )
+                    )
+            assert visits["n"] == 1, (
+                "the closed fence refuses before the recipe visits the malformed record"
+            )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_l01_entry_record_authority_join_refused(mode: Any, endpoint: str) -> None:
+    """L01: the entry-level authority vector must JOIN the key
+    record's actual vector.  A genuine OK file entry whose ENTRY
+    ``member_classes`` is replaced by a DIFFERENT actual member
+    class (the key record and the retained proof are the ACTUAL
+    original objects -- only the entry-level vector is forged)
+    passes the closed shape fence and is refused by the bounded
+    entry / record metadata join: at the leaf constructor and at
+    BOTH parent boundaries, in every mode and endpoint."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-l01-vector")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None and adm.entries
+    entry = adm.entries[0]
+    other = next(c for c in MemberClass if c is not entry.member_classes[-1])
+    bad = entry.model_copy(update={"member_classes": entry.member_classes[:-1] + (other,)})
+    # Only the entry-level vector is forged: the key record and the
+    # retained proof are the ACTUAL original objects.
+    assert bad.key_record is entry.key_record
+    assert bad.proof is entry.proof
+    # Leaf boundary.
+    with pytest.raises(ValidationError):
+        CurrentRootCompositionEntry(**entry_field_data(bad, bad.key_record))
+    # Parent boundaries.
+    entries = (bad,)
+    with pytest.raises(ValidationError):
+        CurrentRootCompositionAdmission(**admission_field_data(adm, entries=entries))
+    with pytest.raises(ValidationError):
+        CurrentRootComposition(
+            **current_field_data(r, admission=adm.model_copy(update={"entries": entries}))
+        )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_l01_closed_metadata_fence_matrix(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L01: the COMPLETE closed nested metadata fence matrix.  Each
+    model_copy-forged nested shape (raw string enum, empty / raw
+    scalar, wrong container type, over-cap occurrences, broken group
+    index law, broken ownership partition) inside a GENUINELY EARNED
+    OK admission / result refuses with ONE fixed private
+    ValidationError at BOTH parent boundaries, and the malformed
+    record NEVER reaches the accepted canonical recipe: the spy on
+    ``_canonical_entry_key`` counts exactly ONE visit (the valid
+    root entry's re-derivation) before each refusal.  The entry /
+    key-record / ownership shapes are closed BEFORE any serializer
+    traversal or recipe element visit, in every mode and endpoint."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-l01-fencematrix")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None and adm.entries
+    entry = adm.entries[0]
+    real_key = crcm._canonical_entry_key  # type: ignore[attr-defined]
+    visits = {"n": 0}
+
+    def spy_key(key_record: Any) -> str:
+        visits["n"] += 1
+        return real_key(key_record)
+
+    monkeypatch.setattr(crcm, "_canonical_entry_key", spy_key)
+    for kind in _L01_MATRIX_KINDS:
+        bad = _l01_malformed_entry(entry, kind)
+        entries = (bad,)
+        for parent in ("admission", "result"):
+            visits["n"] = 0
+            if parent == "admission":
+                with pytest.raises(ValidationError):
+                    CurrentRootCompositionAdmission(**admission_field_data(adm, entries=entries))
+            else:
+                with pytest.raises(ValidationError):
+                    CurrentRootComposition(
+                        **current_field_data(
+                            r, admission=adm.model_copy(update={"entries": entries})
+                        )
+                    )
+            assert visits["n"] == 1, (
+                f"{kind}: the closed fence refuses before the recipe visits the record"
+            )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_l01_leaf_entry_fence_fixed_refusal(mode: Any, endpoint: str) -> None:
+    """L01 (leaf, constructor-only label): the ENTRY model's own
+    validator fences the complete nested metadata shape, so a
+    model_copy-bypassed nested key record -- raw string admission
+    mode or authority class, raw string member-class vector, a list
+    in place of the occurrences tuple, or a broken group index --
+    refuses with the SAME fixed private error at the leaf as at the
+    parent boundaries, in every mode and endpoint.  The
+    entry-level scalar / container forms are pydantic's ordinary
+    field coercion at the leaf constructor (flat dict input), so
+    their closed fence is exercised where a model_copy instance
+    reaches the validators un-revalidated: the parent boundaries of
+    the matrix test above."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-l01-leaf")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None and adm.entries
+    entry = adm.entries[0]
+    kr = entry.key_record
+    cases = (
+        _l01_malformed_entry(entry, "authority-class-raw"),
+        _l01_malformed_entry(entry, "occurrences-list"),
+        _l01_malformed_entry(entry, "group-index-duplicate"),
+        entry.model_copy(update={"key_record": kr.model_copy(update={"mode": kr.mode.value})}),
+        entry.model_copy(
+            update={
+                "key_record": kr.model_copy(
+                    update={"member_classes": tuple(c.value for c in kr.member_classes)}
+                )
+            }
+        ),
+    )
+    for bad in cases:
+        with pytest.raises(ValidationError):
+            CurrentRootCompositionEntry(**entry_field_data(bad, bad.key_record))
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_l02_e_collection_counts_before_target(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """L02: the four ACTUAL E collection domains are bounded by
+    GENUINELY MEASURED counts, not an inferred facade sentinel: the
+    expected count for each domain is derived INDEPENDENTLY from
+    the genuine retained D metadata (occurrences, proof segments,
+    member positions and the frozen parent links -- the E charging
+    law re-derived, never a binary search of the refusal), and a
+    class-identity-preserving spy on the ACTUAL
+    ``_CurrentnessLedger`` records every collection charge attempt
+    (method, spent-after, crossed).  For each domain: the at-limit
+    cap of EXACTLY the derived count composes OK with the target
+    charged exactly that many times and no crossing attempt; ONE
+    below it, the crossing attempt is the count-th charge, refused
+    BEFORE the crossing with the exact inherited collection name,
+    the exact prior state and no partial output.  No forged
+    acquisition, foreign namespace or unrelated early cap is a
+    substitute, in every mode and endpoint."""
+    tag = "i-l02-ecounts"
+    ns, s0 = bootstrap(mode, tag)
+    a = nonroot_read(s0, ns, "l02a", endpoint, "Synthetic retained body.\n")
+    two = nonroot_read(a, ns, "l02b", endpoint, "Synthetic B body.\n", cmd="cat B.md")
+    assert_i_ok(derive(two, ns), two)
+    repeated = nonroot_read(a, ns, "l02c", endpoint, "Synthetic retained body.\n")
+    repeated = nonroot_read(repeated, ns, "l02d", endpoint, "Synthetic retained body.\n")
+    assert_i_ok(derive(repeated, ns), repeated)
+
+    class _SpyLedger(currentness_mod._CurrentnessLedger):
+        def __init__(self, bounds: Any, *, outer: Any = None) -> None:
+            super().__init__(bounds, outer=outer)
+            self.attempts: list[tuple[str, int, bool]] = []
+            registry.append(self)
+
+        def _attempt(self, method: str, spent_attr: str, fn: Any) -> None:
+            try:
+                fn()
+            except Exception:
+                self.attempts.append((method, getattr(self, spent_attr), True))
+                raise
+            self.attempts.append((method, getattr(self, spent_attr), False))
+
+        def pair(self) -> None:
+            self._attempt("pair", "pair_spent", super().pair)
+
+        def path(self) -> None:
+            self._attempt("path", "path_spent", super().path)
+
+        def group(self) -> None:
+            self._attempt("group", "group_spent", super().group)
+
+        def membership(self) -> None:
+            self._attempt("membership", "member_spent", super().membership)
+
+    registry: list[_SpyLedger] = []
+    monkeypatch.setattr(currentness_mod, "_CurrentnessLedger", _SpyLedger)
+    cases = (
+        ("max_paths", "path", _L.PATHS_OVER_BOUND, two),
+        ("max_groups", "group", _L.GROUPS_OVER_BOUND, two),
+        ("max_witness_memberships", "membership", _L.WITNESS_MEMBERSHIPS_OVER_BOUND, two),
+        ("max_relation_pairs", "pair", _L.RELATION_PAIRS_OVER_BOUND, repeated),
+    )
+    for field, target, name, state in cases:
+        expected = _e_expected_counts(state)[field]
+        assert expected > 1, "the E collection domain must be measurable above its floor"
+        # The at-limit positive: EXACTLY the independently derived
+        # count composes OK (every other budget at its default
+        # headroom) with the target charged exactly that many times
+        # and no crossing attempt.
+        registry.clear()
+        assert_i_ok(
+            derive(state, ns, currentness_bounds=CurrentnessBounds(**{field: expected})),
+            state,
+        )
+        attempts = [a for ledger in registry for a in ledger.attempts]
+        assert [a for a in attempts if a[0] == target] and (
+            sum(1 for a in attempts if a[0] == target) == expected
+        ), "the at-limit run charged the target exactly its derived count"
+        assert all(crossed is False for a in attempts for crossed in (a[2],))
+        # One below: the count-th charge IS the crossing attempt,
+        # refused before the crossing with the exact name.
+        registry.clear()
+        r = derive(state, ns, currentness_bounds=CurrentnessBounds(**{field: expected - 1}))
+        assert_i_refused(r, state, _OUT.REFUSED_OVER_BOUND, (name,))
+        attempts = [a for ledger in registry for a in ledger.attempts]
+        assert sum(1 for a in attempts if a[0] == target) == expected, (
+            "the crossing attempt is the count-th charged attempt"
+        )
+        assert attempts[-1] == (target, expected - 1, True), (
+            "the crossing attempt charged before the crossing was refused"
+        )

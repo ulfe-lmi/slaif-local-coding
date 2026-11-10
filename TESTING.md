@@ -198,8 +198,14 @@ criteria (strategic decision `S/reviews/018-j-decision.md`); the
 bounded 018-k repairs (K01 actual nested canonical keys at BOTH
 parent boundaries, K02 actual nested row shapes before
 exact-relation comparison, K03 genuinely reachable E collection
-caps with exact evidence labels) are implemented and PENDING
-strategic review (contract
+caps with exact evidence labels) are NOT ACCEPTED against the
+complete K01/K02/K03 criteria (strategic decision
+`S/reviews/018-k-decision.md`); the bounded 018-l repairs (L01
+complete closed nested entry / key-record / ownership metadata
+fences at the leaf and BOTH parent boundaries with the entry /
+record authority and width joins, L02 independently derived
+actual E collection-domain counts with a before-target charge
+sentinel) are implemented and PENDING strategic review (contract
 [docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md](docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md);
 `tests/test_current_root_composition.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned

@@ -91,7 +91,9 @@ from .current_graph_models import (
 from .current_root_composition_models import (
     CURRENT_ROOT_COMPOSITION_CONTRACT_VERSION,
     CURRENT_ROOT_COMPOSITION_POLICY_VERSION,
+    ENTRY_METADATA_FENCE_UNITS,
     KEY_RECORD_FENCE_UNITS,
+    ROOT_ENTRY_FENCE_WALK_UNITS,
     CurrentRootComposition,
     CurrentRootCompositionAdmission,
     CurrentRootCompositionBounds,
@@ -341,14 +343,18 @@ def _build_selected_root_entry(
         root_bytes,
         workspace_bytes,
     )
-    # The closed pre-dump bound fence inside the entry model pass
-    # (I8) is NEW-I-only constructor work (the accepted 018-g root
-    # entry has no such fence): reserved on the ONE composition
-    # outer ONLY before the construction that triggers it (the
-    # shared entry-model reservation above keeps the accepted
-    # 018-g G-total / admission-stage formula untouched and is
-    # never inflated or renamed by the fence).
-    facade.itotal.units(KEY_RECORD_FENCE_UNITS)
+    # The closed pre-dump metadata fence inside the entry model
+    # pass (the L01 closed entry / key-record / ownership shape plus
+    # the bound-model fence) is NEW-I-only constructor work (the
+    # accepted 018-g root entry has no such fence): reserved on the
+    # ONE composition outer ONLY before the construction that
+    # triggers it (the shared entry-model reservation above keeps
+    # the accepted 018-g G-total / admission-stage formula untouched
+    # and is never inflated or renamed by the fence).  The root
+    # record's O(n) fence walk is the fixed single-occurrence term.
+    facade.itotal.units(
+        KEY_RECORD_FENCE_UNITS + ENTRY_METADATA_FENCE_UNITS + ROOT_ENTRY_FENCE_WALK_UNITS
+    )
     return CurrentRootCompositionEntry(
         entry_class=EntryClass.ROOT_ENTRY,
         content_key=content_key,
@@ -744,19 +750,30 @@ def derive_current_root_composition(
         facade.units(2)
         stage_g.units(2)  # the ONE workspace byte-length measurement
         workspace_bytes = len(ns.workspace.encode("utf-8"))
-        # The file-entry pre-dump bound fence reservation (I8):
-        # every newly constructed file entry's ``_v_entry`` fences
-        # the four carried bound models of its key record BEFORE
-        # the accepted helpers serialize them.  Constructions are
-        # bounded by the plan count, which is bounded by the proof
-        # segment count per occurrence: the closed upper bound is
-        # charged BEFORE the assembly (the charged O(occurrences)
+        # The file-entry pre-dump metadata fence reservation (L01):
+        # every newly constructed file entry's ``_v_entry`` runs the
+        # closed L01 entry / key-record / ownership metadata fence
+        # (the four carried bound models BEFORE the accepted helpers
+        # may serialize them, plus the entry scalar / enum /
+        # container checks and the per-member O(n) tuple / set /
+        # partition walks).  Constructions are bounded by the plan
+        # count, which is bounded by the proof segment count per
+        # occurrence, and each entry's member walk is bounded by
+        # fifteen times its occurrence's member positions (the
+        # accepted per-member coefficient): the closed upper bound
+        # is charged BEFORE the assembly (the charged O(occurrences)
         # metadata walk carries no source inspection).
         plan_fence_bound = 0
+        plan_member_bound = 0
         for occurrence in d_state.occurrences:
             itotal.unit()
-            plan_fence_bound += len(occurrence.proof.segments)
-        itotal.units(KEY_RECORD_FENCE_UNITS * plan_fence_bound)
+            for segment in occurrence.proof.segments:
+                plan_fence_bound += 1
+                plan_member_bound += len(segment.member_positions)
+        itotal.units(
+            (KEY_RECORD_FENCE_UNITS + ENTRY_METADATA_FENCE_UNITS) * plan_fence_bound
+            + ROOT_ENTRY_FENCE_WALK_UNITS * plan_member_bound
+        )
         if root_bytes > ns.graph_bounds.max_single_source_bytes:
             raise _GOverflow(CurrentAdmissionLimitation.ENTRY_SOURCE_BYTES_OVER_BOUND)
         if root_bytes > effective_g.max_total_entry_source_bytes:

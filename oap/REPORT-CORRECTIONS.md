@@ -306,3 +306,50 @@ historical report or order bytes are altered, no tests or builds
 are repeated solely for these labels, no reconstructed old bytes
 or process facts are claimed, and the 018-j PARTIAL / NOT
 ACCEPTED decision stands as recorded.
+
+## 018-k — 2026-11-10
+
+- The 018-k round earned its named repairs at the published pins
+  (historical governing-key splice 4/4, reverse-index pollution 4/4,
+  nested canonical key + duplicate row 8/8, all literal 0/stderr
+  0/stable), but two further immutable ROOT constructor probes
+  established the unmet K01 closure at the SAME published pins:
+  `S/probes/018-k-nested-scalar-prefence-v1.py` (sha256
+  `54c4b872e2e0bc30465693656e2adb4077b675dd8c72e57116619d7c9a9d15c9`;
+  captures `S/reviews/018-k-nested-scalar-prefence-v1.{out,err,exit}`)
+  0/16 literal 1/stderr 0 -- a model_copy raw-string nested mode or
+  member-class vector raised an UNCAUGHT AttributeError instead of a
+  fixed validation refusal at both parent boundaries, both
+  modes/endpoints; and
+  `S/probes/018-k-parent-authority-vector-v1.py` (sha256
+  `83df6a38d54af048e42d071126508dfcb8d267db8ad5255808ba7e36129804d1`;
+  captures `S/reviews/018-k-parent-authority-vector-v1.{out,err,exit}`)
+  0/8 literal 1/stderr 0 -- an entry-level authority vector forged to
+  the other actual MemberClass (key record and retained proof
+  unchanged) was accepted at both parents although the leaf rejects.
+  The K03 E-collection test's facade sentinel proves crossing work
+  happened but NOT that the bound stops before the target
+  allocation/collection/pair work, and it discovers the cap by
+  binary search instead of an independently derived actual-domain
+  count. Strategic decision `S/reviews/018-k-decision.md`: NOT
+  ACCEPTED against the complete K01/K02/K03 criteria. The 018-k
+  report's COMPLETE claim does not satisfy the missing criteria; a
+  report claim is a claim, not acceptance.
+- The 018-k report's collective clean-build "stderr 0" repeats the
+  018-j error: the actual captured artifacts are archive.err 0
+  bytes, extract.err 0 bytes, build.err 281 bytes of ordinary
+  successful-build diagnostics, build.exit 0 (proof-k1.stderr 0).
+  The gate stderrs also include cmd01 28 bytes, cmd02 30 bytes and
+  cmd08 197 bytes of ordinary output; only cmd07 (the full pytest
+  suite) stderr is 0. No product failure is invented from
+  successful build diagnostics.
+- ROOT's 018-k decision SELF CI snapshot ("15:11") was not captured
+  with an explicit UTC timestamp: its exact minute is treated as
+  UNVERIFIED; only the observed check states (test/docker pending,
+  other 8 SUCCESS) are supported. Fresh current GitHub is the source
+  before any precise state is relied upon
+  (`S/reviews/018-k-decision-timing-clarification-v1.json`).
+- The 018-l continuation closes the named unmet K01 scalar/authority
+  scope and the K03 before-target count evidence under the same PR26
+  branch; all 018-h, 018-i and 018-j qualifications stand as
+  recorded.

@@ -192,8 +192,15 @@ decision `S/reviews/018-j-decision.md`); the bounded 018-k
 repairs (K01 actual nested canonical keys at BOTH parent
 boundaries, K02 actual nested row shapes before exact-relation
 comparison, K03 genuinely reachable E collection caps with exact
-evidence labels) are implemented and PENDING strategic review,
-at its bounded inert scope (contract
+evidence labels) are NOT ACCEPTED against the complete
+K01/K02/K03 criteria (strategic decision
+`S/reviews/018-k-decision.md`); the bounded 018-l repairs (L01
+complete closed nested entry / key-record / ownership metadata
+fences at the leaf and BOTH parent boundaries with the entry /
+record authority and width joins, L02 independently derived
+actual E collection-domain counts with a before-target charge
+sentinel) are implemented and PENDING strategic review, at its
+bounded inert scope (contract
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`), all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
@@ -386,7 +393,8 @@ process qualifications, strategic decision
 inactive.
 
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
-PARTIAL, NOT ACCEPTED; 018-k repairs PENDING review).**
+PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l repairs PENDING
+review).**
 The 018-i composition takes the ACTUAL retained 018-h
 root-lineage state and its ACTUAL namespace (plus the NEW
 composition bounds and the ACTUAL inherited H/D/E/F/G bound sets)
@@ -443,7 +451,14 @@ strategic decision `S/reviews/018-j-decision.md`; the bounded
 018-k repairs (K01 actual nested canonical keys at BOTH parent
 boundaries, K02 actual nested row shapes before exact-relation
 comparison, K03 genuinely reachable E collection caps with exact
-evidence labels) are implemented and PENDING strategic review)
+evidence labels) are NOT ACCEPTED against the complete
+K01/K02/K03 criteria, strategic decision
+`S/reviews/018-k-decision.md`; the bounded 018-l repairs (L01
+complete closed nested entry / key-record / ownership metadata
+fences at the leaf and BOTH parent boundaries with the entry /
+record authority and width joins, L02 independently derived
+actual E collection-domain counts with a before-target charge
+sentinel) are implemented and PENDING strategic review)
 and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
@@ -885,8 +900,11 @@ implemented inert current-root-composition slice NOT ACCEPTED
 018-j repairs (J01/J02/J03) were delivered truthfully PARTIAL
 and are NOT ACCEPTED against the complete J01/J02/J03 criteria
 (strategic decision `S/reviews/018-j-decision.md`); the bounded
-018-k repairs (K01/K02/K03) are implemented and PENDING
-strategic review, at its bounded inert scope). The
+018-k repairs (K01/K02/K03) are NOT ACCEPTED against the
+complete K01/K02/K03 criteria (strategic decision
+`S/reviews/018-k-decision.md`); the bounded 018-l repairs
+(L01/L02) are implemented and PENDING strategic review, at its
+bounded inert scope). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -1016,8 +1034,11 @@ current-root-composition slice NOT ACCEPTED (strategic decision
 (J01/J02/J03) were delivered truthfully PARTIAL and are NOT
 ACCEPTED against the complete J01/J02/J03 criteria (strategic
 decision `S/reviews/018-j-decision.md`); the bounded 018-k
-repairs (K01/K02/K03) are implemented and PENDING strategic
-review, at its bounded inert scope, contract
+repairs (K01/K02/K03) are NOT ACCEPTED against the complete
+K01/K02/K03 criteria (strategic decision
+`S/reviews/018-k-decision.md`); the bounded 018-l repairs
+(L01/L02) are implemented and PENDING strategic review, at its
+bounded inert scope, contract
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`) and the
 remaining 018 current-version/overlap work beyond this mechanism
 (C04/C05 current-version acceptance, version-owned
