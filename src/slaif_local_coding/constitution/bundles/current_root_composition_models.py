@@ -193,6 +193,75 @@ def _fence_key_record_bounds(key_record: BundleKeyRecord, field: str) -> None:
         _closed_bounds_fence(actual, f"{field}.{name}")
 
 
+def _check_selected_root_binding(admission: CurrentRootCompositionAdmission) -> None:
+    """J01: EVERY retained file entry (its actual key record and
+    actual canonical key through the entry law) must bind the
+    SELECTED governing root digest of the admission it lives in.
+
+    A genuine earlier admission entry for the SAME nonroot source
+    under a CHANGED governing root is self-consistent (its key
+    record, its canonical key and its namespace all re-derive) but
+    carries the OLD governing digest: equal source bytes/provenance
+    never make the historical key valid in the new admission.  The
+    root entry already binds the selected digest at the admission
+    boundary; this closes the file entries.  Charged METADATA
+    comparisons only (one digest comparison per entry); no source
+    rewalk.  Runs on the ACTUAL fields so a model_copy-bypassed
+    nested admission cannot be trusted by class membership alone.
+    """
+    for entry in admission.entries:
+        if entry.root_digest != admission.root_digest:
+            raise _fixed("every file entry binds the selected governing root digest")
+        if entry.key_record.root_digest != admission.root_digest:
+            raise _fixed("every file entry key record binds the selected governing root digest")
+
+
+def _check_reverse_member_relation(admission: CurrentRootCompositionAdmission) -> None:
+    """J02: the ACTUAL reverse member index must equal EXACTLY the
+    represented member-path -> ALL and ONLY admitted content keys
+    relation, including the root entry.
+
+    Every row binds the ACTUAL admission scoped key and the exact
+    root flags; rows are canonically ordered (strictly increasing
+    paths, no duplicates); no row names a path represented by no
+    admitted entry (foreign/nonmember pollution); no row carries a
+    content key no entry admitted at that path (wrong member-to-key
+    edge, unknown key, extraneous association); and no represented
+    path lacks its row (missing association).  Legitimate shared
+    members (one path, several admitted keys) stay legal: the row
+    must hold the COMPLETE key set.  Charged METADATA work only:
+    one bounded expected-relation build plus fixed comparisons per
+    row; no source rewalk and no graph recomputation.  Runs on the
+    ACTUAL fields so a model_copy-bypassed nested admission cannot
+    be trusted by class membership alone.
+    """
+    expected: dict[str, set[str]] = {}
+    for entry in (admission.root_entry, *admission.entries):
+        for path in entry.key_record.member_occurrences:
+            bucket = expected.get(path)
+            if bucket is None:
+                expected[path] = {entry.content_key}
+            else:
+                bucket.add(entry.content_key)
+    previous_path: str | None = None
+    covered: set[str] = set()
+    for row in admission.path_associations:
+        if previous_path is not None and row.path <= previous_path:
+            raise _fixed("reverse index rows must be sorted by distinct path")
+        previous_path = row.path
+        covered.add(row.path)
+        if row.scoped_key != admission.admission_scoped_key:
+            raise _fixed("every reverse index row binds the actual admission scoped key")
+        if row.path not in expected:
+            raise _fixed("the reverse index never names an unrepresented member path")
+        if set(row.content_keys) != expected[row.path]:
+            raise _fixed("each reverse index row holds exactly the admitted content keys")
+        if row.is_root != (row.path == admission.root_path):
+            raise _fixed("root association flags must match the root path")
+    if covered != set(expected):
+        raise _fixed("the reverse index covers every represented member path exactly once")
+
+
 class CurrentRootCompositionOutcome(StrEnum):
     """Closed composition outcomes.
 
@@ -891,6 +960,12 @@ class CurrentRootCompositionAdmission(_GraphFrozen):
             raise _fixed("the root entry is the required ROOT_ENTRY")
         if self.root_entry.root_digest != self.root_digest:
             raise _fixed("the root entry binds the selected governing root digest")
+        # J01: EVERY retained file entry (key record + canonical key
+        # through the entry law) binds the SELECTED governing digest:
+        # the genuine historical entry under the old governing root is
+        # refused even though its namespace and proof are genuine and
+        # unchanged.
+        _check_selected_root_binding(self)
         keys = [entry.content_key for entry in self.entries]
         for position in range(1, len(keys)):
             if keys[position] <= keys[position - 1]:
@@ -942,19 +1017,14 @@ class CurrentRootCompositionAdmission(_GraphFrozen):
             raise _fixed("emitted admission reasons cannot exceed the derivation admission cap")
         if self.emitted_admission_reasons > self.admission_bounds.max_diagnostics:
             raise _fixed("emitted admission reasons cannot exceed the inherited admission cap")
-        rows = {row.path: row for row in self.path_associations}
-        root_row = rows.get(self.root_path)
-        if root_row is None or self.root_entry.content_key not in root_row.content_keys:
-            raise _fixed("the reverse index maps the root to its content key")
-        for row in self.path_associations:
-            if row.is_root != (row.path == self.root_path):
-                raise _fixed("root association flags must match the root path")
-        key_sets = {path: set(row.content_keys) for path, row in rows.items()}
-        for entry in (self.root_entry, *self.entries):
-            for path in entry.key_record.member_occurrences:
-                key_set = key_sets.get(path)
-                if key_set is None or entry.content_key not in key_set:
-                    raise _fixed("the reverse index covers every represented member path")
+        # J02: the ACTUAL reverse index equals EXACTLY the represented
+        # member-path -> ALL and ONLY admitted content keys relation
+        # (root entry included): actual scoped-key binding per row,
+        # exact root flags, canonical ordering/dedup, no foreign or
+        # nonmember rows, no wrong member-to-key edge or unknown key,
+        # and no missing association.  The earlier forward-only
+        # coverage check is superseded by the exact relation.
+        _check_reverse_member_relation(self)
         # ACTUAL admission-namespace binding (I7): EVERY retained
         # entry's key record re-derives the ACTUAL 018-c admission
         # namespace, and that namespace must be the admission's
@@ -1190,6 +1260,14 @@ class CurrentRootComposition(_GraphFrozen):
                 != self.selected_root_source_byte_length
             ):
                 raise _fixed("the root entry binds the actual selected source byte length")
+            # J01/J02: the nested admission's ACTUAL association
+            # fields are re-checked HERE on the ok path: a
+            # model_copy-bypassed nested admission/entry (stale
+            # governing digest on a retained file entry, or a
+            # polluted/incomplete reverse row) cannot be trusted by
+            # class membership or self-consistent detached tags.
+            _check_selected_root_binding(admission)
+            _check_reverse_member_relation(admission)
             for fact in selection.witness_facts:
                 if fact not in state.root_facts:
                     raise _fixed("every selected witness is retained by the input state")

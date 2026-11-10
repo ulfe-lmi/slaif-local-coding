@@ -27,6 +27,12 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from slaif_local_coding.constitution.bundles import (
+    current_root_composition as crc,
+)
+from slaif_local_coding.constitution.bundles import (
+    current_root_composition_models as crcm,
+)
 from slaif_local_coding.constitution.bundles.bundle_admission import (
     observe_bundle_admission_batch,
 )
@@ -44,11 +50,15 @@ from slaif_local_coding.constitution.bundles.bundle_proof_models import (
 )
 from slaif_local_coding.constitution.bundles.causal_history_models import (
     CAUSAL_ROOT_FACT,
+    CausalHistoryLimitation,
+    HistoryBounds,
     make_causal_history_namespace,
+    validate_causal_history_state,
 )
 from slaif_local_coding.constitution.bundles.current_admission_models import (
     CurrentAdmissionBounds,
     CurrentAdmissionLimitation,
+    CurrentAdmissionPathAssociation,
     CurrentAdmissionWitness,
 )
 from slaif_local_coding.constitution.bundles.current_graph_models import (
@@ -1983,9 +1993,13 @@ def test_h_model_negative_splices_constructor_only(mode: Any, endpoint: str) -> 
     # (2) A LATER proof spliced into the earlier state: the entry is
     # made SELF-CONSISTENT under the actual admission namespace (its
     # key record re-derives the canonical bytes from the later
-    # proof's admitted region), so ONLY the result-level
-    # input-state proof join can refuse it: the later proof object
-    # is not retained by the earlier input D state.
+    # proof's admitted region) AND under the J01/J02 exact
+    # association law (the spliced entry keeps the actual selected
+    # governing digest; its member path AGENTS.md row is remapped to
+    # the COMPLETE key set; the original entry and every other row
+    # keep their representing entries), so ONLY the result-level
+    # input-state proof/witness join can refuse it: the later proof
+    # object is not retained by the earlier input D state.
     s2 = refreshed(s1, ns, "r2", endpoint, "Later root body.")
     later_occ = occurrences(s2, "r2")[0]
     later_proof = later_occ.proof
@@ -2046,8 +2060,16 @@ def test_h_model_negative_splices_constructor_only(mode: Any, endpoint: str) -> 
         else row
         for row in adm.path_associations  # type: ignore[union-attr]
     )
+    spliced_entries = tuple(
+        sorted((*adm.entries, spliced_entry), key=lambda e: e.content_key)  # type: ignore[union-attr]
+    )
     spliced_adm = CurrentRootCompositionAdmission.model_validate(
-        admission_field_data(adm, entries=(spliced_entry,), path_associations=spliced_rows)
+        admission_field_data(
+            adm,
+            entries=spliced_entries,
+            entries_retained=1 + len(spliced_entries),
+            path_associations=spliced_rows,
+        )
     )
     with pytest.raises(ValidationError):
         CurrentRootComposition.model_validate(
@@ -2191,3 +2213,735 @@ def test_h_h_refusal_closed_outcome_mapping(mode: Any) -> None:
             assert r.outcome is _OUT.REFUSED_OVER_BOUND
         else:
             assert r.outcome is _OUT.REFUSED_STATE_MALFORMED
+
+
+# ---------------------------------------------------------------------------
+# J. 018-j: association closure (J01/J02) and independent budget domains (J03)
+# ---------------------------------------------------------------------------
+
+J_STALE_DIGEST = sha("stale-governing-digest")  # a valid 64-hex, never a real one
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j01_all_entries_bind_selected_governing_digest(mode: Any, endpoint: str) -> None:
+    """J01 positive (both boundaries): in a genuine OK result every
+    retained entry -- the root entry and every file entry, and each
+    entry's actual key record -- binds the admission's SELECTED
+    governing digest exactly."""
+    ns, s0 = bootstrap(mode, "i-j01-pos")
+    s1 = nonroot_read(s0, ns, "j01a", endpoint, "Synthetic J01 body.\n")
+    s2 = refreshed(s1, ns, "j01b", endpoint, ROOT_TEXT + "\nSynthetic J01 changed root.\n")
+    r = derive(s2, ns)
+    assert_i_ok(r, s2)
+    adm = r.admission
+    assert adm is not None
+    assert adm.root_entry.root_digest == adm.root_digest
+    assert adm.root_entry.key_record.root_digest == adm.root_digest
+    for entry in adm.entries:
+        assert entry.root_digest == adm.root_digest
+        assert entry.key_record.root_digest == adm.root_digest
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j01_historical_governing_key_splice_refused(mode: Any, endpoint: str) -> None:
+    """J01 (CONSTRUCTOR-ONLY, labeled): the genuine EARLIER file
+    entry (OLD governing root digest and canonical key) spliced
+    back into the current admission with its reverse-index row
+    remapped is refused at BOTH the admission boundary and the
+    result boundary (a model_copy-bypassed nested admission), even
+    though its namespace and retained proof are genuine and
+    unchanged.  This is the named 018-i constructor defect; the
+    public I derivation never emits the historical row."""
+    ns, s0 = bootstrap(mode, "i-j01-splice")
+    s1 = nonroot_read(s0, ns, "j01c", endpoint, "Synthetic retained A body.\n")
+    old = derive(s1, ns)
+    assert_i_ok(old, s1)
+    old_adm = old.admission
+    assert old_adm is not None
+    old_entry = i_members_of(old_adm)[("A.md",)]
+    s2 = refreshed(s1, ns, "j01d", endpoint, ROOT_TEXT + "\nSynthetic changed governing root.\n")
+    current = derive(s2, ns)
+    assert_i_ok(current, s2)
+    cur_adm = current.admission
+    assert cur_adm is not None
+    cur_entry = i_members_of(cur_adm)[("A.md",)]
+    # genuine preconditions (the original 018-i probe facts)
+    assert cur_entry.proof is old_entry.proof
+    assert old_entry.root_digest != cur_adm.root_digest
+    assert cur_entry.content_key != old_entry.content_key
+    # the splice: the old entry replaces the current one; its row
+    # key is remapped in the reverse index (as the 018-i probe did)
+    spliced_entries = tuple(
+        sorted(
+            (old_entry if e is cur_entry else e for e in cur_adm.entries),
+            key=lambda e: e.content_key,
+        )
+    )
+    spliced_rows = tuple(
+        row.model_copy(
+            update={
+                "content_keys": tuple(
+                    sorted(
+                        old_entry.content_key if key == cur_entry.content_key else key
+                        for key in row.content_keys
+                    )
+                )
+            }
+        )
+        for row in cur_adm.path_associations
+    )
+    # (a) the admission boundary refuses the historical governing key
+    with pytest.raises(ValidationError) as exc_adm:
+        CurrentRootCompositionAdmission(
+            **admission_field_data(
+                cur_adm,
+                entries=spliced_entries,
+                entries_retained=1 + len(spliced_entries),
+                path_associations=spliced_rows,
+            )
+        )
+    assert "every file entry binds the selected governing root digest" in str(exc_adm.value)
+    # (b) the result boundary re-checks the ACTUAL fields of a
+    #     model_copy-bypassed nested admission
+    bad_adm = cur_adm.model_copy(
+        update={
+            "entries": spliced_entries,
+            "entries_retained": 1 + len(spliced_entries),
+            "path_associations": spliced_rows,
+        }
+    )
+    with pytest.raises(ValidationError) as exc_res:
+        CurrentRootComposition(
+            **{n: getattr(current, n) for n in CurrentRootComposition.model_fields}
+            | {"admission": bad_adm}
+        )
+    assert "every file entry binds the selected governing root digest" in str(exc_res.value)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j01_entry_vs_key_record_governing_mismatch_refused(mode: Any, endpoint: str) -> None:
+    """J01: the governing-digest join is enforced at the ACTUAL
+    target boundary: an entry-vs-key-record governing-field
+    mismatch refuses at the entry law (fixed private error), and a
+    model_copy-bypassed key record inside a constructed entry
+    refuses at the admission AND the result boundaries."""
+    ns, s0 = bootstrap(mode, "i-j01-mis")
+    s1 = nonroot_read(s0, ns, "j01e", endpoint, "Synthetic J01 mismatch body.\n")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None
+    entry = i_members_of(adm)[("A.md",)]
+    # (a) the entry law itself: the entry's governing field must
+    #     equal its key record's governing field
+    data = entry_field_data(entry, entry.key_record)
+    data["root_digest"] = J_STALE_DIGEST
+    with pytest.raises(ValidationError) as exc_entry:
+        CurrentRootCompositionEntry(**data)
+    assert "entry root binding must equal the key record root binding" in str(exc_entry.value)
+    # (b) the admission boundary re-checks the ACTUAL key record even
+    #     when the entry object bypassed its own law via model_copy
+    stale_kr = entry.key_record.model_copy(update={"root_digest": J_STALE_DIGEST})
+    bypassed = entry.model_copy(update={"key_record": stale_kr})
+    with pytest.raises(ValidationError) as exc_adm:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, entries=(bypassed,)))
+    assert "every file entry key record binds the selected governing root digest" in str(
+        exc_adm.value
+    )
+    # (c) the result boundary does the same on the nested admission
+    bad_adm = adm.model_copy(update={"entries": (bypassed,)})
+    with pytest.raises(ValidationError) as exc_res:
+        CurrentRootComposition(
+            **{n: getattr(r, n) for n in CurrentRootComposition.model_fields}
+            | {"admission": bad_adm}
+        )
+    assert "every file entry key record binds the selected governing root digest" in str(
+        exc_res.value
+    )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j02_reverse_relation_exact_positive(mode: Any, endpoint: str) -> None:
+    """J02 positive (both boundaries): the derived reverse index
+    equals EXACTLY the represented member-path -> ALL and ONLY
+    admitted content keys relation, with the actual admission
+    scoped key on every row, the exact root flags, canonical
+    ordering/dedup and no extraneous rows."""
+    ns, s0 = bootstrap(mode, "i-j02-pos")
+    s1 = nonroot_read(s0, ns, "j02a", endpoint, "Synthetic J02 body.\n")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None
+    expected: dict[str, set[str]] = {}
+    for e in (adm.root_entry, *adm.entries):
+        for path in e.key_record.member_occurrences:
+            expected.setdefault(path, set()).add(e.content_key)
+    paths = [row.path for row in adm.path_associations]
+    assert paths == sorted(paths)
+    assert len(set(paths)) == len(paths)
+    assert set(paths) == set(expected)
+    for row in adm.path_associations:
+        assert row.scoped_key == adm.admission_scoped_key
+        assert row.is_root == (row.path == adm.root_path)
+        assert set(row.content_keys) == expected[row.path]
+        assert list(row.content_keys) == sorted(row.content_keys)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j02_nonmember_row_refused(mode: Any, endpoint: str) -> None:
+    """J02 (CONSTRUCTOR-ONLY, labeled): a typed reverse-index row
+    for a path represented by NO admitted entry (pointing at the
+    real root key, everything else genuine) is refused at BOTH the
+    admission boundary and the result boundary (a model_copy-
+    bypassed nested admission).  The named 018-i defect; the index
+    never grants root/system authority."""
+    ns, s0 = bootstrap(mode, "i-j02-nonmember")
+    s1 = nonroot_read(s0, ns, "j02b", endpoint, "Synthetic J02 nonmember body.\n")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None
+    assert all(
+        "Unused.md" not in e.key_record.member_occurrences for e in (adm.root_entry, *adm.entries)
+    )
+    extra = CurrentAdmissionPathAssociation(
+        scoped_key=adm.admission_scoped_key,
+        path="Unused.md",
+        content_keys=(adm.root_entry.content_key,),
+        is_root=False,
+    )
+    rows = tuple(sorted((*adm.path_associations, extra), key=lambda row: row.path))
+    with pytest.raises(ValidationError) as exc_adm:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, path_associations=rows))
+    assert "the reverse index never names an unrepresented member path" in str(exc_adm.value)
+    bad_adm = adm.model_copy(update={"path_associations": rows})
+    with pytest.raises(ValidationError) as exc_res:
+        CurrentRootComposition(
+            **{n: getattr(r, n) for n in CurrentRootComposition.model_fields}
+            | {"admission": bad_adm}
+        )
+    assert "the reverse index never names an unrepresented member path" in str(exc_res.value)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j02_row_relation_mutations_refused(mode: Any, endpoint: str) -> None:
+    """J02 (CONSTRUCTOR-ONLY, labeled): the exact-relation law
+    refuses at the target boundary with fixed private errors: a
+    wrong member-to-key edge, an unknown content key, a missing
+    row, a duplicate path row and a foreign row scope (the actual
+    scoped key of another genuine namespace)."""
+    ns, s0 = bootstrap(mode, "i-j02-mut")
+    s1 = nonroot_read(s0, ns, "j02c", endpoint, "Synthetic J02 mutation body.\n")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None
+    a_row = next(row for row in adm.path_associations if row.path == "A.md")
+    root_key = adm.root_entry.content_key
+    # (1) wrong member-to-key edge: the A.md row points at the root key
+    rows1 = tuple(
+        row.model_copy(update={"content_keys": (root_key,)}) if row.path == "A.md" else row
+        for row in adm.path_associations
+    )
+    with pytest.raises(ValidationError) as e1:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, path_associations=rows1))
+    assert "each reverse index row holds exactly the admitted content keys" in str(e1.value)
+    # (2) an unknown content key added to the A.md row
+    rows2 = tuple(
+        row.model_copy(update={"content_keys": tuple(sorted((*row.content_keys, J_STALE_DIGEST)))})
+        if row.path == "A.md"
+        else row
+        for row in adm.path_associations
+    )
+    with pytest.raises(ValidationError) as e2:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, path_associations=rows2))
+    assert "each reverse index row holds exactly the admitted content keys" in str(e2.value)
+    # (3) a missing A.md row
+    rows3 = tuple(row for row in adm.path_associations if row.path != "A.md")
+    with pytest.raises(ValidationError) as e3:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, path_associations=rows3))
+    assert "the reverse index covers every represented member path exactly once" in str(e3.value)
+    # (4) a duplicate A.md row
+    rows4 = tuple(sorted((*adm.path_associations, a_row), key=lambda row: row.path))
+    with pytest.raises(ValidationError) as e4:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, path_associations=rows4))
+    assert "reverse index rows must be sorted by distinct path" in str(e4.value)
+    # (5) a foreign row scope: the ACTUAL scoped key of another
+    #     genuine namespace (a different evidenced workspace)
+    ns_other = h_ns_ws(mode, "i-j02-foreign-ws", "/elsewhere/j02-foreign")
+    rows5 = tuple(
+        row.model_copy(update={"scoped_key": ns_other.admission_scoped_key})
+        for row in adm.path_associations
+    )
+    with pytest.raises(ValidationError) as e5:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, path_associations=rows5))
+    assert "every reverse index row binds the actual admission scoped key" in str(e5.value)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j02_shared_member_multi_key_row_positive(mode: Any, endpoint: str) -> None:
+    """J02 positive: a legitimate SHARED member -- the same path
+    admitted by two distinct proven bundles (the accepted G
+    overlap pattern: two bundles sharing A.md with the same A
+    content) -- keeps ONE row with the COMPLETE key set in
+    canonical order, and the index stays the exact represented
+    relation (all current positives preserved by the J02 law).
+    Both modes: the shared row is legal admitted structure, never
+    pollution."""
+    seg_a, seg_b, seg_c = "A part one.\n", "B part.\n", "C part.\n"
+    MARK = "JSHRD"
+    ns = h_ns(mode, "i-j02-shared")
+    s0 = h_bootstrap(
+        ns,
+        root_request_ws(WORKSPACE, "Read `A.md`, `B.md` and `C.md` before changing code."),
+    )
+    s1 = nonroot_read(
+        s0,
+        ns,
+        "j02d",
+        endpoint,
+        seg_a + MARK + "\n" + seg_b,
+        cmd=f"cat A.md && echo '{MARK}' && cat B.md",
+    )
+    s2 = nonroot_read(
+        s1,
+        ns,
+        "j02e",
+        endpoint,
+        seg_a + MARK + "\n" + seg_c,
+        cmd=f"cat A.md && echo '{MARK}' && cat C.md",
+    )
+    r = derive(s2, ns)
+    assert_i_ok(r, s2)
+    adm = r.admission
+    assert adm is not None
+    by = i_members_of(adm)
+    ab = by[("A.md", "B.md")]
+    ac = by[("A.md", "C.md")]
+    assert ab.content_key != ac.content_key
+    row = next(row for row in adm.path_associations if row.path == "A.md")
+    assert row.content_keys == tuple(sorted((ab.content_key, ac.content_key)))
+    assert row.is_root is False
+    b_row = next(row for row in adm.path_associations if row.path == "B.md")
+    assert b_row.content_keys == (ab.content_key,)
+    c_row = next(row for row in adm.path_associations if row.path == "C.md")
+    assert c_row.content_keys == (ac.content_key,)
+
+
+# --- J03: independent budget domains and pre-charge fences ----------------
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j03_d_local_domain_under_i(mode: Any, endpoint: str) -> None:
+    """J03: the ACTUAL D-local per-transition work domain
+    (HistoryBounds.max_work_units, charged inside the composition's
+    H phase) is INDEPENDENT of the larger H/I outers.  The public-I
+    first-over is structurally UNREACHABLE on a coherent state and
+    is closed at the actual bounded D-validator stage surface,
+    never a fake public positive: (1) the cap is identity-bound
+    into the history key, so a state built under one cap cannot be
+    derived under a different-cap namespace -- the exact refusal
+    before any derivation work is REFUSED_FOREIGN_SCOPE; and (2)
+    every accepted D transition revalidates the FINAL state under
+    the same cap, so any state whose derive-time D validation
+    would first-over could never have been built in the first
+    place (the last-transition cost is at least the whole-state
+    cost; receipts revalidate too).  At the measured at-limit cap
+    the full genuine state validates under a lenient shared work
+    outer, and ONE below it the D domain refuses with its exact
+    inherited work name while the shared outer still has headroom
+    (the crossing is the D-local domain, not the outer)."""
+    tag = "i-j03-dlocal"
+    ns = h_ns(mode, tag)
+    s0 = h_bootstrap(ns)
+    s1 = nonroot_read(s0, ns, "j03d1", endpoint, "Synthetic D local body one.\n")
+    s2 = nonroot_read(s1, ns, "j03d2", endpoint, "Synthetic D local body two.\n")
+    assert_i_ok(derive(s2, ns), s2)
+
+    class _shared_outer:
+        """The LARGER shared work outer: charged for the same units
+        as the D-local domain; its headroom is deliberately
+        generous so the D-local ceiling is the binding quantity."""
+
+        def __init__(self) -> None:
+            self.spent = 0
+
+        def __call__(self) -> bool:
+            self.spent += 1
+            return True
+
+    def validates(cap: int) -> bool:
+        return (
+            validate_causal_history_state(
+                s2.d_state, HistoryBounds(max_work_units=cap), _shared_outer()
+            )
+            is None
+        )
+
+    at_limit = _smallest_ok(1, 65536, validates)
+    assert at_limit > 1, "the D-local domain must be measurable above the state cost"
+    outer_ok = _shared_outer()
+    assert (
+        validate_causal_history_state(s2.d_state, HistoryBounds(max_work_units=at_limit), outer_ok)
+        is None
+    )
+    assert outer_ok.spent > 0, "the shared outer is charged for the same units"
+    outer_over = _shared_outer()
+    assert (
+        validate_causal_history_state(
+            s2.d_state, HistoryBounds(max_work_units=at_limit - 1), outer_over
+        )
+        is CausalHistoryLimitation.WORK_UNITS_OVER_BOUND
+    )
+    # The public-I identity-binding control: a coherent strict-cap
+    # namespace carries a different history key, so the exact
+    # refusal before any derivation work is foreign scope -- the
+    # D-local cap can never be crossed through the public I API on
+    # a coherent state.
+    ns_strict = h_ns(
+        mode, tag + "-strict", history_bounds=HistoryBounds(max_work_units=at_limit - 1)
+    )
+    assert ns_strict.history_key != ns.history_key
+    assert_i_refused(derive(s2, ns_strict), s2, _OUT.REFUSED_FOREIGN_SCOPE, (_L.FOREIGN_SCOPE,))
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j03_e_domains_under_i(mode: Any, endpoint: str) -> None:
+    """J03: the six ACTUAL E CurrentnessBounds domains each bind
+    INDEPENDENTLY beneath the larger H/F/G/I outers through the
+    public-I derivation, over genuine retained history with the
+    exact original currentness groups.  Where a first-over is
+    structurally unreachable through this clean public fixture
+    (the derivation's cost for that domain sits at the model
+    floor), the domain is closed at the actual bounded
+    constructor surface -- the model law itself refuses the
+    sub-floor value -- never a fake public positive."""
+    ns, s0 = bootstrap(mode, "i-j03-edom")
+    s1 = nonroot_read(s0, ns, "j03e", endpoint, "Synthetic E domain body.\n")
+    # The E work and diagnostics domains surface through the F
+    # mapping under their exact inherited CURRENTNESS_* names.
+    domains = {
+        "max_paths": (16384, _L.PATHS_OVER_BOUND),
+        "max_groups": (32768, _L.GROUPS_OVER_BOUND),
+        "max_witness_memberships": (65536, _L.WITNESS_MEMBERSHIPS_OVER_BOUND),
+        "max_relation_pairs": (65536, _L.RELATION_PAIRS_OVER_BOUND),
+        "max_work_units": (1048576, _L.CURRENTNESS_WORK_UNITS_OVER_BOUND),
+        "max_diagnostics": (64, _L.CURRENTNESS_DIAGNOSTICS_OVER_BOUND),
+    }
+    for field, (hi, name) in domains.items():
+
+        def probe(cap: int, field: str = field) -> bool:
+            return (
+                derive(s1, ns, currentness_bounds=CurrentnessBounds(**{field: cap})).outcome
+                is _OUT.OK
+            )
+
+        at_limit = _smallest_ok(1, hi, probe)
+        if at_limit > 1:
+            r = derive(s1, ns, currentness_bounds=CurrentnessBounds(**{field: at_limit - 1}))
+            assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (name,))
+        else:
+            # The model floor is the at-limit: the public first-over
+            # is structurally unreachable on this clean fixture, and
+            # the actual bounded constructor surface refuses the
+            # sub-floor value with the fixed model law.
+            with pytest.raises(ValidationError):
+                CurrentnessBounds(**{field: 0})
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j03_graph_stage_domain_under_i(mode: Any, endpoint: str) -> None:
+    """J03: the ACTUAL inherited GraphBounds graph-stage work
+    ceiling (the namespace graph bounds, charged on the F graph
+    stage) binds SEPARATELY beneath the larger H/F-total/G/I
+    outers: a graph-rich retained history (a root source
+    referencing forty files plus one read of A.md, so the charged
+    graph stage strictly exceeds the admission stage) at the
+    measured stage cost composes OK, and ONE below it refuses with
+    the exact inherited graph-stage name -- never the
+    admission-stage or the total name -- all other budgets at
+    their defaults.  The D/H transitions charge no stage ledger,
+    so the state builds at every cap and the binary search is over
+    the derive only."""
+    tag = "i-j03-gstage"
+    refs = ", ".join(f"`N{i:02d}.md`" for i in range(40))
+    root_content = f"Read {refs} before changing code."
+
+    def build(cap: int) -> tuple[RootLineageNamespace, RootLineageState] | None:
+        try:
+            ns = h_ns(mode, tag, graph_bounds=GraphBounds(max_work_units=cap))
+            s0 = h_bootstrap(ns, root_request_ws(WORKSPACE, root_content))
+            s1 = nonroot_read(
+                s0, ns, "j03g1", endpoint, "Synthetic graph body one.\n", cmd="cat A.md"
+            )
+            return ns, s1
+        except AssertionError:
+            return None
+
+    def probe(cap: int) -> bool:
+        built = build(cap)
+        if built is None:
+            return False
+        ns, s = built
+        return derive(s, ns).outcome is _OUT.OK
+
+    at_limit = _smallest_ok(1, 100000, probe)
+    assert at_limit > 1
+    built = build(at_limit - 1)
+    assert built is not None
+    ns, s = built
+    r = derive(s, ns)
+    assert_i_refused(r, s, _OUT.REFUSED_OVER_BOUND, (_L.GRAPH_WORK_UNITS_OVER_BOUND,))
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j03_admission_stage_domain_under_i(mode: Any, endpoint: str) -> None:
+    """J03: the ACTUAL inherited GraphBounds admission-planning
+    stage ceiling (the same namespace graph bounds charged on the
+    G admission stage -- a DISTINCT counter from the F graph
+    stage) binds SEPARATELY: an admission-work-rich retained
+    history (repeated reads of one file: many charged occurrences
+    over one graph node) at the measured stage cost composes OK,
+    and ONE below it refuses with the exact admission-stage name
+    while the graph stage still has headroom."""
+    tag = "i-j03-astage"
+
+    def build(cap: int) -> tuple[RootLineageNamespace, RootLineageState] | None:
+        try:
+            ns = h_ns(mode, tag, graph_bounds=GraphBounds(max_work_units=cap))
+            s0 = h_bootstrap(ns)
+            s = s0
+            for i in range(3):
+                s = nonroot_read(
+                    s, ns, f"j03a{i}", endpoint, f"Synthetic stage body {i}.\n", cmd="cat A.md"
+                )
+            return ns, s
+        except AssertionError:
+            return None
+
+    def probe(cap: int) -> bool:
+        built = build(cap)
+        if built is None:
+            return False
+        ns, s = built
+        return derive(s, ns).outcome is _OUT.OK
+
+    at_limit = _smallest_ok(1, 100000, probe)
+    assert at_limit > 1
+    built = build(at_limit - 1)
+    assert built is not None
+    ns, s = built
+    r = derive(s, ns)
+    assert_i_refused(r, s, _OUT.REFUSED_OVER_BOUND, (_L.ADMISSION_WORK_UNITS_EXHAUSTED,))
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j03_independent_domain_costs_observer(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """J03: the four domain ledgers are INDEPENDENT, proven by an
+    observer that counts the ACTUAL charged units (class-identity-
+    preserving wrappers on each ledger's unit, the H-round hook
+    pattern) on ONE generous OK run: the I outer total equals the
+    G-subtree plus H-domain charges plus the NEW-I glue (strictly
+    positive), and every domain then succeeds at EXACTLY its
+    measured cost and refuses ONE below with its own fixed name
+    (not only a binary threshold self-measurement)."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-j03-obs")
+    counts = {"itotal": 0, "g": 0, "f": 0, "h": 0}
+    itotal_unit = crc._ITotal.unit
+    facade_unit = crc._CFacade.unit
+    h_unit = crc._HAdapter.unit
+
+    def spy_itotal(self: Any) -> None:
+        counts["itotal"] += 1
+        itotal_unit(self)
+
+    def spy_facade(self: Any) -> bool:
+        counts["g"] += 1
+        if self._f_phase:
+            counts["f"] += 1
+        return facade_unit(self)
+
+    def spy_h(self: Any) -> bool:
+        counts["h"] += 1
+        return h_unit(self)
+
+    monkeypatch.setattr(crc._ITotal, "unit", spy_itotal)
+    monkeypatch.setattr(crc._CFacade, "unit", spy_facade)
+    monkeypatch.setattr(crc._HAdapter, "unit", spy_h)
+    assert derive(s1, ns).outcome is _OUT.OK
+    c_i, c_g, c_f, c_h = counts["itotal"], counts["g"], counts["f"], counts["h"]
+    assert c_f <= c_g
+    glue = c_i - c_g - c_h
+    assert glue > 0, "the NEW-I glue work is charged independently of G and H"
+    # The G cap exactly its real F+admission cost succeeds while the
+    # I total has headroom; one below refuses with the G domain name.
+    assert (
+        derive(s1, ns, admission_bounds=CurrentAdmissionBounds(max_total_work_units=c_g)).outcome
+        is _OUT.OK
+    )
+    assert_i_refused(
+        derive(s1, ns, admission_bounds=CurrentAdmissionBounds(max_total_work_units=c_g - 1)),
+        s1,
+        _OUT.REFUSED_OVER_BOUND,
+        (_L.TOTAL_WORK_UNITS_OVER_BOUND,),
+    )
+    # The I cap exactly G+H leaves NO headroom for the NEW-I glue.
+    assert_i_refused(
+        derive(
+            s1,
+            ns,
+            composition_bounds=CurrentRootCompositionBounds(max_total_work_units=c_g + c_h),
+        ),
+        s1,
+        _OUT.REFUSED_OVER_BOUND,
+        (_L.TOTAL_WORK_UNITS_OVER_BOUND,),
+    )
+    # The I cap exactly the measured total succeeds.
+    assert (
+        derive(
+            s1, ns, composition_bounds=CurrentRootCompositionBounds(max_total_work_units=c_i)
+        ).outcome
+        is _OUT.OK
+    )
+    # The F cap exactly its real subtree cost succeeds; one below
+    # refuses with the F domain name.
+    assert (
+        derive(s1, ns, graph_bounds=CurrentGraphBounds(max_total_work_units=c_f)).outcome is _OUT.OK
+    )
+    assert_i_refused(
+        derive(s1, ns, graph_bounds=CurrentGraphBounds(max_total_work_units=c_f - 1)),
+        s1,
+        _OUT.REFUSED_OVER_BOUND,
+        (_L.TOTAL_WORK_UNITS_OVER_BOUND,),
+    )
+    # The H cap exactly its real domain cost succeeds; one below
+    # refuses with the H domain name.
+    assert (
+        derive(s1, ns, lineage_bounds=RootLineageBounds(max_total_work_units=c_h)).outcome
+        is _OUT.OK
+    )
+    assert_i_refused(
+        derive(s1, ns, lineage_bounds=RootLineageBounds(max_total_work_units=c_h - 1)),
+        s1,
+        _OUT.REFUSED_OVER_BOUND,
+        (_L.WORK_UNITS_OVER_BOUND,),
+    )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_j03_new_construction_precharge_sentinels(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """J03: crossing the I cap immediately before each NEW-I fence
+    / index / wrapper construction PREVENTS that construction.
+    Class-identity-preserving constructor hooks (instrumenting
+    __init__ while delegating to the original) record the ACTUAL
+    I charge count at each construction on ONE generous OK run --
+    the positive hook-increment control (every hook fires at
+    least once, so a non-invoked hook cannot pass 0==0).  Three
+    capped runs: (E) the cap EXACTLY before the root entry's own
+    key-record fence reservation stops the fence and constructs NO
+    entry; (A) the cap EXACTLY at the last entry construction lets
+    every entry build and stops the first post-entry reservation
+    before the admission record; (R) the cap EXACTLY at the
+    admission construction lets the admission build and stops the
+    result reservation before the OK result record (the refusal's
+    own non-OK result construction may fire the hook; only the OK
+    record must be prevented).  Every refusal is the fixed I total
+    name with the exact prior state."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-j03-sent")
+    itotal_unit = crc._ITotal.unit
+    charge = {"n": 0}
+
+    def spy_itotal(self: Any) -> None:
+        charge["n"] += 1
+        itotal_unit(self)
+
+    monkeypatch.setattr(crc._ITotal, "unit", spy_itotal)
+    entry_counts: list[int] = []
+    adm_counts: list[int] = []
+    res_ok: list[int] = []
+    entry_orig = crcm.CurrentRootCompositionEntry.__init__
+    adm_orig = crcm.CurrentRootCompositionAdmission.__init__
+    res_orig = crcm.CurrentRootComposition.__init__
+
+    def hook_entry(self: Any, *args: Any, **kwargs: Any) -> None:
+        entry_counts.append(charge["n"])
+        entry_orig(self, *args, **kwargs)
+
+    def hook_adm(self: Any, *args: Any, **kwargs: Any) -> None:
+        adm_counts.append(charge["n"])
+        adm_orig(self, *args, **kwargs)
+
+    def hook_res(self: Any, *args: Any, **kwargs: Any) -> None:
+        if kwargs.get("outcome") is _OUT.OK:
+            res_ok.append(charge["n"])
+        res_orig(self, *args, **kwargs)
+
+    monkeypatch.setattr(crcm.CurrentRootCompositionEntry, "__init__", hook_entry)
+    monkeypatch.setattr(crcm.CurrentRootCompositionAdmission, "__init__", hook_adm)
+    monkeypatch.setattr(crcm.CurrentRootComposition, "__init__", hook_res)
+    assert derive(s1, ns).outcome is _OUT.OK
+    fence = crcm.KEY_RECORD_FENCE_UNITS
+    # Positive hook controls: the constructions really happened on
+    # the uncapped run (a non-invoked hook could not pass).
+    assert len(entry_counts) >= 1 and len(adm_counts) == 1 and len(res_ok) == 1
+    first_entry = entry_counts[0]
+    last_entry = entry_counts[-1]
+    adm = adm_counts[0]
+    assert first_entry > fence, "the root entry fence is charged before its construction"
+    assert last_entry >= first_entry
+    assert adm > last_entry
+    # (E) cap exactly before the root entry's own fence reservation:
+    # the fence crosses and NO entry is constructed.
+    entry_counts.clear()
+    r = derive(
+        s1,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=first_entry - fence),
+    )
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert entry_counts == [], "the pre-charge fence prevented every entry construction"
+    # (A) cap exactly at the last entry construction: all entries
+    # build, the first post-entry reservation crosses before the
+    # admission record.
+    entry_counts.clear()
+    adm_counts.clear()
+    res_ok.clear()
+    r = derive(
+        s1,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=last_entry),
+    )
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert entry_counts, "every entry construction completes before the crossing"
+    assert adm_counts == [], "the pre-charge reservation prevented the admission"
+    assert res_ok == []
+    # (R) cap exactly at the admission construction: the admission
+    # builds, the result reservation crosses before the OK result.
+    adm_counts.clear()
+    res_ok.clear()
+    r = derive(
+        s1,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=adm),
+    )
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert adm_counts, "the admission construction completes before the crossing"
+    assert res_ok == [], "the pre-charge reservation prevented the OK result"

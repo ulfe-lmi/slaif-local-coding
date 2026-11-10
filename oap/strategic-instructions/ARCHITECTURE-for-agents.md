@@ -183,7 +183,10 @@ with process qualifications (strategic decision
 root-authority-lineage scope with process qualifications
 (strategic decision `S/reviews/018-h-decision.md`; contract
 `docs/CACHE-ROOT-LINEAGE-CONTRACT.md`) and the implemented 018-i
-current-root-composition slice PENDING strategic acceptance at
+current-root-composition slice NOT ACCEPTED (strategic decision
+`S/reviews/018-i-decision.md`); the bounded 018-j repairs (J01
+association closure, J02 exact reverse-index law, J03 independent
+budget domains) are implemented and PENDING strategic review, at
 its bounded inert scope (contract
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`), all as
 inert typed modules under
@@ -376,7 +379,8 @@ process qualifications, strategic decision
 `S/reviews/018-h-decision.md`), and the stage stays inert and
 inactive.
 
-**Current-root composition (018-i inert, PENDING acceptance).**
+**Current-root composition (018-i inert, NOT ACCEPTED; 018-j
+repairs PENDING review).**
 The 018-i composition takes the ACTUAL retained 018-h
 root-lineage state and its ACTUAL namespace (plus the NEW
 composition bounds and the ACTUAL inherited H/D/E/F/G bound sets)
@@ -426,8 +430,9 @@ not broadened and no positive is manufactured). The exact scope
 is versioned in
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`; it earns the
 root-aware current graph/admission composition MECHANISM at its
-bounded inert scope only (PENDING acceptance) and the stage
-stays inert and inactive.
+bounded inert scope only (NOT ACCEPTED; the bounded 018-j
+repairs J01/J02/J03 are implemented and PENDING strategic
+review) and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
 scope. Detection uses the versioned Codex user-message envelope with exact
@@ -863,8 +868,10 @@ with process qualifications (strategic decision
 root-authority-lineage slice ACCEPTED at its bounded inert
 root-authority-lineage scope with process qualifications
 (strategic decision `S/reviews/018-h-decision.md`); 018-i
-implemented inert current-root-composition slice PENDING
-strategic acceptance at its bounded inert scope). The
+implemented inert current-root-composition slice NOT ACCEPTED
+(strategic decision `S/reviews/018-i-decision.md`); the bounded
+018-j repairs (J01/J02/J03) are implemented and PENDING
+strategic review, at its bounded inert scope). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -989,7 +996,9 @@ inert root-authority-lineage slice ACCEPTED at its bounded inert
 root-authority-lineage scope with process qualifications
 (strategic decision `S/reviews/018-h-decision.md`, contract
 `docs/CACHE-ROOT-LINEAGE-CONTRACT.md`); 018-i: implemented inert
-current-root-composition slice PENDING strategic acceptance at
+current-root-composition slice NOT ACCEPTED (strategic decision
+`S/reviews/018-i-decision.md`); the bounded 018-j repairs
+(J01/J02/J03) are implemented and PENDING strategic review, at
 its bounded inert scope, contract
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`) and the
 remaining 018 current-version/overlap work beyond this mechanism

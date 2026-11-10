@@ -189,7 +189,11 @@ process qualifications (the 018-h strategic decision,
 [docs/CACHE-ROOT-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-LINEAGE-CONTRACT.md);
 `tests/test_root_lineage.py`),
 018-i is an implemented inert current-root-composition slice
-PENDING strategic acceptance at its bounded inert scope (contract
+NOT ACCEPTED at its bounded inert scope (the 018-i strategic
+decision, `S/reviews/018-i-decision.md`); the bounded 018-j
+repairs (J01 association closure, J02 exact reverse-index law,
+J03 independent budget domains) are implemented and PENDING
+strategic review (contract
 [docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md](docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md);
 `tests/test_current_root_composition.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned

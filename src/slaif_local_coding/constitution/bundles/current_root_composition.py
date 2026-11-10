@@ -340,11 +340,13 @@ def _build_selected_root_entry(
         workspace_bytes,
     )
     # The closed pre-dump bound fence inside the entry model pass
-    # (I8): reserved on BOTH ledgers before the construction that
-    # triggers it (the shared entry-model reservation above keeps
-    # the accepted 018-g formula untouched).
-    facade.units(KEY_RECORD_FENCE_UNITS)
-    stage_g.units(KEY_RECORD_FENCE_UNITS)
+    # (I8) is NEW-I-only constructor work (the accepted 018-g root
+    # entry has no such fence): reserved on the ONE composition
+    # outer ONLY before the construction that triggers it (the
+    # shared entry-model reservation above keeps the accepted
+    # 018-g G-total / admission-stage formula untouched and is
+    # never inflated or renamed by the fence).
+    facade.itotal.units(KEY_RECORD_FENCE_UNITS)
     return CurrentRootCompositionEntry(
         entry_class=EntryClass.ROOT_ENTRY,
         content_key=content_key,
@@ -750,11 +752,9 @@ def derive_current_root_composition(
         # metadata walk carries no source inspection).
         plan_fence_bound = 0
         for occurrence in d_state.occurrences:
-            facade.unit()
-            stage_g.unit()
+            itotal.unit()
             plan_fence_bound += len(occurrence.proof.segments)
-        facade.units(KEY_RECORD_FENCE_UNITS * plan_fence_bound)
-        stage_g.units(KEY_RECORD_FENCE_UNITS * plan_fence_bound)
+        itotal.units(KEY_RECORD_FENCE_UNITS * plan_fence_bound)
         if root_bytes > ns.graph_bounds.max_single_source_bytes:
             raise _GOverflow(CurrentAdmissionLimitation.ENTRY_SOURCE_BYTES_OVER_BOUND)
         if root_bytes > effective_g.max_total_entry_source_bytes:
@@ -908,6 +908,20 @@ def derive_current_root_composition(
             10
             + scope_key_units
             + (64 + 2 * workspace_bytes + KEY_RECORD_FENCE_UNITS) * (1 + len(file_entries))
+            # The J01/J02 actual-field association joins run inside
+            # the admission construction: one selected-digest
+            # comparison per file entry plus its key-record
+            # governing field (J01), the expected reverse-relation
+            # build over the retained member occurrences and the
+            # per-row path/scope/flag/membership/key-set checks with
+            # the completeness set (J02).  Bounded METADATA work,
+            # upper-rounded here BEFORE the construction that
+            # performs it.
+            + 2
+            + 2 * len(file_entries)
+            + member_occ_charged
+            + 4 * len(associations)
+            + association_key_count
         )
         # The model walk's ACTUAL input-namespace D re-derivation
         # (the canonical history-field pass over the root entry key
@@ -1012,6 +1026,16 @@ def derive_current_root_composition(
             + file_entry_count
             + 5 * entry_witness_count
             + entry_segment_count
+            # The J01/J02 actual-field association re-joins run
+            # AGAIN on the nested admission inside the result
+            # construction (a model_copy-bypassed nested record is
+            # re-checked on the ok path): the same bounded metadata
+            # upper bound as the admission-construction reservation.
+            + 2
+            + 2 * file_entry_count
+            + member_occ_charged
+            + 4 * len(associations)
+            + association_key_count
         )
         itotal.units(result_units)
         return CurrentRootComposition(

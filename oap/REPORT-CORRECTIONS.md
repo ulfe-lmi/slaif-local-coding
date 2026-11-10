@@ -188,3 +188,41 @@ clarification, no implementation, acceptance or product behavior
 is altered, and the 018-h acceptance at its bounded inert
 root-authority-lineage scope WITH process qualifications
 (`S/reviews/018-h-decision.md`) stands as recorded.
+
+## 018-i — 2026-11-10
+
+- The immutable 018-i report and its contract sections 5/10 claimed
+  that the durable matrix covers every inherited cap at
+  at-limit/first-over with target-reaching sentinels. That coverage
+  claim is INSUFFICIENT against the exact constructor/resource
+  criteria: it overstated the inherited-cap coverage (the D-local,
+  E-local and inherited graph/admission-stage work domains were not
+  explicitly earned through the public-I derivation), and the NEW-I
+  key-record fence work was charged through the facade AND the
+  G/admission stage instead of the I outer only.
+- Two concrete ROOT-executed constructor controls failed at the
+  delivered pins (kernel `b0901fb61c4898730214cb8b45aad113d32d6c399bf3b250b720400e00fd6bb4`,
+  models `b1ea8956e06e83112794c47f9ea151a1b561b31f71dd5bbd1a7e316ba7f32e3f`,
+  tests `d7fd1a76f25173d7cfe73551fd7e9b7e047900f1ccdeed29d5e827872e7ed548`;
+  0/4 controls each, exit 1/stderr 0/stable):
+  `S/probes/018-i-historical-entry-splice-v1.py` (a genuine earlier
+  entry with its old governing digest and canonical key spliced
+  into the current admission with its reverse-index key remapped
+  was ACCEPTED at both the admission and the result boundary) and
+  `S/probes/018-i-reverse-index-pollution-v1.py` (a typed
+  reverse-index row for a nonmember path pointing at the root
+  entry key was ACCEPTED at both boundaries). Captures:
+  `S/reviews/018-i-historical-entry-splice-v1.{out,err,exit}` and
+  `S/reviews/018-i-reverse-index-pollution-v1.{out,err,exit}`.
+- Status: the bounded 018-j repairs (J01 association closure,
+  J02 exact reverse-index law, J03 independent budget domains)
+  are implemented in this round and PENDING strategic review
+  (strategic decision `S/reviews/018-i-decision.md`); the 018-i
+  report, its decision and this append-only ledger remain
+  immutable.
+
+These are bounded process/evidence qualifications reconciled
+append-only; no tests or builds are repeated solely for this
+clarification, no implementation, acceptance or product behavior
+is altered, and the 018-i NOT ACCEPTED decision stands as
+recorded.

@@ -15,9 +15,13 @@ source resolution AND the accepted 018-f current graph over a
 freshly recomputed least fixed point with the selected root as the
 NEW root supplier AND the current admission entries with the
 canonical 018-c semantic keys under the selected governing root
-digest. This slice is IMPLEMENTED and PENDING strategic acceptance
-at its bounded inert scope: like the accepted 017, 018-a..h slices
-it is pure, bounded and never active in the adapter runtime; no
+digest. This slice is IMPLEMENTED and NOT ACCEPTED (strategic
+decision `S/reviews/018-i-decision.md`); the bounded 018-j repairs
+(J01 association closure, J02 exact reverse-index law, J03
+independent budget domains) are implemented and PENDING strategic
+review. At its bounded inert scope, like the accepted 017,
+018-a..h slices, it is pure, bounded and never active in the
+adapter runtime; no
 command string is executed and no model/native/client/service
 facility is started. It earns the root-aware current
 graph/admission composition MECHANISM at its bounded scope (the
@@ -216,12 +220,68 @@ qualification, and 019-024 remain mandatory.
   model/namespace reservations (actual-work bounded in the
   workspace length, never a hidden constant) and the charged
   model/source/compare/copy/sort/index attempts.
+- The NEW-I key-record fence (``KEY_RECORD_FENCE_UNITS``, charged
+  on the I outer per planned entry and on the root-entry
+  reservation) belongs to the I outer ONLY: it is charged before
+  the entry models exist and never inside the G/admission stage,
+  so the G total stays exactly the inherited F+admission subtree
+  with no composition fence (J03a).
+- The independent-domain evidence (J03) closes every named domain
+  at-limit and first-over at the ACTUAL public-I boundary where
+  reachable, and at the named bounded stage/constructor surface
+  where the public first-over is structurally unreachable; each
+  crossing yields its ONE fixed inherited (or NEW-I) name, never
+  a blanket label, with every other budget at its default:
+
+  | domain (actual bound) | entry | at-limit / first-over evidence | fixed name |
+  |---|---|---|---|
+  | I total work (`max_total_work_units`) | public I | three capped OK runs: the last I charge before each constructor (root-entry fence, first post-entry reservation, result construction) crosses with zero NEW constructions at that stage | `total_work_units_over_bound` |
+  | I diagnostics (`max_diagnostics`) | public I | 65 invalid items fenced before item coercion; the at-limit 64 reaches parsing | fixed preflight refusal |
+  | G total (inherited admission work) | admission stage inside I | at-limit OK, one-below refused with I headroom intact; the domain-cost observer measures the split at runtime (I outer = G subtree + H domain + strictly positive NEW-I glue) | `work_units_over_bound` |
+  | F subtree (inherited graph work) | F stage | unchanged public law: inherited F regressions cited, not relabeled as direct I evidence | `graph_work_units_over_bound` |
+  | H op (inherited H outer) | H phase | unchanged public law: inherited H regressions cited | `work_units_over_bound` |
+  | D-local (inherited D-transition work) | public-I first-over STRUCTURALLY UNREACHABLE (the cap is identity-bound into the history key; every accepted D transition revalidates the FINAL state under the same cap) | closed at the actual D-validator stage surface: the lenient larger shared outer is charged, at-limit validates, one-below refuses; the public identity control refuses foreign scope | `work_units_over_bound` (causal-history name) |
+  | E x6 (inherited `CurrentnessBounds`) | E derivation inside I | each domain at-limit OK / one-below exact name; a sub-floor public first-over is closed at the bounded constructor surface | exact `currentness_*` names |
+  | graph stage (inherited stage reservation) | graph stage inside I | forty-reference root fixture at the measured at-limit (2913 at the recorded pin; the durable control re-measures at runtime), one-below refuses | `graph_work_units_over_bound` |
+  | admission stage (inherited stage reservation) | admission stage inside I | repeated-read fixture at the measured at-limit, one-below refuses while the graph stage has headroom | `admission_work_units_exhausted` |
+  | single-source char/byte | public I (inherited F law) | at-limit retention / first-over before any owned slice (zero-slice sentinel) | `source_over_bound` |
+  | cumulative retention (inherited history domains) | inherited | an old valid multi-batch history still passes; over-retention refuses | history closed names |
+  | batch `max_requests` (inherited F domain) | inherited | 2+2 request batches accepted (4 retained), the 3-request batch refuses | `batch_over_bound` |
+  | workspace join (admission namespace reconstruction) | public I | work scales with the ACTUAL workspace length; at-limit / first-over | `total_work_units_over_bound` |
+
+  Rows marked "inherited" cite the UNCHANGED public-law regressions
+  (the durable F/G/H matrices and the 018-c batch/retention
+  controls) for the unchanged inherited behavior; they are not
+  relabeled as direct I evidence. The NEW-I rows are exercised by
+  the durable J03 controls at the public-I boundary or the named
+  stage surface.
 
 ## 6. Model association law (constructor-level)
 
 - Object construction is NOT authentication: every
   constructor/factory/`model_copy`/direct-dict path re-derives
   ACTUAL fields before positive use.
+- J01: EVERY retained file entry binds the SELECTED governing
+  root digest at BOTH its actual governing field and its ACTUAL
+  key record's governing field, re-checked at the admission
+  boundary AND the result boundary (a model_copy-bypassed nested
+  admission cannot escape the entry law by construction alone); a
+  genuine EARLIER entry for the same nonroot source (old
+  governing digest, old canonical key) spliced back into the
+  current admission with its reverse-index row remapped is
+  refused at both boundaries even though its namespace and
+  retained proof are genuine and unchanged.
+- J02: the ACTUAL reverse member index equals EXACTLY the
+  represented member-path -> ALL-and-ONLY admitted-content-keys
+  relation: rows sorted by distinct path, every represented
+  member path covered exactly once, no unrepresented path named,
+  each row holding exactly the admitted content keys in
+  canonical order, the ACTUAL admission scoped key on every row,
+  and the root flags equal exactly the root path -- all
+  re-derived from the ACTUAL entry key records at both the
+  admission boundary and the result boundary. A legitimate SHARED
+  member (one path admitted by two distinct proven bundles)
+  keeps ONE row with the complete canonical key set.
 - EVERY retained entry's key record re-derives the ACTUAL 018-c
   admission namespace, and that namespace must equal the
   admission's ACTUAL namespace (equal source bytes/provenance from
@@ -303,8 +363,8 @@ qualification, and 019-024 remain mandatory.
 
 ## 10. Tests
 
-- `tests/test_current_root_composition.py` (44 test definitions,
-  166 cases): the durable ORIGINAL-API matrix over BOTH read
+- `tests/test_current_root_composition.py` (57 test definitions,
+  218 cases): the durable ORIGINAL-API matrix over BOTH read
   endpoints and BOTH admission modes — A bootstrap/ENVELOPE
   composition, genuine issued READ refresh, descendant revert,
   rootless continuation and old/known-new/shifted replay no-ops
@@ -336,7 +396,18 @@ qualification, and 019-024 remain mandatory.
   or provenance, the closed entry bound fences before the first
   serializer dump, the no-host-IO and private-repr controls over
   the exercised success/refusal surfaces, the 1:1 limitation
-  mapping, and the constructor-only splices (labeled as such).
+  mapping, the constructor-only splices (labeled as such), and J
+  the 018-j association closure and independent budget domains:
+  every entry and its actual key record binding the SELECTED
+  governing digest at both boundaries, the historical-governing-
+  key splice refused, the entry-vs-key-record governing mismatch
+  at the entry law, the exact reverse member relation with the
+  shared-member positive and the row-relation mutation refusals,
+  the I-only key-record fence, the D-local stage-surface closure
+  with the public identity control, the six E domains under I,
+  the graph/admission stage domains at the measured at-limit /
+  first-over, the domain-cost observer split, and the zero-new-
+  construction pre-charge sentinels at the three capped OK runs.
 - The ROOT-executed independent probes (public vertical, the
   named I7 namespace/carried-version/joined-context controls, the
   I8 preflight/diagnostic/char-before-copy controls, the I9
