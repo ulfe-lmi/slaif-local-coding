@@ -33,7 +33,16 @@ complete closed nested entry / key-record / ownership metadata
 fences at BOTH parent boundaries before any recipe visit, with the
 entry / record authority and width joins; L02 independently
 derived actual E collection-domain counts with a before-target
-charge sentinel) are implemented and PENDING strategic review. At
+charge sentinel) were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete L01/resource/artifact criteria
+(strategic decision `S/reviews/018-l-decision.md`); the bounded
+018-m repairs (M01 O(1) count / scalar gates BEFORE any element /
+set / sort / hash / serialization work at the leaf and BOTH
+parent boundaries, with the closed TEN admission bound-model
+fence and the accepted dense group ordering / unique partition
+law; M02 the exact accepted JSON serialization byte ceiling and
+the reservation-calculation work precharge on the ONE I outer)
+are implemented and PENDING strategic review. At
 its bounded inert scope, like the accepted 017,
 018-a..h slices, it is pure, bounded and never active in the
 adapter runtime; no
@@ -226,13 +235,24 @@ qualification, and 019-024 remain mandatory.
   traversal on every NEW-I constructor/factory/override path
   (warnings-suppressed closed reconstruction; a model_copy-forged
   nested bound refuses before the first serializer visit), and
-  the L01 fence completes the nested metadata law at the leaf and
-  BOTH parent boundaries: the complete entry / key-record /
-  ownership shape (scalar types, actual enum instances,
-  containers, counts under the ACTUAL inherited admission cap,
-  the accepted per-group law and the exact ownership partition)
-  is closed BEFORE any recipe element visit, with ONE fixed
-  private refusal and no raw value echo. No hidden Pydantic
+  the M01 fence (the complete
+  L01 fence, M01 closed) runs the nested metadata law at the leaf
+  and BOTH parent boundaries in three phases: FIRST the expected
+  models, the container kinds and the O(1) lengths under the
+  ACTUAL inherited caps and alignment BEFORE any element is
+  visited by any iteration, copy, set, sort, hash or
+  serialization (the TEN carried admission bound models are
+  fenced as closed typed scalar models BEFORE any cap is read
+  from them); THEN the bounded scalar / path / index / enum
+  validation of every element dimension (every dimension
+  pre-bounded by phase one: the member paths under the ACTUAL
+  two-inherited path ceiling with the no-copy early-exit byte
+  walk, the accepted C dense group ordering, and the UNIQUE
+  partition membership -- a set union alone does not prove a
+  partition); and ONLY THEN the exact entry / record / proof
+  authority, member, width and ownership joins. Every phase
+  refuses a forged shape with ONE fixed private error and no raw
+  value echo. No hidden Pydantic
   source rewalk and no repeated full-source walk per witness.
 - The durable G-matrix evidence covers every new and inherited
   cap at-limit/first-over with target-reaching sentinels, the
@@ -247,10 +267,14 @@ qualification, and 019-024 remain mandatory.
   metadata fence (``ENTRY_METADATA_FENCE_UNITS`` fixed part plus
   the per-member O(n) walk terms: the fixed
   ``ROOT_ENTRY_FENCE_WALK_UNITS`` single-occurrence term for the
-  root record and, for every planned file entry, the same
-  per-member coefficient against its occurrence's segment
-  member-position counts, bounded by the charged O(occurrences)
-  plan walk BEFORE assembly) belong to the I outer ONLY: they
+  root record (the root occurrence path is the fixed
+  ``ROOT_FILENAME`` constant, never a walked member path) and,
+  for every planned file entry, the per-dimension coefficients
+  against its occurrence's segment member-position counts, the
+  ACTUAL member-path byte-cap walk, and the segment / witness /
+  group dimensions under the actual inherited caps, bounded by
+  the charged O(occurrences) plan walk BEFORE assembly) belong to
+  the I outer ONLY: they
   are charged before the entry models exist and never inside the
   G/admission stage, so the G total stays exactly the inherited
   F+admission subtree with no composition fence (J03a). The
@@ -268,7 +292,27 @@ qualification, and 019-024 remain mandatory.
   entry and row BEFORE every construction that performs them
   (both the admission boundary and the result boundary), never
   inside the G/admission stage and never as a wider cap, global
-  minimum or reset.
+  minimum or reset. The M02 reservation-calculation precharge
+  closes the L resource law: the ACTUAL calculation work of
+  computing the per-entry canonical re-derivation reservation
+  (``canonical_rekey_calc_units``: the closed WALK-FREE bound
+  over the probe-string allocations and per-character ceiling
+  walks, the reserved workspace encode walk plus byte
+  allocation, the per-member-path ceiling walks, the member-
+  class value ceiling walks and the per-element iteration /
+  append / length work) plus the row-shape sum loop overhead is
+  charged on the ONE I outer BEFORE the calculation may encode,
+  allocate or walk any element, at BOTH reservation sites (the
+  admission boundary and the result boundary); the file-entry
+  plan's per-segment planning visit is likewise charged per
+  segment BEFORE its bound enters the plan reservation; and the
+  M02 JSON ceiling (``_json_metadata_byte_ceiling``) honestly
+  bounds the ACTUAL accepted ``json.dumps`` default
+  ``ensure_ascii`` recipe per character (ASCII one byte, quote /
+  backslash two, control or BMP six, non-BMP twelve, booleans
+  five, ``None`` four, ints their digit length) -- the
+  canonical recipe and its key bytes are unchanged and no legal
+  Unicode is prohibited to fit a formula.
 - The independent-domain evidence (J03) closes every named domain
   at-limit and first-over at the ACTUAL public-I boundary where
   reachable, and at the named bounded stage/constructor surface
@@ -326,18 +370,22 @@ qualification, and 019-024 remain mandatory.
   entry==record key alone is never the law. The closed bound
   fence runs BEFORE the recipe may serialize any carried bound
   model; the work is charged bounded METADATA on the I outer
-  (no source rewalk per witness). L01 completes the parent
+  (no source rewalk per witness). M01 completes the parent
   boundary: BEFORE the recipe may serialize or hash anything,
+  the TEN carried admission bound models are fenced as closed
+  typed scalar models (no cap is read from a forged bound), and
   the CLOSED entry / key-record / ownership metadata fence
-  (scalar types, ACTUAL enum instances -- the classes are
-  StrEnums, so equality alone would accept a raw string --
-  containers, counts under the ACTUAL inherited admission cap,
-  the accepted per-group law and the exact ownership partition,
-  plus the closed root/file branch shape) refuses a
+  (phase one: expected models, container kinds and O(1) lengths
+  under the ACTUAL inherited caps and alignment; phase two: the
+  bounded scalar / path / index / enum walks, the accepted C
+  dense group ordering and the UNIQUE partition membership;
+  phase three: the closed root/file branch shape) refuses a
   model_copy-forged nested field with ONE fixed private error
   before its elements are visited (the accepted recipe
   dereferences the enum fields directly: an unchecked raw string
-  is an uncaught AttributeError, never a validation refusal);
+  is an uncaught AttributeError, never a validation refusal; an
+  unchecked unhashable index is an uncaught TypeError from a set
+  build, never a validation refusal);
   the bounded entry / record metadata joins (entry class against
   the record authority class, the entry authority vector against
   the record vector, the entry width against the DISTINCT record
@@ -446,8 +494,8 @@ qualification, and 019-024 remain mandatory.
 
 ## 10. Tests
 
-- `tests/test_current_root_composition.py` (67 test definitions,
-  258 cases): the durable ORIGINAL-API matrix over BOTH read
+- `tests/test_current_root_composition.py` (73 test definitions,
+  279 cases): the durable ORIGINAL-API matrix over BOTH read
   endpoints and BOTH admission modes — A bootstrap/ENVELOPE
   composition, genuine issued READ refresh, descendant revert,
   rootless continuation and old/known-new/shifted replay no-ops
@@ -518,7 +566,37 @@ qualification, and 019-024 remain mandatory.
   class-identity-preserving ledger sentinel proving the at-limit
   cap equals exactly the derived count and the one-below
   crossing attempt is the count-th charge refused before the
-  crossing.
+  crossing), and M the 018-m closure: the M01 before-element
+  sentinels (an over-cap entry-class / record-occurrence /
+  segment / witness tuple carrying a harmless visit marker
+  refuses with ONE fixed private typed error BEFORE any element
+  is visited at BOTH parent boundaries, the unhashable and
+  mixed-scalar group indices refuse before the set / sort
+  operations, and the accepted dense group ordering -- a
+  shifted single group and a coherent two-group swap -- refuses
+  on the genuinely earned OK whole-bundle composition), the
+  closed TEN carried admission bound-model fence (a foreign
+  bound class and a forged below-range scalar refuse with the
+  closed bound-range error before any cap is read), the M02
+  JSON byte ceiling oracle (the per-character bound versus the
+  ACTUAL accepted ensure_ascii recipe over ASCII / BMP /
+  non-BMP / quote / backslash / control / boolean / None /
+  integer / nested values, with the tightness spot checks and
+  the long legal Unicode path), the M02 plan-walk identity (the
+  measured admission delta equals the independently derived
+  node / group / workspace / occurrence / segment counts plus
+  the plan fixed and walk terms, and the one-below cap refuses
+  with the fixed I name with ZERO entry constructions and the
+  ledger stopped exactly at the cap), and the M02
+  reservation-calculation precharge (the first canonical rekey
+  runs only after the walk-free calculation charge, a cap at
+  that charge completes the calculation sum with ZERO rekey
+  calls, one below refuses before any calculation or rekey
+  call, and the full precharge cap fits exactly with the
+  admission-site rekey completing at its own charge before the
+  later main-charge crossing); constructor and
+  reservation-accounting evidence over a valid acquisition, no
+  public derivation or runtime claim.
 - The ROOT-executed independent probes (public vertical, the
   named I7 namespace/carried-version/joined-context controls, the
   I8 preflight/diagnostic/char-before-copy controls, the I9

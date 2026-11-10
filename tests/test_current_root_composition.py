@@ -28,6 +28,9 @@ import pytest
 from pydantic import ValidationError
 
 from slaif_local_coding.constitution.bundles import (
+    current_graph as current_graph_mod,
+)
+from slaif_local_coding.constitution.bundles import (
     current_root_composition as crc,
 )
 from slaif_local_coding.constitution.bundles import (
@@ -42,6 +45,8 @@ from slaif_local_coding.constitution.bundles.bundle_admission import (
 from slaif_local_coding.constitution.bundles.bundle_admission_models import (
     AdmissionMode,
     BoundaryClass,
+    BundleAdmissionBounds,
+    BundleAdmissionNamespace,
     EntryClass,
     MemberClass,
     OwnershipGroup,
@@ -3519,7 +3524,7 @@ def test_j03_new_construction_precharge_sentinels(
     ok_adm = ok_result.admission
     assert ok_adm is not None
     k_units = sum(
-        crcm.canonical_rekey_units(entry.key_record)
+        crcm.canonical_rekey_units(entry.key_record, entry)
         for entry in (ok_adm.root_entry, *ok_adm.entries)
     ) + sum(crcm.row_shape_units(row.content_keys) for row in ok_adm.path_associations)
     assert k_units > 0, "the K reservation terms are nonzero on a genuine OK run"
@@ -3863,3 +3868,527 @@ def test_l02_e_collection_counts_before_target(
         assert attempts[-1] == (target, expected - 1, True), (
             "the crossing attempt charged before the crossing was refused"
         )
+
+
+# ------------------------------------------------------------------
+# M: pre-iteration fences and honest precharge accounting (018-m)
+# ------------------------------------------------------------------
+
+
+class _VisitBeforeCap(Exception):
+    """A harmless visit marker for the M01 before-element sentinels."""
+
+
+class _VisitTuple(tuple[Any]):
+    """A bounded visit marker tuple for the M01 sentinels."""
+
+    def __iter__(self) -> Any:
+        raise _VisitBeforeCap("bounded synthetic before-count sentinel")
+
+
+def _m_parent_attempt(
+    parent: str,
+    current: CurrentRootComposition,
+    adm: CurrentRootCompositionAdmission,
+    **overrides: Any,
+) -> None:
+    """One parent-boundary construction attempt over the given
+    admission-field overrides (both parents independently: the
+    admission parent re-runs the admission model validator over the
+    overridden fields; the result parent re-checks the nested
+    model_copy admission through the result ok-path law)."""
+    if parent == "admission":
+        CurrentRootCompositionAdmission(**admission_field_data(adm, **overrides))
+    else:
+        CurrentRootComposition(
+            **current_field_data(current, admission=adm.model_copy(update=overrides))
+        )
+
+
+def _m_assert_parent_refused(
+    parent: str,
+    current: CurrentRootComposition,
+    adm: CurrentRootCompositionAdmission,
+    **overrides: Any,
+) -> str:
+    with pytest.raises(ValidationError) as excinfo:
+        _m_parent_attempt(parent, current, adm, **overrides)
+    exc = excinfo.value
+    assert not isinstance(exc, _VisitBeforeCap)
+    return str(exc)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_m01_before_element_sentinels(mode: Any, endpoint: str) -> None:
+    """M01: an over-cap tuple/container carrying a harmless visit
+    marker refuses with ONE fixed private typed error BEFORE any
+    element is visited -- the marker exception never escapes -- and
+    a malformed unhashable / mixed scalar in a group index tuple
+    refuses before the set / sort operations.  Every case runs on a
+    GENUINELY EARNED OK composition first (the same fixture reaches
+    the target), at BOTH parent boundaries independently, in every
+    mode and endpoint.  Constructor-only forged input over a valid
+    acquisition; no public derivation or runtime claim.  The
+    inherited history cap is the ACTUAL supported stricter
+    ``max_occurrences=1`` so the witness coordinate domain stays
+    small and the sentinel tuple stays bounded."""
+    ns, s1 = _g_fixture(
+        mode,
+        endpoint,
+        "i-m01-before-element",
+        history_bounds=HistoryBounds(max_occurrences=1),
+    )
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None and adm.entries
+    entry = adm.entries[0]
+    kr = entry.key_record
+    cap = kr.admission_bounds.max_member_occurrences
+    witness_domain = adm.history_bounds.max_occurrences * max(1, kr.proof_bounds.max_segments, cap)
+    assert witness_domain >= len(entry.witnesses), "the genuine witness is inside its domain"
+    cases = (
+        (
+            "entry-classes-over-cap",
+            entry.model_copy(
+                update={"member_classes": _VisitTuple((entry.member_classes[0],) * (cap + 1))}
+            ),
+        ),
+        (
+            "record-occurrences-over-cap",
+            entry.model_copy(
+                update={
+                    "key_record": kr.model_copy(
+                        update={"member_occurrences": _VisitTuple(("A.md",) * (cap + 1))}
+                    )
+                }
+            ),
+        ),
+        (
+            "segments-over-proof",
+            entry.model_copy(
+                update={
+                    "admitted_segments": _VisitTuple(
+                        entry.admitted_segments + (len(entry.admitted_segments),)
+                    )
+                }
+            ),
+        ),
+        (
+            "witnesses-over-domain",
+            entry.model_copy(
+                update={"witnesses": _VisitTuple((entry.witnesses[0],) * (witness_domain + 1))}
+            ),
+        ),
+        (
+            "nested-unhashable-group-index",
+            entry.model_copy(
+                update={
+                    "key_record": kr.model_copy(
+                        update={
+                            "ownership_groups": (
+                                kr.ownership_groups[0].model_copy(
+                                    update={"member_occurrence_indices": ([],)}
+                                ),
+                            )
+                        }
+                    )
+                }
+            ),
+        ),
+        (
+            "mixed-scalar-group-index",
+            entry.model_copy(
+                update={
+                    "key_record": kr.model_copy(
+                        update={
+                            "ownership_groups": (
+                                kr.ownership_groups[0].model_copy(
+                                    update={"member_occurrence_indices": ("x",)}
+                                ),
+                            )
+                        }
+                    )
+                }
+            ),
+        ),
+    )
+    for name, bad in cases:
+        entries = (bad,)
+        for parent in ("admission", "result"):
+            message = _m_assert_parent_refused(parent, r, adm, entries=entries)
+            assert message, name
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_m01_dense_group_ordering_refused(mode: Any, endpoint: str) -> None:
+    """M01: the accepted C dense group ordering law (``group_index``
+    equals the position in the retained group tuple) is fenced at
+    BOTH parent boundaries: a single group shifted off its position
+    and a coherent TWO-group record with the groups swapped both
+    refuse with the fixed private typed error, each on a GENUINELY
+    EARNED OK composition first (the multi-group whole-bundle
+    positive is genuine, not a surrogate).  Constructor-only
+    forged input; both modes and endpoints."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-m01-dense")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None and adm.entries
+    entry = adm.entries[0]
+    kr = entry.key_record
+    shifted = entry.model_copy(
+        update={
+            "key_record": kr.model_copy(
+                update={
+                    "ownership_groups": (
+                        kr.ownership_groups[0].model_copy(update={"group_index": 1}),
+                    )
+                }
+            )
+        }
+    )
+    for parent in ("admission", "result"):
+        _m_assert_parent_refused(parent, r, adm, entries=(shifted,))
+        # The coherent two-group whole-bundle positive: a proven
+        # matching root segment bundle (the accepted E law) on a FRESH
+        # bootstrap (no prior A.md read: the segment must be
+        # independently CURRENT for the whole-bundle lean admission)
+        # retains TWO dense groups; swapping them breaks the dense
+        # order and the parents refuse.
+        A_TEXT = "Alpha file text.\n"
+        MARK = "PARTM"
+        cmd = f"cat A.md && echo '{MARK}' && cat AGENTS.md"
+        body = A_TEXT + MARK + "\n" + ROOT_TEXT
+        ns3, s2 = bootstrap(mode, "i-m01-dense-w")
+        t1 = issue(s2, ns3, "md", endpoint, (CAUSAL_ROOT_FACT,), args=json.dumps({"cmd": cmd}))
+        assert t1.outcome is RootLineageOutcome.ACCEPTED
+        t2 = observe_root_lineage(
+            t1.state, ns3, t1.state.revision, (read_request(endpoint, "md", body, cmd),)
+        )
+        assert t2.outcome is RootLineageOutcome.ACCEPTED
+        s3 = t2.state
+        r3 = derive(s3, ns3)
+        assert_i_ok(r3, s3)
+        adm3 = r3.admission
+        assert adm3 is not None
+        whole = i_members_of(adm3)[("A.md", ROOT_FILENAME)]
+        assert len(whole.key_record.ownership_groups) == 2, "the whole bundle retains two groups"
+        g0, g1 = whole.key_record.ownership_groups
+        swapped = whole.model_copy(
+            update={
+                "key_record": whole.key_record.model_copy(update={"ownership_groups": (g1, g0)})
+            }
+        )
+        for parent in ("admission", "result"):
+            _m_assert_parent_refused(parent, r3, adm3, entries=(swapped,))
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_m01_admission_bound_models_fenced(mode: Any, endpoint: str) -> None:
+    """M01: the TEN carried admission bound models are fenced as
+    closed typed scalar models at BOTH parent boundaries BEFORE any
+    cap is read: a copied admission carrying a foreign bound-model
+    class refuses with a closed typed error, and a forged bound
+    scalar (below the declared closed range) refuses with the fixed
+    private error naming the closed bound range -- never an
+    uncaught comparison or a cap read from a forged bound.
+    GENUINELY EARNED OK composition first; constructor-only forged
+    input; both modes and endpoints."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-m01-bounds")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None
+    foreign = BundleAdmissionBounds()
+    for parent in ("admission", "result"):
+        _m_assert_parent_refused(parent, r, adm, history_bounds=foreign)
+    forged = HistoryBounds().model_copy(update={"max_occurrences": -1})
+    for parent in ("admission", "result"):
+        message = _m_assert_parent_refused(parent, r, adm, history_bounds=forged)
+        assert "closed bound range" in message, (
+            "the forged scalar refuses at the closed bound fence, not at a cap read"
+        )
+
+
+def test_m02_json_ceiling_oracle() -> None:
+    """M02: the closed JSON byte ceiling honestly bounds the ACTUAL
+    accepted ``json.dumps(value, sort_keys=True,
+    separators=(",", ":"))`` default ``ensure_ascii`` recipe for
+    every metadata value class: ASCII, BMP, non-BMP (surrogate
+    pairs), quote / backslash / control escapes, booleans, None,
+    ints and nested containers.  The oracle is the exact recipe
+    itself -- an independent byte measurement, never a mirror of
+    the formula."""
+    cases: list[object] = [
+        "ascii plain",
+        'a"quote',
+        "back\\slash",
+        "line\nbreak",
+        "tab\there",
+        "ctrl\x01char",
+        "del\x7fchar",
+        "bmp \u00e9\u65e5\u672c",
+        "nonbmp \U0001f389\U0001f680",
+        'all \n\t"\\\u00e9\U0001f389',
+        "",
+        True,
+        False,
+        None,
+        0,
+        1,
+        12345,
+        -7,
+        [1, "x"],
+        (),
+        {"k": [True, None]},
+        {"mixed": 'a"\u00e9\U0001f389\\', "n": -12},
+        [{"a": ["b\u00e9", [True, [None]]]}, 3],
+    ]
+    for value in cases:
+        actual = len(json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        ceiling = crcm._json_metadata_byte_ceiling(value)
+        assert ceiling >= actual, (value, ceiling, actual)
+    # Tightness spot checks where the recipe is unambiguous: pure
+    # ASCII text is exactly its length plus the two quotes, the
+    # canonical literals are exact, and the BMP / non-BMP escape
+    # widths (6 / 12 bytes per code point) hold per character.
+    assert crcm._json_metadata_byte_ceiling("plain ascii") == len("plain ascii") + 2
+    assert crcm._json_metadata_byte_ceiling('a"') == 2 + 1 + 2
+    assert crcm._json_metadata_byte_ceiling("b\\") == 2 + 1 + 2
+    # Control characters take the conservative \uXXXX ceiling (the
+    # recipe may emit the shorter \n / \t escape, never more).
+    assert crcm._json_metadata_byte_ceiling("c\nd") == 2 + 1 + 6 + 1
+    assert crcm._json_metadata_byte_ceiling("\x7f") == 2 + 6
+    assert crcm._json_metadata_byte_ceiling("\u00e9") == 2 + 6
+    assert crcm._json_metadata_byte_ceiling("\U0001f389") == 2 + 12
+    assert crcm._json_metadata_byte_ceiling(True) == 5
+    assert crcm._json_metadata_byte_ceiling(False) == 5
+    assert crcm._json_metadata_byte_ceiling(None) == 4
+    assert crcm._json_metadata_byte_ceiling(-7) == 2
+    # A long legal Unicode path (the ACTUAL member-path domain): the
+    # ceiling bounds the recipe over the full declared length without
+    # changing the recipe or prohibiting the text.
+    long_text = "\u00e9" * 512 + "\U0001f389" * 64
+    assert (
+        len(json.dumps(long_text, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        == 2 + 6 * 512 + 12 * 64
+    )
+    assert crcm._json_metadata_byte_ceiling(long_text) >= 2 + 6 * 512 + 12 * 64
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_m02_plan_walk_segment_precharge(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M02: the file-entry plan reservation is the EXACT closed
+    bound of the per-occurrence / per-segment planning visits plus
+    the M01 per-entry fence walk terms, charged BEFORE the assembly
+    on the ONE I outer: the measured delta between the admission
+    namespace construction and the root entry construction equals
+    the independently derived node / group / workspace /
+    occurrence / segment counts plus the plan fixed and walk
+    terms, and ONE unit below the measured work the operation is
+    refused with the fixed I name BEFORE any entry construction
+    (the crossing is the plan reservation itself).  GENUINELY
+    EARNED OK composition first; both modes and endpoints."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-m02-plan")
+    charge = {"n": 0}
+    itotal_unit = crc._ITotal.unit
+
+    def spy_itotal(self: Any) -> None:
+        itotal_unit(self)
+        charge["n"] += 1
+
+    monkeypatch.setattr(crc._ITotal, "unit", spy_itotal)
+    ns_marks: list[int] = []
+    root_marks: list[int] = []
+    overlay_captures: list[Any] = []
+    ns_orig = BundleAdmissionNamespace.__init__
+    root_orig = crc._build_selected_root_entry
+    derive_orig = current_graph_mod._derive_graph
+
+    def hook_ns(self: Any, *args: Any, **kwargs: Any) -> None:
+        ns_marks.append(charge["n"])
+        ns_orig(self, *args, **kwargs)
+
+    def hook_root(*args: Any, **kwargs: Any) -> Any:
+        root_marks.append(charge["n"])
+        return root_orig(*args, **kwargs)
+
+    def hook_derive(*args: Any, **kwargs: Any) -> Any:
+        result = derive_orig(*args, **kwargs)
+        overlay_captures.append(result[1])
+        return result
+
+    monkeypatch.setattr(BundleAdmissionNamespace, "__init__", hook_ns)
+    monkeypatch.setattr(crc, "_build_selected_root_entry", hook_root)
+    monkeypatch.setattr(current_graph_mod, "_derive_graph", hook_derive)
+    ok = derive(s1, ns)
+    assert_i_ok(ok, s1)
+    assert len(ns_marks) >= 1 and len(root_marks) == 1
+    assert overlay_captures and overlay_captures[0] is not None, (
+        "the same-run overlay is the actual group source"
+    )
+    overlay = overlay_captures[0]
+    n, p = ns_marks[0], root_marks[0]
+    # Independently derived counts (never the kernel's private
+    # accumulation): the graph nodes, the overlay groups, the D
+    # occurrences / proof segments / member positions, the overlay
+    # group count per occurrence and the actual two-inherited path
+    # ceiling.
+    assert ok.graph is not None
+    n_nodes = len(ok.graph.nodes)
+    n_groups = len(overlay.groups)
+    occurrences = s1.d_state.occurrences
+    n_occ = len(occurrences)
+    n_seg_total = 0
+    plan_fixed = 0
+    plan_walk = 0
+    path_cap = min(ns.graph_bounds.max_path_bytes, ns.observation_bounds.max_path_bytes)
+    for occ in occurrences:
+        segments = occ.proof.segments
+        n_seg = len(segments)
+        member_positions = sum(len(s.member_positions) for s in segments)
+        n_seg_total += n_seg
+        if n_seg:
+            plan_fixed += crcm.KEY_RECORD_FENCE_UNITS + crcm.ENTRY_METADATA_FENCE_UNITS
+            group_count = sum(1 for g in overlay.groups if g.occurrence_id == occ.occurrence_id)
+            plans_cap = max(1, n_seg, group_count)
+            plan_walk += (
+                15 * member_positions
+                + member_positions * (path_cap + 1)
+                + 3 * n_seg
+                + 6 * plans_cap
+                + 4 * plans_cap * n_seg
+                + 2 * group_count
+            )
+    assert n_nodes > 0 and n_occ > 0 and n_seg_total > 0
+    assert p - n == n_nodes + n_groups + 2 + n_occ + n_seg_total + plan_fixed + plan_walk, (
+        "the measured delta is exactly the closed plan reservation identity"
+    )
+    # One unit below the measured work: the crossing is the plan
+    # reservation itself -- refused with the fixed I name and NO
+    # entry construction (the root entry hook never fires), the
+    # ledger stopped exactly at the cap.
+    charge["n"] = 0
+    root_marks.clear()
+    r = derive(
+        s1,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=p - 1),
+    )
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert root_marks == [], "the plan reservation crossing prevented every entry construction"
+    assert charge["n"] == p - 1, (
+        "the ledger stopped exactly at the cap, inside the plan reservation"
+    )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_m02_reservation_calc_precharge(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M02: the reservation CALCULATION work is precharged on the
+    ONE I outer BEFORE the per-entry canonical re-derivation
+    calculation may encode, allocate or walk any element: on a
+    GENUINELY EARNED OK run the first rekey call runs only after
+    the walk-free calculation charge, and a cap at the first
+    calculation charge refuses with ZERO rekey calls (the encode /
+    element work never starts) while a cap one below refuses before
+    even the calculation call.  A cap at the full calculation
+    precharge (the walk-free bound plus the closed loop-overhead
+    terms) fits exactly, completes the admission-site rekey
+    computation at its own charge and lets the crossing land on
+    the later main charge.  Constructor / reservation accounting
+    evidence over a valid acquisition; both modes and endpoints."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-m02-calc")
+    charge = {"n": 0}
+    itotal_unit = crc._ITotal.unit
+
+    def spy_itotal(self: Any) -> None:
+        itotal_unit(self)
+        charge["n"] += 1
+
+    monkeypatch.setattr(crc._ITotal, "unit", spy_itotal)
+    calc_calls: list[int] = []
+    rekey_calls: list[int] = []
+    real_calc = crcm.canonical_rekey_calc_units
+    real_rekey = crcm.canonical_rekey_units
+
+    def spy_calc(key_record: Any, entry: Any) -> int:
+        calc_calls.append(charge["n"])
+        return real_calc(key_record, entry)
+
+    def spy_rekey(key_record: Any, entry: Any) -> int:
+        rekey_calls.append(charge["n"])
+        return real_rekey(key_record, entry)
+
+    monkeypatch.setattr(crc, "canonical_rekey_calc_units", spy_calc)
+    monkeypatch.setattr(crc, "canonical_rekey_units", spy_rekey)
+    ok = derive(s1, ns)
+    assert_i_ok(ok, s1)
+    adm = ok.admission
+    assert adm is not None and adm.entries
+    entry_tuples = (adm.root_entry, *adm.entries)
+    assoc_rows = len(adm.path_associations)
+    calc_total = sum(real_calc(e.key_record, e) for e in entry_tuples)
+    calc_units_adm = calc_total + 2 * len(entry_tuples) + 2 * assoc_rows
+    expected_rekeys = 2 * len(entry_tuples)
+    assert calc_calls, "the calculation ran on the OK run"
+    c = calc_calls[0]
+    assert calc_total > 0
+    assert rekey_calls, "the rekey computation ran on the OK run"
+    assert rekey_calls[0] == c + calc_units_adm, (
+        "the rekey computation starts only after the walk-free calculation "
+        "charge (bound plus the closed loop-overhead terms)"
+    )
+    assert len(rekey_calls) == expected_rekeys, (
+        "both reservation sites compute the rekey bound over every retained entry"
+    )
+    # Cap at the first calculation charge: the calculation sum
+    # completes, the precharge crosses, and NO rekey computation
+    # (the encode / element work) ever starts.
+    calc_calls.clear()
+    rekey_calls.clear()
+    r = derive(s1, ns, composition_bounds=CurrentRootCompositionBounds(max_total_work_units=c))
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert len(calc_calls) == len(entry_tuples), "the calculation sum completed before the crossing"
+    assert rekey_calls == [], (
+        "the precharge crossing stopped the rekey computation before encode/elements"
+    )
+    # One below: the crossing happens before the calculation call.
+    calc_calls.clear()
+    rekey_calls.clear()
+    r = derive(
+        s1,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=c - 1),
+    )
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert calc_calls == [] and rekey_calls == [], (
+        "one below the calculation charge refuses before any calculation or rekey call"
+    )
+    # Cap at the full calculation precharge: it fits EXACTLY, the
+    # admission-site rekey computation (the argument evaluation of
+    # the later main charge) completes at its own charge, and the
+    # crossing is that later main charge -- no rekey work was
+    # hidden inside the precharge.  The OK run above already
+    # proved both reservation sites compute the rekey bound
+    # (expected_rekeys).
+    calc_calls.clear()
+    rekey_calls.clear()
+    r = derive(
+        s1,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=c + calc_units_adm),
+    )
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert len(rekey_calls) == len(entry_tuples), (
+        "the precharge admitted the admission rekey computation at its own charge"
+    )

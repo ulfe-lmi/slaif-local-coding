@@ -89,6 +89,7 @@ from .current_graph_models import (
     CurrentGraphResult,
 )
 from .current_root_composition_models import (
+    ADMISSION_BOUND_FENCE_UNITS,
     CURRENT_ROOT_COMPOSITION_CONTRACT_VERSION,
     CURRENT_ROOT_COMPOSITION_POLICY_VERSION,
     ENTRY_METADATA_FENCE_UNITS,
@@ -101,6 +102,7 @@ from .current_root_composition_models import (
     CurrentRootCompositionLimitation,
     CurrentRootCompositionOutcome,
     _closed_bounds_fence,
+    canonical_rekey_calc_units,
     canonical_rekey_units,
     current_root_composition_scope_key,
     row_shape_units,
@@ -750,30 +752,49 @@ def derive_current_root_composition(
         facade.units(2)
         stage_g.units(2)  # the ONE workspace byte-length measurement
         workspace_bytes = len(ns.workspace.encode("utf-8"))
-        # The file-entry pre-dump metadata fence reservation (L01):
-        # every newly constructed file entry's ``_v_entry`` runs the
-        # closed L01 entry / key-record / ownership metadata fence
-        # (the four carried bound models BEFORE the accepted helpers
-        # may serialize them, plus the entry scalar / enum /
-        # container checks and the per-member O(n) tuple / set /
-        # partition walks).  Constructions are bounded by the plan
-        # count, which is bounded by the proof segment count per
-        # occurrence, and each entry's member walk is bounded by
-        # fifteen times its occurrence's member positions (the
-        # accepted per-member coefficient): the closed upper bound
-        # is charged BEFORE the assembly (the charged O(occurrences)
-        # metadata walk carries no source inspection).
-        plan_fence_bound = 0
-        plan_member_bound = 0
+        # The file-entry pre-dump metadata fence reservation
+        # (L01/M01): every newly constructed file entry's
+        # ``_v_entry`` runs the closed M01 entry / key-record /
+        # ownership metadata fence (the four carried bound models
+        # BEFORE the accepted helpers may serialize them, the O(1)
+        # length gates under the ACTUAL inherited caps before any
+        # element visit, the bounded scalar / path / index / enum
+        # walks, the dense group ordering and the unique partition
+        # law).  Constructions are bounded by the plan count, which
+        # is bounded by the proof segment count per occurrence, and
+        # each entry's walks are bounded by fifteen times its
+        # occurrence's member positions plus the per-path byte-cap
+        # walk, the segment / witness / group dimensions under the
+        # actual inherited caps (the accepted per-dimension
+        # coefficients): the closed upper bound is charged BEFORE
+        # the assembly (the charged O(occurrences) metadata walk
+        # carries no source inspection).  The per-segment planning
+        # visit is itself charged BEFORE its bound enters the
+        # reservation (M02).
+        path_cap = min(ns.graph_bounds.max_path_bytes, ns.observation_bounds.max_path_bytes)
+        plan_fixed = 0
+        plan_walk = 0
         for occurrence in d_state.occurrences:
             itotal.unit()
+            n_segments = 0
+            member_positions = 0
             for segment in occurrence.proof.segments:
-                plan_fence_bound += 1
-                plan_member_bound += len(segment.member_positions)
-        itotal.units(
-            (KEY_RECORD_FENCE_UNITS + ENTRY_METADATA_FENCE_UNITS) * plan_fence_bound
-            + ROOT_ENTRY_FENCE_WALK_UNITS * plan_member_bound
-        )
+                itotal.unit()  # the M02 per-segment planning visit
+                n_segments += 1
+                member_positions += len(segment.member_positions)
+            if n_segments:
+                plan_fixed += KEY_RECORD_FENCE_UNITS + ENTRY_METADATA_FENCE_UNITS
+                group_count = len(groups_by_occ.get(occurrence.occurrence_id, ()))
+                plans_cap = max(1, n_segments, group_count)
+                plan_walk += (
+                    15 * member_positions
+                    + member_positions * (path_cap + 1)
+                    + 3 * n_segments
+                    + 6 * plans_cap
+                    + 4 * plans_cap * n_segments
+                    + 2 * group_count
+                )
+        itotal.units(plan_fixed + plan_walk)
         if root_bytes > ns.graph_bounds.max_single_source_bytes:
             raise _GOverflow(CurrentAdmissionLimitation.ENTRY_SOURCE_BYTES_OVER_BOUND)
         if root_bytes > effective_g.max_total_entry_source_bytes:
@@ -920,13 +941,33 @@ def derive_current_root_composition(
         # workspace encode pass 2*workspace_bytes) for the root
         # entry plus every file entry -- charged to the ONE
         # composition outer only.
-        # The admission record's per-entry re-fence (I8) joins the
-        # same reservation: one closed key-record bound walk per
-        # retained entry, charged before the construction.
+        # The M02 reservation-calculation precharge: the ACTUAL
+        # work of computing the per-entry canonical re-derivation
+        # reservation (the closed walk-free upper bounds over the
+        # encode / loop / allocation / ceiling-walk work) plus the
+        # row-shape sum loop overhead is charged BEFORE the
+        # calculation may encode, allocate or walk any element.
+        entry_tuples = (root_entry, *file_entries)
+        calc_units = (
+            sum(canonical_rekey_calc_units(e.key_record, e) for e in entry_tuples)
+            + 2 * len(entry_tuples)
+            + 2 * len(associations)
+        )
+        itotal.units(calc_units)
         itotal.units(
             10
             + scope_key_units
+            # The admission record's per-entry key-record re-fence
+            # (I8/M01): the closed four-bound-model fence walk per
+            # retained entry plus the scoped-key workspace encode
+            # pass, charged before the construction.
             + (64 + 2 * workspace_bytes + KEY_RECORD_FENCE_UNITS) * (1 + len(file_entries))
+            # The M01 closed TEN admission bound-model fence runs
+            # inside the admission construction (re-fenced before
+            # the first inherited cap is read on BOTH parent
+            # boundaries): bounded METADATA work, upper-bound-
+            # charged BEFORE the construction that performs it.
+            + ADMISSION_BOUND_FENCE_UNITS
             # The J01/J02 actual-field association joins run inside
             # the admission construction: one selected-digest
             # comparison per file entry plus its key-record
@@ -944,7 +985,7 @@ def derive_current_root_composition(
             # The K01/K02 ACTUAL canonical re-derivation and row
             # shape fences run inside the admission construction
             # for the root entry plus every file entry: per entry
-            # the closed bound fence, the retained digest and
+            # the M01 closed bound fences, the retained digest and
             # content-key comparisons and the accepted C recipe
             # re-derivation (three bound-model dump passes and
             # five sha256 passes at the ACTUAL field lengths), and
@@ -952,7 +993,7 @@ def derive_current_root_composition(
             # distinct/sorted shape fence before the set
             # comparison.  Bounded METADATA work, upper-bound-
             # charged BEFORE the construction that performs it.
-            + sum(canonical_rekey_units(e.key_record) for e in (root_entry, *file_entries))
+            + sum(canonical_rekey_units(e.key_record, e) for e in entry_tuples)
             + sum(row_shape_units(row.content_keys) for row in associations)
         )
         # The model walk's ACTUAL input-namespace D re-derivation
@@ -1047,6 +1088,17 @@ def derive_current_root_composition(
         entry_segment_count = sum(
             len(witness.segment_indices) for entry in file_entries for witness in entry.witnesses
         )
+        # The M02 reservation-calculation precharge for the RESULT
+        # reservation: the same walk-free closed upper bounds over
+        # the per-entry canonical re-derivation calculation work
+        # plus the row-shape sum loop overhead, charged BEFORE the
+        # calculation may encode, allocate or walk any element.
+        calc_units = (
+            sum(canonical_rekey_calc_units(e.key_record, e) for e in (root_entry, *file_entries))
+            + 2 * (1 + file_entry_count)
+            + 2 * len(associations)
+        )
+        itotal.units(calc_units)
         result_units = (
             28
             + witness_count * (retained_count + 3)
@@ -1058,6 +1110,11 @@ def derive_current_root_composition(
             + file_entry_count
             + 5 * entry_witness_count
             + entry_segment_count
+            # The M01 closed TEN admission bound-model fence runs
+            # AGAIN on the nested admission inside the result
+            # construction: the same bounded metadata upper bound
+            # as the admission-construction reservation.
+            + ADMISSION_BOUND_FENCE_UNITS
             # The J01/J02 actual-field association re-joins run
             # AGAIN on the nested admission inside the result
             # construction (a model_copy-bypassed nested record is
@@ -1072,8 +1129,8 @@ def derive_current_root_composition(
             # shape fences run AGAIN on the nested admission
             # inside the result construction: the same bounded
             # metadata upper bound as the admission-construction
-            # reservation.
-            + sum(canonical_rekey_units(e.key_record) for e in (root_entry, *file_entries))
+            # reservation (the M01 per-entry fence walk term).
+            + sum(canonical_rekey_units(e.key_record, e) for e in (root_entry, *file_entries))
             + sum(row_shape_units(row.content_keys) for row in associations)
         )
         itotal.units(result_units)

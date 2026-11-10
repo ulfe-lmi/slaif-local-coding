@@ -353,3 +353,70 @@ ACCEPTED decision stands as recorded.
   scope and the K03 before-target count evidence under the same PR26
   branch; all 018-h, 018-i and 018-j qualifications stand as
   recorded.
+
+## 018-l — 2026-11-10
+
+- The named 40 I/J/K constructor controls pass at the L pins
+  (ROOT fresh captures, every literal 0 / stderr 0 / stable
+  pins). The additional 24 before-iteration count/shape
+  failures (`S/probes/018-l-preiteration-and-group-shape-v1.py`,
+  sha256 `2f3f7eb80ea3edb1a4e1434797384af6f169dcbd06c82fdc11885d0e74754296`,
+  captures `S/reviews/018-l-preiteration-and-group-shape-v1.{out,err,exit}`,
+  0/24 literal 1 / stderr 0 / stable L pins) and the 4 JSON
+  ceiling underbounds (`S/probes/018-l-json-ceiling-v1.py`,
+  sha256 `f9185bcdd635c18d2bb2a233016da54e8303b6360531852df4c475d84e9c5a0f`,
+  captures `S/reviews/018-l-json-ceiling-v1.{out,err,exit}`, 0/4
+  literal 1 / stderr 0 / stable model pin) remain unmet; the
+  reservation-calculation precharge gap (canonical_rekey_units
+  evaluated before itotal.units; the plan segment loop one
+  charge per occurrence) is the exact successor target, as is
+  the L02 before-RECIPE versus before-ELEMENT distinction.
+- The L strict proof FAILED literal 1 against the STALE K
+  repo-dist BEFORE the gate (archive/extract/build exits 0;
+  build.err 281 bytes ordinary diagnostics; proof.err 425
+  bytes; first-attempt source 14722 bytes sha256
+  `24c3df627b2fc6319cb78a791ebbdbf942067d41fbdaa73c9fd92295c6d9c530`;
+  error sha256
+  `427f755cff2a9ba140ccd4f5f47d4aa36c7f7617a0280409080f9e1292df95b8`).
+  The pane's adjacent `1` then `425` output is NOT the number
+  1425. The proof is frozen, never rerun, and not retroactively
+  passed by the later green gate.
+- 12 W18l manual files are mode 0644 inside the 0700 root (the
+  order required individual 0600); permissions were restricted
+  in place without any byte edit; no customer exposure is
+  asserted.
+- After SELF, a global `ps -eo` ran before the SID/PPID
+  filter, violating the bounded owned-tree requirement; own
+  rows only were emitted in the observed output, with no
+  inferred exposure.
+
+## 018-m — 2026-11-10
+
+- The M01 probe check used /tmp captures, breaching the
+  no-/tmp capture law; the first attempt (exit 2) bytes are
+  LOST by overwrite and were never reconstructed; the second
+  run is preserved at
+  `W18m/evidence/m01-probe-check/018-m-m01-probe-check-v1.{out,err,json}`
+  with original path / mode / actual exit attribution. All
+  subsequent manual sources / captures are exclusive 0600
+  under 077 in W18m; only the ACTUAL pytest child runs 022.
+- One focused pytest was piped through `tail -40`: the pytest
+  exit is NOT established and the full output is lost; the
+  module was correctly rerun with full capture and the actual
+  exit (`018-m-focused-module-v1`, 258 passed, exit 0).
+  Subsequent runs use one managed command with protected full
+  stdout/stderr and the actual pytest exit (parent 077, pytest
+  child 022); no pipe/tail status masking.
+- `018-m-focused-module-v2` is a runner-construction failure:
+  the guard for-loop exit status short-circuited the `&&`
+  chain, the pytest subshell never launched, and its
+  `exit=1` is the chain status, not pytest's; no
+  reconstruction; the corrected rerun is under fresh v3 / v6
+  names.
+- Unrecorded I-round scratch `/tmp/pr26-body-live.txt` (4750
+  bytes) and `/tmp/pr26-body-live-trimmed.txt` (4749 bytes)
+  were used for PR-body verification, breaching the
+  no-manual-/tmp law; the surviving bytes were preserved
+  read-only to
+  `W18m/evidence/i-round-tmp-preservation/` with original
+  path / size / mtime attribution.

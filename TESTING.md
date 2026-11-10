@@ -205,7 +205,16 @@ complete closed nested entry / key-record / ownership metadata
 fences at the leaf and BOTH parent boundaries with the entry /
 record authority and width joins, L02 independently derived
 actual E collection-domain counts with a before-target charge
-sentinel) are implemented and PENDING strategic review (contract
+sentinel) were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete L01/resource/artifact criteria
+(strategic decision `S/reviews/018-l-decision.md`); the bounded
+018-m repairs (M01 O(1) count / scalar gates BEFORE any element
+/ set / sort / hash / serialization work at the leaf and BOTH
+parent boundaries, with the closed TEN admission bound-model
+fence and the accepted dense group ordering / unique partition
+law; M02 the exact accepted JSON serialization byte ceiling and
+the reservation-calculation work precharge on the ONE I outer)
+are implemented and PENDING strategic review (contract
 [docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md](docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md);
 `tests/test_current_root_composition.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned

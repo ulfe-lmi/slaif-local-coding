@@ -199,7 +199,16 @@ complete closed nested entry / key-record / ownership metadata
 fences at the leaf and BOTH parent boundaries with the entry /
 record authority and width joins, L02 independently derived
 actual E collection-domain counts with a before-target charge
-sentinel) are implemented and PENDING strategic review, at its
+sentinel) were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete L01/resource/artifact criteria
+(strategic decision `S/reviews/018-l-decision.md`); the bounded
+018-m repairs (M01 O(1) count / scalar gates BEFORE any element
+/ set / sort / hash / serialization work at the leaf and BOTH
+parent boundaries, with the closed TEN admission bound-model
+fence and the accepted dense group ordering / unique partition
+law; M02 the exact accepted JSON serialization byte ceiling and
+the reservation-calculation work precharge on the ONE I outer)
+are implemented and PENDING strategic review, at its
 bounded inert scope (contract
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`), all as
 inert typed modules under
@@ -393,8 +402,8 @@ process qualifications, strategic decision
 inactive.
 
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
-PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l repairs PENDING
-review).**
+PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
+NOT ACCEPTED; 018-m repairs PENDING review).**
 The 018-i composition takes the ACTUAL retained 018-h
 root-lineage state and its ACTUAL namespace (plus the NEW
 composition bounds and the ACTUAL inherited H/D/E/F/G bound sets)
@@ -458,7 +467,16 @@ complete closed nested entry / key-record / ownership metadata
 fences at the leaf and BOTH parent boundaries with the entry /
 record authority and width joins, L02 independently derived
 actual E collection-domain counts with a before-target charge
-sentinel) are implemented and PENDING strategic review)
+sentinel) were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete L01/resource/artifact criteria
+(strategic decision `S/reviews/018-l-decision.md`); the bounded
+018-m repairs (M01 O(1) count / scalar gates BEFORE any element
+/ set / sort / hash / serialization work at the leaf and BOTH
+parent boundaries, with the closed TEN admission bound-model
+fence and the accepted dense group ordering / unique partition
+law; M02 the exact accepted JSON serialization byte ceiling and
+the reservation-calculation work precharge on the ONE I outer)
+are implemented and PENDING strategic review)
 and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
@@ -903,7 +921,16 @@ and are NOT ACCEPTED against the complete J01/J02/J03 criteria
 018-k repairs (K01/K02/K03) are NOT ACCEPTED against the
 complete K01/K02/K03 criteria (strategic decision
 `S/reviews/018-k-decision.md`); the bounded 018-l repairs
-(L01/L02) are implemented and PENDING strategic review, at its
+(L01/L02) were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete L01/resource/artifact criteria
+(strategic decision `S/reviews/018-l-decision.md`); the bounded
+018-m repairs (M01 O(1) count / scalar gates BEFORE any element
+/ set / sort / hash / serialization work at the leaf and BOTH
+parent boundaries, with the closed TEN admission bound-model
+fence and the accepted dense group ordering / unique partition
+law; M02 the exact accepted JSON serialization byte ceiling and
+the reservation-calculation work precharge on the ONE I outer)
+are implemented and PENDING strategic review, at its
 bounded inert scope). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
@@ -1037,7 +1064,16 @@ decision `S/reviews/018-j-decision.md`); the bounded 018-k
 repairs (K01/K02/K03) are NOT ACCEPTED against the complete
 K01/K02/K03 criteria (strategic decision
 `S/reviews/018-k-decision.md`); the bounded 018-l repairs
-(L01/L02) are implemented and PENDING strategic review, at its
+(L01/L02) were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete L01/resource/artifact criteria
+(strategic decision `S/reviews/018-l-decision.md`); the bounded
+018-m repairs (M01 O(1) count / scalar gates BEFORE any element
+/ set / sort / hash / serialization work at the leaf and BOTH
+parent boundaries, with the closed TEN admission bound-model
+fence and the accepted dense group ordering / unique partition
+law; M02 the exact accepted JSON serialization byte ceiling and
+the reservation-calculation work precharge on the ONE I outer)
+are implemented and PENDING strategic review, at its
 bounded inert scope, contract
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`) and the
 remaining 018 current-version/overlap work beyond this mechanism
