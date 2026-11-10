@@ -192,7 +192,13 @@ process qualifications (the 018-h strategic decision,
 NOT ACCEPTED at its bounded inert scope (the 018-i strategic
 decision, `S/reviews/018-i-decision.md`); the bounded 018-j
 repairs (J01 association closure, J02 exact reverse-index law,
-J03 independent budget domains) are implemented and PENDING
+J03 independent budget domains) were delivered truthfully
+PARTIAL and are NOT ACCEPTED against the complete J01/J02/J03
+criteria (strategic decision `S/reviews/018-j-decision.md`); the
+bounded 018-k repairs (K01 actual nested canonical keys at BOTH
+parent boundaries, K02 actual nested row shapes before
+exact-relation comparison, K03 genuinely reachable E collection
+caps with exact evidence labels) are implemented and PENDING
 strategic review (contract
 [docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md](docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md);
 `tests/test_current_root_composition.py`),

@@ -60,6 +60,7 @@ from slaif_local_coding.constitution.bundles.current_admission_models import (
     CurrentAdmissionLimitation,
     CurrentAdmissionPathAssociation,
     CurrentAdmissionWitness,
+    _canonical_entry_key,
 )
 from slaif_local_coding.constitution.bundles.current_graph_models import (
     CurrentGraphBounds,
@@ -2536,6 +2537,242 @@ def test_j02_shared_member_multi_key_row_positive(mode: Any, endpoint: str) -> N
     assert c_row.content_keys == (ac.content_key,)
 
 
+# --- K: actual nested canonical keys, row shapes and reachable E caps --
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_k01_stale_canonical_key_after_rebind_refused(mode: Any, endpoint: str) -> None:
+    """K01 (CONSTRUCTOR-ONLY, labeled): rebounding BOTH the
+    entry's and the key record's governing digest fields to the
+    selected digest while RETAINING the old actual canonical key
+    is refused at the leaf law AND at BOTH parent boundaries:
+    the actual canonical key must RE-DERIVE from the actual
+    nested key record through the accepted C recipe, and
+    comparing digest tags (or entry==record key) alone is never
+    the law.  The genuine preconditions (the exact retained
+    original proof, the old and new governing keys differing,
+    the current entry's key re-deriving exactly) are asserted.
+    The public I derivation never emits the forged entry."""
+    ns, s0 = bootstrap(mode, "i-k01-rebind")
+    s1 = nonroot_read(s0, ns, "k01a", endpoint, "Synthetic retained A body.\n")
+    old = derive(s1, ns)
+    assert_i_ok(old, s1)
+    oe = i_members_of(old.admission)[("A.md",)]
+    s2 = refreshed(s1, ns, "k01b", endpoint, ROOT_TEXT + "\nSynthetic governing root changes.\n")
+    current = derive(s2, ns)
+    assert_i_ok(current, s2)
+    adm = current.admission
+    assert adm is not None
+    ce = i_members_of(adm)[("A.md",)]
+    # genuine preconditions (the original probe facts)
+    assert ce.proof is oe.proof
+    assert oe.root_digest != adm.root_digest
+    assert ce.content_key != oe.content_key
+    # positive re-derivation precondition: the CURRENT entry's
+    # canonical key re-derives from its actual key record exactly
+    assert _canonical_entry_key(ce.key_record) == ce.content_key
+    # the rebind: BOTH the entry's and the key record's governing
+    # digest fields become the selected digest; the OLD canonical
+    # key is retained
+    kr = oe.key_record.model_copy(update={"root_digest": adm.root_digest})
+    bad_entry = oe.model_copy(update={"root_digest": adm.root_digest, "key_record": kr})
+    assert kr.root_digest == adm.root_digest
+    assert _canonical_entry_key(kr) != bad_entry.content_key
+    # (a) the leaf law already rejects the re-bound entry
+    with pytest.raises(ValidationError) as exc_leaf:
+        CurrentRootCompositionEntry(
+            **{n: getattr(bad_entry, n) for n in CurrentRootCompositionEntry.model_fields}
+        )
+    assert "content key must bind the actual canonical 018-c recipe" in str(exc_leaf.value)
+    # the splice (the 018-i probe pattern): the forged entry
+    # replaces the current one and its row key is remapped
+    entries = tuple(
+        sorted((bad_entry if e is ce else e for e in adm.entries), key=lambda e: e.content_key)
+    )
+    rows = tuple(
+        row.model_copy(
+            update={
+                "content_keys": tuple(
+                    sorted(
+                        oe.content_key if key == ce.content_key else key for key in row.content_keys
+                    )
+                )
+            }
+        )
+        for row in adm.path_associations
+    )
+    # (b) the admission boundary refuses the stale canonical key
+    with pytest.raises(ValidationError) as exc_adm:
+        CurrentRootCompositionAdmission(
+            **admission_field_data(
+                adm, entries=entries, entries_retained=1 + len(entries), path_associations=rows
+            )
+        )
+    assert "every entry canonical key re-derives from its actual key record" in str(exc_adm.value)
+    # (c) the result boundary re-checks the ACTUAL fields of a
+    #     model_copy-bypassed nested admission
+    bad_adm = adm.model_copy(
+        update={
+            "entries": entries,
+            "entries_retained": 1 + len(entries),
+            "path_associations": rows,
+        }
+    )
+    with pytest.raises(ValidationError) as exc_res:
+        CurrentRootComposition(
+            **{n: getattr(current, n) for n in CurrentRootComposition.model_fields}
+            | {"admission": bad_adm}
+        )
+    assert "every entry canonical key re-derives from its actual key record" in str(exc_res.value)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_k01_key_record_content_key_mismatch_refused(mode: Any, endpoint: str) -> None:
+    """K01: the entry key record's OWN content key must agree
+    with the entry at BOTH parent boundaries.  Variant A copies a
+    forged content key into the retained key record (the entry
+    key unchanged); variant B forges the entry's own content key
+    (the key record unchanged).  Both reach the intended target
+    with the fixed private error at the admission AND the result
+    boundary (model_copy-bypassed nested admissions)."""
+    ns, s0 = bootstrap(mode, "i-k01-ck")
+    s1 = nonroot_read(s0, ns, "k01c", endpoint, "Synthetic K01 mismatch body.\n")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None
+    entry = i_members_of(adm)[("A.md",)]
+    # (a) variant A: the copied key record carries a forged
+    #     content key; the entry's own key is unchanged
+    stale_kr = entry.key_record.model_copy(update={"content_key": J_STALE_DIGEST})
+    bypassed = entry.model_copy(update={"key_record": stale_kr})
+    with pytest.raises(ValidationError) as exc_adm:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, entries=(bypassed,)))
+    assert "every entry key record content key agrees with the entry" in str(exc_adm.value)
+    bad_adm = adm.model_copy(update={"entries": (bypassed,)})
+    with pytest.raises(ValidationError) as exc_res:
+        CurrentRootComposition(
+            **{n: getattr(r, n) for n in CurrentRootComposition.model_fields}
+            | {"admission": bad_adm}
+        )
+    assert "every entry key record content key agrees with the entry" in str(exc_res.value)
+    # (b) variant B: the entry's own content key is forged; the
+    #     key record is unchanged
+    forged = entry.model_copy(update={"content_key": J_STALE_DIGEST})
+    with pytest.raises(ValidationError) as exc_adm2:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, entries=(forged,)))
+    assert "every entry key record content key agrees with the entry" in str(exc_adm2.value)
+    bad_adm2 = adm.model_copy(update={"entries": (forged,)})
+    with pytest.raises(ValidationError) as exc_res2:
+        CurrentRootComposition(
+            **{n: getattr(r, n) for n in CurrentRootComposition.model_fields}
+            | {"admission": bad_adm2}
+        )
+    assert "every entry key record content key agrees with the entry" in str(exc_res2.value)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_k02_duplicate_row_key_refused(mode: Any, endpoint: str) -> None:
+    """K02 (CONSTRUCTOR-ONLY, labeled): a model_copy row that
+    DUPLICATES a genuine admitted content key is refused at the
+    leaf row law AND at BOTH parent boundaries: the actual row
+    container/count/scalar shape and the strict canonical
+    sorted/distinct key order are validated BEFORE the set
+    comparison can erase the duplicate fact."""
+    ns, s0 = bootstrap(mode, "i-k02-dup")
+    s1 = nonroot_read(s0, ns, "k02a", endpoint, "Synthetic retained A body.\n")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None
+    root_row = next(row for row in adm.path_associations if row.path == adm.root_path)
+    duplicate = root_row.model_copy(
+        update={"content_keys": root_row.content_keys + root_row.content_keys}
+    )
+    # (a) the leaf row law already rejects the duplicated key
+    with pytest.raises(ValidationError):
+        CurrentAdmissionPathAssociation(
+            **{n: getattr(duplicate, n) for n in CurrentAdmissionPathAssociation.model_fields}
+        )
+    # (b) the admission boundary refuses before the set
+    #     comparison
+    rows = tuple(duplicate if row is root_row else row for row in adm.path_associations)
+    with pytest.raises(ValidationError) as exc_adm:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, path_associations=rows))
+    assert "each reverse index row holds distinct content keys" in str(exc_adm.value)
+    # (c) the result boundary re-checks the ACTUAL row
+    bad_adm = adm.model_copy(update={"path_associations": rows})
+    with pytest.raises(ValidationError) as exc_res:
+        CurrentRootComposition(
+            **{n: getattr(r, n) for n in CurrentRootComposition.model_fields}
+            | {"admission": bad_adm}
+        )
+    assert "each reverse index row holds distinct content keys" in str(exc_res.value)
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_k02_reversed_row_keys_refused(mode: Any, endpoint: str) -> None:
+    """K02 (CONSTRUCTOR-ONLY, labeled): a legitimate SHARED
+    member (one path admitted by two distinct proven bundles --
+    the accepted G overlap pattern) keeps ONE row with the
+    COMPLETE key set in canonical order; a model_copy row that
+    REVERSES that key order changes no set fact, so the old set
+    comparison alone cannot see it: the strict canonical sorted
+    order is refused at BOTH parent boundaries with the fixed
+    private error."""
+    seg_a, seg_b, seg_c = "A part one.\n", "B part.\n", "C part.\n"
+    MARK = "KSHRD"
+    ns = h_ns(mode, "i-k02-rev")
+    s0 = h_bootstrap(
+        ns,
+        root_request_ws(WORKSPACE, "Read `A.md`, `B.md` and `C.md` before changing code."),
+    )
+    s1 = nonroot_read(
+        s0,
+        ns,
+        "k02b",
+        endpoint,
+        seg_a + MARK + "\n" + seg_b,
+        cmd=f"cat A.md && echo '{MARK}' && cat B.md",
+    )
+    s2 = nonroot_read(
+        s1,
+        ns,
+        "k02c",
+        endpoint,
+        seg_a + MARK + "\n" + seg_c,
+        cmd=f"cat A.md && echo '{MARK}' && cat C.md",
+    )
+    r = derive(s2, ns)
+    assert_i_ok(r, s2)
+    adm = r.admission
+    assert adm is not None
+    row = next(row for row in adm.path_associations if row.path == "A.md")
+    keys = row.content_keys
+    assert len(keys) == 2 and keys == tuple(sorted(keys))
+    reversed_row = row.model_copy(update={"content_keys": tuple(reversed(keys))})
+    # the SET is unchanged: the set comparison alone cannot see
+    # the reversal
+    assert set(reversed_row.content_keys) == set(keys)
+    rows = tuple(
+        reversed_row if candidate is row else candidate for candidate in adm.path_associations
+    )
+    with pytest.raises(ValidationError) as exc_adm:
+        CurrentRootCompositionAdmission(**admission_field_data(adm, path_associations=rows))
+    assert "each reverse index row holds canonically sorted content keys" in str(exc_adm.value)
+    bad_adm = adm.model_copy(update={"path_associations": rows})
+    with pytest.raises(ValidationError) as exc_res:
+        CurrentRootComposition(
+            **{n: getattr(r, n) for n in CurrentRootComposition.model_fields}
+            | {"admission": bad_adm}
+        )
+    assert "each reverse index row holds canonically sorted content keys" in str(exc_res.value)
+
+
 # --- J03: independent budget domains and pre-charge fences ----------------
 
 
@@ -2549,17 +2786,22 @@ def test_j03_d_local_domain_under_i(mode: Any, endpoint: str) -> None:
     is closed at the actual bounded D-validator stage surface,
     never a fake public positive: (1) the cap is identity-bound
     into the history key, so a state built under one cap cannot be
-    derived under a different-cap namespace -- the exact refusal
-    before any derivation work is REFUSED_FOREIGN_SCOPE; and (2)
-    every accepted D transition revalidates the FINAL state under
-    the same cap, so any state whose derive-time D validation
-    would first-over could never have been built in the first
-    place (the last-transition cost is at least the whole-state
-    cost; receipts revalidate too).  At the measured at-limit cap
-    the full genuine state validates under a lenient shared work
-    outer, and ONE below it the D domain refuses with its exact
-    inherited work name while the shared outer still has headroom
-    (the crossing is the D-local domain, not the outer)."""
+    derived under a different-cap namespace -- the identity
+    control ISOLATES the bound change (the SAME lineage tag,
+    lineage key, workspace, identity and version context, with
+    ONLY the actual HistoryBounds work cap changed), and the
+    exact refusal before any derivation work is
+    REFUSED_FOREIGN_SCOPE; and (2) every accepted D transition
+    revalidates the FINAL state under the same cap (the
+    transition-final-validation invariant: the last-transition
+    cost is at least the whole-state cost; receipts revalidate
+    too), so any state whose derive-time D validation would
+    first-over could never have been built in the first place.
+    At the measured at-limit cap the full genuine state validates
+    under a lenient shared work outer, and ONE below it the D
+    domain refuses with its exact inherited work name while the
+    shared outer still has headroom (the crossing is the D-local
+    domain, not the outer)."""
     tag = "i-j03-dlocal"
     ns = h_ns(mode, tag)
     s0 = h_bootstrap(ns)
@@ -2602,39 +2844,65 @@ def test_j03_d_local_domain_under_i(mode: Any, endpoint: str) -> None:
         )
         is CausalHistoryLimitation.WORK_UNITS_OVER_BOUND
     )
-    # The public-I identity-binding control: a coherent strict-cap
-    # namespace carries a different history key, so the exact
-    # refusal before any derivation work is foreign scope -- the
-    # D-local cap can never be crossed through the public I API on
-    # a coherent state.
-    ns_strict = h_ns(
-        mode, tag + "-strict", history_bounds=HistoryBounds(max_work_units=at_limit - 1)
+    # The public-I identity-binding control (K03 scope-control
+    # correction): the strict-cap namespace keeps the SAME
+    # lineage tag -- and therefore the SAME lineage key,
+    # workspace, identity and version context -- and changes
+    # ONLY the actual HistoryBounds work cap.  The controlled
+    # difference is that the identity-bound history key differs
+    # solely through the bound, so the exact pre-derivation
+    # refusal is FOREIGN SCOPE: the D-local cap can never be
+    # crossed through the public I API on a coherent state, and
+    # the transition-final-validation invariant is the support
+    # for the public first-over being structurally unreachable
+    # (never an inference from the absence of an override).
+    ns_strict = h_ns(mode, tag, history_bounds=HistoryBounds(max_work_units=at_limit - 1))
+    # The controlled difference: the SAME tag keeps the same
+    # lineage tag, workspace, identity, versions and every other
+    # field -- ONLY the actual HistoryBounds work cap changes,
+    # and the cap is identity-bound into the history key (the
+    # state-scoped key and the lineage key are derived from it),
+    # so the field difference is exactly the bound plus those
+    # derived identity keys and nothing else.
+    strict_dump = ns_strict.model_dump()
+    base_dump = ns.model_dump()
+    assert strict_dump["history_key"] != base_dump["history_key"], (
+        "the cap is identity-bound into the history key"
     )
-    assert ns_strict.history_key != ns.history_key
+    assert strict_dump["state_scoped_key"] != base_dump["state_scoped_key"], (
+        "the state-scoped key is derived from the identity-bound history key"
+    )
+    assert strict_dump["lineage_key"] != base_dump["lineage_key"], (
+        "the lineage key is derived from the identity-bound history key"
+    )
+    assert strict_dump["workspace"] == base_dump["workspace"], "the workspace is unchanged"
+    diff = {k for k in strict_dump if strict_dump[k] != base_dump[k]}
+    assert diff == {"history_key", "state_scoped_key", "lineage_key", "history_bounds"}, (
+        "only the actual history bound and its identity-bound keys differ"
+    )
     assert_i_refused(derive(s2, ns_strict), s2, _OUT.REFUSED_FOREIGN_SCOPE, (_L.FOREIGN_SCOPE,))
 
 
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("endpoint", ENDPOINTS)
 def test_j03_e_domains_under_i(mode: Any, endpoint: str) -> None:
-    """J03: the six ACTUAL E CurrentnessBounds domains each bind
-    INDEPENDENTLY beneath the larger H/F/G/I outers through the
-    public-I derivation, over genuine retained history with the
-    exact original currentness groups.  Where a first-over is
-    structurally unreachable through this clean public fixture
-    (the derivation's cost for that domain sits at the model
-    floor), the domain is closed at the actual bounded
-    constructor surface -- the model law itself refuses the
-    sub-floor value -- never a fake public positive."""
+    """J03 (narrowed by K03): the E WORK and DIAGNOSTICS domains
+    surface through the F mapping under their exact inherited
+    CURRENTNESS_* names and bind INDEPENDENTLY beneath the larger
+    H/F/G/I outers through the public-I derivation, over genuine
+    retained history with the exact original currentness groups.
+    Where a first-over is structurally unreachable through this
+    clean public fixture (the derivation's cost for that domain
+    sits at the model floor), the domain is closed at the actual
+    bounded constructor surface -- the model law itself refuses
+    the sub-floor value -- never a fake public positive.  The
+    four E COLLECTION domains (paths/groups/witness-memberships/
+    relation-pairs) have GENUINELY reachable public first-overs
+    and are covered by the dedicated K03 control over genuinely
+    larger retained histories."""
     ns, s0 = bootstrap(mode, "i-j03-edom")
     s1 = nonroot_read(s0, ns, "j03e", endpoint, "Synthetic E domain body.\n")
-    # The E work and diagnostics domains surface through the F
-    # mapping under their exact inherited CURRENTNESS_* names.
     domains = {
-        "max_paths": (16384, _L.PATHS_OVER_BOUND),
-        "max_groups": (32768, _L.GROUPS_OVER_BOUND),
-        "max_witness_memberships": (65536, _L.WITNESS_MEMBERSHIPS_OVER_BOUND),
-        "max_relation_pairs": (65536, _L.RELATION_PAIRS_OVER_BOUND),
         "max_work_units": (1048576, _L.CURRENTNESS_WORK_UNITS_OVER_BOUND),
         "max_diagnostics": (64, _L.CURRENTNESS_DIAGNOSTICS_OVER_BOUND),
     }
@@ -2648,6 +2916,10 @@ def test_j03_e_domains_under_i(mode: Any, endpoint: str) -> None:
 
         at_limit = _smallest_ok(1, hi, probe)
         if at_limit > 1:
+            assert (
+                derive(s1, ns, currentness_bounds=CurrentnessBounds(**{field: at_limit})).outcome
+                is _OUT.OK
+            )
             r = derive(s1, ns, currentness_bounds=CurrentnessBounds(**{field: at_limit - 1}))
             assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (name,))
         else:
@@ -2657,6 +2929,83 @@ def test_j03_e_domains_under_i(mode: Any, endpoint: str) -> None:
             # sub-floor value with the fixed model law.
             with pytest.raises(ValidationError):
                 CurrentnessBounds(**{field: 0})
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_k03_e_collection_limits_under_i(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """K03: the four ACTUAL E collection domains each have a
+    GENUINELY REACHABLE public-I first-over over genuinely larger
+    retained histories with the exact original currentness
+    groups: two distinct nonroot reads cross the supported cap1
+    for max_paths/max_groups/max_witness_memberships, and three
+    compatible occurrences of one read cross cap1 for
+    max_relation_pairs.  At the measured at-limit cap the
+    composition succeeds with every other budget at its default
+    (the independent actual-domain count/cost positive), and ONE
+    below it refuses with the exact inherited collection name,
+    the exact prior state and no partial output.  The facade
+    sentinel proves the crossing charged ACTUAL F/E work before
+    refusal (strictly more than the zero-work foreign-scope
+    early refusal).  No forged acquisition, foreign namespace or
+    unrelated early cap is a substitute."""
+    tag = "i-k03-ecoll"
+    ns, s0 = bootstrap(mode, tag)
+    a = nonroot_read(s0, ns, "k03a", endpoint, "Synthetic retained body.\n")
+    two = nonroot_read(a, ns, "k03b", endpoint, "Synthetic B body.\n", cmd="cat B.md")
+    assert_i_ok(derive(two, ns), two)
+    repeated = nonroot_read(a, ns, "k03c", endpoint, "Synthetic retained body.\n")
+    repeated = nonroot_read(repeated, ns, "k03d", endpoint, "Synthetic retained body.\n")
+    assert_i_ok(derive(repeated, ns), repeated)
+    # The facade sentinel: count the ACTUAL G facade units
+    # charged before each crossing (class-identity-preserving
+    # wrapper on the ledger's unit).
+    facade_unit = crc._CFacade.unit
+    facade = {"n": 0}
+
+    def spy_facade(self: Any) -> bool:
+        facade["n"] += 1
+        return facade_unit(self)
+
+    monkeypatch.setattr(crc._CFacade, "unit", spy_facade)
+    # The early-refusal control: foreign scope refuses BEFORE any
+    # F/E work (zero facade units).
+    ns_other = h_ns_ws(mode, "i-k03-other-ws", "/elsewhere/k03-foreign")
+    facade["n"] = 0
+    r_foreign = derive(two, ns_other)
+    assert_i_refused(r_foreign, two, _OUT.REFUSED_FOREIGN_SCOPE, (_L.FOREIGN_SCOPE,))
+    foreign_work = facade["n"]
+    assert foreign_work == 0, "the foreign-scope refusal performs no F/E work"
+    cases = (
+        ("max_paths", 16384, _L.PATHS_OVER_BOUND, two),
+        ("max_groups", 32768, _L.GROUPS_OVER_BOUND, two),
+        ("max_witness_memberships", 65536, _L.WITNESS_MEMBERSHIPS_OVER_BOUND, two),
+        ("max_relation_pairs", 65536, _L.RELATION_PAIRS_OVER_BOUND, repeated),
+    )
+    for field, hi, name, state in cases:
+
+        def probe(cap: int, field: str = field, state: RootLineageState = state) -> bool:
+            return (
+                derive(state, ns, currentness_bounds=CurrentnessBounds(**{field: cap})).outcome
+                is _OUT.OK
+            )
+
+        at_limit = _smallest_ok(1, hi, probe)
+        assert at_limit > 1, "the E collection domain must be measurable above its floor"
+        # The at-limit positive: the crossing domain at exactly
+        # its necessary cost composes OK, every other budget at
+        # its default (headroom).
+        assert (
+            derive(state, ns, currentness_bounds=CurrentnessBounds(**{field: at_limit})).outcome
+            is _OUT.OK
+        )
+        facade["n"] = 0
+        r = derive(state, ns, currentness_bounds=CurrentnessBounds(**{field: at_limit - 1}))
+        assert_i_refused(r, state, _OUT.REFUSED_OVER_BOUND, (name,))
+        assert facade["n"] > 0, "the crossing charged actual F/E work before refusal"
+        assert facade["n"] > foreign_work, "the crossing charged more work than the early refusal"
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -2897,7 +3246,8 @@ def test_j03_new_construction_precharge_sentinels(
     monkeypatch.setattr(crcm.CurrentRootCompositionEntry, "__init__", hook_entry)
     monkeypatch.setattr(crcm.CurrentRootCompositionAdmission, "__init__", hook_adm)
     monkeypatch.setattr(crcm.CurrentRootComposition, "__init__", hook_res)
-    assert derive(s1, ns).outcome is _OUT.OK
+    ok_result = derive(s1, ns)
+    assert ok_result.outcome is _OUT.OK
     fence = crcm.KEY_RECORD_FENCE_UNITS
     # Positive hook controls: the constructions really happened on
     # the uncapped run (a non-invoked hook could not pass).
@@ -2908,6 +3258,22 @@ def test_j03_new_construction_precharge_sentinels(
     assert first_entry > fence, "the root entry fence is charged before its construction"
     assert last_entry >= first_entry
     assert adm > last_entry
+    # K01/K02: the ACTUAL canonical re-derivation and row-shape
+    # fence reservations are PRE-charged on the I outer BEFORE
+    # each construction that performs them: the delta between
+    # the last entry construction and the admission construction
+    # must include the per-entry canonical re-derivation upper
+    # bound (root plus file entries) and the per-row shape upper
+    # bound, and the result construction mirrors the same terms.
+    ok_adm = ok_result.admission
+    assert ok_adm is not None
+    k_units = sum(
+        crcm.canonical_rekey_units(entry.key_record)
+        for entry in (ok_adm.root_entry, *ok_adm.entries)
+    ) + sum(crcm.row_shape_units(row.content_keys) for row in ok_adm.path_associations)
+    assert k_units > 0, "the K reservation terms are nonzero on a genuine OK run"
+    assert adm - last_entry >= k_units, "the K reservations are precharged before the admission"
+    assert res_ok[0] - adm >= k_units, "the K reservations are precharged before the OK result"
     # (E) cap exactly before the root entry's own fence reservation:
     # the fence crosses and NO entry is constructed.
     entry_counts.clear()

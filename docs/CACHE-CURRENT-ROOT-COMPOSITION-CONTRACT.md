@@ -18,8 +18,14 @@ canonical 018-c semantic keys under the selected governing root
 digest. This slice is IMPLEMENTED and NOT ACCEPTED (strategic
 decision `S/reviews/018-i-decision.md`); the bounded 018-j repairs
 (J01 association closure, J02 exact reverse-index law, J03
-independent budget domains) are implemented and PENDING strategic
-review. At its bounded inert scope, like the accepted 017,
+independent budget domains) were delivered truthfully PARTIAL and
+are NOT ACCEPTED against the complete J01/J02/J03 criteria
+(strategic decision `S/reviews/018-j-decision.md`); the bounded
+018-k repairs (K01 actual nested canonical keys at BOTH parent
+boundaries, K02 actual nested row shapes before exact-relation
+comparison, K03 genuinely reachable E collection caps with exact
+evidence labels) are implemented and PENDING strategic review. At
+its bounded inert scope, like the accepted 017,
 018-a..h slices, it is pure, bounded and never active in the
 adapter runtime; no
 command string is executed and no model/native/client/service
@@ -225,7 +231,18 @@ qualification, and 019-024 remain mandatory.
   reservation) belongs to the I outer ONLY: it is charged before
   the entry models exist and never inside the G/admission stage,
   so the G total stays exactly the inherited F+admission subtree
-  with no composition fence (J03a).
+  with no composition fence (J03a). The K01 per-entry ACTUAL
+  canonical re-derivation (``canonical_rekey_units``: the closed
+  bound fence, the retained digest/content-key comparisons and
+  the accepted C recipe re-derivation with its three bound-model
+  dump passes and five sha256 passes at the ACTUAL field
+  lengths) and the K02 per-row closed tuple/scalar/distinct/
+  sorted shape fence (``row_shape_units``) are likewise
+  precharged to the I outer ONLY, once per planned entry and row
+  BEFORE every construction that performs them (both the
+  admission boundary and the result boundary), never inside the
+  G/admission stage and never as a wider cap, global minimum or
+  reset.
 - The independent-domain evidence (J03) closes every named domain
   at-limit and first-over at the ACTUAL public-I boundary where
   reachable, and at the named bounded stage/constructor surface
@@ -236,12 +253,13 @@ qualification, and 019-024 remain mandatory.
   | domain (actual bound) | entry | at-limit / first-over evidence | fixed name |
   |---|---|---|---|
   | I total work (`max_total_work_units`) | public I | three capped OK runs: the last I charge before each constructor (root-entry fence, first post-entry reservation, result construction) crosses with zero NEW constructions at that stage | `total_work_units_over_bound` |
-  | I diagnostics (`max_diagnostics`) | public I | 65 invalid items fenced before item coercion; the at-limit 64 reaches parsing | fixed preflight refusal |
-  | G total (inherited admission work) | admission stage inside I | at-limit OK, one-below refused with I headroom intact; the domain-cost observer measures the split at runtime (I outer = G subtree + H domain + strictly positive NEW-I glue) | `work_units_over_bound` |
-  | F subtree (inherited graph work) | F stage | unchanged public law: inherited F regressions cited, not relabeled as direct I evidence | `graph_work_units_over_bound` |
+  | I diagnostics (`max_diagnostics`) | CONSTRUCTOR-ONLY surface, NOT public I (a coherent public derivation never emits over-cap composition diagnostics) | 65 invalid items fenced before item coercion; the at-limit 64 reaches parsing | fixed preflight refusal |
+  | G total (inherited admission work) | admission stage inside I | at-limit OK, one-below refused with I headroom intact; the domain-cost observer measures the split at runtime (I outer = G subtree + H domain + strictly positive NEW-I glue) and asserts the G crossing under the exact inherited name | `total_work_units_over_bound` |
+  | F subtree (inherited graph work) | F stage | at-limit OK, one-below refused with I headroom intact; the domain-cost observer asserts the F crossing under the exact inherited name (the inherited F regressions remain cited for the unchanged public law, not relabeled) | `total_work_units_over_bound` |
   | H op (inherited H outer) | H phase | unchanged public law: inherited H regressions cited | `work_units_over_bound` |
-  | D-local (inherited D-transition work) | public-I first-over STRUCTURALLY UNREACHABLE (the cap is identity-bound into the history key; every accepted D transition revalidates the FINAL state under the same cap) | closed at the actual D-validator stage surface: the lenient larger shared outer is charged, at-limit validates, one-below refuses; the public identity control refuses foreign scope | `work_units_over_bound` (causal-history name) |
-  | E x6 (inherited `CurrentnessBounds`) | E derivation inside I | each domain at-limit OK / one-below exact name; a sub-floor public first-over is closed at the bounded constructor surface | exact `currentness_*` names |
+  | D-local (inherited D-transition work) | public-I first-over STRUCTURALLY UNREACHABLE (the cap is identity-bound into the history key; the transition-final-validation invariant: every accepted D transition revalidates the FINAL state under the same cap) | closed at the actual D-validator stage surface: the lenient larger shared outer is charged, at-limit validates, one-below refuses; the public identity control ISOLATES the bound change (the SAME lineage tag/identity/workspace/config with ONLY the actual HistoryBounds work cap changed, so exactly the bound and its identity-bound keys differ) and refuses foreign scope | `work_units_over_bound` (causal-history name) |
+  | E work + diagnostics (inherited `CurrentnessBounds`) | E derivation inside I | each domain at-limit OK / one-below exact name where measurable above the model floor; a sub-floor public first-over is closed at the bounded constructor surface | `currentness_work_units_over_bound` / `currentness_diagnostics_over_bound` |
+  | E collections x4 (inherited `CurrentnessBounds`) | E derivation inside I | GENUINELY REACHABLE public first-overs (K03): two distinct nonroot reads cross supported cap1 for paths/groups/witness-memberships and three compatible occurrences for relation-pairs; at-limit OK with every other budget at default, one-below exact name, exact prior state, no partial output; the facade sentinel proves ACTUAL F/E work charged before refusal (more than the zero-work foreign-scope early refusal) | `paths_over_bound` / `groups_over_bound` / `witness_memberships_over_bound` / `relation_pairs_over_bound` |
   | graph stage (inherited stage reservation) | graph stage inside I | forty-reference root fixture at the measured at-limit (2913 at the recorded pin; the durable control re-measures at runtime), one-below refuses | `graph_work_units_over_bound` |
   | admission stage (inherited stage reservation) | admission stage inside I | repeated-read fixture at the measured at-limit, one-below refuses while the graph stage has headroom | `admission_work_units_exhausted` |
   | single-source char/byte | public I (inherited F law) | at-limit retention / first-over before any owned slice (zero-slice sentinel) | `source_over_bound` |
@@ -261,17 +279,29 @@ qualification, and 019-024 remain mandatory.
 - Object construction is NOT authentication: every
   constructor/factory/`model_copy`/direct-dict path re-derives
   ACTUAL fields before positive use.
-- J01: EVERY retained file entry binds the SELECTED governing
-  root digest at BOTH its actual governing field and its ACTUAL
-  key record's governing field, re-checked at the admission
-  boundary AND the result boundary (a model_copy-bypassed nested
-  admission cannot escape the entry law by construction alone); a
-  genuine EARLIER entry for the same nonroot source (old
-  governing digest, old canonical key) spliced back into the
-  current admission with its reverse-index row remapped is
-  refused at both boundaries even though its namespace and
-  retained proof are genuine and unchanged.
-- J02: the ACTUAL reverse member index equals EXACTLY the
+- J01/K01: EVERY retained entry -- the root entry and every file
+  entry -- binds the SELECTED governing root digest at BOTH its
+  actual governing field and its ACTUAL key record's governing
+  field, re-checked at the admission boundary AND the result
+  boundary (a model_copy-bypassed nested admission cannot escape
+  the entry law by construction alone); a genuine EARLIER entry
+  for the same nonroot source (old governing digest, old
+  canonical key) spliced back into the current admission with
+  its reverse-index row remapped is refused at both boundaries
+  even though its namespace and retained proof are genuine and
+  unchanged. K01 completes the law: at EVERY positive parent
+  interpretation the ACTUAL canonical key is RE-DERIVED from
+  the ACTUAL nested key record through the accepted C recipe
+  (the entry key, the key record's own content key and the
+  recomputed key must agree, with the selected governing
+  digest), so rebounding BOTH digest fields while retaining the
+  old canonical key, or forging either content key, is refused
+  at both boundaries -- comparing tags/digests or
+  entry==record key alone is never the law. The closed bound
+  fence runs BEFORE the recipe may serialize any carried bound
+  model; the work is charged bounded METADATA on the I outer
+  (no source rewalk per witness).
+- J02/K02: the ACTUAL reverse member index equals EXACTLY the
   represented member-path -> ALL-and-ONLY admitted-content-keys
   relation: rows sorted by distinct path, every represented
   member path covered exactly once, no unrepresented path named,
@@ -281,7 +311,13 @@ qualification, and 019-024 remain mandatory.
   re-derived from the ACTUAL entry key records at both the
   admission boundary and the result boundary. A legitimate SHARED
   member (one path admitted by two distinct proven bundles)
-  keeps ONE row with the complete canonical key set.
+  keeps ONE row with the complete canonical key set. K02
+  completes the law: at BOTH parent boundaries the ACTUAL row
+  container/count/scalar shape and the STRICT canonical
+  sorted/distinct key order are validated BEFORE the set
+  comparison (a duplicate or reversed key tuple from a
+  model_copy-bypassed row is refused; the set comparison alone
+  erases those facts).
 - EVERY retained entry's key record re-derives the ACTUAL 018-c
   admission namespace, and that namespace must equal the
   admission's ACTUAL namespace (equal source bytes/provenance from
@@ -363,8 +399,8 @@ qualification, and 019-024 remain mandatory.
 
 ## 10. Tests
 
-- `tests/test_current_root_composition.py` (57 test definitions,
-  218 cases): the durable ORIGINAL-API matrix over BOTH read
+- `tests/test_current_root_composition.py` (62 test definitions,
+  238 cases): the durable ORIGINAL-API matrix over BOTH read
   endpoints and BOTH admission modes — A bootstrap/ENVELOPE
   composition, genuine issued READ refresh, descendant revert,
   rootless continuation and old/known-new/shifted replay no-ops
@@ -404,10 +440,22 @@ qualification, and 019-024 remain mandatory.
   at the entry law, the exact reverse member relation with the
   shared-member positive and the row-relation mutation refusals,
   the I-only key-record fence, the D-local stage-surface closure
-  with the public identity control, the six E domains under I,
-  the graph/admission stage domains at the measured at-limit /
-  first-over, the domain-cost observer split, and the zero-new-
-  construction pre-charge sentinels at the three capped OK runs.
+  with the public identity control ISOLATING the bound change
+  (K03), the E work/diagnostics domains under I, the graph/
+  admission stage domains at the measured at-limit / first-over,
+  the domain-cost observer split, and the zero-new-construction
+  pre-charge sentinels at the three capped OK runs (extended by
+  K01/K02 to assert the canonical-re-derivation and row-shape
+  reservations are precharged before the admission and the OK
+  result constructions); K the 018-k closure: the stale
+  canonical key after both digest rebinds refused at BOTH parents
+  (leaf rejection asserted), the key-record content-key mismatch
+  variants at both boundaries, the duplicate and reversed
+  reverse-row keys refused before the set comparison with the
+  shared-member canonical-order positive preserved, and the four
+  genuinely reachable E collection caps at-limit/one-below with
+  the facade pre-work sentinel over genuinely larger retained
+  histories.
 - The ROOT-executed independent probes (public vertical, the
   named I7 namespace/carried-version/joined-context controls, the
   I8 preflight/diagnostic/char-before-copy controls, the I9

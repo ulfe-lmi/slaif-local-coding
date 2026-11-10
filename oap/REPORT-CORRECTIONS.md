@@ -226,3 +226,83 @@ append-only; no tests or builds are repeated solely for this
 clarification, no implementation, acceptance or product behavior
 is altered, and the 018-i NOT ACCEPTED decision stands as
 recorded.
+
+## 018-j — 2026-11-10
+
+- The 018-j round repaired the two original ROOT-reproduced
+  constructor controls (historical governing-key splice,
+  reverse-index pollution; 4/4 each at the delivered pins), but a
+  further immutable ROOT constructor probe
+  (`S/probes/018-j-nested-canonical-and-row-shape-v1.py`, source
+  sha256 `13c3a2957e650aab1d31a4d9f0dadd22dafe6cf38d82a70b8559395d647e58af`;
+  captures `S/reviews/018-j-nested-canonical-and-row-shape-v1.{out,err,exit}`)
+  established 0/8 additional required rejections at the same
+  delivered source pins: both entry/key-record root digests
+  rebound to the selected digest while retaining the old ACTUAL
+  canonical key, and a model_copy row duplicating a genuine
+  admitted content key, were each accepted at both parent
+  boundaries although the direct leaf reconstruction rejects.
+  The truthful PARTIAL status of 018-j does NOT accept the
+  complete J01/J02/J03 criteria (strategic decision
+  `S/reviews/018-j-decision.md`, PARTIAL acknowledged, NOT
+  ACCEPTED).
+- The J03 one-read E sub-floor fixture (`CurrentnessBounds(field=0)`
+  constructor controls) is not a global public first-over
+  unreachability proof. The ROOT probe
+  `S/probes/018-j-E-first-over-reachability-v1.py` (source sha256
+  `f24dabd8f4d8c8cc788bddf4391f90422416ab9325c9d38c833add5fb600c023`;
+  captures `S/reviews/018-j-E-first-over-reachability-v1.{out,err,exit}`,
+  16/16, exit 0/stderr 0/stable J pins) shows all four E collection
+  caps are genuinely reachable through the public I API under
+  genuine larger retained histories. The contract cap/evidence
+  table names were corrected from the existing exact tests:
+  G total and F subtree use `TOTAL_WORK_UNITS_OVER_BOUND`, H op
+  uses `WORK_UNITS_OVER_BOUND`, the E collection reasons are
+  `paths_over_bound`/`groups_over_bound`/
+  `witness_memberships_over_bound`/`relation_pairs_over_bound`,
+  and only the E work/diagnostics domains use the mapped
+  `CURRENTNESS_*` names; the 65-item diagnostics fence is
+  constructor-only, not public I. The J D-local namespace control
+  also changed the lineage tag together with the HistoryBounds
+  cap (a scope-control confound); the bound change must be
+  isolated under the SAME identity/lineage/config, and the
+  transition-final-validation invariant must be supported before
+  any global-unreachability claim.
+- The 018-j report omitted the standalone Repository and PR URL
+  fields; independently verified correct values: repository
+  `ulfe-lmi/slaif-local-coding`, PR
+  `https://github.com/ulfe-lmi/slaif-local-coding/pull/26`. The
+  report's collective clean-build "stderr 0" was inaccurate:
+  the actual captured artifacts are archive.err 0 bytes,
+  extract.err 0 bytes, build.err 281 bytes of ordinary
+  successful-build diagnostics, build.exit 0. No product failure
+  is invented from those successful build diagnostics.
+- 018-j disclosed that the first system-python probe error
+  captures (j01/j02 postfix attempt, ModuleNotFoundError) were
+  overwritten by the subsequent uv rerun at the same `.out`/`.err`
+  names: the first-attempt bytes are LOST and are never
+  reconstructed; two transient ruff stdout files were written to
+  /tmp before redirection to protected paths. All 018-i and
+  018-h process qualifications stand as recorded.
+- ROOT's independent 018-j live-gate snapshot MISIDENTIFIED the
+  uv launcher PID 4054832 as pytest because it matched ANY argv
+  token containing "pytest" and walked only the main task's
+  children, missing the actual child on another uv thread. This
+  attribution error is preserved and corrected by ROOT's own
+  erratum `S/reviews/018-j-live-context-attribution-erratum-v1.json`
+  (cited, not relabeled). The separately saved worker child
+  4054840/birth 292995124/PPID 4054832/comm pytest/UID 1001
+  (`W18j/final-gate-j1/gate-cmd07-live-context.json`) is
+  worker-saved evidence; its umask 022 is expressly INHERITED at
+  spawn, not a live /proc reading. Neither fact is relabeled as
+  stronger independently measured actual-pytest evidence. The
+  successor gate law: recognize the ACTUAL pytest
+  executable/comm/script position, traverse ALL tasks' child
+  lists of the known owned driver tree only (bounded), and
+  capture the actual child `/proc` Umask live while it runs.
+
+These are append-only qualifications of the 018-j round; no
+historical report or order bytes are altered, no tests or builds
+are repeated solely for these labels, no reconstructed old bytes
+or process facts are claimed, and the 018-j PARTIAL / NOT
+ACCEPTED decision stands as recorded.

@@ -193,31 +193,125 @@ def _fence_key_record_bounds(key_record: BundleKeyRecord, field: str) -> None:
         _closed_bounds_fence(actual, f"{field}.{name}")
 
 
+#: ONE dump pass over the four carried bound models: two units per
+#: declared field (the accepted per-field charge convention).
+BOUND_DUMP_UNITS = 2 * sum(len(m.model_fields) for _, m in _KEY_RECORD_BOUND_FIELDS)
+#: The fixed-string payload ceiling both canonical payload builds
+#: serialize: the four 256-char identity strings, the 64-char
+#: route, the exact 64-hex config fingerprint and the five 128-char
+#: version tags plus the short mode value.
+_IDENTITY_PAYLOAD_CEILING = 4 * 256 + 64 + 64 + 5 * 128 + 16
+
+
+def canonical_rekey_units(key_record: BundleKeyRecord) -> int:
+    """A closed upper bound on the K01 per-entry ACTUAL canonical
+    re-derivation performed by ``_check_selected_root_binding``.
+
+    The accepted recipe performs exactly: the closed bound fence
+    (``KEY_RECORD_FENCE_UNITS``), the two retained digest
+    comparisons, the content-key agreement comparison and then
+    ``_canonical_entry_key``, which the accepted helpers execute
+    as THREE 4-bound-model dump passes (the two
+    ``_canonical_namespace_fields`` builds -- the first in
+    ``_entry_admission_namespace`` and the second in the namespace
+    model's own bound-integrity re-derivation -- plus the one
+    ``_key_canonical`` build), two namespace payload builds, one
+    key payload build and FIVE sha256 passes (two over the
+    namespace payload, two over the scoped-key payload and one
+    over the canonical payload).  Each term below upper-bounds one
+    of those at the ACTUAL field lengths (the actual workspace
+    length and the actual member/ownership tuple lengths), so the
+    kernel may charge the sum once per planned entry BEFORE the
+    construction that performs it: a crossing is refused before
+    the re-derivation may serialize or hash, never after a
+    partial pass.
+    """
+    ws = len(key_record.workspace)
+    mo = len(key_record.member_occurrences)
+    mc = len(key_record.member_classes)
+    og = len(key_record.ownership_groups)
+    # The canonical namespace payload: the twelve identity/version
+    # strings under the fixed ceiling plus the four bound-model
+    # JSON serializations.
+    payload_a = 2 * _IDENTITY_PAYLOAD_CEILING + 4 * BOUND_DUMP_UNITS + 32
+    # The canonical key payload: payload A plus the two 64-hex
+    # digests, the workspace and the member/ownership tuples.
+    payload_b = payload_a + 2 * 64 + ws + 2 * mo + 2 * mc + 8 * og + 32
+    # One scoped-key pass: the namespace key + NUL + workspace
+    # concatenation, encode and sha256.
+    scoped = 4 * 64 + 4 * ws + 8
+    # One ``_canonical_namespace_fields`` build: the four bound
+    # dumps AND their four JSON serializations, the payload list
+    # and the outer JSON encode.
+    namespace_build = 2 * BOUND_DUMP_UNITS + 32 + payload_a
+    # ``_entry_admission_namespace``: one build, both sha256
+    # passes, and the namespace model construction (assignments,
+    # field validators and the bound-integrity RE-build plus its
+    # two sha256 passes).
+    namespace_rebuild = (
+        namespace_build + payload_a + scoped + 32 + namespace_build + 2 * payload_a + scoped
+    )
+    # ``_key_canonical``: the canonical dict, the four bound dumps
+    # and their serializations, the tuple list comprehensions and
+    # the outer JSON encode.
+    key_build = 2 * BOUND_DUMP_UNITS + 22 + 6 * mo + 2 * mc + 4 * og + payload_b
+    return (
+        KEY_RECORD_FENCE_UNITS  # the closed bound fence (second per-entry pass)
+        + 3  # the two digest + the one content-key comparisons
+        + namespace_rebuild  # _entry_admission_namespace
+        + key_build  # _key_canonical
+        + payload_b  # the final canonical sha256
+    )
+
+
+def row_shape_units(keys: tuple[str, ...]) -> int:
+    """A closed upper bound on the K02 per-row row-shape fence:
+    the tuple/scalar closedness check, the non-emptiness check,
+    the distinctness set build and the canonical sorted-order
+    check (a list copy plus Timsort, upper-bounded by
+    n log2(n) + n comparisons)."""
+    n = len(keys)
+    return 2 + 5 * n + n * n.bit_length()
+
+
 def _check_selected_root_binding(admission: CurrentRootCompositionAdmission) -> None:
-    """J01: EVERY retained file entry (its actual key record and
-    actual canonical key through the entry law) must bind the
-    SELECTED governing root digest of the admission it lives in.
+    """J01/K01: EVERY retained entry (root entry and file entries)
+    must bind the SELECTED governing root digest of the admission
+    it lives in, and its ACTUAL canonical key must RE-DERIVE from
+    its ACTUAL key record.
 
     A genuine earlier admission entry for the SAME nonroot source
     under a CHANGED governing root is self-consistent (its key
     record, its canonical key and its namespace all re-derive) but
     carries the OLD governing digest: equal source bytes/provenance
-    never make the historical key valid in the new admission.  The
-    root entry already binds the selected digest at the admission
-    boundary; this closes the file entries.  Charged METADATA
-    comparisons only (one digest comparison per entry); no source
+    never make the historical key valid in the new admission.
+    Rebounding BOTH the entry's and the key record's digest fields
+    while RETAINING the old canonical key is refused by the
+    re-derivation (K01): the accepted C recipe is applied to the
+    ACTUAL nested key record fields and must reproduce the entry
+    key, which must also equal the key record's own content key --
+    comparing tags/digests or entry==record key alone is never the
+    law.  The closed bound fence runs BEFORE the recipe may
+    serialize any carried bound model.  Charged METADATA work
+    only (one closed re-derivation pass per entry); no source
     rewalk.  Runs on the ACTUAL fields so a model_copy-bypassed
-    nested admission cannot be trusted by class membership alone.
+    nested admission/entry cannot be trusted by class membership
+    or by a skipped leaf law.
     """
-    for entry in admission.entries:
+    for entry in (admission.root_entry, *admission.entries):
         if entry.root_digest != admission.root_digest:
             raise _fixed("every file entry binds the selected governing root digest")
         if entry.key_record.root_digest != admission.root_digest:
             raise _fixed("every file entry key record binds the selected governing root digest")
+        _fence_key_record_bounds(entry.key_record, "key_record")
+        if entry.key_record.content_key != entry.content_key:
+            raise _fixed("every entry key record content key agrees with the entry")
+        if _canonical_entry_key(entry.key_record) != entry.content_key:
+            raise _fixed("every entry canonical key re-derives from its actual key record")
 
 
 def _check_reverse_member_relation(admission: CurrentRootCompositionAdmission) -> None:
-    """J02: the ACTUAL reverse member index must equal EXACTLY the
+    """J02/K02: the ACTUAL reverse member index must equal EXACTLY the
     represented member-path -> ALL and ONLY admitted content keys
     relation, including the root entry.
 
@@ -235,6 +329,14 @@ def _check_reverse_member_relation(admission: CurrentRootCompositionAdmission) -
     ACTUAL fields so a model_copy-bypassed nested admission cannot
     be trusted by class membership alone.
     """
+    # K02: the ACTUAL row container/count/scalar shape and the
+    # STRICT canonical sorted/distinct key order are validated
+    # BEFORE the set comparison can erase duplicate/order facts
+    # (a model_copy-bypassed row keeps its raw tuple; the leaf
+    # row law alone is not the parent-boundary proof).
+    # Charged METADATA work only (bounded per row, precharged by
+    # ``row_shape_units`` on the I outer); no source scan or
+    # semantic compiler work.
     expected: dict[str, set[str]] = {}
     for entry in (admission.root_entry, *admission.entries):
         for path in entry.key_record.member_occurrences:
@@ -254,7 +356,16 @@ def _check_reverse_member_relation(admission: CurrentRootCompositionAdmission) -
             raise _fixed("every reverse index row binds the actual admission scoped key")
         if row.path not in expected:
             raise _fixed("the reverse index never names an unrepresented member path")
-        if set(row.content_keys) != expected[row.path]:
+        keys = row.content_keys
+        if not isinstance(keys, tuple) or any(not isinstance(k, str) for k in keys):
+            raise _fixed("each reverse index row holds a closed content-key tuple")
+        if not keys:
+            raise _fixed("each reverse index row names at least one admitted content key")
+        if len(set(keys)) != len(keys):
+            raise _fixed("each reverse index row holds distinct content keys")
+        if list(keys) != sorted(keys):
+            raise _fixed("each reverse index row holds canonically sorted content keys")
+        if set(keys) != expected[row.path]:
             raise _fixed("each reverse index row holds exactly the admitted content keys")
         if row.is_root != (row.path == admission.root_path):
             raise _fixed("root association flags must match the root path")

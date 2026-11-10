@@ -99,7 +99,9 @@ from .current_root_composition_models import (
     CurrentRootCompositionLimitation,
     CurrentRootCompositionOutcome,
     _closed_bounds_fence,
+    canonical_rekey_units,
     current_root_composition_scope_key,
+    row_shape_units,
 )
 from .currentness_models import CurrentnessBounds, CurrentnessGroupRecord
 from .graph_models import _sha256_hex
@@ -922,6 +924,19 @@ def derive_current_root_composition(
             + member_occ_charged
             + 4 * len(associations)
             + association_key_count
+            # The K01/K02 ACTUAL canonical re-derivation and row
+            # shape fences run inside the admission construction
+            # for the root entry plus every file entry: per entry
+            # the closed bound fence, the retained digest and
+            # content-key comparisons and the accepted C recipe
+            # re-derivation (three bound-model dump passes and
+            # five sha256 passes at the ACTUAL field lengths), and
+            # per reverse-index row the closed tuple/scalar/
+            # distinct/sorted shape fence before the set
+            # comparison.  Bounded METADATA work, upper-bound-
+            # charged BEFORE the construction that performs it.
+            + sum(canonical_rekey_units(e.key_record) for e in (root_entry, *file_entries))
+            + sum(row_shape_units(row.content_keys) for row in associations)
         )
         # The model walk's ACTUAL input-namespace D re-derivation
         # (the canonical history-field pass over the root entry key
@@ -1036,6 +1051,13 @@ def derive_current_root_composition(
             + member_occ_charged
             + 4 * len(associations)
             + association_key_count
+            # The K01/K02 ACTUAL canonical re-derivation and row
+            # shape fences run AGAIN on the nested admission
+            # inside the result construction: the same bounded
+            # metadata upper bound as the admission-construction
+            # reservation.
+            + sum(canonical_rekey_units(e.key_record) for e in (root_entry, *file_entries))
+            + sum(row_shape_units(row.content_keys) for row in associations)
         )
         itotal.units(result_units)
         return CurrentRootComposition(
