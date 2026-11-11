@@ -1466,12 +1466,76 @@ def _proof_collect(
     # group never infers a root hash, and a same-bytes root-path read
     # is consistent.  The refusal retains no bundles.
     for proof in bundles:
+        # 018-o MIXED root-acquisition law (the new private policy
+        # ONLY, installed by the 018-o mixed-observation operation):
+        # BEFORE any per-segment walk, count the ACTUAL requested
+        # root-path OCCURRENCES of this MULTI-MEMBER proof over
+        # ``requested_members`` (charged per inspected member,
+        # duplicates included, break at two): the new exception
+        # requires exactly ONE normalized root-path occurrence
+        # anywhere in the requested operands -- a second AGENTS.md
+        # operand inside an OPAQUE multi-member segment still
+        # repeats the root operand.  With exactly one occurrence,
+        # the ACTUAL proven root segment (if any) is located in a
+        # second charged per-segment walk.  Repeated root operands
+        # and every no-context / no-flag run keep the EXACT old law.
+        mixed_single: BundleSegment | None = None
+        if (
+            lineage_context is not None
+            and lineage_context.mixed_root_acquisition
+            and len(proof.requested_members) > 1
+        ):
+            root_occurrences = 0
+            for member in proof.requested_members:
+                _charge_outer()
+                if member.normalized == ROOT_FILENAME:
+                    root_occurrences += 1
+                    if root_occurrences > 1:
+                        break  # repeated root operand: no new exception
+            if root_occurrences == 1:
+                for segment in proof.segments:
+                    _charge_outer()
+                    if segment.member_digest is None:
+                        continue  # no single-occurrence proof: never inferred
+                    member = proof.requested_members[segment.member_positions[0]]
+                    _charge_outer()
+                    if member.normalized == ROOT_FILENAME:
+                        if mixed_single is not None:
+                            mixed_single = None  # two proven roots: no exception
+                            break
+                        mixed_single = segment
+                    # a single requested root occurrence can be owned
+                    # by at most ONE segment; the scan completes
+                    # after the proven root segment (or the whole
+                    # proof for an opaque-only root occurrence).
+                    if mixed_single is not None:
+                        break
         for segment in proof.segments:
             if segment.member_digest is None:
                 continue  # no single-occurrence proof: never inferred
             _charge_outer()
             member = proof.requested_members[segment.member_positions[0]]
             if member.normalized == ROOT_FILENAME and segment.member_digest != root_digest:
+                # 018-o relaxed MIXED-acquisition law (new private
+                # policy ONLY): the proven SINGLE root-path segment
+                # of a mixed proof is ordinary SOURCE evidence when
+                # its member digest is an independently authoritative
+                # known root version (retained as-is), or is
+                # PROVISIONALLY retained and recorded in
+                # ``deferred_mixed_digests`` for the composition's
+                # atomic same-batch verification when initially
+                # unknown.  A mixed read never mints authority and
+                # cannot authorize itself; membership and deferral
+                # attempts are charged BEFORE the work.  The old
+                # refusal below is unchanged for every other shape.
+                if mixed_single is not None and segment is mixed_single:
+                    digest = segment.member_digest
+                    if digest is not None:
+                        _charge_outer()  # the known-set membership test
+                        if digest not in lineage_context.known_root_digests:
+                            _charge_outer()  # the deferral allocation
+                            lineage_context.deferred_mixed_digests.add(digest)
+                    continue
                 # 018-h relaxed READ-acquisition law (H context only):
                 # the exception is narrow -- a proven SINGLETON
                 # root-path member of a ONE-MEMBER proof at position

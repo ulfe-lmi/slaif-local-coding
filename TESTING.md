@@ -222,10 +222,22 @@ boundaries (the entry-local group partition joined to the
 ORIGINAL proof segments and the root group to the retained root
 digest), plus N02 the byte-aware closed reservation, the
 pre-fetch plan segment precharge and the per-site
-reservation-calculation closure) are implemented and PENDING
-strategic review (contract
-[docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md](docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md);
-`tests/test_current_root_composition.py`),
+reservation-calculation closure) are ACCEPTED at their
+bounded inert scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-n-decision.md`); the 018-o
+root-aware mixed-observation slice (the new pure
+`observe_root_lineage_mixed` operation plus
+`ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`; a proven mixed root
+member matching an independently authoritative known version
+of the same effective root — including an independently
+issued complete whole singleton in the SAME batch — acquires
+source evidence while a mixed read mints no governing
+authority, unresolved foreign digests keep the exact
+COMPETING_ROOTS refusal, and the pending-set snapshot is
+precharged on the SAME H outer) is implemented and PENDING
+strategic review at its bounded inert scope (contract
+[docs/CACHE-ROOT-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-LINEAGE-CONTRACT.md)
+section 5a; `tests/test_root_lineage_mixed.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned
 stages).
 

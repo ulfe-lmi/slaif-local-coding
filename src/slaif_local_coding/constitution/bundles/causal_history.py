@@ -247,6 +247,16 @@ class _RootLineageContext:
       read with a foreign digest is a refresh SOURCE candidate,
       retained instead of the old whole-pass COMPETING_ROOTS refusal
       (authority is decided only by the composition);
+    - ``mixed_root_acquisition`` (018-o, the new mixed-observation
+      operation ONLY): a proven SINGLE root-path segment of a
+      MULTI-MEMBER (mixed) proof whose member digest is an
+      independently authoritative known root version is ordinary
+      source evidence retained instead of the old COMPETING_ROOTS
+      refusal; an initially unknown digest is provisionally retained
+      and recorded in ``deferred_mixed_digests`` for the
+      composition's atomic same-batch verification (a mixed read
+      never mints authority; repeated root operands and every
+      no-context / no-flag run keep the exact old refusal);
     - ``outer_charge``: the ONE H outer work-charge callback (raises
       nothing; returns False exactly when the H outer is exhausted,
       recorded on ``outer_exhausted``).
@@ -260,6 +270,8 @@ class _RootLineageContext:
         "known_root_digests",
         "relaxed_envelope_law",
         "root_read_acquisition",
+        "mixed_root_acquisition",
+        "deferred_mixed_digests",
         "outer_charge",
         "outer_exhausted",
     )
@@ -270,10 +282,13 @@ class _RootLineageContext:
         relaxed_envelope_law: bool,
         root_read_acquisition: bool,
         outer_charge: Callable[[], bool],
+        mixed_root_acquisition: bool = False,
     ) -> None:
         self.known_root_digests = known_root_digests
         self.relaxed_envelope_law = relaxed_envelope_law
         self.root_read_acquisition = root_read_acquisition
+        self.mixed_root_acquisition = mixed_root_acquisition
+        self.deferred_mixed_digests: set[str] = set()
         self.outer_charge = outer_charge
         self.outer_exhausted = False
 

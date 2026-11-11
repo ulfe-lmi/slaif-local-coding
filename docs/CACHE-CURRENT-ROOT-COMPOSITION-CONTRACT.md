@@ -50,8 +50,20 @@ boundaries — the entry-local group partition joined to the
 ORIGINAL proof segments and the root group to the retained root
 digest — plus N02 the byte-aware closed reservation, the
 pre-fetch plan segment precharge and the per-site
-reservation-calculation closure) are implemented and PENDING
-strategic review. At
+reservation-calculation closure) are ACCEPTED at their
+bounded inert scope WITH PROCESS QUALIFICATIONS (strategic
+decision `S/reviews/018-n-decision.md`); the 018-o root-aware
+mixed-observation slice (the new pure `observe_root_lineage_
+mixed` operation plus `ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`;
+a proven mixed root member matching an independently
+authoritative known version of the same effective root —
+including an independently issued complete whole singleton in
+the SAME batch — acquires source evidence while a mixed read
+mints no governing authority, unresolved foreign digests keep
+the exact COMPETING_ROOTS refusal, and the pending-set snapshot
+is precharged on the SAME H outer) is implemented and PENDING
+strategic review at its bounded inert scope (root-lineage
+contract section 5a). At
 its bounded inert scope, like the accepted 017,
 018-a..h slices, it is pure, bounded and never active in the
 adapter runtime; no
@@ -528,6 +540,21 @@ qualification, and 019-024 remain mandatory.
   captures are preserved and are not relabeled). I does NOT
   broaden the old H public refusals to manufacture the positive,
   and no forged state is substituted.
+- The new 018-o `observe_root_lineage_mixed` operation (root-
+  lineage contract section 5a) supplies root-aware mixed
+  acquisition at its NEW operation scope over the SAME retained
+  H state and namespace: a proven mixed root member whose member
+  digest matches an independently authoritative known version of
+  the same effective root — including an independently issued
+  complete whole singleton in the SAME batch — acquires ordinary
+  source evidence while the mixed read mints no governing
+  authority and unresolved foreign digests keep the exact
+  COMPETING_ROOTS refusal. The OLD public H acquisition above
+  remains UNMODIFIED: the four post-refresh NEW-root
+  mixed-bundle controls stay UNREACHED through that unmodified
+  public path (the old law is not broadened, no positive is
+  manufactured and no forged state is substituted), and ordinary
+  I selection/admission behavior is unchanged.
 
 ## 9. Private factoring
 

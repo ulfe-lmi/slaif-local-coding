@@ -2,22 +2,25 @@
 
 `ROOT_LINEAGE_CONTRACT_VERSION = "cache-root-lineage/v1"`.
 `ROOT_LINEAGE_POLICY_VERSION = "root-lineage-policy/v1"`.
+`ROOT_LINEAGE_MIXED_OBSERVATION_VERSION = "root-lineage-mixed-observation/v1"` (018-o mixed observation, section 5a).
 
 This contract binds the INERT root-authority-lineage slice
 (`src/slaif_local_coding/constitution/bundles/`:
 `root_lineage_models`, `root_lineage`, and the public entries
 `bootstrap_root_lineage` / `observe_root_lineage` /
 `register_root_issuance` / `register_root_receipt` /
-`select_current_root`, plus the standalone charged
+`select_current_root` / `observe_root_lineage_mixed` (018-o, section 5a), plus the standalone charged
 `validate_root_lineage_state`). It composes, over bounded ORIGINAL
 GraphRequest batches, the accepted 017 observation, the accepted
 018-a root/workspace binding law and the accepted 018-d
 causal-occurrence ledger (re-derived under the namespace's ACTUAL
 effective bounds, through PRIVATE charge seams with unchanged
 public behavior) into ONE pure versioned ROOT-LINEAGE state machine
-over the immutable `RootLineageState`. This slice is IMPLEMENTED and
-PENDING strategic acceptance at its bounded inert scope: like the
-accepted 017, 018-a..g slices it is pure, bounded and never active
+over the immutable `RootLineageState`. The 018-h slice is
+IMPLEMENTED and ACCEPTED at its bounded inert scope WITH PROCESS
+QUALIFICATIONS (strategic decision
+`S/reviews/018-h-decision.md`): like the accepted 017,
+018-a..g slices it is pure, bounded and never active
 in the adapter runtime; no command string is executed and no
 model/native/client/service facility is started. It earns the
 explicit same-root REFRESH/AUTHORITY-LINEAGE mechanism at its
@@ -26,8 +29,13 @@ from original complete reads plus trusted causal evidence, with a
 derived current-root selection); it does NOT implement
 current-root graph/admission composition (a later mandatory
 same-018 slice consumes this interface), and no runtime,
-compiler-hit, recovery, wire or root-aware-admission claim is made;
-019-024 remain.
+compiler-hit, recovery, wire or root-aware-admission claim is made.
+The 018-o mixed-observation extension (section 5a: the
+`observe_root_lineage_mixed` entry plus
+`ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`) is IMPLEMENTED and
+PENDING strategic review at its own bounded inert scope; whole 018
+remains open (whole-018 review required before merge) and 019-024
+remain.
 
 ## 1. Namespace, scope keys and caller trust
 
@@ -102,7 +110,8 @@ compiler-hit, recovery, wire or root-aware-admission claim is made;
   singleton root-path member read with a digest different from
   the batch root digest is retained instead of refused); every
   old public caller (plain D, B, C, F, G) keeps the EXACT old
-  law byte-identically (no context -> no change).
+  behavior, interfaces, versions and recipe bytes (no context ->
+  no change).
 
 ## 4. Authority law
 
@@ -164,6 +173,103 @@ compiler-hit, recovery, wire or root-aware-admission claim is made;
   observable, so later child-of-ALL evidence can resolve the
   conflict. `CAUSAL_ROOT_FACT` ALWAYS means the ORIGINAL
   bootstrap, never the selected latest root.
+
+## 5a. Root-aware mixed observation (018-o, inert)
+
+- `observe_root_lineage_mixed(h_state, ns,
+  expected_revision, requests)` is a NEW explicitly named PURE
+  operation of this module (the 018-o slice, versioned by
+  `ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`), taking the SAME
+  retained H state and ACTUAL root-lineage namespace as
+  `observe_root_lineage` plus an original GraphRequest batch
+  (a continuation without a new envelope) and returning the same
+  transition evidence shape (the actual
+  `RootLineageTransition` fields `state` / `outcome` /
+  `diagnostics` / `d_transition` / `new_root_facts`; a refused
+  H result over an accepted D candidate carries that ACTUAL
+  accepted D candidate by identity in `d_transition` as
+  discarded evidence). All existing public B/C/D/E/F/G/H/I
+  signatures, defaults, schemas, version tags, recipe bytes,
+  behavior and independent cap domains remain intact; this round
+  wires no adapter runtime or settings (the operation/version is
+  documented for later runtime/recovery configuration identity).
+- Gates: the existing namespace preflight, CAS/revision,
+  state-shape and version gates and the standalone charged
+  validator (section 10) run BEFORE any compatibility
+  interpretation, exactly as for `observe_root_lineage`; a
+  cross-namespace, stale-revision or malformed H state refuses
+  with the EXACT prior state before positive compatibility work.
+- Source compatibility: the pre-batch KNOWN root digest set
+  (section 5: the bootstrap anchor digest plus the actually
+  earned authoritative root-fact digests) may match ANY
+  independently authoritative known version of the SAME
+  effective root — including HISTORICAL non-bootstrap versions
+  retained after a later refresh — as ordinary SOURCE evidence
+  (the section 4 acquisition/authority separation is unchanged).
+- A foreign-to-bootstrap mixed root member earns the
+  source-acquisition exception only with a complete accepted
+  proof, EXACTLY ONE normalized root-path occurrence across the
+  proof's requested members (charged occurrence count; a second
+  root-path operand, proven or opaque, earns no exception) and a
+  proven attributable whole-source region for that member (the
+  member digest is proven); its member digest must match the
+  known set. Repeated root operands and opaque/partial/
+  truncated/nonzero/unsupported reads earn NO NEW exception or
+  authority here; their exact old acquisition/limitation
+  semantics remain unchanged (no read grammar is expanded).
+- Provisional pending retention: initially unknown foreign root
+  digests are retained ONLY inside this operation (the private
+  context's `deferred_mixed_digests`), deferred until the actual
+  D observation AND the H singleton-fact/authority derivation
+  complete (the established bounded deferred-verification
+  pattern, section 5, reused). A pending digest is accepted only
+  if an INDEPENDENT authoritative complete whole singleton root
+  read establishes that digest in the SAME batch. A mixed proof,
+  a changed envelope, an unproven source, a caller-supplied
+  digest/header or body flag never self-authorizes; the
+  singleton-only governing-fact constructor is preserved.
+- Deterministic refusal precedence: the envelope-defer
+  verification runs FIRST (an unknown changed envelope without
+  independent same-batch authority still refuses
+  `REFUSED_ROOT_AUTHORITY` / `ENVELOPE_UNPROVEN` ahead of the
+  mixed-pending resolution); then the mixed-pending resolution:
+  an unresolved foreign digest yields `REFUSED_ROOT_CONFLICT` /
+  `COMPETING_ROOTS` with the EXACT prior H state. An accepted D
+  candidate discarded by the H result remains INTERNAL discarded
+  evidence (no partial H state publication). A known root
+  conflict may retain compatible source evidence while the
+  ordinary I consumption of the SAME resulting state still
+  returns the explicit conflict with no ready graph/admission.
+  Singleton descendant-of-all resolution is preserved.
+- Identity preservation: the original requests, the bootstrap
+  anchor, the D namespace/history identity, the original proof
+  root binding (which stays at the immutable bootstrap), proof
+  identity, source spans, occurrence IDs and frozen ancestry are
+  all preserved. The proof root binding and the proven member
+  digest have different purposes (binding identity versus member
+  content). Mixed reads never add or advance governing root
+  facts; actual subsequent validation, issuance, observation and
+  replay consume the legitimate resulting state, and ordinary I
+  consumes that SAME state directly.
+- Resource law: root-occurrence counting, candidate/defer
+  attempts (counted BEFORE dedup), allocation and final
+  authority-membership work are charged on the SAME H outer
+  coupled to the ACTUAL D work; the pending-set snapshot (the
+  frozenset copy of the retained pending digests) is precharged
+  on the SAME H outer BEFORE the copy (closed bound: one unit per
+  retained pending digest plus one allocation unit) and then the
+  copy runs fully prepaid; pending metadata is bounded by the
+  ACTUAL existing B/D candidate/incoming capacities before
+  retention. Inherited D-local domains, limits, the
+  original-batch domain and the cumulative domain stay distinct
+  and unchanged.
+- The OLD public `observe_root_lineage` keeps its EXACT
+  post-refresh foreign mixed-root refusal with the unchanged
+  old behavior, interfaces, versions and recipe bytes for
+  every old public caller (the old H accepted-tail source was
+  refactored during 018-o without behavior change); only this
+  new named operation changes behavior, and only at its own
+  scope.
 
 ## 6. Partial-order current-root selection
 
@@ -460,6 +566,47 @@ compiler-hit, recovery, wire or root-aware-admission claim is made;
   the EXACT prior state while the OLD public D validator stays
   None); H full 017 and 018-a..g regressions in the final full
   suite.
+- `tests/test_root_lineage_mixed.py` (56 cases over BOTH read
+  endpoints and BOTH admission modes): A the known pre-batch
+  mixed root member (an independently authoritative known
+  version) acquires source evidence with the ordinary-I
+  whole-bundle admission and independent original-C canonical
+  keys; B the same-batch independent singleton plus mixed read
+  across request-order permutations (with the independently
+  authorized changed envelope) resolves the pending digest; C
+  replay idempotence and equal-byte independent witnesses (the
+  final selection facts are the actual facts of the final state;
+  cross-state equality only over provenance coordinates and the
+  original D occurrence/proof identity); D the known historical
+  non-bootstrap mixed source after a later refresh with the
+  ordinary-I selected-digest exclusion; E the conflicting known
+  authoritative branches (the mixed source matching a known
+  branch is retained while I stays explicitly conflicted with no
+  ready output; a genuine singleton descendant of all resolves);
+  F the unknown-foreign / unissued-singleton-plus-mixed /
+  envelope-only / mixed self-authorization refusals with EXACT
+  prior state and discarded-evidence semantics (envelope
+  precedence first); G1 the boundaryless positive with the
+  repeated-root and repeated-opaque-command refusals and the
+  nonzero same-cid case; G2 the PLAN_UNSUPPORTED replay
+  (REPLAYED with the EXACT prior state) and the
+  partial/incomplete/truncated reads ACCEPTED as honest
+  incomplete retained result records (no occurrence, no root
+  fact; PROCESS_TRUNCATED carried in the D transition
+  limitations); H1 the
+  cross-namespace / stale-CAS / forged-lineage-key /
+  forged-D-history-key / malformed-state gates and the coherent
+  unsupported-version (same-D-scope) refusal; H2 the pending-set
+  snapshot precharge boundary on the SAME H outer (bootstrap
+  state fixture; measured at-boundary success followed by the
+  later union refusal, one below refuses before the copy); the
+  actual B pending-collection cap at-limit/one-below (measured
+  candidate count; below the cap ZERO pending-retention events
+  and the exact D refusal mirrored by H); H4 the full mixed-
+  operation sequence at the measured minimal cap with the
+  crossing step exactly the mixed observation; H5 the privacy
+  canary (no source/identity values in any operational output,
+  refused paths included).
 - The ROOT-executed independent original-API probes (retained-
   native owner/rebinding, late-ancestor, causal selection,
   shape/attribution/byte-cap/K5 prewalk, atomic envelope

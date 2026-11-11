@@ -2114,6 +2114,188 @@ def bootstrap_root_lineage(
     )
 
 
+def _observe_accept_finalize(
+    h_state: RootLineageState,
+    ns: RootLineageNamespace,
+    d_trans: CausalHistoryTransition,
+    outer: _HOuter,
+    deferred: tuple[str, ...],
+    mixed_pending: tuple[str, ...],
+) -> RootLineageTransition:
+    """The shared ACCEPTED-D-candidate finalization of the two
+    root-lineage observation operations.
+
+    S3 singleton root-read retention (counted and source-bytes
+    preflighted BEFORE retention), the S1 flag re-derivation over
+    ALL retained facts, the retention caps, and THEN the atomic
+    deferred-verification with a DETERMINISTIC refusal precedence:
+    the EXISTING envelope deferral verification runs FIRST (the
+    accepted 018-h law, unchanged -- every deferred envelope digest
+    must match an authoritative retained root fact; the same-batch
+    independently earned authoritative root read establishes the
+    matching envelope's known-source status atomically; the
+    envelope itself grants no ordering), and ONLY THEN the 018-o
+    mixed-pending verification (every initially-unknown mixed root
+    digest must be established by an authoritative retained root
+    fact -- for a pre-batch-unknown digest that is necessarily a
+    NEW same-batch independently earned authoritative singleton
+    root-read fact; a mixed read never mints authority and cannot
+    authorize itself).  Any unverified digest is a fixed
+    whole-transition refusal (``REFUSED_ROOT_AUTHORITY`` /
+    ``ENVELOPE_UNPROVEN`` for the envelope, ``REFUSED_ROOT_CONFLICT``
+    / ``COMPETING_ROOTS`` for the mixed pending set) preserving the
+    EXACT prior H state; the actual accepted D candidate is
+    retained by identity as discarded evidence, never partially
+    published.
+    """
+    old_bytes = 0
+    for fact in h_state.root_facts:
+        if not outer.unit():
+            return _closed(
+                h_state,
+                RootLineageOutcome.REFUSED_OVER_BOUND,
+                (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+                d_trans,
+            )
+        old_bytes += fact.source_byte_length
+    new_facts = _new_root_facts(
+        d_trans.new_occurrences,
+        len(h_state.root_facts),
+        old_bytes,
+        ns.root_lineage_bounds,
+        outer,
+    )
+    if new_facts is None:
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+            d_trans,
+        )
+    if isinstance(new_facts, RootLineageLimitation):
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (new_facts,),
+            d_trans,
+        )
+    combined = _combine_facts(h_state.root_facts, new_facts, outer)
+    if combined is None:
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+            d_trans,
+        )
+    derived = _derive_flags(d_trans.state, combined, outer)
+    if derived is None:
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+            d_trans,
+        )
+    bounds = ns.root_lineage_bounds
+    over = _retention_check(derived, bounds, outer, h_state, d_trans)
+    if over is not None:
+        return over
+    if deferred or mixed_pending:
+        if not outer.unit():
+            return _closed(
+                h_state,
+                RootLineageOutcome.REFUSED_OVER_BOUND,
+                (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+                d_trans,
+            )
+        authoritative: set[str] = set()
+        for fact in derived:
+            if not outer.unit():
+                return _closed(
+                    h_state,
+                    RootLineageOutcome.REFUSED_OVER_BOUND,
+                    (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+                    d_trans,
+                )
+            if fact.authority:
+                authoritative.add(fact.source_digest)
+        for digest in deferred:
+            if not outer.unit():
+                return _closed(
+                    h_state,
+                    RootLineageOutcome.REFUSED_OVER_BOUND,
+                    (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+                    d_trans,
+                )
+            if digest not in authoritative:
+                return _closed(
+                    h_state,
+                    RootLineageOutcome.REFUSED_ROOT_AUTHORITY,
+                    (RootLineageLimitation.ENVELOPE_UNPROVEN,),
+                    d_trans,
+                )
+        for digest in mixed_pending:
+            if not outer.unit():
+                return _closed(
+                    h_state,
+                    RootLineageOutcome.REFUSED_OVER_BOUND,
+                    (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+                    d_trans,
+                )
+            if digest not in authoritative:
+                return _closed(
+                    h_state,
+                    RootLineageOutcome.REFUSED_ROOT_CONFLICT,
+                    (RootLineageLimitation.COMPETING_ROOTS,),
+                    d_trans,
+                )
+    if not outer.units(2 * len(new_facts)):
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+            d_trans,
+        )
+    new_keys = {_provenance_key(f.provenance) for f in new_facts}
+    if not outer.units(2 * len(derived)):
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+            d_trans,
+        )
+    retained_new = tuple(f for f in derived if _provenance_key(f.provenance) in new_keys)
+    if not outer.units(_STATE_BUILD_UNITS + _STATE_FACT_UNITS * len(derived)):
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+            d_trans,
+        )
+    new_state = RootLineageState(
+        lineage_key=ns.lineage_key,
+        revision=h_state.revision + 1,
+        d_state=d_trans.state,
+        root_facts=derived,
+    )
+    if not outer.units(_TRANSITION_BUILD_UNITS + _STATE_FACT_UNITS * len(retained_new)):
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+            d_trans,
+        )
+    return RootLineageTransition(
+        state=new_state,
+        outcome=RootLineageOutcome.ACCEPTED,
+        d_transition=d_trans,
+        revision_before=h_state.revision,
+        revision_after=h_state.revision + 1,
+        d_revision_before=d_trans.revision_before,
+        d_revision_after=d_trans.revision_after,
+        new_root_facts=retained_new,
+    )
+
+
 def observe_root_lineage(
     h_state: RootLineageState,
     ns: RootLineageNamespace,
@@ -2247,138 +2429,200 @@ def observe_root_lineage(
         return _closed(h_state, RootLineageOutcome.REPLAYED, limitations, d_trans)
     if d_trans.outcome is not CausalHistoryOutcome.ACCEPTED:
         return _map_d_refusal(d_trans, ctx, h_state, outer)
-    # --- ACCEPTED: S3 retention + S1 re-derivation + caps + envelope ---
-    old_bytes = 0
+    return _observe_accept_finalize(h_state, ns, d_trans, outer, deferred, ())
+
+
+def observe_root_lineage_mixed(
+    h_state: RootLineageState,
+    ns: RootLineageNamespace,
+    expected_revision: int,
+    requests: tuple[GraphRequest, ...],
+) -> RootLineageTransition:
+    """The root-aware MIXED observation transition (018-o).
+
+    The same gates as the original-payload observation run FIRST
+    (fixed scope/CAS/D-state-binding/version fences, the charged
+    FULL namespace revalidation, the charged cross-record state
+    integrity) before any compatibility interpretation.  The
+    pre-batch KNOWN root digest set reuses the ACTUAL validated set
+    (bootstrap anchor plus the freshly validated AUTHORITATIVE root
+    fact digests); known historical versions may supply ordinary
+    source evidence.  The ACTUAL D observation then runs under the
+    narrow new private policy: the relaxed envelope law AND the
+    singleton root-read acquisition AND the NEW mixed root
+    acquisition (a proven SINGLE root-path segment of a mixed proof
+    is ordinary source evidence for an independently authoritative
+    known root version, or is provisionally retained and DEFERRED
+    when initially unknown).  After an accepted D transition the
+    shared finalization runs: the S3 retention, the S1 re-derivation,
+    the caps, and the DETERMINISTIC refusal precedence (the
+    EXISTING envelope deferral verification FIRST, then the mixed
+    pending verification -- every initially-unknown mixed root
+    digest must be established by an independent authoritative
+    complete whole SINGLETON root read in the SAME batch; a mixed
+    proof, a changed envelope, an unproven source, a caller
+    digest/header or body flag cannot authorize itself; the
+    singleton-only governing-fact constructor is preserved).  An
+    unresolved foreign digest is a fixed whole-transition
+    ``REFUSED_ROOT_CONFLICT`` / ``COMPETING_ROOTS`` with the EXACT
+    prior H state (the actual accepted D candidate is retained by
+    identity as discarded evidence, never partially published).
+    Mixed reads never add or advance governing root facts; the
+    original requests, bootstrap anchor, D namespace/history
+    identity, original proof root binding and proof identity, source
+    spans, occurrence IDs and frozen ancestry are preserved.  The
+    private root-occurrence counting, candidate/deferral attempts,
+    allocation and final authority membership work is charged on
+    the SAME ONE H outer coupled to the ACTUAL D work; the
+    inherited local domains stay independent with unchanged
+    limits, and the pending metadata is bounded by the ACTUAL
+    inherited candidate/incoming capacities (the inspected
+    bundle/segment/member walks under the existing proof bounds).
+    No independent current-selection query is made merely to
+    acquire known source evidence.
+    """
+    if not _state_shape(h_state):
+        raise _fixed("the root-lineage state must carry an actual bounded state record")
+    if not _preflight_ns_shape(ns):
+        return _closed(h_state, RootLineageOutcome.REFUSED_FOREIGN_SCOPE, ())
+    outer = _HOuter(ns.root_lineage_bounds.max_total_work_units)
+    d_ns, gated = _gate(h_state, ns, expected_revision, outer)
+    if gated is not None:
+        return gated
+    assert d_ns is not None
+    if not outer.unit():
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+        )
+    problem = validate_root_lineage_state(
+        h_state,
+        ns.root_lineage_bounds,
+        outer,
+        history_bounds=ns.history_bounds,
+        graph_bounds=ns.graph_bounds,
+        proof_bounds=ns.proof_bounds,
+        observation_bounds=ns.observation_bounds,
+        workspace=ns.workspace,
+    )
+    if problem is not None:
+        return _closed(h_state, _state_refusal_outcome(problem), (problem,))
+    d_state = h_state.d_state
+    # The pre-batch known root digest set (reused from the ACTUAL
+    # validated state after the charged integrity gate): ONLY the
+    # bootstrap anchor and the actually EARNED authoritative root
+    # sources -- merely retained complete bytes do not justify
+    # compatibility, and known historical versions are source
+    # evidence only (never freshness).
+    known: set[str] = set()
+    if d_state.root is not None:
+        if not outer.unit():
+            return _closed(
+                h_state,
+                RootLineageOutcome.REFUSED_OVER_BOUND,
+                (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+            )
+        known.add(d_state.root.root_digest)
     for fact in h_state.root_facts:
         if not outer.unit():
             return _closed(
                 h_state,
                 RootLineageOutcome.REFUSED_OVER_BOUND,
                 (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-                d_trans,
             )
-        old_bytes += fact.source_byte_length
-    new_facts = _new_root_facts(
-        d_trans.new_occurrences,
-        len(h_state.root_facts),
-        old_bytes,
-        ns.root_lineage_bounds,
-        outer,
+        if fact.authority:
+            known.add(fact.source_digest)
+    ctx = _RootLineageContext(
+        known_root_digests=frozenset(known),
+        relaxed_envelope_law=True,
+        root_read_acquisition=True,
+        outer_charge=outer.unit,
+        mixed_root_acquisition=True,
     )
-    if new_facts is None:
+    deferred_sink: list[frozenset[str]] = []
+    try:
+        d_trans = _observe_causal_history_core(
+            requests,
+            d_ns,
+            d_state,
+            expected_revision,
+            context=ctx,
+            deferred_sink=deferred_sink,
+        )
+    except _HOuterOverflow:
+        return _closed(
+            h_state,
+            RootLineageOutcome.REFUSED_OVER_BOUND,
+            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+        )
+    deferred = _deferred_digests(deferred_sink, outer)
+    if deferred is None:
         return _closed(
             h_state,
             RootLineageOutcome.REFUSED_OVER_BOUND,
             (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
             d_trans,
         )
-    if isinstance(new_facts, RootLineageLimitation):
-        return _closed(
-            h_state,
-            RootLineageOutcome.REFUSED_OVER_BOUND,
-            (new_facts,),
-            d_trans,
-        )
-    combined = _combine_facts(h_state.root_facts, new_facts, outer)
-    if combined is None:
-        return _closed(
-            h_state,
-            RootLineageOutcome.REFUSED_OVER_BOUND,
-            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-            d_trans,
-        )
-    derived = _derive_flags(d_trans.state, combined, outer)
-    if derived is None:
-        return _closed(
-            h_state,
-            RootLineageOutcome.REFUSED_OVER_BOUND,
-            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-            d_trans,
-        )
-    bounds = ns.root_lineage_bounds
-    over = _retention_check(derived, bounds, outer, h_state, d_trans)
-    if over is not None:
-        return over
-    if deferred:
-        if not outer.unit():
+    # The mixed pending set is DISTINCT from the envelope deferrals
+    # (its own charged sorted union; a different refusal reason and
+    # a later deterministic precedence -- see the finalize helper).
+    mixed_pending: tuple[str, ...] = ()
+    if ctx.deferred_mixed_digests:
+        # The pending-set SNAPSHOT (the frozenset copy) traverses the
+        # actual deferred digests before _deferred_digests can
+        # charge: the closed copy bound (one unit per retained
+        # digest plus one allocation unit) is charged on the SAME H
+        # outer BEFORE the copy (018-o resource law; the envelope
+        # helper's own domain is unchanged).
+        if not outer.units(len(ctx.deferred_mixed_digests) + 1):
             return _closed(
                 h_state,
                 RootLineageOutcome.REFUSED_OVER_BOUND,
                 (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
                 d_trans,
             )
-        authoritative: set[str] = set()
-        for fact in derived:
-            if not outer.unit():
-                return _closed(
-                    h_state,
-                    RootLineageOutcome.REFUSED_OVER_BOUND,
-                    (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-                    d_trans,
-                )
-            if fact.authority:
-                authoritative.add(fact.source_digest)
-        for digest in deferred:
-            if not outer.unit():
-                return _closed(
-                    h_state,
-                    RootLineageOutcome.REFUSED_OVER_BOUND,
-                    (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-                    d_trans,
-                )
-            if digest not in authoritative:
-                return _closed(
-                    h_state,
-                    RootLineageOutcome.REFUSED_ROOT_AUTHORITY,
-                    (RootLineageLimitation.ENVELOPE_UNPROVEN,),
-                    d_trans,
-                )
-    if not outer.units(2 * len(new_facts)):
-        return _closed(
-            h_state,
-            RootLineageOutcome.REFUSED_OVER_BOUND,
-            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-            d_trans,
-        )
-    new_keys = {_provenance_key(f.provenance) for f in new_facts}
-    if not outer.units(2 * len(derived)):
-        return _closed(
-            h_state,
-            RootLineageOutcome.REFUSED_OVER_BOUND,
-            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-            d_trans,
-        )
-    retained_new = tuple(f for f in derived if _provenance_key(f.provenance) in new_keys)
-    if not outer.units(_STATE_BUILD_UNITS + _STATE_FACT_UNITS * len(derived)):
-        return _closed(
-            h_state,
-            RootLineageOutcome.REFUSED_OVER_BOUND,
-            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-            d_trans,
-        )
-    new_state = RootLineageState(
-        lineage_key=ns.lineage_key,
-        revision=h_state.revision + 1,
-        d_state=d_trans.state,
-        root_facts=derived,
-    )
-    if not outer.units(_TRANSITION_BUILD_UNITS + _STATE_FACT_UNITS * len(retained_new)):
-        return _closed(
-            h_state,
-            RootLineageOutcome.REFUSED_OVER_BOUND,
-            (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
-            d_trans,
-        )
-    return RootLineageTransition(
-        state=new_state,
-        outcome=RootLineageOutcome.ACCEPTED,
-        d_transition=d_trans,
-        revision_before=h_state.revision,
-        revision_after=h_state.revision + 1,
-        d_revision_before=d_trans.revision_before,
-        d_revision_after=d_trans.revision_after,
-        new_root_facts=retained_new,
-    )
+        mixed = _deferred_digests([frozenset(ctx.deferred_mixed_digests)], outer)
+        if mixed is None:
+            return _closed(
+                h_state,
+                RootLineageOutcome.REFUSED_OVER_BOUND,
+                (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+                d_trans,
+            )
+        mixed_pending = mixed
+    if d_trans.outcome is CausalHistoryOutcome.REPLAYED:
+        if deferred:
+            # Replays earn no facts: an unknown changed envelope in
+            # a replayed batch is a fixed root-authority refusal.
+            return _closed(
+                h_state,
+                RootLineageOutcome.REFUSED_ROOT_AUTHORITY,
+                (RootLineageLimitation.ENVELOPE_UNPROVEN,),
+                d_trans,
+            )
+        if mixed_pending:
+            # Replays earn no facts: an initially-unknown mixed root
+            # digest cannot be established by a same-batch
+            # authoritative singleton on a replay.
+            return _closed(
+                h_state,
+                RootLineageOutcome.REFUSED_ROOT_CONFLICT,
+                (RootLineageLimitation.COMPETING_ROOTS,),
+                d_trans,
+            )
+        if not outer.units(2 * len(d_trans.diagnostics)):
+            return _closed(
+                h_state,
+                RootLineageOutcome.REFUSED_OVER_BOUND,
+                (RootLineageLimitation.WORK_UNITS_OVER_BOUND,),
+                d_trans,
+            )
+        limitations = tuple(_H_LIMITATION_MAP[lim] for lim in d_trans.diagnostics)
+        return _closed(h_state, RootLineageOutcome.REPLAYED, limitations, d_trans)
+    if d_trans.outcome is not CausalHistoryOutcome.ACCEPTED:
+        return _map_d_refusal(d_trans, ctx, h_state, outer)
+    return _observe_accept_finalize(h_state, ns, d_trans, outer, deferred, mixed_pending)
 
 
 def register_root_issuance(

@@ -216,10 +216,21 @@ parent boundaries — the entry-local group partition joined to
 the ORIGINAL proof segments and the root group to the retained
 root digest — plus N02 the byte-aware closed reservation, the
 pre-fetch plan segment precharge and the per-site
-reservation-calculation closure) are implemented and
-PENDING strategic review, at its
-bounded inert scope (contract
-`docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`), all as
+reservation-calculation closure) are ACCEPTED at their
+bounded inert scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-n-decision.md`); the 018-o
+root-aware mixed-observation slice (the new pure
+`observe_root_lineage_mixed` operation plus
+`ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`; a proven mixed root
+member matching an independently authoritative known version
+of the same effective root — including an independently
+issued complete whole singleton in the SAME batch — acquires
+source evidence while a mixed read mints no governing
+authority, unresolved foreign digests keep the exact
+COMPETING_ROOTS refusal, and the pending-set snapshot is
+precharged on the SAME H outer) is implemented and
+PENDING strategic review at its bounded inert scope (root-lineage
+contract section 5a), all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
@@ -413,7 +424,7 @@ inactive.
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
 NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
-PENDING review).**
+ACCEPTED; 018-o mixed observation PENDING review).**
 The 018-i composition takes the ACTUAL retained 018-h
 root-lineage state and its ACTUAL namespace (plus the NEW
 composition bounds and the ACTUAL inherited H/D/E/F/G bound sets)
@@ -459,7 +470,11 @@ entry proof and witness to the EXACT input state by identity
 is refused even when self-consistent). Documented UNREACHED
 limitation: post-refresh NEW-root mixed bundles are refused by
 the UNMODIFIED public H acquisition before I (the old H law is
-not broadened and no positive is manufactured). The exact scope
+not broadened and no positive is manufactured); the new 018-o
+`observe_root_lineage_mixed` operation (root-lineage contract
+section 5a) supplies root-aware mixed acquisition at its own
+operation scope while this old public path stays unchanged and
+the UNREACHED label above applies to it. The exact scope
 is versioned in
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`; it earns the
 root-aware current graph/admission composition MECHANISM at its
@@ -494,8 +509,20 @@ parent boundaries — the entry-local group partition joined to
 the ORIGINAL proof segments and the root group to the retained
 root digest — plus N02 the byte-aware closed reservation, the
 pre-fetch plan segment precharge and the per-site
-reservation-calculation closure) are implemented and
-PENDING strategic review)
+reservation-calculation closure) are ACCEPTED at their
+bounded inert scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-n-decision.md`); the 018-o
+root-aware mixed-observation slice (the new pure
+`observe_root_lineage_mixed` operation plus
+`ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`; a proven mixed root
+member matching an independently authoritative known version
+of the same effective root — including an independently
+issued complete whole singleton in the SAME batch — acquires
+source evidence while a mixed read mints no governing
+authority, unresolved foreign digests keep the exact
+COMPETING_ROOTS refusal, and the pending-set snapshot is
+precharged on the SAME H outer) is implemented and
+PENDING strategic review at its bounded inert scope)
 and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
@@ -957,9 +984,21 @@ parent boundaries — the entry-local group partition joined to
 the ORIGINAL proof segments and the root group to the retained
 root digest — plus N02 the byte-aware closed reservation, the
 pre-fetch plan segment precharge and the per-site
-reservation-calculation closure) are implemented and
-PENDING strategic review, at its
-bounded inert scope). The
+reservation-calculation closure) are ACCEPTED at their
+bounded inert scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-n-decision.md`); the 018-o
+root-aware mixed-observation slice (the new pure
+`observe_root_lineage_mixed` operation plus
+`ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`; a proven mixed root
+member matching an independently authoritative known version
+of the same effective root — including an independently
+issued complete whole singleton in the SAME batch — acquires
+source evidence while a mixed read mints no governing
+authority, unresolved foreign digests keep the exact
+COMPETING_ROOTS refusal, and the pending-set snapshot is
+precharged on the SAME H outer) is implemented and
+PENDING strategic review at its bounded inert scope (root-lineage
+contract section 5a)). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -1109,10 +1148,21 @@ parent boundaries — the entry-local group partition joined to
 the ORIGINAL proof segments and the root group to the retained
 root digest — plus N02 the byte-aware closed reservation, the
 pre-fetch plan segment precharge and the per-site
-reservation-calculation closure) are implemented and
-PENDING strategic review, at its
-bounded inert scope, contract
-`docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`) and the
+reservation-calculation closure) are ACCEPTED at their
+bounded inert scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-n-decision.md`); the 018-o
+root-aware mixed-observation slice (the new pure
+`observe_root_lineage_mixed` operation plus
+`ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`; a proven mixed root
+member matching an independently authoritative known version
+of the same effective root — including an independently
+issued complete whole singleton in the SAME batch — acquires
+source evidence while a mixed read mints no governing
+authority, unresolved foreign digests keep the exact
+COMPETING_ROOTS refusal, and the pending-set snapshot is
+precharged on the SAME H outer) is implemented and
+PENDING strategic review at its bounded inert scope (root-lineage
+contract section 5a) and the
 remaining 018 current-version/overlap work beyond this mechanism
 (C04/C05 current-version acceptance, version-owned
 edge/certificate withdrawal end-to-end acceptance) plus

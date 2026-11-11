@@ -2,6 +2,12 @@
 
 ``ROOT_LINEAGE_CONTRACT_VERSION = "cache-root-lineage/v1"``;
 ``ROOT_LINEAGE_POLICY_VERSION = "root-lineage-policy/v1"``.
+``ROOT_LINEAGE_MIXED_OBSERVATION_VERSION =
+"root-lineage-mixed-observation/v1"`` (the 018-o root-aware mixed
+observation operation's versioned policy identity, documented for
+the later runtime/recovery configuration identity; the accepted
+contract/policy versions, schemas, defaults, recipe bytes and cap
+domains are unchanged by it).
 
 This module binds the ACTUAL accepted 018-d causal-history scope (its
 actual identity/config/workspace/mode fields, both admission 64-hex
@@ -68,6 +74,7 @@ from .observation_models import OBSERVER_VERSION, PRIVATE_ID_PLACEHOLDER, Observ
 
 ROOT_LINEAGE_CONTRACT_VERSION = "cache-root-lineage/v1"
 ROOT_LINEAGE_POLICY_VERSION = "root-lineage-policy/v1"
+ROOT_LINEAGE_MIXED_OBSERVATION_VERSION = "root-lineage-mixed-observation/v1"
 
 #: The hard diagnostic ceiling (``RootLineageBounds.max_diagnostics``
 #: default) restated for the closed model shape, mirroring the
