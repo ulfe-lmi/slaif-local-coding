@@ -18,15 +18,21 @@ attributable NEW root region inside an ordinary mixed read acquires
 source evidence AND authority with NO independent singleton. It
 closes nothing end to end: the next same-018 CONSUMER round must
 consume the SAME legitimate new state into the actual
-graph/admission; neither round alone completes whole 018. This
-slice is IMPLEMENTED and PENDING strategic review at its bounded
-inert scope: like the accepted 017 slice and the accepted bounded
-018 slices (018-a..h, 018-n, 018-o, each at its bounded scope with
-the recorded process qualifications; the 018-i/j/k/l/m repair
-chain stays NOT ACCEPTED as recorded in the stage ledger) it is
-pure, bounded and never active in the adapter runtime; no command
-string is executed and no model/native/client/service facility is
-started.
+graph/admission; neither round alone completes whole 018 (the
+same-018 018-q slice derives the pure root-currentness QUERY over
+this producer's state — contract
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md` — PENDING
+strategic review at its bounded inert scope). This slice is
+ACCEPTED at its bounded inert producer scope WITH PROCESS
+QUALIFICATIONS (strategic decision
+`S/reviews/018-p-decision.md`, preserving every recorded
+qualification): like the accepted 017 slice and the accepted
+bounded 018 slices (018-a..h, 018-n, 018-o, each at its bounded
+scope with the recorded process qualifications; the
+018-i/j/k/l/m repair chain stays NOT ACCEPTED as recorded in the
+stage ledger) it is pure, bounded and never active in the adapter
+runtime; no command string is executed and no model/native/
+client/service facility is started.
 All existing B/C/D/E/F/G/H/O/I public signatures, defaults,
 schemas, version tags, recipe bytes and behavior remain intact; the
 existing old I honestly refuses a region-version state (section 9).

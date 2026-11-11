@@ -68,7 +68,13 @@ section 5a); the 018-p root-region producer adds ONLY the narrow
 explicit region-state refusal documented in section 1 (the OLD
 composition honestly refuses the NEW 018-p region-version state
 before positive work) and is otherwise unchanged (root-region
-contract `docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`). At
+contract `docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`; the
+018-q root-region currentness slice is a separate pure QUERY
+over the 018-p state — contract
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md` — that this
+composition does not consume; the same-018 consumer round that
+must consume the legitimate new region state into the actual
+graph/admission is still mandatory). At
 its bounded inert scope, like the accepted 017,
 018-a..h slices, it is pure, bounded and never active in the
 adapter runtime; no

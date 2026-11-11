@@ -42,11 +42,18 @@ The 018-o mixed-observation extension (section 5a: the
 ACCEPTED at its bounded inert scope WITH PROCESS QUALIFICATIONS
 (strategic decision `S/reviews/018-o-decision.md`); the 018-p
 root-region authority producer (separate contract above) is
-IMPLEMENTED and PENDING strategic review at its own bounded inert
-scope; whole 018 remains open (the next same-018 consumer round
-must consume the legitimate new region state into the actual
-graph/admission; whole-018 review required before merge) and
-019-024 remain.
+ACCEPTED at its bounded inert producer scope WITH PROCESS
+QUALIFICATIONS (strategic decision `S/reviews/018-p-decision.md`);
+the 018-q root-region currentness slice (separate contract
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is the pure
+QUERY above the 018-p state — an unresolved MAXIMAL trusted root
+uncertainty blocks current-root usability while dominated
+historical uncertainty is retained, without minting root
+authority or advancing a revision — and is IMPLEMENTED and
+PENDING strategic review at its own bounded inert scope; whole
+018 remains open (the next same-018 consumer round must consume
+the legitimate new region state into the actual graph/admission;
+whole-018 review required before merge) and 019-024 remain.
 
 ## 1. Namespace, scope keys and caller trust
 

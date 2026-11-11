@@ -242,9 +242,15 @@ singleton, the no-exception read shapes, before-
 materialization retention under the unchanged H
 ceilings, the ONE new-operation outer, the honest old-I
 refusal of the region-version state and the closed host-IO
-purity surface) is implemented and PENDING strategic
-review at its bounded inert scope (root-region contract
-`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`), all as
+purity surface) is ACCEPTED at its bounded inert producer
+scope WITH PROCESS QUALIFICATIONS (strategic decision
+`S/reviews/018-p-decision.md`; root-region contract
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`); the
+018-q versioned root-region currentness slice (a pure
+QUERY over the 018-p state — contract
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is
+implemented and PENDING strategic review at its bounded
+inert scope, all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
@@ -456,16 +462,100 @@ genuinely new authoritative region occurrence carrying
 old bytes after a later version is a deliberate revert
 under the same frozen partial order; the next same-018
 consumer round must consume the legitimate new state
-into the actual graph/admission. It is implemented and
+into the actual graph/admission. It is ACCEPTED at its
+bounded inert producer scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-p-decision.md`;
+`tests/test_root_region_lineage.py`).
+
+**Root-region currentness (018-q inert, PENDING review at its
+bounded scope).**
+The 018-q derivation takes the ACTUAL retained 018-p
+root-region lineage state and its ACTUAL namespace (plus
+the NEW currentness bounds) and, in ONE pure bounded
+charged operation, derives whether the known
+authoritative root is CURRENTLY usable: it refuses to
+treat a known authoritative root as currently usable
+after a trusted complete root-bearing observation whose
+governing root cannot be established under P source
+policy. It mints no new root authority, changes no P
+selection law, never advances a revision, and carries no
+CAS input, clock or new persistent state. The COMBINED
+evidence frontier (the actual authoritative P facts plus
+the eligible uncertainty occurrences on the SAME actual D
+state) uses edges from ACTUAL original frozen parent
+evidence only: arrival, registration, call-ID, HTTP
+position, revision and content equality never add
+edges, and all equal/incomparable maximal originals are
+retained in canonical deterministic metadata order. An
+unresolved MAXIMAL trusted root uncertainty (later or
+incomparable to the known root) is what blocks usability;
+dominated historical uncertainty is retained as a witness
+on the ready result and never permanently blocks. A
+maximal uncertainty observation after or incomparable
+with a known root makes the known authority unusable
+(fixed `root_currentness_unproven`, no selected usable
+source, no ready graph/admission and no bootstrap
+fallback); a known authoritative differing-root
+conflict remains non-ready as
+`root_authority_conflict`; readiness follows the
+COMBINED maximal frontier, so a single proven
+descendant-of-all is SUFFICIENT but NOT required
+(compatible known maxima that JOINTLY cover the branches
+restore readiness with all original maxima, without
+invented edges). A genuinely NEW supported whole/region
+root occurrence descended from ALL unresolved maximal
+branches restores readiness under ordinary P law; a
+child-of-one cannot erase another branch; a deliberately
+new old-bytes descendant may restore that version;
+historical replay and delayed receipts never roll back
+or cause permanent poisoning. The closed evidence/
+exclusion table (a qualifying complete root-bearing
+opaque group and a P-unsupported root shape are
+uncertainty evidence with every unknown per-file hash
+staying unknown; unissued/unanchored observations
+contribute nothing, a later genuine issuance/receipt
+qualifies the SAME original retained occurrence, and
+issuance alone does not anchor; unsupported, unpaired,
+missing, incomplete, pending, truncated or nonzero
+observations gain no new exception; wrong
+path/workspace and nonroot-only groups are never root
+uncertainty; requesting a root path alone cannot poison
+currentness) plus the result law are versioned in
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`: the
+result retains the EXACT input P state by reference on
+EVERY outcome with its actual revision and lineage key,
+retains the ACTUAL same-run P selection (or the exact
+P validation problem when validation refused before
+selection), and the stable scope key binds the actual P
+lineage key, the Q contract/policy and the actual Q
+bounds — NOT the carried revision. The ONE Q outer
+covers the ENTIRE operation while the ACTUAL P phase
+retains its INDEPENDENT root-lineage work ceiling
+(coupled unit-for-unit into the Q total; the D/B-local
+domains stay independent; no global min, no reset);
+closed O(1) collection/scalar gates precede any
+iteration/set/sort/serialization, every candidate
+attempt counts before dedup, and source preflights
+precede any owned slice/encode/hash/copy without a
+per-witness source walk. The 018-q bounds (total work
+1048576, diagnostics 64; default AND hard, stricter
+positives legal) run on that ONE outer, and the
+inherited D collection law stays distinct beneath it.
+It closes nothing end to end: the same-018 CONSUMER
+round must consume the legitimate new region state into
+the actual graph/admission, and whole 018 (plus 019-024)
+remains open and mandatory. It is implemented and
 PENDING strategic review at its bounded inert scope
-(`tests/test_root_region_lineage.py`).
+(`tests/test_root_region_currentness.py`); the stage
+stays inert and inactive.
 
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
 NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
 ACCEPTED; 018-o mixed observation ACCEPTED WITH PROCESS
-QUALIFICATIONS; 018-p root-region producer PENDING
-review).**
+QUALIFICATIONS; 018-p root-region producer ACCEPTED WITH
+PROCESS QUALIFICATIONS; 018-q root-region currentness
+PENDING review).**
 The 018-i composition takes the ACTUAL retained 018-h
 root-lineage state and its ACTUAL namespace (plus the NEW
 composition bounds and the ACTUAL inherited H/D/E/F/G bound sets)
@@ -576,9 +666,14 @@ singleton, the no-exception read shapes, before-
 materialization retention under the unchanged H
 ceilings, the ONE new-operation outer, the honest old-I
 refusal of the region-version state and the closed host-IO
-purity surface) is implemented and PENDING strategic
-review at its bounded inert scope (root-region contract
-`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`))
+purity surface) is ACCEPTED at its bounded inert producer
+scope WITH PROCESS QUALIFICATIONS (strategic decision
+`S/reviews/018-p-decision.md`; root-region contract
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`); the
+018-q root-region currentness query (contract
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is
+implemented and PENDING strategic review at its bounded
+inert scope))
 and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
@@ -1066,9 +1161,15 @@ singleton, the no-exception read shapes, before-
 materialization retention under the unchanged H
 ceilings, the ONE new-operation outer, the honest old-I
 refusal of the region-version state and the closed host-IO
-purity surface) is implemented and PENDING strategic
-review at its bounded inert scope (root-region contract
-`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`)). The
+purity surface) is ACCEPTED at its bounded inert producer
+scope WITH PROCESS QUALIFICATIONS (strategic decision
+`S/reviews/018-p-decision.md`; root-region contract
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`); the
+018-q versioned root-region currentness slice (a pure
+QUERY over the 018-p state — contract
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is
+implemented and PENDING strategic review at its bounded
+inert scope)). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -1244,9 +1345,15 @@ singleton, the no-exception read shapes, before-
 materialization retention under the unchanged H
 ceilings, the ONE new-operation outer, the honest old-I
 refusal of the region-version state and the closed host-IO
-purity surface) is implemented and PENDING strategic
-review at its bounded inert scope (root-region contract
-`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`) and the
+purity surface) is ACCEPTED at its bounded inert producer
+scope WITH PROCESS QUALIFICATIONS (strategic decision
+`S/reviews/018-p-decision.md`; root-region contract
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`); the
+018-q versioned root-region currentness slice (a pure
+QUERY over the 018-p state — contract
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is
+implemented and PENDING strategic review at its bounded
+inert scope and the
 remaining 018 current-version/overlap work beyond this mechanism
 (C04/C05 current-version acceptance, version-owned
 edge/certificate withdrawal end-to-end acceptance) plus

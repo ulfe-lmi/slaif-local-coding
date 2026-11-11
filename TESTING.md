@@ -250,10 +250,28 @@ materialization under the unchanged H ceilings, ONE
 new-operation outer at the unchanged RootLineageBounds, the old
 H/O law unchanged, the existing old I honestly refusing the
 region-version state, and the closed host-IO purity surface
-enforced on every public path) is implemented and PENDING
-strategic review at its bounded inert scope (contract
+enforced on every public path) is ACCEPTED at its bounded
+inert producer scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-p-decision.md`;
+contract
 [docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md);
-`tests/test_root_region_lineage.py`),
+`tests/test_root_region_lineage.py`); the 018-q
+versioned root-region currentness slice is a separate
+pure QUERY over the 018-p state (an unresolved MAXIMAL
+trusted root uncertainty — a trusted complete root-bearing
+observation whose governing root cannot be established
+under P source policy, later or incomparable to the known
+root — makes the known authoritative root not currently
+usable, while dominated historical uncertainty is retained
+and never permanently blocks; the query mints no root
+authority, changes no P selection and advances no
+revision; the combined frozen-partial-order frontier,
+the closed evidence/exclusion table, the stable scope key
+and the ONE Q outer with the ACTUAL independent P
+domain) is implemented and PENDING strategic review at
+its bounded inert scope (contract
+[docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md](docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md);
+`tests/test_root_region_currentness.py`),
 and the remaining 018 stages (including the consumer round that
 must consume the legitimate new region state into the actual
 graph/admission) plus 019-024 remain mandatory unearned
