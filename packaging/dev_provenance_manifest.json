@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 260,
+      "entry_count": 264,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "c61c2ca228d6323ebdcb08fb4139b652ca2c7455ebbce68ec91b4fde52b21085",
-      "size_bytes": 1874539
+      "sha256": "e48017826cd0f9c0e4af7e476e5c7acbc60936b679368e1eb1a55f52f3219637",
+      "size_bytes": 1919059
     },
     "wheel": {
-      "entry_count": 60,
+      "entry_count": 62,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "01ce8874d7fd6343d98a7debb8b4349f5c984f79120fac79f7d8fd9c6fe45ea4",
-      "size_bytes": 502409
+      "sha256": "83a0791677199a17e4dd68268a8839b2d86ea83a5ecd75a4734e5c8498639e2c",
+      "size_bytes": 516088
     }
   },
   "frozen_publication": {
@@ -21,8 +21,8 @@
     "source_commit": "255b3f42912e3947908fc8868eccb6bcec874a08",
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
-  "objective": "018-p",
-  "qualification_label": "development-source-568144777d747f9e401c9d702383f031251e6803; not a release candidate; not released",
+  "objective": "016-b",
+  "qualification_label": "development-source-1b8122540f0ac80bb74884bad4123ccd3542a0dd; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "568144777d747f9e401c9d702383f031251e6803",
+  "source_commit": "1b8122540f0ac80bb74884bad4123ccd3542a0dd",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -54,15 +54,16 @@
     "docs/CACHE-CAUSAL-HISTORY-CONTRACT.md": "14851d79f7a640cd2854a8e3649c8abb36e848ae52e9a9e69303940c63472c3c",
     "docs/CACHE-CURRENT-ADMISSION-CONTRACT.md": "47dc00683fb0e16c0be437c24e5984c26eef2a817ef01f5e701802a5f016a292",
     "docs/CACHE-CURRENT-GRAPH-CONTRACT.md": "bf89d597f53f475bf5cc68f6eb654db8d304ddc076a91d84639caeb6ff992520",
-    "docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md": "05ca9e89b893d17cf466ae9f6283f943c22640a47958814060a4ba1f71e0b5f4",
+    "docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md": "f8025f72653605b6ce64ad92917875d05bbca8c88e1d898e3130b055e1471861",
     "docs/CACHE-CURRENTNESS-CONTRACT.md": "5845117154734005e8caa68a11feb5853ab5c538cfdde31104a3fb0e25ac7215",
     "docs/CACHE-GRAPH-CONTRACT.md": "d09c3d0a2e9ed3e2e0bf6ca3fb5fd681e3880d30f4697ad87ff790f984df552c",
     "docs/CACHE-IMPLEMENTATION-PLAN.md": "dca62b0ca6d0c01c5d3fa10e4afb8b454570286e49c7dcfcb0ea9503692f9bff",
     "docs/CACHE-OBSERVATION-CONTRACT.md": "3cc68340ef0a0f202d1081c116ccfe272cf7ba6c5df4165c2793e008e74c23a9",
-    "docs/CACHE-REWORK-LEDGER.md": "5a431ffde68dd0f2151593ea89f0e56dc19c4337494a61a7f6c44399a5d04760",
+    "docs/CACHE-REWORK-LEDGER.md": "cb77d028b48b30cec5647e34339a89b72a1b5d501cf0768fb8c2708529faed67",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
-    "docs/CACHE-ROOT-LINEAGE-CONTRACT.md": "4a40526adf191dd4a85d123493f65f98f22cbbf6b372eec29cc5f43ecd9b1ced",
-    "docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md": "b099d5a4fa83ccd7ac4263444b318fd38f928bdbfb1feb4d885c89f8b3154e89",
+    "docs/CACHE-ROOT-LINEAGE-CONTRACT.md": "49f704d6f9961f08cab6f5567e49320a1989ed34a672890c8ea4d2cfd7f92e74",
+    "docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md": "949306cca1a5ae930edade2ed9fa0613efa5900dd182555e29ab9c7d319c96f0",
+    "docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md": "c2d3b79d41ddc2dc4af29a0c5f0787ee582f591959e70b5fad03cb954713dd34",
     "docs/DEPLOYMENT.md": "1f1314dd10414299c7212e738ab321d5fc06bbe70a7f7ae843f1dcb81c5b80de",
     "docs/DEVELOPMENT-PROVENANCE.md": "6ec28720a637f7a7f8f498f70f1ed96e45e462c88b73faef833d5f29cefc8b03",
     "docs/DOCKER-INSTALL.md": "cc34ac5f4a1b18b35378bc63e899dde9c0fa792a85fd00506a39bf1d2c4fbcc8",
@@ -120,6 +121,8 @@
     "src/slaif_local_coding/constitution/bundles/root_envelopes.py": "9212e5fe33dea102131696997da27a619667042d6c0bd51f57bde1473a801444",
     "src/slaif_local_coding/constitution/bundles/root_lineage.py": "37da92776ea8b18d4313a2324dcb8d8ad691496ba37821ffc79785ea1ee75d98",
     "src/slaif_local_coding/constitution/bundles/root_lineage_models.py": "fe1460155a1fb4dd3db386724c22b90e7e9dc884d7b45fa2057f2a0cfdd29802",
+    "src/slaif_local_coding/constitution/bundles/root_region_currentness.py": "197960b80ab220dbb6d27fcd4c933c5f9c6ec5d87581faf5b6b28192c45e4bec",
+    "src/slaif_local_coding/constitution/bundles/root_region_currentness_models.py": "1474b8cf644568f4da7f8877cba52aede6a62174ec42681c162aa84c4aff6898",
     "src/slaif_local_coding/constitution/bundles/root_region_lineage.py": "abc917c4ac040980680140c5a884c1d5ae972cdc74de48378bcc65e527627705",
     "src/slaif_local_coding/constitution/bundles/root_region_lineage_models.py": "e2e1ba381cd2f24aeba4d6b3a470299538ae2e0bae5cca2c04512d27f7c10990",
     "src/slaif_local_coding/constitution/bundles/shell_tokens.py": "99161042191b2ad0d68196a440fbfc7eeb04717aea1dccbc424fffb5ab1c98f0",
@@ -284,6 +287,7 @@
     "tests/test_release_registry_publish_gate.py": "3d831b05e62d3829820f63e1816aafc39b5f088eb68bb235beeafc4c45c47a4b",
     "tests/test_root_lineage.py": "34793f2b1bb26323984a63b18cfea582e93710e0e28a25ab99d882760ab00650",
     "tests/test_root_lineage_mixed.py": "ba93bc245191cd604a554371139944d3b51bf659d88a7181f872d7d42c31656b",
+    "tests/test_root_region_currentness.py": "5ac7aed88814462f65a840fac0d9a246de8d5d8dd6259048a4edaeea461a9bb2",
     "tests/test_root_region_lineage.py": "d12463940fc7a2a6abf560efda0af1b544d325b98d3aea4e1bd09fbf30bceaad",
     "tests/test_runtime_lock_ci.py": "917a5fc2e32292cb31e114ba31708d9a817b43dcdb79a1e15df55383a2cfc1f5",
     "tests/test_safe_evidence_export.py": "2bf1f53f34bacb007f0e2b4aff5854c4e234f0ce0731837cee343c8cf38ef5e0",
