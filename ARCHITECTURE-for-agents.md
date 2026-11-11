@@ -229,8 +229,22 @@ source evidence while a mixed read mints no governing
 authority, unresolved foreign digests keep the exact
 COMPETING_ROOTS refusal, and the pending-set snapshot is
 precharged on the SAME H outer) is implemented and
-PENDING strategic review at its bounded inert scope (root-lineage
-contract section 5a), all as
+ACCEPTED at its bounded inert scope WITH PROCESS
+QUALIFICATIONS (strategic decision
+`S/reviews/018-o-decision.md`; root-lineage contract
+section 5a); the 018-p versioned root-region authority
+producer (the separate `cache-root-region-lineage/v1`/
+`root-region-lineage-policy/v1` contract and the
+`read_region` provenance kind: a genuinely issued
+complete NEW root region in a mixed-only read acquires
+source evidence AND authority with NO independent
+singleton, the no-exception read shapes, before-
+materialization retention under the unchanged H
+ceilings, the ONE new-operation outer, the honest old-I
+refusal of the region-version state and the closed host-IO
+purity surface) is implemented and PENDING strategic
+review at its bounded inert scope (root-region contract
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`), all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
@@ -419,12 +433,39 @@ explicit same-root refresh/authority-lineage MECHANISM at its
 bounded inert scope only (ACCEPTED at its bounded scope with
 process qualifications, strategic decision
 `S/reviews/018-h-decision.md`), and the stage stays inert and
-inactive.
+inactive. The separate 018-p root-region authority
+producer (the NEW `read_region` provenance kind under the
+NEW `cache-root-region-lineage/v1` contract, documented in
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`) is the
+mixed-only changed-root acquisition half of this mechanism:
+a genuinely issued complete NEW
+root region inside an ordinary mixed read (EXACTLY ONE
+normalized root occurrence across ALL requested operands
+and one proven attributable region) acquires source
+evidence AND authority with NO independent singleton (an
+unknown mixed root needs none in that NEW contract);
+repeated/opaque/partial/truncated/nonzero/unpaired/
+unsupported reads gain no exception; fact-count and
+root-member-byte retention is preflighted BEFORE
+materialization under the unchanged H ceilings; ONE
+new-operation outer at the unchanged RootLineageBounds
+couples the actual D work with independent inherited
+domains; the old H/O law is unchanged and the existing
+old I honestly refuses the region-version state; a
+genuinely new authoritative region occurrence carrying
+old bytes after a later version is a deliberate revert
+under the same frozen partial order; the next same-018
+consumer round must consume the legitimate new state
+into the actual graph/admission. It is implemented and
+PENDING strategic review at its bounded inert scope
+(`tests/test_root_region_lineage.py`).
 
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
 NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
-ACCEPTED; 018-o mixed observation PENDING review).**
+ACCEPTED; 018-o mixed observation ACCEPTED WITH PROCESS
+QUALIFICATIONS; 018-p root-region producer PENDING
+review).**
 The 018-i composition takes the ACTUAL retained 018-h
 root-lineage state and its ACTUAL namespace (plus the NEW
 composition bounds and the ACTUAL inherited H/D/E/F/G bound sets)
@@ -522,7 +563,22 @@ source evidence while a mixed read mints no governing
 authority, unresolved foreign digests keep the exact
 COMPETING_ROOTS refusal, and the pending-set snapshot is
 precharged on the SAME H outer) is implemented and
-PENDING strategic review at its bounded inert scope)
+ACCEPTED at its bounded inert scope WITH PROCESS
+QUALIFICATIONS (strategic decision
+`S/reviews/018-o-decision.md`; root-lineage contract
+section 5a); the 018-p versioned root-region authority
+producer (the separate `cache-root-region-lineage/v1`/
+`root-region-lineage-policy/v1` contract and the
+`read_region` provenance kind: a genuinely issued
+complete NEW root region in a mixed-only read acquires
+source evidence AND authority with NO independent
+singleton, the no-exception read shapes, before-
+materialization retention under the unchanged H
+ceilings, the ONE new-operation outer, the honest old-I
+refusal of the region-version state and the closed host-IO
+purity surface) is implemented and PENDING strategic
+review at its bounded inert scope (root-region contract
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`))
 and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
@@ -997,8 +1053,22 @@ source evidence while a mixed read mints no governing
 authority, unresolved foreign digests keep the exact
 COMPETING_ROOTS refusal, and the pending-set snapshot is
 precharged on the SAME H outer) is implemented and
-PENDING strategic review at its bounded inert scope (root-lineage
-contract section 5a)). The
+ACCEPTED at its bounded inert scope WITH PROCESS
+QUALIFICATIONS (strategic decision
+`S/reviews/018-o-decision.md`; root-lineage contract
+section 5a); the 018-p versioned root-region authority
+producer (the separate `cache-root-region-lineage/v1`/
+`root-region-lineage-policy/v1` contract and the
+`read_region` provenance kind: a genuinely issued
+complete NEW root region in a mixed-only read acquires
+source evidence AND authority with NO independent
+singleton, the no-exception read shapes, before-
+materialization retention under the unchanged H
+ceilings, the ONE new-operation outer, the honest old-I
+refusal of the region-version state and the closed host-IO
+purity surface) is implemented and PENDING strategic
+review at its bounded inert scope (root-region contract
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`)). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -1161,8 +1231,22 @@ source evidence while a mixed read mints no governing
 authority, unresolved foreign digests keep the exact
 COMPETING_ROOTS refusal, and the pending-set snapshot is
 precharged on the SAME H outer) is implemented and
-PENDING strategic review at its bounded inert scope (root-lineage
-contract section 5a) and the
+ACCEPTED at its bounded inert scope WITH PROCESS
+QUALIFICATIONS (strategic decision
+`S/reviews/018-o-decision.md`; root-lineage contract
+section 5a); the 018-p versioned root-region authority
+producer (the separate `cache-root-region-lineage/v1`/
+`root-region-lineage-policy/v1` contract and the
+`read_region` provenance kind: a genuinely issued
+complete NEW root region in a mixed-only read acquires
+source evidence AND authority with NO independent
+singleton, the no-exception read shapes, before-
+materialization retention under the unchanged H
+ceilings, the ONE new-operation outer, the honest old-I
+refusal of the region-version state and the closed host-IO
+purity surface) is implemented and PENDING strategic
+review at its bounded inert scope (root-region contract
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`) and the
 remaining 018 current-version/overlap work beyond this mechanism
 (C04/C05 current-version acceptance, version-owned
 edge/certificate withdrawal end-to-end acceptance) plus

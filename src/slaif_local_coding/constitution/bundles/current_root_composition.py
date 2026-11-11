@@ -125,6 +125,9 @@ from .root_lineage_models import (
     RootSelectionResult,
     root_lineage_bounds_shape_ok,
 )
+from .root_region_lineage_models import (
+    RootRegionLineageState as _RootRegionLineageState,
+)
 
 _L = CurrentRootCompositionLimitation
 
@@ -375,6 +378,31 @@ def _build_selected_root_entry(
     )
 
 
+def _region_state_refusal(state: object) -> ValueError | None:
+    """Narrow explicit rejection of the NEW 018-p root-region
+    versioned state by the OLD composition (018-p order: "the
+    existing old I must honestly refuse a genuinely unsupported
+    region-version state BEFORE positive use; if a narrow explicit
+    rejection adapter is required, document it and test typed
+    fail-closed behavior without broadening old positive law").
+
+    The old result schema carries an ``InstanceOf[RootLineageState]``
+    and cannot hold a region state without broadening the old
+    positive law, so the typed fail-closed refusal is a fixed private
+    raise BEFORE any old positive work or result construction.  All
+    old positive behavior, types, schemas, versions and recipes are
+    preserved; no old state is fabricated to fit a refusal."""
+    if isinstance(state, _RootRegionLineageState):
+        return ValueError(
+            "current root composition: a NEW 018-p root-region "
+            "lineage state is genuinely unsupported by the OLD "
+            "composition (state-shape refusal "
+            "REFUSED_STATE_MALFORMED / STATE_MALFORMED); no "
+            "positive work is performed"
+        )
+    return None
+
+
 def derive_current_root_composition(
     state: RootLineageState,
     ns: RootLineageNamespace,
@@ -402,6 +430,9 @@ def derive_current_root_composition(
     graph/admission, never a bootstrap fallback)."""
     # --- Early O(1) fences (no scan/copy of the historical state) ----
     if not _root_lineage._state_shape(state):
+        region_refusal = _region_state_refusal(state)
+        if region_refusal is not None:
+            raise region_refusal
         return _refuse(
             state,
             CurrentRootCompositionOutcome.REFUSED_STATE_MALFORMED,

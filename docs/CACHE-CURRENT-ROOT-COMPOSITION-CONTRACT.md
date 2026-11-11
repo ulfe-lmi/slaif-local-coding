@@ -61,9 +61,14 @@ including an independently issued complete whole singleton in
 the SAME batch — acquires source evidence while a mixed read
 mints no governing authority, unresolved foreign digests keep
 the exact COMPETING_ROOTS refusal, and the pending-set snapshot
-is precharged on the SAME H outer) is implemented and PENDING
-strategic review at its bounded inert scope (root-lineage
-contract section 5a). At
+is precharged on the SAME H outer) is implemented and ACCEPTED
+at its bounded inert scope WITH PROCESS QUALIFICATIONS (strategic
+decision `S/reviews/018-o-decision.md`; root-lineage contract
+section 5a); the 018-p root-region producer adds ONLY the narrow
+explicit region-state refusal documented in section 1 (the OLD
+composition honestly refuses the NEW 018-p region-version state
+before positive work) and is otherwise unchanged (root-region
+contract `docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`). At
 its bounded inert scope, like the accepted 017,
 018-a..h slices, it is pure, bounded and never active in the
 adapter runtime; no
@@ -115,6 +120,17 @@ qualification, and 019-024 remain mandatory.
   `refused_version_conflict` / `VERSION_UNSUPPORTED` before any
   positive interpretation; foreign scope and malformed state
   refuse with the exact prior state.
+- Narrow 018-p region-state refusal boundary: the old result
+  schema carries an `InstanceOf[RootLineageState]` and cannot
+  hold a NEW 018-p `RootRegionLineageState` (the separate
+  `cache-root-region-lineage/v1` contract) without broadening the
+  old positive law, so the public entry raises a FIXED private
+  `ValueError` (a typed fail-closed refusal, tested in
+  `tests/test_root_region_lineage.py`) at the first state-shape
+  gate BEFORE any old positive work or result construction; all
+  old positive behavior, types, schemas, versions and recipes
+  remain intact, and no new I graph/admission readiness for the
+  region state is claimed in the 018-p producer round.
 - Early fences are O(1) in the historical state and precede ANY
   scan or copy; the ACTUAL state history key is compared against
   the ACTUAL namespace history key before any derivation work.

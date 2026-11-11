@@ -1482,7 +1482,7 @@ def _proof_collect(
         mixed_single: BundleSegment | None = None
         if (
             lineage_context is not None
-            and lineage_context.mixed_root_acquisition
+            and (lineage_context.mixed_root_acquisition or lineage_context.region_root_acquisition)
             and len(proof.requested_members) > 1
         ):
             root_occurrences = 0
@@ -1531,10 +1531,23 @@ def _proof_collect(
                 if mixed_single is not None and segment is mixed_single:
                     digest = segment.member_digest
                     if digest is not None:
-                        _charge_outer()  # the known-set membership test
-                        if digest not in lineage_context.known_root_digests:
-                            _charge_outer()  # the deferral allocation
-                            lineage_context.deferred_mixed_digests.add(digest)
+                        if lineage_context.region_root_acquisition:
+                            # 018-p NEW region-acquisition law (the
+                            # NEW private policy ONLY): the proven
+                            # SINGLE root-path segment of a mixed
+                            # proof is retained SOURCE evidence
+                            # whether or not its member digest is a
+                            # known root version -- an unknown mixed
+                            # root needs NO independent singleton in
+                            # the NEW contract (it is retained
+                            # unproven; authority is decided only by
+                            # the region composition, never here).
+                            _charge_outer()  # the region retention marker
+                        else:
+                            _charge_outer()  # the known-set membership test
+                            if digest not in lineage_context.known_root_digests:
+                                _charge_outer()  # the deferral allocation
+                                lineage_context.deferred_mixed_digests.add(digest)
                     continue
                 # 018-h relaxed READ-acquisition law (H context only):
                 # the exception is narrow -- a proven SINGLETON

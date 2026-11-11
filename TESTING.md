@@ -234,11 +234,29 @@ issued complete whole singleton in the SAME batch — acquires
 source evidence while a mixed read mints no governing
 authority, unresolved foreign digests keep the exact
 COMPETING_ROOTS refusal, and the pending-set snapshot is
-precharged on the SAME H outer) is implemented and PENDING
-strategic review at its bounded inert scope (contract
+precharged on the SAME H outer) is implemented and ACCEPTED at
+its bounded inert scope WITH PROCESS QUALIFICATIONS (strategic
+decision `S/reviews/018-o-decision.md`; contract
 [docs/CACHE-ROOT-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-LINEAGE-CONTRACT.md)
-section 5a; `tests/test_root_lineage_mixed.py`),
-and the remaining 018 stages plus 019-024 remain mandatory unearned
+section 5a; `tests/test_root_lineage_mixed.py`); plus the 018-p
+versioned root-region authority producer (the separate
+`cache-root-region-lineage/v1`/`root-region-lineage-policy/v1`
+contract and the `read_region` provenance kind: a genuinely
+issued complete NEW root region in a mixed-only read acquires
+source evidence AND authority with NO independent singleton,
+repeated/opaque/partial/truncated/nonzero/unpaired/unsupported
+reads gain no exception, retention is preflighted before
+materialization under the unchanged H ceilings, ONE
+new-operation outer at the unchanged RootLineageBounds, the old
+H/O law unchanged, the existing old I honestly refusing the
+region-version state, and the closed host-IO purity surface
+enforced on every public path) is implemented and PENDING
+strategic review at its bounded inert scope (contract
+[docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md);
+`tests/test_root_region_lineage.py`),
+and the remaining 018 stages (including the consumer round that
+must consume the legitimate new region state into the actual
+graph/admission) plus 019-024 remain mandatory unearned
 stages).
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned

@@ -4,6 +4,12 @@
 `ROOT_LINEAGE_POLICY_VERSION = "root-lineage-policy/v1"`.
 `ROOT_LINEAGE_MIXED_OBSERVATION_VERSION = "root-lineage-mixed-observation/v1"` (018-o mixed observation, section 5a).
 
+The 018-p root-region authority producer is a SEPARATE explicitly
+versioned contract (the `root_region_lineage_models` /
+`root_region_lineage` modules), documented in
+`docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`; this contract's old
+H law is unchanged by it.
+
 This contract binds the INERT root-authority-lineage slice
 (`src/slaif_local_coding/constitution/bundles/`:
 `root_lineage_models`, `root_lineage`, and the public entries
@@ -33,9 +39,14 @@ compiler-hit, recovery, wire or root-aware-admission claim is made.
 The 018-o mixed-observation extension (section 5a: the
 `observe_root_lineage_mixed` entry plus
 `ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`) is IMPLEMENTED and
-PENDING strategic review at its own bounded inert scope; whole 018
-remains open (whole-018 review required before merge) and 019-024
-remain.
+ACCEPTED at its bounded inert scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-o-decision.md`); the 018-p
+root-region authority producer (separate contract above) is
+IMPLEMENTED and PENDING strategic review at its own bounded inert
+scope; whole 018 remains open (the next same-018 consumer round
+must consume the legitimate new region state into the actual
+graph/admission; whole-018 review required before merge) and
+019-024 remain.
 
 ## 1. Namespace, scope keys and caller trust
 

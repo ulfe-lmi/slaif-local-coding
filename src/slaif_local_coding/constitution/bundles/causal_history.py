@@ -257,6 +257,14 @@ class _RootLineageContext:
       composition's atomic same-batch verification (a mixed read
       never mints authority; repeated root operands and every
       no-context / no-flag run keep the exact old refusal);
+    - ``region_root_acquisition`` (018-p, the NEW root-region
+      producer operation ONLY): a proven SINGLE root-path segment
+      of a MULTI-MEMBER (mixed) proof is retained SOURCE evidence
+      whether or not its member digest is a known root version --
+      an unknown mixed root needs NO independent singleton in the
+      NEW contract (it is retained unproven; authority is decided
+      only by the region composition); repeated root operands and
+      every no-context / no-flag run keep the exact old refusal;
     - ``outer_charge``: the ONE H outer work-charge callback (raises
       nothing; returns False exactly when the H outer is exhausted,
       recorded on ``outer_exhausted``).
@@ -271,6 +279,7 @@ class _RootLineageContext:
         "relaxed_envelope_law",
         "root_read_acquisition",
         "mixed_root_acquisition",
+        "region_root_acquisition",
         "deferred_mixed_digests",
         "outer_charge",
         "outer_exhausted",
@@ -283,11 +292,13 @@ class _RootLineageContext:
         root_read_acquisition: bool,
         outer_charge: Callable[[], bool],
         mixed_root_acquisition: bool = False,
+        region_root_acquisition: bool = False,
     ) -> None:
         self.known_root_digests = known_root_digests
         self.relaxed_envelope_law = relaxed_envelope_law
         self.root_read_acquisition = root_read_acquisition
         self.mixed_root_acquisition = mixed_root_acquisition
+        self.region_root_acquisition = region_root_acquisition
         self.deferred_mixed_digests: set[str] = set()
         self.outer_charge = outer_charge
         self.outer_exhausted = False
