@@ -94,6 +94,7 @@ from .current_root_composition_models import (
     CURRENT_ROOT_COMPOSITION_POLICY_VERSION,
     ENTRY_METADATA_FENCE_UNITS,
     KEY_RECORD_FENCE_UNITS,
+    PLANNER_PRECHARGE_PER_ENTRY,
     ROOT_ENTRY_FENCE_WALK_UNITS,
     CurrentRootComposition,
     CurrentRootCompositionAdmission,
@@ -105,6 +106,9 @@ from .current_root_composition_models import (
     canonical_rekey_calc_units,
     canonical_rekey_units,
     current_root_composition_scope_key,
+    retained_content_join_file_units,
+    retained_content_join_root_units,
+    retained_content_join_units,
     row_shape_units,
 )
 from .currentness_models import CurrentnessBounds, CurrentnessGroupRecord
@@ -769,18 +773,47 @@ def derive_current_root_composition(
         # coefficients): the closed upper bound is charged BEFORE
         # the assembly (the charged O(occurrences) metadata walk
         # carries no source inspection).  The per-segment planning
-        # visit is itself charged BEFORE its bound enters the
-        # reservation (M02).
+        # visits are precharged from the VALIDATED segment count
+        # BEFORE the first segment element is fetched, and BEFORE
+        # their bounds enter the reservation (M02/018-n).
         path_cap = min(ns.graph_bounds.max_path_bytes, ns.observation_bounds.max_path_bytes)
         plan_fixed = 0
         plan_walk = 0
+        # 018-n: the LEAF retained-content join runs inside the
+        # G-stage entry construction (the entry model validator),
+        # BEFORE the later parent-boundary join charges: the NEW-I
+        # join work of that leaf run is precharged on the ONE
+        # composition outer HERE, closed at the plan metadata (the
+        # retained root text length; per planned occurrence the
+        # segment count and the ACTUAL declared member ceiling).
+        # The accepted G plan admits EITHER the whole bundle (one
+        # entry) OR one singleton entry per isolated all-eligible
+        # segment (at most one per planned segment, never the whole
+        # plus isolated rows together).  Isolated segments are
+        # DISJOINT, so the total sliced / joined / encoded /
+        # hashed characters over ALL isolated entries is at most
+        # the retained source character length: the source work is
+        # reserved ONCE per occurrence, never multiplied by the
+        # segment count (multiplying it could consume the whole I
+        # cap for an ordinary mixed proof), while the per-entry
+        # fixed / traversal / member work is reserved at the
+        # singleton bound per planned segment (n > 0: that
+        # aggregate dominates the whole-bundle alternative).  The
+        # accepted G stage formulas stay untouched.
+        plan_join = retained_content_join_root_units(len(root_text))
         for occurrence in d_state.occurrences:
             itotal.unit()
-            n_segments = 0
+            segments = occurrence.proof.segments
+            n_segments = len(segments)
+            # 018-n: the per-segment planning visits are precharged
+            # from the VALIDATED segment count BEFORE the first
+            # segment element is fetched (the M02 per-segment
+            # domain and cost are unchanged: one unit per segment,
+            # charged as the closed count instead of interleaved
+            # with the fetch).
+            itotal.units(n_segments)
             member_positions = 0
-            for segment in occurrence.proof.segments:
-                itotal.unit()  # the M02 per-segment planning visit
-                n_segments += 1
+            for segment in segments:
                 member_positions += len(segment.member_positions)
             if n_segments:
                 plan_fixed += KEY_RECORD_FENCE_UNITS + ENTRY_METADATA_FENCE_UNITS
@@ -794,7 +827,17 @@ def derive_current_root_composition(
                     + 4 * plans_cap * n_segments
                     + 2 * group_count
                 )
-        itotal.units(plan_fixed + plan_walk)
+                plan_join += (
+                    n_segments
+                    * retained_content_join_file_units(
+                        1,
+                        n_segments,
+                        0,
+                        ns.proof_bounds.max_members,
+                    )
+                    + 10 * occurrence.proof.source_char_length
+                )
+        itotal.units(plan_fixed + plan_walk + plan_join)
         if root_bytes > ns.graph_bounds.max_single_source_bytes:
             raise _GOverflow(CurrentAdmissionLimitation.ENTRY_SOURCE_BYTES_OVER_BOUND)
         if root_bytes > effective_g.max_total_entry_source_bytes:
@@ -941,19 +984,32 @@ def derive_current_root_composition(
         # workspace encode pass 2*workspace_bytes) for the root
         # entry plus every file entry -- charged to the ONE
         # composition outer only.
-        # The M02 reservation-calculation precharge: the ACTUAL
-        # work of computing the per-entry canonical re-derivation
-        # reservation (the closed walk-free upper bounds over the
-        # encode / loop / allocation / ceiling-walk work) plus the
-        # row-shape sum loop overhead is charged BEFORE the
-        # calculation may encode, allocate or walk any element.
+        # The M02/018-n reservation-calculation precharge in strict
+        # order on the ONE composition outer: FIRST the closed O(1)
+        # work of the tuple expansion plus the walk-free planner
+        # evaluation is charged BEFORE the expansion allocates or
+        # the planner may run; THEN the walk-free planner result
+        # (no group / witness / element visit, no allocation beyond
+        # the running sums) is evaluated and charged, reserving the
+        # ACTUAL per-entry reservation-calculation encode / loop /
+        # allocation work; ONLY THEN may that calculation (and the
+        # row-shape / join-sum evaluations) run; the resulting
+        # per-entry canonical re-derivation reservation plus the
+        # 018-n retained-content-join reservation are charged
+        # BEFORE the construction may fence, join, serialize, hash
+        # or walk any element.
+        entry_count = 1 + len(file_entries)
+        itotal.units(entry_count * PLANNER_PRECHARGE_PER_ENTRY + 4)
         entry_tuples = (root_entry, *file_entries)
         calc_units = (
             sum(canonical_rekey_calc_units(e.key_record, e) for e in entry_tuples)
-            + 2 * len(entry_tuples)
+            + 2 * entry_count
             + 2 * len(associations)
         )
         itotal.units(calc_units)
+        rekey_sum = sum(canonical_rekey_units(e.key_record, e) for e in entry_tuples)
+        row_sum = sum(row_shape_units(row.content_keys) for row in associations)
+        join_sum = sum(retained_content_join_units(e) for e in entry_tuples)
         itotal.units(
             10
             + scope_key_units
@@ -961,7 +1017,7 @@ def derive_current_root_composition(
             # (I8/M01): the closed four-bound-model fence walk per
             # retained entry plus the scoped-key workspace encode
             # pass, charged before the construction.
-            + (64 + 2 * workspace_bytes + KEY_RECORD_FENCE_UNITS) * (1 + len(file_entries))
+            + (64 + 2 * workspace_bytes + KEY_RECORD_FENCE_UNITS) * entry_count
             # The M01 closed TEN admission bound-model fence runs
             # inside the admission construction (re-fenced before
             # the first inherited cap is read on BOTH parent
@@ -993,8 +1049,15 @@ def derive_current_root_composition(
             # distinct/sorted shape fence before the set
             # comparison.  Bounded METADATA work, upper-bound-
             # charged BEFORE the construction that performs it.
-            + sum(canonical_rekey_units(e.key_record, e) for e in entry_tuples)
-            + sum(row_shape_units(row.content_keys) for row in associations)
+            + rekey_sum
+            + row_sum
+            # The 018-n retained-content join re-runs inside the
+            # admission construction (the preflighted root-bytes
+            # encode / hash and the admitted region's member /
+            # digest re-derivation from the retained original
+            # proof): upper-bound-charged BEFORE the construction
+            # that performs it.
+            + join_sum
         )
         # The model walk's ACTUAL input-namespace D re-derivation
         # (the canonical history-field pass over the root entry key
@@ -1084,21 +1147,41 @@ def derive_current_root_composition(
         # bytes are rewalked -- metadata only.
         occurrence_count = len(d_state.occurrences)
         file_entry_count = len(file_entries)
+        # 018-n: the count walks are charged BEFORE they run: the
+        # per-entry witness-count pass and the nested per-witness
+        # segment-index pass are closed per-element work, reserved
+        # on the ONE composition outer before the first element is
+        # read (the callers no longer expand entries or count
+        # witnesses before the charge).
+        itotal.units(3 * file_entry_count + 2)
         entry_witness_count = sum(len(entry.witnesses) for entry in file_entries)
+        itotal.units(3 * entry_witness_count + 2)
         entry_segment_count = sum(
             len(witness.segment_indices) for entry in file_entries for witness in entry.witnesses
         )
-        # The M02 reservation-calculation precharge for the RESULT
-        # reservation: the same walk-free closed upper bounds over
-        # the per-entry canonical re-derivation calculation work
-        # plus the row-shape sum loop overhead, charged BEFORE the
-        # calculation may encode, allocate or walk any element.
+        # The M02/018-n reservation-calculation precharge for the
+        # RESULT reservation in strict order: the closed O(1) work
+        # of the walk-free planner evaluation is charged BEFORE it
+        # may run; the walk-free planner result (no group /
+        # witness / element visit) is then evaluated and charged,
+        # reserving the ACTUAL per-entry reservation-calculation
+        # encode / loop / allocation work; ONLY THEN may that
+        # calculation (and the row-shape / join-sum evaluations)
+        # run; the resulting per-entry canonical re-derivation
+        # reservation plus the 018-n retained-content-join
+        # reservation are charged BEFORE the result construction
+        # may fence, join, serialize, hash or walk any element.
+        entry_count = 1 + file_entry_count
+        itotal.units(entry_count * PLANNER_PRECHARGE_PER_ENTRY + 4)
         calc_units = (
             sum(canonical_rekey_calc_units(e.key_record, e) for e in (root_entry, *file_entries))
-            + 2 * (1 + file_entry_count)
+            + 2 * entry_count
             + 2 * len(associations)
         )
         itotal.units(calc_units)
+        rekey_sum = sum(canonical_rekey_units(e.key_record, e) for e in (root_entry, *file_entries))
+        row_sum = sum(row_shape_units(row.content_keys) for row in associations)
+        join_sum = sum(retained_content_join_units(e) for e in (root_entry, *file_entries))
         result_units = (
             28
             + witness_count * (retained_count + 3)
@@ -1130,8 +1213,15 @@ def derive_current_root_composition(
             # inside the result construction: the same bounded
             # metadata upper bound as the admission-construction
             # reservation (the M01 per-entry fence walk term).
-            + sum(canonical_rekey_units(e.key_record, e) for e in (root_entry, *file_entries))
-            + sum(row_shape_units(row.content_keys) for row in associations)
+            + rekey_sum
+            + row_sum
+            # The 018-n retained-content join re-runs AGAIN on the
+            # nested admission inside the result construction (the
+            # preflighted root-bytes encode / hash and the admitted
+            # region's member / digest re-derivation from the
+            # retained original proof): upper-bound-charged BEFORE
+            # the construction that performs it.
+            + join_sum
         )
         itotal.units(result_units)
         return CurrentRootComposition(

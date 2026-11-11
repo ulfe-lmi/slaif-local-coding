@@ -28,6 +28,9 @@ import pytest
 from pydantic import ValidationError
 
 from slaif_local_coding.constitution.bundles import (
+    current_admission as current_admission_mod,
+)
+from slaif_local_coding.constitution.bundles import (
     current_graph as current_graph_mod,
 )
 from slaif_local_coding.constitution.bundles import (
@@ -40,6 +43,7 @@ from slaif_local_coding.constitution.bundles import (
     currentness as currentness_mod,
 )
 from slaif_local_coding.constitution.bundles.bundle_admission import (
+    _key_canonical,
     observe_bundle_admission_batch,
 )
 from slaif_local_coding.constitution.bundles.bundle_admission_models import (
@@ -50,6 +54,7 @@ from slaif_local_coding.constitution.bundles.bundle_admission_models import (
     EntryClass,
     MemberClass,
     OwnershipGroup,
+    _canonical_namespace_fields,
     make_bundle_admission_namespace,
 )
 from slaif_local_coding.constitution.bundles.bundle_proof_models import (
@@ -69,6 +74,7 @@ from slaif_local_coding.constitution.bundles.current_admission_models import (
     CurrentAdmissionPathAssociation,
     CurrentAdmissionWitness,
     _canonical_entry_key,
+    _entry_admission_namespace,
 )
 from slaif_local_coding.constitution.bundles.current_graph_models import (
     CurrentGraphBounds,
@@ -114,6 +120,7 @@ from slaif_local_coding.constitution.bundles.root_lineage_models import (
     RootSelectionResult,
     _lineage_key,
 )
+from slaif_local_coding.constitution.cache import RequestIdentity
 from tests.test_causal_history import (
     ENDPOINTS,
     FINGERPRINT,
@@ -4249,6 +4256,7 @@ def test_m02_plan_walk_segment_precharge(
     n_seg_total = 0
     plan_fixed = 0
     plan_walk = 0
+    plan_join = crcm.retained_content_join_root_units(len(ROOT_TEXT))
     path_cap = min(ns.graph_bounds.max_path_bytes, ns.observation_bounds.max_path_bytes)
     for occ in occurrences:
         segments = occ.proof.segments
@@ -4267,9 +4275,27 @@ def test_m02_plan_walk_segment_precharge(
                 + 4 * plans_cap * n_seg
                 + 2 * group_count
             )
+            # 018-n: the aggregate over the accepted G plan's closed
+            # whole-vs-isolated alternative: one singleton-bound
+            # join per planned segment (isolated segments are
+            # disjoint, so the source work is reserved once per
+            # occurrence, never multiplied by the segment count).
+            plan_join += (
+                n_seg
+                * crcm.retained_content_join_file_units(
+                    1,
+                    n_seg,
+                    0,
+                    ns.proof_bounds.max_members,
+                )
+                + 10 * occ.proof.source_char_length
+            )
     assert n_nodes > 0 and n_occ > 0 and n_seg_total > 0
-    assert p - n == n_nodes + n_groups + 2 + n_occ + n_seg_total + plan_fixed + plan_walk, (
-        "the measured delta is exactly the closed plan reservation identity"
+    assert p - n == (
+        n_nodes + n_groups + 2 + n_occ + n_seg_total + plan_fixed + plan_walk + plan_join
+    ), (
+        "the measured delta is exactly the closed plan reservation identity "
+        "(including the 018-n leaf retained-content join precharge)"
     )
     # One unit below the measured work: the crossing is the plan
     # reservation itself -- refused with the fixed I name and NO
@@ -4392,3 +4418,980 @@ def test_m02_reservation_calc_precharge(
     assert len(rekey_calls) == len(entry_tuples), (
         "the precharge admitted the admission rekey computation at its own charge"
     )
+
+
+# --- 018-n: retained content and reservation closure ----------------------
+
+
+def _n_isolated_fixture(
+    mode: Any, endpoint: str
+) -> tuple[RootLineageNamespace, RootLineageState, Any]:
+    """Genuine fixture with the closed whole-vs-isolated plan shape.
+
+    A custom bootstrap root references BOTH ``A.md`` and ``B.md``; a
+    genuine issued v2 refresh selects a genuinely NON-BMP root text;
+    a descendant bundle ``cat A.md && echo 'M1' && cat B.md &&
+    echo 'M2' && cat AGENTS.md`` (the earned echo markers split the
+    three member segments) carries the KNOWN OLD v1 root bytes (a
+    stale root segment).  In LEAN the bundle proof admits two
+    isolated singleton file entries (``A.md``, ``B.md``) — one per
+    planned segment, disjoint regions, the stale root segment
+    refused — while GREEDY admits no isolated row (the accepted G
+    law).  Returns the namespace, the state and the bundle
+    occurrence."""
+    v1 = "Read `A.md` and `B.md` before changing code."
+    v2 = (
+        "\U0001f389\U0001f4a1\U0001f525\U0001f4cc\U0001f50d\U0001f310"
+        " `A.md` and `B.md` \u65e5\u672c\u8a9e\n"
+    )
+    ns = h_ns(mode, "i-n-leaf")
+    s0 = h_bootstrap(ns, root_request_ws(WORKSPACE, content=v1))
+    s1 = refreshed(s0, ns, "n-root", endpoint, v2)
+    root_fact = read_fact(s1, "n-root")
+    cmd = "cat A.md && echo 'M1' && cat B.md && echo 'M2' && cat AGENTS.md"
+    A_TEXT = "\U0001f389\U0001f4a1\U0001f525 alpha\n"
+    B_TEXT = "\u65e5\u672c\u8a9e\U0001f389\U0001f4a1 beta\n"
+    body = A_TEXT + "M1\n" + B_TEXT + "M2\n" + v1
+    t1 = issue(
+        s1,
+        ns,
+        "n-mix",
+        endpoint,
+        (root_fact.provenance.occurrence_id,),  # type: ignore[union-attr]
+        args=json.dumps({"cmd": cmd}),
+    )
+    assert t1.outcome is RootLineageOutcome.ACCEPTED
+    t2 = observe_root_lineage(
+        t1.state, ns, t1.state.revision, (read_request(endpoint, "n-mix", body, cmd),)
+    )
+    assert t2.outcome is RootLineageOutcome.ACCEPTED
+    s2 = t2.state
+    bundle_occ = next(o for o in s2.d_state.occurrences if o.call_id == "n-mix")
+    assert len(bundle_occ.proof.segments) == 3
+    return ns, s2, bundle_occ
+
+
+def _n_region_slice(entry: CurrentRootCompositionEntry) -> str:
+    """The ACTUAL admitted region text, recomputed independently
+    from the retained proof (test-side measurement only; never
+    charged work)."""
+    proof = entry.proof
+    assert proof is not None
+    parts = []
+    for position in entry.admitted_segments:
+        start = sum(s.char_length for s in proof.segments[:position])
+        end = start + proof.segments[position].char_length
+        parts.append(proof.source_text[start:end])
+    return "".join(parts)
+
+
+def _n_actual_leaf_join_lower(entry: CurrentRootCompositionEntry) -> int:
+    """A test-side LOWER bound on the ACTUAL work of one leaf
+    retained-content join execution for this entry: the fixed
+    checks, the member work at the actual declared ceiling, the
+    group-partition fixed checks per admitted segment, the full
+    proof-segment traversal, and the ACTUAL encoded region bytes
+    (encode allocation plus hash input)."""
+    proof = entry.proof
+    assert proof is not None
+    members_cap = entry.key_record.proof_bounds.max_members
+    n_segments = len(proof.segments)
+    n_admitted = len(entry.admitted_segments)
+    region_bytes = len(_n_region_slice(entry).encode("utf-8"))
+    return (
+        70
+        + n_admitted * (4 + members_cap)
+        + n_admitted
+        + n_admitted * 4  # the group-partition fixed checks
+        + 4 * n_segments
+        + 2 * region_bytes
+    )
+
+
+@pytest.mark.parametrize("n_members", (1, 2, 1024), ids=("single", "pair", "at-cap"))
+def test_n_file_join_zero_source_multimember_bound(n_members: int) -> None:
+    """018-n: at a multi-member ZERO-SOURCE-CHAR shape the
+    source-byte allowance contributes nothing, so the file-join
+    bound's per-admitted-segment member terms (the member fetches
+    plus the group-partition dense-range build and comparison,
+    each closed at the ACTUAL declared member ceiling) alone must
+    dominate the recomputed ACTUAL element walks of the join: the
+    fixed checks, the admitted-segment metadata pass with its
+    member fetches, the admitted-set construction, the per-segment
+    group-partition range build / comparison and the full
+    one-segment traversal.  The at-cap case is the tight
+    coincidence where the bound equals the recomputed walks."""
+    cap = 1024
+    units = crcm.retained_content_join_file_units(1, 1, 0, cap)
+    actual_element_walks = (
+        70  # the fixed checks
+        + (4 + n_members)  # the metadata pass + the member fetches
+        + 1  # the admitted-set / admitted-tuple construction
+        + (4 + 2 * n_members)  # the group-partition range build / compare
+        + 4  # the full traversal of the one retained segment
+    )
+    assert units >= actual_element_walks, (
+        "the per-member bound terms cover the actual element walks "
+        "with the source allowance at zero"
+    )
+    assert units == 70 + (4 + cap) + 1 + (4 + 2 * cap) + 4, (
+        "the bound is the closed formula at that shape: the source term contributes exactly zero"
+    )
+    if n_members == cap:
+        assert units == actual_element_walks, (
+            "the at-cap zero-source shape is the tight coincidence"
+        )
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_n_plan_segment_precharge_order(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """018-n: the plan precharges the per-segment planning visits
+    from the VALIDATED segment count BEFORE the first segment
+    element is fetched (the M02 per-segment domain and cost are
+    unchanged: one unit per segment, charged as the closed count).
+    On a GENUINELY EARNED OK run the plan-window charge log holds,
+    per occurrence, exactly ONE contiguous
+    ``units(len(segments))`` batch immediately after the
+    per-occurrence unit visit (no charge interleaves the visit and
+    its precharge), and the final plan-reservation batch equals the
+    independently recomputed closed plan total; a crossing inside
+    the first nonempty segment precharge refuses with the fixed I
+    name, stops the ledger EXACTLY at the cap inside that batch
+    (the loop over segments never starts: no plan-reservation
+    charge, no entry construction).  Both modes and endpoints."""
+    ns, s2, _ = _n_isolated_fixture(mode, endpoint)
+    charge = {"n": 0}
+    events: list[tuple[str, int, int]] = []
+    ns_marks: list[int] = []
+    root_marks: list[int] = []
+    overlay_captures: list[Any] = []
+    itotal_unit = crc._ITotal.unit
+    itotal_units = crc._ITotal.units
+    ns_orig = BundleAdmissionNamespace.__init__
+    root_orig = crc._build_selected_root_entry
+    derive_orig = current_graph_mod._derive_graph
+
+    def spy_itotal(self: Any) -> None:
+        itotal_unit(self)
+        charge["n"] += 1
+        events.append(("u", charge["n"], 0))
+
+    def spy_units(self: Any, n: int) -> None:
+        events.append(("b", charge["n"], n))
+        itotal_units(self, n)
+
+    def hook_ns(self: Any, *args: Any, **kwargs: Any) -> None:
+        ns_marks.append(charge["n"])
+        ns_orig(self, *args, **kwargs)
+
+    def hook_root(*args: Any, **kwargs: Any) -> Any:
+        root_marks.append(charge["n"])
+        return root_orig(*args, **kwargs)
+
+    def hook_derive(*args: Any, **kwargs: Any) -> Any:
+        result = derive_orig(*args, **kwargs)
+        overlay_captures.append(result[1])
+        return result
+
+    monkeypatch.setattr(crc._ITotal, "unit", spy_itotal)
+    monkeypatch.setattr(crc._ITotal, "units", spy_units)
+    monkeypatch.setattr(BundleAdmissionNamespace, "__init__", hook_ns)
+    monkeypatch.setattr(crc, "_build_selected_root_entry", hook_root)
+    monkeypatch.setattr(current_graph_mod, "_derive_graph", hook_derive)
+    ok = derive(s2, ns)
+    assert_i_ok(ok, s2)
+    adm = ok.admission
+    assert adm is not None and ok.graph is not None
+    assert overlay_captures and overlay_captures[0] is not None
+    overlay = overlay_captures[0]
+    window = [e for e in events if ns_marks[0] < e[1] <= root_marks[0]]
+    window_batches = [e for e in window if e[0] == "b"]
+    occ_counts = [len(occ.proof.segments) for occ in s2.d_state.occurrences]
+    # The independently recomputed closed plan total (the same
+    # plan fixed / walk / aggregate-join formulas the kernel
+    # charges).
+    plan_fixed = 0
+    plan_walk = 0
+    plan_join = crcm.retained_content_join_root_units(len(adm.root_entry.root_text or ""))
+    path_cap = min(ns.graph_bounds.max_path_bytes, ns.observation_bounds.max_path_bytes)
+    for occ in s2.d_state.occurrences:
+        segments = occ.proof.segments
+        n_seg = len(segments)
+        member_positions = sum(len(s.member_positions) for s in segments)
+        if n_seg:
+            plan_fixed += crcm.KEY_RECORD_FENCE_UNITS + crcm.ENTRY_METADATA_FENCE_UNITS
+            group_count = sum(1 for g in overlay.groups if g.occurrence_id == occ.occurrence_id)
+            plans_cap = max(1, n_seg, group_count)
+            plan_walk += (
+                15 * member_positions
+                + member_positions * (path_cap + 1)
+                + 3 * n_seg
+                + 6 * plans_cap
+                + 4 * plans_cap * n_seg
+                + 2 * group_count
+            )
+            plan_join += (
+                n_seg
+                * crcm.retained_content_join_file_units(
+                    1,
+                    n_seg,
+                    0,
+                    ns.proof_bounds.max_members,
+                )
+                + 10 * occ.proof.source_char_length
+            )
+    plan_total = plan_fixed + plan_walk + plan_join
+    assert window_batches, "the plan window carries the precharge batches"
+    assert window_batches[-1][2] == plan_total, (
+        "the final plan-reservation batch is the closed plan total"
+    )
+    seg_batches = window_batches[:-1]
+    assert [e[2] for e in seg_batches] == occ_counts, (
+        "one contiguous precharge batch per occurrence at the validated segment count"
+    )
+    # The interleaving: each segment precharge batch is IMMEDIATELY
+    # preceded by exactly the per-occurrence unit visit (no charge
+    # interleaves the visit and its precharge, so the fetch cannot
+    # start before its charge).
+    for batch in seg_batches:
+        index = window.index(batch)
+        assert window[index - 1][0] == "u", (
+            "the segment precharge batch follows the occurrence visit with no interleaved charge"
+        )
+    # Crossing inside the first nonempty segment precharge: the
+    # ledger stops EXACTLY at the cap inside that batch; the loop
+    # over segments never starts (no plan-reservation charge, no
+    # entry construction).
+    first = next(e for e in seg_batches if e[2] > 0)
+    cap = first[1]
+    events.clear()
+    charge["n"] = 0
+    ns_marks.clear()
+    root_marks.clear()
+    r = derive(
+        s2,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=cap),
+    )
+    assert_i_refused(r, s2, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert charge["n"] == cap, "the ledger stopped exactly at the cap"
+    crossing_batches = [e for e in events if e[0] == "b"]
+    assert crossing_batches[-1][1] == cap and crossing_batches[-1][2] == first[2], (
+        "the crossing is inside the segment precharge batch itself"
+    )
+    assert root_marks == [], "no entry construction after the plan crossing"
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_n_reservation_crossing_both_sites(
+    mode: Any, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """018-n: the reservation precharge holds at BOTH parent
+    sites, measured per site on the SAME capped ledger.  On a
+    GENUINELY EARNED OK run the per-entry reservation-calculation
+    and rekey helper calls are classified by the ADMISSION
+    construction landmark: exactly entry_count admission-site
+    calls before it and entry_count result-site calls after it.
+    The ADMISSION-site crossing (cap at the first calculation
+    charge) stops the operation with the admission calculation sum
+    complete and ZERO rekey calls at EITHER site and NO
+    construction (the charged join / fence / encode work inside
+    the construction never starts).  The RESULT-site crossing (cap
+    at the first RESULT calculation charge) stops the operation
+    after the COMPLETE admission site: exactly entry_count EARLIER
+    admission rekey calls, ZERO result-site rekey calls, the
+    admission constructed, NO result construction.  One below the
+    result precharge stops before even the result calculation
+    call.  Both modes and endpoints; constructor / reservation
+    accounting evidence, no public derivation or runtime claim."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-n-sites")
+    charge = {"n": 0}
+    itotal_unit = crc._ITotal.unit
+
+    def spy_itotal(self: Any) -> None:
+        itotal_unit(self)
+        charge["n"] += 1
+
+    monkeypatch.setattr(crc._ITotal, "unit", spy_itotal)
+    calc_calls: list[int] = []
+    rekey_marks: list[int] = []
+    adm_marks: list[int] = []
+    res_marks: list[tuple[int, bool]] = []
+    real_calc = crcm.canonical_rekey_calc_units
+    real_rekey = crcm.canonical_rekey_units
+    adm_init = CurrentRootCompositionAdmission.__init__
+    res_init = CurrentRootComposition.__init__
+
+    def spy_calc(key_record: Any, entry: Any) -> int:
+        calc_calls.append(charge["n"])
+        return real_calc(key_record, entry)
+
+    def spy_rekey(key_record: Any, entry: Any) -> int:
+        rekey_marks.append(charge["n"])
+        return real_rekey(key_record, entry)
+
+    def hook_adm(self: Any, *args: Any, **kwargs: Any) -> None:
+        adm_marks.append(charge["n"])
+        adm_init(self, *args, **kwargs)
+
+    def hook_res(self: Any, *args: Any, **kwargs: Any) -> None:
+        # The OK path carries the admission; the fixed refusal
+        # result (constructed after a crossing) does not.
+        res_marks.append((charge["n"], kwargs.get("admission") is not None))
+        res_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(crc, "canonical_rekey_calc_units", spy_calc)
+    monkeypatch.setattr(crc, "canonical_rekey_units", spy_rekey)
+    monkeypatch.setattr(CurrentRootCompositionAdmission, "__init__", hook_adm)
+    monkeypatch.setattr(CurrentRootComposition, "__init__", hook_res)
+    ok = derive(s1, ns)
+    assert_i_ok(ok, s1)
+    adm = ok.admission
+    assert adm is not None and adm.entries
+    entry_tuples = (adm.root_entry, *adm.entries)
+    entry_count = len(entry_tuples)
+    assert len(adm_marks) == 1
+    assert len(res_marks) == 1 and res_marks[0][1], "the OK result is constructed"
+    assert len(calc_calls) == 2 * entry_count, "both sites compute the calculation sum"
+    assert len(rekey_marks) == 2 * entry_count, "both sites compute the rekey bound"
+    adm_mark = adm_marks[0]
+    admission_rekeys = [m for m in rekey_marks if m < adm_mark]
+    result_rekeys = [m for m in rekey_marks if m > adm_mark]
+    assert len(admission_rekeys) == entry_count and len(result_rekeys) == entry_count, (
+        "the admission construction landmark separates the two sites"
+    )
+    assert res_marks[0][0] > max(result_rekeys), (
+        "the result construction follows the result-site reservation"
+    )
+    c = calc_calls[0]
+    result_calc_start = calc_calls[entry_count]
+    # ADMISSION-site crossing: cap at the first calculation
+    # charge.  The admission calculation sum completes (its
+    # evaluation is walk-free); the precharge crossing stops the
+    # operation with ZERO rekey calls at EITHER site and NO
+    # construction -- the charged join / fence / encode work never
+    # starts.
+    calc_calls.clear()
+    rekey_marks.clear()
+    adm_marks.clear()
+    res_marks.clear()
+    r = derive(s1, ns, composition_bounds=CurrentRootCompositionBounds(max_total_work_units=c))
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert len(calc_calls) == entry_count, (
+        "the admission calculation sum completed before the crossing"
+    )
+    assert rekey_marks == [], (
+        "the admission-site crossing stopped the rekey computation at "
+        "BOTH sites before any encode / element work"
+    )
+    assert adm_marks == [] and [m for m in res_marks if m[1]] == [], (
+        "no construction started: the charged join / fence work never ran"
+    )
+    # RESULT-site crossing: cap at the first RESULT calculation
+    # charge.  The COMPLETE admission site (including its rekey
+    # bound) already ran on the same capped ledger; the result
+    # calculation sum completes walk-free and its charge crosses:
+    # ZERO result-site rekey calls, NO result construction.
+    calc_calls.clear()
+    rekey_marks.clear()
+    adm_marks.clear()
+    res_marks.clear()
+    r = derive(
+        s1,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=result_calc_start),
+    )
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert len(calc_calls) == 2 * entry_count, (
+        "both calculation sums completed walk-free before the crossing"
+    )
+    assert adm_marks, "the admission site completed: the admission is constructed"
+    adm_mark2 = adm_marks[0]
+    admission_rekeys2 = [m for m in rekey_marks if m < adm_mark2]
+    result_rekeys2 = [m for m in rekey_marks if m > adm_mark2]
+    assert len(admission_rekeys2) == entry_count, (
+        "the earlier admission rekey calls are exactly the retained entries"
+    )
+    assert result_rekeys2 == [], (
+        "the result-site crossing stopped before ANY result-site rekey call"
+    )
+    assert [m for m in res_marks if m[1]] == [], (
+        "no result construction started: its charged work never ran"
+    )
+    # One below the result precharge: the crossing is inside the
+    # result planner precharge itself -- before even the result
+    # calculation call.
+    precharge = entry_count * crcm.PLANNER_PRECHARGE_PER_ENTRY + 4
+    calc_calls.clear()
+    rekey_marks.clear()
+    adm_marks.clear()
+    res_marks.clear()
+    r = derive(
+        s1,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(
+            max_total_work_units=result_calc_start - precharge
+        ),
+    )
+    assert_i_refused(r, s1, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert len(calc_calls) == entry_count, (
+        "only the admission calculation sum ran before the crossing"
+    )
+    assert adm_marks, "the admission site completed before the result crossing"
+    assert len([m for m in rekey_marks if m < adm_marks[0]]) == entry_count
+    assert [m for m in rekey_marks if m > adm_marks[0]] == []
+    assert [m for m in res_marks if m[1]] == []
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_n_parent_retained_content_join(mode: Any, endpoint: str) -> None:
+    """018-n: the retained-content join closes at BOTH parent
+    boundaries.  A genuine OK composition first (the same fixture
+    reaches the target) and the genuine positive at both parents;
+    then the constructor-only negatives: a file entry with an EMPTY
+    admitted region, a root entry with SAME-LENGTH SUBSTITUTED root
+    text (digest disagreement), and a bypassed proof whose nested
+    member position indexes past the retained requested
+    occurrences (the nested-index guard refuses before the fetch,
+    never an IndexError escape) each refuse at BOTH parents with a
+    fixed private typed error.  Both modes and endpoints; no public
+    derivation or runtime claim."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-n-parent-join")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None and adm.entries
+    root_entry = adm.root_entry
+    file_entry = adm.entries[0]
+    # The genuine positive at both parents: the ORIGINAL entries
+    # pass the join (no exception).
+    _m_parent_attempt("admission", r, adm)
+    _m_parent_attempt("result", r, adm)
+    # Negative: substituted root bytes (same length, different
+    # digest) refuse at both parents.
+    assert root_entry.root_text is not None
+    bad_text = "X" + root_entry.root_text[1:]
+    bad_root = root_entry.model_copy(update={"root_text": bad_text})
+    assert bad_root.root_text is not None
+    assert bad_root.root_text == bad_text
+    assert len(bad_root.root_text) == len(root_entry.root_text)
+    assert bad_root.root_text != root_entry.root_text
+    for parent in ("admission", "result"):
+        _m_assert_parent_refused(parent, r, adm, root_entry=bad_root)
+    # Negative: the empty admitted file region refuses at both
+    # parents.
+    bad_file = file_entry.model_copy(update={"admitted_segments": ()})
+    for parent in ("admission", "result"):
+        _m_assert_parent_refused(parent, r, adm, entries=(bad_file,))
+    # Negative: a bypassed proof whose nested member position
+    # indexes past the retained requested occurrences refuses
+    # before the fetch (never an IndexError escape).
+    proof = file_entry.proof
+    assert proof is not None
+    out_of_range = len(proof.requested_members)
+    bad_segments = tuple(
+        segment.model_copy(update={"member_positions": (out_of_range,)})
+        for segment in proof.segments
+    )
+    bad_proof = proof.model_copy(update={"segments": bad_segments})
+    bad_file_nested = file_entry.model_copy(update={"proof": bad_proof})
+    for parent in ("admission", "result"):
+        _m_assert_parent_refused(parent, r, adm, entries=(bad_file_nested,))
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_n_parent_group_partition_join(mode: Any, endpoint: str) -> None:
+    """018-n: the entry-local group partition is joined to the
+    ORIGINAL retained binding at BOTH parent boundaries.  A
+    genuine OK composition first (one admitted segment, one
+    proven single-member group; the root's sole proven group).
+    The negatives are COHERENTLY REKEYED records: the same
+    genuine key record with a CHANGED group digest, re-derived
+    through the accepted canonical recipe (namespace
+    reconstruction, key payload, sha256) so the J01
+    self-consistency law passes, and the reverse index rows
+    adjusted to the new key so the J02 row law holds -- ONLY the
+    group-partition join is the bad precondition.  The FILE case
+    joins the segment groups to the ORIGINAL proof segments
+    (genuine proof, members, admitted region and aggregate digest
+    unchanged); the ROOT case joins the sole group's PROVEN
+    digest to the retained root digest (the actual root bytes,
+    digest and provenance unchanged).  The refusal message proves
+    the partition join, not a key or row mismatch, is what
+    refuses.  Both modes and endpoints; constructor-only evidence,
+    no public derivation or runtime claim."""
+    ns, s1 = _g_fixture(mode, endpoint, "i-n-partition")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None and adm.entries
+    entry = adm.entries[0]
+    kr = entry.key_record
+    proof = entry.proof
+    assert proof is not None
+    assert len(entry.admitted_segments) == 1
+    segment = proof.segments[entry.admitted_segments[0]]
+    (group,) = kr.ownership_groups
+    # The genuine partition law the join enforces: one group per
+    # admitted segment, the dense member range, PROVEN with the
+    # actual member digest.
+    assert len(kr.ownership_groups) == len(entry.admitted_segments)
+    assert group.member_occurrence_indices == (0,)
+    assert group.boundary_class is BoundaryClass.PROVEN
+    assert group.group_digest == segment.member_digest
+    # The coherently rekeyed mutation: the SAME record with a
+    # changed group digest, re-derived through the accepted
+    # canonical recipe so every earlier law is re-satisfied.
+    forged_group = group.model_copy(update={"group_digest": "0" * 64})
+    forged_kr = kr.model_copy(update={"ownership_groups": (forged_group,)})
+    forged_ns = _entry_admission_namespace(forged_kr)
+    forged_payload = _key_canonical(
+        forged_ns,
+        forged_kr.root_digest,
+        forged_kr.authority_class,
+        forged_kr.member_occurrences,
+        forged_kr.member_classes,
+        forged_kr.aggregate_source_digest,
+        forged_kr.ownership_groups,
+    )
+    forged_key = hashlib.sha256(forged_payload).hexdigest()
+    assert forged_key != entry.content_key, "the changed digest moves the key"
+    forged_record = forged_kr.model_copy(update={"content_key": forged_key})
+    forged_entry = entry.model_copy(update={"key_record": forged_record, "content_key": forged_key})
+    # Adjust the reverse rows to the new key: every law EXCEPT the
+    # group-partition join is satisfied by construction (J01
+    # re-derives the key, J02 holds the complete remapped key set
+    # per path).
+
+    def remap_keys(keys: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(sorted(forged_key if k == entry.content_key else k for k in set(keys)))
+
+    rows = tuple(
+        row.model_copy(update={"content_keys": remap_keys(row.content_keys)})
+        for row in adm.path_associations
+    )
+    for parent in ("admission", "result"):
+        err = _m_assert_parent_refused(
+            parent, r, adm, entries=(forged_entry,), path_associations=rows
+        )
+        assert "single-member segment group" in err, (
+            "ONLY the group-partition join refuses the rekeyed digest"
+        )
+    # The ROOT side of the same join: the root entry's sole
+    # ownership group is PROVEN with the retained root digest.
+    # The coherent rekey moves only that digest; the actual root
+    # bytes / digest / provenance stay genuine.
+    root_entry = adm.root_entry
+    root_kr = root_entry.key_record
+    (root_group,) = root_kr.ownership_groups
+    assert root_group.member_occurrence_indices == (0,)
+    assert root_group.boundary_class is BoundaryClass.PROVEN
+    assert root_group.group_digest == root_entry.root_digest
+    forged_root_group = root_group.model_copy(update={"group_digest": "0" * 64})
+    forged_root_kr = root_kr.model_copy(update={"ownership_groups": (forged_root_group,)})
+    forged_root_ns = _entry_admission_namespace(forged_root_kr)
+    forged_root_payload = _key_canonical(
+        forged_root_ns,
+        forged_root_kr.root_digest,
+        forged_root_kr.authority_class,
+        forged_root_kr.member_occurrences,
+        forged_root_kr.member_classes,
+        forged_root_kr.aggregate_source_digest,
+        forged_root_kr.ownership_groups,
+    )
+    forged_root_key = hashlib.sha256(forged_root_payload).hexdigest()
+    assert forged_root_key != root_entry.content_key, "the changed root group digest moves the key"
+    forged_root_record = forged_root_kr.model_copy(update={"content_key": forged_root_key})
+    forged_root_entry = root_entry.model_copy(
+        update={"key_record": forged_root_record, "content_key": forged_root_key}
+    )
+
+    def remap_root_keys(keys: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(
+            sorted(forged_root_key if k == root_entry.content_key else k for k in set(keys))
+        )
+
+    root_rows = tuple(
+        row.model_copy(update={"content_keys": remap_root_keys(row.content_keys)})
+        for row in adm.path_associations
+    )
+    for parent in ("admission", "result"):
+        err = _m_assert_parent_refused(
+            parent, r, adm, root_entry=forged_root_entry, path_associations=root_rows
+        )
+        assert "root group" in err, "ONLY the root group join refuses the rekeyed digest"
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_n_retained_join_byte_and_traversal_reservation(mode: Any, endpoint: str) -> None:
+    """018-n: the retained-content join reservation covers the
+    ACTUAL UTF-8 byte work as well as the character work and the
+    FULL executed traversal.  Genuine Unicode sources: the selected
+    v2 root text and the admitted file regions are genuinely
+    multi-byte, so the actual encoded bytes EXCEED the character
+    counts.  In LEAN the stale-root bundle admits two SPARSE
+    isolated entries (one admitted segment each out of the three
+    retained segments), so the reservation must cover the full
+    proof-segment traversal, not only the admitted segments.  For
+    every retained entry the closed reservation dominates a
+    test-side recomputation from the ACTUAL encoded region bytes,
+    and the OLD character-only reservation is strictly smaller.
+    Both modes and endpoints."""
+    ns, s2, bundle_occ = _n_isolated_fixture(mode, endpoint)
+    r = derive(s2, ns)
+    assert_i_ok(r, s2)
+    adm = r.admission
+    assert adm is not None
+    # Root entry: the selected v2 root text is genuinely non-BMP.
+    root_entry = adm.root_entry
+    root_text = root_entry.root_text
+    assert root_text is not None
+    actual_root_bytes = len(root_text.encode("utf-8"))
+    assert actual_root_bytes > len(root_text), "the selected root source is genuinely non-BMP"
+    units_root = crcm.retained_content_join_units(root_entry)
+    assert units_root >= 6 + 3 * len(root_text) + 2 * actual_root_bytes + 64, (
+        "the reservation covers the actual UTF-8 encode and hash work"
+    )
+    old_root = 4 + 3 * len(root_text) + 64
+    assert units_root > old_root, "the byte-aware reservation strictly tightens"
+    assert old_root < 6 + 2 * actual_root_bytes + 64, (
+        "the OLD character-only reservation cannot even cover the actual "
+        "encode + hash of the retained bytes"
+    )
+    by = i_members_of(adm)
+    if mode is AdmissionMode.LEAN:
+        assert ("A.md",) in by and ("B.md",) in by, (
+            "LEAN admits the two isolated singleton entries from the one proof"
+        )
+        assert by[("A.md",)].proof is bundle_occ.proof
+        assert by[("B.md",)].proof is bundle_occ.proof
+    else:
+        assert ("A.md",) not in by and ("B.md",) not in by, "GREEDY gains no isolated-region rule"
+    for entry in adm.entries:
+        proof = entry.proof
+        assert proof is not None
+        n_segments = len(proof.segments)
+        n_admitted = len(entry.admitted_segments)
+        assert 1 <= n_admitted <= n_segments
+        region_bytes = len(_n_region_slice(entry).encode("utf-8"))
+        members_cap = entry.key_record.proof_bounds.max_members
+        units = crcm.retained_content_join_units(entry)
+        # The closed reservation dominates the ACTUAL executed work
+        # recomputed from the measured bytes: the full traversal of
+        # every retained proof segment (even the non-admitted
+        # ones), the member work, and the actual UTF-8 encode +
+        # hash of the admitted region.
+        assert units >= 4 * n_segments + n_admitted * (4 + members_cap) + 2 * region_bytes + 64
+        old = 6 + n_admitted * (4 + members_cap) + 2 * proof.source_char_length + 64
+        assert units > old, "the traversal + byte-aware reservation strictly tightens"
+        if mode is AdmissionMode.LEAN and entry.proof is bundle_occ.proof:
+            assert n_admitted == 1 < n_segments, (
+                "the sparse admitted region: one segment out of the retained three"
+            )
+            assert units >= 4 * n_segments, (
+                "the reservation covers the full traversal of the non-admitted segments as well"
+            )
+            assert region_bytes > len(_n_region_slice(entry)), (
+                "the admitted region is genuinely multi-byte"
+            )
+    if mode is AdmissionMode.LEAN:
+        for member in (("A.md",), ("B.md",)):
+            entry = by[member]
+            assert len(entry.admitted_segments) == 1
+            assert entry.proof is not None
+            assert len(entry.proof.segments) == 3
+            assert _n_region_slice(entry) != ""
+
+
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+def test_n_leaf_join_isolated_entries_precharge(
+    endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """018-n: the LEAF retained-content join (the entry validator
+    inside the G-stage entry construction) is precharged on the ONE
+    I outer BEFORE the construction, aggregated over the accepted
+    G plan's closed whole-vs-isolated alternative.  The fixture
+    earns TWO isolated singleton entries from ONE three-segment
+    proof (LEAN): the measured delta between the admission
+    namespace construction and the root entry construction equals
+    the independently derived closed plan reservation identity
+    (plan fixed / walk / the per-occurrence aggregate join bound --
+    one singleton-bound join per planned segment plus the source
+    work reserved ONCE, the isolated regions being disjoint), the
+    per-occurrence aggregate dominates the ACTUAL leaf join work of
+    every entry constructed from that proof, and one unit below the
+    measured work the operation refuses with the fixed I name
+    BEFORE any entry construction (the ledger stopped exactly at
+    the cap).  Genuine public I positive; both endpoints."""
+    mode = AdmissionMode.LEAN
+    ns, s2, bundle_occ = _n_isolated_fixture(mode, endpoint)
+    charge = {"n": 0}
+    itotal_unit = crc._ITotal.unit
+
+    def spy_itotal(self: Any) -> None:
+        itotal_unit(self)
+        charge["n"] += 1
+
+    monkeypatch.setattr(crc._ITotal, "unit", spy_itotal)
+    ns_marks: list[int] = []
+    root_marks: list[int] = []
+    entry_marks: list[int] = []
+    assemble_marks: list[int] = []
+    overlay_captures: list[Any] = []
+    ns_orig = BundleAdmissionNamespace.__init__
+    root_orig = crc._build_selected_root_entry
+    entry_orig = crcm.CurrentRootCompositionEntry.__init__
+    derive_orig = current_graph_mod._derive_graph
+    assemble_orig = current_admission_mod._assemble_file_entries
+
+    def hook_ns(self: Any, *args: Any, **kwargs: Any) -> None:
+        ns_marks.append(charge["n"])
+        ns_orig(self, *args, **kwargs)
+
+    def hook_root(*args: Any, **kwargs: Any) -> Any:
+        root_marks.append(charge["n"])
+        return root_orig(*args, **kwargs)
+
+    def hook_entry(self: Any, *args: Any, **kwargs: Any) -> None:
+        entry_marks.append(charge["n"])
+        entry_orig(self, *args, **kwargs)
+
+    def hook_derive(*args: Any, **kwargs: Any) -> Any:
+        result = derive_orig(*args, **kwargs)
+        overlay_captures.append(result[1])
+        return result
+
+    def hook_assemble(*args: Any, **kwargs: Any) -> Any:
+        assemble_marks.append(charge["n"])
+        return assemble_orig(*args, **kwargs)
+
+    monkeypatch.setattr(BundleAdmissionNamespace, "__init__", hook_ns)
+    monkeypatch.setattr(crc, "_build_selected_root_entry", hook_root)
+    monkeypatch.setattr(crcm.CurrentRootCompositionEntry, "__init__", hook_entry)
+    monkeypatch.setattr(current_graph_mod, "_derive_graph", hook_derive)
+    monkeypatch.setattr(crc, "_assemble_file_entries", hook_assemble)
+    ok = derive(s2, ns)
+    assert_i_ok(ok, s2)
+    adm = ok.admission
+    assert adm is not None
+    by = i_members_of(adm)
+    assert ("A.md",) in by and ("B.md",) in by, "two isolated singleton entries"
+    assert by[("A.md",)].proof is bundle_occ.proof
+    assert by[("B.md",)].proof is bundle_occ.proof
+    assert entry_marks and root_marks and ns_marks
+    assert assemble_marks
+    assert root_marks[0] < entry_marks[0] <= assemble_marks[0], (
+        "the root entry is constructed inside the root construction, "
+        "after its prepaid entry-model / fence reservation (the leaf "
+        "join is already precharged on the plan) and no later than "
+        "the file assembly start: no ledger step separates the root "
+        "entry construction from the assembly call"
+    )
+    assert all(mark > assemble_marks[0] for mark in entry_marks[1:]), (
+        "every file entry is constructed inside the file assembly"
+    )
+    assert len(entry_marks) == 1 + len(adm.entries), (
+        "one entry construction per retained entry, root first"
+    )
+    # Independently derived closed plan reservation identity: the
+    # measured delta between the admission namespace construction
+    # and the root entry construction is exactly the node / group /
+    # workspace / occurrence / segment visits plus the plan fixed /
+    # walk terms and the 018-n per-occurrence AGGREGATE leaf-join
+    # precharge (one singleton-bound join per planned segment plus
+    # the source work reserved once, the isolated regions being
+    # disjoint).
+    n, p = ns_marks[0], root_marks[0]
+    assert overlay_captures and overlay_captures[0] is not None, (
+        "the same-run overlay is the actual group source"
+    )
+    overlay = overlay_captures[0]
+    assert ok.graph is not None
+    n_nodes = len(ok.graph.nodes)
+    n_groups = len(overlay.groups)
+    n_occ = len(s2.d_state.occurrences)
+    n_seg_total = 0
+    plan_fixed = 0
+    plan_walk = 0
+    plan_join = crcm.retained_content_join_root_units(len(adm.root_entry.root_text or ""))
+    path_cap = min(ns.graph_bounds.max_path_bytes, ns.observation_bounds.max_path_bytes)
+    for occ in s2.d_state.occurrences:
+        segments = occ.proof.segments
+        n_seg = len(segments)
+        member_positions = sum(len(s.member_positions) for s in segments)
+        n_seg_total += n_seg
+        if n_seg:
+            plan_fixed += crcm.KEY_RECORD_FENCE_UNITS + crcm.ENTRY_METADATA_FENCE_UNITS
+            group_count = sum(1 for g in overlay.groups if g.occurrence_id == occ.occurrence_id)
+            plans_cap = max(1, n_seg, group_count)
+            plan_walk += (
+                15 * member_positions
+                + member_positions * (path_cap + 1)
+                + 3 * n_seg
+                + 6 * plans_cap
+                + 4 * plans_cap * n_seg
+                + 2 * group_count
+            )
+            plan_join += (
+                n_seg
+                * crcm.retained_content_join_file_units(
+                    1,
+                    n_seg,
+                    0,
+                    ns.proof_bounds.max_members,
+                )
+                + 10 * occ.proof.source_char_length
+            )
+    assert n_nodes > 0 and n_occ > 0 and n_seg_total >= 4
+    assert p - n == (
+        n_nodes + n_groups + 2 + n_occ + n_seg_total + plan_fixed + plan_walk + plan_join
+    ), "the measured delta is exactly the closed plan reservation identity"
+    # The per-occurrence AGGREGATE reservation dominates the ACTUAL
+    # leaf join work of every entry constructed from that proof
+    # (the two isolated singletons: disjoint regions, so the source
+    # work is reserved once and still covers both).
+    bundle_members = ns.proof_bounds.max_members
+    assert bundle_occ.proof is not None
+    source_chars = bundle_occ.proof.source_char_length
+    reserved_bundle = (
+        3
+        * crcm.retained_content_join_file_units(
+            1,
+            3,
+            0,
+            bundle_members,
+        )
+        + 10 * source_chars
+    )
+    bundle_entries = [by[("A.md",)], by[("B.md",)]]
+    actual_bundle = sum(_n_actual_leaf_join_lower(e) for e in bundle_entries)
+    assert reserved_bundle >= actual_bundle, (
+        "the aggregate precharge covers the actual leaf joins of BOTH "
+        "isolated entries from the one proof"
+    )
+    # One unit below the measured work: the crossing is inside the
+    # plan reservation -- refused with the fixed I name and NO entry
+    # construction (the entry hook never fires), the ledger stopped
+    # exactly at the cap.
+    charge["n"] = 0
+    root_marks.clear()
+    entry_marks.clear()
+    assemble_marks.clear()
+    r = derive(
+        s2,
+        ns,
+        composition_bounds=CurrentRootCompositionBounds(max_total_work_units=p - 1),
+    )
+    assert_i_refused(r, s2, _OUT.REFUSED_OVER_BOUND, (_L.TOTAL_WORK_UNITS_OVER_BOUND,))
+    assert root_marks == [] and entry_marks == [], (
+        "the plan reservation crossing prevented every entry construction"
+    )
+    assert assemble_marks == [], "the file assembly never started before the plan reservation"
+    assert charge["n"] == p - 1, (
+        "the ledger stopped exactly at the cap, inside the plan reservation"
+    )
+
+
+@pytest.mark.parametrize(
+    "identity_text",
+    [
+        "x" * 256,
+        "\u65e5" * 256,
+        "\U0001f389" * 256,
+        "x" * 250 + '\\"',
+    ],
+    ids=("ascii", "bmp", "nonbmp", "escaped"),
+)
+def test_n_canonical_reservation_actual_bytes(identity_text: str) -> None:
+    """018-n: the canonical rekey reservation covers the ACTUAL
+    accepted recipe bytes for genuine Unicode / escaped identities
+    (the strategic M oracle).  The namespace and key payloads are
+    measured with the ACCEPTED recipe itself (``_canonical_namespace_fields`` /
+    ``_key_canonical`` over the key record's actual fields, including
+    the nested bound-model dumps at their actual serialized lengths)
+    and the closed per-entry reservation must dominate the TWO
+    namespace payload builds plus the TWO namespace payload hashes
+    plus the ONE canonical key build and hash (the accepted recipe
+    performs two ``_entry_admission_namespace`` rebuilds / hashes and
+    one ``_key_canonical`` build / hash; the scoped-key passes and
+    the bound-model dumps are separate terms of the reservation).
+    The MAX-LENGTH Unicode model identity serializes through the
+    same accepted recipe as the identity fields.  The ASCII control
+    and the BMP / non-BMP / quote-escaped identities all run on a
+    GENUINELY EARNED OK composition (bootstrap plus one nonroot
+    read); constructor / reservation accounting evidence over a
+    valid acquisition, no public derivation or runtime claim."""
+    identity = RequestIdentity(
+        principal=identity_text,
+        session=identity_text,
+        repository=identity_text,
+        route=identity_text[:64],
+    )
+    admission = make_bundle_admission_namespace(
+        identity,
+        model_identity=identity_text,
+        config_fingerprint=FINGERPRINT,
+        workspace=WORKSPACE,
+        mode=AdmissionMode.LEAN,
+    )
+    d = make_causal_history_namespace(admission, "i-n-canonical")
+    b = RootLineageBounds()
+    data = d.model_dump()
+    data.update(
+        root_lineage_bounds=b,
+        contract_version=ROOT_LINEAGE_CONTRACT_VERSION,
+        policy_version=ROOT_LINEAGE_POLICY_VERSION,
+        lineage_key=_lineage_key(
+            d.history_key, ROOT_LINEAGE_CONTRACT_VERSION, ROOT_LINEAGE_POLICY_VERSION, b
+        ),
+    )
+    ns = RootLineageNamespace(**data)
+    s0 = h_bootstrap(ns)
+    s1 = nonroot_read(s0, ns, "nc1", "responses", "Synthetic canonical body.\n")
+    r = derive(s1, ns)
+    assert_i_ok(r, s1)
+    adm = r.admission
+    assert adm is not None
+    for entry in (adm.root_entry, *adm.entries):
+        kr = entry.key_record
+        assert kr.principal == identity_text
+        ns_payload = _canonical_namespace_fields(
+            kr.principal,
+            kr.session,
+            kr.repository,
+            kr.route,
+            kr.model_identity,
+            kr.config_fingerprint,
+            kr.admission_version,
+            kr.graph_version,
+            kr.reference_version,
+            kr.proof_version,
+            kr.observation_version,
+            kr.mode.value,
+            kr.admission_bounds,
+            kr.proof_bounds,
+            kr.graph_bounds,
+            kr.observation_bounds,
+        )
+        key_payload = _key_canonical(
+            _entry_admission_namespace(kr),
+            kr.root_digest,
+            kr.authority_class,
+            kr.member_occurrences,
+            kr.member_classes,
+            kr.aggregate_source_digest,
+            kr.ownership_groups,
+        )
+        units = crcm.canonical_rekey_units(kr, entry)
+        assert units >= 4 * len(ns_payload) + 2 * len(key_payload), (
+            "the reservation covers the full actual-byte oracle: the two "
+            "namespace builds plus the two namespace hashes plus the one "
+            "canonical key build and hash, at the measured payload lengths"
+        )

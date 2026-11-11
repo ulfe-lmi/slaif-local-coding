@@ -42,7 +42,16 @@ parent boundaries, with the closed TEN admission bound-model
 fence and the accepted dense group ordering / unique partition
 law; M02 the exact accepted JSON serialization byte ceiling and
 the reservation-calculation work precharge on the ONE I outer)
-are implemented and PENDING strategic review. At
+were delivered truthfully PARTIAL and are NOT ACCEPTED against
+the complete M01/M02 criteria (strategic decision
+`S/reviews/018-m-decision.md`); the bounded 018-n repairs
+(N01 the retained-content join at the leaf and BOTH parent
+boundaries — the entry-local group partition joined to the
+ORIGINAL proof segments and the root group to the retained root
+digest — plus N02 the byte-aware closed reservation, the
+pre-fetch plan segment precharge and the per-site
+reservation-calculation closure) are implemented and PENDING
+strategic review. At
 its bounded inert scope, like the accepted 017,
 018-a..h slices, it is pure, bounded and never active in the
 adapter runtime; no
@@ -313,6 +322,52 @@ qualification, and 019-024 remain mandatory.
   five, ``None`` four, ints their digit length) -- the
   canonical recipe and its key bytes are unchanged and no legal
   Unicode is prohibited to fit a formula.
+- The 018-n retained-content and reservation closure
+  (N01/N02): the retained-content join
+  (``_check_entry_retained_content``) runs at the LEAF (the entry
+  model validator) and at BOTH parent boundaries over the ACTUAL
+  retained original binding: the root entry's ACTUAL bytes are
+  preflighted against the ACTUAL inherited single-source cap
+  (the O(1) character count, then the no-copy early-exit byte
+  walk), the ONE owned encode plus sha256 agrees with the bound
+  byte length, the root digest and the retained ENVELOPE / READ
+  provenance, and the root's sole PROVEN group joins to the
+  retained root digest; the file entry has a nonempty
+  admitted-segment tuple, its segment indices distinct and
+  increasing, its closed
+  byte / char counts sit under the ACTUAL cap BEFORE any owned
+  slice, every admitted member position is an ACTUAL integer
+  indexed into the retained requested occurrences BEFORE any
+  fetch, the admitted members equal the key-record occurrences,
+  the region digest equals the aggregate digest, and the
+  entry-local group partition joins ONE-TO-ONE to the ORIGINAL
+  proof segments (one group per admitted segment: the dense
+  member-index range, the PROVEN single-member / BOUNDARYLESS
+  multi-member class and the proven member digest / segment
+  digest) -- a coherently rekeyed record with a DETACHED
+  partition (a changed group digest with the reverse rows
+  adjusted) is refused at BOTH parents, at the root and the file
+  shapes.  The join's bounded work is charged on the ONE I outer
+  BEFORE any encode or hash: at the leaf by the plan's
+  per-occurrence AGGREGATE precharge (the accepted G plan admits
+  the whole bundle OR one singleton per isolated segment, never
+  both; the isolated regions are disjoint, so the source work is
+  reserved ONCE per occurrence at the retained source character
+  length while the per-entry fixed / traversal / member work is
+  reserved at the singleton bound per planned segment, the
+  UTF-8 byte work closed at four bytes per code point) and at
+  both parents by ``retained_content_join_units`` inside the
+  existing reservation charges.  The planner's per-segment
+  planning visits are precharged from the VALIDATED segment
+  count BEFORE the first segment element is fetched (the M02
+  per-segment domain and cost unchanged).  The canonical
+  reservation carries no ASCII identity assumption (N02): the
+  identity / version / class strings bound at their ACTUAL
+  validated character composition under the accepted
+  ``ensure_ascii`` recipe, so the closed per-entry reservation
+  dominates the ACTUAL measured recipe bytes (two namespace
+  builds plus two namespace hashes plus one canonical key build
+  and hash) for legal Unicode identities.
 - The independent-domain evidence (J03) closes every named domain
   at-limit and first-over at the ACTUAL public-I boundary where
   reachable, and at the named bounded stage/constructor surface
@@ -494,8 +549,8 @@ qualification, and 019-024 remain mandatory.
 
 ## 10. Tests
 
-- `tests/test_current_root_composition.py` (73 test definitions,
-  279 cases): the durable ORIGINAL-API matrix over BOTH read
+- `tests/test_current_root_composition.py` (81 test definitions,
+  308 cases): the durable ORIGINAL-API matrix over BOTH read
   endpoints and BOTH admission modes — A bootstrap/ENVELOPE
   composition, genuine issued READ refresh, descendant revert,
   rootless continuation and old/known-new/shifted replay no-ops
@@ -594,7 +649,50 @@ qualification, and 019-024 remain mandatory.
   calls, one below refuses before any calculation or rekey
   call, and the full precharge cap fits exactly with the
   admission-site rekey completing at its own charge before the
-  later main-charge crossing); constructor and
+  later main-charge crossing); and N the 018-n closure: the
+  retained-content join at the leaf and BOTH parents (the
+  genuine positive at both parents; the SAME-LENGTH substituted
+  root text, the EMPTY admitted region, the out-of-range nested
+  member position and — the group-partition join — the
+  COHERENTLY REKEYED record with a changed file-group digest or
+  a changed ROOT-group digest, each with the canonical recipe
+  re-derived and the reverse rows adjusted so ONLY the
+  partition join is the bad precondition, refusing at both
+  parents with the partition-join message), the byte-aware
+  closed reservation (a genuinely non-BMP root and admitted
+  regions: the reservation dominates the ACTUAL encoded byte
+  work and the full proof-segment traversal, the old
+  character-only reservation strictly smaller, the sparse
+  one-of-three LEAN region retaining the whole proof identity),
+  the LEAF join precharge (the measured admission delta equals
+  the independently derived closed plan reservation identity
+  with the per-occurrence AGGREGATE join bound — one
+  singleton-bound join per planned segment plus the source work
+  reserved once — the aggregate dominates the actual leaf joins
+  of both isolated entries, the root entry constructed inside
+  the root construction before the file assembly, and one unit
+  below refusing with ZERO entry constructions and the ledger
+  stopped exactly at the cap), the PLAN segment precharge
+  (the plan-window charge log holds one contiguous
+  units(len(segments)) batch per occurrence immediately after
+  the occurrence visit and the final batch equals the
+  recomputed closed plan total; the crossing inside the first
+  nonempty precharge stops the ledger exactly at the cap with
+  no entry construction), the per-site reservation crossing
+  (the admission-site crossing with ZERO rekey calls at either
+  site and no construction; the RESULT-site crossing with
+  exactly the earlier admission rekey calls, ZERO result-site
+  rekey calls and no result construction; one below the result
+  precharge before even the result calculation call), the zero-
+  source multi-member bound control (the per-member terms alone
+  dominate the actual element walks with the source allowance at
+  zero, tight at the cap) and the actual-identity canonical
+  reservation (the ACTUAL recipe-measured namespace and key
+  payload bytes for ASCII / BMP / non-BMP / quote-escaped
+  identities with the MAX-LENGTH Unicode model identity: the
+  closed reservation dominates the two namespace builds plus
+  two namespace hashes plus the one canonical key build and
+  hash at the measured lengths); constructor and
   reservation-accounting evidence over a valid acquisition, no
   public derivation or runtime claim.
 - The ROOT-executed independent probes (public vertical, the

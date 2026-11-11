@@ -221,6 +221,16 @@ ROOT_ENTRY_FENCE_WALK_UNITS = 17
 #: boundaries always pass the actual inherited cap (M01).
 HISTORY_MAX_OCCURRENCES_CEILING = 4096
 
+#: 018-n: the closed per-entry O(1) work of the admission / result
+#: reservation precharge phase: the tuple expansion slot copy, the
+#: walk-free planner evaluation (the outer length reads, the single
+#: cap min and the fixed closed arithmetic) and the per-entry
+#: generator steps of the reservation sums whose evaluation work is
+#: separately reserved by the planner result.  Charged on the ONE
+#: composition outer BEFORE the expansion allocates or any
+#: reservation sum evaluates (no retrospective charge).
+PLANNER_PRECHARGE_PER_ENTRY = 48
+
 
 def _json_metadata_byte_ceiling(value: object) -> int:
     """A closed upper bound on the UTF-8 byte length of the exact
@@ -323,25 +333,33 @@ _KEY_CANONICAL_NAMES: tuple[str, ...] = (
 #: per-value ceiling walk bound for the class vector).
 _MEMBER_CLASS_VALUE_CHARS = max(len(member.value) for member in MemberClass)
 
-#: The exact ``_json_metadata_byte_ceiling("x" * n)`` probe-call
-#: inventory inside ``canonical_rekey_units`` (the namespace
-#: payload: 4 of 256, 2 of 64, 5 of 128, 1 of 16; the key payload:
-#: 5 of 128, 2 of 16, 4 of 256, 4 of 64).  Each probe call allocates
-#: the n-character string and walks it: the closed work bound per
-#: call is 2 (the call and its result) plus 2n (the allocation walk
-#: and the per-character ceiling walk).  Computed once at import
-#: time (M02).
-_S_CALL_INVENTORY: tuple[tuple[int, int], ...] = (
-    (4, 256),
-    (2, 64),
-    (5, 128),
-    (1, 16),
-    (5, 128),
-    (2, 16),
-    (4, 256),
-    (4, 64),
-)
-_S_ASCII_WORK_CONSTANT = sum(count * (2 + 2 * length) for count, length in _S_CALL_INVENTORY)
+
+def _rekey_identity_strings(key_record: BundleKeyRecord) -> tuple[str, ...]:
+    """The thirteen identity / version / class strings the accepted
+    namespace and key recipes serialize: the twelve canonical
+    namespace fields (principal, session, repository, route,
+    model_identity, config_fingerprint, the five version tags and
+    the mode value) plus the key payload's authority-class value.
+    Both reservation functions bound these at the ACTUAL validated
+    character composition (018-n: no ASCII stand-in for a legal
+    Unicode identity)."""
+    kr = key_record
+    return (
+        kr.principal,
+        kr.session,
+        kr.repository,
+        kr.route,
+        kr.model_identity,
+        kr.config_fingerprint,
+        kr.admission_version,
+        kr.graph_version,
+        kr.reference_version,
+        kr.proof_version,
+        kr.observation_version,
+        kr.mode.value,
+        kr.authority_class.value,
+    )
+
 
 #: The closed ceiling of the ACTUAL trusted-workspace domain (the
 #: namespace 1..1024 absolute-path law) for the reserved workspace
@@ -384,33 +402,48 @@ def canonical_rekey_calc_units(
 ) -> int:
     """A closed WALK-FREE upper bound on the ACTUAL calculation
     work performed by ``canonical_rekey_units`` for ONE entry (the
-    M02 reservation precharge): the fixed statement / dict /
-    arithmetic work, the closed probe-string allocations and
-    per-character ceiling walks, the reserved workspace encode walk
-    plus byte allocation, the per-member-path ceiling walks (each
-    path bounded in characters by the ACTUAL two-inherited path
-    ceiling -- UTF-8 bytes are never fewer than characters), the
-    per-member-class value ceiling walks, the per-index and
-    per-group digit, name and digest ceiling walks and the
-    per-element iteration / append / length work across every loop
-    the reservation performs.  No element is visited: every length
-    is an O(1) tuple read and every serialized dimension is bounded
-    at its ACTUAL inherited ceiling or at the declared field
-    ceiling, never at a field count.  The kernel charges the sum
-    over the retained entries BEFORE the reservation calculation
-    may encode, allocate or walk (M02)."""
+    M02/018-n reservation precharge): the fixed statement / dict /
+    arithmetic work, the per-character ceiling walks over the
+    ACTUAL validated identity / version / class strings (018-n:
+    bounded at the actual character lengths, never an ASCII
+    stand-in), the two hex-digest probe allocations, the reserved
+    workspace encode walk plus byte allocation, the per-member-path
+    ceiling walks (each path bounded in characters by the ACTUAL
+    two-inherited path ceiling -- UTF-8 bytes are never fewer than
+    characters), the per-member-class value ceiling walks, the
+    per-index and per-group digit, name and digest ceiling walks
+    and the per-element iteration / append / length work across
+    every loop the reservation performs.  No element is visited and
+    NO nested collection is walked to be counted (018-n): the
+    nested group-index and witness segment-index dimensions are
+    closed O(1) from the validated outer lengths -- every
+    ownership group holds at most the occurrence count and every
+    witness segment-index tuple is occurrence-local under the
+    retained proof segment count -- never summed element by
+    element before the charge.  The kernel charges the sum over
+    the retained entries BEFORE the reservation calculation may
+    encode, allocate or walk (M02/018-n)."""
     kr = key_record
     mo = len(kr.member_occurrences)
     mc = len(kr.member_classes)
     group_count = len(kr.ownership_groups)
-    total_indices = sum(len(group.member_occurrence_indices) for group in kr.ownership_groups)
+    # 018-n: closed O(1) from the validated outer lengths, never a
+    # pre-charge walk of the nested index tuples.
+    total_indices = group_count * mo
     segment_count = len(entry.admitted_segments)
     witness_count = len(entry.witnesses)
-    witness_segment_count = sum(len(witness.segment_indices) for witness in entry.witnesses)
+    segment_domain = len(entry.proof.segments) if entry.proof is not None else 0
+    witness_segment_count = witness_count * segment_domain
     path_cap = min(kr.graph_bounds.max_path_bytes, kr.observation_bounds.max_path_bytes)
+    # 018-n: the per-string ceiling walks of ``canonical_rekey_units``
+    # at the ACTUAL validated lengths (call + per-character walk +
+    # return, closed per string); the len() reads are O(1) and visit
+    # no element.
+    identity_walks = sum(2 + 3 * len(value) for value in _rekey_identity_strings(kr))
     return (
         96  # the fixed statement / dict / arithmetic work
-        + _S_ASCII_WORK_CONSTANT  # the closed probe allocation / ceiling walks
+        + identity_walks  # the actual-string identity ceiling walks
+        + 2 * (2 + 2 * 64)  # the two hex-digest probe allocations / walks
         + _WORKSPACE_ENCODE_CEILING  # the workspace encode walk + byte allocation
         + 5 * mo * (path_cap + 1)  # the member-path ceiling walks
         + 4 * mc * _MEMBER_CLASS_VALUE_CHARS  # the member-class value ceiling walks
@@ -451,13 +484,17 @@ def canonical_rekey_units(key_record: BundleKeyRecord, entry: CurrentRootComposi
     over the canonical payload).  Every serialized term is bounded
     at the ACTUAL record length where the length belongs to the
     record (workspace, member occurrence paths, member-class
-    values, ownership-group fields) and at the declared field
-    ceilings where it does not (identity strings, version tags,
-    bound-model ints at their ``le`` values): a field count is
-    never a serialized length.  The kernel may therefore charge
-    the sum once per planned entry BEFORE the construction that
-    performs it: a crossing is refused before the re-derivation
-    may serialize or hash, never after a partial pass.
+    values, ownership-group fields AND the identity / version /
+    class strings at their ACTUAL validated character composition
+    under the accepted ensure_ascii recipe -- 018-n: a legal
+    Unicode identity serializes to its closed per-character
+    ceiling, never to an ASCII stand-in) and at the declared field
+    ceilings where it does not (the hex digests, bound-model ints
+    at their ``le`` values): a field count is never a serialized
+    length.  The kernel may therefore charge the sum once per
+    planned entry BEFORE the construction that performs it: a
+    crossing is refused before the re-derivation may serialize or
+    hash, never after a partial pass.
     """
     occurrences = key_record.member_occurrences
     classes = key_record.member_classes
@@ -470,11 +507,19 @@ def canonical_rekey_units(key_record: BundleKeyRecord, entry: CurrentRootComposi
     bound_strings = sum(
         _BOUND_DUMP_CEILINGS[model_cls] + 2 for _, model_cls in _KEY_RECORD_BOUND_FIELDS
     )
-    # One ``_canonical_namespace_fields`` payload: the eleven
-    # identity / version strings under their declared ceilings plus
-    # the short mode value, then the four bound-model JSON dumps as
-    # string elements.
-    namespace_payload = 2 + (4 * s(256) + 2 * s(64) + 5 * s(128) + s(16) + bound_strings) + 15
+    # 018-n: the identity / version / class strings at their ACTUAL
+    # validated character composition under the accepted
+    # ensure_ascii recipe (ASCII one byte, quote / backslash two,
+    # BMP non-ASCII six, non-BMP twelve) -- the closed ceiling of
+    # the ACTUAL serialization of every legal text, computed once
+    # and shared by the namespace and key payload bounds.
+    identity_payload = sum(
+        _json_metadata_byte_ceiling(value) for value in _rekey_identity_strings(key_record)
+    )
+    # One ``_canonical_namespace_fields`` payload: the identity /
+    # version / class strings at their ACTUAL closed ceilings, then
+    # the four bound-model JSON dumps as string elements.
+    namespace_payload = 2 + identity_payload + bound_strings + 15
     workspace_bytes = len(key_record.workspace.encode("utf-8"))
     # The scoped-key input: the 64-hex namespace key, NUL and the
     # ACTUAL workspace UTF-8 bytes.
@@ -493,8 +538,8 @@ def canonical_rekey_units(key_record: BundleKeyRecord, entry: CurrentRootComposi
         + 40
     )
     # ``_key_canonical``: the four bound dumps, the canonical dict
-    # at the ACTUAL member / class / group / workspace lengths and
-    # the outer JSON encode.
+    # at the ACTUAL member / class / group / workspace / identity
+    # lengths and the outer JSON encode.
     member_list = 2 + sum(_json_metadata_byte_ceiling(p) + 1 for p in occurrences)
     class_list = 2 + sum(_json_metadata_byte_ceiling(c.value) + 1 for c in classes)
     group_items: list[int] = []
@@ -517,11 +562,7 @@ def canonical_rekey_units(key_record: BundleKeyRecord, entry: CurrentRootComposi
     key_names = 2 + sum(len(n) + 3 for n in _KEY_CANONICAL_NAMES) + (len(_KEY_CANONICAL_NAMES) - 1)
     key_payload = (
         key_names
-        + 5 * s(128)
-        + 2 * s(16)
-        + 4 * s(256)
-        + s(64)
-        + s(64)
+        + identity_payload
         + _json_metadata_byte_ceiling(key_record.workspace)
         + 2 * s(64)
         + bound_strings
@@ -542,6 +583,97 @@ def canonical_rekey_units(key_record: BundleKeyRecord, entry: CurrentRootComposi
         + key_build  # _key_canonical
         + key_payload
         + 64  # the final canonical sha256
+    )
+
+
+def retained_content_join_root_units(text_len: int) -> int:
+    """A closed upper bound on ONE execution of the root-branch
+    retained-content join (018-n, ``_check_entry_retained_content``).
+
+    Every term is an O(1) read of a validated length; no source
+    element is visited in computing the bound.  The UTF-8 byte work
+    is closed at the maximum of FOUR bytes per code point (conservative
+    for ASCII / BMP, exact for the worst-case non-BMP allocation and
+    hash input -- a character-only bound misses the actual UTF-8
+    allocation / hash of non-BMP source):
+
+    - ``9`` the fixed shape, cap, provenance, root-group and
+      comparison checks
+    - ``3 * text_len`` the no-copy early-exit UTF-8 byte walk
+      (per-character visit)
+    - ``4 * text_len`` the ONE owned encode allocation ceiling
+    - ``4 * text_len + 64`` the sha256 over the encoded bytes (at
+      most ``4 * text_len``) plus the fixed digest / length / hex
+      comparisons
+    """
+    return 9 + 3 * text_len + 4 * text_len + 4 * text_len + 64
+
+
+def retained_content_join_file_units(
+    admitted_segment_count: int,
+    proof_segment_count: int,
+    source_char_length: int,
+    max_members: int,
+) -> int:
+    """A closed upper bound on ONE execution of the file-branch
+    retained-content join (018-n, ``_check_entry_retained_content``).
+
+    Every term is an O(1) metadata read; no source element is visited
+    in computing the bound.  The bound covers the FULL executed
+    traversal, not only the admitted region:
+
+    - ``70`` the fixed checks, digest / length / width comparisons
+    - ``admitted * (4 + max_members)`` the admitted-segment metadata
+      pass (one O(1) read per admitted segment) plus the per-position
+      member fetches closed at the ACTUAL declared member ceiling
+    - ``admitted`` the admitted-set / admitted-tuple construction
+    - ``4 * proof_segment_count`` the FULL traversal of EVERY
+      retained proof segment (enumerate / membership / offset
+      accumulation, including the whole-bundle range comparison)
+      even when only one segment is admitted
+    - ``admitted * (4 + 2 * max_members)`` the group-partition join
+      to the ORIGINAL proof segments (one group per admitted
+      segment: the dense member-index range build and comparison
+      closed at the ACTUAL declared member ceiling, plus the
+      boundary-class / digest / increment checks)
+    - ``10 * source_char_length`` the slice copies and join (at most
+      the retained source characters), the UTF-8 encode allocation
+      ceiling (at most four bytes per character) and the sha256 over
+      the encoded region bytes
+    """
+    return (
+        70
+        + admitted_segment_count * (4 + max_members)
+        + admitted_segment_count
+        + admitted_segment_count * (4 + 2 * max_members)
+        + 4 * proof_segment_count
+        + 10 * source_char_length
+    )
+
+
+def retained_content_join_units(entry: CurrentRootCompositionEntry) -> int:
+    """A closed upper bound on the per-entry retained-content join
+    re-run at BOTH parent boundaries (018-n,
+    ``_check_entry_retained_content``).
+
+    The root branch is closed at the ACTUAL retained character
+    length with the UTF-8 byte work at its four-bytes-per-code-point
+    ceiling; the file branch is closed at the retained proof segment
+    count, the retained source character length (the admitted region
+    can never exceed it) and the ACTUAL declared member ceiling.
+    No element of the source text is visited in computing this bound;
+    the kernel charges the sum on the ONE composition outer BEFORE
+    the construction that performs the join, so a crossing refuses
+    before any join walk, encode or hash starts."""
+    if entry.entry_class is EntryClass.ROOT_ENTRY:
+        return retained_content_join_root_units(len(entry.root_text or ""))
+    if entry.proof is None:
+        return 0  # the file-entry branch never reaches the join
+    return retained_content_join_file_units(
+        len(entry.admitted_segments),
+        len(entry.proof.segments),
+        entry.proof.source_char_length,
+        entry.key_record.proof_bounds.max_members,
     )
 
 
@@ -880,10 +1012,18 @@ def _check_selected_root_binding(admission: CurrentRootCompositionAdmission) -> 
     a set build over unhashable elements -- and the bounded entry /
     record metadata joins (entry class, authority vector, width
     against the distinct record paths) run BEFORE the
-    re-derivation.  Charged METADATA work only (one closed fence +
-    re-derivation pass per entry); no source rewalk.  Runs on the
-    ACTUAL fields so a model_copy-bypassed nested admission/entry
-    cannot be trusted by class membership or by a skipped leaf law.
+    re-derivation, and (018-n) the retained-content join (the
+    preflighted root-bytes encode / hash against the bound digest
+    and length with the retained provenance; the nonempty admitted
+    file region's member / digest / ownership / authority
+    re-derivation from the retained original proof).  The fence and
+    re-derivation are charged METADATA work (one closed fence +
+    re-derivation pass per entry, no source rewalk); the join's
+    bounded encode / hash work is charged separately on the I outer
+    (``retained_content_join_units``) before it may run.  Runs on
+    the ACTUAL fields so a model_copy-bypassed nested
+    admission/entry cannot be trusted by class membership or by a
+    skipped leaf law.
     """
     _fence_admission_bound_models(admission, "admission")
     history_cap = admission.history_bounds.max_occurrences
@@ -903,6 +1043,17 @@ def _check_selected_root_binding(admission: CurrentRootCompositionAdmission) -> 
             raise _fixed("every entry key record content key agrees with the entry")
         if _canonical_entry_key(entry.key_record) != entry.content_key:
             raise _fixed("every entry canonical key re-derives from its actual key record")
+        # 018-n: the retained-content join re-runs at BOTH parent
+        # boundaries over the ACTUAL retained original binding: the
+        # nonempty admitted file region must agree with the retained
+        # proof members / aggregate digest / ownership / authority,
+        # and the root entry's ACTUAL bytes must preflight, encode
+        # and hash to the bound length / digest with the retained
+        # provenance.  A model_copy-swapped region or root text is
+        # refused HERE, charged on the I outer
+        # (``retained_content_join_units``) before any encode or
+        # hash.
+        _check_entry_retained_content(entry)
 
 
 def _check_reverse_member_relation(admission: CurrentRootCompositionAdmission) -> None:
@@ -1157,6 +1308,214 @@ def _fence_admission_bound_models(admission: CurrentRootCompositionAdmission, fi
         _closed_bounds_fence(actual, f"{field}.{name}")
 
 
+def _check_entry_retained_content(entry: CurrentRootCompositionEntry) -> None:
+    """The retained-content join law, enforced at the leaf AND both
+    parent boundaries (018-n).
+
+    Typed construction does not prove the content after a
+    ``model_copy`` bypass: an entry reconstructed after its admitted
+    region or root text was swapped carries a self-consistent key
+    record and provenance yet a DETACHED file region or SUBSTITUTED
+    root bytes.  The parent boundaries therefore re-run the SAME
+    join the leaf law runs, over the ACTUAL retained original
+    binding (no per-witness source copy or rewalk is introduced):
+
+    Root entries -- the ACTUAL retained bytes are preflighted (the
+    O(1) character count and the no-copy early-exit UTF-8 byte walk
+    against the ACTUAL inherited single-source cap) and THEN the ONE
+    owned encode plus sha256 must agree with the bound byte length,
+    the root digest and the retained ENVELOPE / READ provenance; the
+    root-only structural shape (no segments, no proof, no witnesses,
+    one ELIGIBLE occurrence at the normalized root, aggregate equal
+    to the digest, and the sole PROVEN group bound to the retained
+    root digest) is re-joined.
+
+    File entries -- the admitted-segment tuple is nonempty, its
+    segment indices are distinct increasing indices into the
+    retained proof segments, its admitted-segment metadata byte /
+    char totals sit under the ACTUAL inherited single-source cap
+    and the retained source length, the region is the whole bundle
+    or one proven group, each admitted member position is an
+    ACTUAL integer
+    indexing the retained requested occurrences (validated BEFORE
+    any fetch -- a bypassed proof record cannot IndexError the join
+    or read a foreign occurrence), the admitted members equal the
+    key record member occurrences exactly, the region digest equals
+    the key record aggregate digest, the entry-local group
+    partition is joined ONE-TO-ONE to the ORIGINAL proof segments
+    (one group per admitted segment in admitted order, carrying the
+    segment's dense member-index range, the PROVEN single-member /
+    BOUNDARYLESS multi-member class and the proven member digest /
+    segment digest) and the width equals the distinct admitted
+    member paths.
+
+    The parent boundaries carry no independent original source
+    reference, so the actual bytes are validated against the bound
+    digest with the preflight and the I-outer charge
+    (``retained_content_join_units``) BEFORE any encode or hash.
+    """
+    if entry.entry_class is EntryClass.ROOT_ENTRY:
+        if entry.admitted_segments:
+            raise _fixed("the root entry admits the root, not proof segments")
+        if entry.root_text is None or entry.root_provenance is None:
+            raise _fixed("a current root entry carries its retained root bytes and provenance")
+        if entry.proof is not None:
+            raise _fixed("a root entry never embeds a file-tool proof")
+        if entry.witnesses:
+            raise _fixed("the root entry is evidenced, never a fabricated read witness")
+        text = entry.root_text
+        # Preflight the ACTUAL inherited single-source byte cap
+        # BEFORE any owned encode: the O(1) character count
+        # (bytes are never fewer than characters) and the
+        # no-copy walk with early exit at the cap.
+        cap = entry.key_record.graph_bounds.max_single_source_bytes
+        if len(text) > cap:
+            raise _fixed("retained root source exceeds the inherited single-source cap")
+        if _utf8_byte_length_capped(text, cap) > cap:
+            raise _fixed("retained root source exceeds the inherited single-source cap")
+        root_bytes = text.encode("utf-8")  # the ONE owned encode
+        if entry.root_source_byte_length != len(root_bytes):
+            raise _fixed("root source_byte_length must equal the retained bytes")
+        if _sha256_hex(root_bytes) != entry.root_digest:
+            raise _fixed("root digest must equal the retained root bytes")
+        if entry.key_record.member_occurrences != (ROOT_FILENAME,):
+            raise _fixed("a root entry is one occurrence at the normalized root")
+        if entry.key_record.aggregate_source_digest != entry.root_digest:
+            raise _fixed("root aggregate digest must equal the root digest")
+        # 018-n: the root side of the same partition join: the
+        # root's sole ownership group (the sole-group / dense
+        # single-index law is already validated by the fence and
+        # key-record laws) is PROVEN with the RETAINED root digest,
+        # so a coherently rekeyed record cannot carry a detached
+        # group partition over the genuine root bytes.
+        root_group = entry.key_record.ownership_groups[0]
+        if (
+            root_group.boundary_class is not BoundaryClass.PROVEN
+            or root_group.group_digest != entry.root_digest
+        ):
+            raise _fixed("the root group is proven with the retained root digest")
+        if entry.width != 1 or entry.member_classes != (MemberClass.ELIGIBLE,):
+            raise _fixed("the root is one always-eligible root-occurrence member")
+        provenance = entry.root_provenance
+        if provenance.kind == "envelope":
+            if provenance.root_digest != entry.root_digest:
+                raise _fixed("the envelope root provenance binds the root digest")
+            if provenance.source_byte_length != entry.root_source_byte_length:
+                raise _fixed("the envelope root provenance binds the root bytes")
+        else:
+            if provenance.read_digest != entry.root_digest:
+                raise _fixed("the read root provenance binds the root digest")
+            if provenance.read_byte_length != entry.root_source_byte_length:
+                raise _fixed("the read root provenance binds the root bytes")
+        return
+    if entry.root_text is not None or entry.root_source_byte_length is not None:
+        raise _fixed("retained root bytes belong to the root entry only")
+    if entry.root_provenance is not None:
+        raise _fixed("retained root provenance belongs to the root entry only")
+    if entry.proof is None:
+        raise _fixed("a file entry keeps its retained original proof")
+    if not entry.witnesses:
+        raise _fixed("a file entry retains its original proof witnesses")
+    proof = entry.proof
+    segments = proof.segments
+    if not entry.admitted_segments:
+        raise _fixed("a file entry names its admitted segments")
+    previous = -1
+    for index in entry.admitted_segments:
+        if index < 0 or index <= previous:
+            raise _fixed("admitted segment indices must be distinct and increasing")
+        previous = index
+    if previous >= len(segments):
+        raise _fixed("admitted segment indices must index the proof segments")
+    # Closed count prefight from the retained segment METADATA
+    # (no source walk) BEFORE any slice/join/encode: the
+    # admitted region's exact byte total against the ACTUAL
+    # inherited single-source cap, its char total against that
+    # SAME byte cap (a UTF-8 lower bound: every code point
+    # encodes to at least one byte, so a char span alone already
+    # over the cap refuses WITHOUT any owned slice/copy), and its
+    # char total against the retained source length.
+    region_chars = 0
+    region_bytes = 0
+    for position in entry.admitted_segments:
+        segment = segments[position]
+        region_chars += segment.char_length
+        region_bytes += segment.byte_length
+    cap = entry.key_record.graph_bounds.max_single_source_bytes
+    if region_bytes > cap:
+        raise _fixed("admitted region exceeds the inherited single-source byte cap")
+    if region_chars > cap:
+        raise _fixed("admitted region exceeds the inherited single-source byte cap")
+    if region_chars > len(proof.source_text):
+        raise _fixed("admitted region cannot exceed the retained source text")
+    if len(entry.admitted_segments) != 1 and entry.admitted_segments != tuple(range(len(segments))):
+        raise _fixed("admitted region is the whole bundle or one proven group")
+    admitted_set = set(entry.admitted_segments)
+    admitted: list[str] = []
+    region: list[str] = []
+    offset = 0
+    for position, segment in enumerate(segments):
+        if position in admitted_set:
+            for member_position in segment.member_positions:
+                # 018-n: the nested position is an ACTUAL integer
+                # indexing the retained requested occurrences,
+                # validated BEFORE any fetch.
+                if (
+                    not isinstance(member_position, int)
+                    or isinstance(member_position, bool)
+                    or not 0 <= member_position < len(proof.requested_members)
+                ):
+                    raise _fixed(
+                        "admitted member positions must index the retained requested occurrences"
+                    )
+                member = proof.requested_members[member_position]
+                if member.normalized is None:
+                    raise _fixed("admitted members must be resolved paths")
+                admitted.append(member.normalized)
+            region.append(proof.source_text[offset : offset + segment.char_length])
+        offset += segment.char_length
+    admitted_tuple = tuple(admitted)
+    if admitted_tuple != entry.key_record.member_occurrences:
+        raise _fixed("admitted members must equal the key record member occurrences")
+    if _sha256_hex("".join(region).encode("utf-8")) != entry.key_record.aggregate_source_digest:
+        raise _fixed("admitted region digest must equal the key record aggregate")
+    # 018-n: the entry-local group partition is joined to the
+    # ORIGINAL proof segments (the accepted descriptor law): one
+    # group per admitted segment, in admitted order, carrying that
+    # segment's dense member-index range, its PROVEN / BOUNDARYLESS
+    # class and its proven member digest / segment digest.  A
+    # coherently rekeyed record (changed group digest, merged or
+    # regrouped groups) keeps the genuine proof, members and
+    # aggregate digest yet a DETACHED partition is refused here.
+    groups = entry.key_record.ownership_groups
+    if len(groups) != len(entry.admitted_segments):
+        raise _fixed("record groups join the admitted proof segments one-to-one")
+    entry_local = 0
+    for group, position in zip(groups, entry.admitted_segments, strict=True):
+        segment = segments[position]
+        n_members = len(segment.member_positions)
+        expected = tuple(range(entry_local, entry_local + n_members))
+        if group.member_occurrence_indices != expected:
+            raise _fixed("record group indices must be the dense segment member range")
+        if n_members == 1:
+            if segment.member_digest is None:
+                raise _fixed("a single-member segment carries its proven digest")
+            if (
+                group.boundary_class is not BoundaryClass.PROVEN
+                or group.group_digest != segment.member_digest
+            ):
+                raise _fixed("a single-member segment group is proven with the member digest")
+        else:
+            if (
+                group.boundary_class is not BoundaryClass.BOUNDARYLESS
+                or group.group_digest != segment.digest
+            ):
+                raise _fixed("a multi-member segment group is boundaryless with the segment digest")
+        entry_local += n_members
+    if entry.width != len(set(admitted_tuple)):
+        raise _fixed("width must equal the distinct admitted member paths")
+
+
 class CurrentRootCompositionEntry(_GraphFrozen):
     """One retained CURRENT root-composition admission entry.
 
@@ -1247,112 +1606,12 @@ class CurrentRootCompositionEntry(_GraphFrozen):
             raise _fixed("content key must equal the key record content key")
         if _canonical_entry_key(self.key_record) != self.content_key:
             raise _fixed("content key must bind the actual canonical 018-c recipe")
-        if self.entry_class is EntryClass.ROOT_ENTRY:
-            if self.admitted_segments:
-                raise _fixed("the root entry admits the root, not proof segments")
-            if self.root_text is None or self.root_provenance is None:
-                raise _fixed("a current root entry carries its retained root bytes and provenance")
-            if self.proof is not None:
-                raise _fixed("a root entry never embeds a file-tool proof")
-            if self.witnesses:
-                raise _fixed("the root entry is evidenced, never a fabricated read witness")
-            text = self.root_text
-            # Preflight the ACTUAL inherited single-source byte cap
-            # BEFORE any owned encode: the O(1) character count
-            # (bytes are never fewer than characters) and the
-            # no-copy walk with early exit at the cap.
-            cap = self.key_record.graph_bounds.max_single_source_bytes
-            if len(text) > cap:
-                raise _fixed("retained root source exceeds the inherited single-source cap")
-            if _utf8_byte_length_capped(text, cap) > cap:
-                raise _fixed("retained root source exceeds the inherited single-source cap")
-            root_bytes = text.encode("utf-8")  # the ONE owned encode
-            if self.root_source_byte_length != len(root_bytes):
-                raise _fixed("root source_byte_length must equal the retained bytes")
-            if _sha256_hex(root_bytes) != self.root_digest:
-                raise _fixed("root digest must equal the retained root bytes")
-            if self.key_record.member_occurrences != (ROOT_FILENAME,):
-                raise _fixed("a root entry is one occurrence at the normalized root")
-            if self.key_record.aggregate_source_digest != self.root_digest:
-                raise _fixed("root aggregate digest must equal the root digest")
-            if self.width != 1 or self.member_classes != (MemberClass.ELIGIBLE,):
-                raise _fixed("the root is one always-eligible root-occurrence member")
-            provenance = self.root_provenance
-            if provenance.kind == "envelope":
-                if provenance.root_digest != self.root_digest:
-                    raise _fixed("the envelope root provenance binds the root digest")
-                if provenance.source_byte_length != self.root_source_byte_length:
-                    raise _fixed("the envelope root provenance binds the root bytes")
-            else:
-                if provenance.read_digest != self.root_digest:
-                    raise _fixed("the read root provenance binds the root digest")
-                if provenance.read_byte_length != self.root_source_byte_length:
-                    raise _fixed("the read root provenance binds the root bytes")
-            return self
-        if self.root_text is not None or self.root_source_byte_length is not None:
-            raise _fixed("retained root bytes belong to the root entry only")
-        if self.root_provenance is not None:
-            raise _fixed("retained root provenance belongs to the root entry only")
-        if self.proof is None:
-            raise _fixed("a file entry keeps its retained original proof")
-        if not self.witnesses:
-            raise _fixed("a file entry retains its original proof witnesses")
-        proof = self.proof
-        segments = proof.segments
-        if not self.admitted_segments:
-            raise _fixed("a file entry names its admitted segments")
-        previous = -1
-        for index in self.admitted_segments:
-            if index < 0 or index <= previous:
-                raise _fixed("admitted segment indices must be distinct and increasing")
-            previous = index
-        if previous >= len(segments):
-            raise _fixed("admitted segment indices must index the proof segments")
-        # Closed count prefight from the retained segment METADATA
-        # (no source walk) BEFORE any slice/join/encode: the
-        # admitted region's exact byte total against the ACTUAL
-        # inherited single-source cap, its char total against that
-        # SAME byte cap (a UTF-8 lower bound: every code point
-        # encodes to at least one byte, so a char span alone already
-        # over the cap refuses WITHOUT any owned slice/copy), and its
-        # char total against the retained source length.
-        region_chars = 0
-        region_bytes = 0
-        for position in self.admitted_segments:
-            segment = segments[position]
-            region_chars += segment.char_length
-            region_bytes += segment.byte_length
-        cap = self.key_record.graph_bounds.max_single_source_bytes
-        if region_bytes > cap:
-            raise _fixed("admitted region exceeds the inherited single-source byte cap")
-        if region_chars > cap:
-            raise _fixed("admitted region exceeds the inherited single-source byte cap")
-        if region_chars > len(proof.source_text):
-            raise _fixed("admitted region cannot exceed the retained source text")
-        if len(self.admitted_segments) != 1 and self.admitted_segments != tuple(
-            range(len(segments))
-        ):
-            raise _fixed("admitted region is the whole bundle or one proven group")
-        admitted_set = set(self.admitted_segments)
-        admitted: list[str] = []
-        region: list[str] = []
-        offset = 0
-        for position, segment in enumerate(segments):
-            if position in admitted_set:
-                for member_position in segment.member_positions:
-                    member = proof.requested_members[member_position]
-                    if member.normalized is None:
-                        raise _fixed("admitted members must be resolved paths")
-                    admitted.append(member.normalized)
-                region.append(proof.source_text[offset : offset + segment.char_length])
-            offset += segment.char_length
-        admitted_tuple = tuple(admitted)
-        if admitted_tuple != self.key_record.member_occurrences:
-            raise _fixed("admitted members must equal the key record member occurrences")
-        if _sha256_hex("".join(region).encode("utf-8")) != self.key_record.aggregate_source_digest:
-            raise _fixed("admitted region digest must equal the key record aggregate")
-        if self.width != len(set(admitted_tuple)):
-            raise _fixed("width must equal the distinct admitted member paths")
+        # The retained-content join (018-n): the SAME law the parent
+        # boundaries re-run over the ACTUAL retained original
+        # binding (root bytes / digest / provenance; nonempty
+        # admitted region / members / digest / ownership /
+        # authority).
+        _check_entry_retained_content(self)
         return self
 
     def __repr__(self) -> str:  # noqa: D105 - privacy law

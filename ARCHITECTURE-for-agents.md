@@ -208,7 +208,16 @@ parent boundaries, with the closed TEN admission bound-model
 fence and the accepted dense group ordering / unique partition
 law; M02 the exact accepted JSON serialization byte ceiling and
 the reservation-calculation work precharge on the ONE I outer)
-are implemented and PENDING strategic review, at its
+were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete M01/M02 criteria (strategic
+decision `S/reviews/018-m-decision.md`); the bounded 018-n
+repairs (N01 the retained-content join at the leaf and BOTH
+parent boundaries — the entry-local group partition joined to
+the ORIGINAL proof segments and the root group to the retained
+root digest — plus N02 the byte-aware closed reservation, the
+pre-fetch plan segment precharge and the per-site
+reservation-calculation closure) are implemented and
+PENDING strategic review, at its
 bounded inert scope (contract
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`), all as
 inert typed modules under
@@ -403,7 +412,8 @@ inactive.
 
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
-NOT ACCEPTED; 018-m repairs PENDING review).**
+NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
+PENDING review).**
 The 018-i composition takes the ACTUAL retained 018-h
 root-lineage state and its ACTUAL namespace (plus the NEW
 composition bounds and the ACTUAL inherited H/D/E/F/G bound sets)
@@ -476,7 +486,16 @@ parent boundaries, with the closed TEN admission bound-model
 fence and the accepted dense group ordering / unique partition
 law; M02 the exact accepted JSON serialization byte ceiling and
 the reservation-calculation work precharge on the ONE I outer)
-are implemented and PENDING strategic review)
+were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete M01/M02 criteria (strategic
+decision `S/reviews/018-m-decision.md`); the bounded 018-n
+repairs (N01 the retained-content join at the leaf and BOTH
+parent boundaries — the entry-local group partition joined to
+the ORIGINAL proof segments and the root group to the retained
+root digest — plus N02 the byte-aware closed reservation, the
+pre-fetch plan segment precharge and the per-site
+reservation-calculation closure) are implemented and
+PENDING strategic review)
 and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
@@ -930,7 +949,16 @@ parent boundaries, with the closed TEN admission bound-model
 fence and the accepted dense group ordering / unique partition
 law; M02 the exact accepted JSON serialization byte ceiling and
 the reservation-calculation work precharge on the ONE I outer)
-are implemented and PENDING strategic review, at its
+were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete M01/M02 criteria (strategic
+decision `S/reviews/018-m-decision.md`); the bounded 018-n
+repairs (N01 the retained-content join at the leaf and BOTH
+parent boundaries — the entry-local group partition joined to
+the ORIGINAL proof segments and the root group to the retained
+root digest — plus N02 the byte-aware closed reservation, the
+pre-fetch plan segment precharge and the per-site
+reservation-calculation closure) are implemented and
+PENDING strategic review, at its
 bounded inert scope). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
@@ -1073,7 +1101,16 @@ parent boundaries, with the closed TEN admission bound-model
 fence and the accepted dense group ordering / unique partition
 law; M02 the exact accepted JSON serialization byte ceiling and
 the reservation-calculation work precharge on the ONE I outer)
-are implemented and PENDING strategic review, at its
+were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete M01/M02 criteria (strategic
+decision `S/reviews/018-m-decision.md`); the bounded 018-n
+repairs (N01 the retained-content join at the leaf and BOTH
+parent boundaries — the entry-local group partition joined to
+the ORIGINAL proof segments and the root group to the retained
+root digest — plus N02 the byte-aware closed reservation, the
+pre-fetch plan segment precharge and the per-site
+reservation-calculation closure) are implemented and
+PENDING strategic review, at its
 bounded inert scope, contract
 `docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md`) and the
 remaining 018 current-version/overlap work beyond this mechanism

@@ -214,7 +214,16 @@ parent boundaries, with the closed TEN admission bound-model
 fence and the accepted dense group ordering / unique partition
 law; M02 the exact accepted JSON serialization byte ceiling and
 the reservation-calculation work precharge on the ONE I outer)
-are implemented and PENDING strategic review (contract
+were delivered truthfully PARTIAL and are NOT ACCEPTED against
+the complete M01/M02 criteria (strategic decision
+`S/reviews/018-m-decision.md`); the bounded 018-n repairs (N01
+the retained-content join at the leaf and BOTH parent
+boundaries (the entry-local group partition joined to the
+ORIGINAL proof segments and the root group to the retained root
+digest), plus N02 the byte-aware closed reservation, the
+pre-fetch plan segment precharge and the per-site
+reservation-calculation closure) are implemented and PENDING
+strategic review (contract
 [docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md](docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md);
 `tests/test_current_root_composition.py`),
 and the remaining 018 stages plus 019-024 remain mandatory unearned
