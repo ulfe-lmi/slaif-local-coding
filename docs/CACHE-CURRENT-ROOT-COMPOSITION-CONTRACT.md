@@ -74,7 +74,9 @@ over the 018-p state — contract
 `docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md` — that this
 composition does not consume; the same-018 consumer round that
 must consume the legitimate new region state into the actual
-graph/admission is still mandatory). At
+graph/admission is still mandatory — the 018-r graph half is
+delivered at its bounded graph-only scope PENDING review,
+contract `docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`). At
 its bounded inert scope, like the accepted 017,
 018-a..h slices, it is pure, bounded and never active in the
 adapter runtime; no

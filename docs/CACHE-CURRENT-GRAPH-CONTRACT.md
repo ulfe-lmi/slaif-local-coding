@@ -30,6 +30,14 @@ acceptance remain later mandatory same-018 work, then 019–024;
 nothing here is a v1 runtime, compiler-hit, actual-wire-receipt,
 recovery, client or root-refresh claim.
 
+This F kernel is also the ACTUAL graph phase of the 018-r
+selected-root-region consumer
+(`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`), which derives a
+FRESH least fixed point under a selected root digest with that
+selected root as the only root-text supplier and the actual E
+nonroot currentness/ownership law; the public
+`derive_current_graph` law, bounds and behavior are unchanged.
+
 ## 1. Input, namespace revalidation and caller trust
 
 - `derive_current_graph(state, ns, bounds=None,

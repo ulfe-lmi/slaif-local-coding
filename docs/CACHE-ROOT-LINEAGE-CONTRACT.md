@@ -49,11 +49,19 @@ the 018-q root-region currentness slice (separate contract
 QUERY above the 018-p state — an unresolved MAXIMAL trusted root
 uncertainty blocks current-root usability while dominated
 historical uncertainty is retained, without minting root
-authority or advancing a revision — and is IMPLEMENTED and
-PENDING strategic review at its own bounded inert scope; whole
-018 remains open (the next same-018 consumer round must consume
-the legitimate new region state into the actual graph/admission;
-whole-018 review required before merge) and 019-024 remain.
+authority or advancing a revision — and is ACCEPTED at its
+bounded inert query scope WITH PROCESS QUALIFICATIONS AND
+HISTORICAL-REPORT CORRECTIONS (strategic decision
+`S/reviews/018-q-decision.md`); the 018-r consumer slice
+(separate contract
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is the graph half of
+the same-018 consumer round — it derives the actual current
+graph under the selected root and is IMPLEMENTED and PENDING
+strategic review at its bounded graph-only scope. Whole 018
+remains open (the separate same-018 admission/full-result
+consumer still must consume the legitimate new state into
+admission; whole-018 review required before merge) and 019-024
+remain.
 
 ## 1. Namespace, scope keys and caller trust
 

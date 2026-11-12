@@ -21,8 +21,14 @@ consume the SAME legitimate new state into the actual
 graph/admission; neither round alone completes whole 018 (the
 same-018 018-q slice derives the pure root-currentness QUERY over
 this producer's state — contract
-`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md` — PENDING
-strategic review at its bounded inert scope). This slice is
+`docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md` — ACCEPTED at
+its bounded inert query scope WITH PROCESS QUALIFICATIONS AND
+HISTORICAL-REPORT CORRECTIONS, strategic decision
+`S/reviews/018-q-decision.md` — and the same-018 018-r consumer
+slice consumes the legitimate new region state into the actual
+current graph under the selected root, contract
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`, PENDING strategic
+review at its bounded graph-only scope). This slice is
 ACCEPTED at its bounded inert producer scope WITH PROCESS
 QUALIFICATIONS (strategic decision
 `S/reviews/018-p-decision.md`, preserving every recorded

@@ -249,8 +249,12 @@ scope WITH PROCESS QUALIFICATIONS (strategic decision
 018-q versioned root-region currentness slice (a pure
 QUERY over the 018-p state — contract
 `docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is
-implemented and PENDING strategic review at its bounded
-inert scope, all as
+ACCEPTED at its bounded inert query scope WITH PROCESS
+QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
+(strategic decision `S/reviews/018-q-decision.md`), and
+the 018-r consumer slice (contract
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is PENDING
+at its bounded graph-only scope, all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
@@ -467,8 +471,10 @@ bounded inert producer scope WITH PROCESS QUALIFICATIONS
 (strategic decision `S/reviews/018-p-decision.md`;
 `tests/test_root_region_lineage.py`).
 
-**Root-region currentness (018-q inert, PENDING review at its
-bounded scope).**
+**Root-region currentness (018-q inert, ACCEPTED at its
+bounded scope WITH PROCESS QUALIFICATIONS AND
+HISTORICAL-REPORT CORRECTIONS, strategic decision
+`S/reviews/018-q-decision.md`).**
 The 018-q derivation takes the ACTUAL retained 018-p
 root-region lineage state and its ACTUAL namespace (plus
 the NEW currentness bounds) and, in ONE pure bounded
@@ -544,10 +550,139 @@ inherited D collection law stays distinct beneath it.
 It closes nothing end to end: the same-018 CONSUMER
 round must consume the legitimate new region state into
 the actual graph/admission, and whole 018 (plus 019-024)
-remains open and mandatory. It is implemented and
-PENDING strategic review at its bounded inert scope
-(`tests/test_root_region_currentness.py`); the stage
+remains open and mandatory. It is ACCEPTED at its bounded inert query scope WITH
+PROCESS QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
+(strategic decision `S/reviews/018-q-decision.md`,
+preserving every recorded qualification and correction;
+`tests/test_root_region_currentness.py`); the stage
 stays inert and inactive.
+
+**Root-region selected source and current graph (018-r inert,
+PENDING strategic review at its bounded graph-only scope).**
+The separately versioned
+`cache-root-region-graph/v1` /
+`root-region-graph-policy/v1` operation
+`derive_root_region_graph` takes the ACTUAL retained P
+root-region lineage state and namespace, derives ACTUAL Q
+currentness in the SAME charged run, resolves the usable
+selected root source, and derives the ACTUAL accepted F/E
+current graph under that selected root. It never takes a
+caller-positive Q/F snapshot, converts P state into old H
+state, manufactures a singleton or RootAnchor, advances a
+revision, adds authority, or creates persistent state.
+READY means only actual Q READY, resolved selected source
+and actual F graph success. It does not mean acquired
+required dependencies, admitted entries, compiled content,
+cache readiness, HTTP readiness or v1 runtime readiness.
+The contract is
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`.
+
+Source dispatch is explicit for actual envelope, whole
+`read`, and `read_region` provenance. Envelope text comes
+only from the actual immutable D RootAnchor when that fact
+is selected. A whole read keeps its actual complete
+singleton proof. A region joins the selected fact,
+occurrence, complete owning result, each original piece
+producer, whole-proof binding, segment/member coordinates
+and root-member digest/byte length to the SAME original
+retained P/D objects. Keep every compatible maximal
+original witness through the actual Q/P selection;
+materialize only the deterministic first compatible root
+body, without a full source walk for each witness. Preserve
+original-reference identity where promised; value equality
+is not an original association proof. A pure value-equal
+valid input is not rejected merely because its top-level
+bound object was copied.
+
+`BundleProof.source_text` concatenates SOURCE segments in
+order with proven printed marker lines excluded. The
+selected region begins at the sum of the preceding
+original segment CHARACTER lengths. Carrier piece spans
+and UTF-8 byte offsets are not offsets into that
+aggregate. Preflight original index, member ownership,
+character width and bounded UTF-8 length before an owned
+slice, encode, hash or copy. Keep Unicode, CRLF and the
+exact empty root. Whole-proof digest/length and selected
+root-member digest/length are distinct; original
+`proof.root_digest` stays bound to immutable bootstrap
+scope even when the selected governing root is newer.
+Never rewrite the original proof or anchor to make a join
+pass.
+
+Q unproven, authority-conflict and refusal outcomes map
+BEFORE selected-source copying or F derivation, with no
+usable source/graph and no bootstrap fallback. Derive a
+FRESH F least fixed point under the selected root digest,
+using that selected root as the only root-text supplier
+and the ACTUAL E nonroot currentness/ownership law. Stale,
+conflicting or ambiguous groups supply nothing; a
+root-bearing opaque group never supplies root text.
+Withdraw only the removed version owner's ordinary
+edges/certificates, retain surviving complete alternate
+suppliers, remove unsupported cycle-only reachability,
+retain honest unreachable possession, and recompute least
+AND/OR depths and the effective max_depth. Unknown
+reference origin remains unknown; greedy co-caching alone
+never promotes reachability or authority.
+
+ONE R outer covers the entire derivation: early
+scope/bound reservations, actual Q/P/D/B work,
+original-source resolution, actual F/E and graph-stage
+work, and association/serialization/construction
+reservations. The R bounds are total work1048576 and own
+diagnostics64, DEFAULT AND HARD, with stricter positive
+values legal. They are per-operation domains, not
+retained-source, RAM/RSS or token budgets. Each actual
+inherited Q/P/D/B/E/F/GraphBounds domain remains
+independently binding under that total; couple actual
+units through the narrow private kernels, with no global
+minimum, cap-sized fake reservation, reset or second
+unmetered public derivation. Count candidate attempts
+before deduplication. Closed O(1) count/scalar/class/
+version gates precede element/set/sort/hash/serializer
+work, and precharge real metadata walks, snapshots,
+membership widths, reservation calculations, owned content
+passes and constructors before work. R-owned
+character/byte content reservations do not reinterpret
+the accepted F operation counters or its separate
+source-byte/stage domains. Original-batch limits stay
+distinct from cumulative retention. Constructor checks
+enforce closed local shape, scope and associations; they
+do not hide an uncharged full original proof/history
+traversal.
+
+Every returned R result retains the EXACT input P state
+by reference with its actual carried revision and lineage
+key. The stable R scope binds the actual P lineage
+identity, R/Q/F/E versions, actual graph version and
+every effective R/Q/F/E bound; revision is separate.
+Keep actual same-run Q once returned, and actual F
+result/E overlay only when those intermediates were
+actually returned. Never rerun E to populate evidence or
+fabricate an unreturned intermediate after an R-total
+crossing. Refusals publish no R-ready selected-source/
+graph output; already returned nested evidence stays
+truthful. In particular, an R-total crossing after F
+completed may retain that ACTUAL F OK result as evidence
+while R remains REFUSED and exposes no usable resolved
+source.
+P/Q/F refusal reasons stay in their actual channels,
+rather than being invented as R-own diagnostics. Fixed
+private repr/errors and the closed host-IO purity law
+apply to public ready, non-ready and refusal paths.
+Original payload-data serialization is preserved; pure
+equality is not HTTP wire proof.
+
+The API remains inert and inactive in adapter execution.
+The separate same018 admission/full-result consumer, all
+original whole018 G/C/S and repair criteria, and stages
+019-024 remain mandatory. R graph/source-scale results
+cannot replace the later complete admission consumer's
+own substantial-source and whole-operation resource
+evidence. Preserve old H/O/I/P/Q public schemas,
+defaults, versions, recipes and supported boundaries,
+including honest old-I refusal of region-version state
+and all earlier NOT ACCEPTED/PARTIAL decisions.
 
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
@@ -555,7 +690,9 @@ NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
 ACCEPTED; 018-o mixed observation ACCEPTED WITH PROCESS
 QUALIFICATIONS; 018-p root-region producer ACCEPTED WITH
 PROCESS QUALIFICATIONS; 018-q root-region currentness
-PENDING review).**
+ACCEPTED WITH PROCESS QUALIFICATIONS AND HISTORICAL-
+REPORT CORRECTIONS; 018-r root-region graph PENDING
+review at its bounded graph-only scope).**
 The 018-i composition takes the ACTUAL retained 018-h
 root-lineage state and its ACTUAL namespace (plus the NEW
 composition bounds and the ACTUAL inherited H/D/E/F/G bound sets)
@@ -672,8 +809,12 @@ scope WITH PROCESS QUALIFICATIONS (strategic decision
 `docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md`); the
 018-q root-region currentness query (contract
 `docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is
-implemented and PENDING strategic review at its bounded
-inert scope))
+ACCEPTED at its bounded inert query scope WITH PROCESS
+QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
+(strategic decision `S/reviews/018-q-decision.md`; the
+018-r consumer slice, contract
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`, is PENDING
+at its bounded graph-only scope))
 and the stage stays inert and inactive.
 
 **Root.** The evidenced effective `AGENTS.md` carries a workspace/directory
@@ -1168,8 +1309,12 @@ scope WITH PROCESS QUALIFICATIONS (strategic decision
 018-q versioned root-region currentness slice (a pure
 QUERY over the 018-p state — contract
 `docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is
-implemented and PENDING strategic review at its bounded
-inert scope)). The
+ACCEPTED at its bounded inert query scope WITH PROCESS
+QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
+(strategic decision `S/reviews/018-q-decision.md`), and
+the 018-r consumer slice (contract
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is PENDING
+at its bounded graph-only scope). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -1352,8 +1497,12 @@ scope WITH PROCESS QUALIFICATIONS (strategic decision
 018-q versioned root-region currentness slice (a pure
 QUERY over the 018-p state — contract
 `docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md`) is
-implemented and PENDING strategic review at its bounded
-inert scope and the
+ACCEPTED at its bounded inert query scope WITH PROCESS
+QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
+(strategic decision `S/reviews/018-q-decision.md`), and
+the 018-r consumer slice (contract
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is PENDING
+at its bounded graph-only scope and the
 remaining 018 current-version/overlap work beyond this mechanism
 (C04/C05 current-version acceptance, version-owned
 edge/certificate withdrawal end-to-end acceptance) plus

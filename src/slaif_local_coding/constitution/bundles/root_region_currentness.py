@@ -371,6 +371,87 @@ def derive_root_region_currentness(
     if not _q_state_boundary_ok(state) or not _region_state_shape(state):
         raise _fixed("the region lineage state must carry an actual bounded state record")
 
+    default_bounds = RootRegionCurrentnessBounds()
+    if not _q_ns_boundary_ok(ns) or not _region_preflight_ns_shape(ns):
+        return _q_result(
+            state,
+            root_region_currentness_scope_key(
+                state.lineage_key,
+                ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
+                ROOT_REGION_CURRENTNESS_POLICY_VERSION,
+                default_bounds,
+            ),
+            default_bounds,
+            RootRegionCurrentnessOutcome.REFUSED,
+            diagnostics=(RootRegionCurrentnessDiagnostic.FOREIGN_SCOPE,),
+        )
+
+    q_bounds = default_bounds
+    if bounds is not None:
+        if not root_region_currentness_bounds_shape_ok(bounds):
+            return _q_result(
+                state,
+                root_region_currentness_scope_key(
+                    state.lineage_key,
+                    ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
+                    ROOT_REGION_CURRENTNESS_POLICY_VERSION,
+                    default_bounds,
+                ),
+                default_bounds,
+                RootRegionCurrentnessOutcome.REFUSED,
+                diagnostics=(RootRegionCurrentnessDiagnostic.MALFORMED_BINDING,),
+            )
+        try:
+            q_bounds = RootRegionCurrentnessBounds.model_validate(
+                bounds.model_dump(mode="python", warnings=False)
+            )
+        except Exception:
+            return _q_result(
+                state,
+                root_region_currentness_scope_key(
+                    state.lineage_key,
+                    ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
+                    ROOT_REGION_CURRENTNESS_POLICY_VERSION,
+                    default_bounds,
+                ),
+                default_bounds,
+                RootRegionCurrentnessOutcome.REFUSED,
+                diagnostics=(RootRegionCurrentnessDiagnostic.MALFORMED_BINDING,),
+            )
+    q_scope_key = root_region_currentness_scope_key(
+        state.lineage_key,
+        ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
+        ROOT_REGION_CURRENTNESS_POLICY_VERSION,
+        q_bounds,
+    )
+    q_outer = _QOuter(q_bounds.max_total_work_units)
+    return _derive_root_region_currentness_core(
+        state,
+        ns,
+        q_bounds,
+        q_scope_key,
+        q_outer,
+    )
+
+
+def _derive_root_region_currentness_core(
+    state: RootRegionLineageState,
+    ns: RootRegionLineageNamespace,
+    q_bounds: RootRegionCurrentnessBounds,
+    q_scope_key: str,
+    q_outer: _QOuter,
+) -> RootRegionCurrentnessResult:
+    """The charged Q derivation core (the accepted 018-q law, unchanged).
+
+    Extracted as the narrow private shared-ledger seam for the
+    accepted 018-r consumer, which supplies a ONE-R-total-coupled
+    ``_QOuter`` subclass in place of the public wrapper's own
+    outer.  The public wrapper's O(1) fences, bounds resolution
+    and scope-key recomputation are unchanged; every charged unit
+    of this core flows through the supplied outer (the coupled
+    P phase included, through ``_QPAdapter``).
+    """
+
     def _refuse(
         q_bounds: RootRegionCurrentnessBounds,
         q_scope_key: str,
@@ -388,54 +469,6 @@ def derive_root_region_currentness(
             diagnostics=diagnostics,
         )
 
-    default_bounds = RootRegionCurrentnessBounds()
-    if not _q_ns_boundary_ok(ns) or not _region_preflight_ns_shape(ns):
-        return _refuse(
-            default_bounds,
-            root_region_currentness_scope_key(
-                state.lineage_key,
-                ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
-                ROOT_REGION_CURRENTNESS_POLICY_VERSION,
-                default_bounds,
-            ),
-            (RootRegionCurrentnessDiagnostic.FOREIGN_SCOPE,),
-        )
-
-    q_bounds = default_bounds
-    if bounds is not None:
-        if not root_region_currentness_bounds_shape_ok(bounds):
-            return _refuse(
-                default_bounds,
-                root_region_currentness_scope_key(
-                    state.lineage_key,
-                    ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
-                    ROOT_REGION_CURRENTNESS_POLICY_VERSION,
-                    default_bounds,
-                ),
-                (RootRegionCurrentnessDiagnostic.MALFORMED_BINDING,),
-            )
-        try:
-            q_bounds = RootRegionCurrentnessBounds.model_validate(
-                bounds.model_dump(mode="python", warnings=False)
-            )
-        except Exception:
-            return _refuse(
-                default_bounds,
-                root_region_currentness_scope_key(
-                    state.lineage_key,
-                    ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
-                    ROOT_REGION_CURRENTNESS_POLICY_VERSION,
-                    default_bounds,
-                ),
-                (RootRegionCurrentnessDiagnostic.MALFORMED_BINDING,),
-            )
-    q_scope_key = root_region_currentness_scope_key(
-        state.lineage_key,
-        ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
-        ROOT_REGION_CURRENTNESS_POLICY_VERSION,
-        q_bounds,
-    )
-    q_outer = _QOuter(q_bounds.max_total_work_units)
     p_selection: RootRegionSelectionResult | None = None
     try:
         q_outer.units(_Q_BASE_UNITS)

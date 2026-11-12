@@ -268,14 +268,33 @@ authority, changes no P selection and advances no
 revision; the combined frozen-partial-order frontier,
 the closed evidence/exclusion table, the stable scope key
 and the ONE Q outer with the ACTUAL independent P
-domain) is implemented and PENDING strategic review at
-its bounded inert scope (contract
+domain) is ACCEPTED at its bounded inert
+query scope WITH PROCESS QUALIFICATIONS AND
+HISTORICAL-REPORT CORRECTIONS (strategic decision
+`S/reviews/018-q-decision.md`; contract
 [docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md](docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md);
-`tests/test_root_region_currentness.py`),
-and the remaining 018 stages (including the consumer round that
-must consume the legitimate new region state into the actual
-graph/admission) plus 019-024 remain mandatory unearned
-stages).
+`tests/test_root_region_currentness.py`); the 018-r
+versioned root-region selected source and current graph
+slice is a separate INERT consumer derivation over the
+018-p state and namespace (ONE bounded operation that
+derives the ACTUAL same-run Q currentness, resolves the ONE
+deterministic selected root source — envelope from the
+actual immutable D anchor, whole read with its complete
+singleton proof, or region joined to the SAME original
+retained objects with the root interval from preceding
+original segment CHARACTER lengths and closed preflights
+before any owned slice/encode/hash/copy — and derives the
+ACTUAL accepted current graph under that selected root under
+ONE R outer with every inherited domain independently
+binding; the EXACT input state retained on every outcome and
+no usable source/graph on any non-ready outcome) is
+implemented and PENDING strategic review at its bounded
+graph-only scope (contract
+[docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md](docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md);
+`tests/test_root_region_graph.py`),
+and the remaining 018 stages (including the separate
+same-018 admission/full-result consumer) plus 019-024 remain
+mandatory unearned stages).
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in

@@ -26,11 +26,18 @@ QUALIFICATIONS (strategic decision
 qualification, including the failed detached next-control
 attempt after the immutable P report and its verified
 foreground replacement); this 018-q slice is IMPLEMENTED and
-PENDING
-strategic review at its bounded inert scope. Neither slice closes
-anything end to end: the SAME-018 CONSUMER round must consume the
-legitimate new region state into the actual graph/admission, and
-whole 018 (plus 019-024) remains open and mandatory. Like the
+ACCEPTED at its bounded inert query scope WITH PROCESS
+QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS (strategic
+decision `S/reviews/018-q-decision.md`, preserving every
+recorded qualification and correction). The 018-r consumer
+slice (`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is the
+graph half of that SAME-018 CONSUMER round: it consumes the
+legitimate new region state into the actual current graph under
+the selected root, is implemented and PENDING strategic review
+at its bounded graph-only scope, and does not transfer
+acceptance to this slice or to whole 018. The separate
+same-018 admission/full-result consumer remains, and whole 018
+(plus 019-024) remains open and mandatory. Like the
 accepted 017 slice and the accepted bounded 018 slices it is pure,
 bounded and never active in the adapter runtime: no command string
 is executed, no model/native/client/service facility is started,
@@ -39,7 +46,11 @@ inherited green checks. The actual P core is unchanged at the
 accepted P head (`root_region_lineage.py` /
 `root_region_lineage_models.py` hashes recorded in the 018-p
 report); all existing H/O/I/P public signatures, defaults,
-schemas, version tags, recipe bytes and behavior remain intact.
+schemas, version tags, recipe bytes and behavior remain intact,
+and the public Q wrapper's O(1) fences, bounds resolution and
+scope-key recomputation are unchanged by the narrow private
+shared-ledger seam the 018-r consumer reuses (the extracted
+charged core is the unchanged public wrapper body).
 
 ## 1. Namespace, scope key and caller trust
 
