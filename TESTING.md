@@ -139,12 +139,162 @@ SCOPE (017-am): the original selected AJ frames (hash-verified native run
 record) fed through the public composition with an EXPLICIT carrier
 conversion, both endpoints, four cases (section 11q) — the sleep-bearing
 stream command remains an UNEARNED read grammar (process complete, no
-source attribution), and the audit / remediation of the EACH seven
-required literal read families remains outstanding. No GENERIC native-compatibility, whole-017 or v1 runtime claim
+source attribution), and the EACH seven required literal read
+families were concretely audited in 017-am (the residual 5/6/7
+uncertainties are preserved as process qualifications). No GENERIC native-compatibility, whole-017 or v1 runtime claim
 is made (the bounded AJ native_ready=true verdict above stays the only
 native readiness recorded). Whole-017 acceptance, merge and remote-main
-verification must complete BEFORE 018-024 may begin; the later ACTUAL
-qualification belongs to the separately activated orders, strategy-chosen.
+verification completed under the 017-am decision (merged to main at
+ffaabf4b); 018-024 proceed under separately activated orders,
+strategy-chosen (018 active: 018-a foundation slice ACCEPTED at its
+bounded inert graph-foundation scope with process qualifications (the
+018-a strategic decision, `reviews/018-a-decision.md`; contract
+[docs/CACHE-GRAPH-CONTRACT.md](docs/CACHE-GRAPH-CONTRACT.md)), 018-b is an implemented inert bundle-proof bridge slice ACCEPTED at its
+bounded scope with process qualifications (the 018-b strategic decision,
+`reviews/018-b-decision.md`; contract
+[docs/CACHE-BUNDLE-PROOF-CONTRACT.md](docs/CACHE-BUNDLE-PROOF-CONTRACT.md);
+`tests/test_bundle_proof.py`), 018-c is an implemented inert
+bundle-admission and structural-identity slice ACCEPTED at its bounded
+inert admission/structural-identity scope with process qualifications
+(strategic decision `S/reviews/018-c-decision.md`; contract
+[docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md](docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md);
+`tests/test_bundle_admission.py`, `tests/test_bundle_admission_vectors.py`),
+018-d is an implemented inert causal-occurrence-ledger slice
+ACCEPTED at its bounded inert scope with process qualifications
+(strategic decision `S/reviews/018-d-decision.md`; contract
+[docs/CACHE-CAUSAL-HISTORY-CONTRACT.md](docs/CACHE-CAUSAL-HISTORY-CONTRACT.md);
+`tests/test_causal_history.py`, `tests/test_causal_history_models.py`),
+018-e is an implemented inert nonroot currentness-overlay slice
+ACCEPTED at its bounded inert currentness/overlap-overlay scope
+with process qualifications (strategic decision
+`S/reviews/018-e-decision.md` + addendum; contract
+[docs/CACHE-CURRENTNESS-CONTRACT.md](docs/CACHE-CURRENTNESS-CONTRACT.md);
+`tests/test_currentness.py`, `tests/test_currentness_models.py`),
+018-f is an implemented inert current-graph-closure slice
+ACCEPTED at its bounded inert current-graph scope with process
+qualifications (the 018-f strategic decision,
+`S/reviews/018-f-decision.md`; contract
+[docs/CACHE-CURRENT-GRAPH-CONTRACT.md](docs/CACHE-CURRENT-GRAPH-CONTRACT.md);
+`tests/test_current_graph.py`, `tests/test_current_graph_models.py`),
+018-g is an implemented inert current-bundle-admission slice
+ACCEPTED at its bounded inert current-admission scope with process
+qualifications (the 018-g strategic decision,
+`S/reviews/018-g-decision.md`; contract
+[docs/CACHE-CURRENT-ADMISSION-CONTRACT.md](docs/CACHE-CURRENT-ADMISSION-CONTRACT.md);
+`tests/test_current_admission.py`),
+018-h is an implemented inert root-authority-lineage slice
+ACCEPTED at its bounded inert root-authority-lineage scope with
+process qualifications (the 018-h strategic decision,
+`S/reviews/018-h-decision.md`; contract
+[docs/CACHE-ROOT-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-LINEAGE-CONTRACT.md);
+`tests/test_root_lineage.py`),
+018-i is an implemented inert current-root-composition slice
+NOT ACCEPTED at its bounded inert scope (the 018-i strategic
+decision, `S/reviews/018-i-decision.md`); the bounded 018-j
+repairs (J01 association closure, J02 exact reverse-index law,
+J03 independent budget domains) were delivered truthfully
+PARTIAL and are NOT ACCEPTED against the complete J01/J02/J03
+criteria (strategic decision `S/reviews/018-j-decision.md`); the
+bounded 018-k repairs (K01 actual nested canonical keys at BOTH
+parent boundaries, K02 actual nested row shapes before
+exact-relation comparison, K03 genuinely reachable E collection
+caps with exact evidence labels) are NOT ACCEPTED against the
+complete K01/K02/K03 criteria (strategic decision
+`S/reviews/018-k-decision.md`); the bounded 018-l repairs (L01
+complete closed nested entry / key-record / ownership metadata
+fences at the leaf and BOTH parent boundaries with the entry /
+record authority and width joins, L02 independently derived
+actual E collection-domain counts with a before-target charge
+sentinel) were delivered truthfully PARTIAL and are NOT
+ACCEPTED against the complete L01/resource/artifact criteria
+(strategic decision `S/reviews/018-l-decision.md`); the bounded
+018-m repairs (M01 O(1) count / scalar gates BEFORE any element
+/ set / sort / hash / serialization work at the leaf and BOTH
+parent boundaries, with the closed TEN admission bound-model
+fence and the accepted dense group ordering / unique partition
+law; M02 the exact accepted JSON serialization byte ceiling and
+the reservation-calculation work precharge on the ONE I outer)
+were delivered truthfully PARTIAL and are NOT ACCEPTED against
+the complete M01/M02 criteria (strategic decision
+`S/reviews/018-m-decision.md`); the bounded 018-n repairs (N01
+the retained-content join at the leaf and BOTH parent
+boundaries (the entry-local group partition joined to the
+ORIGINAL proof segments and the root group to the retained root
+digest), plus N02 the byte-aware closed reservation, the
+pre-fetch plan segment precharge and the per-site
+reservation-calculation closure) are ACCEPTED at their
+bounded inert scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-n-decision.md`); the 018-o
+root-aware mixed-observation slice (the new pure
+`observe_root_lineage_mixed` operation plus
+`ROOT_LINEAGE_MIXED_OBSERVATION_VERSION`; a proven mixed root
+member matching an independently authoritative known version
+of the same effective root — including an independently
+issued complete whole singleton in the SAME batch — acquires
+source evidence while a mixed read mints no governing
+authority, unresolved foreign digests keep the exact
+COMPETING_ROOTS refusal, and the pending-set snapshot is
+precharged on the SAME H outer) is implemented and ACCEPTED at
+its bounded inert scope WITH PROCESS QUALIFICATIONS (strategic
+decision `S/reviews/018-o-decision.md`; contract
+[docs/CACHE-ROOT-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-LINEAGE-CONTRACT.md)
+section 5a; `tests/test_root_lineage_mixed.py`); plus the 018-p
+versioned root-region authority producer (the separate
+`cache-root-region-lineage/v1`/`root-region-lineage-policy/v1`
+contract and the `read_region` provenance kind: a genuinely
+issued complete NEW root region in a mixed-only read acquires
+source evidence AND authority with NO independent singleton,
+repeated/opaque/partial/truncated/nonzero/unpaired/unsupported
+reads gain no exception, retention is preflighted before
+materialization under the unchanged H ceilings, ONE
+new-operation outer at the unchanged RootLineageBounds, the old
+H/O law unchanged, the existing old I honestly refusing the
+region-version state, and the closed host-IO purity surface
+enforced on every public path) is ACCEPTED at its bounded
+inert producer scope WITH PROCESS QUALIFICATIONS
+(strategic decision `S/reviews/018-p-decision.md`;
+contract
+[docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md](docs/CACHE-ROOT-REGION-LINEAGE-CONTRACT.md);
+`tests/test_root_region_lineage.py`); the 018-q
+versioned root-region currentness slice is a separate
+pure QUERY over the 018-p state (an unresolved MAXIMAL
+trusted root uncertainty — a trusted complete root-bearing
+observation whose governing root cannot be established
+under P source policy, later or incomparable to the known
+root — makes the known authoritative root not currently
+usable, while dominated historical uncertainty is retained
+and never permanently blocks; the query mints no root
+authority, changes no P selection and advances no
+revision; the combined frozen-partial-order frontier,
+the closed evidence/exclusion table, the stable scope key
+and the ONE Q outer with the ACTUAL independent P
+domain) is ACCEPTED at its bounded inert
+query scope WITH PROCESS QUALIFICATIONS AND
+HISTORICAL-REPORT CORRECTIONS (strategic decision
+`S/reviews/018-q-decision.md`; contract
+[docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md](docs/CACHE-ROOT-REGION-CURRENTNESS-CONTRACT.md);
+`tests/test_root_region_currentness.py`); the 018-r
+versioned root-region selected source and current graph
+slice is a separate INERT consumer derivation over the
+018-p state and namespace (ONE bounded operation that
+derives the ACTUAL same-run Q currentness, resolves the ONE
+deterministic selected root source — envelope from the
+actual immutable D anchor, whole read with its complete
+singleton proof, or region joined to the SAME original
+retained objects with the root interval from preceding
+original segment CHARACTER lengths and closed preflights
+before any owned slice/encode/hash/copy — and derives the
+ACTUAL accepted current graph under that selected root under
+ONE R outer with every inherited domain independently
+binding; the EXACT input state retained on every outcome and
+no usable source/graph on any non-ready outcome) is
+implemented and PENDING strategic review at its bounded
+graph-only scope (contract
+[docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md](docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md);
+`tests/test_root_region_graph.py`),
+and the remaining 018 stages (including the separate
+same-018 admission/full-result consumer) plus 019-024 remain
+mandatory unearned stages).
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in
@@ -191,7 +341,7 @@ the protected model host. CI owns the canonical executions:
 | `docker` | Fresh built image, actual platform/dependency/wheel identity, signed ingress, readiness, hardening, lifecycle and teardown. |
 | `operator-session` | Documented pull-based operator lifecycle against a synthetic registry and fake upstream. |
 | `docker-published` | Authenticated pull and qualification of the recorded immutable digest after publication. |
-| `cache-native-containment` | Disposable hosted-runner containment capability proof: pinned-base fixture image, explicit confinement surface (network none, read-only rootfs, nonroot uid, cap-drop ALL, no-new-privileges, seccomp=builtin, bounded memory/pids/CPU/tmpfs), ordered token-bound parent-death proof, verified image removal. No secrets forwarded; the D09 actual-trace process-completion qualification remains `NOT RUN`. |
+| `cache-native-containment` | Disposable hosted-runner containment capability proof: pinned-base fixture image, explicit confinement surface (network none, read-only rootfs, nonroot uid, cap-drop ALL, no-new-privileges, seccomp=builtin, bounded memory/pids/CPU/tmpfs), ordered token-bound parent-death proof, verified image removal. No secrets forwarded; the job is a fake/disposable capability proof and never a new actual attempt - the D09 actual-trace process-completion qualification is qualified AT BOUNDED SCOPE in 017-am (observation contract section 11q). |
 
 Before an image is published, `docker-published` reports an explicit
 prepublication `NOT RUN` for image qualification while recording registry facts.
