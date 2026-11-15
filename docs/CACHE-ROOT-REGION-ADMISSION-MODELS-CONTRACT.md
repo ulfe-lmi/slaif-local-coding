@@ -18,8 +18,10 @@ the ACTUAL retained P state and namespace and the ACTUAL R result by
 immutable reference, the exact canonical 018-c key records, the complete
 reverse member index and the bounded reason/count/resource metadata, and
 it precharges its own closed validation work for the later same-018
-consumer. This slice is IMPLEMENTED and PENDING strategic review at its
-bounded MODEL/LOCAL-BOUNDARY scope: it is NOT the complete region
+consumer. This slice is ACCEPTED at the bounded INERT
+MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT
+HISTORICAL-REPORT CORRECTIONS (strategic decision
+`S/reviews/018-s-decision.md`): it is NOT the complete region
 consumer. There is no operation result/outcome, no persistent
 owner/namespace, no new whole-operation bound set and no public derive
 function here; no public API here accepts a caller-positive R/Q/F
@@ -530,10 +532,13 @@ predicates and recipes without changing old public law.
   runtime or HTTP readiness, and no v1 profile behavior. Model
   construction is not cache admission, compilation, wire delivery or
   authenticated runtime isolation.
-- It is PENDING strategic review at its bounded model/local-boundary
-  scope; acceptance of this slice does not accept whole 018, the
-  later admission/full-result consumer, or 019-024, all of which
-  remain mandatory. The I/J/K/L/M NOT ACCEPTED history and every
+- It is ACCEPTED at its bounded model/local-boundary scope
+  (strategic decision `S/reviews/018-s-decision.md`, preserving
+  every recorded qualification and correction); that acceptance
+  does not accept whole 018, the later admission/full-result
+  consumer (the 018-t complete consumer, `docs/CACHE-ROOT-REGION-
+  ADMISSION-CONTRACT.md`), or 019-024, all of which remain
+  mandatory. The I/J/K/L/M NOT ACCEPTED history and every
   unique accepted law/qualification are preserved, including the
   honest old-I refusal of the region-version state and the old I/N
   reservations unchanged.

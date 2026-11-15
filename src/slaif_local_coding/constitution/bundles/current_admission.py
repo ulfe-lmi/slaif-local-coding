@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
-from typing import cast
+from typing import Protocol, cast
 
 from pydantic import BaseModel, ValidationError
 
@@ -186,6 +186,25 @@ class _GStage(_current_graph._StageLedger):
         if self.work_spent + 1 > self.bounds.max_work_units:
             raise _GOverflow(CurrentAdmissionLimitation.ADMISSION_WORK_UNITS_EXHAUSTED)
         self.work_spent += 1
+
+
+class _FileEntryPrecharge(Protocol):
+    """The 018-t PRIVATE pre-construction seam (never public).
+
+    The complete consumer's typed callback that reserves the FILE
+    entry validator's actual component work (the versioned S
+    precharge contracts) on the SAME G ledger BEFORE the entry
+    model constructor runs it.  The public G law never receives
+    one: the default ``None`` behavior is unchanged."""
+
+    def __call__(
+        self,
+        key_record: BundleKeyRecord,
+        proof: BundleProof,
+        admitted_segments: tuple[int, ...],
+        region_chars: int,
+        region_bytes: int,
+    ) -> None: ...
 
 
 #: Exact 1:1 value mapping from the 018-f closed limitation names to
@@ -832,6 +851,7 @@ def _assemble_file_entries[EntryT: BaseModel](
     outer: _GOuter,
     stage_g: _GStage,
     selected_root_digest: str | None = None,
+    precharge_entry: _FileEntryPrecharge | None = None,
 ) -> tuple[
     dict[str, EntryT],
     dict[str, set[str]],
@@ -1003,6 +1023,13 @@ def _assemble_file_entries[EntryT: BaseModel](
                     region_bytes,
                     workspace_bytes,
                 )
+                # The 018-t typed pre-construction seam: the
+                # complete consumer reserves the FILE entry
+                # validator's actual component work (the versioned
+                # S precharge contracts) BEFORE the constructor
+                # runs it.  The public G law never supplies one.
+                if precharge_entry is not None:
+                    precharge_entry(key_record, proof, plan, region_chars, region_bytes)
                 entry = file_entry_cls(
                     entry_class=EntryClass.FILE_BUNDLE_ENTRY,
                     content_key=content_key,

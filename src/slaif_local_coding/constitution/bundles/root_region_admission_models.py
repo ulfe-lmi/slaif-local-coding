@@ -28,7 +28,7 @@ compilation, wire delivery or authenticated runtime isolation.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Protocol
 
 from pydantic import (
@@ -322,6 +322,22 @@ def _s_g_bounds_closed(bounds: object) -> bool:
     )
 
 
+def _s_six_ns_bound_sets_closed(ns: RootRegionLineageNamespace) -> bool:
+    """The six carried P-namespace bound sets under their expected
+    original concrete classes and original hard ranges (the closed
+    O(1) part of the ACTUAL parent bound population, reused at the
+    full-result carrying boundary where the R result is not
+    carried)."""
+    return (
+        _s_bounds_set_closed(ns.bounds, BundleAdmissionBounds)
+        and _s_bounds_set_closed(ns.proof_bounds, BundleProofBounds)
+        and _s_bounds_set_closed(ns.graph_bounds, GraphBounds)
+        and _s_bounds_set_closed(ns.observation_bounds, ObservationBounds)
+        and _s_bounds_set_closed(ns.history_bounds, HistoryBounds)
+        and _s_bounds_set_closed(ns.root_lineage_bounds, RootLineageBounds)
+    )
+
+
 def _s_all_eleven_bound_sets_closed(
     ns: RootRegionLineageNamespace,
     r_result: RootRegionGraphResult,
@@ -349,21 +365,14 @@ def _s_all_eleven_bound_sets_closed(
         or type(r_result.e_bounds) is not CurrentnessBounds
     ):
         return False
-    if not (
+    return (
         root_region_graph_bounds_shape_ok(r_result.bounds)
         and _r_q_bounds_closed(r_result.q_bounds)
         and _r_f_bounds_closed(r_result.f_bounds)
         and _r_e_bounds_closed(r_result.e_bounds)
-        and _s_bounds_set_closed(ns.bounds, BundleAdmissionBounds)
-        and _s_bounds_set_closed(ns.proof_bounds, BundleProofBounds)
-        and _s_bounds_set_closed(ns.graph_bounds, GraphBounds)
-        and _s_bounds_set_closed(ns.observation_bounds, ObservationBounds)
-        and _s_bounds_set_closed(ns.history_bounds, HistoryBounds)
-        and _s_bounds_set_closed(ns.root_lineage_bounds, RootLineageBounds)
+        and _s_six_ns_bound_sets_closed(ns)
         and _s_g_bounds_closed(g_bounds)
-    ):
-        return False
-    return True
+    )
 
 
 _S_Q_RESULT_FIELDS: tuple[str, ...] = (
@@ -1714,6 +1723,37 @@ def _s_root_content_precharge_closed(
     return 0, byte_units
 
 
+def _s_parent_witness_compat_conservative(
+    reserver: _SRegionWorkReserver,
+    entry: RootRegionAdmissionEntry,
+    occurrences: tuple[Any, ...],
+    s_cap: int,
+    m_cap: int,
+    n_res: int,
+    n_pieces_max: int,
+    n_mem_entry: int,
+) -> None:
+    """The 018-s default witness region-compatibility billing
+    (the root-region-admission-precharge/v1 recipe term,
+    preserved verbatim): a single closed ceiling at the ACTUAL
+    inherited owner-domain ceilings -- the O(1) pool per
+    witness (the two 64-hex walks included), the per-owner-
+    segment fences, the owner member closure, the entry
+    key-occurrence join and the nested member-position walk
+    over EVERY selected owner segment (twelve visits per
+    position: the scalar fence, the requested-members get, the
+    resolved-text check and the admitted append, plus one
+    admitted-sequence tuple read per position) -- the
+    per-segment count gate bounds each inner walk by m_cap
+    BEFORE it runs, so the closed nested domain is
+    s_cap * m_cap positions.  Reserved before the target may
+    run."""
+    region_compat_ceil = 312 + 23 * s_cap + 21 * m_cap + 13 * s_cap * m_cap + n_mem_entry
+    reserver.reserve(
+        len(entry.witnesses) * (5 + 17 + 17 * n_res + 26 * n_pieces_max + region_compat_ceil)
+    )
+
+
 def _s_parent_precharge_closed(
     reserver: _SRegionWorkReserver,
     state: RootRegionLineageState,
@@ -1724,11 +1764,21 @@ def _s_parent_precharge_closed(
     entries: tuple[RootRegionAdmissionEntry, ...],
     path_associations: tuple[Any, ...],
     admission_reasons: tuple[Any, ...],
+    witness_compat_billing: _SWitnessCompatBilling = _s_parent_witness_compat_conservative,
 ) -> None:
     """The closed NEW local validation-cost reservation for the
     ADMISSION PARENT re-run (the versioned
     ``root-region-admission-precharge/v1`` recipe, the complete
     ``_v_admission`` carrying law).
+
+    The witness region-compatibility term (phase 8, FILE rows)
+    runs under the typed ``witness_compat_billing`` strategy:
+    the default is the closed ceiling at the ACTUAL inherited
+    owner-domain ceilings (the 018-s recipe, preserved
+    verbatim), and only the 018-t complete-operation consumer
+    substitutes its separately versioned tightened
+    actual-owner billing.  No validator, predicate or other
+    reservation of this recipe is affected by the strategy.
 
     SEPARATE component precharge contract: the caller supplies
     the typed bounded meter and invokes the actual target (the
@@ -2667,7 +2717,9 @@ def _s_parent_precharge_closed(
     # the M04 owner/witness joins at the ACTUAL inherited
     # owner-domain ceilings (the safe structural upper bounds
     # before any owner lookup -- never the entry's own lengths
-    # and never a new fixed cap).
+    # and never a new fixed cap; the witness term runs under
+    # the typed witness_compat_billing strategy, whose default
+    # is exactly this closed ceiling).
     if not _r_fields_present(root_entry, _S_ENTRY_FIELDS):
         raise _fixed("the admission entry must carry its closed fields")
     # The ROOT row's resolved source is the ACTUAL R resolved
@@ -2900,20 +2952,22 @@ def _s_parent_precharge_closed(
         reserver.reserve(n_occ)
         reserver.reserve(17 + 17 * n_res + 26 * n_pieces_max)
         reserver.reserve(1 + 2 * n_w)
-        # The witness region-compatibility ceiling at the
-        # ACTUAL inherited owner-domain ceilings: the O(1)
-        # pool (the two 64-hex walks included), the per-owner-
-        # segment fences, the owner member closure, the entry
-        # key-occurrence join, and the nested member-position
-        # walk over EVERY selected owner segment -- the
-        # per-segment count gate bounds each inner walk by
-        # m_cap BEFORE it runs, so the closed nested domain is
-        # s_cap * m_cap positions (twelve visits per position:
-        # the scalar fence, the requested-members get, the
-        # resolved-text check and the admitted append, plus
-        # one admitted-sequence tuple read per position).
-        region_compat_ceil = 312 + 23 * s_cap + 21 * m_cap + 13 * s_cap * m_cap + n_mem_entry
-        reserver.reserve(n_w * (5 + 17 + 17 * n_res + 26 * n_pieces_max + region_compat_ceil))
+        # The witness region-compatibility term under the
+        # typed billing strategy (the default is the closed
+        # ceiling at the ACTUAL inherited owner-domain
+        # ceilings -- the 018-s recipe, preserved verbatim:
+        # the O(1) pool per witness with the two 64-hex
+        # walks, the per-owner-segment fences, the owner
+        # member closure, the entry key-occurrence join and
+        # the nested member-position walk over EVERY selected
+        # owner segment, the per-segment count gate bounding
+        # each inner walk by m_cap BEFORE it runs so the
+        # closed nested domain is s_cap * m_cap positions) --
+        # the strategy reserves the term before the target
+        # may run.
+        witness_compat_billing(
+            reserver, entry, occurrences, s_cap, m_cap, n_res, n_pieces_max, n_mem_entry
+        )
     reserver.reserve(1 + 3 * n_e)
     # The reverse-index footer: the expected key-set build over
     # every member occurrence, the row field/flag fences and the
@@ -5004,6 +5058,21 @@ def root_region_admission_model_scope_key(
         json.dumps(g_bounds.model_dump(mode="json"), sort_keys=True, separators=(",", ":")),
     ]
     return _sha256_hex(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+
+
+_SWitnessCompatBilling = Callable[
+    [
+        _SRegionWorkReserver,
+        RootRegionAdmissionEntry,
+        tuple[Any, ...],
+        int,
+        int,
+        int,
+        int,
+        int,
+    ],
+    None,
+]
 
 
 class RootRegionAdmission(_GraphFrozen):

@@ -253,7 +253,7 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is implemented at its bounded inert MODEL/LOCAL-BOUNDARY scope and PENDING strategic review at that scope, all as
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is implemented and PENDING strategic review at its bounded complete-consumer scope, all as
 inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
@@ -686,8 +686,7 @@ defaults, versions, recipes and supported boundaries,
 including honest old-I refusal of region-version state
 and all earlier NOT ACCEPTED/PARTIAL decisions.
 
-**Root-region admission models (018-s inert, PENDING strategic review at
-its bounded MODEL/LOCAL-BOUNDARY scope).**
+**Root-region admission models (018-s inert, ACCEPTED at its bounded MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS, strategic decision `S/reviews/018-s-decision.md`).**
 The separately versioned
 `cache-root-region-admission-models/v1` /
 `root-region-admission-models-policy/v1` slice (contract
@@ -732,12 +731,61 @@ unlimited or default meter exists. It is MODEL/LOCAL-BOUNDARY ONLY:
 no public derive function, no operation result/outcome, no persistent
 owner/namespace, no new whole-operation bound set, no runtime wiring,
 and retaining the actual R result by reference is component data, NOT
-derivation authority; the later same-018 complete consumer must
-derive ACTUAL R from ACTUAL P in its own entire charged operation and
-independently earn its own source-scale and whole-operation evidence.
-It closes nothing end to end; all existing C/G/H/O/I/P/Q/R public
-law stays unchanged.
+derivation authority; the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) derives ACTUAL R from ACTUAL P in its own entire charged operation and independently earns its own source-scale and whole-operation evidence, reusing these models as the closed leaf and admission-parent law. All existing C/G/H/O/I/P/Q/R public law stays unchanged.
 
+**Complete root-region admission consumer (018-t inert, implemented, PENDING strategic review at its bounded COMPLETE-CONSUMER scope).**
+The separately versioned
+`cache-root-region-admission/v1` /
+`root-region-admission-policy/v1` operation
+`derive_root_region_admission` takes the ACTUAL retained P
+root-region lineage state and namespace (never caller-positive
+R/Q/F/graph/admission snapshots or verification flags) and, in
+ONE pure bounded charged operation, derives the ACTUAL R
+(including the ACTUAL same-run Q currentness, P selection,
+selected root source and F/E current graph) EXACTLY ONCE
+through the narrow typed R-core seam, consumes it with the
+ACTUAL selected-root-aware G assembly (the SAME G subtree
+ledger the F phase charged) and closes the complete full-
+result THIRD carrying boundary (`RootRegionAdmissionResult`):
+the exact input state/namespace/revision/lineage retained on
+EVERY outcome, the ACTUAL R result by immutable reference
+(once returned, on every later outcome, as bounded evidence;
+the terminal record stays bounded to metadata and never
+re-enters the root BODY content pass), and the ACTUAL S
+admission parent by reference (READY only). The NEW
+entire-consumer outer (total work 8388608 and own diagnostics
+64, DEFAULT AND HARD, stricter positives legal) is created
+BEFORE early scope/hash/bound/construction work, couples every
+actual R unit (Q/P/D/B/source/F/E included) unit-for-unit
+BEFORE the crossing work, creates the actual G subtree ledger
+BEFORE R's F phase (every actual F unit charges the SAME G
+ledger the admission phase uses; G covers F plus admission and
+does NOT cover Q/P/selected-source resolution or the final
+full-result parent), and leaves every actual inherited
+Q/P/D/B/E/F/GraphBounds, G, graph/admission-stage,
+diagnostic, source and original-batch domain independently
+binding beneath it (no global minimum, reset, whole-cap
+reservation, post-hoc initialization, module/context-global
+budget channel or caller verification flag; original-batch
+caps are not cumulative retention caps; shared work charges
+each applicable domain once). READY means only actual R READY
+AND completed actual admission AND the full-result checks --
+never acquired dependencies, compiled content, cache
+readiness, HTTP or v1 runtime readiness; Q
+uncertainty/conflict, R/F/G refusal and every resource
+crossing expose no usable admission or bootstrap fallback and
+retain every already-returned actual evidence truthfully
+(never rerun or manufactured after a crossing). The
+32768-byte root-only and mixed-region/no-singleton shapes earn
+complete-operation READY at their stated domains (the
+mixed/multi-history positive complete-operation data under the genuine
+legal 1048576 GraphBounds stage setting, the default-stage
+refusals recorded honestly), which is NOT default whole-
+consumer readiness and NOT zero allocation. It is the same-018
+complete consumer promised by R/S; whole-018 acceptance and
+stages 019-024 remain mandatory. The exact scope is versioned
+in `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md` (`tests/test_root_region_admission.py`); the stage stays inert and
+inactive.
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
 NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
@@ -1367,7 +1415,7 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is implemented at its bounded inert MODEL/LOCAL-BOUNDARY scope and PENDING strategic review at that scope). The
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is implemented and PENDING strategic review at its bounded complete-consumer scope). The
 per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
@@ -1554,10 +1602,10 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is implemented at its bounded inert MODEL/LOCAL-BOUNDARY scope and PENDING strategic review at that scope, and the
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is implemented and PENDING strategic review at its bounded complete-consumer scope, and the
 remaining 018 current-version/overlap work beyond this mechanism
 (C04/C05 current-version acceptance, version-owned
-edge/certificate withdrawal end-to-end acceptance) plus
+edge/certificate withdrawal end-to-end acceptance and the whole-018 composition acceptance) plus
 objectives 019-024 remain the mandatory unearned v1
 implementation stages (see
 `docs/CACHE-REWORK-LEDGER.md`); the original

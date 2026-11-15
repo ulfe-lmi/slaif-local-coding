@@ -33,11 +33,14 @@ recorded qualification and correction). The 018-r consumer
 slice (`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is the
 graph half of that SAME-018 CONSUMER round: it consumes the
 legitimate new region state into the actual current graph under
-the selected root, is implemented and PENDING strategic review
-at its bounded graph-only scope, and does not transfer
-acceptance to this slice or to whole 018. The separate
-same-018 admission/full-result consumer remains, and whole 018
-(plus 019-024) remains open and mandatory. Like the
+the selected root, is ACCEPTED at its bounded inert selected-root
+source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT
+HISTORICAL-REPORT CORRECTIONS (strategic decision
+`S/reviews/018-r-decision.md`), and does not transfer
+acceptance to this slice or to whole 018. The separate same-018
+complete admission consumer (the 018-t round, `docs/CACHE-ROOT-
+REGION-ADMISSION-CONTRACT.md`) is the other half of that consumer
+round, and whole 018 (plus 019-024) remains open and mandatory. Like the
 accepted 017 slice and the accepted bounded 018 slices it is pure,
 bounded and never active in the adapter runtime: no command string
 is executed, no model/native/client/service facility is started,

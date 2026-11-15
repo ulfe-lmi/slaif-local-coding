@@ -575,18 +575,17 @@ def _r_source_content_ok(root_text: object, root_digest: object, root_byte_lengt
     return len(actual) == root_byte_length and _sha256_hex(actual) == root_digest
 
 
-def _r_source_closed(src: ResolvedRootRegionSource) -> None:
-    """The resolved source closed local joins, shared by the
-    source constructor and the R result boundary: the closed
-    field-existence fences, the per-kind concrete provenance
-    class/tag fences, the whole-proof / root-member /
-    occurrence / call / endpoint local joins, the fact
-    root-body equality and the ACTUAL content law over the
-    record's own bounded root text (a model_copy-bypassed
-    tampered record is refused by this law, never trusted by
-    reference).  Closed O(1) local checks plus the bounded
-    content pass only -- never a whole original proof/state
-    traversal."""
+def _r_source_shape_closed(src: object) -> None:
+    """The closed O(1) source-independent resolved-source
+    fences (no root-body content pass): the field-existence
+    fences, the per-kind concrete provenance class/tag fences,
+    the whole-proof / root-member / occurrence / call /
+    endpoint local joins and the fact root-body equality.
+    Reused by the COMPLETE source law (the source constructor
+    and ``_r_result_source_law``) and by the closed carried
+    joins at the T full-result boundary, where a partial or
+    foreign record must refuse with a fixed typed boundary
+    error BEFORE any outcome-block dereference of its fields."""
     # Closed field-existence fences BEFORE any dereference (a
     # partial or foreign record is a fixed typed boundary error,
     # never an attribute error).
@@ -693,6 +692,18 @@ def _r_source_closed(src: ResolvedRootRegionSource) -> None:
         or src.root_byte_length != src.fact.source_byte_length
     ):
         raise _fixed("the resolved source body must equal the selected fact root body")
+
+
+def _r_source_closed(src: ResolvedRootRegionSource) -> None:
+    """The resolved source closed local joins, shared by the
+    source constructor and the R result boundary: the closed
+    O(1) source-independent fences (``_r_source_shape_closed``)
+    plus the ACTUAL content law over the record's own bounded
+    root text (a model_copy-bypassed tampered record is
+    refused by this law, never trusted by reference).  Closed
+    O(1) local checks plus the bounded content pass only --
+    never a whole original proof/state traversal."""
+    _r_source_shape_closed(src)
     # ACTUAL content law over the record's own bounded root
     # text, AFTER the closed shape preflight (reserved before
     # this constructor work by the charged derivation; a
@@ -936,20 +947,22 @@ _R_RESULT_FIELDS = (
 )
 
 
-def _r_result_closed(result: RootRegionGraphResult) -> None:
-    """The COMPLETE closed R result law, shared by the R result
-    constructor and the S admission-parent carrying boundary.
+def _r_result_carried_closed(result: RootRegionGraphResult) -> None:
+    """The closed source-independent carried R result joins,
+    shared by the COMPLETE R result law and the T full-result
+    carrying boundary.
 
-    The R result's own model validator delegates here, so the
-    carrying boundary re-runs the EXACT same law over a carried
-    (possibly model_copy-bypassed) record: the closed scalar/
-    class/length fences over every effective bound set, the
-    lineage/revision/scope joins, the resolved source closed law
-    (including its bounded content pass), the nested Q/F/E
-    evidence re-joins and the outcome invariants.  A top-level
-    field-existence fence runs FIRST so a partial or foreign
-    record is a fixed typed boundary error, never an attribute
-    error or a partial string conversion.
+    This is the R result law with the CHARGED source law
+    excluded: no root-body content pass and no variable READY
+    association walk (those run only under reservation, at the
+    actual R derivation and at the S admission-parent boundary).
+    Re-run over a carried (possibly model_copy-bypassed) record
+    it closes the same scalar/class/length fences over every
+    effective bound set, the lineage/revision/scope joins, the
+    nested Q/F/E evidence re-joins and the outcome invariants.
+    A top-level field-existence fence runs FIRST so a partial or
+    foreign record is a fixed typed boundary error, never an
+    attribute error or a partial string conversion.
     """
     if not _r_fields_present(result, _R_RESULT_FIELDS):
         raise _fixed("the R result must carry its closed identity fields")
@@ -984,18 +997,14 @@ def _r_result_closed(result: RootRegionGraphResult) -> None:
         raise _fixed("R diagnostics must be sorted and deduplicated")
     if len(result.diagnostics) > result.bounds.max_diagnostics:
         raise _fixed("R diagnostics exceed the actual R bounds")
-    # The resolved source closed law runs BEFORE any parent
-    # field access on the record (a partial or foreign record
+    # The resolved source's closed O(1) field/class/scalar/
+    # provenance fences run BEFORE any outcome-block
+    # dereference of its fields (a partial or foreign record
     # is a fixed typed boundary error, never an attribute
-    # error or an echoed unknown variant): the closed O(1)
-    # own-field/class/scalar/closed-variant fences, the
-    # per-kind provenance class/tag fences, the local provenance
-    # / occurrence / proof joins and the bounded content pass
-    # over the record's own root text only (the charged
-    # derivation reserved the build and content-pass units
-    # before this constructor work).
+    # error): the CHARGED root-body content pass itself stays
+    # on the metered source law, never at the T boundary.
     if result.resolved_source is not None:
-        _r_source_closed(result.resolved_source)
+        _r_source_shape_closed(result.resolved_source)
     # Nested association fences (identity where original
     # identity is promised; O(1) metadata joins otherwise).
     if result.q_result is not None:
@@ -1171,62 +1180,12 @@ def _r_result_closed(result: RootRegionGraphResult) -> None:
             or result.resolved_source.root_digest != p_selection.selected_source_digest
         ):
             raise _fixed("the resolved source digest must equal the actual P selected source")
-        # The variable association work runs ONLY in this
-        # charged READY block, as exactly ONE bounded index
-        # walk over the retained root facts plus ONE walk over
-        # the selected witnesses (the kernel reserved both
-        # widths before the constructor work; never a full
-        # P/Q re-derivation or source walk).  Every witness is
-        # bound BY IDENTITY to the actual state root facts (a
-        # value-equal detached clone is foreign), carries the
-        # actual authority flag and the selected digest, and
-        # the resolved source fact must be among them.
-        root_fact_ids = {id(f) for f in result.state.root_facts}
-        selected_fact = result.resolved_source.fact
-        selected_found = False
-        for witness in p_selection.witness_facts:
-            if not (
-                isinstance(witness, RootRegionLineageFact)
-                and _r_fields_present(witness, _R_FACT_WITNESS_FIELDS)
-                and witness.authority is True
-            ):
-                raise _fixed("the P selection witnesses must be actual authoritative root facts")
-            if witness.source_digest != p_selection.selected_source_digest:
-                raise _fixed("the P selection witnesses must carry the selected source digest")
-            if id(witness) not in root_fact_ids:
-                raise _fixed("the P selection witnesses must be original retained root facts")
-            if witness is selected_fact:
-                selected_found = True
-        if id(selected_fact) not in root_fact_ids:
-            raise _fixed("the resolved source fact must be an actual retained root fact")
-        if not selected_found:
-            raise _fixed("the resolved source fact must be an actual selected witness")
         if not f_ok or result.f_result is None or result.f_result.overlay is None:
             raise _fixed("ready requires the actual F graph success")
         if result.f_result.overlay.root_digest != result.resolved_source.root_digest:
             raise _fixed("the F graph must be derived under the actual selected root digest")
         if result.diagnostics:
             raise _fixed("ready carries no refusal diagnostics")
-        # The resolved source closed law already ran at the top
-        # of this validator BEFORE any parent field access (a
-        # model_copy-bypassed tampered record was refused there,
-        # not trusted by reference); the original D-state
-        # occurrence/proof membership scans remain below.
-        # The occurrence and its retained proof are ORIGINAL
-        # members of the EXACT input D state (closed bounded
-        # identity scan over the occurrence metadata, never a
-        # full source walk): a cloned pair with matching IDs /
-        # content is a foreign source and is refused.
-        if result.resolved_source.occurrence is not None:
-            if not any(
-                o is result.resolved_source.occurrence for o in result.state.d_state.occurrences
-            ):
-                raise _fixed("the resolved source occurrence must be an original D-state member")
-        if result.resolved_source.proof is not None:
-            if not any(
-                o.proof is result.resolved_source.proof for o in result.state.d_state.occurrences
-            ):
-                raise _fixed("the resolved source proof must be an original D-state member")
     elif result.outcome in (
         RootRegionGraphOutcome.ROOT_CURRENTNESS_UNPROVEN,
         RootRegionGraphOutcome.ROOT_AUTHORITY_CONFLICT,
@@ -1283,3 +1242,83 @@ def _r_result_closed(result: RootRegionGraphResult) -> None:
                     raise _fixed("a mapped F refusal carries no R diagnostics or overlay")
             else:
                 raise _fixed("an F-ok refusal is only reachable through an R-total crossing")
+
+
+def _r_result_source_law(result: RootRegionGraphResult) -> None:
+    """The CHARGED R source law, run only under reservation (the
+    actual R derivation and the S admission-parent carrying
+    boundary) and NEVER at the T full-result boundary: the
+    resolved source closed law (its closed O(1) local joins plus
+    the bounded root-body content pass), and the variable READY
+    association work.  The latter is exactly ONE bounded index
+    walk over the retained root facts plus ONE walk over the
+    selected witnesses, and the original D-state occurrence /
+    proof membership scans (the kernel reserved both widths
+    before the constructor work; never a full P/Q re-derivation
+    or a source walk beyond the bounded content pass).  Every
+    witness is bound BY IDENTITY to the actual state root facts
+    (a value-equal detached clone is foreign), carries the
+    actual authority flag and the selected digest, and the
+    resolved source fact must be among them; the occurrence and
+    its retained proof are ORIGINAL members of the EXACT input
+    D state (a cloned pair with matching IDs / content is a
+    foreign source and is refused).  It runs AFTER the closed
+    carried joins, which already closed the outcome, the P
+    selection and the resolved-source presence.
+    """
+    if result.resolved_source is not None:
+        _r_source_closed(result.resolved_source)
+    if result.outcome is RootRegionGraphOutcome.READY:
+        q_result = result.q_result
+        if q_result is None:
+            raise _fixed("ready requires the actual same-run Q ready result")
+        p_selection = q_result.p_selection
+        if p_selection is None:
+            raise _fixed(
+                "ready requires the actual nonNone OK P selection in the same-run Q result"
+            )
+        resolved_source = result.resolved_source
+        if resolved_source is None:
+            raise _fixed("ready carries the actual selected source")
+        root_fact_ids = {id(f) for f in result.state.root_facts}
+        selected_fact = resolved_source.fact
+        selected_found = False
+        for witness in p_selection.witness_facts:
+            if not (
+                isinstance(witness, RootRegionLineageFact)
+                and _r_fields_present(witness, _R_FACT_WITNESS_FIELDS)
+                and witness.authority is True
+            ):
+                raise _fixed("the P selection witnesses must be actual authoritative root facts")
+            if witness.source_digest != p_selection.selected_source_digest:
+                raise _fixed("the P selection witnesses must carry the selected source digest")
+            if id(witness) not in root_fact_ids:
+                raise _fixed("the P selection witnesses must be original retained root facts")
+            if witness is selected_fact:
+                selected_found = True
+        if id(selected_fact) not in root_fact_ids:
+            raise _fixed("the resolved source fact must be an actual retained root fact")
+        if not selected_found:
+            raise _fixed("the resolved source fact must be an actual selected witness")
+        if resolved_source.occurrence is not None:
+            if not any(o is resolved_source.occurrence for o in result.state.d_state.occurrences):
+                raise _fixed("the resolved source occurrence must be an original D-state member")
+        if resolved_source.proof is not None:
+            if not any(o.proof is resolved_source.proof for o in result.state.d_state.occurrences):
+                raise _fixed("the resolved source proof must be an original D-state member")
+
+
+def _r_result_closed(result: RootRegionGraphResult) -> None:
+    """The COMPLETE closed R result law, shared by the R result
+    constructor and the S admission-parent carrying boundary.
+
+    The R result's own model validator delegates here, so the
+    carrying boundary re-runs the EXACT same law over a carried
+    (possibly model_copy-bypassed) record: the closed
+    source-independent carried joins (``_r_result_carried_closed``)
+    plus the charged source law (``_r_result_source_law``: the
+    resolved source closed law including its bounded content
+    pass, and the variable READY association work).
+    """
+    _r_result_carried_closed(result)
+    _r_result_source_law(result)

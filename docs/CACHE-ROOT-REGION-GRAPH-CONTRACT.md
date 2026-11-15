@@ -34,8 +34,8 @@ IMPLEMENTED and ACCEPTED at its bounded inert
 selected-root source/current-graph scope WITH PROCESS
 QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT
 CORRECTIONS (strategic decision
-`S/reviews/018-r-decision.md`). The region-compatible admission-models slice (018-s, `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) retains an actual R result of this contract by immutable reference as component data at its bounded model/local-boundary scope, PENDING review; nothing here changes. It closes nothing end to end: the separate
-same-018 admission/full-result consumer, all original whole
+`S/reviews/018-r-decision.md`). The region-compatible admission-models slice (018-s, `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) retains an actual R result of this contract by immutable reference as component data at its bounded model/local-boundary scope, ACCEPTED WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); nothing here changes. It closes nothing end to end: the separate
+same-018 complete admission consumer (the 018-t round, `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`), all original whole
 018 G/C/S and repair criteria, and stages 019-024 remain
 mandatory, and R graph/source-scale results cannot replace the
 later consumer's own substantial-source and whole-operation
@@ -473,8 +473,9 @@ exposes no usable resolved source.
   source/current-graph scope WITH PROCESS QUALIFICATIONS AND
   EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision
   `S/reviews/018-r-decision.md`); that acceptance does not
-  accept whole 018, the later admission/full-result consumer,
-  or 019-024, all of which remain mandatory. R graph/source-scale results
+  accept whole 018, the 018-t complete admission/full-result
+  consumer (`docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`), or
+  019-024, all of which remain mandatory. R graph/source-scale results
   (including the measured multi-dependency history fixtures)
   are source-pinned baselines, not final acceptance of the
   consumer's own substantial-source and whole-operation

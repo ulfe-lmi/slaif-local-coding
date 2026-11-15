@@ -63,7 +63,7 @@ materialized root body.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Protocol
 
 from . import currentness as _currentness
 from .causal_history_models import CausalHistoryState
@@ -237,6 +237,47 @@ class _RFOuter(_OuterLedger):
     def unit(self) -> bool:
         super().unit()  # F domain first (raises _OuterOverflow)
         self.rtotal.unit()  # R total (raises _ROverflow)
+        return True
+
+
+class _CoupledUnitLedger(Protocol):
+    """A narrow typed private extra unit-ledger seam (018-t).
+
+    The 018-t consumer's actual G-subtree ledger is the coupling
+    target the F-phase adapter charges on every unit, BEFORE the
+    crossing work runs.  A crossing raises the consumer's OWN fixed
+    private overflow, which the R core propagates unchanged so the
+    consumer maps it at its own boundary (the R total and the F
+    domain keep their own fixed overflows and mapping)."""
+
+    def unit(self) -> bool: ...
+
+
+class _RFOuterG(_RFOuter):
+    """F-phase coupling adapter for the 018-t consumer: the ACTUAL
+    F outer (INDEPENDENT ceiling, its own diagnostic domain
+    unchanged) AND the ONE R total (the inherited R composition
+    law) plus the 018-t ACTUAL G subtree ledger on every unit --
+    the SAME G ledger the admission phase uses later, so the
+    actual F units are charged to it BEFORE the admission phase
+    runs.  F/R-domain crossings raise the fixed private F/R
+    overflows exactly as before; a G-subtree crossing propagates
+    the consumer's own fixed private overflow."""
+
+    __slots__ = ("g_ledger",)
+
+    def __init__(
+        self,
+        rtotal: _ROuter,
+        bounds: CurrentGraphBounds,
+        g_ledger: _CoupledUnitLedger,
+    ) -> None:
+        super().__init__(rtotal, bounds)
+        self.g_ledger = g_ledger
+
+    def unit(self) -> bool:
+        super().unit()  # F domain, then the R total
+        self.g_ledger.unit()  # the 018-t G subtree (consumer overflow)
         return True
 
 
@@ -579,6 +620,38 @@ def derive_root_region_graph(
     authority fact and never copies source beyond the ONE
     materialized root body.
     """
+    return _derive_root_region_graph_core(
+        state,
+        ns,
+        bounds,
+        root_region_currentness_bounds=root_region_currentness_bounds,
+        current_graph_bounds=current_graph_bounds,
+        nonroot_currentness_bounds=nonroot_currentness_bounds,
+    )
+
+
+def _derive_root_region_graph_core(
+    state: RootRegionLineageState,
+    ns: RootRegionLineageNamespace,
+    bounds: RootRegionGraphBounds | None,
+    *,
+    root_region_currentness_bounds: RootRegionCurrentnessBounds | None = None,
+    current_graph_bounds: CurrentGraphBounds | None = None,
+    nonroot_currentness_bounds: CurrentnessBounds | None = None,
+    rtotal: _ROuter | None = None,
+    f_g_ledger: _CoupledUnitLedger | None = None,
+) -> RootRegionGraphResult:
+    """The R kernel behind the public wrapper (the 018-t private
+    ledger-factory seam).
+
+    Identical to the public derivation except for two narrow typed
+    seams: a caller-supplied ONE R total (default: a fresh
+    ``_ROuter`` at the actual effective R ceiling) and an optional
+    018-t G-subtree unit ledger the F-phase adapter charges on
+    every unit.  The public wrapper's fences, bound resolutions,
+    scope keys, mapping and result law are unchanged, and the
+    default (both seams absent) is the old public behavior
+    exactly."""
     # --- O(1) state fence (the unchanged Q law, reused) ---------
     if not _q_state_boundary_ok(state) or not _region_state_shape(state):
         raise _fixed("the region lineage state must carry an actual bounded state record")
@@ -782,7 +855,8 @@ def derive_root_region_graph(
         ROOT_REGION_CURRENTNESS_POLICY_VERSION,
         q_bounds,
     )
-    rtotal = _ROuter(r_bounds.max_total_work_units)
+    if rtotal is None:
+        rtotal = _ROuter(r_bounds.max_total_work_units)
 
     # --- ACTUAL Q phase (ONE R total; nested domains independent)
     q_result: RootRegionCurrentnessResult | None = None
@@ -1003,7 +1077,10 @@ def derive_root_region_graph(
                 (RootRegionGraphDiagnostic.VERSION_UNSUPPORTED,),
                 q_result=q_result,
             )
-        f_outer = _RFOuter(rtotal, f_bounds)
+        if f_g_ledger is None:
+            f_outer = _RFOuter(rtotal, f_bounds)
+        else:
+            f_outer = _RFOuterG(rtotal, f_bounds, f_g_ledger)
         stage = _StageLedger(d_ns.graph_bounds)
         f_result, e_overlay = _derive_graph(
             d_state,
