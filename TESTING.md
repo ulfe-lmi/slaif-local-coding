@@ -288,13 +288,9 @@ ACTUAL accepted current graph under that selected root under
 ONE R outer with every inherited domain independently
 binding; the EXACT input state retained on every outcome and
 no usable source/graph on any non-ready outcome) is
-implemented and PENDING strategic review at its bounded
-graph-only scope (contract
+ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`; contract
 [docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md](docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md);
-`tests/test_root_region_graph.py`),
-and the remaining 018 stages (including the separate
-same-018 admission/full-result consumer) plus 019-024 remain
-mandatory unearned stages).
+`tests/test_root_region_graph.py`); the 018-s region-compatible admission-models slice (the NEW `cache-root-region-admission-models/v1`/`root-region-admission-models-policy/v1` contract: the region-compatible ROOT_ENTRY/FILE entry and admission-parent data models, the unchanged canonical 018-c keys, the complete reverse member index and the versioned local before-work validation-reservation helpers; MODEL/LOCAL-BOUNDARY ONLY — no public derivation, no whole-operation bound set, no runtime) is implemented and PENDING strategic review at its bounded model/local-boundary scope (contract [docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md](docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md); `tests/test_root_region_admission_models.py`), and the remaining 018 stages (including the separate same-018 admission/full-result consumer) plus 019-024 remain mandatory unearned stages).
 
 All v1 runtime criteria remain `NOT RUN` until their owning stage lands. The versioned
 contract is documented in

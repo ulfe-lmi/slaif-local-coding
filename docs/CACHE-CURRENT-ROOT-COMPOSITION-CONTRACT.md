@@ -75,8 +75,13 @@ over the 018-p state — contract
 composition does not consume; the same-018 consumer round that
 must consume the legitimate new region state into the actual
 graph/admission is still mandatory — the 018-r graph half is
-delivered at its bounded graph-only scope PENDING review,
-contract `docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`). At
+ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`),
+contract `docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`). The 018-s
+region-compatible admission-models slice (contract
+`docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is the
+model/local-boundary companion that carries the region-version state
+this composition honestly refuses (PENDING review at its bounded
+scope; nothing here changes). At
 its bounded inert scope, like the accepted 017,
 018-a..h slices, it is pure, bounded and never active in the
 adapter runtime; no

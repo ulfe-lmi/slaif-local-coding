@@ -22,7 +22,7 @@ accepted 017, 018-a, 018-b, 018-c, 018-d, 018-e and the accepted
 018-f slices it is pure and never active in the adapter runtime. 018-f
 is accepted ONLY at its actual bounded inert current-graph scope WITH
 process qualifications (S/reviews/018-f-decision.md); 018-g is PENDING
-acceptance at this bounded inert scope. It earns the whole-018
+acceptance at this bounded inert scope. The region-compatible admission-models slice (018-s, `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) carries the actual `CurrentAdmissionBounds` and reuses the actual generic FILE entry assembly, reverse-index row model and admission-reason law at its bounded model/local-boundary scope; nothing here changes. It earns the whole-018
 current-version admission MECHANISM at its bounded scope only
 (PARTIAL); no runtime stale-injection, compiler activation,
 root-refresh or later-stage pass is claimed; 019–024 remain.

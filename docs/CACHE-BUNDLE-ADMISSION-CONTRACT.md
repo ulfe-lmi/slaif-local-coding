@@ -38,6 +38,7 @@ cancellation matrix) and 024 (bounded actual-model/genuine-Codex
 qualification); nothing here is a v1 runtime, compiler-hit or recovery
 claim. C01 here proves STRUCTURAL entry interning only; later
 021/023 actual compile-once/hit qualification stays mandatory.
+The region-compatible admission-models slice (018-s, `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) reuses this contract's unchanged canonical namespace/key-record/`_canonical_entry_key` recipe and `BundleKeyRecord` as component data at its bounded model/local-boundary scope; nothing here changes.
 
 ## 1. Namespace caller trust (R1/R2, 018-a pattern)
 

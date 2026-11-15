@@ -30,8 +30,11 @@ WITH PROCESS QUALIFICATIONS (strategic decision
 its bounded inert query scope WITH PROCESS QUALIFICATIONS AND
 HISTORICAL-REPORT CORRECTIONS (strategic decision
 `S/reviews/018-q-decision.md`); this 018-r slice is
-IMPLEMENTED and PENDING strategic review at its bounded
-graph-only scope. It closes nothing end to end: the separate
+IMPLEMENTED and ACCEPTED at its bounded inert
+selected-root source/current-graph scope WITH PROCESS
+QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT
+CORRECTIONS (strategic decision
+`S/reviews/018-r-decision.md`). The region-compatible admission-models slice (018-s, `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) retains an actual R result of this contract by immutable reference as component data at its bounded model/local-boundary scope, PENDING review; nothing here changes. It closes nothing end to end: the separate
 same-018 admission/full-result consumer, all original whole
 018 G/C/S and repair criteria, and stages 019-024 remain
 mandatory, and R graph/source-scale results cannot replace the
@@ -466,10 +469,12 @@ exposes no usable resolved source.
 - The API is graph-only and INERT: it is never active in
   adapter execution, earns no admission, no compiled cache,
   no runtime or HTTP readiness, and no v1 profile behavior.
-- It is PENDING strategic review at its bounded graph-only
-  scope; acceptance of this slice does not accept whole 018,
-  the later admission/full-result consumer, or 019-024, all
-  of which remain mandatory. R graph/source-scale results
+- It is ACCEPTED at its bounded inert selected-root
+  source/current-graph scope WITH PROCESS QUALIFICATIONS AND
+  EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision
+  `S/reviews/018-r-decision.md`); that acceptance does not
+  accept whole 018, the later admission/full-result consumer,
+  or 019-024, all of which remain mandatory. R graph/source-scale results
   (including the measured multi-dependency history fixtures)
   are source-pinned baselines, not final acceptance of the
   consumer's own substantial-source and whole-operation

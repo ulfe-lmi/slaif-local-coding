@@ -887,340 +887,7 @@ class RootRegionGraphResult(_GraphFrozen):
 
     @model_validator(mode="after")
     def _v_result(self) -> RootRegionGraphResult:
-        # Closed scalar/class/length fences over EVERY effective
-        # bound set BEFORE the scope-key recomputation reads any
-        # cap or serializes any field (a deleted actual field on a
-        # real class instance fails the fixed typed boundary,
-        # never AttributeError or a partial string conversion).
-        if not (
-            root_region_graph_bounds_shape_ok(self.bounds)
-            and _r_q_bounds_closed(self.q_bounds)
-            and _r_f_bounds_closed(self.f_bounds)
-            and _r_e_bounds_closed(self.e_bounds)
-        ):
-            raise _fixed("the effective R/Q/F/E bound sets must carry actual closed scalar fields")
-        if self.lineage_key != self.state.lineage_key:
-            raise _fixed("the result lineage key must equal the actual state key")
-        if self.revision != self.state.revision:
-            raise _fixed("the result revision must equal the carried state revision")
-        if self.scope_key != root_region_graph_scope_key(
-            self.lineage_key,
-            self.contract_version,
-            self.policy_version,
-            self.bounds,
-            self.q_bounds,
-            self.f_bounds,
-            self.e_bounds,
-            self.graph_version,
-        ):
-            raise _fixed("scope_key does not match the actual result scope fields")
-        if tuple(sorted(set(self.diagnostics))) != self.diagnostics:
-            raise _fixed("R diagnostics must be sorted and deduplicated")
-        if len(self.diagnostics) > self.bounds.max_diagnostics:
-            raise _fixed("R diagnostics exceed the actual R bounds")
-        # The resolved source closed law runs BEFORE any parent
-        # field access on the record (a partial or foreign record
-        # is a fixed typed boundary error, never an attribute
-        # error or an echoed unknown variant): the closed O(1)
-        # own-field/class/scalar/closed-variant fences, the
-        # per-kind provenance class/tag fences, the local provenance
-        # / occurrence / proof joins and the bounded content pass
-        # over the record's own root text only (the charged
-        # derivation reserved the build and content-pass units
-        # before this constructor work).
-        if self.resolved_source is not None:
-            _r_source_closed(self.resolved_source)
-        # Nested association fences (identity where original
-        # identity is promised; O(1) metadata joins otherwise).
-        if self.q_result is not None:
-            if not isinstance(self.q_result, RootRegionCurrentnessResult):
-                raise _fixed("the Q result must be the actual closed result record")
-            if not _r_fields_present(
-                self.q_result,
-                (
-                    "state",
-                    "outcome",
-                    "lineage_key",
-                    "revision",
-                    "contract_version",
-                    "policy_version",
-                    "p_selection",
-                    "bounds",
-                    "scope_key",
-                    "usable_selected_source_digest",
-                ),
-            ):
-                raise _fixed("the Q result must carry its closed identity fields")
-            if self.q_result.state is not self.state:
-                raise _fixed("the Q result must carry the EXACT input P state by reference")
-            if self.q_result.lineage_key != self.lineage_key:
-                raise _fixed("the Q result lineage key must equal the carried state key")
-            if self.q_result.revision != self.revision:
-                raise _fixed("the Q result revision must equal the carried state revision")
-            if (
-                self.q_result.contract_version != ROOT_REGION_CURRENTNESS_CONTRACT_VERSION
-                or self.q_result.policy_version != ROOT_REGION_CURRENTNESS_POLICY_VERSION
-            ):
-                raise _fixed("the Q result must carry the actual fixed Q version tags")
-            if not _r_q_bounds_closed(self.q_result.bounds):
-                raise _fixed("the Q result bounds must carry actual closed scalar fields")
-            if self.q_result.bounds != self.q_bounds:
-                raise _fixed("the Q result bounds must equal the effective Q domain")
-            if self.q_result.scope_key != root_region_currentness_scope_key(
-                self.lineage_key,
-                ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
-                ROOT_REGION_CURRENTNESS_POLICY_VERSION,
-                self.q_result.bounds,
-            ):
-                raise _fixed("the Q result scope key must match its actual Q domain fields")
-            # The closed O(1) identity/revision/container fences
-            # run on ANY carried non-None P selection BEFORE outcome
-            # dispatch (every result outcome, constant work only):
-            # a copied selection with a foreign revision or lineage
-            # key is a fixed typed boundary error, never accepted
-            # into the retained evidence of any R result.
-            if self.q_result.p_selection is not None and not _r_p_selection_closed(
-                self.q_result.p_selection, self.lineage_key, self.revision
-            ):
-                raise _fixed(
-                    "the carried P selection must carry its actual closed identity, "
-                    "revision and bounded witness container"
-                )
-        if self.f_result is not None:
-            if not isinstance(self.f_result, CurrentGraphResult):
-                raise _fixed("the F result must be the actual closed result record")
-            if not _r_fields_present(self.f_result, ("state", "outcome", "overlay")):
-                raise _fixed("the F result must carry its closed identity fields")
-            if self.f_result.state is not self.state.d_state:
-                raise _fixed("the F result must carry the EXACT wrapped D state by reference")
-            if (
-                self.f_result.outcome is not CurrentGraphOutcome.OK
-                and self.f_result.overlay is not None
-            ):
-                raise _fixed("a non-ok F result carries no graph overlay")
-        f_ok = self.f_result is not None and self.f_result.outcome is CurrentGraphOutcome.OK
-        if (self.e_overlay is not None) != f_ok:
-            raise _fixed("the same-run E overlay is present exactly when the F result is ok")
-        f_graph = self.f_result.overlay if self.f_result is not None else None
-        if f_graph is not None:
-            if not _r_fields_present(f_graph, _R_F_GRAPH_FIELDS):
-                raise _fixed("the F graph must carry its closed identity fields")
-            if not (
-                _r_f_bounds_closed(f_graph.bounds)
-                and _r_e_bounds_closed(f_graph.currentness_bounds)
-                and _r_graph_bounds_closed(f_graph.graph_bounds)
-            ):
-                raise _fixed("the F graph bound sets must carry actual closed scalar fields")
-            if (
-                f_graph.contract_version != CURRENT_GRAPH_CONTRACT_VERSION
-                or f_graph.policy_version != CURRENT_GRAPH_POLICY_VERSION
-                or f_graph.currentness_contract_version != CURRENTNESS_CONTRACT_VERSION
-                or f_graph.currentness_policy_version != CURRENTNESS_POLICY_VERSION
-                or f_graph.currentness_recipe_version != OPAQUE_GROUP_RECIPE_VERSION
-            ):
-                raise _fixed("the F graph must carry the actual fixed version tags")
-            if f_graph.bounds != self.f_bounds:
-                raise _fixed("the F graph bounds must equal the effective F domain")
-            if f_graph.currentness_bounds != self.e_bounds:
-                raise _fixed("the F graph currentness bounds must equal the effective E domain")
-            if f_graph.history_key != self.state.d_state.history_key:
-                raise _fixed("the F graph history key must equal the carried D key")
-            # The actual F graph snapshot association: its revision
-            # must equal the EXACT carried D revision (a spliced old
-            # graph from another D revision is refused; revision is
-            # a snapshot association, never a freshness clock).
-            if f_graph.revision != self.state.d_state.revision:
-                raise _fixed("the F graph revision must equal the carried D revision")
-            if f_graph.currentness_scope_key != currentness_scope_key(
-                f_graph.history_key,
-                f_graph.workspace,
-                f_graph.currentness_policy_version,
-                f_graph.currentness_bounds,
-            ):
-                raise _fixed("the F graph currentness scope key must match its actual fields")
-            if f_graph.scope_key != current_graph_scope_key(
-                f_graph.history_key,
-                f_graph.workspace,
-                f_graph.root_digest,
-                f_graph.contract_version,
-                f_graph.policy_version,
-                f_graph.graph_version,
-                f_graph.reference_version,
-                f_graph.proof_version,
-                f_graph.currentness_contract_version,
-                f_graph.currentness_policy_version,
-                f_graph.currentness_recipe_version,
-                f_graph.currentness_scope_key,
-                f_graph.bounds,
-                f_graph.currentness_bounds,
-                f_graph.graph_bounds,
-            ):
-                raise _fixed("the F graph scope key must match its actual fields")
-        if self.e_overlay is not None:
-            if not _r_fields_present(self.e_overlay, _R_E_OVERLAY_FIELDS):
-                raise _fixed("the E overlay must carry its closed identity fields")
-            if self.e_overlay.revision != self.state.d_state.revision:
-                raise _fixed("the E overlay revision must equal the carried D revision")
-            if self.e_overlay.history_key != self.state.d_state.history_key:
-                raise _fixed("the E overlay history key must equal the carried D key")
-            if self.e_overlay.policy_version != CURRENTNESS_POLICY_VERSION:
-                raise _fixed("the E overlay must carry the actual fixed currentness policy tag")
-            if not _r_e_bounds_closed(self.e_overlay.bounds):
-                raise _fixed("the E overlay bounds must carry actual closed scalar fields")
-            if self.e_overlay.bounds != self.e_bounds:
-                raise _fixed("the E overlay bounds must equal the effective E domain")
-            if self.e_overlay.scope_key != currentness_scope_key(
-                self.e_overlay.history_key,
-                self.e_overlay.workspace,
-                self.e_overlay.policy_version,
-                self.e_overlay.bounds,
-            ):
-                raise _fixed("the E overlay scope key must match its actual fields")
-            if f_graph is not None and self.e_overlay.scope_key != f_graph.currentness_scope_key:
-                raise _fixed("the E overlay scope key must match the actual F graph join")
-        # Outcome invariants (no partial positive output).
-        if self.outcome is RootRegionGraphOutcome.READY:
-            if (
-                self.q_result is None
-                or self.q_result.outcome is not RootRegionCurrentnessOutcome.READY
-            ):
-                raise _fixed("ready requires the actual same-run Q ready result")
-            p_selection = self.q_result.p_selection
-            if p_selection is not None and not _r_p_selection_closed(
-                p_selection, self.lineage_key, self.revision
-            ):
-                raise _fixed("the P selection must carry its closed identity fields")
-            if (
-                p_selection is None
-                or p_selection.outcome is not RootSelectionOutcome.OK
-                or p_selection.selected_source_digest is None
-            ):
-                raise _fixed(
-                    "ready requires the actual nonNone OK P selection in the same-run Q result"
-                )
-            if self.q_result.usable_selected_source_digest is None or self.resolved_source is None:
-                raise _fixed("ready carries the actual selected source")
-            if (
-                self.resolved_source.root_digest != self.q_result.usable_selected_source_digest
-                or self.resolved_source.root_digest != p_selection.selected_source_digest
-            ):
-                raise _fixed("the resolved source digest must equal the actual P selected source")
-            # The variable association work runs ONLY in this
-            # charged READY block, as exactly ONE bounded index
-            # walk over the retained root facts plus ONE walk over
-            # the selected witnesses (the kernel reserved both
-            # widths before the constructor work; never a full
-            # P/Q re-derivation or source walk).  Every witness is
-            # bound BY IDENTITY to the actual state root facts (a
-            # value-equal detached clone is foreign), carries the
-            # actual authority flag and the selected digest, and
-            # the resolved source fact must be among them.
-            root_fact_ids = {id(f) for f in self.state.root_facts}
-            selected_fact = self.resolved_source.fact
-            selected_found = False
-            for witness in p_selection.witness_facts:
-                if not (
-                    isinstance(witness, RootRegionLineageFact)
-                    and _r_fields_present(witness, _R_FACT_WITNESS_FIELDS)
-                    and witness.authority is True
-                ):
-                    raise _fixed(
-                        "the P selection witnesses must be actual authoritative root facts"
-                    )
-                if witness.source_digest != p_selection.selected_source_digest:
-                    raise _fixed("the P selection witnesses must carry the selected source digest")
-                if id(witness) not in root_fact_ids:
-                    raise _fixed("the P selection witnesses must be original retained root facts")
-                if witness is selected_fact:
-                    selected_found = True
-            if id(selected_fact) not in root_fact_ids:
-                raise _fixed("the resolved source fact must be an actual retained root fact")
-            if not selected_found:
-                raise _fixed("the resolved source fact must be an actual selected witness")
-            if not f_ok or self.f_result is None or self.f_result.overlay is None:
-                raise _fixed("ready requires the actual F graph success")
-            if self.f_result.overlay.root_digest != self.resolved_source.root_digest:
-                raise _fixed("the F graph must be derived under the actual selected root digest")
-            if self.diagnostics:
-                raise _fixed("ready carries no refusal diagnostics")
-            # The resolved source closed law already ran at the top
-            # of this validator BEFORE any parent field access (a
-            # model_copy-bypassed tampered record was refused there,
-            # not trusted by reference); the original D-state
-            # occurrence/proof membership scans remain below.
-            # The occurrence and its retained proof are ORIGINAL
-            # members of the EXACT input D state (closed bounded
-            # identity scan over the occurrence metadata, never a
-            # full source walk): a cloned pair with matching IDs /
-            # content is a foreign source and is refused.
-            if self.resolved_source.occurrence is not None:
-                if not any(
-                    o is self.resolved_source.occurrence for o in self.state.d_state.occurrences
-                ):
-                    raise _fixed(
-                        "the resolved source occurrence must be an original D-state member"
-                    )
-            if self.resolved_source.proof is not None:
-                if not any(
-                    o.proof is self.resolved_source.proof for o in self.state.d_state.occurrences
-                ):
-                    raise _fixed("the resolved source proof must be an original D-state member")
-        elif self.outcome in (
-            RootRegionGraphOutcome.ROOT_CURRENTNESS_UNPROVEN,
-            RootRegionGraphOutcome.ROOT_AUTHORITY_CONFLICT,
-        ):
-            expected_q = (
-                RootRegionCurrentnessOutcome.ROOT_CURRENTNESS_UNPROVEN
-                if self.outcome is RootRegionGraphOutcome.ROOT_CURRENTNESS_UNPROVEN
-                else RootRegionCurrentnessOutcome.ROOT_AUTHORITY_CONFLICT
-            )
-            if self.q_result is None or self.q_result.outcome is not expected_q:
-                raise _fixed("the mapped Q outcome carries the actual same-run Q result")
-            if (
-                self.diagnostics
-                or self.f_result is not None
-                or self.e_overlay is not None
-                or self.resolved_source is not None
-            ):
-                raise _fixed(
-                    "a mapped Q positive interpretation publishes no source, graph or R diagnostics"
-                )
-        else:  # REFUSED
-            if self.resolved_source is not None:
-                raise _fixed("a refused result publishes no resolved source")
-            if self.q_result is None:
-                if not self.diagnostics:
-                    raise _fixed("an R refusal before Q carries its own typed diagnostics")
-                if self.f_result is not None or self.e_overlay is not None:
-                    raise _fixed("an R refusal before Q carries no F evidence")
-            elif self.diagnostics == (RootRegionGraphDiagnostic.WORK_UNITS_OVER_BOUND,):
-                # An R-total crossing BEFORE R's own result
-                # returned: retain whatever actual Q/F evidence was
-                # already computed (a mapped Q positive
-                # interpretation included) and publish no source.
-                pass
-            elif (
-                self.q_result.outcome is RootRegionCurrentnessOutcome.ROOT_CURRENTNESS_UNPROVEN
-            ) or (self.q_result.outcome is RootRegionCurrentnessOutcome.ROOT_AUTHORITY_CONFLICT):
-                raise _fixed("a positive-interpretation Q outcome maps to its own R outcome")
-            elif self.q_result.outcome is RootRegionCurrentnessOutcome.REFUSED:
-                if self.diagnostics or self.f_result is not None or self.e_overlay is not None:
-                    raise _fixed("a mapped Q refusal adds no R diagnostics or F evidence")
-            else:  # actual Q ready
-                if self.f_result is None:
-                    if (
-                        self.diagnostics != (RootRegionGraphDiagnostic.SOURCE_RESOLUTION_FAILED,)
-                        or self.e_overlay is not None
-                    ):
-                        raise _fixed(
-                            "a Q-ready refusal without an F result is the "
-                            "selected-source resolution failure"
-                        )
-                elif self.f_result.outcome is not CurrentGraphOutcome.OK:
-                    if self.diagnostics or self.e_overlay is not None:
-                        raise _fixed("a mapped F refusal carries no R diagnostics or overlay")
-                else:
-                    raise _fixed("an F-ok refusal is only reachable through an R-total crossing")
+        _r_result_closed(self)
         return self
 
     def __repr__(self) -> str:  # noqa: D105 - privacy law
@@ -1246,3 +913,373 @@ class RootRegionGraphResult(_GraphFrozen):
         )
 
     __str__ = __repr__
+
+
+_R_RESULT_FIELDS = (
+    "outcome",
+    "state",
+    "q_result",
+    "f_result",
+    "e_overlay",
+    "resolved_source",
+    "diagnostics",
+    "contract_version",
+    "policy_version",
+    "bounds",
+    "q_bounds",
+    "f_bounds",
+    "e_bounds",
+    "lineage_key",
+    "scope_key",
+    "revision",
+    "graph_version",
+)
+
+
+def _r_result_closed(result: RootRegionGraphResult) -> None:
+    """The COMPLETE closed R result law, shared by the R result
+    constructor and the S admission-parent carrying boundary.
+
+    The R result's own model validator delegates here, so the
+    carrying boundary re-runs the EXACT same law over a carried
+    (possibly model_copy-bypassed) record: the closed scalar/
+    class/length fences over every effective bound set, the
+    lineage/revision/scope joins, the resolved source closed law
+    (including its bounded content pass), the nested Q/F/E
+    evidence re-joins and the outcome invariants.  A top-level
+    field-existence fence runs FIRST so a partial or foreign
+    record is a fixed typed boundary error, never an attribute
+    error or a partial string conversion.
+    """
+    if not _r_fields_present(result, _R_RESULT_FIELDS):
+        raise _fixed("the R result must carry its closed identity fields")
+    # Closed scalar/class/length fences over EVERY effective
+    # bound set BEFORE the scope-key recomputation reads any
+    # cap or serializes any field (a deleted actual field on a
+    # real class instance fails the fixed typed boundary,
+    # never AttributeError or a partial string conversion).
+    if not (
+        root_region_graph_bounds_shape_ok(result.bounds)
+        and _r_q_bounds_closed(result.q_bounds)
+        and _r_f_bounds_closed(result.f_bounds)
+        and _r_e_bounds_closed(result.e_bounds)
+    ):
+        raise _fixed("the effective R/Q/F/E bound sets must carry actual closed scalar fields")
+    if result.lineage_key != result.state.lineage_key:
+        raise _fixed("the result lineage key must equal the actual state key")
+    if result.revision != result.state.revision:
+        raise _fixed("the result revision must equal the carried state revision")
+    if result.scope_key != root_region_graph_scope_key(
+        result.lineage_key,
+        result.contract_version,
+        result.policy_version,
+        result.bounds,
+        result.q_bounds,
+        result.f_bounds,
+        result.e_bounds,
+        result.graph_version,
+    ):
+        raise _fixed("scope_key does not match the actual result scope fields")
+    if tuple(sorted(set(result.diagnostics))) != result.diagnostics:
+        raise _fixed("R diagnostics must be sorted and deduplicated")
+    if len(result.diagnostics) > result.bounds.max_diagnostics:
+        raise _fixed("R diagnostics exceed the actual R bounds")
+    # The resolved source closed law runs BEFORE any parent
+    # field access on the record (a partial or foreign record
+    # is a fixed typed boundary error, never an attribute
+    # error or an echoed unknown variant): the closed O(1)
+    # own-field/class/scalar/closed-variant fences, the
+    # per-kind provenance class/tag fences, the local provenance
+    # / occurrence / proof joins and the bounded content pass
+    # over the record's own root text only (the charged
+    # derivation reserved the build and content-pass units
+    # before this constructor work).
+    if result.resolved_source is not None:
+        _r_source_closed(result.resolved_source)
+    # Nested association fences (identity where original
+    # identity is promised; O(1) metadata joins otherwise).
+    if result.q_result is not None:
+        if not isinstance(result.q_result, RootRegionCurrentnessResult):
+            raise _fixed("the Q result must be the actual closed result record")
+        if not _r_fields_present(
+            result.q_result,
+            (
+                "state",
+                "outcome",
+                "lineage_key",
+                "revision",
+                "contract_version",
+                "policy_version",
+                "p_selection",
+                "bounds",
+                "scope_key",
+                "usable_selected_source_digest",
+            ),
+        ):
+            raise _fixed("the Q result must carry its closed identity fields")
+        if result.q_result.state is not result.state:
+            raise _fixed("the Q result must carry the EXACT input P state by reference")
+        if result.q_result.lineage_key != result.lineage_key:
+            raise _fixed("the Q result lineage key must equal the carried state key")
+        if result.q_result.revision != result.revision:
+            raise _fixed("the Q result revision must equal the carried state revision")
+        if (
+            result.q_result.contract_version != ROOT_REGION_CURRENTNESS_CONTRACT_VERSION
+            or result.q_result.policy_version != ROOT_REGION_CURRENTNESS_POLICY_VERSION
+        ):
+            raise _fixed("the Q result must carry the actual fixed Q version tags")
+        if not _r_q_bounds_closed(result.q_result.bounds):
+            raise _fixed("the Q result bounds must carry actual closed scalar fields")
+        if result.q_result.bounds != result.q_bounds:
+            raise _fixed("the Q result bounds must equal the effective Q domain")
+        if result.q_result.scope_key != root_region_currentness_scope_key(
+            result.lineage_key,
+            ROOT_REGION_CURRENTNESS_CONTRACT_VERSION,
+            ROOT_REGION_CURRENTNESS_POLICY_VERSION,
+            result.q_result.bounds,
+        ):
+            raise _fixed("the Q result scope key must match its actual Q domain fields")
+        # The closed O(1) identity/revision/container fences
+        # run on ANY carried non-None P selection BEFORE outcome
+        # dispatch (every result outcome, constant work only):
+        # a copied selection with a foreign revision or lineage
+        # key is a fixed typed boundary error, never accepted
+        # into the retained evidence of any R result.
+        if result.q_result.p_selection is not None and not _r_p_selection_closed(
+            result.q_result.p_selection, result.lineage_key, result.revision
+        ):
+            raise _fixed(
+                "the carried P selection must carry its actual closed identity, "
+                "revision and bounded witness container"
+            )
+    if result.f_result is not None:
+        if not isinstance(result.f_result, CurrentGraphResult):
+            raise _fixed("the F result must be the actual closed result record")
+        if not _r_fields_present(result.f_result, ("state", "outcome", "overlay")):
+            raise _fixed("the F result must carry its closed identity fields")
+        if result.f_result.state is not result.state.d_state:
+            raise _fixed("the F result must carry the EXACT wrapped D state by reference")
+        if (
+            result.f_result.outcome is not CurrentGraphOutcome.OK
+            and result.f_result.overlay is not None
+        ):
+            raise _fixed("a non-ok F result carries no graph overlay")
+    f_ok = result.f_result is not None and result.f_result.outcome is CurrentGraphOutcome.OK
+    if (result.e_overlay is not None) != f_ok:
+        raise _fixed("the same-run E overlay is present exactly when the F result is ok")
+    f_graph = result.f_result.overlay if result.f_result is not None else None
+    if f_graph is not None:
+        if not _r_fields_present(f_graph, _R_F_GRAPH_FIELDS):
+            raise _fixed("the F graph must carry its closed identity fields")
+        if not (
+            _r_f_bounds_closed(f_graph.bounds)
+            and _r_e_bounds_closed(f_graph.currentness_bounds)
+            and _r_graph_bounds_closed(f_graph.graph_bounds)
+        ):
+            raise _fixed("the F graph bound sets must carry actual closed scalar fields")
+        if (
+            f_graph.contract_version != CURRENT_GRAPH_CONTRACT_VERSION
+            or f_graph.policy_version != CURRENT_GRAPH_POLICY_VERSION
+            or f_graph.currentness_contract_version != CURRENTNESS_CONTRACT_VERSION
+            or f_graph.currentness_policy_version != CURRENTNESS_POLICY_VERSION
+            or f_graph.currentness_recipe_version != OPAQUE_GROUP_RECIPE_VERSION
+        ):
+            raise _fixed("the F graph must carry the actual fixed version tags")
+        if f_graph.bounds != result.f_bounds:
+            raise _fixed("the F graph bounds must equal the effective F domain")
+        if f_graph.currentness_bounds != result.e_bounds:
+            raise _fixed("the F graph currentness bounds must equal the effective E domain")
+        if f_graph.history_key != result.state.d_state.history_key:
+            raise _fixed("the F graph history key must equal the carried D key")
+        # The actual F graph snapshot association: its revision
+        # must equal the EXACT carried D revision (a spliced old
+        # graph from another D revision is refused; revision is
+        # a snapshot association, never a freshness clock).
+        if f_graph.revision != result.state.d_state.revision:
+            raise _fixed("the F graph revision must equal the carried D revision")
+        if f_graph.currentness_scope_key != currentness_scope_key(
+            f_graph.history_key,
+            f_graph.workspace,
+            f_graph.currentness_policy_version,
+            f_graph.currentness_bounds,
+        ):
+            raise _fixed("the F graph currentness scope key must match its actual fields")
+        if f_graph.scope_key != current_graph_scope_key(
+            f_graph.history_key,
+            f_graph.workspace,
+            f_graph.root_digest,
+            f_graph.contract_version,
+            f_graph.policy_version,
+            f_graph.graph_version,
+            f_graph.reference_version,
+            f_graph.proof_version,
+            f_graph.currentness_contract_version,
+            f_graph.currentness_policy_version,
+            f_graph.currentness_recipe_version,
+            f_graph.currentness_scope_key,
+            f_graph.bounds,
+            f_graph.currentness_bounds,
+            f_graph.graph_bounds,
+        ):
+            raise _fixed("the F graph scope key must match its actual fields")
+    if result.e_overlay is not None:
+        if not _r_fields_present(result.e_overlay, _R_E_OVERLAY_FIELDS):
+            raise _fixed("the E overlay must carry its closed identity fields")
+        if result.e_overlay.revision != result.state.d_state.revision:
+            raise _fixed("the E overlay revision must equal the carried D revision")
+        if result.e_overlay.history_key != result.state.d_state.history_key:
+            raise _fixed("the E overlay history key must equal the carried D key")
+        if result.e_overlay.policy_version != CURRENTNESS_POLICY_VERSION:
+            raise _fixed("the E overlay must carry the actual fixed currentness policy tag")
+        if not _r_e_bounds_closed(result.e_overlay.bounds):
+            raise _fixed("the E overlay bounds must carry actual closed scalar fields")
+        if result.e_overlay.bounds != result.e_bounds:
+            raise _fixed("the E overlay bounds must equal the effective E domain")
+        if result.e_overlay.scope_key != currentness_scope_key(
+            result.e_overlay.history_key,
+            result.e_overlay.workspace,
+            result.e_overlay.policy_version,
+            result.e_overlay.bounds,
+        ):
+            raise _fixed("the E overlay scope key must match its actual fields")
+        if f_graph is not None and result.e_overlay.scope_key != f_graph.currentness_scope_key:
+            raise _fixed("the E overlay scope key must match the actual F graph join")
+    # Outcome invariants (no partial positive output).
+    if result.outcome is RootRegionGraphOutcome.READY:
+        if (
+            result.q_result is None
+            or result.q_result.outcome is not RootRegionCurrentnessOutcome.READY
+        ):
+            raise _fixed("ready requires the actual same-run Q ready result")
+        p_selection = result.q_result.p_selection
+        if p_selection is not None and not _r_p_selection_closed(
+            p_selection, result.lineage_key, result.revision
+        ):
+            raise _fixed("the P selection must carry its closed identity fields")
+        if (
+            p_selection is None
+            or p_selection.outcome is not RootSelectionOutcome.OK
+            or p_selection.selected_source_digest is None
+        ):
+            raise _fixed(
+                "ready requires the actual nonNone OK P selection in the same-run Q result"
+            )
+        if result.q_result.usable_selected_source_digest is None or result.resolved_source is None:
+            raise _fixed("ready carries the actual selected source")
+        if (
+            result.resolved_source.root_digest != result.q_result.usable_selected_source_digest
+            or result.resolved_source.root_digest != p_selection.selected_source_digest
+        ):
+            raise _fixed("the resolved source digest must equal the actual P selected source")
+        # The variable association work runs ONLY in this
+        # charged READY block, as exactly ONE bounded index
+        # walk over the retained root facts plus ONE walk over
+        # the selected witnesses (the kernel reserved both
+        # widths before the constructor work; never a full
+        # P/Q re-derivation or source walk).  Every witness is
+        # bound BY IDENTITY to the actual state root facts (a
+        # value-equal detached clone is foreign), carries the
+        # actual authority flag and the selected digest, and
+        # the resolved source fact must be among them.
+        root_fact_ids = {id(f) for f in result.state.root_facts}
+        selected_fact = result.resolved_source.fact
+        selected_found = False
+        for witness in p_selection.witness_facts:
+            if not (
+                isinstance(witness, RootRegionLineageFact)
+                and _r_fields_present(witness, _R_FACT_WITNESS_FIELDS)
+                and witness.authority is True
+            ):
+                raise _fixed("the P selection witnesses must be actual authoritative root facts")
+            if witness.source_digest != p_selection.selected_source_digest:
+                raise _fixed("the P selection witnesses must carry the selected source digest")
+            if id(witness) not in root_fact_ids:
+                raise _fixed("the P selection witnesses must be original retained root facts")
+            if witness is selected_fact:
+                selected_found = True
+        if id(selected_fact) not in root_fact_ids:
+            raise _fixed("the resolved source fact must be an actual retained root fact")
+        if not selected_found:
+            raise _fixed("the resolved source fact must be an actual selected witness")
+        if not f_ok or result.f_result is None or result.f_result.overlay is None:
+            raise _fixed("ready requires the actual F graph success")
+        if result.f_result.overlay.root_digest != result.resolved_source.root_digest:
+            raise _fixed("the F graph must be derived under the actual selected root digest")
+        if result.diagnostics:
+            raise _fixed("ready carries no refusal diagnostics")
+        # The resolved source closed law already ran at the top
+        # of this validator BEFORE any parent field access (a
+        # model_copy-bypassed tampered record was refused there,
+        # not trusted by reference); the original D-state
+        # occurrence/proof membership scans remain below.
+        # The occurrence and its retained proof are ORIGINAL
+        # members of the EXACT input D state (closed bounded
+        # identity scan over the occurrence metadata, never a
+        # full source walk): a cloned pair with matching IDs /
+        # content is a foreign source and is refused.
+        if result.resolved_source.occurrence is not None:
+            if not any(
+                o is result.resolved_source.occurrence for o in result.state.d_state.occurrences
+            ):
+                raise _fixed("the resolved source occurrence must be an original D-state member")
+        if result.resolved_source.proof is not None:
+            if not any(
+                o.proof is result.resolved_source.proof for o in result.state.d_state.occurrences
+            ):
+                raise _fixed("the resolved source proof must be an original D-state member")
+    elif result.outcome in (
+        RootRegionGraphOutcome.ROOT_CURRENTNESS_UNPROVEN,
+        RootRegionGraphOutcome.ROOT_AUTHORITY_CONFLICT,
+    ):
+        expected_q = (
+            RootRegionCurrentnessOutcome.ROOT_CURRENTNESS_UNPROVEN
+            if result.outcome is RootRegionGraphOutcome.ROOT_CURRENTNESS_UNPROVEN
+            else RootRegionCurrentnessOutcome.ROOT_AUTHORITY_CONFLICT
+        )
+        if result.q_result is None or result.q_result.outcome is not expected_q:
+            raise _fixed("the mapped Q outcome carries the actual same-run Q result")
+        if (
+            result.diagnostics
+            or result.f_result is not None
+            or result.e_overlay is not None
+            or result.resolved_source is not None
+        ):
+            raise _fixed(
+                "a mapped Q positive interpretation publishes no source, graph or R diagnostics"
+            )
+    else:  # REFUSED
+        if result.resolved_source is not None:
+            raise _fixed("a refused result publishes no resolved source")
+        if result.q_result is None:
+            if not result.diagnostics:
+                raise _fixed("an R refusal before Q carries its own typed diagnostics")
+            if result.f_result is not None or result.e_overlay is not None:
+                raise _fixed("an R refusal before Q carries no F evidence")
+        elif result.diagnostics == (RootRegionGraphDiagnostic.WORK_UNITS_OVER_BOUND,):
+            # An R-total crossing BEFORE R's own result
+            # returned: retain whatever actual Q/F evidence was
+            # already computed (a mapped Q positive
+            # interpretation included) and publish no source.
+            pass
+        elif (
+            result.q_result.outcome is RootRegionCurrentnessOutcome.ROOT_CURRENTNESS_UNPROVEN
+        ) or (result.q_result.outcome is RootRegionCurrentnessOutcome.ROOT_AUTHORITY_CONFLICT):
+            raise _fixed("a positive-interpretation Q outcome maps to its own R outcome")
+        elif result.q_result.outcome is RootRegionCurrentnessOutcome.REFUSED:
+            if result.diagnostics or result.f_result is not None or result.e_overlay is not None:
+                raise _fixed("a mapped Q refusal adds no R diagnostics or F evidence")
+        else:  # actual Q ready
+            if result.f_result is None:
+                if (
+                    result.diagnostics != (RootRegionGraphDiagnostic.SOURCE_RESOLUTION_FAILED,)
+                    or result.e_overlay is not None
+                ):
+                    raise _fixed(
+                        "a Q-ready refusal without an F result is the "
+                        "selected-source resolution failure"
+                    )
+            elif result.f_result.outcome is not CurrentGraphOutcome.OK:
+                if result.diagnostics or result.e_overlay is not None:
+                    raise _fixed("a mapped F refusal carries no R diagnostics or overlay")
+            else:
+                raise _fixed("an F-ok refusal is only reachable through an R-total crossing")
