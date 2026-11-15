@@ -253,8 +253,7 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is implemented and PENDING strategic review at its bounded complete-consumer scope, all as
-inert typed modules under
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`), and the 019-a bounded RAM owner and atomic state storage slice (contract `docs/CACHE-RAM-STATE-CONTRACT.md`) is implemented and PENDING strategic review at its bounded inert RAM owner/store scope, all as inert typed modules under
 `src/slaif_local_coding/constitution/bundles/`; they are not active in
 the adapter request execution path, the legacy detector is unchanged,
 the v1 runtime remains planned and inactive, and the remaining
@@ -675,10 +674,7 @@ apply to public ready, non-ready and refusal paths.
 Original payload-data serialization is preserved; pure
 equality is not HTTP wire proof.
 
-The API remains inert and inactive in adapter execution.
-The separate same018 admission/full-result consumer, all
-original whole018 G/C/S and repair criteria, and stages
-019-024 remain mandatory. R graph/source-scale results
+The API remains inert and inactive in adapter execution. The separate same018 admission/full-result consumer (018-t) is now ACCEPTED at its bounded complete-consumer scope (strategic decision `S/reviews/018-t-decision.md`); stages 019-024 remain mandatory. R graph/source-scale results
 cannot replace the later complete admission consumer's
 own substantial-source and whole-operation resource
 evidence. Preserve old H/O/I/P/Q public schemas,
@@ -733,7 +729,7 @@ owner/namespace, no new whole-operation bound set, no runtime wiring,
 and retaining the actual R result by reference is component data, NOT
 derivation authority; the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) derives ACTUAL R from ACTUAL P in its own entire charged operation and independently earns its own source-scale and whole-operation evidence, reusing these models as the closed leaf and admission-parent law. All existing C/G/H/O/I/P/Q/R public law stays unchanged.
 
-**Complete root-region admission consumer (018-t inert, implemented, PENDING strategic review at its bounded COMPLETE-CONSUMER scope).**
+**Complete root-region admission consumer (018-t inert, ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`)).**
 The separately versioned
 `cache-root-region-admission/v1` /
 `root-region-admission-policy/v1` operation
@@ -781,11 +777,9 @@ complete-operation READY at their stated domains (the
 mixed/multi-history positive complete-operation data under the genuine
 legal 1048576 GraphBounds stage setting, the default-stage
 refusals recorded honestly), which is NOT default whole-
-consumer readiness and NOT zero allocation. It is the same-018
-complete consumer promised by R/S; whole-018 acceptance and
-stages 019-024 remain mandatory. The exact scope is versioned
-in `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md` (`tests/test_root_region_admission.py`); the stage stays inert and
-inactive.
+consumer readiness and NOT zero allocation. It is the same-018 complete consumer promised by R/S; whole objective 018 is now ACCEPTED at its complete INERT graph/currentness/admission scope (strategic decision `S/reviews/018-t-decision.md`) and stages 019-024 remain mandatory. The exact scope is versioned in `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md` (`tests/test_root_region_admission.py`); the stage stays inert and inactive.
+
+**Bounded RAM owner and atomic state storage (019-a inert, implemented, PENDING strategic review at its bounded inert RAM owner/store scope).** The separately versioned `cache-ram-state/v1` store (`src/slaif_local_coding/constitution/bundles/ram_state.py` / `ram_state_models.py`; contract `docs/CACHE-RAM-STATE-CONTRACT.md`; `tests/test_bundle_ram_state.py`) implements the first 019 slice: per-session immutable RAM ownership over ACTUAL accepted 018-p/018-t records, bound to the COMPLETE trusted namespace, ONE live owner and explicit cache epochs; a conservative measured occupancy recipe charging every retained owned component before commit (identity-deduplicated within one owner; no total-RSS promise); the mandatory expected-revision commit CAS; atomic process/session ceiling checks (defaults 536870912 bytes/process and 134217728 bytes/session) returning the fixed typed 503 contract with existing state preserved; the retained historical entry catalog (a superseded current entry never destroyed; a genuinely new compatible revert may reuse it, replay cannot reactivate it); explicit teardown freeing only that namespace's occupancy and fencing the old epoch; no TTL/LRU, no capacity eviction, no automatic dormant scan and no disk-backed normal lookup. It is INERT: no async single-flight, cancellation, compiler or tokenizer integration, wire integration, recovery or v1 runtime activation -- those remain the later same-019 work and 020-024. The stage stays inert and inactive.
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
 NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
@@ -1331,7 +1325,7 @@ Cutover NOT performed; NOT released. Objective 016 (merged PR #24, merge
 contracts (handoff, plan, reconciled architecture/law, stage ledger).
 Objective 017 was ACCEPTED at its bounded pure-observation scope WITH
 PROCESS QUALIFICATIONS (017-am decision, `reviews/017-am-decision.md`) and
-merged to main at ffaabf4b; objective 018 is active (018-a
+merged to main at ffaabf4b; objective 018 is ACCEPTED at its complete INERT graph/currentness/admission scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`) and merged to main at c5eb299df822875988867bf34d58de239e82657e (018-a
 foundation slice ACCEPTED at its bounded inert graph-foundation
 scope with process qualifications; 018-b ACCEPTED at its bounded inert
 bundle-proof scope with process qualifications; 018-c implemented inert
@@ -1415,8 +1409,7 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is implemented and PENDING strategic review at its bounded complete-consumer scope). The
-per-round history (017-a through 017-am) is NOT restated here;
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`); objective 019 is active (019-a: implemented bounded RAM owner and atomic state storage slice, PENDING strategic review at its bounded inert RAM owner/store scope (contract `docs/CACHE-RAM-STATE-CONTRACT.md`)). The per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
 `docs/CACHE-OBSERVATION-CONTRACT.md`.
@@ -1509,7 +1502,7 @@ their exact residual uncertainties, preserved as process qualifications);
 no GENERIC native-compatibility or v1 runtime claim is made. Objective
 017 is ACCEPTED at the bounded pure-observation scope with process
 qualifications and merged to main at ffaabf4b (017-am decision,
-`reviews/017-am-decision.md`); objective 018 is active (018-a: inert
+`reviews/017-am-decision.md`); objective 018 is ACCEPTED at its complete INERT graph/currentness/admission scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`) and merged to main at c5eb299df822875988867bf34d58de239e82657e (018-a: inert
 graph-foundation slice ACCEPTED at its bounded inert
 graph-foundation scope with process qualifications, contract
 `docs/CACHE-GRAPH-CONTRACT.md`; 018-b: bundle-proof bridge slice
@@ -1602,13 +1595,7 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is implemented and PENDING strategic review at its bounded complete-consumer scope, and the
-remaining 018 current-version/overlap work beyond this mechanism
-(C04/C05 current-version acceptance, version-owned
-edge/certificate withdrawal end-to-end acceptance and the whole-018 composition acceptance) plus
-objectives 019-024 remain the mandatory unearned v1
-implementation stages (see
-`docs/CACHE-REWORK-LEDGER.md`); the original
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`); objective 019 is active (019-a: implemented bounded RAM owner and atomic state storage slice, PENDING strategic review at its bounded inert RAM owner/store scope (contract `docs/CACHE-RAM-STATE-CONTRACT.md`)); objectives 019-024 (RAM/single-flight, recovery, compiler/tokenizer, transactional runtime, full-stack and actual-model/genuine-Codex stages) remain the mandatory unearned v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`); the original
 planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric
 objective=one PR; coding never merges.
