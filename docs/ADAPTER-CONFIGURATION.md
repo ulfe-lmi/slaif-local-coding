@@ -446,7 +446,9 @@ Planned requirements:
   behavior (typed 503/409/422), with no hidden raw-source fallback.
 - Finite parser/request limits and explicit resource-pressure behavior.
 
-Illustrative vocabulary, **not runnable TOML for the current release**:
+Component status: the first inert slice of this planned profile has landed as 019-a — the bounded RAM owner and atomic state storage foundation (`RamStateOwnerRegistry`/`RamStateBounds` over ACTUAL accepted 018-p/018-t records, per [the RAM state contract](CACHE-RAM-STATE-CONTRACT.md)). It is inert: no adapter configuration key, no application wiring or profile activation is implemented by it; the planned keys above remain placeholders until the owning stages land, and the remaining 019 work (single-flight, cancellation, pressure closure) and 020-024 stay unearned.
+
+Illustrative vocabulary, **not runnable TOML for the current release**:.
 
 ```toml
 [context_cache]
