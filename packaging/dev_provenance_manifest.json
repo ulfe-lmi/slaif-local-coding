@@ -1,16 +1,16 @@
 {
   "artifacts": {
     "sdist": {
-      "entry_count": 279,
+      "entry_count": 283,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "eeaacf5f4afdb5c7fd6829b6f4ee0e7f58800287a24312cf84a82e97a8ba67c6",
-      "size_bytes": 2250751
+      "sha256": "90c4073be5312e96eaa815a23c3a53198853fcb8778da5d8afecb193ba664321",
+      "size_bytes": 2290775
     },
     "wheel": {
-      "entry_count": 69,
+      "entry_count": 71,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "23fe9ba98fa4ee833e2df79e7d57feb90730feb2b418be5b480a7e03f60452a3",
-      "size_bytes": 646871
+      "sha256": "4c26f825366ec3337244e039e46bcd3e0264f02a1be8202308e30e394b9d9945",
+      "size_bytes": 667961
     }
   },
   "frozen_publication": {
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "016-b",
-  "qualification_label": "development-source-3d3f79c85d6618206d9ea0d22b9fb9b66b80f3da; not a release candidate; not released",
+  "qualification_label": "development-source-4240033b12355e5997f0d7485804f43a7726ff9a; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "3d3f79c85d6618206d9ea0d22b9fb9b66b80f3da",
+  "source_commit": "4240033b12355e5997f0d7485804f43a7726ff9a",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -48,7 +48,7 @@
     "config/adapter.deployment.template.toml": "e4838be16ed1c5fc3f698a6e10246be61148a498ade61d0a8c11986cf42ed565",
     "config/adapter.example.toml": "a06e6aae12af6df571faaa383e40118ffa4d8f4f273310721381de2a17122fc0",
     "config/adapter.gateway-integrated.template.toml": "14357037ab96029ed510d0d491f10a9e7b51586d0f7b9b4842ac3d9937e74afb",
-    "docs/ADAPTER-CONFIGURATION.md": "b744f8b180ba82ac253de360df0a979be0a7d406ed215784c6e4397a86b42bf4",
+    "docs/ADAPTER-CONFIGURATION.md": "d3df0eabb4b9f2c8ad5b5611d5f167941a2df78e716b94d9297d0366bc1abbc3",
     "docs/CACHE-BUNDLE-ADMISSION-CONTRACT.md": "3288cd479104808a19ec659aacc2c4b2af85c4d535f87d5594f6322536c90d27",
     "docs/CACHE-BUNDLE-PROOF-CONTRACT.md": "6e8a4c47acbe906ba21193c0c5dfa0ee61ff649f75accde309378aded4bf0061",
     "docs/CACHE-CAUSAL-HISTORY-CONTRACT.md": "14851d79f7a640cd2854a8e3649c8abb36e848ae52e9a9e69303940c63472c3c",
@@ -57,10 +57,11 @@
     "docs/CACHE-CURRENT-ROOT-COMPOSITION-CONTRACT.md": "3a22a8b680813cceb555e8c53de90f18370d97fd5598e5178e6ee7d07acf4b30",
     "docs/CACHE-CURRENTNESS-CONTRACT.md": "5845117154734005e8caa68a11feb5853ab5c538cfdde31104a3fb0e25ac7215",
     "docs/CACHE-GRAPH-CONTRACT.md": "d09c3d0a2e9ed3e2e0bf6ca3fb5fd681e3880d30f4697ad87ff790f984df552c",
-    "docs/CACHE-IMPLEMENTATION-PLAN.md": "355fd557ff090674eb9d9c7cc03fad928218ddd1d9703b1a4643c41d54464775",
+    "docs/CACHE-IMPLEMENTATION-PLAN.md": "a25fa638eef722c4a8ecd83639c0ddc44b9cfcc4f37da6c329b48fb0414c016d",
     "docs/CACHE-OBSERVATION-CONTRACT.md": "3cc68340ef0a0f202d1081c116ccfe272cf7ba6c5df4165c2793e008e74c23a9",
-    "docs/CACHE-RAM-STATE-CONTRACT.md": "edd07c2154ff96a57c790a4077bca9f73922ae1571a6564dcb943dcab299353f",
-    "docs/CACHE-REWORK-LEDGER.md": "4edc553a99482efbdc1db0c42b6cc2be9100fd744f789cb0c935fd227a328246",
+    "docs/CACHE-RAM-STATE-CONTRACT.md": "ffb5a6af5d895575ce552ffe6543250a2c4435f95e95b27165b81bad55bc7a83",
+    "docs/CACHE-RAM-WORK-CONTRACT.md": "284dffdd8bda80639db5322f073331d655c6548ab80fd360a23f6e2dd0bb5ebe",
+    "docs/CACHE-REWORK-LEDGER.md": "80de42c967c6e78121a685b47231caed2df9c380a92191b6385833294c4affef",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/CACHE-ROOT-LINEAGE-CONTRACT.md": "544d1b91ed721a39de9925ae051d17856855cb7fb4f0dabd90cc4c1792e4e83c",
     "docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md": "b1576735010bbf1c896228094598223c437cdc4cf0b2ab2820f32ed62f2a8673",
@@ -120,8 +121,10 @@
     "src/slaif_local_coding/constitution/bundles/observation_models.py": "c831e0be0b79688654d0675c49e5d14c8a388978d104d2dedcd9a37cf235a557",
     "src/slaif_local_coding/constitution/bundles/observe.py": "3f60966b0d20b3f91abd5d468799409f026263dcbbaa0ff81d5c2cf75fcdbf54",
     "src/slaif_local_coding/constitution/bundles/process_chunks.py": "9e28a73dbd7d35e7d5657c769a03960e15c0afe80bb79144b733b649fc04bd1b",
-    "src/slaif_local_coding/constitution/bundles/ram_state.py": "ae6d8803afd79e9eeba78c9111b60f21cadab6553674a1a2e5db2671502c56ed",
-    "src/slaif_local_coding/constitution/bundles/ram_state_models.py": "90dfd7d8f3d41cd6a7348c1afeaac3d6425a5f15315663d4a054de0af706f3e7",
+    "src/slaif_local_coding/constitution/bundles/ram_state.py": "6abd283ee8e78f75085a3137de2688f7d3ca1bcfbf11ecb2203e1756966362d3",
+    "src/slaif_local_coding/constitution/bundles/ram_state_models.py": "8cf107d09c07893206a93fc69c329213f6984cb2928c9ce44359c4708f92502b",
+    "src/slaif_local_coding/constitution/bundles/ram_work.py": "4cb1c9444bac5b5208b046dbe0b80b0b0e9176db967af2ce9c180681fae4f8f7",
+    "src/slaif_local_coding/constitution/bundles/ram_work_models.py": "7eeb5df4fc84e001fa6c3f7544e01518fd1454b3a96a8528e8de93234c7dfb10",
     "src/slaif_local_coding/constitution/bundles/read_grammar.py": "2ad0e07971274e5ccab94a8c33a1beee86d6c6fef249cbcd83f6e030bfe94f45",
     "src/slaif_local_coding/constitution/bundles/references.py": "2c7a51260ab58e22eb9f4e9f793e74fb05e5491ffb34ccf4088f3d02a2924ad2",
     "src/slaif_local_coding/constitution/bundles/root_envelopes.py": "9212e5fe33dea102131696997da27a619667042d6c0bd51f57bde1473a801444",
@@ -233,6 +236,7 @@
     "tests/test_bundle_process_chunks.py": "fd3b72d6be0540c915381a3fa98f05e8e1ad5c466604273d534f57662eb95d6e",
     "tests/test_bundle_proof.py": "a2e62356aa1b1526e42ff12e0d737af2202e0e414a4c5ae7132dad730a6380cc",
     "tests/test_bundle_ram_state.py": "fe277d1130845c80ad8a706f656979e895ea8d34436a1acbd3132d86b1f8836f",
+    "tests/test_bundle_ram_work.py": "ef5148bf0b5f37013c8feec8ab457d4532ab267cc5da97fc5d3cc2fbf0e7f795",
     "tests/test_bundle_read_grammar.py": "26232321462a245a07bb8b9b038837169ce7b11b1f39d1cafbf030eb8a5d6f43",
     "tests/test_bundle_references.py": "a41f629bd7839d8cc7ebb3f8e203a7c5d96d85031e82d0fe678331ce7d9e799a",
     "tests/test_bundle_root_envelopes.py": "0956a95c0756496c9f2113d14d1a9c5c6cee144e7ad9ccc4707eaaa48e39e4db",
