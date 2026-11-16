@@ -446,7 +446,9 @@ Planned requirements:
   behavior (typed 503/409/422), with no hidden raw-source fallback.
 - Finite parser/request limits and explicit resource-pressure behavior.
 
-Illustrative vocabulary, **not runnable TOML for the current release**:
+Component status: the first two inert slices of this planned profile have landed: 019-a — the bounded RAM owner and atomic state storage foundation (`RamStateOwnerRegistry`/`RamStateBounds` over ACTUAL accepted 018-p/018-t records, ACCEPTED at its bounded inert RAM owner/store scope, per [the RAM state contract](CACHE-RAM-STATE-CONTRACT.md)) — and 019-b — the bounded async single-flight work plane over the 019-a registry (`RamWorkCoordinator`/`RamWorkBounds`, opt-in via the registry `work_bounds`, per [the RAM work contract](CACHE-RAM-WORK-CONTRACT.md), delivered at its bounded inert single-flight scope NOT ACCEPTED against the complete accounting requirement or whole 019 per the 019-b strategic decision). The 019-c whole-019 closure round implements the remaining pressure/source-scale/lifecycle closure at the inert injected-work layer (PENDING strategic review). They are inert: no adapter configuration key, no application wiring or profile activation is implemented by them; the planned keys above remain placeholders until the owning stages land, and 020-024 stay unearned.
+
+Illustrative vocabulary, **not runnable TOML for the current release**:.
 
 ```toml
 [context_cache]

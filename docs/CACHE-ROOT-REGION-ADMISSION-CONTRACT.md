@@ -23,8 +23,7 @@ immutable reference (once returned, on EVERY later outcome) and
 the actual S admission parent by immutable reference (READY
 only).
 
-This slice is IMPLEMENTED and PENDING strategic review at its
-bounded COMPLETE-CONSUMER scope. The 018-s models slice is
+This slice is IMPLEMENTED and ACCEPTED at its bounded COMPLETE-CONSUMER scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`; merged to main at c5eb299df822875988867bf34d58de239e82657e). The 018-s models slice is
 ACCEPTED at its bounded INERT MODEL/LOCAL-BOUNDARY scope WITH
 PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT
 CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`;
