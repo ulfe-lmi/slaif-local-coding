@@ -17,7 +17,10 @@ CAS, atomic process/session ceiling checks with the fixed typed
 503 backpressure contract, the retained historical entry catalog
 and explicit teardown. It is implemented as inert typed modules
 (`tests/test_bundle_ram_state.py`) and is PENDING strategic
-review at its bounded inert RAM owner/store scope. Whole objective
+review at its bounded inert RAM owner/store scope. 019-a is
+ACCEPTED at that bounded inert RAM owner/store scope WITH PROCESS
+QUALIFICATIONS AND IMMUTABLE-REPORT CORRECTIONS (strategic
+decision `S/reviews/019-a-decision.md`). Whole objective
 018 is ACCEPTED at its complete INERT graph/currentness/admission
 scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT
 CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`;
@@ -31,7 +34,8 @@ by it.
 
 ## 1. Public surface and inputs
 
-`RamStateOwnerRegistry(bounds=None)` owns at most one live
+`RamStateOwnerRegistry(bounds=None, work_bounds=None)` owns at
+most one live
 `RamStateOwner` per trusted namespace:
 
 - `acquire(namespace) -> RamStateOwner` creates the owner (base
@@ -149,4 +153,14 @@ recovery records (020) and no v1 runtime activation. All
 bytes and refusal laws stay intact; this slice adds no dependency,
 no service, no model/GPU/Gateway/native call and no adapter
 activation. Later same-019 work (single-flight, cancellation,
-pressure closure) and 020-024 remain mandatory.
+pressure closure) and 020-024 remain mandatory. The separate
+019-b bounded async single-flight work plane (contract
+`docs/CACHE-RAM-WORK-CONTRACT.md`) is the later same-019 slice
+built OVER this store: it is opt-in via the registry
+`work_bounds` (the default work-disabled behavior is unchanged),
+charges the SAME process/session ceilings against the SAME
+atomic sum (the synchronous `admit` session check adds the
+owner's charged work occupancy), and the synchronous store
+teardown is fenced with the fixed typed `work_in_flight`
+refusal while the work plane is draining or still owns live
+work.

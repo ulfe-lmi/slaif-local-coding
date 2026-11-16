@@ -157,22 +157,29 @@ class RamStateOutcome(StrEnum):
 class RamStateLimitation(StrEnum):
     """The closed owner-limitation vocabulary (019-a).
 
-    ``session_owned_bytes_over_bound`` /
+    ``session_owned_bytes_over_bound`` and
     ``process_owned_bytes_over_bound`` are the two capacity
     refusals that carry the fixed typed 503 backpressure
     contract at this inert boundary (the process ceiling is
     the REGISTRY's).  ``duplicate_owner`` names the
     unsupported multi-worker configuration rejected at the
     component boundary (construction raises the fixed typed
-    error).  ``owner_namespace_mismatch``, ``epoch_fenced``
-    and ``revision_mismatch`` are the trusted-namespace /
-    explicit-epoch / commit-CAS fence refusals, and
-    ``stale_state_revision`` is the LINEAGE-rollback fence
-    (an older genuine P state than the retained one, or a
-    DISTINCT state object at the SAME retained P revision --
-    a divergent lineage fork; the state revision is a CAS
-    fence, never an arrival clock; an identical retained
-    state replay is separate)."""
+    error).  ``owner_namespace_mismatch``, ``epoch_fenced``,
+    ``work_in_flight`` and ``revision_mismatch`` are the
+    trusted-namespace / explicit-epoch / work-plane /
+    commit-CAS fence refusals, and ``stale_state_revision``
+    is the LINEAGE-rollback fence (an older genuine P state
+    than the retained one, or a DISTINCT state object at the
+    SAME retained P revision -- a divergent lineage fork; the
+    state revision is a CAS fence, never an arrival clock; an
+    identical retained state replay is separate).
+    ``work_in_flight`` names the 019-b work-plane fence on
+    the synchronous teardown: while the owner's work plane is
+    fenced (the async work teardown is draining) or still
+    owns queued / active work, the synchronous teardown
+    refuses; the async work teardown releases the store
+    owner and the work plane atomically, so no same-epoch
+    reset window exists."""
 
     SESSION_OWNED_BYTES_OVER_BOUND = "session_owned_bytes_over_bound"
     PROCESS_OWNED_BYTES_OVER_BOUND = "process_owned_bytes_over_bound"
@@ -181,6 +188,7 @@ class RamStateLimitation(StrEnum):
     EPOCH_FENCED = "epoch_fenced"
     REVISION_MISMATCH = "revision_mismatch"
     STALE_STATE_REVISION = "stale_state_revision"
+    WORK_IN_FLIGHT = "work_in_flight"
 
 
 class RamStateSnapshot(_GraphFrozen):

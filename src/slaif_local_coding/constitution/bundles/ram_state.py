@@ -104,9 +104,12 @@ from __future__ import annotations
 
 import sys
 import threading
-from typing import TypeGuard
+from typing import TYPE_CHECKING, TypeGuard
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from .ram_work import RamWorkCoordinator
 
 from .ram_state_models import (
     RAM_HTTP_CAPACITY_STATUS,
@@ -526,8 +529,15 @@ class RamStateOwner:
         model IO or SSE), with every precondition re-checked
         after acquiring; the CAS, the lineage-rollback fence
         and the ceilings can therefore never commit a stale
-        or interleaved decision."""
+        or interleaved decision.  The session ceiling runs on
+        the SAME atomic sum the 019-b work plane honors: the
+        owner's store occupancy plus this owner's charged
+        work occupancy (zero on a work-disabled registry), so
+        neither plane can bypass the other's ceiling."""
         with self._registry._lock:
+            work = self._registry._work
+            work_extra = work.session_bytes(self.namespace.lineage_key) if work is not None else 0
+            session_sum = self.owned_bytes + work_extra
             if self._registration is None and not self.epoch_fenced:
                 raise RamStateInputError(
                     "the ram state owner is not registered with a live process registry"
@@ -538,7 +548,7 @@ class RamStateOwner:
                     limitation=RamStateLimitation.EPOCH_FENCED,
                     snapshot=self._snapshot,
                     charged_bytes=0,
-                    session_owned_bytes=self.owned_bytes,
+                    session_owned_bytes=session_sum,
                     process_owned_bytes=self.process_owned_bytes,
                     revision=self.revision,
                     http_status=None,
@@ -580,7 +590,7 @@ class RamStateOwner:
                     limitation=RamStateLimitation.REVISION_MISMATCH,
                     snapshot=self._snapshot,
                     charged_bytes=0,
-                    session_owned_bytes=self.owned_bytes,
+                    session_owned_bytes=session_sum,
                     process_owned_bytes=self.process_owned_bytes,
                     revision=self.revision,
                     http_status=None,
@@ -600,7 +610,7 @@ class RamStateOwner:
                         limitation=RamStateLimitation.STALE_STATE_REVISION,
                         snapshot=snapshot,
                         charged_bytes=0,
-                        session_owned_bytes=self.owned_bytes,
+                        session_owned_bytes=session_sum,
                         process_owned_bytes=self.process_owned_bytes,
                         revision=self.revision,
                         http_status=None,
@@ -611,7 +621,7 @@ class RamStateOwner:
                         limitation=RamStateLimitation.STALE_STATE_REVISION,
                         snapshot=snapshot,
                         charged_bytes=0,
-                        session_owned_bytes=self.owned_bytes,
+                        session_owned_bytes=session_sum,
                         process_owned_bytes=self.process_owned_bytes,
                         revision=self.revision,
                         http_status=None,
@@ -632,13 +642,17 @@ class RamStateOwner:
             # storage is computed BEFORE any commit or ceiling
             # decision.
             charge, new_snapshot = self._commit_charge(state, result, history)
-            if charge > self.session_max_owned_bytes:
+            # The session ceiling bounds the SAME atomic sum
+            # the work plane charges against: this commit's
+            # store charge plus the owner's current charged
+            # work occupancy.
+            if charge + work_extra > self.session_max_owned_bytes:
                 return RamStateAdmissionResult(
                     outcome=RamStateOutcome.REFUSED,
                     limitation=RamStateLimitation.SESSION_OWNED_BYTES_OVER_BOUND,
                     snapshot=snapshot,
                     charged_bytes=charge,
-                    session_owned_bytes=self.owned_bytes,
+                    session_owned_bytes=session_sum,
                     process_owned_bytes=self.process_owned_bytes,
                     revision=self.revision,
                     http_status=RAM_HTTP_CAPACITY_STATUS,
@@ -652,7 +666,7 @@ class RamStateOwner:
                     limitation=RamStateLimitation.PROCESS_OWNED_BYTES_OVER_BOUND,
                     snapshot=snapshot,
                     charged_bytes=charge,
-                    session_owned_bytes=self.owned_bytes,
+                    session_owned_bytes=session_sum,
                     process_owned_bytes=self.process_owned_bytes,
                     revision=self.revision,
                     http_status=RAM_HTTP_CAPACITY_STATUS,
@@ -666,7 +680,7 @@ class RamStateOwner:
                 limitation=None,
                 snapshot=new_snapshot,
                 charged_bytes=charge,
-                session_owned_bytes=self.owned_bytes,
+                session_owned_bytes=self.owned_bytes + work_extra,
                 process_owned_bytes=self.process_owned_bytes,
                 revision=new_snapshot.revision,
                 http_status=None,
@@ -765,6 +779,25 @@ class RamStateOwner:
                 epoch=snapshot.epoch,
             )
 
+    def _release_locked(self) -> int:
+        """Release the owner's store occupancy and registry
+        reference and fence the old epoch (the caller holds
+        the registry lock and has passed every fence).  The
+        async 019-b work teardown reuses this exact internal
+        release so that the store owner and the work plane
+        die in ONE critical section -- no same-epoch reset
+        window can open between them."""
+        freed = self.owned_bytes
+        key = self._registration
+        self._registry._commit_process_delta(-freed)
+        self._registry._release(key)
+        self._snapshot = None
+        self._history = ()
+        self.owned_bytes = 0
+        self._registration = None
+        self.epoch_fenced = True
+        return freed
+
     def teardown(
         self,
         namespace: object,
@@ -778,7 +811,15 @@ class RamStateOwner:
         fenced owner returns the typed ``EPOCH_FENCED``
         refusal; the registry allocates a DISTINCT epoch to
         an explicit re-acquire; no hidden expiry and no auto-
-        recreation through a normal lookup."""
+        recreation through a normal lookup.  The 019-b
+        work-plane fence (``work_in_flight``): while the
+        owner's work plane is fenced (the async work teardown
+        is draining) or still owns queued / active work, this
+        synchronous teardown refuses; an IDLE work plane
+        (no live work, not fenced) is released in the SAME
+        critical section as the store release, so the store
+        owner and its work plane are never torn down
+        separately."""
         with self._registry._lock:
             if self._registration is None and not self.epoch_fenced:
                 raise RamStateInputError(
@@ -811,15 +852,28 @@ class RamStateOwner:
                         session_owned_bytes=self.owned_bytes,
                         process_owned_bytes=self.process_owned_bytes,
                     )
-            freed = self.owned_bytes
-            key = self._registration
-            self._registry._commit_process_delta(-freed)
-            self._registry._release(key)
-            self._snapshot = None
-            self._history = ()
-            self.owned_bytes = 0
-            self._registration = None
-            self.epoch_fenced = True
+            # The 019-b work-plane fence: a fenced (draining)
+            # or still-live work plane refuses the
+            # synchronous teardown; only the async work
+            # teardown releases the store while it fences.
+            work = self._registry._work
+            if work is not None and work.owner_work_active(self.namespace.lineage_key):
+                return RamStateTeardownResult(
+                    outcome=RamStateOutcome.REFUSED,
+                    limitation=RamStateLimitation.WORK_IN_FLIGHT,
+                    freed_bytes=0,
+                    session_owned_bytes=self.owned_bytes,
+                    process_owned_bytes=self.process_owned_bytes,
+                )
+            freed = self._release_locked()
+            # An IDLE work plane (no live work, not fenced) is
+            # released in the SAME critical section as the
+            # store release: its charged occupancy is
+            # committed out and its state dropped atomically
+            # with the owner release.
+            if work is not None:
+                work_freed = work.release_idle_owner(self.namespace.lineage_key)
+                freed += work_freed
             return RamStateTeardownResult(
                 outcome=RamStateOutcome.TEARDOWN,
                 limitation=None,
@@ -869,9 +923,14 @@ class RamStateOwnerRegistry:
         "_owners",
         "_process_owned_bytes",
         "_epoch_counter",
+        "_work",
     )
 
-    def __init__(self, bounds: RamStateBounds | None = None) -> None:
+    def __init__(
+        self,
+        bounds: RamStateBounds | None = None,
+        work_bounds: object = None,
+    ) -> None:
         if bounds is None:
             self._bounds = RamStateBounds()
         elif not ram_state_bounds_shape_ok(bounds):
@@ -899,10 +958,39 @@ class RamStateOwnerRegistry:
             + sys.getsizeof(self._process_owned_bytes)
             + bounds_shell
         )
+        # The 019-b async work plane is OPT-IN: an explicit
+        # ``work_bounds`` enables the bounded single-flight
+        # coordinator over this registry's owners (the
+        # closed original work-bounds record class only).
+        # The 019-a default (no work plane) is unchanged.
+        # The imports are lazy because the coordinator module
+        # imports this store module at top level.  The
+        # coordinator shell (including the retained
+        # work-bounds record) is committed on top of the
+        # registry shell charge ABOVE, so the combined base
+        # is accounted before ANY owner allocation can be
+        # checked against the process ceiling.
+        self._work: RamWorkCoordinator | None = None
+        if work_bounds is not None:
+            from .ram_work import RamWorkCoordinator
+            from .ram_work_models import ram_work_bounds_shape_ok
+
+            if not ram_work_bounds_shape_ok(work_bounds):
+                raise RamStateInputError(
+                    "the registry work bounds must be the closed original work bounds record"
+                )
+            self._work = RamWorkCoordinator(self, work_bounds)
 
     @property
     def bounds(self) -> RamStateBounds:
         return self._bounds
+
+    @property
+    def work(self) -> RamWorkCoordinator | None:
+        """The opt-in 019-b async work plane coordinator, or
+        None when the registry was created without a work
+        plane (the 019-a default)."""
+        return self._work
 
     @property
     def process_owned_bytes(self) -> int:
