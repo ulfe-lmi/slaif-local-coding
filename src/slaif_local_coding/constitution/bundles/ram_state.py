@@ -186,27 +186,31 @@ class RamStateAccountingError(RamStateError):
 # time; the recipe is deterministic, over-charges only where
 # a retained value is a shared singleton, never under-
 # charges, never reads a disk store and never promises total-
-# RSS.  The owner base metadata (the owner shell and the per-
-# owner registry map slot), the historical catalog tuple and
-# the retained snapshot storage are owned components charged
-# with the record set they accompany; the shared registry
-# shell (its instance, its live-owner map, its critical-
-# section lock, its counters) is charged into the process
-# occupancy once at registry construction.
+# RSS.  The owner base metadata (the owner shell), the
+# historical catalog tuple and the retained snapshot storage
+# are owned components charged with the record set they
+# accompany; the shared registry shell (its instance, its
+# live-owner map, its critical-section lock, its counters) is
+# charged into the process occupancy once at registry
+# construction, and the ACTUAL table growth of the shared
+# live-owner map is charged as it happens and retained at its
+# high water as an explicitly conservative reservation:
+# CPython tables do not shrink when owners are removed, and
+# a smaller candidate replacement may shrink the ACTUAL
+# table while the charge stays (it is retained container
+# allocation, never part of any session's freed bytes).
 
 _RAM_MEASURED: dict[str, int] = {}
 
 
-def _measured_ram_sizes() -> tuple[int, int]:
-    """The ACTUAL measured (owner shell, registry map slot)
-    sizes, cached after the first read.  The slot is the
-    measured 1-entry dict size: a conservative envelope for
-    the shared map amortized growth, never an under-estimate
-    of one owner map entry."""
+def _measured_owner_shell() -> int:
+    """The ACTUAL measured owner shell size, cached after the
+    first read.  The shared live-owner map table is NOT part
+    of the per-owner charge: it is charged at the registry as
+    actual table growth, retained at high water."""
     if not _RAM_MEASURED:
         _RAM_MEASURED["shell"] = sys.getsizeof(object.__new__(RamStateOwner))
-        _RAM_MEASURED["slot"] = sys.getsizeof({"slot": None})
-    return _RAM_MEASURED["shell"], _RAM_MEASURED["slot"]
+    return _RAM_MEASURED["shell"]
 
 
 def _charge_object(value: object, seen: set[int]) -> int:
@@ -244,13 +248,13 @@ def _charge_object(value: object, seen: set[int]) -> int:
 
 def ram_owner_base_charge(namespace: RootRegionLineageNamespace) -> int:
     """The conservative occupancy of ONE owner base metadata:
-    the ACTUAL measured owner shell, the ACTUAL measured per-
-    owner registry map slot and the retained trusted
+    the ACTUAL measured owner shell and the retained trusted
     namespace record itself (charged at creation, released at
-    teardown)."""
-    shell, slot = _measured_ram_sizes()
+    teardown).  The shared live-owner map table is charged at
+    the registry (actual growth, high-water retained) and is
+    not part of the per-owner base."""
     seen: set[int] = set()
-    return shell + slot + _charge_object(namespace, seen)
+    return _measured_owner_shell() + _charge_object(namespace, seen)
 
 
 def ram_retained_owned_bytes(
@@ -262,8 +266,8 @@ def ram_retained_owned_bytes(
 ) -> int:
     """The conservative explicit occupancy charge of ONE
     retained owner record set -- the owner base metadata (the
-    measured shell, the measured registry slot, the retained
-    trusted namespace), the (state, result) records, the
+    measured shell, the retained trusted namespace), the
+    (state, result) records, the
     historical immutable entry catalog (its tuple AND its
     retained entry objects) and, when given, the retained
     snapshot storage (its model instance, its field container
@@ -286,9 +290,8 @@ def ram_retained_owned_bytes(
     transformation work of a later operation is a distinct
     domain and never enters committed occupancy; no total-RSS
     limit is promised."""
-    shell, slot = _measured_ram_sizes()
     seen: set[int] = set()
-    total = shell + slot
+    total = _measured_owner_shell()
     for record in (namespace, state, result, history):
         total += _charge_object(record, seen)
     if snapshot is not None:
@@ -330,6 +333,7 @@ class RamStateOwner:
         "_snapshot",
         "_history",
         "_registration",
+        "_quarantined",
     )
 
     def __init__(
@@ -349,6 +353,7 @@ class RamStateOwner:
         self._snapshot: RamStateSnapshot | None = None
         self._history: tuple[RootRegionAdmissionEntry, ...] = ()
         self._registration: str | None = None
+        self._quarantined = False
 
     def _register(self, key: str, base: int) -> None:
         self._registration = key
@@ -367,6 +372,24 @@ class RamStateOwner:
         never lookup-eligible (current usability is the
         current snapshot rows alone)."""
         return self._history
+
+    @property
+    def quarantined(self) -> bool:
+        """The ADVERSE-CURRENTNESS QUARANTINE (019-c): True
+        once a genuine NEW state that would INVALIDATE the
+        retained current usable rows (a non-READY result, or a
+        READY result withdrawing / rekeying a retained current
+        key) was capacity-refused on this owner.  The
+        quarantine is a bounded pre-accounted unusable state
+        (this single flag; the refused result is NOT
+        retained, so no new bytes are charged): the owner can
+        no longer certify currentness from the older retained
+        READY state.  While set, every later admission
+        refuses with the fixed typed fence and every
+        lookup / work resolve refuses with the fixed typed
+        currentness refusal; only the explicit teardown frees
+        the owner (no epoch reset, no retry, no revival)."""
+        return self._quarantined
 
     @property
     def revision(self) -> int:
@@ -460,17 +483,16 @@ class RamStateOwner:
     ) -> tuple[int, RamStateSnapshot]:
         """The conservative occupancy of the committed record
         set under the documented closed recipe: the owner base
-        metadata (the measured shell, the measured registry
-        slot, the retained trusted namespace), the retained
+        metadata (the measured shell, the retained trusted
+        namespace), the retained
         records, the HISTORICAL catalog (its tuple AND its
         retained entry objects) and the NEW snapshot storage
         (its model instance, its field container and its
         scalar fields; the record references are identity-
         deduplicated) -- computed BEFORE the ceiling
         decision."""
-        shell, slot = _measured_ram_sizes()
         seen: set[int] = set()
-        total = shell + slot
+        total = _measured_owner_shell()
         total += _charge_object(self.namespace, seen)
         total += _charge_object(state, seen)
         total += _charge_object(result, seen)
@@ -508,6 +530,46 @@ class RamStateOwner:
             value = final
         snapshot = snapshot.model_copy(update={"owned_bytes": value})
         return value, snapshot
+
+    def _quarantine_if_adverse(self, result: RootRegionAdmissionResult) -> None:
+        """Set the adverse-currentness quarantine (019-c) when
+        the capacity-refused genuine NEW state would INVALIDATE
+        the retained current usable rows.  A non-READY result
+        carries no current rows at all (an unresolved maximal
+        root uncertainty or another refused currentness); a
+        READY result is adverse when it WITHDRAWS or REKEYS any
+        retained current key (a changed governing root rekeys
+        the root and FILE rows; an overlapping changed file
+        withdraws its entry).  A READY candidate preserving
+        EVERY retained current key is the non-adverse
+        additive control: the refusal then preserves the old
+        usable state exactly.  The quarantine itself is
+        bounded and pre-accounted (this single flag; the
+        refused result is NOT retained, so no new bytes are
+        charged)."""
+        snapshot = self._snapshot
+        if snapshot is None:
+            return
+        old_result = snapshot.result
+        if old_result.outcome is not RootRegionAdmissionOutcome.READY:
+            return
+        old_admission = old_result.admission
+        if old_admission is None:
+            return
+        old_keys = {
+            old_admission.root_entry.content_key,
+            *(e.content_key for e in old_admission.entries),
+        }
+        candidate_keys: set[str] = set()
+        if result.outcome is RootRegionAdmissionOutcome.READY:
+            candidate_admission = result.admission
+            if candidate_admission is not None:
+                candidate_keys = {
+                    candidate_admission.root_entry.content_key,
+                    *(e.content_key for e in candidate_admission.entries),
+                }
+        if old_keys - candidate_keys:
+            self._quarantined = True
 
     def admit(
         self,
@@ -564,6 +626,17 @@ class RamStateOwner:
             if type(expected_revision) is not int or expected_revision < 0:
                 raise RamStateInputError("the expected revision must be a non-negative integer")
             self._fence_trusted_namespace(namespace)
+            if self._quarantined:
+                return RamStateAdmissionResult(
+                    outcome=RamStateOutcome.REFUSED,
+                    limitation=RamStateLimitation.OWNER_QUARANTINED,
+                    snapshot=self._snapshot,
+                    charged_bytes=0,
+                    session_owned_bytes=session_sum,
+                    process_owned_bytes=self.process_owned_bytes,
+                    revision=self.revision,
+                    http_status=None,
+                )
             self._fence_result_law(state, result)
             # The ACTUAL complete 018-t result law re-run at
             # this carrying boundary (the closed-field law):
@@ -647,6 +720,7 @@ class RamStateOwner:
             # store charge plus the owner's current charged
             # work occupancy.
             if charge + work_extra > self.session_max_owned_bytes:
+                self._quarantine_if_adverse(result)
                 return RamStateAdmissionResult(
                     outcome=RamStateOutcome.REFUSED,
                     limitation=RamStateLimitation.SESSION_OWNED_BYTES_OVER_BOUND,
@@ -661,6 +735,7 @@ class RamStateOwner:
             # owner session override can never bypass it.
             process_after = self._registry.process_owned_bytes - self.owned_bytes + charge
             if process_after > self._registry.bounds.process_max_owned_bytes:
+                self._quarantine_if_adverse(result)
                 return RamStateAdmissionResult(
                     outcome=RamStateOutcome.REFUSED,
                     limitation=RamStateLimitation.PROCESS_OWNED_BYTES_OVER_BOUND,
@@ -731,6 +806,14 @@ class RamStateOwner:
                         revision=self.revision,
                         epoch=self.epoch,
                     )
+            if self._quarantined:
+                return RamStateLookupResult(
+                    outcome=RamStateOutcome.NOT_FOUND,
+                    limitation=RamStateLimitation.OWNER_QUARANTINED,
+                    entry=None,
+                    revision=self.revision,
+                    epoch=self.epoch,
+                )
             snapshot = self._snapshot
             if snapshot is None:
                 return RamStateLookupResult(
@@ -906,8 +989,15 @@ class RamStateOwnerRegistry:
     path that rejects the unsupported multi-worker /
     duplicate live-owner configuration with the fixed typed
     error.  The shared registry shell is charged into the
-    process occupancy once at construction; every owner base
-    metadata is charged into the process occupancy at
+    process occupancy once at construction; the ACTUAL table
+    growth of the shared live-owner map is charged as it
+    happens and retained at high water as an explicitly
+    conservative reservation (removing owners never shrinks
+    the table; a smaller candidate replacement may shrink
+    the ACTUAL table while the charge stays; that charge is
+    retained container allocation, never part of any
+    session's freed bytes); every owner
+    base metadata is charged into the process occupancy at
     creation (refused atomically BEFORE registration when
     EITHER ceiling cannot cover it) and released at teardown;
     the retired registry reference is released (no
@@ -921,6 +1011,7 @@ class RamStateOwnerRegistry:
         "_bounds",
         "_lock",
         "_owners",
+        "_owners_table_charged",
         "_process_owned_bytes",
         "_epoch_counter",
         "_work",
@@ -941,6 +1032,15 @@ class RamStateOwnerRegistry:
             self._bounds = bounds
         self._lock = threading.Lock()
         self._owners: dict[str, RamStateOwner] = {}
+        # The ACTUAL table size of the shared live-owner map
+        # as charged: the empty-table size the shell charge
+        # below already commits; growth is charged as it
+        # happens in _allocate and retained at high water as
+        # an explicitly conservative reservation (removals
+        # never shrink the table; a smaller candidate
+        # replacement may shrink the ACTUAL table while the
+        # charge stays).
+        self._owners_table_charged = sys.getsizeof(self._owners)
         self._epoch_counter = 0
         self._process_owned_bytes = 0
         # The shared registry shell (the instance, its live-
@@ -1045,10 +1145,25 @@ class RamStateOwnerRegistry:
         self, namespace: RootRegionLineageNamespace, session_ceiling: int
     ) -> RamStateOwner:
         # The caller holds the lock.  The owner base metadata
-        # (the measured shell, the measured registry slot and
-        # the retained trusted namespace record) is charged
-        # BEFORE the owner becomes live, and BOTH ceilings are
-        # enforced atomically BEFORE registration.
+        # (the measured shell and the retained trusted
+        # namespace record) is charged BEFORE the owner
+        # becomes live, and BOTH ceilings are enforced
+        # atomically BEFORE any live mutation.  The shared
+        # map table's growth is PRE-RESERVED by staging the
+        # ACTUAL complete candidate table (the live table
+        # plus this entry): CPython table growth depends on
+        # the live table's actual state (including removal
+        # dummies from churn), so a fresh same-count dict is
+        # not a prediction; the candidate's ACTUAL measured
+        # post-insertion size is the reservation.  The SAME
+        # candidate object is published only after both
+        # checks pass; a refused allocation discards the
+        # candidate and retains the original table and
+        # counters EXACTLY (nothing is retained by a
+        # refusal).  The charged table size is retained at
+        # high water: removals never shrink the table, and a
+        # later smaller candidate replacement retains the
+        # charge as an explicit conservative over-charge.
         self._epoch_counter += 1
         owner = RamStateOwner(
             namespace,
@@ -1057,7 +1172,10 @@ class RamStateOwnerRegistry:
             epoch=self._epoch_counter,
         )
         base = ram_owner_base_charge(namespace)
-        if self._process_owned_bytes + base > self._bounds.process_max_owned_bytes:
+        candidate = {**self._owners, namespace.lineage_key: owner}
+        candidate_size = sys.getsizeof(candidate)
+        table_growth = max(0, candidate_size - self._owners_table_charged)
+        if self._process_owned_bytes + table_growth + base > self._bounds.process_max_owned_bytes:
             raise RamStateCapacityError(
                 "the process ceiling cannot cover a new owner owned metadata"
             )
@@ -1065,8 +1183,24 @@ class RamStateOwnerRegistry:
             raise RamStateCapacityError(
                 "the session ceiling cannot cover a new owner owned metadata"
             )
-        self._owners[namespace.lineage_key] = owner
-        self._process_owned_bytes += base
+        # Publish the SAME candidate object (its measured
+        # size was pre-reserved ABOVE, before any live
+        # mutation); the accounting commit below is monotone
+        # and cannot fail, so the capacity decision and the
+        # publication are atomic.  A refused allocation never
+        # reaches here: the candidate is simply discarded and
+        # the original table and counters are retained
+        # EXACTLY.  The charged table size is an explicitly
+        # conservative HIGH-WATER reservation, distinct from
+        # the actual allocation: when a churned table is
+        # replaced by a smaller fresh candidate, the ACTUAL
+        # table shrinks but the charge is RETAINED (bounded
+        # by the largest table this registry ever actually
+        # allocated); it can never under-charge.
+        self._owners = candidate
+        if candidate_size > self._owners_table_charged:
+            self._owners_table_charged = candidate_size
+        self._process_owned_bytes += table_growth + base
         owner._register(namespace.lineage_key, base)
         return owner
 
@@ -1143,7 +1277,12 @@ class RamStateOwnerRegistry:
         # The caller holds the lock.  Releases the retired
         # registry reference (no accumulation of torn-down
         # owners); the process occupancy delta is committed by
-        # the owner.
+        # the owner.  The shared map table's high-water charge
+        # is NOT released: removals never shrink the table,
+        # and a smaller candidate replacement may shrink the
+        # ACTUAL table while the charge stays -- either way it
+        # is retained (charged) container metadata, not
+        # released session state.
         if key is not None:
             self._owners.pop(key, None)
 

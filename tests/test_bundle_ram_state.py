@@ -24,6 +24,7 @@ races.
 """
 
 import re
+import sys
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -280,11 +281,15 @@ def test_a_genuine_positive_admission(mode: AdmissionMode) -> None:
     ns, state, result = _ready_t(mode, f"ram019a-{mode.value}")
     registry = RamStateOwnerRegistry()
     shell = registry.process_owned_bytes
+    initial_table = sys.getsizeof(registry._owners)
     assert shell > 0
     owner = registry.acquire(ns)
     base = ram_owner_base_charge(ns)
     assert owner.owned_bytes == base
-    assert registry.process_owned_bytes == shell + base
+    assert (
+        registry.process_owned_bytes
+        == shell + (sys.getsizeof(registry._owners) - initial_table) + base
+    )
     admit = owner.admit(state, result, ns, expected_revision=0)
     assert admit.outcome is RamStateOutcome.ADMITTED
     assert admit.limitation is None
@@ -328,7 +333,13 @@ def test_a_genuine_positive_admission(mode: AdmissionMode) -> None:
     admit2 = owner2.admit(state2, result2, ns2, expected_revision=0)
     assert admit2.outcome is RamStateOutcome.ADMITTED
     assert admit2.charged_bytes > ram_owner_base_charge(ns2)
-    assert registry.process_owned_bytes == (shell + admit.charged_bytes + admit2.charged_bytes)
+    assert (
+        registry.process_owned_bytes
+        == shell
+        + (sys.getsizeof(registry._owners) - initial_table)
+        + admit.charged_bytes
+        + admit2.charged_bytes
+    )
     assert owner.snapshot is first_snapshot
     assert owner.lookup(key, ns).outcome is RamStateOutcome.FOUND
     assert owner2.lookup(key, ns).outcome is RamStateOutcome.NOT_FOUND
@@ -455,19 +466,28 @@ def test_d_process_ceiling_at_and_over() -> None:
     probe = RamStateOwnerRegistry()
     charge_a = _measure_first_charge(probe, ns_a, state_a, result_a)
     charge_b = _measure_first_charge(probe, ns_b, state_b, result_b)
+    base_b = ram_owner_base_charge(ns_b)
+    # The ACTUAL measured growth of the shared live-owner
+    # map table from empty to its first owner, measured
+    # with the ACTUAL registry key shape (64-hex strings):
+    # the FIRST acquire is what resizes the empty table,
+    # and a second owner fits the grown table without
+    # further growth.
+    one_entry_growth = sys.getsizeof({ns_a.lineage_key: None}) - sys.getsizeof({})
     # The ACTUAL measured baseline of a configured registry
     # (distinct large ceiling ints, read before any owner),
     # is the basis for REAL at/one-over caps.
     base = _configured_baseline(charge_a, charge_a + charge_b)
     # EXACTLY-AT: the process cap is exactly the measured
-    # baseline plus the measured first charge; the session
-    # ceiling is a legal DISTINCT value (itself exactly the
-    # charge, so the session gate passes and the PROCESS gate
-    # is the one under test).
+    # baseline plus the first-owner table growth plus the
+    # measured first charge; the session ceiling is a legal
+    # DISTINCT value (itself exactly the charge, so the
+    # session gate passes and the PROCESS gate is the one
+    # under test).
     at = RamStateOwnerRegistry(
         bounds=RamStateBounds(
             session_max_owned_bytes=charge_a,
-            process_max_owned_bytes=base + charge_a,
+            process_max_owned_bytes=base + one_entry_growth + charge_a,
         )
     )
     assert at.process_owned_bytes == base
@@ -475,14 +495,18 @@ def test_d_process_ceiling_at_and_over() -> None:
     at_admit = at_owner.admit(state_a, result_a, ns_a, expected_revision=0)
     assert at_admit.outcome is RamStateOutcome.ADMITTED
     assert at_admit.charged_bytes == charge_a
-    assert at.process_owned_bytes == base + charge_a
+    assert at.process_owned_bytes == base + one_entry_growth + charge_a
     # ONE-OVER: admitting both owners would exceed the
     # process cap by exactly one measured unit, so the
     # second admission must refuse at the process gate.  The
     # session ceiling is a distinct legal value large enough
     # for each measured owner (the process gate is the
-    # refuser).
-    cap = base + charge_a + charge_b - 1
+    # refuser).  charge_b INCLUDES base_b (the recipe
+    # charges the owner base with the record set), so the
+    # one-over cap is baseline + table growth + both FULL
+    # record charges - 1 (the second owner's base is
+    # already inside charge_b).
+    cap = base + one_entry_growth + charge_a + charge_b - 1
     s_over = base + charge_a
     over = RamStateOwnerRegistry(
         bounds=RamStateBounds(
@@ -501,9 +525,9 @@ def test_d_process_ceiling_at_and_over() -> None:
     assert over_admit_b.http_status == RAM_HTTP_CAPACITY_STATUS
     assert over_admit_b.snapshot is None
     # The refused second owner still retains its OWN base
-    # metadata: the process occupancy includes it.
-    base_b = ram_owner_base_charge(ns_b)
-    assert over.process_owned_bytes == base + charge_a + base_b
+    # metadata (charged at acquire): the process occupancy
+    # includes it, while the refused ADMISSION adds nothing.
+    assert over.process_owned_bytes == base + one_entry_growth + charge_a + base_b
     assert over_a.owned_bytes == charge_a
     assert over_b.owned_bytes == base_b
     assert over_a.lookup(_root_key(result_a), ns_a).outcome is RamStateOutcome.FOUND
@@ -670,6 +694,7 @@ def test_k_concurrent_acquire_single_owner() -> None:
     ns, _state, _result = _ready_t(MODES[0], "ram019k-3")
     registry = RamStateOwnerRegistry()
     shell = registry.process_owned_bytes
+    initial_table = sys.getsizeof(registry._owners)
     base = ram_owner_base_charge(ns)
     owners: list[RamStateOwner] = []
     lock = threading.Lock()
@@ -683,7 +708,10 @@ def test_k_concurrent_acquire_single_owner() -> None:
     assert not errors
     assert len(owners) == 8
     assert all(owner is owners[0] for owner in owners)
-    assert registry.process_owned_bytes == shell + base
+    assert (
+        registry.process_owned_bytes
+        == shell + (sys.getsizeof(registry._owners) - initial_table) + base
+    )
     assert owners[0].owned_bytes == base
     assert registry.get(ns) is owners[0]
 
@@ -695,11 +723,15 @@ def test_l_occupancy_recipe_law() -> None:
     ns, state, result = _ready_t(MODES[0], "ram019l-1")
     registry = RamStateOwnerRegistry()
     shell = registry.process_owned_bytes
+    initial_table = sys.getsizeof(registry._owners)
     assert shell > 0
     owner = registry.acquire(ns)
     base = ram_owner_base_charge(ns)
     assert owner.owned_bytes == base
-    assert registry.process_owned_bytes == shell + base
+    assert (
+        registry.process_owned_bytes
+        == shell + (sys.getsizeof(registry._owners) - initial_table) + base
+    )
     admit = owner.admit(state, result, ns, expected_revision=0)
     assert admit.outcome is RamStateOutcome.ADMITTED
     charge = admit.charged_bytes
@@ -713,9 +745,189 @@ def test_l_occupancy_recipe_law() -> None:
     assert torn.outcome is RamStateOutcome.TEARDOWN
     assert torn.freed_bytes == charge
     assert owner.owned_bytes == 0
-    assert registry.process_owned_bytes == shell
+    assert registry.process_owned_bytes == shell + (sys.getsizeof(registry._owners) - initial_table)
+    # The shared table never shrinks: its charge is retained
+    # high water, so the post-teardown baseline sits above
+    # the pre-acquire shell.
+    assert registry.process_owned_bytes > shell
     with pytest.raises(RamStateAccountingError):
         _charge_object(object(), set())
+
+
+# --- c2. Shared live-owner map table: growth / refusal / churn ------
+
+
+def test_c2_store_map_table_high_water_retained() -> None:
+    """The ACTUAL table growth of the shared live-owner map
+    is charged as it happens and retained at its high water:
+    every resize step is charged exactly once, teardown
+    removes the owners but never the table charge, and a
+    later re-acquire into the grown dummy-laden table adds
+    no new table charge."""
+    registry = RamStateOwnerRegistry()
+    initial_table = sys.getsizeof(registry._owners)
+    base = registry.process_owned_bytes
+    assert base > 0
+    namespaces = [_ready_t(MODES[0], f"ram019c2-hw-{i}")[0] for i in range(12)]
+    bases = [ram_owner_base_charge(ns) for ns in namespaces]
+    owners = [registry.acquire(ns) for ns in namespaces]
+    grown_table = sys.getsizeof(registry._owners)
+    assert grown_table > initial_table
+    assert registry._owners_table_charged == grown_table
+    assert registry.process_owned_bytes == base + sum(bases) + (grown_table - initial_table)
+    for owner, ns, b in zip(owners, namespaces, bases, strict=True):
+        torn = owner.teardown(ns)
+        assert torn.outcome is RamStateOutcome.TEARDOWN
+        assert torn.limitation is None
+        assert torn.freed_bytes == b
+    # The owners are gone; the table and its charge stay:
+    # retained container allocation, never part of any
+    # session's freed bytes.
+    assert len(registry._owners) == 0
+    assert sys.getsizeof(registry._owners) == grown_table
+    assert registry._owners_table_charged == grown_table
+    assert registry.process_owned_bytes == base + (grown_table - initial_table)
+    assert registry.process_owned_bytes > base
+    reacquired = registry.acquire(namespaces[0])
+    assert reacquired.owned_bytes == bases[0]
+    # The churned table is replaced by a smaller fresh
+    # candidate: the ACTUAL allocation shrinks, while the
+    # charge stays the explicitly conservative high-water
+    # reservation (retained, never released, never an
+    # under-charge).
+    assert sys.getsizeof(registry._owners) < grown_table
+    assert registry._owners_table_charged == grown_table
+    assert registry.process_owned_bytes == base + bases[0] + (grown_table - initial_table)
+    assert registry.get(namespaces[1]) is None
+
+
+def test_c2_store_map_refused_resize_boundary_first_over() -> None:
+    """The exact resize-boundary first-over refusal: five
+    owners fit the current table at the cap, while the sixth
+    acquire must RESIZE the table and the measured growth
+    plus the sixth base exceeds the cap by exactly one
+    unit.  The refusal publishes nothing: the original
+    table, its charged size, every counter and the five
+    live owners are retained EXACTLY (the staged candidate
+    is discarded)."""
+    ns_list = [_ready_t(MODES[0], f"ram019c2-rb-{i}")[0] for i in range(6)]
+    bases = [ram_owner_base_charge(ns) for ns in ns_list]
+    # measured with the ACTUAL registry key shape (64-hex
+    # strings)
+    sample = [ns.lineage_key for ns in ns_list]
+    five_table = sys.getsizeof(dict.fromkeys(sample[:5]))
+    six_table = sys.getsizeof(dict.fromkeys(sample[:6]))
+    assert six_table > five_table
+    # The bound ints themselves are charged into the
+    # baseline, so the cap is derived as a fixed point over
+    # the ACTUAL configured baseline of the caps being built
+    # (single-limb ints keep the baseline value-stable; the
+    # loop is the guard against that assumption).
+    cap: int | None = None
+    for _ in range(8):
+        probe = RamStateOwnerRegistry(
+            bounds=RamStateBounds(
+                session_max_owned_bytes=max(bases),
+                process_max_owned_bytes=cap if cap is not None else 1 << 40,
+            )
+        )
+        for ns in ns_list[:5]:
+            probe.acquire(ns)
+        new_cap = probe.process_owned_bytes + (six_table - five_table) + bases[5] - 1
+        if cap is not None and new_cap == cap:
+            break
+        cap = new_cap
+    assert cap is not None
+    tight = RamStateOwnerRegistry(
+        bounds=RamStateBounds(
+            session_max_owned_bytes=max(bases),
+            process_max_owned_bytes=cap,
+        )
+    )
+    initial_table = sys.getsizeof(tight._owners)
+    base_tight = tight.process_owned_bytes
+    for ns in ns_list[:5]:
+        tight.acquire(ns)
+    assert sys.getsizeof(tight._owners) == five_table
+    assert tight._owners_table_charged == five_table
+    assert tight.process_owned_bytes == base_tight + sum(bases[:5]) + (five_table - initial_table)
+    with pytest.raises(RamStateCapacityError):
+        tight.acquire(ns_list[5])
+    # EXACT retention after the refused resize-step
+    # allocation: nothing was published, nothing retained.
+    assert sys.getsizeof(tight._owners) == five_table
+    assert tight._owners_table_charged == five_table
+    assert tight.process_owned_bytes == base_tight + sum(bases[:5]) + (five_table - initial_table)
+    assert tight.get(ns_list[5]) is None
+    for ns, b in zip(ns_list[:5], bases[:5], strict=True):
+        owner = tight.get(ns)
+        assert owner is not None
+        assert owner.owned_bytes == b
+    # Positive control: the same six owners under the default
+    # ceilings -- the sixth acquire performs the ACTUAL resize
+    # and its measured growth is charged into the total.
+    roomy = RamStateOwnerRegistry()
+    roomy_base = roomy.process_owned_bytes
+    roomy_initial = sys.getsizeof(roomy._owners)
+    for ns in ns_list:
+        roomy.acquire(ns)
+    assert sys.getsizeof(roomy._owners) == six_table
+    assert roomy._owners_table_charged == six_table
+    assert roomy.process_owned_bytes == roomy_base + sum(bases) + (six_table - roomy_initial)
+
+
+def test_c2_store_map_churn_resize_reinsert_exact() -> None:
+    """Churn through the shared map: acquire six (the sixth
+    acquire resizes the table and its growth is charged),
+    tear down five (dummies remain, the table never
+    shrinks), then re-acquire the five into the dummy-laden
+    table.  The charged table size tracks the ACTUAL table
+    at every step (a fresh same-count dict would not predict
+    the churned live table's size), the charge is high-water
+    retained, and the process total equals baseline + live
+    bases + the actual retained growth at every step."""
+    ns_list = [_ready_t(MODES[0], f"ram019c2-ch-{i}")[0] for i in range(6)]
+    bases = [ram_owner_base_charge(ns) for ns in ns_list]
+    # measured with the ACTUAL registry key shape (64-hex
+    # strings)
+    six_table = sys.getsizeof(dict.fromkeys(ns.lineage_key for ns in ns_list))
+    registry = RamStateOwnerRegistry()
+    initial_table = sys.getsizeof(registry._owners)
+    base0 = registry.process_owned_bytes
+
+    high_water = initial_table
+
+    def invariant(live_bases: list[int]) -> None:
+        nonlocal high_water
+        # The charged table size is the HIGH WATER of the
+        # actual tables allocated so far (a churned table
+        # replaced by a smaller fresh candidate keeps the
+        # charge); the process total equals baseline + live
+        # bases + the retained growth.
+        high_water = max(high_water, sys.getsizeof(registry._owners))
+        assert registry._owners_table_charged == high_water
+        assert registry.process_owned_bytes == base0 + sum(live_bases) + (
+            high_water - initial_table
+        )
+
+    owners: list[RamStateOwner] = []
+    for i, ns in enumerate(ns_list):
+        owners.append(registry.acquire(ns))
+        invariant(bases[: i + 1])
+    # The sixth acquire performed the ACTUAL resize.
+    assert sys.getsizeof(registry._owners) == six_table
+    for i in range(5):
+        torn = owners[i].teardown(ns_list[i])
+        assert torn.outcome is RamStateOutcome.TEARDOWN
+        assert torn.freed_bytes == bases[i]
+        invariant(bases[i + 1 :])
+    assert sys.getsizeof(registry._owners) == six_table
+    for i in range(5):
+        owners[i] = registry.acquire(ns_list[i])
+        invariant(bases[: i + 1] + bases[5:])
+    assert sys.getsizeof(registry._owners) == six_table
+    assert registry._owners_table_charged == high_water == six_table
+    assert registry.process_owned_bytes == base0 + sum(bases) + (high_water - initial_table)
 
 
 # --- f. Genuine P->T source/currentness transitions (2 x 2) -----------
@@ -923,8 +1135,16 @@ def test_f_source_currentness_transitions(mode: AdmissionMode, endpoint: str) ->
 def test_f_refused_update_preserves_populated_owner(mode: AdmissionMode, endpoint: str) -> None:
     """A refused UPDATE on an ALREADY POPULATED owner (session
     gate, process gate and CAS) leaves the owner snapshot,
-    revision, catalog, occupancy and existing lookup exactly
-    preserved -- not just an empty-owner refusal."""
+    revision, catalog and occupancy exactly preserved -- not
+    just an empty-owner refusal.  The update here is ADVERSE
+    (a changed root rekeying the retained current root key):
+    the capacity refusals additionally quarantine the owner,
+    so the old usable keys become unusable (the fixed typed
+    currentness refusal) while the bytes/counters stay
+    preserved exactly; the non-adverse additive control is
+    the lifecycle L4b.  The CAS refusal is a FRESH-owner
+    control (it fires before any capacity decision and never
+    quarantines)."""
     ns, s0, result0, _s_issued, s2, result2 = _region_transition(
         mode, endpoint, f"ram019fu-{endpoint}"
     )
@@ -968,8 +1188,17 @@ def test_f_refused_update_preserves_populated_owner(mode: AdmissionMode, endpoin
     assert owner_s.owned_bytes == charge0
     assert owner_s.history is hist_s
     assert reg_s.process_owned_bytes == proc_before
-    assert owner_s.lookup(key0, ns).outcome is RamStateOutcome.FOUND
-    assert owner_s.lookup(key1, ns).outcome is RamStateOutcome.NOT_FOUND
+    # The refused update is ADVERSE (a changed root rekeying
+    # the retained current root key): the owner quarantines --
+    # the bytes/counters above are preserved exactly, but the
+    # old usable state can no longer be served:
+    assert owner_s.quarantined is True
+    lk0 = owner_s.lookup(key0, ns)
+    assert lk0.outcome is RamStateOutcome.NOT_FOUND
+    assert lk0.limitation is RamStateLimitation.OWNER_QUARANTINED
+    lk1 = owner_s.lookup(key1, ns)
+    assert lk1.outcome is RamStateOutcome.NOT_FOUND
+    assert lk1.limitation is RamStateLimitation.OWNER_QUARANTINED
     # PROCESS-gate update refusal on a populated owner: the
     # session ceiling is large enough for the update, only the
     # measured process cap (one below the ACTUAL populated
@@ -999,14 +1228,41 @@ def test_f_refused_update_preserves_populated_owner(mode: AdmissionMode, endpoin
     assert owner_p.owned_bytes == charge0
     assert owner_p.history is hist_p
     assert reg_p.process_owned_bytes == proc_p_before
-    assert owner_p.lookup(key0, ns).outcome is RamStateOutcome.FOUND
-    # CAS refusal on a populated owner.
+    assert owner_p.quarantined is True
+    lk_p = owner_p.lookup(key0, ns)
+    assert lk_p.outcome is RamStateOutcome.NOT_FOUND
+    assert lk_p.limitation is RamStateLimitation.OWNER_QUARANTINED
+    # The quarantine fence precedes the commit-CAS fence: the
+    # same stale admission is refused with the quarantine.
     stale_s = owner_s.admit(s2, result2, ns, expected_revision=9)
     assert stale_s.outcome is RamStateOutcome.REFUSED
-    assert stale_s.limitation is RamStateLimitation.REVISION_MISMATCH
+    assert stale_s.limitation is RamStateLimitation.OWNER_QUARANTINED
     assert owner_s.snapshot is snap_s
     assert owner_s.revision == 1
-    assert owner_s.lookup(key0, ns).outcome is RamStateOutcome.FOUND
+    # CAS refusal on a POPULATED owner, isolated on a FRESH
+    # (non-adverse) owner: a stale expected-revision fence
+    # refuses before any capacity decision, never quarantines,
+    # and leaves the existing lookup exactly usable.
+    reg_c = RamStateOwnerRegistry(
+        bounds=RamStateBounds(
+            session_max_owned_bytes=charge0 + update_charge + 1,
+            process_max_owned_bytes=RAM_PROCESS_MAX_OWNED_BYTES_DEFAULT,
+        )
+    )
+    owner_c = reg_c.acquire(ns)
+    first_c = owner_c.admit(s0, result0, ns, expected_revision=0)
+    assert first_c.outcome is RamStateOutcome.ADMITTED
+    proc_c_before = reg_c.process_owned_bytes
+    stale_c = owner_c.admit(s2, result2, ns, expected_revision=9)
+    assert stale_c.outcome is RamStateOutcome.REFUSED
+    assert stale_c.limitation is RamStateLimitation.REVISION_MISMATCH
+    assert owner_c.snapshot is first_c.snapshot
+    assert owner_c.revision == 1
+    assert owner_c.quarantined is False
+    # The CAS refusal charges nothing (the global registry
+    # baseline / table stay exactly as before):
+    assert reg_c.process_owned_bytes == proc_c_before
+    assert owner_c.lookup(key0, ns).outcome is RamStateOutcome.FOUND
 
 
 @pytest.mark.parametrize("mode", MODES)
@@ -1358,10 +1614,16 @@ def test_m_concurrent_process_ceiling_race() -> None:
         bases.append(base_i)
         deltas.append(admit.charged_bytes - base_i)
     _d_lo, d_mid, d_hi = sorted(deltas)
+    # The ACTUAL measured growth of the shared live-owner
+    # map table under the SAME acquisition sequence (three
+    # distinct owners: the first acquire resizes the empty
+    # table, the other two fit the grown table), measured
+    # with the ACTUAL registry key shape (64-hex strings).
+    table_growth = sys.getsizeof({records[0][0].lineage_key: None}) - sys.getsizeof({})
     base = _configured_baseline(d_hi, d_hi + d_mid)
     all_bases = sum(bases)
-    cap = base + all_bases + d_mid + d_hi
-    s_cap = base + all_bases + d_mid + d_hi
+    cap = base + table_growth + all_bases + d_mid + d_hi
+    s_cap = base + table_growth + all_bases + d_mid + d_hi
     registry = RamStateOwnerRegistry(
         bounds=RamStateBounds(
             session_max_owned_bytes=s_cap,
@@ -1420,8 +1682,10 @@ def test_m_concurrent_process_ceiling_race() -> None:
         assert owner.snapshot is None
         assert owner.revision == 0
         assert owner.owned_bytes == base_by_owner[owner]
-    # The refused owner's base stays charged in the total.
-    total = base + all_bases + admitted_delta_sum
+    # The refused owner's base stays charged in the total,
+    # along with the shared map's retained table growth
+    # (charged at the first acquire, high-water retained).
+    total = base + table_growth + all_bases + admitted_delta_sum
     assert registry.process_owned_bytes == total
 
 

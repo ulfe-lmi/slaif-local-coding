@@ -16,12 +16,17 @@ cancellation law and the owner/source/epoch publication fences,
 with an injected bounded async work seam that proves prepared-work
 orchestration only (actual compiler/tokenizer semantic validation
 is 021). It is implemented as inert typed modules
-(`tests/test_bundle_ram_work.py`) and is PENDING strategic review
-at its bounded inert single-flight scope. Whole 019
-pressure/source-scale/lifecycle closure remains a following
-same-PR round; 020-024 remain mandatory; this slice is never
-active in the adapter request execution path and qualifies no v1
-runtime criterion.
+(`tests/test_bundle_ram_work.py`). 019-b delivered bounded
+INERT async single-flight / attempt orchestration NOT ACCEPTED
+against the complete accounting requirement or whole 019
+(strategic decision `S/reviews/019-b-decision.md`); the
+whole-019 closure round 019-c supplies the remaining
+aggregate-pressure, substantial-source / accumulated-history
+and lifecycle evidence on the SAME PR, and this contract's
+occupancy / reservation law reflects the delivered coordinator.
+020-024 remain mandatory; this slice is never active in the
+adapter request execution path and qualifies no v1 runtime
+criterion.
 
 ## 1. Enabling and public surface
 
@@ -156,6 +161,14 @@ source-key eligibility (`key_not_current`), then the payload
 charge under the SAME ceilings (section 6); a late completion of
 a superseded key is terminal unsuccessful (fixed 409, the ACTUAL
 invocation recorded, the payload NOT published or retained).
+The store `owner_quarantined` fence (the 019-c adverse-
+currentness quarantine, RAM state contract section 3) is
+carried through: a quarantined owner's resolve refuses pre-
+claim with the fixed typed 409 currentness refusal (zero
+invocation, no attempt, no payload served), and an in-flight
+publication on a quarantined owner is fenced the same way --
+terminal unsuccessful, fixed 409, the ACTUAL invocation
+recorded, the payload NOT published or retained.
 
 ## 6. Occupancy and the SAME ceilings
 
@@ -168,7 +181,15 @@ identity-deduplicated shallow sizes) is complemented by closed
 fixed reservations for runtime objects that cannot be safely
 measured: `RAM_WORK_TASK_RESERVATION_BYTES = 4096` per live
 dispatch task reference (including its retained work-closure
-reference), `RAM_WORK_WAITER_RESERVATION_BYTES = 1024` per
+reference; its scope explicitly INCLUDES the retained
+active-key tuple -- the (owner, content-key) pair held from
+dispatch to finalization, measured 56 bytes on the pinned
+CPython 3.12 toolchain -- so no separate charge is made for
+it), `RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES = 64` per retained
+queued (owner, content-key) entry (the shallow deque charge
+covers the block allocation only and omits the entry's tuple
+body; charged at the claim's publication, released exactly once
+when the entry leaves the queue), `RAM_WORK_WAITER_RESERVATION_BYTES = 1024` per
 retained waiter future, and `RAM_WORK_TERMINAL_RESERVATION_BYTES
 = 2560` per CLAIMED attempt, charged ONCE at the claimant's claim
 BEFORE the claim is accepted; a closed upper bound on the
@@ -182,17 +203,42 @@ PRE-ALLOCATED at claim time, so the mandatory terminalization is
 always
 non-positive in delta and can never cross either ceiling at any
 later resize boundary; there is NO soft-cap exception for
-terminal metadata). The shared coordinator shell (instance, owner
-map, queue and retained work-bounds record) is charged into the
-process occupancy once at construction.
+terminal metadata). The ONE closed GLOBAL pump reservation
+(`RAM_WORK_PUMP_TASK_RESERVATION_BYTES = 4096`) covers the ONE
+owned pump task whenever it is scheduled: charged exactly once
+into the coordinator base BEFORE any owner or claim and held for
+the coordinator's whole lifetime, so pump creation is never a
+ceiling decision, is never deferred under pressure, and no
+claimed queue can be left without its scheduling trigger. The
+shared coordinator shell (instance, owner map, queue, retained
+work-bounds record and the closed global pump reservation) is
+charged into the process occupancy once at construction. The
+shared owner map table and the queue charge are RETAINED AT
+THEIR HIGH WATER: each charged size is never below the largest
+container this coordinator actually allocated; removals and
+teardown never shrink a charge (retained container metadata,
+distinct from released session state), and a new claim's growth
+is pre-reserved by staging the ACTUAL complete candidate
+containers BEFORE the capacity checks, so a refused claim
+retains the original containers and charges EXACTLY.
 
 Aggregate async and store occupancy are atomic under the SAME
 019-a ceilings (defaults 512 MiB process / 128 MiB session;
 `RAM_OWNED_BYTES_HARD_CEILING`): neither the synchronous `admit`
 nor any lifecycle operation may bypass accounting; at pressure
-the fixed typed 503 preserves the old committed state, current
-lookups, payloads and counters, with no TTL / LRU / eviction /
-checkpoint IO or unbounded tombstones. This is a
+the fixed typed 503 preserves the retained state bytes,
+revision, catalog, payloads and counters exactly, with no TTL /
+LRU / eviction / checkpoint IO or unbounded tombstones; the
+single qualified exception is the bounded pre-accounted
+`owner_quarantined` fence (RAM state contract section 3), which
+a validated adverse STORE `admit` capacity refusal (a candidate
+classified non-READY or withdrawing / rekeying retained current
+keys) may set, after which the old usable lookups refuse even
+though every retained byte and counter is intact -- ordinary
+non-adverse store pressure and work-claim pressure preserve the
+usable hits exactly (a work-claim refusal terminalizes only the
+affected claimed attempt and never quarantines), and unrelated
+owners are always preserved. This is a
 committed-occupancy measure, NOT a total-RSS promise. Refusals
 restore the original containers and charges exactly (staged
 candidate containers; delete alone is never claimed as
@@ -240,16 +286,18 @@ This plane is inert: the callback seam is synthetic (021 owns the
 actual tool-free authenticated compiler and tokenizer
 contracts); there is no recovery store (020), no adapter startup
 wiring, no service mutation, no v1 activation, no live test and
-no actual-model / compiler / client claim. All 018 and 019-a
-public signatures, schemas, defaults, version tags, recipe bytes
-and refusal laws stay intact. The 019-a work-disabled default
-behavior is unchanged; the named 019-b extensions are the opt-in
-registry `work_bounds` constructor parameter, the
+no actual-model / compiler / client claim. All 018 public signatures, schemas, defaults, version tags,
+recipe bytes and refusal laws stay intact. The 019-a
+work-disabled default behavior is unchanged; the named additive
+extensions are the opt-in registry `work_bounds` constructor
+parameter (with the `registry.work` property), the
 `work_in_flight` fence on the 019-a synchronous store teardown
 while the work plane is fenced / draining or still owns live
-work, and the composed store-plus-work release inside the async
+work, the composed store-plus-work release inside the async
 teardown critical section (a work-disabled async teardown still
-releases the store owner in the same critical section). The work
+releases the store owner in the same critical section), and the
+019-c carry-through of the store `owner_quarantined` fence
+(section 5) with the fixed typed 409 currentness refusal. The work
 plane adds no dependency, no configuration key and no adapter
 activation. Whole 019
 pressure / source-scale / lifecycle closure and 020-024 remain

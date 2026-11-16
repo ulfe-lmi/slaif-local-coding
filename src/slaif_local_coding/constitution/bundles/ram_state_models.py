@@ -179,7 +179,22 @@ class RamStateLimitation(StrEnum):
     owns queued / active work, the synchronous teardown
     refuses; the async work teardown releases the store
     owner and the work plane atomically, so no same-epoch
-    reset window exists."""
+    reset window exists.  ``owner_quarantined`` is the
+    ADVERSE-CURRENTNESS QUARANTINE fence (019-c): when a
+    genuine NEW state that would INVALIDATE the retained
+    current usable rows -- a non-READY ACTUAL T result (an
+    unresolved maximal root uncertainty or another refused
+    currentness), or a READY result withdrawing / rekeying a
+    retained current key (a changed governing root, an
+    overlapping changed file) -- cannot be RETAINED under
+    the ceilings, the owner can no longer certify currentness
+    from the older retained READY state and is bounded to
+    the unusable state (a single pre-accounted flag; no
+    adverse journal): every later admission refuses with
+    this fence and every lookup / work resolve refuses
+    with the fixed typed currentness refusal until the
+    explicit teardown frees the owner -- no epoch reset,
+    no retry, no revival of the old usable state."""
 
     SESSION_OWNED_BYTES_OVER_BOUND = "session_owned_bytes_over_bound"
     PROCESS_OWNED_BYTES_OVER_BOUND = "process_owned_bytes_over_bound"
@@ -189,6 +204,7 @@ class RamStateLimitation(StrEnum):
     REVISION_MISMATCH = "revision_mismatch"
     STALE_STATE_REVISION = "stale_state_revision"
     WORK_IN_FLIGHT = "work_in_flight"
+    OWNER_QUARANTINED = "owner_quarantined"
 
 
 class RamStateSnapshot(_GraphFrozen):

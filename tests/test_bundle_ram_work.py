@@ -19,7 +19,9 @@ validation is 021).  The work plane stays inert.
 from __future__ import annotations
 
 import asyncio
+import sys
 from asyncio import Task
+from collections import deque
 from collections.abc import Callable, Coroutine
 from typing import Any
 
@@ -52,6 +54,7 @@ from slaif_local_coding.constitution.bundles.ram_work_models import (
     RAM_WORK_MAX_PENDING_DISTINCT_KEYS_DEFAULT,
     RAM_WORK_MAX_WAITERS_PER_KEY_DEFAULT,
     RAM_WORK_MAX_WORK_SECONDS_DEFAULT,
+    RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES,
     RAM_WORK_TASK_RESERVATION_BYTES,
     RAM_WORK_TERMINAL_RESERVATION_BYTES,
     RamWorkAttempt,
@@ -136,6 +139,27 @@ class _PeakObservingRegistry(RamStateOwnerRegistry):
     @property
     def peak_totals(self) -> list[int]:
         return _PeakObservingRegistry._peak_totals[id(self)]
+
+
+def _deque_growth_boundary() -> int:
+    """The ACTUAL allocation boundary of the product's
+    PUBLISHED queue on this CPython build (test-scope probe,
+    measured not assumed): the coordinator never mutates the
+    live queue in place -- each claim publishes a constructor
+    COPY plus one append -- so the boundary is the first
+    entry count at which THAT iterative copy-plus-append
+    pattern's allocation grows past its initial size (it is
+    NOT the smaller incremental-append boundary of a single
+    long-lived deque)."""
+    d: deque[tuple[str, str]] = deque()
+    size0 = sys.getsizeof(d)
+    for n in range(1, 4097):
+        candidate = deque(d)
+        candidate.append((f"k{n}", "v"))
+        d = candidate
+        if sys.getsizeof(d) > size0:
+            return n
+    raise AssertionError("the published-queue allocation never grew")
 
 
 def make_seam(gate: asyncio.Event, calls: list[int]) -> WorkSeam:
@@ -1272,28 +1296,42 @@ async def test_l_sync_teardown_idle_plane_and_owner_absent(mode: AdmissionMode) 
 @pytest.mark.parametrize("mode", MODES)
 async def test_m_process_capacity_exact_and_one_over(mode: AdmissionMode) -> None:
     """The work plane honors the SAME registry process ceiling:
-    measured from a probe (the exact claim+dispatch delta and
-    the ACTUAL peak charged occupancy of ONE genuine claim),
-    a cap of EXACTLY that peak total admits and completes the
-    claim with its peak exactly at the boundary (the final
-    retained occupancy is lower than the peak while
-    claim / task / waiter / terminal reservations coexist),
-    while a cap ONE byte below the claim's pre-dispatch delta
-    refuses PRE-CLAIM with the fixed 503 -- retaining nothing
-    (the created work state is abandoned unregistered, the
-    store owner stays intact)."""
+    measured from a probe (the ACTUAL pre-dispatch claim
+    phase and the ACTUAL peak charged occupancy of ONE
+    genuine claim), a cap of EXACTLY the operation's
+    dispatch-check peak (the observed commit peak plus the
+    head queued entry's closed tuple reservation, which the
+    dispatch check still holds) admits and completes the
+    claim with that check landing exactly at the boundary
+    (the final retained occupancy is lower than the peak
+    while claim / task / waiter / terminal reservations
+    coexist), while a cap ONE byte below the true claim
+    threshold refuses PRE-CLAIM with the fixed 503 --
+    retaining nothing (the created work state is abandoned
+    unregistered, the store owner stays intact)."""
     ns, s0, result0 = _ready_t(mode, f"ram019w-m-{mode.value}")
     key = _root_key(result0)
 
     # Probe 1: the registry base and the store charge of this record set.
+    # The EMPTY baseline is captured BEFORE the probe's own
+    # owner acquisition: the registry owner table's actual
+    # growth is charged at acquisition and belongs to the cap
+    # (and is measured, not assumed), not to the baseline.
     probe = RamStateOwnerRegistry(work_bounds=RamWorkBounds())
+    base_empty = probe.process_owned_bytes
     p_owner = probe.acquire(ns)
     pa = p_owner.admit(s0, result0, ns, expected_revision=0)
     assert pa.outcome is RamStateOutcome.ADMITTED
     store_charge = p_owner.owned_bytes
     base_probe = probe.process_owned_bytes - store_charge
 
-    # Probe 2: the exact claim+dispatch delta (gated seam).
+    # Probe 2: the ACTUAL pre-dispatch claim phase (gated
+    # seam; measured between the claim's publication and
+    # the pump's dispatch): the ow delta, the work
+    # owner-map growth and the queued entry's closed tuple
+    # reservation -- exactly the terms of the pre-claim
+    # process check (the closed pump reservation is global,
+    # in the coordinator base).
     probe2 = RamStateOwnerRegistry(work_bounds=RamWorkBounds())
     p2_owner = probe2.acquire(ns)
     p2_owner.admit(s0, result0, ns, expected_revision=0)
@@ -1304,8 +1342,8 @@ async def test_m_process_capacity_exact_and_one_over(mode: AdmissionMode) -> Non
     w2 = probe2.work
     assert w2 is not None
     t = asyncio.create_task(w2.resolve(ns, key, seam))
-    await _until(lambda: w2._active_key is not None and len(calls) == 1)
-    claim_plus_dispatch = probe2.process_owned_bytes - proc_claim0
+    await _until(lambda: len(w2._queue) == 1 and w2._active_key is None)
+    claim_phase_delta = probe2.process_owned_bytes - proc_claim0
     t.cancel()
     with pytest.raises(asyncio.CancelledError):
         await t
@@ -1320,6 +1358,12 @@ async def test_m_process_capacity_exact_and_one_over(mode: AdmissionMode) -> Non
     # restored after) and take the maximum actual charged
     # total across the whole operation.
     probe3 = _PeakObservingRegistry(work_bounds=RamWorkBounds())
+    # Class alignment: the observer subclass keeps the
+    # charged registry / coordinator shell identical to the
+    # plain class (slotted, no extra instance state), so
+    # the plain probe's baseline transfers to the observer
+    # run (measured, not assumed).
+    assert probe3.process_owned_bytes == base_empty
     p3_owner = probe3.acquire(ns)
     p3_owner.admit(s0, result0, ns, expected_revision=0)
     proc0 = probe3.process_owned_bytes
@@ -1340,14 +1384,23 @@ async def test_m_process_capacity_exact_and_one_over(mode: AdmissionMode) -> Non
     # task / waiter / terminal reservations).
     assert peak_delta > probe3.process_owned_bytes - proc0
 
-    pre_dispatch_delta = claim_plus_dispatch - RAM_WORK_TASK_RESERVATION_BYTES
-    cap_one_over = base_probe + store_charge + pre_dispatch_delta - 1
+    # The pre-claim PROCESS check value equals the
+    # post-claim total (the queued entry's closed tuple
+    # reservation is committed with the publication it
+    # checks), so ONE byte below the true claim threshold is
+    # the first-over PRE-CLAIM refusal.
+    cap_one_over = base_probe + store_charge + claim_phase_delta - 1
     # The positive cap is the ACTUAL maximum charged occupancy
     # across the whole operation (peak, not final residual):
     # the final retained occupancy is lower than the peak
     # while claim / task / waiter / terminal reservations
-    # coexist.
-    cap_full = base_probe + store_charge + peak_delta
+    # coexist.  The DISPATCH process check runs with the head
+    # queued entry's closed tuple reservation STILL committed
+    # (released only with the dispatch itself), so the cap
+    # must cover observed-peak + that reservation: the
+    # dispatch check value is the operation's true first-
+    # over boundary.
+    cap_full = base_probe + store_charge + peak_delta + RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES
 
     # DISTINCT equal-valued int objects for the two ceilings:
     # the occupancy recipe identity-deduplicates referents, so
@@ -1365,7 +1418,7 @@ async def test_m_process_capacity_exact_and_one_over(mode: AdmissionMode) -> Non
     )
     work = registry.work
     assert work is not None
-    assert registry.process_owned_bytes == base_probe  # the recipe transfers
+    assert registry.process_owned_bytes == base_empty  # no owner: no table growth
     owner = registry.acquire(ns)
     a0 = owner.admit(s0, result0, ns, expected_revision=0)
     assert a0.outcome is RamStateOutcome.ADMITTED
@@ -1375,7 +1428,8 @@ async def test_m_process_capacity_exact_and_one_over(mode: AdmissionMode) -> Non
     assert refused.limitation is RamStateLimitation.PROCESS_OWNED_BYTES_OVER_BOUND
     assert refused.http_status == 503
     assert refused.invocations == 0
-    assert len(calls) == 1  # only the probe invocation ever ran
+    assert calls == []  # the probe was cancelled before dispatch and the
+    # refused claim never dispatched: the seam was never run
     assert work._owners.get(owner.namespace.lineage_key) is None
     assert registry.process_owned_bytes == proc_at_refusal
     assert owner.lookup(key, ns).outcome is RamStateOutcome.FOUND
@@ -1404,7 +1458,11 @@ async def test_m_process_capacity_exact_and_one_over(mode: AdmissionMode) -> Non
     assert len(calls2) == 1
     peaks2 = registry2.peak_totals
     assert peaks2
-    assert max(peaks2) == cap_full  # the operation peaks exactly at the cap
+    # The observed commit peak sits exactly ONE queued-entry
+    # reservation below the cap: the dispatch check (which
+    # ran with that entry's tuple still committed) landed
+    # EXACTLY at the cap.
+    assert max(peaks2) + RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES == cap_full
     assert registry2.process_owned_bytes <= cap_full
     assert owner2.namespace.lineage_key in work2._owners
 
@@ -1882,25 +1940,32 @@ async def test_o2_other_owner_survives_teardown(mode: AdmissionMode) -> None:
 
 @pytest.mark.parametrize("mode", MODES)
 async def test_m2_dispatch_capacity_crossing(mode: AdmissionMode) -> None:
-    """The SAME ceilings bound the DISPATCH (pump) task
-    reservation: with a process cap that the claim meets
-    EXACTLY but the claim + task reservation crosses, the
-    SESSION ceiling passes the dispatch session total (store
-    + claim + task reservation) EXACTLY while the PROCESS
-    ceiling (which includes the registry base, so session <=
-    process is preserved) is ONE byte below the dispatch
-    process total -- the queued claim is finalized FAILED
-    process capacity with ZERO actual invocation and no
-    dispatch (the seam is never run); the retained terminal
-    metadata is charged, the store owner and lookup stay
-    intact, the counter never crosses, and a later same-key
-    demand re-serves the terminal without a dispatch."""
+    """The SAME ceilings bound the DISPATCH task reservation:
+    the PROCESS ceiling is met EXACTLY by the claim's process
+    total (registry base -- which carries the closed GLOBAL
+    pump reservation -- plus the store charge and the measured
+    claim phase), and the SESSION ceiling passes the dispatch
+    session total (store + the claimed ow delta + the task
+    reservation) EXACTLY, the session <= process law holding
+    by the measured margin (the process-only terms carry the
+    task reservation).  ONLY at dispatch does the PROCESS
+    total cross -- by exactly the dispatch task reservation:
+    the queued claim is finalized FAILED process capacity with
+    ZERO actual invocation and no dispatch (the seam is never
+    run); the retained terminal metadata is charged, the store
+    owner and lookup stay intact, the counter never crosses,
+    and a later same-key demand re-serves the terminal without
+    a dispatch."""
     ns, s0, result0 = _ready_t(mode, f"ram019w-m2-{mode.value}")
     key = _root_key(result0)
 
     # Probes (same shape as M): the claim-only (pre-dispatch)
-    # delta of ONE genuine claim.
+    # delta of ONE genuine claim.  The EMPTY baseline is
+    # captured BEFORE the probe's own owner acquisition (the
+    # registry owner table's actual growth belongs to the
+    # cap, measured, not assumed).
     probe = RamStateOwnerRegistry(work_bounds=RamWorkBounds())
+    base_empty = probe.process_owned_bytes
     p_owner = probe.acquire(ns)
     assert p_owner.admit(s0, result0, ns, expected_revision=0).outcome is (RamStateOutcome.ADMITTED)
     store_charge = p_owner.owned_bytes
@@ -1916,22 +1981,33 @@ async def test_m2_dispatch_capacity_crossing(mode: AdmissionMode) -> None:
     seam_p = make_seam(gate, calls_p)
     w2 = probe2.work
     assert w2 is not None
+    w_m0_2 = w2._owners_table_charged
     t = asyncio.create_task(w2.resolve(ns, key, seam_p))
-    await _until(lambda: w2._active_key is not None and len(calls_p) == 1)
-    claim_plus_dispatch = probe2.process_owned_bytes - proc_claim0
+    await _until(lambda: len(w2._queue) == 1 and w2._active_key is None)
+    claim_phase_delta = probe2.process_owned_bytes - proc_claim0
     t.cancel()
     with pytest.raises(asyncio.CancelledError):
         await t
-    pre_dispatch_delta = claim_plus_dispatch - RAM_WORK_TASK_RESERVATION_BYTES
 
-    # The SESSION ceiling passes the dispatch session total
-    # (store + claim + task reservation) EXACTLY; the PROCESS
-    # ceiling (which also carries the registry base, so the
-    # session <= process law holds) is ONE byte below the
-    # dispatch process total -- so ONLY the process ceiling
-    # crosses, at dispatch.
-    session_cap = store_charge + pre_dispatch_delta + RAM_WORK_TASK_RESERVATION_BYTES
-    cap = base_probe + store_charge + pre_dispatch_delta + RAM_WORK_TASK_RESERVATION_BYTES - 1
+    # The PROCESS ceiling is met EXACTLY by the claim's
+    # process total (registry base -- which carries the closed
+    # GLOBAL pump reservation -- plus the store charge and the
+    # measured claim phase); the SESSION ceiling passes the
+    # dispatch session total (store + ow delta + task
+    # reservation) EXACTLY; the claim is accepted, and ONLY
+    # the dispatch task reservation crosses the PROCESS ceiling
+    # at dispatch, by exactly the dispatch task reservation.
+    w_growth1 = w2._owners_table_charged - w_m0_2
+    ow_delta = claim_phase_delta - w_growth1 - RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES
+    session_cap = store_charge + ow_delta + RAM_WORK_TASK_RESERVATION_BYTES
+    cap = base_probe + store_charge + claim_phase_delta
+    # The session <= process law holds by the measured margin:
+    # the process-only terms (the registry base -- which
+    # carries the closed GLOBAL pump reservation -- plus the
+    # shared container growth) carry the task reservation.
+    assert RAM_WORK_TASK_RESERVATION_BYTES <= (
+        base_probe + w_growth1 + RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES
+    )
     assert session_cap <= cap
     registry = RamStateOwnerRegistry(
         bounds=RamStateBounds(
@@ -1942,16 +2018,17 @@ async def test_m2_dispatch_capacity_crossing(mode: AdmissionMode) -> None:
     )
     work = registry.work
     assert work is not None
-    assert registry.process_owned_bytes == base_probe  # the recipe transfers
+    assert registry.process_owned_bytes == base_empty  # no owner: no table growth
     owner = registry.acquire(ns)
     assert owner.admit(s0, result0, ns, expected_revision=0).outcome is (RamStateOutcome.ADMITTED)
     calls: list[int] = []
     seam = make_seam(asyncio.Event(), calls)  # the gate never opens
 
-    # The claim is accepted (it is 4095 bytes under the
-    # process cap); the dispatch task reservation then
-    # crosses the process ceiling -> the queued claim is
-    # finalized FAILED capacity, zero invocation, no dispatch.
+    # The claim is accepted EXACTLY at the process cap; at
+    # dispatch the session total passes EXACTLY while the
+    # process total crosses the cap by exactly the task
+    # reservation -> the queued claim is finalized FAILED
+    # process capacity, zero invocation, no dispatch.
     refused = await work.resolve(ns, key, seam)
     assert refused.outcome is RamWorkOutcome.FAILED
     assert refused.limitation is RamStateLimitation.PROCESS_OWNED_BYTES_OVER_BOUND
@@ -1982,6 +2059,288 @@ async def test_m2_dispatch_capacity_crossing(mode: AdmissionMode) -> None:
     assert again.attempt_invocations == 0
     assert calls == []
     assert registry.process_owned_bytes == proc_at
+
+
+# --- M3. Shared coordinator container growth / churn -----------------
+
+
+@pytest.mark.parametrize("mode", MODES)
+async def test_m3_shared_container_growth_churn_and_reacquire(mode: AdmissionMode) -> None:
+    """The SHARED coordinator containers are charged by their
+    ACTUAL high-water growth, not as empty shells: eight
+    genuine acquires / admits grow the registry owner table,
+    eight genuine claims grow the work owner map, held
+    concurrent queued claims past the ACTUAL deque allocation
+    boundary cross the queue's real block growth (charged as
+    high-water, retained after the queue drains), every
+    teardown releases exactly the ACTUAL whole-operation delta
+    while the high-water reservations are retained, and a
+    genuine re-acquire / admit / claim reuses the retained
+    tables (no new container growth) with a second actual
+    invocation per key."""
+    sets = []
+    for i in range(8):
+        ns_i, s0_i, result_i = _ready_t(mode, f"ram019w-m3-{mode.value}-{i}")
+        sets.append((ns_i, s0_i, result_i, _root_key(result_i)))
+
+    registry = _work_registry()
+    work = registry.work
+    assert work is not None
+    base0 = registry.process_owned_bytes
+    store_m0 = registry._owners_table_charged
+    w_m0 = work._owners_table_charged
+    w_q0 = work._queue_charged
+    assert w_q0 == sys.getsizeof(work._queue)
+
+    # M1: eight genuine acquires + admits -- the only growth
+    # beyond the per-owner charges is the registry owner
+    # table's ACTUAL high-water.
+    owners = []
+    for ns_i, s0_i, result_i, _key_i in sets:
+        owner_i = registry.acquire(ns_i)
+        assert owner_i.admit(s0_i, result_i, ns_i, expected_revision=0).outcome is (
+            RamStateOutcome.ADMITTED
+        )
+        owners.append(owner_i)
+    store_total = sum(owner_i.owned_bytes for owner_i in owners)
+    total1 = registry.process_owned_bytes
+    assert total1 == base0 + store_total + (registry._owners_table_charged - store_m0)
+    assert registry._owners_table_charged == sys.getsizeof(registry._owners)
+
+    # M2: eight sequential genuine claims (immediate gate):
+    # the work owner map grows (charged).  A drained one-entry
+    # queue never crosses the deque allocation boundary on
+    # this build, so the queue's REAL block growth is earned
+    # by the held-concurrent M2b phase below.
+    gate = asyncio.Event()
+    gate.set()
+    calls: list[int] = []
+    for ns_i, _s0_i, _result_i, key_i in sets:
+        r_i = await work.resolve(ns_i, key_i, make_seam(gate, calls))
+        assert r_i.outcome is RamWorkOutcome.COMPLETED
+        assert r_i.invocations == 1
+    assert len(calls) == 8
+    work_total = sum(work.session_bytes(owner_i.namespace.lineage_key) for owner_i in owners)
+    total2 = registry.process_owned_bytes
+    assert total2 == total1 + work_total + (work._owners_table_charged - w_m0) + (
+        work._queue_charged - w_q0
+    )
+    assert work._queue_charged == w_q0  # no block growth yet
+    assert sys.getsizeof(work._owners) == work._owners_table_charged
+    assert sys.getsizeof(work._queue) <= work._queue_charged
+
+    # M2b: held concurrent queued claims past the ACTUAL
+    # deque allocation boundary (under an explicit legal work
+    # bound): the queue's real block growth is charged as
+    # high-water when the boundary is crossed, every retained
+    # queued entry's closed tuple reservation is charged
+    # while the claims are held (the counter reflects them
+    # exactly), and after the queue drains the block
+    # high-water is retained while the tuple reservations net
+    # to zero.
+    boundary = _deque_growth_boundary()
+    n_hold = boundary + 1  # one active + `boundary` queued entries
+    hold_sets = []
+    for i in range(n_hold):
+        ns_h, s0_h, res_h = _ready_t(mode, f"ram019w-m3h-{mode.value}-{i}")
+        hold_sets.append((ns_h, s0_h, res_h, _root_key(res_h)))
+    reg2 = RamStateOwnerRegistry(work_bounds=RamWorkBounds(max_pending_distinct_keys=n_hold))
+    work2 = reg2.work
+    assert work2 is not None
+    base2 = reg2.process_owned_bytes
+    store_m2_0 = reg2._owners_table_charged
+    w_m2_0 = work2._owners_table_charged
+    w_q2_0 = work2._queue_charged
+    hold_owners = []
+    for ns_h, s0_h, res_h, _key_h in hold_sets:
+        o_h = reg2.acquire(ns_h)
+        assert o_h.admit(s0_h, res_h, ns_h, expected_revision=0).outcome is (
+            RamStateOutcome.ADMITTED
+        )
+        hold_owners.append(o_h)
+    hold_store = sum(o_h.owned_bytes for o_h in hold_owners)
+    gate_h = asyncio.Event()
+    calls_h: list[int] = []
+    tasks_h = [
+        asyncio.create_task(work2.resolve(ns_h, key_h, make_seam(gate_h, calls_h)))
+        for ns_h, _s0_h, _res_h, key_h in hold_sets
+    ]
+    await _until(
+        lambda: (
+            len(work2._queue) == boundary and work2._active_key is not None and len(calls_h) == 1
+        )
+    )
+    # The final queued claim crossed the real deque
+    # allocation boundary: the block growth is charged as
+    # high-water...
+    assert work2._queue_charged > w_q2_0
+    held_total = reg2.process_owned_bytes
+    held_work = sum(work2.session_bytes(o_h.namespace.lineage_key) for o_h in hold_owners)
+    assert (
+        held_total
+        == base2
+        + (reg2._owners_table_charged - store_m2_0)
+        + hold_store
+        + (work2._owners_table_charged - w_m2_0)
+        + (work2._queue_charged - w_q2_0)
+        + held_work
+        + boundary * RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES
+    )
+    gate_h.set()
+    results_h = await asyncio.gather(*tasks_h)
+    assert all(r_h.outcome is RamWorkOutcome.COMPLETED for r_h in results_h)
+    assert len(calls_h) == n_hold
+    quiescent = reg2.process_owned_bytes
+    quiescent_work = sum(work2.session_bytes(o_h.namespace.lineage_key) for o_h in hold_owners)
+    # The queue drained back to empty: the block high-water
+    # stays charged, the tuple reservations net to zero.
+    assert work2._queue_charged > w_q2_0
+    assert sys.getsizeof(work2._queue) <= work2._queue_charged
+    assert (
+        quiescent
+        == base2
+        + (reg2._owners_table_charged - store_m2_0)
+        + hold_store
+        + (work2._owners_table_charged - w_m2_0)
+        + (work2._queue_charged - w_q2_0)
+        + quiescent_work
+    )
+
+    # M3: eight genuine async teardowns -- each releases the
+    # ACTUAL whole-operation delta (store plus retained work),
+    # and only the high-water container reservations remain.
+    store_hw3 = registry._owners_table_charged
+    w_hw3 = work._owners_table_charged
+    w_q3 = work._queue_charged
+    for owner_i in owners:
+        total_before = registry.process_owned_bytes
+        t_i = await work.teardown_owner(owner_i.namespace)
+        assert t_i.outcome is RamWorkOutcome.TEARDOWN
+        assert t_i.freed_bytes == total_before - registry.process_owned_bytes
+        assert t_i.freed_bytes > owner_i.owned_bytes  # store plus work
+        assert registry.get(owner_i.namespace) is None
+    total3 = registry.process_owned_bytes
+    assert total3 == (
+        base0
+        + (registry._owners_table_charged - store_m0)
+        + (work._owners_table_charged - w_m0)
+        + (work._queue_charged - w_q0)
+    )
+    assert registry._owners_table_charged == store_hw3
+    assert work._owners_table_charged == w_hw3
+    assert work._queue_charged == w_q3
+
+    # M4: a genuine re-acquire / admit / claim reuses the
+    # retained (shrunk but allocated) tables: no new container
+    # growth is charged, and every key earns a second ACTUAL
+    # invocation on its new fenced epoch.
+    owners2 = []
+    for ns_i, s0_i, result_i, key_i in sets:
+        owner2_i = registry.acquire(ns_i)
+        assert owner2_i.admit(s0_i, result_i, ns_i, expected_revision=0).outcome is (
+            RamStateOutcome.ADMITTED
+        )
+        owners2.append(owner2_i)
+        r2_i = await work.resolve(ns_i, key_i, make_seam(gate, calls))
+        assert r2_i.outcome is RamWorkOutcome.COMPLETED
+        assert r2_i.invocations == 1
+    assert len(calls) == 16
+    store_total2 = sum(owner2_i.owned_bytes for owner2_i in owners2)
+    work_total2 = sum(work.session_bytes(owner2_i.namespace.lineage_key) for owner2_i in owners2)
+    total4 = registry.process_owned_bytes
+    assert registry._owners_table_charged == store_hw3  # no new growth
+    assert work._owners_table_charged == w_hw3
+    assert work._queue_charged == w_q3
+    assert total4 == total3 + store_total2 + work_total2
+
+
+@pytest.mark.parametrize("mode", MODES)
+async def test_m3b_refused_claim_retains_exact_shared_containers(mode: AdmissionMode) -> None:
+    """A session-ceiling refusal of a NEW owner's first claim
+    discards every staged candidate: the live queue, the work
+    owner map and BOTH charged high-waters are retained
+    EXACTLY (actual table sizes and counters), the created
+    work state is never registered, the refused owner's
+    admitted store state is preserved, and the unrelated
+    existing owner's retained payload stays a RAM-only hit."""
+    ns1, s1_0, r1_0 = _ready_t(mode, f"ram019w-m3b-{mode.value}-1")
+    key1 = _root_key(r1_0)
+    ns2, s2_0, r2_0 = _ready_t(mode, f"ram019w-m3b-{mode.value}-2")
+    key2 = _root_key(r2_0)
+
+    # Probe: the second record set's store charge and the
+    # ACTUAL claim-time work charge (read at the deterministic
+    # scheduling boundary where the seam has just started, so
+    # the task reservation is the only work charge beyond the
+    # claim itself).
+    probe = RamStateOwnerRegistry(work_bounds=RamWorkBounds())
+    p2 = probe.new_owner(ns2)
+    assert p2.admit(s2_0, r2_0, ns2, expected_revision=0).outcome is RamStateOutcome.ADMITTED
+    store2 = p2.owned_bytes
+    pw = probe.work
+    assert pw is not None
+    gate = asyncio.Event()
+    calls: list[int] = []
+    t_probe = asyncio.create_task(pw.resolve(ns2, key2, make_seam(gate, calls)))
+    await _until(lambda: len(calls) == 1)
+    ow_probe = pw._owners.get(ns2.lineage_key)
+    assert ow_probe is not None
+    claim2_work = ow_probe.bytes - RAM_WORK_TASK_RESERVATION_BYTES
+    assert claim2_work > 0
+    gate.set()
+    r_probe = await t_probe
+    assert r_probe.outcome is RamWorkOutcome.COMPLETED
+    assert len(calls) == 1
+
+    # Tight registry: owner1 admitted and completed, owner2
+    # admitted under a session cap its store state satisfies
+    # but its claim-time work charge crosses.
+    registry = _work_registry()
+    work = registry.work
+    assert work is not None
+
+    async def ok_seam() -> bytes:
+        return PAYLOAD
+
+    owner1 = registry.acquire(ns1)
+    assert owner1.admit(s1_0, r1_0, ns1, expected_revision=0).outcome is RamStateOutcome.ADMITTED
+    done1 = await work.resolve(ns1, key1, ok_seam)
+    assert done1.outcome is RamWorkOutcome.COMPLETED
+    owner2 = registry.new_owner(ns2, session_max_owned_bytes=store2 + claim2_work - 1)
+    assert owner2.admit(s2_0, r2_0, ns2, expected_revision=0).outcome is RamStateOutcome.ADMITTED
+    p1 = registry.process_owned_bytes
+    m1 = sys.getsizeof(work._owners)
+    q1 = sys.getsizeof(work._queue)
+    cm1 = work._owners_table_charged
+    cq1 = work._queue_charged
+    okey2 = owner2.namespace.lineage_key
+
+    gate2 = asyncio.Event()
+    calls2: list[int] = []
+    refused = await work.resolve(ns2, key2, make_seam(gate2, calls2))
+    assert refused.outcome is RamWorkOutcome.REFUSED
+    assert refused.limitation is RamStateLimitation.SESSION_OWNED_BYTES_OVER_BOUND
+    assert refused.http_status == 503
+    assert refused.invocations == 0
+    assert calls2 == []  # the seam never ran
+
+    # EXACT retention: every shared container and counter is
+    # the captured pre-refusal value.
+    assert registry.process_owned_bytes == p1
+    assert sys.getsizeof(work._owners) == m1
+    assert sys.getsizeof(work._queue) == q1
+    assert work._owners_table_charged == cm1
+    assert work._queue_charged == cq1
+    assert work._owners.get(okey2) is None
+    # The refused owner's admitted store state is preserved
+    # (the refusal is the work claim, not the admission).
+    assert owner2.lookup(key2, ns2).outcome is RamStateOutcome.FOUND
+    # The unrelated existing owner's payload is still a
+    # RAM-only hit (zero new invocations).
+    hit1 = await work.resolve(ns1, key1, ok_seam)
+    assert hit1.outcome is RamWorkOutcome.HIT
+    assert hit1.invocations == 0
+    assert hit1.payload is done1.payload
 
 
 # --- P. RAM-only hits with mechanically denied host IO -----------------

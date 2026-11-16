@@ -54,8 +54,39 @@ RAM_WORK_ACTIVE_LEADERS = 1
 #: The documented conservative fixed reservation charged for
 #: ONE live dispatch task reference (the runtime task object and
 #: its retained work-closure reference are not safely measurable
-#: shallow containers; the reservation bounds them).
+#: shallow containers; the reservation bounds them).  Its scope
+#: explicitly INCLUDES the retained active-key tuple (the
+#: (owner, content-key) pair held from dispatch to finalization;
+#: the ACTUAL 2-tuple measures 56 bytes on the pinned CPython
+#: 3.12 toolchain, inside this reservation) -- no separate
+#: charge is made for it.
 RAM_WORK_TASK_RESERVATION_BYTES = 4096
+
+#: The documented conservative closed reservation charged for
+#: ONE retained QUEUED (owner, content-key) entry of the
+#: process-wide queue: the shallow deque charge covers the
+#: block allocation only and omits the entry's tuple body.
+#: The ACTUAL 2-tuple measures 56 bytes on the pinned
+#: CPython 3.12 toolchain; this reservation is the small
+#: bounded conservative envelope charged when the entry is
+#: retained (at the claim's publication) and released exactly
+#: once when the entry leaves the queue (dispatch / fenced
+#: finalization / teardown).
+RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES = 64
+
+#: The documented conservative closed reservation for the ONE
+#: owned PUMP task (the asyncio task object driving queue
+#: dispatch is a runtime object not safely measurable as a
+#: shallow container).  It is GLOBAL: charged exactly once
+#: into the coordinator base BEFORE any owner or claim (part
+#: of the shared coordinator shell charge, alongside the
+#: instance / map / queue shells and the retained work-bounds
+#: record) and held for the coordinator's whole lifetime --
+#: it covers the ONE pump task whenever it is scheduled, so
+#: pump creation is never a ceiling decision, is never
+#: deferred under pressure, and no claimed queue can be left
+#: without its scheduling trigger.
+RAM_WORK_PUMP_TASK_RESERVATION_BYTES = 4096
 
 #: The documented conservative fixed reservation charged for
 #: ONE retained waiter future reference (the runtime future
@@ -268,7 +299,11 @@ class RamWorkLimitation(StrEnum):
     ``process_owned_bytes_over_bound`` on
     ``RamStateLimitation``) are shared: the work plane charges
     the SAME ceilings and carries them through with the fixed
-    typed 503 backpressure contract."""
+    typed 503 backpressure contract.  The store
+    ``owner_quarantined`` fence (the 019-c adverse-currentness
+    quarantine) is carried through with the fixed typed 409
+    currentness refusal: a quarantined owner never serves a
+    retained payload, and no new invocation is ever started."""
 
     PENDING_KEYS_OVER_BOUND = "pending_keys_over_bound"
     WAITERS_PER_KEY_OVER_BOUND = "waiters_per_key_over_bound"
@@ -320,6 +355,8 @@ def ram_work_http_status(
         return None
     if isinstance(limitation, RamWorkLimitation):
         return RAM_WORK_HTTP_STATUS[limitation]
+    if limitation is RamStateLimitation.OWNER_QUARANTINED:
+        return 409
     return RAM_WORK_CAPACITY_STATUS.get(limitation)
 
 

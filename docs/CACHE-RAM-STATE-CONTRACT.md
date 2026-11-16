@@ -16,11 +16,10 @@ occupancy accounting recipe, mandatory expected-revision commit
 CAS, atomic process/session ceiling checks with the fixed typed
 503 backpressure contract, the retained historical entry catalog
 and explicit teardown. It is implemented as inert typed modules
-(`tests/test_bundle_ram_state.py`) and is PENDING strategic
-review at its bounded inert RAM owner/store scope. 019-a is
-ACCEPTED at that bounded inert RAM owner/store scope WITH PROCESS
-QUALIFICATIONS AND IMMUTABLE-REPORT CORRECTIONS (strategic
-decision `S/reviews/019-a-decision.md`). Whole objective
+(`tests/test_bundle_ram_state.py`) and is ACCEPTED at its
+bounded inert RAM owner/store scope WITH PROCESS QUALIFICATIONS
+AND IMMUTABLE-REPORT CORRECTIONS (strategic decision
+`S/reviews/019-a-decision.md`). Whole objective
 018 is ACCEPTED at its complete INERT graph/currentness/admission
 scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT
 CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`;
@@ -59,8 +58,12 @@ not authentication: the complete actual
 `RootRegionAdmissionResult.model_validate` law is re-run before
 commit, the complete trusted namespace is model-validated at every REGISTRY access (acquire/new_owner/get) while the owner operations (admit/lookup/teardown) bind the registered trusted namespace record by identity, and a value-equal foreign copy carrying the registered lineage key is refused: the fixed `RamStateInputError` at registry access and on `admit`, the typed `owner_namespace_mismatch` refusal on `lookup`/`teardown`. Public
 body/header strings cannot mint ownership. A refused admission
-leaves existing entries, revision, graph, indices, catalog and
-occupancy exactly unchanged.
+leaves the retained entries, revision, graph, indices, catalog
+and occupancy exactly unchanged; the ONLY possible refusal side
+effect is the bounded pre-accounted `owner_quarantined` flag
+(section 3), set by a capacity-refused candidate classified
+adverse, after which the old usable lookups refuse even though
+every retained byte and counter is intact.
 
 ## 2. Namespace, owner and epoch law
 
@@ -87,7 +90,29 @@ closed fixed vocabulary (`RamStateLimitation`):
   fork); the P state revision is a CAS fence, never an arrival
   clock, and an identical retained state replay is separate;
 - `owner_namespace_mismatch`: the trusted-namespace fence on `lookup`/`teardown` (a fixed `RamStateInputError` is raised instead on `admit` and at registry access);
-- `epoch_fenced`: the explicit-epoch fence.
+- `epoch_fenced`: the explicit-epoch fence;
+- `owner_quarantined`: the ADVERSE-CURRENTNESS QUARANTINE
+  (019-c). It is set when a VALIDATED capacity-refused
+  candidate would INVALIDATE the retained current usable rows:
+  the predicate classifies the candidate as non-READY (carrying
+  no current rows) or as a READY result withdrawing / rekeying
+  any retained current key (the retained READY snapshot keys
+  minus the candidate's READY keys nonempty); it does not
+  independently prove source novelty -- it is the compatibility
+  check between the retained current keys and the validated
+  candidate. A READY candidate preserving EVERY retained
+  current key is the non-adverse additive control (the refusal
+  then preserves the old usable state exactly). It is a bounded pre-accounted
+  unusable state (this single owner-shell scalar; the
+  capacity-refused result is NOT retained, so no new bytes are
+  charged): while set, every later `admit` refuses with the
+  fixed typed fence (checked after the trusted-namespace fence,
+  before any result law / CAS / charge), every `lookup` returns
+  the fixed typed currentness refusal, and the 019-b work plane
+  carries it through as the fixed typed 409 currentness refusal
+  with zero invocation; only the explicit `teardown` frees the
+  owner (no epoch reset, no retry, no revival of the old usable
+  state).
 
 Committed records retain the exact input state/namespace by reference, the ACTUAL 018-t result by immutable reference and the admitted entries; the retained catalog keeps every admitted entry row -- current and superseded -- by identity (supersession retains the prior rows rather than moving them; only CURRENT rows are lookup-eligible, section 7).
 
@@ -105,7 +130,23 @@ records, the retained P/D history and sources (even when
 unreachable, historical or not admitted), the carried
 R/Q/F/E graphs, admission records and indexes, the historical
 entry catalog and its tuple, the final snapshot storage and the
-registry-owned metadata. `entry_source_bytes` is a copy-budget
+registry-owned metadata. The shared registry shell is charged
+once at construction; the ACTUAL table growth of the shared
+live-owner map is charged as it happens and RETAINED AT ITS HIGH
+WATER as an explicitly conservative reservation (CPython tables
+do not shrink when owners are removed, and a later smaller
+candidate replacement may shrink the ACTUAL table while the
+charge stays, bounded by the largest table this registry ever
+actually allocated; the charge is retained container metadata,
+never part of any session's freed bytes). A new owner's
+allocation stages the ACTUAL complete candidate table and
+pre-reserves its measured size BEFORE both ceilings are checked
+atomically, so a refused allocation discards the candidate and
+retains the original table and counters EXACTLY. The 019-c
+quarantine flag (section 3) is an owned owner-shell scalar
+charged within the owner shell; the capacity-refused result
+that triggers it is NOT retained, so the quarantine adds no
+retained bytes. `entry_source_bytes` is a copy-budget
 counter and does not stand in for occupancy. The recipe is a
 committed-occupancy measure, NOT a total-RSS promise, and
 temporary bounded transformation work is distinct from committed
@@ -124,14 +165,22 @@ REGISTRY's and is enforced for every commit (an owner-level
 strict session override never weakens the process ceiling). Both
 checks are atomic before commit; a crossing returns the fixed
 typed 503 backpressure contract (`RAM_HTTP_CAPACITY_STATUS = 503`,
-carried as `http_status` on the capacity refusal) with existing
-state fully preserved.
+carried as `http_status` on the capacity refusal) with the
+existing state fully preserved in bytes, revision, catalog and
+counters; the only capacity-refusal side effect is the bounded
+pre-accounted `owner_quarantined` flag (section 3) when the
+validated candidate is classified adverse, which fences current
+usability without changing any retained state.
 
 ## 6. Teardown and lifecycle
 
 `teardown` releases exactly that namespace's owned state and
 occupancy, fences the old epoch and releases the registry
-reference; other owners are preserved. A torn-down owner refuses
+reference; other owners are preserved. The shared map
+table's high-water charge is registry retained container
+metadata, NOT released session state: teardown's freed bytes
+cover this namespace's own charge only, never the retained
+table reservation. A torn-down owner refuses
 all further operations (`epoch_fenced`); no normal lookup
 re-creates or auto-recovers a torn-down owner. Configuration
 changes and recovery need explicit later contracts (020).
@@ -152,7 +201,12 @@ recovery records (020) and no v1 runtime activation. All
 018 public signatures, schemas, defaults, version tags, recipe
 bytes and refusal laws stay intact; this slice adds no dependency,
 no service, no model/GPU/Gateway/native call and no adapter
-activation. Later same-019 work (single-flight, cancellation,
+activation. 019-c (the whole-019 closure round) extended this
+slice's closed fence vocabulary with the bounded
+`owner_quarantined` adverse-currentness quarantine (section 3),
+an owned owner-shell scalar charged within the occupancy recipe
+and exited only by explicit teardown; all 018 law and the
+accepted 019-a behavior otherwise stay unchanged. Later same-019 work (single-flight, cancellation,
 pressure closure) and 020-024 remain mandatory. The separate
 019-b bounded async single-flight work plane (contract
 `docs/CACHE-RAM-WORK-CONTRACT.md`) is the later same-019 slice

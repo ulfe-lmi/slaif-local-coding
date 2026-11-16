@@ -109,9 +109,16 @@ import sys
 from collections import deque
 from collections.abc import Awaitable, Callable
 
-from .ram_state import RamStateOwner, RamStateOwnerRegistry, _charge_object
+from .ram_state import (
+    RamStateAccountingError,
+    RamStateOwner,
+    RamStateOwnerRegistry,
+    _charge_object,
+)
 from .ram_state_models import RamStateLimitation
 from .ram_work_models import (
+    RAM_WORK_PUMP_TASK_RESERVATION_BYTES,
+    RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES,
     RAM_WORK_TASK_RESERVATION_BYTES,
     RAM_WORK_TERMINAL_RESERVATION_BYTES,
     RAM_WORK_WAITER_RESERVATION_BYTES,
@@ -252,7 +259,16 @@ class RamWorkCoordinator:
     any first waiter and cancelled / awaited by the all-waiters-
     gone law or the explicit async teardown."""
 
-    __slots__ = ("_registry", "_bounds", "_owners", "_active_key", "_queue", "_pump_scheduled")
+    __slots__ = (
+        "_registry",
+        "_bounds",
+        "_owners",
+        "_owners_table_charged",
+        "_active_key",
+        "_queue",
+        "_queue_charged",
+        "_pump_scheduled",
+    )
 
     def __init__(
         self, registry: RamStateOwnerRegistry, bounds: RamWorkBounds | None = None
@@ -260,20 +276,38 @@ class RamWorkCoordinator:
         self._registry = registry
         self._bounds = bounds if bounds is not None else RamWorkBounds()
         self._owners: dict[str, _OwnerWork] = {}
+        # The ACTUAL current size of the shared owner map: the
+        # charged table size is an EXPLICITLY CONSERVATIVE
+        # high-water reservation, charged in _claim_locked as
+        # each accepted insertion grows the table and retained
+        # across later shrink / teardown (the charge is never
+        # below the largest table ever allocated).
+        self._owners_table_charged = sys.getsizeof(self._owners)
         self._active_key: tuple[str, str] | None = None
         self._queue: deque[tuple[str, str]] = deque()
+        self._queue_charged = sys.getsizeof(self._queue)
         self._pump_scheduled = False
         # The shared coordinator shell (the instance, its owner
-        # map, its queue and the RETAINED work-bounds record)
-        # is owned retained process metadata: charged into the
-        # process occupancy once at construction under the
-        # ACTUAL measured sizes (committed on top of the
-        # registry shell charge, BEFORE any owner allocation
-        # can be checked against the process ceiling).
+        # map, its queue, the RETAINED work-bounds record and
+        # the closed GLOBAL pump reservation) is owned retained
+        # process metadata: charged into the process occupancy
+        # once at construction under the ACTUAL measured sizes
+        # (committed on top of the registry shell charge,
+        # BEFORE any owner allocation can be checked against
+        # the process ceiling); the map / queue GROWTH beyond
+        # these shells is charged in _claim_locked before
+        # publication (high-water retained on shrink /
+        # teardown).  The pump reservation is closed and
+        # global: it covers the ONE pump task whenever it is
+        # scheduled, for the coordinator's whole lifetime, so
+        # pump creation is never a ceiling decision and is
+        # never deferred -- an already-claimed queue can never
+        # be left without its scheduling trigger.
         registry._commit_process_delta(
             sys.getsizeof(self)
             + sys.getsizeof(self._owners)
             + sys.getsizeof(self._queue)
+            + RAM_WORK_PUMP_TASK_RESERVATION_BYTES
             + _charge_object(self._bounds, set())
         )
 
@@ -343,6 +377,9 @@ class RamWorkCoordinator:
         freed = ow.bytes
         if freed:
             self._registry._commit_process_delta(-freed)
+        # The pop shrinks the live owner map; the charged table
+        # size stays at its high-water (a later smaller fresh
+        # table is charged only by its own growth).
         self._owners.pop(lineage_key, None)
         ow.bytes = 0
         return freed
@@ -355,6 +392,8 @@ class RamWorkCoordinator:
         owner (from the ACTUAL store state: the current
         snapshot's READY admission rows) or None when the owner
         has no current READY record set."""
+        if owner.quarantined:
+            return None
         snap = owner.snapshot
         if snap is None:
             return None
@@ -410,6 +449,7 @@ class RamWorkCoordinator:
         del ow.live[la.content_key]
         try:
             self._queue.remove((okey, la.content_key))
+            self._registry._commit_process_delta(-RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES)
         except ValueError:
             pass
         ow.bytes = self._owner_work_bytes(ow)
@@ -494,11 +534,27 @@ class RamWorkCoordinator:
         freshly created work state / attempt is discarded
         without registration or commit; an existing state
         rolls the claim back to its exact pre-claim charge).
-        A same-key join never allocates a second slot: the
-        attempt's reserved slot was allocated by the
-        claimant's claim."""
+        The SHARED coordinator containers are staged the same
+        way: the queued reservation into a candidate queue
+        copy and the new owner's slot into a candidate owner-
+        map copy, each measured (its actual block / table
+        growth charged as an explicit high-water reservation)
+        and published ONLY after BOTH ceilings accept the
+        claim; a refused claim discards both candidates, so
+        the live containers and every counter are retained
+        exactly.  The queued entry's closed tuple reservation
+        is part of the SAME BEFORE-retention check and commit
+        (the closed pump reservation is global: it was
+        committed with the coordinator base, so it is not a
+        per-claim term).  A same-key join
+        never allocates a second slot: the attempt's reserved
+        slot was allocated by the claimant's claim."""
         okey = owner.namespace.lineage_key
         epoch = owner.epoch
+        q_candidate: deque[tuple[str, str]] | None = None
+        q_growth = 0
+        m_candidate: dict[str, _OwnerWork] | None = None
+        m_growth = 0
         if ow is None:
             created_ow = True
             ow = _OwnerWork(epoch)
@@ -517,7 +573,14 @@ class RamWorkCoordinator:
             # shrink a resized table).
             la.live_before = ow.live
             ow.live = {**ow.live, content_key: la}
-            self._queue.append((okey, content_key))
+            # STAGE the queued reservation: the live queue is
+            # never mutated before the capacity decision --
+            # the candidate copy (its ACTUAL block growth
+            # measured against the charged high-water) is
+            # published only when the claim is accepted.
+            q_candidate = deque(self._queue)
+            q_candidate.append((okey, content_key))
+            q_growth = max(0, sys.getsizeof(q_candidate) - self._queue_charged)
             created_la = True
         else:
             created_la = False
@@ -525,7 +588,8 @@ class RamWorkCoordinator:
             if created_la:
                 if la.live_before is not None:
                     ow.live = la.live_before
-                self._queue.remove((okey, content_key))
+                # The queued reservation was staged, never
+                # published: the live queue is already exact.
             # A freshly created work state is discarded without
             # registration or commit; nothing was retained.
             return self._refused(RamWorkLimitation.WAITERS_PER_KEY_OVER_BOUND, epoch)
@@ -548,11 +612,27 @@ class RamWorkCoordinator:
             ow.terminal = {**ow.terminal, (la.epoch, content_key): None}
         ow.bytes = self._owner_work_bytes(ow)
         delta = ow.bytes - old
+        if created_ow:
+            # STAGE the new owner's slot in a candidate owner-
+            # map copy: the live table is never mutated before
+            # the capacity decision (its ACTUAL resize growth
+            # is measured against the charged high-water and
+            # published only when the claim is accepted).
+            m_candidate = {**self._owners, okey: ow}
+            m_growth = max(0, sys.getsizeof(m_candidate) - self._owners_table_charged)
         if owner.owned_bytes + ow.bytes > owner.session_max_owned_bytes:
             self._roll_back_waiter_locked(okey, ow, la, fut, created_la, created_ow)
             return self._refused(RamStateLimitation.SESSION_OWNED_BYTES_OVER_BOUND, epoch)
+        # The queued entry's closed tuple reservation (it is
+        # retained at publication) is part of the SAME
+        # BEFORE-retention check (the closed pump reservation
+        # is global: committed with the coordinator base,
+        # never a per-claim term).
+        extra = 0
+        if created_la:
+            extra += RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES
         if (
-            self._registry.process_owned_bytes + delta
+            self._registry.process_owned_bytes + delta + q_growth + m_growth + extra
             > self._registry.bounds.process_max_owned_bytes
         ):
             self._roll_back_waiter_locked(okey, ow, la, fut, created_la, created_ow)
@@ -567,8 +647,32 @@ class RamWorkCoordinator:
             # restoration above is unchanged).
             la.live_before = None
             la.terminal_before = None
+            if q_candidate is None:
+                raise RamStateAccountingError(
+                    "the staged queue reservation is missing on an accepted claim"
+                )
+            # Publish the SAME staged candidate, preserving
+            # the charged HIGH-WATER (a smaller fresh
+            # candidate never lowers the reservation, so a
+            # later regrowth is never charged twice); the
+            # queued entry's closed tuple reservation is
+            # committed with the retention.
+            self._queue = q_candidate
+            self._queue_charged = max(self._queue_charged, sys.getsizeof(self._queue))
+            self._registry._commit_process_delta(q_growth + RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES)
         if created_ow:
-            self._owners[okey] = ow
+            if m_candidate is None:
+                raise RamStateAccountingError(
+                    "the staged owner-map reservation is missing on an accepted claim"
+                )
+            self._owners = m_candidate
+            # Preserve the charged HIGH-WATER (a smaller fresh
+            # candidate never lowers the reservation, so a
+            # later regrowth is never charged twice).
+            self._owners_table_charged = max(
+                self._owners_table_charged, sys.getsizeof(self._owners)
+            )
+            self._registry._commit_process_delta(m_growth)
         self._registry._commit_process_delta(delta)
         self._maybe_pump_locked(loop)
         return fut, ow, la
@@ -585,27 +689,36 @@ class RamWorkCoordinator:
         """Undo a refused claim (retains nothing, restores the
         exact pre-claim charge): drop the waiter, and when the
         refused claim created the attempt with no other waiter,
-        drop the attempt and its queue reservation too.  The
+        RESTORE the untouched original live map and discard
+        the staged candidates (the queued reservation and the
+        new owner's map slot were never published, so the live
+        queue / owner map are already exact).  The
         pre-allocated terminal slot is undone by RESTORING the
         original catalog container (deleting the key would not
         shrink a resized table, so delete alone would not
         restore the exact pre-claim charge).  On an EXISTING
         work state the charged occupancy is RECOMPUTED after
-        the drop, so a refused join to an existing live attempt
-        restores ``ow.bytes`` exactly (the waiter reservation
-        it added is undone); on a freshly created work state
-        nothing was ever registered or committed, so its charge
-        is simply abandoned (its pre-claim charge was zero)."""
+        the restoration, so a refused join to an existing live
+        attempt restores ``ow.bytes`` exactly (the waiter
+        reservation it added is undone); on a freshly created
+        work state nothing was ever registered or committed, so
+        its charge is simply abandoned (its pre-claim charge
+        was zero)."""
         if fut in la.waiters:
             la.waiters.remove(fut)
         if la.claimant is fut:
             la.claimant = None
         if created_la and not la.waiters:
-            del ow.live[la.content_key]
-            try:
-                self._queue.remove((okey, la.content_key))
-            except ValueError:
-                pass
+            # RESTORE the untouched original live map: the
+            # staged candidate (possibly resized by the
+            # insertion) is discarded, so the exact pre-claim
+            # container and its charge come back (deleting the
+            # entry would not shrink a resized table).  The
+            # queued reservation was staged, never published:
+            # the live queue is already exact.
+            if la.live_before is not None:
+                ow.live = la.live_before
+                la.live_before = None
         if created_la:
             if la.terminal_before is not None:
                 ow.terminal = la.terminal_before
@@ -620,8 +733,20 @@ class RamWorkCoordinator:
     def _maybe_pump_locked(self, loop: asyncio.AbstractEventLoop) -> None:
         if self._active_key is not None or self._pump_scheduled or not self._queue:
             return
+        # The pump's closed reservation is GLOBAL: committed
+        # with the coordinator base BEFORE any owner or claim
+        # (see __init__), so scheduling the ONE pump task can
+        # never cross a ceiling and is never deferred -- an
+        # already-claimed queue can never be left without its
+        # scheduling trigger.
         self._pump_scheduled = True
-        loop.create_task(self._pump())
+        loop.create_task(self._run_pump())
+
+    async def _run_pump(self) -> None:
+        """The owned pump task: run the pump.  Its closed
+        reservation is global (the coordinator base), so the
+        task retains and releases nothing of its own."""
+        await self._pump()
 
     async def _pump(self) -> None:
         """Advance the queue: dispatch the next eligible claim
@@ -657,6 +782,7 @@ class RamWorkCoordinator:
                     or content_key not in keys
                 ):
                     self._queue.popleft()
+                    self._registry._commit_process_delta(-RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES)
                     if ow is not None and owner is not None and la is not None:
                         limitation = (
                             RamWorkLimitation.EPOCH_CHANGED
@@ -677,6 +803,7 @@ class RamWorkCoordinator:
                 delta = RAM_WORK_TASK_RESERVATION_BYTES
                 if owner.owned_bytes + ow.bytes + delta > owner.session_max_owned_bytes:
                     self._queue.popleft()
+                    self._registry._commit_process_delta(-RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES)
                     self._finalize_attempt_locked(
                         owner,
                         ow,
@@ -691,6 +818,7 @@ class RamWorkCoordinator:
                     > self._registry.bounds.process_max_owned_bytes
                 ):
                     self._queue.popleft()
+                    self._registry._commit_process_delta(-RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES)
                     self._finalize_attempt_locked(
                         owner,
                         ow,
@@ -701,6 +829,7 @@ class RamWorkCoordinator:
                     )
                     continue
                 self._queue.popleft()
+                self._registry._commit_process_delta(-RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES)
                 self._active_key = (okey, content_key)
                 la.task = loop.create_task(self._run_work(okey, owner, ow, la))
                 ow.bytes += delta
@@ -943,6 +1072,8 @@ class RamWorkCoordinator:
             ow = self._owners.get(okey)
             if ow is not None and ow.fenced:
                 return self._refused(RamWorkLimitation.OWNER_TORN_DOWN, owner.epoch)
+            if owner.quarantined:
+                return self._refused(RamStateLimitation.OWNER_QUARANTINED, owner.epoch)
             keys = self._current_keys_locked(owner)
             if keys is None or content_key not in keys:
                 return self._refused(RamWorkLimitation.KEY_NOT_CURRENT, owner.epoch)
@@ -1073,15 +1204,29 @@ class RamWorkCoordinator:
                     http_status=ram_work_http_status(RamWorkLimitation.OWNER_TORN_DOWN),
                 )
             ow.fenced = True
+            # The replacement queue is no LARGER than the
+            # published one; the charged queue high-water is
+            # retained (a smaller block allocation never
+            # lowers the explicit reservation).  Every removed
+            # queued entry releases its closed tuple
+            # reservation exactly once.
+            kept = [p for p in self._queue if p[0] != okey]
+            removed = len(self._queue) - len(kept)
+            self._queue = deque(kept)
+            if removed:
+                self._registry._commit_process_delta(
+                    -removed * RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES
+                )
             # The complete work release of THIS teardown is
             # this owner's work charge AT FENCE TIME (every
             # claimed reservation, live attempt and retained
-            # terminal metadata); the drain's finalizations
+            # terminal metadata) plus the removed queued
+            # entries' closed tuple reservations (released
+            # above); the drain's finalizations
             # commit part of that release to the process
             # counter while draining, the residual is
             # committed out in the final section below.
-            work_at_fence = ow.bytes
-            self._queue = deque(p for p in self._queue if p[0] != okey)
+            work_at_fence = ow.bytes + removed * RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES
             for la in list(ow.live.values()):
                 if la.task is None:
                     self._finalize_attempt_locked(
@@ -1134,6 +1279,8 @@ class RamWorkCoordinator:
                 residual = ow.bytes
                 if residual:
                     self._registry._commit_process_delta(-residual)
+                # The pop shrinks the live owner map; the
+                # charged table high-water is retained.
                 self._owners.pop(okey, None)
                 # The COMPLETE occupancy released by THIS
                 # teardown: the work charge at fence time (the
@@ -1150,6 +1297,8 @@ class RamWorkCoordinator:
                 residual = ow.bytes
                 if residual:
                     self._registry._commit_process_delta(-residual)
+                # The pop shrinks the live owner map; the
+                # charged table high-water is retained.
                 self._owners.pop(okey, None)
                 freed = work_at_fence
             ow.bytes = 0
