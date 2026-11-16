@@ -218,3 +218,33 @@ owner's charged work occupancy), and the synchronous store
 teardown is fenced with the fixed typed `work_in_flight`
 refusal while the work plane is draining or still owns live
 work.
+
+## 9. 020 recovery seam (additive, inert)
+
+The 020 recovery component (contract
+`docs/CACHE-RECOVERY-CONTRACT.md`) adds, without changing any
+accepted 019 law: the COLD initial-load transient reservation on
+the trusted resume address (`reserve_recovery_transient_cold`,
+held before the load / decode / full validation and released
+exactly once on every outcome; a duplicate cold reservation while
+a live owner exists refuses before publication) and the LIVE
+bounded recovery publication reservation on the registered
+namespace BY IDENTITY (`reserve_recovery_transient`: the
+namespace identity join FIRST — a value-equal foreign copy is the
+fixed `RamStateInputError` — then the SAME-lock work-teardown
+fence refusal with the fixed `RamStateWorkTeardownFenceError`
+while the work owner's fenced / draining flag is set, BEFORE the
+capacity checks — so a draining work teardown can never release
+the store under a live recovery reservation); the
+session-reserved transient term is part of the SAME atomic
+process / session sums (the synchronous `admit` session-ceiling
+check and the process ceiling see it, so simultaneous store /
+work allocations observe the session reservation); the ONE
+process-wide owned store IO slot
+(`owned_store_io_acquire` / `owned_store_io_release`, closed
+constant 1, the typed busy refusal) that bounds concurrent owned
+recovery publications; and the fixed `recovery_in_flight`
+refusal on the synchronous store teardown (and on the work
+teardown) while recovery IO / reservation is live at entry, so
+both teardown paths compose with the 020 recovery owner without
+an orphaned writer.

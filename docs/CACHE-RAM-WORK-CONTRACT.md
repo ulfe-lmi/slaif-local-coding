@@ -302,3 +302,29 @@ plane adds no dependency, no configuration key and no adapter
 activation. Whole 019
 pressure / source-scale / lifecycle closure and 020-024 remain
 mandatory.
+
+## 10. 020 recovery seam (additive, inert)
+
+The 020 recovery component (contract
+`docs/CACHE-RECOVERY-CONTRACT.md`) adds, without changing any
+accepted 019 law: `owner_teardown_fenced(lineage_key)` — the
+owner's EXISTING fenced / draining flag (the caller holds the
+registry lock, as for `owner_work_active`) — which the 019-a
+LIVE recovery transient reservation checks under the SAME
+registry lock (AFTER the namespace identity join, BEFORE the
+capacity checks) and refuses with the fixed
+`RamStateWorkTeardownFenceError`: this closes the reverse race
+in which a work teardown that passed its entry check (no
+recovery IO at entry) fences and AWAITS its drain while a
+recovery publication still acquires the owned slot / reserve,
+and the work teardown would otherwise reach its later store
+release under live recovery IO. The composed async
+`teardown_owner` refuses with the fixed `recovery_in_flight`
+while a recovery reservation is held at entry (the work plane
+stays fenced and the store is not released under live recovery
+IO). The session-reserved recovery transient is charged against
+the SAME atomic process / session sums the work plane already
+accounts, so a work-claim refusal and a recovery reservation
+see the same ceiling state; a work-claim refusal still
+terminalizes only the affected claimed attempt and never
+quarantines.

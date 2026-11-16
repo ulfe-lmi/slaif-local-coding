@@ -204,6 +204,7 @@ class RamStateLimitation(StrEnum):
     REVISION_MISMATCH = "revision_mismatch"
     STALE_STATE_REVISION = "stale_state_revision"
     WORK_IN_FLIGHT = "work_in_flight"
+    RECOVERY_IN_FLIGHT = "recovery_in_flight"
     OWNER_QUARANTINED = "owner_quarantined"
 
 
