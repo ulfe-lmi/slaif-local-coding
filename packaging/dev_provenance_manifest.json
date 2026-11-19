@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 308,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "970a7e6105353b1eb1dcb0315226d940bb01592e6084b2f84a91603db3191bb4",
-      "size_bytes": 6030607
+      "sha256": "ffdcc5cb0f0fa0af293b9c30e10f84cdda152f9d025add46510f2f60287b402c",
+      "size_bytes": 6032018
     },
     "wheel": {
       "entry_count": 85,
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "021-a",
-  "qualification_label": "development-source-68f1c3c536e5152a296409b8c04d17ee64f7bfd5; not a release candidate; not released",
+  "qualification_label": "development-source-23936e7bf57439b1f22d384cfbd2e71301d68d85; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "68f1c3c536e5152a296409b8c04d17ee64f7bfd5",
+  "source_commit": "23936e7bf57439b1f22d384cfbd2e71301d68d85",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -333,7 +333,7 @@
     "tests/test_root_region_currentness.py": "5ac7aed88814462f65a840fac0d9a246de8d5d8dd6259048a4edaeea461a9bb2",
     "tests/test_root_region_graph.py": "eeee21ab244ff2a12201a3f755e5340b06186f35a23a74db7f7bc4cc8197a85c",
     "tests/test_root_region_lineage.py": "d12463940fc7a2a6abf560efda0af1b544d325b98d3aea4e1bd09fbf30bceaad",
-    "tests/test_runtime_lock_ci.py": "917a5fc2e32292cb31e114ba31708d9a817b43dcdb79a1e15df55383a2cfc1f5",
+    "tests/test_runtime_lock_ci.py": "62d05400546c3fad2ab34d5ab3ad3a81b7ae2c0fa48a0d313d5254894189f8ee",
     "tests/test_safe_evidence_export.py": "2bf1f53f34bacb007f0e2b4aff5854c4e234f0ce0731837cee343c8cf38ef5e0",
     "tests/test_source_input_binding.py": "5e0a93c4dfa8489698205865e05ba8eaafb008b010c1921a31bfc98eea682ba1",
     "tests/test_tool_policy.py": "82a283ebe46bbe95d6a63fdacadb03c8ff2288f8d8f00ceee0786d3e71cc1aaf",
