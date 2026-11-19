@@ -1,0 +1,5 @@
+# Pinned upstream Apache-2.0 license text with digest-pinned CRLF bytes
+# (oap/orders/021-a-cache-token-compiler.md): keep bytes exact (no EOL
+# normalization) and treat CR at EOL as part of the line terminator for
+# whitespace checks (normal trailing-space checks remain active).
+src/slaif_local_coding/constitution/bundles/tokenizer_assets/LICENSE -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
