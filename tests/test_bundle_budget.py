@@ -34,6 +34,8 @@ from slaif_local_coding.constitution.bundles.bundle_budget import (
     BUDGET_SLOT_DIVISOR,
     BUDGET_TOOLS_RESERVE_DEFAULT,
     BUDGET_UNCERTAINTY_RESERVE_DEFAULT,
+    ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_BYTES,
+    ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_TOKENS,
     ENVELOPE_THINK_FRAMING_BOUND_TOKENS,
     ENVELOPE_TOOL_REMINDER_BOUND_TOKENS,
     ENVELOPE_TOOLS_PREFIX_BOUND_TOKENS,
@@ -345,18 +347,77 @@ def test_envelope_exact_accounting(tokenizer: BundleTokenizer) -> None:
     msg = BudgetMessage(role="user", content=content)
     frame = tokenizer.count_tokens(_IM_START + "user\n" + _IM_END + "\n")
     gen_open = tokenizer.count_tokens(_IM_START + "assistant\n")
-    expected = frame + tokenizer.count_tokens(content) + gen_open
-    expected += ENVELOPE_THINK_FRAMING_BOUND_TOKENS
-    assert plan.count_request_envelope((msg,), (), enable_thinking=True) == expected
+    base = frame + tokenizer.count_tokens(content) + gen_open
+    base += ENVELOPE_THINK_FRAMING_BOUND_TOKENS
+    # the built-in no-tools reasoning header floor is charged ONLY
+    # when thinking is enabled (text-only request):
+    assert plan.count_request_envelope((msg,), (), enable_thinking=True) == (
+        base + ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_TOKENS
+    )
     # the think framing overhead is charged on BOTH settings:
-    assert plan.count_request_envelope((msg,), (), enable_thinking=False) == expected
+    assert plan.count_request_envelope((msg,), (), enable_thinking=False) == base
     # many messages: the per-message real counts add up exactly:
     many = tuple(BudgetMessage(role="user", content=f"m{i:04d}") for i in range(200))
     exp_many = 0
     for m in many:
         exp_many += frame + tokenizer.count_tokens(m.content)
-    exp_many += gen_open + ENVELOPE_THINK_FRAMING_BOUND_TOKENS
+    exp_many += (
+        gen_open
+        + ENVELOPE_THINK_FRAMING_BOUND_TOKENS
+        + ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_TOKENS
+    )
     assert plan.count_request_envelope(many, (), enable_thinking=True) == exp_many
+
+
+def test_builtin_reasoning_header_text_only_floor(
+    tokenizer: BundleTokenizer,
+) -> None:
+    """A text-only request (tools tuple empty) with thinking
+    enabled charges the model's built-in reasoning header at the
+    closed accounting floor (42 tokens / 237 bytes) in BOTH
+    accounting domains; thinking off charges nothing."""
+    plan = _plan(_config(), tokenizer)
+    msg = BudgetMessage(role="user", content="hello")
+    on = plan.count_request_envelope((msg,), (), enable_thinking=True)
+    off = plan.count_request_envelope((msg,), (), enable_thinking=False)
+    assert on - off == ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_TOKENS
+    # the byte fence domain charges the floor's byte bound:
+    on_b = plan._envelope_byte_cost((msg,), (), (), True, "")
+    off_b = plan._envelope_byte_cost((msg,), (), (), False, "")
+    assert on_b - off_b == ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_BYTES
+
+
+def test_explicit_reasoning_text_real_count_plus_frame(
+    tokenizer: BundleTokenizer,
+) -> None:
+    """Explicit product reasoning text on a text-only request:
+    the REAL pinned-tokenizer count of the text plus the system
+    frame and the separators -- in both accounting domains --
+    replacing (never stacking on) the built-in floor."""
+    plan = _plan(_config(), tokenizer)
+    msg = BudgetMessage(role="user", content="hello")
+    instructions = "Think step by step. \u9a8c\u8bc1"
+    sys_frame = _IM_START + "system\n" + _IM_END + "\n"
+    base = plan.count_request_envelope((msg,), (), enable_thinking=False)
+    explicit = plan.count_request_envelope(
+        (msg,), (), enable_thinking=True, reasoning_instructions=instructions
+    )
+    assert explicit - base == (
+        tokenizer.count_tokens(instructions + "\n\n") + tokenizer.count_tokens(sys_frame)
+    )
+    # the built-in floor is charged only for the default (no
+    # explicit text) render:
+    builtin = plan.count_request_envelope((msg,), (), enable_thinking=True)
+    assert builtin == base + ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_TOKENS
+    # byte domain: exact rendered text bytes + separators +
+    # frame bytes:
+    off_b = plan._envelope_byte_cost((msg,), (), (), False, "")
+    explicit_b = plan._envelope_byte_cost((msg,), (), (), True, instructions)
+    builtin_b = plan._envelope_byte_cost((msg,), (), (), True, "")
+    assert explicit_b - off_b == (
+        len((instructions + "\n\n").encode("utf-8")) + len(sys_frame.encode("utf-8"))
+    )
+    assert builtin_b - off_b == ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_BYTES
 
 
 def test_tool_preamble_serialized_data_real_counted(
@@ -547,7 +608,10 @@ def test_tool_call_data_real_counted(tokenizer: BundleTokenizer) -> None:
         for key, value in args:
             total += tokenizer.count_tokens(f"{L}parameter={key}{R}\n")
             total += tokenizer.count_tokens(value)
-            total += tokenizer.count_tokens(f"{L}{R}\n")
+            # the complete per-argument close wrapper (newline +
+            # slash-parameter close tag + newline, 14 UTF-8
+            # bytes, measured against the pinned template asset):
+            total += tokenizer.count_tokens(f"\n{L}/parameter{R}\n")
         total += tokenizer.count_tokens(f"{L}{R}\n")
         total += plan._call_close_tokens
         return total

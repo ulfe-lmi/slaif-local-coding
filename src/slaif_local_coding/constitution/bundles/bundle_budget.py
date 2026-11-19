@@ -32,7 +32,8 @@ Law (objective 021 item 2 + plan policy 10 + compact architecture
   over the pinned message framing; the
   pinned model envelope's fixed template pieces and
   per-item framing (tool preamble header/footer, the call /
-  result wrapper tags, the generation / think framing) are
+  result wrapper tags, the no-tools reasoning system preamble,
+  the generation / think framing) are
   charged as documented conservative structure bounds -- one
   token per rendered UTF-8 byte, which is a provable over-estimate
   for the BPE vocabulary (every token is at least one byte);
@@ -113,9 +114,13 @@ BUDGET_MAX_COMPILED_BLOCK_BYTES_DEFAULT = 2_097_152
 #     frame (fixed open/close pieces around any carried
 #     reasoning text, rendered by default even when the NEW
 #     generation's thinking is off); (5) the no-tools reasoning
-#     system preamble when the effective reasoning instruction
-#     text is present; (6) a generation / think framing at the
-#     end (assistant turn tag + open/close think tags).
+#     system preamble whenever thinking is enabled: the model's
+#     built-in default reasoning header at its closed accounting
+#     floor when no explicit product reasoning text is present,
+#     or the explicit reasoning instruction text (real count)
+#     plus the system frame and separators; (6) a generation /
+#     think framing at the end (assistant turn tag + open/close
+#     think tags).
 # Every FIXED fragment is charged with a closed conservative
 # numeric overhead (the ENVELOPE_*_BOUND_TOKENS constants below):
 # a documented over-estimate of the fragment's real-tokenizer
@@ -182,6 +187,18 @@ ENVELOPE_HIST_THINK_CLOSE_BOUND_BYTES: Final = 11
 ENVELOPE_HIST_THINK_OPEN_BOUND_TOKENS: Final = 2
 ENVELOPE_HIST_THINK_CLOSE_BOUND_TOKENS: Final = 3
 ENVELOPE_HIST_THINK_EMPTY_BOUND_TOKENS: Final = 4
+
+
+#: Closed accounting floor for the pinned no-tools built-in
+#: reasoning header: whenever thinking is enabled and no
+#: explicit product reasoning text is present, the pinned
+#: template renders the model's built-in default reasoning
+#: instruction inside the system frame.  The isolated pinned
+#: Jinja render of the maximal default header measures 237
+#: UTF-8 bytes / 42 pinned tokens exactly; that measured count
+#: is the floor charged.
+ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_BYTES: Final = 237
+ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_TOKENS: Final = 42
 
 
 class BundleBudgetReason(StrEnum):
@@ -589,14 +606,29 @@ class BundleBudgetPlan:
         enable_thinking: bool,
         reasoning_instructions: str = "",
     ) -> int:
-        """The pinned tool preamble: the fixed template pieces
-        (header, per-tool separator, footer, closed reminder bound,
-        reasoning instructions) plus the serialized tool data
-        (the pinned tojson form) counted with the real tokenizer."""
+        """The pinned preamble: the single token charge shared
+        with the request envelope path (``_count_preamble_actual``
+        reuses this helper).  With tools present: the pinned tool
+        preamble (the fixed template pieces -- header, per-tool
+        separator, footer, closed reminder bound, reasoning
+        instructions -- plus the serialized tool data in the
+        pinned tojson form counted with the real tokenizer).
+        With the tools tuple empty and thinking enabled: the
+        model's built-in reasoning header (the explicit product
+        reasoning text with the REAL pinned tokenizer plus the
+        system frame and the separators, or the built-in default
+        header at its closed accounting floor -- never free)."""
         c = self.config
         if len(tools) > c.max_tools:
             raise BundleBudgetError(BundleBudgetReason.ITEM_LIMIT_EXCEEDED, "tools")
         if not tools:
+            if enable_thinking:
+                if reasoning_instructions:
+                    return (
+                        self.tokenizer.count_tokens(reasoning_instructions + "\n\n")
+                        + self._frame_tokens["system"]
+                    )
+                return ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_TOKENS
             return 0
         total = self._tools_prefix_tokens + self._tools_suffix_tokens
         total += ENVELOPE_TOOL_REMINDER_BOUND_TOKENS
@@ -694,6 +726,19 @@ class BundleBudgetPlan:
             for tool in tools:
                 total += 1  # the pinned per-tool newline separator
                 total += self._utf8_len(self._serialized_tool(tool))
+        elif enable_thinking:
+            # The pinned no-tools template renders the model's
+            # built-in reasoning header whenever thinking is
+            # enabled: the explicit product reasoning text at
+            # its exact rendered bytes plus the system frame
+            # and the separators, or the built-in default
+            # header at its closed accounting floor.
+            if reasoning_instructions:
+                total += self._utf8_len(reasoning_instructions + "\n\n") + self._utf8_len(
+                    _IM_START + "system\n" + _IM_END + "\n"
+                )
+            else:
+                total += ENVELOPE_BUILTIN_REASONING_HEADER_BOUND_BYTES
         for call in tool_calls:
             total += self._call_open_bytes + 4 * 2  # the pinned blank-line separator
             total += self._utf8_len(_ENVELOPE_L + "function=" + call.name + _ENVELOPE_R + "\n")
@@ -803,16 +848,17 @@ class BundleBudgetPlan:
         enable_thinking: bool,
         reasoning_instructions: str,
     ) -> int:
-        if not tools:
-            return 0
-        total = self._tools_prefix_tokens + self._tools_suffix_tokens
-        total += ENVELOPE_TOOL_REMINDER_BOUND_TOKENS
-        if enable_thinking and reasoning_instructions:
-            total += self.tokenizer.count_tokens(reasoning_instructions + "\n\n")
-        for tool in tools:
-            total += 1
-            total += self.tokenizer.count_tokens(self._serialized_tool(tool))
-        return total
+        # The single preamble token charge, reused from the
+        # public helper so the actual request path and the
+        # helper can never diverge: the pinned tool preamble
+        # with tools present; the pinned no-tools built-in
+        # reasoning header with the tools tuple empty and
+        # thinking enabled.
+        return self.count_tool_preamble(
+            tools,
+            enable_thinking=enable_thinking,
+            reasoning_instructions=reasoning_instructions,
+        )
 
     # -- decision ----------------------------------------------------------
 
