@@ -26,6 +26,7 @@ from typing import Any
 import httpx
 import pytest
 
+import slaif_local_coding.constitution.bundles.bundle_selection as bundle_selection
 from slaif_local_coding.constitution.bundles.bundle_admission_models import (
     AdmissionMode,
 )
@@ -37,6 +38,7 @@ from slaif_local_coding.constitution.bundles.bundle_compiler import (
     BUNDLE_COMPILER_PROMPT_POLICY_VERSION,
     BUNDLE_COMPILER_SCHEMA_VERSION,
     BUNDLE_COMPILER_VERSION,
+    UNPROVEN_MEMBER_PROVENANCE_PREFIX,
     BundleCompiledDependency,
     BundleCompiledIndex,
     BundleCompiledRule,
@@ -48,7 +50,12 @@ from slaif_local_coding.constitution.bundles.bundle_compiler import (
     deserialize_compiled_index,
     entry_source,
     render_compiled_index,
+    render_final_compiled_block,
     serialize_compiled_index,
+    unproven_member_paths,
+)
+from slaif_local_coding.constitution.bundles.bundle_selection import (
+    SelectionReadyEntry,
 )
 from slaif_local_coding.constitution.bundles.bundle_tokenizer import (
     PINNED_TOKENIZER_REVISION,
@@ -975,3 +982,150 @@ async def test_empty_source_truthfulness_fence(
         }
         with pytest.raises(ValueError, match="no truthful compiled content"):
             BundleCompiledIndex.model_validate(payload)
+
+
+# -- focused regression: the SHARED final rendered block (the
+# proof-derived boundaryless provenance) over the ACTUAL
+# fake-upstream channel and the selection ---------------------
+
+
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+async def test_mixed_boundaryless_provenance_shared_render(
+    endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The REAL boundaryless mixed admission (the ``cat A.md B.md``
+    group with unknown per-member origin): the SHARED final rendered
+    block -- the compiled body plus the closed provenance line
+    derived from the retained proof -- is the exact text the
+    compiler validates against the rendered allowance.  A base block
+    that fits its width x slot exactly is OVER_ALLOWANCE -- typed
+    before anything is retained -- as soon as the final provenance
+    crosses the slot; the same entry with the final text fitting
+    exactly is retained, and the SELECTION's counted block is
+    byte-identical to the shared text."""
+    # The canonical REAL boundaryless mixed P/T fixture (the
+    # selection test's single mixed read under the binding root).
+    # Lazy import: the selection test module imports from this one,
+    # so a module-level import would be circular.
+    from tests.test_bundle_selection import (
+        B_BODY,
+        ROOT_BINDING,
+    )
+    from tests.test_bundle_selection import (
+        _states as _selection_states,
+    )
+
+    ns, _state, t = _selection_states(
+        ROOT_BINDING,
+        (("ab", A_BODY + B_BODY, "cat A.md B.md"),),
+        AdmissionMode.GREEDY,
+        endpoint,
+        f"compiler021-mixed-{endpoint}",
+    )
+    adm = t.admission
+    assert adm is not None
+    mixed_rows = [
+        entry
+        for entry in adm.entries
+        if set(entry.key_record.member_occurrences) == {"A.md", "B.md"}
+    ]
+    assert len(mixed_rows) == 1, "the boundaryless mixed bundle entry is missing"
+    mixed_entry = mixed_rows[0]
+    monkeypatch.setenv(COMPILER_KEY_ENV, COMPILER_KEY_VALUE)
+    config = _config()
+    tokenizer = get_bundle_tokenizer()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=262_144))
+
+    # The proof-derived provenance: both members unproven:
+    assert unproven_member_paths(mixed_entry) == ("A.md", "B.md")
+
+    source_text, source_digest, source_byte_length = entry_source(mixed_entry)
+    compile_key = derive_compile_key(
+        entry_class=mixed_entry.entry_class,
+        content_key=mixed_entry.content_key,
+        source_sha256=source_digest,
+        source_byte_length=source_byte_length,
+        candidate_paths=(),
+        config_identity=config.config_identity,
+        tokenizer_identity=tokenizer.binding.identity,
+        budget_identity=plan.plan_identity(),
+        render_policy_version=tokenizer.binding.render_policy_version,
+    )
+    index = BundleCompiledIndex(
+        schema_version=BUNDLE_COMPILER_SCHEMA_VERSION,
+        compiler_version=BUNDLE_COMPILER_VERSION,
+        prompt_policy_version=BUNDLE_COMPILER_PROMPT_POLICY_VERSION,
+        model=COMPILER_MODEL,
+        entry_class=mixed_entry.entry_class,
+        content_key=mixed_entry.content_key,
+        compile_key=compile_key,
+        source_sha256=source_digest,
+        source_byte_length=source_byte_length,
+        summary="Bounded synthetic summary.",
+        rules=(
+            BundleCompiledRule(
+                rule_id="mixed-content-rule",
+                strength="never",
+                statement="NEVER mutate the protected fixture.",
+                location="",  # boundaryless: no per-file attribution
+                evidence="synthetic source evidence",
+            ),
+        ),
+        scopes=("file content",),
+        authorities=("file provenance",),
+        source_of_truth_boundaries=("repository source files",),
+        dependencies=(),
+        reread_triggers=("source change",),
+    )
+    base_block = tokenizer.render_compiled_block(
+        entry_label=f"entry-{mixed_entry.content_key[:16]}",
+        body=render_compiled_index(index),
+        references=(),
+    )
+    final_block = render_final_compiled_block(
+        index=index,
+        entry=mixed_entry,
+        candidate_paths=(),
+        tokenizer=tokenizer,
+    )
+    base_tokens = tokenizer.count_tokens(base_block)
+    final_tokens = tokenizer.count_tokens(final_block)
+    assert final_tokens > base_tokens
+    assert final_block.endswith("\n" + UNPROVEN_MEMBER_PROVENANCE_PREFIX + "A.md,B.md")
+    payload = _completion_bytes(json.dumps(index.model_dump(mode="json"), separators=(",", ":")))
+    base: dict[str, Any] = dict(
+        config=config,
+        entry=mixed_entry,
+        candidates=(),
+        tokenizer=tokenizer,
+        plan=plan,
+        responder=lambda request, _seen: httpx.Response(200, content=payload),
+    )
+
+    # The base block fits the slot exactly, but the SHARED final text
+    # (provenance included) crosses it: OVER_ALLOWANCE before
+    # retention -- never an entry, never a hit:
+    result, captured = await _compile_once(rendered_allowance=base_tokens, **base)
+    assert result.outcome is BundleCompilerOutcome.OVER_ALLOWANCE
+    assert result.attempts == 1 and result.index is None
+    assert len(captured) == 1
+
+    # The same entry with the final text fitting exactly is retained:
+    result, _captured = await _compile_once(rendered_allowance=final_tokens, **base)
+    assert result.outcome is BundleCompilerOutcome.COMPLETED
+    assert result.index is not None
+    assert result.index.source_sha256 == source_digest
+    assert result.index.source_byte_length == source_byte_length
+
+    # The SELECTION's counted block for the same entry / index is the
+    # SAME shared text (byte-identical; the budget counts it):
+    ready = SelectionReadyEntry(
+        entry=mixed_entry,
+        index=result.index,
+        represented_paths=("A.md", "B.md"),
+        candidate_paths=(),
+        origin_proven=False,
+    )
+    selection_block = bundle_selection._final_rendered_block(ready, plan)
+    assert selection_block == final_block
+    assert plan.tokenizer.count_tokens(selection_block) == final_tokens

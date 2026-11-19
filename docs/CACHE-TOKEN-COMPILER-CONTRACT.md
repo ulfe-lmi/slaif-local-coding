@@ -82,8 +82,10 @@ validated configuration contract:
   only under the explicit vision contract (`vision_enabled` with
   `per_image_reserve >= 1` and retained capacity; a mismatch is a typed
   refusal, never a silent reinterpretation).
-- The final rendered compiled text — references, metadata and separators
-  included — is counted with the REAL pinned tokenizer. Remaining request
+- The final rendered compiled text — references, metadata, separators and
+  the proof-derived boundaryless provenance line (where the entry's member
+  origin is not fully proven) included — is counted with the REAL pinned
+  tokenizer. Remaining request
   content and tool / envelope emissions are counted through the pinned
   compatible rendering (`qwen3-model-envelope/v1`): every DYNAMIC text is
   counted with the real tokenizer — the serialized tool data in the pinned
@@ -167,9 +169,13 @@ channel that treats the admitted entry's source as data:
   exactly once (none invented, none erased) and SEPARATE reference-confidence
   from constitutional-priority are enforced (`SCHEMA_INVALID`,
   `CANDIDATE_SET_MISMATCH`, `CONTRADICTORY_OUTPUT`, `ATTRIBUTION_INVALID`).
-- The final rendered compiled block (references, metadata and separators
-  included) is counted with the REAL pinned tokenizer and must fit the ACTUAL
-  rendered allowance; over-allowance is a typed invalid result
+- The final rendered compiled block is the SHARED renderer's output
+  (`render_final_compiled_block`: the versioned wrapper over the compiled
+  body and the deterministic candidate references, and — where the entry's
+  proof-derived member origin is not fully proven — the closed provenance
+  line with the unproven member paths). This exact text is counted with the
+  REAL pinned tokenizer and must fit the ACTUAL rendered allowance BEFORE
+  anything may become an entry; over-allowance is a typed invalid result
   (`OVER_ALLOWANCE`), never a truncation.
 - Invalid / truncated / over-budget / cancelled output never becomes an
   entry or a hit and is never best-of-replayed. There is no retry of any
@@ -267,10 +273,11 @@ admitted entries (018-t) and VALIDATED compiled indexes:
   its final rendered block; boundaryless mixed content never claims
   governing attribution.
 - The ACTUAL pinned-tokenizer budget plan decides over the ONE final rendered
-  block per entry (the versioned render policy: compiled body wrapped with
-  the entry label and its deterministic candidate references — the exact text
-  the compiler validated against the rendered allowance), joined by the
-  deterministic injection separator with the EMITTED missing-binding
+  block per entry (the SHARED renderer's output: compiled body wrapped with
+  the entry label and its deterministic candidate references, plus the
+  proof-derived boundaryless provenance line — the exact text the compiler
+  validated against the rendered allowance, by the SAME renderer), joined by
+  the deterministic injection separator with the EMITTED missing-binding
   guidance as final extras: the AGGREGATE limit is decided over the exact
   combined final injected text with the real tokenizer; whole-entry optional
   omissions (`BUDGET`) and TYPED essential overflow (422) apply — never

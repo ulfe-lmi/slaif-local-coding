@@ -29,10 +29,12 @@ entries and VALIDATED compiled indexes (021 order item 4):
   observably -- the narrower entry preserves all required
   information;
 - the ACTUAL pinned-tokenizer budget plan decides over the ONE
-  final rendered block per entry (the versioned render policy:
+  final rendered block per entry (the SHARED renderer's output:
   the compiled body wrapped with the entry label and its
-  deterministic candidate references -- the exact text the
-  compiler validated against the rendered allowance):
+  deterministic candidate references, plus the proof-derived
+  boundaryless provenance line -- the exact text the compiler
+  validated against the rendered allowance, by the SAME
+  renderer):
   whole-entry optional omissions and TYPED essential overflow
   (422), never truncation, never dangling required references.
 
@@ -57,9 +59,11 @@ from .bundle_budget import (
     BundleBudgetPlan,
 )
 from .bundle_compiler import (
+    UNPROVEN_MEMBER_PROVENANCE_PREFIX,
     BundleCompiledIndex,
     entry_source,
-    render_compiled_index,
+    render_final_compiled_block,
+    unproven_member_paths,
 )
 from .graph_models import _GraphFrozen
 from .root_region_admission_models import RootRegionAdmissionEntry
@@ -73,13 +77,11 @@ BUNDLE_SELECTION_POLICY_VERSION = "bundle-selection-policy/v1"
 #: pinned tokenizer).
 BUNDLE_SELECTION_INJECTION_SEPARATOR = "\n\n"
 
-#: The closed provenance line EMITTED in the final rendered block
-#: of an entry whose member origin is not fully proven (unknown
-#: mixed origin / greedy-background members): the unproven
-#: member paths in canonical sorted order.
-SELECTION_PROVENANCE_UNPROVEN_PREFIX = (
-    "provenance: unproven-member-origin boundaryless-mixed; members="
-)
+#: Historical name for the closed provenance line prefix; the
+#: constant is owned by the SHARED final compiled-entry renderer
+#: (bundle_compiler.UNPROVEN_MEMBER_PROVENANCE_PREFIX), which the
+#: selection uses for its counted final block.
+SELECTION_PROVENANCE_UNPROVEN_PREFIX = UNPROVEN_MEMBER_PROVENANCE_PREFIX
 
 MAX_REPRESENTED_PATHS = 512
 
@@ -131,60 +133,20 @@ def _derived_represented_paths(entry: RootRegionAdmissionEntry) -> tuple[str, ..
     return tuple(sorted(set(occurrences)))
 
 
-def _proven_member_positions(entry: RootRegionAdmissionEntry) -> frozenset[int]:
-    """The member-occurrence positions whose per-member origin is
-    ACTUALLY PROVEN by the retained admitted proof: the entry's
-    admitted segments (original indices into the retained
-    proof) that own EXACTLY ONE member position -- the accepted
-    segment law then forces the proven per-member digest.  A
-    boundaryless segment covering several positions proves none
-    of them (unknown mixed origin); a missing proof proves
-    nothing (the root row is lawed separately)."""
-    proof = entry.proof
-    if proof is None:
-        return frozenset()
-    proven: set[int] = set()
-    for index in entry.admitted_segments:
-        segment = proof.segments[index]
-        if len(segment.member_positions) == 1 and segment.member_digest is not None:
-            proven.add(segment.member_positions[0])
-    return frozenset(proven)
-
-
 def _derived_origin_proven(entry: RootRegionAdmissionEntry) -> bool:
     """The closed origin-attribution fact DERIVED from the actual
-    admitted segment / proof and key record: the governing root
-    row is always origin-proven; a FILE row is origin-proven
-    only when EVERY member occurrence position is covered by a
-    proven single-member admitted segment.  The accepted
-    admission (and its greedy mode) cannot be made binding by a
-    caller flag: a supplied flag that leaves this derivation is
-    refused."""
+    admitted proof and key record via the SHARED proof-derived
+    derivation (bundle_compiler.unproven_member_paths): the
+    governing root row is always origin-proven; a FILE row is
+    origin-proven only when NO member occurrence position is
+    unproven (a boundaryless segment covering several positions
+    proves none of them; a missing proof proves nothing).  The
+    accepted admission (and its greedy mode) cannot be made
+    binding by a caller flag: a supplied flag that leaves this
+    derivation is refused."""
     if entry.entry_class is EntryClass.ROOT_ENTRY:
         return True
-    proven = _proven_member_positions(entry)
-    return all(position in proven for position in range(len(entry.key_record.member_occurrences)))
-
-
-def _unproven_member_paths(entry: RootRegionAdmissionEntry) -> tuple[str, ...]:
-    """The DISTINCT member paths carrying at least one UNPROVEN
-    occurrence position (the exact paths the final rendered
-    block must expose as unknown mixed origin /
-    greedy-background provenance; empty for a fully proven or
-    root row)."""
-    if entry.entry_class is EntryClass.ROOT_ENTRY:
-        return ()
-    proven = _proven_member_positions(entry)
-    occurrences = entry.key_record.member_occurrences
-    return tuple(
-        sorted(
-            {
-                occurrences[position]
-                for position in range(len(occurrences))
-                if position not in proven
-            }
-        )
-    )
+    return not unproven_member_paths(entry)
 
 
 class SelectionReadyEntry(_GraphFrozen):
@@ -326,32 +288,23 @@ class BundleSelectionDecision(_GraphFrozen):
     selection_key: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
-def _entry_label(entry: RootRegionAdmissionEntry) -> str:
-    """The compiler's exact entry label (identity-bound to the
-    content key)."""
-    return f"entry-{entry.content_key[:16]}"
-
-
 def _final_rendered_block(ready: SelectionReadyEntry, plan: BundleBudgetPlan) -> str:
     """The ONE final rendered compiled block for selection and
-    injection: the versioned render policy over the compiled
-    body plus the deterministic candidate references -- the
-    exact text the compiler validated against the rendered
-    allowance and the budget counts.  An entry whose member
-    origin is not fully proven carries the CLOSED provenance
-    line (the unproven member paths, canonical sorted order)
-    appended to the block: the unknown mixed origin /
-    greedy-background provenance is EMITTED in the final text,
-    counted like any other injected byte, never hidden."""
-    block = plan.tokenizer.render_compiled_block(
-        entry_label=_entry_label(ready.entry),
-        body=render_compiled_index(ready.index),
-        references=tuple(ready.candidate_paths),
+    injection: the SHARED renderer (bundle_compiler
+    render_final_compiled_block) -- the versioned render policy
+    over the compiled body plus the deterministic candidate
+    references, and the proof-derived boundaryless provenance
+    line where the member origin is not fully proven (the unknown
+    mixed origin / greedy-background provenance is EMITTED in the
+    final text, counted like any other injected byte, never
+    hidden).  This is the exact text the compiler validated
+    against the rendered allowance and the budget counts."""
+    return render_final_compiled_block(
+        index=ready.index,
+        entry=ready.entry,
+        candidate_paths=ready.candidate_paths,
+        tokenizer=plan.tokenizer,
     )
-    unproven = _unproven_member_paths(ready.entry)
-    if unproven:
-        block = block + "\n" + SELECTION_PROVENANCE_UNPROVEN_PREFIX + ",".join(unproven)
-    return block
 
 
 def _binding_closure(

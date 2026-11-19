@@ -46,9 +46,15 @@ Law (objective 021 item 3 + plan policy 9):
   content keeps unknown possible origins and original data role (no
   invented governing attribution, no promotion of off-graph content);
 - the final rendered compiled block (references, metadata and
-  separators included) is counted with the REAL pinned tokenizer and
-  must fit the ACTUAL rendered allowance (width x slot); over-allowance
-  is a typed invalid result, never a truncation;
+  separators AND the proof-derived boundaryless member provenance
+  line, where the entry's member origin is not fully proven,
+  included) is counted with the REAL pinned tokenizer and must fit
+  the ACTUAL rendered allowance (width x slot); over-allowance is a
+  typed invalid result BEFORE anything is retained, never a
+  truncation; the final block is ONE shared renderer (see
+  ``render_final_compiled_block``) used by both the compiler
+  validation and the selection's counted text -- no divergent
+  rendering of the injected block;
 - no tools, no images, no recursion, no Gateway credential, no hidden
   original fallback; the credential is a protected environment
   reference, never a literal, and is never logged / reported;
@@ -446,8 +452,10 @@ def render_compiled_index(index: BundleCompiledIndex) -> str:
     """The deterministic compiled-block BODY (versioned render
     policy): the validated semantic content in a stable order, with
     the two scores kept separate and the original data role explicit.
-    The final block is ``tokenizer.render_compiled_block`` over this
-    body plus the candidate references.  Empty sections are omitted
+    The final block is ``render_final_compiled_block`` over this
+    body: the versioned wrapper plus the candidate references and,
+    where the entry's proof-derived member origin is not fully
+    proven, the closed provenance line.  Empty sections are omitted
     entirely: the exact empty source renders the bare identity header
     and the empty ``Rules:`` section -- truthful, no invented
     content."""
@@ -485,6 +493,82 @@ def render_compiled_index(index: BundleCompiledIndex) -> str:
     if index.reread_triggers:
         lines.append("Reread triggers: " + "; ".join(index.reread_triggers))
     return "\n".join(lines)
+
+
+#: The closed provenance line EMITTED in the final rendered block of
+#: an entry whose member origin is not fully proven (unknown mixed
+#: origin / greedy-background members): the unproven member paths in
+#: canonical sorted order.  Owned by the SHARED final compiled-entry
+#: renderer: the compiler validates the final text (provenance
+#: included) against the actual rendered allowance, and the
+#: selection counts the SAME shared text -- one renderer, no
+#: divergent block.
+UNPROVEN_MEMBER_PROVENANCE_PREFIX = (
+    "provenance: unproven-member-origin boundaryless-mixed; members="
+)
+
+
+def unproven_member_paths(entry: RootRegionAdmissionEntry) -> tuple[str, ...]:
+    """The proof-derived unproven-member provenance (shared law).
+
+    The DISTINCT member paths carrying at least one UNPROVEN
+    occurrence position: the entry's admitted segments (original
+    indices into the retained proof) that own EXACTLY ONE member
+    position with a proven per-member digest prove that position;
+    a boundaryless segment covering several positions proves none
+    of them (unknown mixed origin); a missing proof proves nothing.
+    The governing ROOT row is always fully proven (empty).  This
+    derivation is the single source for the closed provenance line
+    the final rendered block emits."""
+    if entry.entry_class is EntryClass.ROOT_ENTRY:
+        return ()
+    proof = entry.proof
+    proven: set[int] = set()
+    if isinstance(proof, BundleProof):
+        for index in entry.admitted_segments:
+            segment = proof.segments[index]
+            if len(segment.member_positions) == 1 and segment.member_digest is not None:
+                proven.add(segment.member_positions[0])
+    occurrences = entry.key_record.member_occurrences
+    return tuple(
+        sorted(
+            {
+                occurrences[position]
+                for position in range(len(occurrences))
+                if position not in proven
+            }
+        )
+    )
+
+
+def render_final_compiled_block(
+    *,
+    index: BundleCompiledIndex,
+    entry: RootRegionAdmissionEntry,
+    candidate_paths: tuple[str, ...],
+    tokenizer: BundleTokenizer,
+) -> str:
+    """The ONE final rendered compiled block (the shared counted
+    text, compile and selection alike).
+
+    The versioned render policy over the compiled body plus the
+    deterministic candidate references -- and, for an entry whose
+    proof-derived member origin is not fully proven, the CLOSED
+    provenance line (the unproven member paths, canonical sorted
+    order) appended to the block.  This exact text is what the
+    compiler validates against the ACTUAL rendered allowance
+    (width x slot) BEFORE anything may become an entry, and what
+    the selection / budget counts against the per-entry allowance
+    and the aggregate limit."""
+    block = tokenizer.render_compiled_block(
+        entry_label=f"entry-{entry.content_key[:16]}",
+        body=render_compiled_index(index),
+        references=candidate_paths,
+    )
+    unproven = unproven_member_paths(entry)
+    if unproven:
+        block = block + "\n" + UNPROVEN_MEMBER_PROVENANCE_PREFIX + ",".join(unproven)
+    return block
 
 
 def serialize_compiled_index(index: BundleCompiledIndex) -> bytes:
@@ -657,6 +741,7 @@ class BundleCompilerResult(_GraphFrozen):
 class _EntryDemand:
     """The validated, content-bound inputs of ONE compile demand."""
 
+    entry: RootRegionAdmissionEntry
     entry_class: EntryClass
     content_key: str
     source_bytes: bytes
@@ -672,6 +757,7 @@ class _EntryDemand:
     attribution_ambiguous: bool
 
     __slots__ = (
+        "entry",
         "entry_class",
         "content_key",
         "source_bytes",
@@ -798,6 +884,7 @@ class BundleCompiler:
                     break
         entry_label = f"entry-{entry.content_key[:16]}"
         return _EntryDemand(
+            entry=entry,
             entry_class=entry.entry_class,
             content_key=entry.content_key,
             source_bytes=source_bytes,
@@ -912,13 +999,16 @@ class BundleCompiler:
                     return BundleCompilerOutcome.ATTRIBUTION_INVALID
                 if _mentions_path(location, root_path) and not root_owned:
                     return BundleCompilerOutcome.ATTRIBUTION_INVALID
-        # The final rendered block (references, metadata and
-        # separators included) against the ACTUAL rendered allowance:
-        # over-allowance is typed, never truncated.
-        block = tokenizer.render_compiled_block(
-            entry_label=demand.entry_label,
-            body=render_compiled_index(index),
-            references=demand.candidate_paths,
+        # The ONE final rendered block (references, metadata,
+        # separators AND the proof-derived boundaryless member
+        # provenance included) against the ACTUAL rendered
+        # allowance: over-allowance is typed BEFORE anything is
+        # retained, never truncated.
+        block = render_final_compiled_block(
+            index=index,
+            entry=demand.entry,
+            candidate_paths=demand.candidate_paths,
+            tokenizer=tokenizer,
         )
         if tokenizer.count_tokens(block) > demand.rendered_allowance:
             return BundleCompilerOutcome.OVER_ALLOWANCE
