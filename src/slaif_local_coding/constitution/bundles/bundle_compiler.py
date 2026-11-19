@@ -160,12 +160,14 @@ class BundleCompiledIndex(_GraphFrozen):
 
     Truthful empty-source law: the EXACT empty root (and the exact
     empty admitted file region) is legal and compiles to the empty
-    index -- zero rules, scopes, authorities, boundaries, triggers
-    and dependencies and an empty summary.  An empty source can
-    carry no compiled content, so any claim on it is invention and
-    is refused; a non-empty source must compile at least one rule,
-    scope, authority, source-of-truth boundary and reread trigger,
-    so a silent wipe of governing content is refused the same way.
+    index -- zero rules, scopes, authorities, source-of-truth
+    boundaries, ordering constraints, exceptions, conflicts,
+    reread triggers and dependencies and an empty summary.  An
+    empty source can carry no compiled content, so any claim on it
+    (in ANY content field) is invention and is refused; a
+    non-empty source must compile at least one rule, scope,
+    authority, source-of-truth boundary and reread trigger, so a
+    silent wipe of governing content is refused the same way.
     """
 
     schema_version: str
@@ -197,7 +199,11 @@ class BundleCompiledIndex(_GraphFrozen):
                 or self.scopes
                 or self.authorities
                 or self.source_of_truth_boundaries
+                or self.ordering_constraints
+                or self.exceptions
+                or self.conflicts
                 or self.dependencies
+                or self.reread_triggers
                 or self.summary
             )
             if invented:

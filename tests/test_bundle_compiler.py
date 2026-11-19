@@ -861,3 +861,117 @@ async def test_output_validation_battery(
     )
     assert result.outcome is BundleCompilerOutcome.OVER_ALLOWANCE
     assert result.index is None
+
+
+# -- focused regression: the empty-source truthfulness fence over
+# the ACTUAL fake-upstream channel ------------------------------
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+async def test_empty_source_truthfulness_fence(
+    mode: AdmissionMode, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The EXACT zero-byte root compiles to the EMPTY index, and
+    ANY invented content -- including ordering constraints,
+    exceptions, conflicts and reread triggers -- is typed
+    SCHEMA_INVALID over the real channel (one attempt, no index,
+    never an entry).  The closed model itself refuses to construct
+    such an index, so the invented payloads are built by mutating
+    the dumped dict of a valid empty payload WITHOUT schema
+    revalidation, matching the closed-schema test law."""
+    ns_empty, s_empty = r_bootstrap(
+        mode,
+        f"compiler021-empty-fence-{mode.value}-{endpoint}",
+        root_body="",
+    )
+    t_empty = derive_root_region_admission(s_empty, ns_empty)
+    assert t_empty.outcome is RootRegionAdmissionOutcome.READY, t_empty.diagnostics
+    assert t_empty.admission is not None
+    empty_root_entry = t_empty.admission.root_entry
+    monkeypatch.setenv(COMPILER_KEY_ENV, COMPILER_KEY_VALUE)
+    config = _config()
+    tokenizer = get_bundle_tokenizer()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=262_144))
+    base: dict[str, Any] = dict(
+        entry=empty_root_entry, candidates=(), tokenizer=tokenizer, plan=plan
+    )
+
+    def responder_for(payload: bytes) -> Callable[[httpx.Request, list[Any]], httpx.Response]:
+        return lambda request, _seen: httpx.Response(200, content=payload)
+
+    def _empty_payload_fields() -> dict[str, Any]:
+        valid = _valid_payload(
+            entry=empty_root_entry,
+            candidates=(),
+            config=config,
+            tokenizer=tokenizer,
+            plan=plan,
+        )
+        fields: dict[str, Any] = json.loads(
+            json.loads(valid.decode("utf-8"))["choices"][0]["message"]["content"]
+        )
+        return fields
+
+    # The truthful empty source compiles to the EMPTY index:
+    result, captured = await _compile_once(
+        config=config,
+        responder=responder_for(
+            _completion_bytes(json.dumps(_empty_payload_fields(), separators=(",", ":")))
+        ),
+        **base,
+    )
+    assert result.outcome is BundleCompilerOutcome.COMPLETED
+    assert result.attempts == 1 and len(captured) == 1
+    assert result.index is not None
+    assert result.index.source_byte_length == 0
+    assert not (
+        result.index.summary
+        or result.index.rules
+        or result.index.scopes
+        or result.index.authorities
+        or result.index.source_of_truth_boundaries
+        or result.index.ordering_constraints
+        or result.index.exceptions
+        or result.index.conflicts
+        or result.index.dependencies
+        or result.index.reread_triggers
+    )
+    # The rendered block is the bare identity header + empty Rules:
+    assert render_compiled_index(result.index) == (
+        f"[{BUNDLE_COMPILER_SCHEMA_VERSION} {BUNDLE_COMPILER_VERSION} "
+        f"entry={result.index.entry_class.value} "
+        f"source_sha256={result.index.source_sha256}]\nRules:"
+    )
+
+    # ANY invented content field on the empty source is refused:
+    for field in ("ordering_constraints", "exceptions", "conflicts", "reread_triggers"):
+        fields = _empty_payload_fields()
+        fields[field] = ["invented for the empty source"]
+        invented = _completion_bytes(json.dumps(fields, separators=(",", ":")))
+        result, captured = await _compile_once(
+            config=config,
+            responder=responder_for(invented),
+            **base,
+        )
+        assert result.outcome is BundleCompilerOutcome.SCHEMA_INVALID
+        assert result.attempts == 1 and result.index is None
+        assert len(captured) == 1
+
+    # The closed model itself refuses to construct an invented
+    # empty-source index (no channel involved):
+    for field in ("ordering_constraints", "exceptions", "conflicts", "reread_triggers"):
+        payload: dict[str, Any] = {
+            "schema_version": BUNDLE_COMPILER_SCHEMA_VERSION,
+            "compiler_version": BUNDLE_COMPILER_VERSION,
+            "prompt_policy_version": BUNDLE_COMPILER_PROMPT_POLICY_VERSION,
+            "model": COMPILER_MODEL,
+            "entry_class": empty_root_entry.entry_class.value,
+            "content_key": "0" * 64,
+            "compile_key": "0" * 64,
+            "source_sha256": "0" * 64,
+            "source_byte_length": 0,
+            field: ["invented"],
+        }
+        with pytest.raises(ValueError, match="no truthful compiled content"):
+            BundleCompiledIndex.model_validate(payload)
