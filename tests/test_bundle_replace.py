@@ -41,6 +41,10 @@ from typing import Any
 
 import pytest
 
+from slaif_local_coding.constitution.bundles.bundle_budget import (
+    BundleBudgetConfig,
+    BundleBudgetPlan,
+)
 from slaif_local_coding.constitution.bundles.bundle_replace import (
     CarrierDetail,
     CarrierSlot,
@@ -50,6 +54,7 @@ from slaif_local_coding.constitution.bundles.bundle_replace import (
     SpanFacts,
     _ReplaceRefusal,
     _scan_replayed_markers,
+    _verify_call_binding,
     check_carrier_span,
     derive_evidence_tag,
     derive_live_tag,
@@ -59,11 +64,24 @@ from slaif_local_coding.constitution.bundles.bundle_replace import (
     lookup_tool_result_carrier,
     make_evidence_marker,
     make_live_marker,
+    replace_sources,
     verify_marker,
 )
 from slaif_local_coding.constitution.bundles.bundle_replace_models import (
     MarkerKind,
     MarkerRecord,
+    PreparedGenerationProof,
+    ReplacementOutcome,
+)
+from slaif_local_coding.constitution.bundles.bundle_selection import (
+    SelectionOutcome,
+    select_working_set,
+)
+from slaif_local_coding.constitution.bundles.bundle_tokenizer import (
+    get_bundle_tokenizer,
+)
+from slaif_local_coding.constitution.bundles.causal_history_models import (
+    HistoryBounds,
 )
 from slaif_local_coding.constitution.bundles.observation_models import (
     OccurrenceKind,
@@ -72,6 +90,47 @@ from slaif_local_coding.constitution.bundles.observation_models import (
     RootStatus,
 )
 from slaif_local_coding.constitution.bundles.observe import observe_request
+from slaif_local_coding.constitution.bundles.ram_state_models import (
+    RamStateSnapshot,
+)
+from slaif_local_coding.constitution.bundles.recovery_store import (
+    RecoveryPointer,
+    RecoveryPublishResult,
+    RecoveryStoreLimitation,
+)
+from slaif_local_coding.constitution.bundles.root_region_admission_models import (
+    AdmissionMode,
+)
+from tests.test_bundle_compiler import (
+    A_BODY,
+    _config,
+)
+from tests.test_bundle_selection import (
+    B_BODY,
+    ROOT_REQUIRED,
+    _dep,
+    _entry_for,
+    _file_index,
+    _ready,
+    _represented,
+    _root_index,
+    _states,
+)
+from tests.test_causal_history import (
+    exec_call as _ch_exec_call,
+)
+from tests.test_causal_history import (
+    frame as _ch_frame,
+)
+from tests.test_causal_history import (
+    out_item as _ch_out_item,
+)
+from tests.test_causal_history import (
+    root_item as _ch_root_item,
+)
+from tests.test_causal_history import (
+    sha256_hex,
+)
 
 _CTX = PathContext(workspace="/work")
 
@@ -855,6 +914,62 @@ class TestCallIdentityLookup:
         assert payload == snapshot
 
 
+# --- The ACTUAL original tool identity join -----------------------------
+#
+# The call ID alone is not identity: the retained D result record
+# binds each piece's actual producing call by tool name and the SAME
+# canonical argument fingerprint, so a reused call ID under a
+# different command is refused, never edited.
+#
+class TestCallArgumentBinding:
+    """The original tool identity evidence (carrier layer).
+
+    The records are the ACTUAL retained P/D result records of the
+    saved transaction fixture (chunk 1d), never hand-constructed: the
+    positive binds the actual c2 call to its actual record, and the
+    same-ID negative mutates ONLY c2's current command (its output
+    stays identical) and must refuse."""
+
+    @staticmethod
+    def _fixture() -> tuple[dict[str, Any], dict[str, Any], HistoryBounds]:
+        rec = _transaction_records()
+        snapshot = rec["snapshot"]
+        results_by_call = {record.call_id: record for record in snapshot.state.d_state.results}
+        assert set(results_by_call) == {"c1", "c2"}
+        return (
+            _transaction_payload(),
+            results_by_call,
+            snapshot.namespace.history_bounds,
+        )
+
+    def test_actual_current_call_binds(self) -> None:
+        payload, results_by_call, bounds = self._fixture()
+        identity = lookup_call_identity(payload, "responses", "$.input[3]", expected_call_id="c2")
+        _verify_call_binding(identity, "c2", 0, results_by_call, bounds)
+
+    def test_same_id_different_command_refuses(self) -> None:
+        payload, results_by_call, bounds = self._fixture()
+        # Mutate ONLY c2's current command; its output stays identical.
+        payload["input"][3]["arguments"] = '{"cmd": "cat A.md"}'
+        identity = lookup_call_identity(payload, "responses", "$.input[3]", expected_call_id="c2")
+        assert (
+            _refused_detail(_verify_call_binding, identity, "c2", 0, results_by_call, bounds)
+            is CarrierDetail.IDENTITY_MISMATCH
+        )
+
+    def test_missing_retained_record_is_detached(self) -> None:
+        payload = base_payload()
+        identity = lookup_call_identity(
+            payload, "responses", "$.input[1]", expected_call_id="synthetic-read-1"
+        )
+        assert (
+            _refused_detail(
+                _verify_call_binding, identity, "synthetic-read-1", 0, {}, HistoryBounds()
+            )
+            is CarrierDetail.RETAINED_RECORD_MALFORMED
+        )
+
+
 # --- Saved chunk 1c: the closed replay scan gate -------------------------
 #
 # The transaction-level closed gate (``_scan_replayed_markers``):
@@ -1147,3 +1262,167 @@ class TestReplayedMarkerScan:
             _mk_binding(span, frozenset({"live"})),
         )
         assert replayed == {}
+
+
+# ---------------------------------------------------------------------------
+# Transaction-level replay through the ACTUAL entry point (objective 022-b,
+# saved chunk 1e): the real replace_sources over ACTUAL 017/018/019/021
+# records.  The smoke fixture is the rooted bootstrap plus the genuinely
+# issued proven segmented [A,B] read (one result carrier, two proven
+# splices) and the C singleton read, lean-admitted; the original payload is
+# replaced and the transformed output is replayed through the SAME entry
+# point.  Omission and supersession variants follow in later saved chunks.
+# ---------------------------------------------------------------------------
+
+C_BODY = "Background notes for the later turn.\n"
+REPLAY_CMD = "cat A.md && echo 'REPLAYSEP' && cat B.md"
+REPLAY_BODY = A_BODY + "REPLAYSEP\n" + B_BODY
+TRANSACTION_BUDGET = 12288
+
+
+def _transaction_records() -> dict[str, Any]:
+    """The ACTUAL P/T fixture and its prepared transaction inputs
+    (snapshot, durable-generation proof, ready entries, selection)."""
+    ns, state, t = _states(
+        ROOT_REQUIRED,
+        (("c1", REPLAY_BODY, REPLAY_CMD), ("c2", C_BODY, "cat C.md")),
+        AdmissionMode.LEAN,
+        "responses",
+        "replace022b-transaction",
+    )
+    root_entry = t.admission.root_entry
+    bundle = next(e for e in t.admission.entries if set(_represented(t, e)) == {"A.md", "B.md"})
+    entry_c = _entry_for(t, "C.md")
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (
+            _dep("A.md", "P1", 90, "immediate"),
+            _dep("B.md", "P2", 50, "next_turn"),
+            _dep("C.md", "P2", 30, "background"),
+        ),
+    )
+    index_bundle = _file_index(
+        bundle,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="bundle-procedure",
+        statement="Follow the retained bundle procedure.",
+        location="",
+    )
+    index_c = _file_index(
+        entry_c,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="background-notes",
+        statement="Background notes for the later turn.",
+        location="C.md",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns, state=state, result=t, revision=state.revision, epoch=1, owned_bytes=0
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("A.md", "B.md", "C.md"))
+    ready_bundle = _ready(t, bundle, index_bundle, (), origin_proven=True)
+    ready_c = _ready(t, entry_c, index_c, ())
+    decision = select_working_set(ready_root, (ready_bundle, ready_c), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    return {
+        "snapshot": snapshot,
+        "proof": proof,
+        "ready": (ready_root, ready_bundle, ready_c),
+        "decision": decision,
+    }
+
+
+def _transaction_payload() -> dict[str, Any]:
+    """One decoded Responses request: the automatic root envelope plus the
+    two complete read pairs (the proven segmented [A,B] bundle and the C
+    singleton), exactly as the P/T fixture observed them."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(ROOT_REQUIRED),
+            _ch_exec_call("c1", REPLAY_CMD),
+            _ch_out_item("c1", _ch_frame(REPLAY_BODY)),
+            _ch_exec_call("c2", "cat C.md"),
+            _ch_out_item("c2", _ch_frame(C_BODY)),
+        ],
+    }
+
+
+class TestTransactionReplay:
+    """The ACTUAL replace_sources entry point over the smoke fixture:
+    replace the original payload, then replay the transformed output."""
+
+    def test_replace_then_replay_idempotent(self) -> None:
+        rec = _transaction_records()
+        payload1 = _transaction_payload()
+        frozen = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        assert payload1 == frozen
+        # The original payload earns exactly four LIVE edits: the root
+        # envelope content span, the two proven [A,B] splices and the C
+        # singleton span.
+        assert len(result1.edits) == 4
+        assert all(e.kind is MarkerKind.LIVE_REFERENCE for e in result1.edits)
+        assert result1.edits_planned == 4
+        assert result1.edits_committed == 4
+        assert result1.markers_emitted == 4
+        assert result1.markers_replayed == 0
+        # The replay round: the transformed output is re-observed and
+        # re-joined through the SAME entry point; every marker replays at
+        # its current carrier coordinates (the earlier splice shifted the
+        # later one), no edit is planned, and the payload is fixed.
+        payload2 = result1.transformed_payload
+        obs2 = observe_request(payload2, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            payload2,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == payload2
+        assert result2.edits_planned == 0
+        assert result2.edits_committed == 0
+        assert result2.markers_replayed == 4

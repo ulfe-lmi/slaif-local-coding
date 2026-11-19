@@ -72,7 +72,13 @@ from enum import StrEnum
 from typing import Any
 
 from .bundle_admission_models import EntryClass
-from .bundle_proof_models import BundlePiece, BundleProof, BundleSurface
+from .bundle_proof_models import (
+    BundlePiece,
+    BundleProof,
+    BundleProofKind,
+    BundleSegment,
+    BundleSurface,
+)
 from .bundle_replace_models import (
     EVIDENCE_MARKER_DOMAIN,
     EVIDENCE_MARKER_TAG,
@@ -93,8 +99,16 @@ from .bundle_selection import (
     SelectionOutcome,
     SelectionReadyEntry,
 )
+from .causal_history import _collect, _RootLineageContext
+from .causal_history_models import (
+    CausalHistoryOutcome,
+    HistoryBounds,
+    ResultFingerprintRecord,
+    canonicalize_tool_arguments,
+)
 from .current_admission_models import CurrentAdmissionWitness
 from .currentness_models import CurrentnessOverlay, CurrentnessReason
+from .graph_observation import GraphRequest
 from .observation_models import (
     PRIVATE_ID_PLACEHOLDER,
     CharSpan,
@@ -110,11 +124,13 @@ from .observation_models import (
 from .observe import ENDPOINT_CHAT, ENDPOINT_RESPONSES
 from .ram_state_models import RamStateSnapshot
 from .recovery_store import RecoveryStoreLimitation
+from .root_lineage import _HOuter
 from .root_lineage_models import RootSelectionOutcome
 from .root_region_currentness_models import (
     RootRegionCurrentnessOutcome,
     RootRegionCurrentnessResult,
 )
+from .root_region_lineage import _region_d_namespace
 
 
 def _durable_guard(
@@ -737,8 +753,10 @@ class CarrierDetail(StrEnum):
     #: valid string ID sits at that structural position.
     CALL_NOT_FOUND = "call_not_found"
     #: The closed call spelling resolves to a valid call record, but
-    #: its ID leaves the ORIGINAL retained call identity (the observed
-    #: association and the actual payload disagree).
+    #: its ID, tool name or canonical argument fingerprint leaves the
+    #: ORIGINAL retained call identity (the observed association and
+    #: the actual payload disagree — a reused ID under a different
+    #: command or tool is a mismatch, never an edit).
     IDENTITY_MISMATCH = "identity_mismatch"
     #: The location is a closed spelling of the OTHER endpoint domain
     #: (a ``$.input`` coordinate under a Chat selection or a
@@ -1003,7 +1021,7 @@ def join_root_occurrence(
     payload: dict[str, Any],
     occurrence: RootOccurrence,
     *,
-    expected_digest: str,
+    expected_digest: str | None = None,
     expected_char_length: int | None = None,
     expected_byte_length: int | None = None,
     max_text_chars: int,
@@ -1018,7 +1036,10 @@ def join_root_occurrence(
     envelope law).  ``expected_digest`` is the ORIGINAL retained root
     source digest the join must prove; ``expected_char_length`` /
     ``expected_byte_length`` are the original retained exact
-    character/UTF-8-byte lengths (checked when supplied).  The join is
+    character/UTF-8-byte lengths (checked when supplied).  An omitted
+    ``expected_digest`` proves carrier shape and span bounds only — the
+    transformed re-join, where the raw bytes left the original and the
+    replay scan decides by tag.  The join is
     read-only and returns ``(carrier, span facts)``; a carrier shape
     failure, a span out of bounds or a length/digest mismatch refuses
     with the fixed detail (the observed coordinates or the span leave
@@ -1176,14 +1197,19 @@ class CallIdentity:
 
     ``call_id`` is the exact observed ID (private association data:
     repr-suppressed); ``wire_family`` is the closed schema family that
-    earned the record (observable).  The identity is a join key for the
-    ORIGINAL tool call/result association, never a text carrier and
-    never source authority by itself."""
+    earned the record (observable); ``tool_name`` / ``arguments`` are
+    the closed schema function identity of the record (private
+    association data: repr-suppressed; ``None`` exactly when the
+    closed wire shape carries no function arguments).  The identity is
+    a join key for the ORIGINAL tool call/result association, never a
+    text carrier and never source authority by itself."""
 
     endpoint: str
     location: str
     wire_family: str
     call_id: str = dataclass_field(repr=False)
+    tool_name: str | None = dataclass_field(default=None, repr=False)
+    arguments: str | None = dataclass_field(default=None, repr=False)
 
     def __repr__(self) -> str:
         return (
@@ -1251,11 +1277,19 @@ def lookup_call_identity(
             call_id.encode("utf-8"), expected_call_id.encode("utf-8")
         ):
             raise _refuse(CarrierDetail.IDENTITY_MISMATCH)
+        name = item.get("name") if wire_family == "function_call" else None
+        arguments = item.get("arguments") if wire_family == "function_call" else None
+        if not isinstance(name, str):
+            name = None
+        if not isinstance(arguments, str):
+            arguments = None
         return CallIdentity(
             endpoint=ENDPOINT_RESPONSES,
             location=location,
             wire_family=wire_family,
             call_id=call_id,
+            tool_name=name,
+            arguments=arguments,
         )
     # endpoint is ENDPOINT_CHAT
     m = _CHAT_TOOLCALL_RE.match(location)
@@ -1286,12 +1320,66 @@ def lookup_call_identity(
         call_id.encode("utf-8"), expected_call_id.encode("utf-8")
     ):
         raise _refuse(CarrierDetail.IDENTITY_MISMATCH)
+    function = tool.get("function")
+    name = function.get("name") if isinstance(function, dict) else None
+    arguments = function.get("arguments") if isinstance(function, dict) else None
+    if not isinstance(name, str):
+        name = None
+    if not isinstance(arguments, str):
+        arguments = None
     return CallIdentity(
         endpoint=ENDPOINT_CHAT,
         location=location,
         wire_family="function",
         call_id=call_id,
+        tool_name=name,
+        arguments=arguments,
     )
+
+
+def _verify_call_binding(
+    identity: CallIdentity,
+    proof_call_id: str,
+    piece_index: int,
+    results_by_call: dict[str, ResultFingerprintRecord],
+    history_bounds: HistoryBounds,
+) -> None:
+    """The ACTUAL original tool identity of ONE piece's current call.
+
+    The call ID alone is not identity: the retained D result record
+    binds the piece's ACTUAL producing call (the read's own call, the
+    exec call for the initial process piece, the causally associated
+    poll for a poll piece) by tool name and the SAME canonical
+    argument fingerprint (the accepted recipe over the observed
+    arguments under the retained D scope's argument bounds).  A
+    current call that reuses the ID under a different command or tool
+    is refused IDENTITY_MISMATCH all-or-nothing.  A missing retained
+    record or a missing per-piece binding is a detached retained
+    record (RETAINED_RECORD_MALFORMED)."""
+    record = results_by_call.get(proof_call_id)
+    if record is None or piece_index >= len(record.piece_call_bindings):
+        raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+    _bound_call_id, _bound_endpoint, tool_name, arg_fp = record.piece_call_bindings[piece_index]
+    if identity.tool_name is None or not hmac.compare_digest(
+        identity.tool_name.encode("utf-8"), tool_name.encode("utf-8")
+    ):
+        raise _refuse(CarrierDetail.IDENTITY_MISMATCH)
+    if identity.arguments is None:
+        raise _refuse(CarrierDetail.IDENTITY_MISMATCH)
+    fingerprint = canonicalize_tool_arguments(
+        identity.tool_name,
+        identity.arguments,
+        max_argument_bytes=history_bounds.max_argument_bytes,
+        max_total_argument_bytes=history_bounds.max_total_argument_bytes,
+        max_argument_nodes=history_bounds.max_argument_nodes,
+        max_argument_depth=history_bounds.max_argument_depth,
+        charge_total=lambda _bytes: True,
+        work=lambda: True,
+    )
+    if fingerprint.fingerprint is None or not hmac.compare_digest(
+        fingerprint.fingerprint.encode("ascii"), arg_fp.encode("ascii")
+    ):
+        raise _refuse(CarrierDetail.IDENTITY_MISMATCH)
 
 
 # ---------------------------------------------------------------------------
@@ -1399,26 +1487,86 @@ def _current_read_index(observation: ObservationReport) -> _CurrentReadIndex:
     )
 
 
+def _current_bridge_proofs(
+    payload: dict[str, Any],
+    observation: ObservationReport,
+    snapshot: RamStateSnapshot,
+) -> dict[str, BundleProof]:
+    """The ACTUAL current 018-b bundle-proof bridge over THIS payload.
+
+    Reuses the accepted current-carrier proof core through the
+    causal-history collection seam: one bounded 017 observation plus
+    the shared 018-b proof pass under the ACTUAL retained D scope,
+    bound to the SAME retained immutable root anchor (a transformed
+    envelope or a rootless payload rebinds to the anchor; the anchor
+    is never fabricated and the payload is never altered).  Every
+    D-local bound of the retained scope stays binding on the SAME
+    shared outer (the retained H ``max_total_work_units``); an
+    over-bound crossing (H-outer exhaustion or a D-local bound
+    crossing) refuses the typed OVER_BOUND fail closed BEFORE any
+    unbounded work, while any other collection or proof refusal
+    fails closed to an empty bridge (the affected pieces earn zero
+    edits, never a refusal)."""
+    d_state = snapshot.state.d_state
+    anchor = d_state.root
+    if anchor is None:
+        return {}
+    d_ns = _region_d_namespace(snapshot.namespace)
+    known_root_digests = frozenset(
+        {anchor.root_digest} | {fact.source_digest for fact in snapshot.state.root_facts}
+    )
+    outer = _HOuter(snapshot.namespace.root_lineage_bounds.max_total_work_units)
+    context = _RootLineageContext(
+        known_root_digests=known_root_digests,
+        relaxed_envelope_law=True,
+        root_read_acquisition=True,
+        outer_charge=outer.unit,
+    )
+    request = GraphRequest(payload=payload, endpoint=observation.endpoint, context=None)
+    facts, refusal = _collect((request,), d_ns, d_state, context=context)
+    if facts is None:
+        if refusal is not None and refusal.outcome is CausalHistoryOutcome.REFUSED_OVER_BOUND:
+            raise _refuse(CarrierDetail.OVER_BOUND)
+        return {}
+    return {bundle.call_id: bundle for bundle in facts.bundles}
+
+
 def _current_piece_carriers(
     proof: BundleProof,
     piece: BundlePiece,
     index: _CurrentReadIndex,
+    bridge_by_call: dict[str, BundleProof],
 ) -> tuple[str, str] | None:
     """The ACTUAL current call/result carrier locations of ONE
     retained piece, re-joined through the CURRENT accepted 017
     observation bound to the SAME original call ID.
 
     A raw tool edit joins a current accepted 017 observation: a read
-    (``outcome`` COMPLETE, the same endpoint domain) for a read-surface
-    piece, or a process chain (``outcome`` COMPLETE, the same endpoint
-    domain; the initial piece via the exec call, a poll piece via its
-    own poll call) for a process-surface piece.  Returns the current
-    ``(call_location, result_location)`` or ``None`` when no accepted
-    current observation earns the piece (absent from the payload,
-    re-sent in the other endpoint domain, or a nonzero / truncated /
-    partial / unsupported current wrapper): retained proof and
-    matching bytes alone never earn deletion."""
+    (``outcome`` COMPLETE, the same endpoint domain) for a whole
+    read-surface piece, a PARTITIONED read-surface piece through the
+    ACTUAL current 018-b bundle-proof bridge proof for the same
+    original call ID (the bare current 017 read never proves an inner
+    compound boundary; the bridge must agree on the endpoint and the
+    command digest), or a process chain (``outcome`` COMPLETE, the
+    same endpoint domain; the initial piece via the exec call, a poll
+    piece via its own poll call) for a process-surface piece.
+    Returns the current ``(call_location, result_location)`` or
+    ``None`` when no accepted current observation or bridge proof
+    earns the piece (absent from the payload, re-sent in the other
+    endpoint domain, or a nonzero / truncated / partial / unsupported
+    current wrapper): retained proof and matching bytes alone never
+    earn deletion."""
     if proof.surface is BundleSurface.READ:
+        if proof.kind is BundleProofKind.PARTITIONED:
+            bridge = bridge_by_call.get(piece.call_id)
+            if (
+                bridge is None
+                or bridge.kind is not BundleProofKind.PARTITIONED
+                or bridge.endpoint != proof.endpoint
+                or bridge.command_digest != proof.command_digest
+            ):
+                return None
+            return bridge.call_location, bridge.result_location
         read = index.reads_by_call.get(piece.call_id)
         if read is None or read.endpoint != proof.endpoint:
             return None
@@ -1435,6 +1583,42 @@ def _current_piece_carriers(
     for poll in process.polls:
         if poll.poll_call_id == piece.call_id:
             return poll.poll_call_location, poll.result_location
+    return None
+
+
+def _current_piece_subspan(
+    proof: BundleProof,
+    piece: BundlePiece,
+    piece_index: int,
+    segment: BundleSegment,
+    index: _CurrentReadIndex,
+    bridge_by_call: dict[str, BundleProof],
+) -> CharSpan | None:
+    """The ACTUAL current in-carrier sub-span of ONE retained
+    piece/segment (the join's current coordinates).
+
+    The process surface keeps the retained sub-span (separate piece
+    carriers; no intra-carrier shift).  A whole read maps to the
+    current accepted read's own content span; a partitioned read maps
+    to the current 018-b bridge segment (the same segment index and
+    member positions) per-piece span.  ``None`` means no current
+    coverage: the piece leaves the segment unproven (the zero-edit
+    law is unchanged)."""
+    if proof.surface is not BundleSurface.READ:
+        return segment.piece_spans[piece_index]
+    if proof.kind is BundleProofKind.WHOLE:
+        read = index.reads_by_call.get(piece.call_id)
+        if read is None:
+            return None
+        return read.content_span
+    bridge = bridge_by_call.get(piece.call_id)
+    if bridge is None:
+        return None
+    for current in bridge.segments:
+        if current.index == segment.index and current.member_positions == segment.member_positions:
+            if piece_index >= len(current.piece_spans):
+                return None
+            return current.piece_spans[piece_index]
     return None
 
 
@@ -1495,6 +1679,9 @@ def _join_file_witness(
     occurrence_identity: str,
     root_digest: str | None,
     index: _CurrentReadIndex,
+    bridge_by_call: dict[str, BundleProof],
+    results_by_call: dict[str, ResultFingerprintRecord],
+    history_bounds: HistoryBounds,
 ) -> tuple[RetainedSpan, ...]:
     """Join ONE retained witness of ONE entry through ITS OWN owner
     proof.
@@ -1524,7 +1711,15 @@ def _join_file_witness(
      piece with no accepted current observation (absent, cross-domain,
      or a nonzero / truncated / partial / unsupported current wrapper)
      earns zero edits for its spans — retained proof and matching
-     bytes alone never earn deletion."""
+     bytes alone never earn deletion.  A PARTITIONED read-surface
+     piece re-joins instead through the ACTUAL current 018-b
+     bundle-proof bridge (the bare current 017 read never proves an
+     inner compound boundary).  Every piece's current call is also
+     re-verified as the ACTUAL original tool identity: the retained D
+     result record's per-piece producing-call binding (tool name plus
+     canonical argument fingerprint) must equal the current call's
+     (a reused call ID under a different command is refused
+     IDENTITY_MISMATCH, never an edit)."""
     if (
         proof.request_index != witness.request_index
         or proof.call_position != witness.call_position
@@ -1548,7 +1743,7 @@ def _join_file_witness(
             if piece_index >= len(proof.pieces):
                 raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
             piece = proof.pieces[piece_index]
-            carriers = _current_piece_carriers(proof, piece, index)
+            carriers = _current_piece_carriers(proof, piece, index, bridge_by_call)
             if carriers is None:
                 # No ACCEPTED current 017 observation earns this
                 # piece: zero edits for the span, no refusal (a
@@ -1571,7 +1766,7 @@ def _join_file_witness(
                 raise
             _verify_result_call_id(payload, proof.endpoint, result_location, piece.call_id)
             try:
-                lookup_call_identity(
+                identity = lookup_call_identity(
                     payload,
                     proof.endpoint,
                     call_location,
@@ -1582,7 +1777,16 @@ def _join_file_witness(
                     complete = False
                     continue
                 raise
-            resolved.append((piece, sub, slot.text, result_location))
+            _verify_call_binding(
+                identity, proof.call_id, piece_index, results_by_call, history_bounds
+            )
+            cur = _current_piece_subspan(proof, piece, piece_index, segment, index, bridge_by_call)
+            if cur is None:
+                # No CURRENT coverage of this piece in the segment:
+                # the segment stays unproven (zero-edit law below).
+                complete = False
+                continue
+            resolved.append((piece, cur, slot.text, result_location))
         if not resolved:
             if overlapping == 0:
                 # A segment that overlaps NO carrier piece at all is a
@@ -1599,7 +1803,7 @@ def _join_file_witness(
         bytes_mismatch = False
         if complete:
             joined_text = "".join(
-                text[sub.start : sub.end] for _piece, sub, text, _location in resolved
+                text[cur.start : cur.end] for _piece, cur, text, _location in resolved
             )
             joined_bytes = joined_text.encode("utf-8")
             reproven = (
@@ -1608,7 +1812,7 @@ def _join_file_witness(
                 and hmac.compare_digest(hashlib.sha256(joined_bytes).hexdigest(), segment.digest)
             )
         bytes_mismatch = complete and not reproven
-        for piece, sub, _text, result_location in resolved:
+        for piece, cur, _text, result_location in resolved:
             spans.append(
                 RetainedSpan(
                     content_key=content_key,
@@ -1623,8 +1827,8 @@ def _join_file_witness(
                     segment_index=segment_index,
                     location=result_location,
                     field="output" if proof.endpoint == ENDPOINT_RESPONSES else "content",
-                    start=sub.start,
-                    end=sub.end,
+                    start=cur.start,
+                    end=cur.end,
                     source_digest=root_digest if root_digest is not None else segment.digest,
                     reproven=reproven,
                     bytes_mismatch=bytes_mismatch,
@@ -1685,12 +1889,17 @@ def join_retained_proof(
         raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
     owners = {o.occurrence_id: o for o in snapshot.state.d_state.occurrences}
     index = _current_read_index(observation)
+    bridge_by_call = _current_bridge_proofs(payload, observation, snapshot)
+    results_by_call = {record.call_id: record for record in snapshot.state.d_state.results}
     working_keys = {w.content_key for w in decision.working_set}
     spans: list[RetainedSpan] = []
     root_entry = admission.root_entry
     root_key = root_entry.content_key
     if root_key in working_keys and not root_entry.witnesses:
         if root_occurrence is not None:
+            transformed = False
+            slot: CarrierSlot | None = None
+            facts: SpanFacts | None = None
             try:
                 slot, facts = join_root_occurrence(
                     payload,
@@ -1700,12 +1909,29 @@ def join_retained_proof(
                 )
             except _ReplaceRefusal as refusal:
                 if refusal.detail is not CarrierDetail.CARRIER_NOT_FOUND:
-                    raise
+                    if refusal.detail not in (
+                        CarrierDetail.SPAN_DIGEST_MISMATCH,
+                        CarrierDetail.SPAN_LENGTH_MISMATCH,
+                    ):
+                        raise
+                    # The transformed root: the current envelope carries
+                    # the accepted marker where the original source was.
+                    # Re-join proving carrier shape and span bounds only
+                    # (no expected digest) so the raw mismatch cannot
+                    # refuse before the replay scan matches the valid
+                    # tag at the splice start.
+                    slot, facts = join_root_occurrence(
+                        payload,
+                        root_occurrence,
+                        expected_digest=None,
+                        max_text_chars=max_text_chars,
+                    )
+                    transformed = True
                 # A source-absent replay: the governing envelope root
                 # is not carried by the current payload — zero edits
                 # for the root, no refusal; the exact selected context
                 # is still returned.
-            else:
+            if slot is not None and facts is not None:
                 spans.append(
                     RetainedSpan(
                         content_key=root_key,
@@ -1723,8 +1949,8 @@ def join_retained_proof(
                         start=facts.start,
                         end=facts.end,
                         source_digest=root_entry.root_digest,
-                        reproven=True,
-                        bytes_mismatch=False,
+                        reproven=not transformed,
+                        bytes_mismatch=transformed,
                     )
                 )
     elif root_key in working_keys:
@@ -1748,6 +1974,9 @@ def join_retained_proof(
                     occurrence_identity=witness.occurrence_id,
                     root_digest=root_entry.root_digest,
                     index=index,
+                    bridge_by_call=bridge_by_call,
+                    results_by_call=results_by_call,
+                    history_bounds=snapshot.namespace.history_bounds,
                 )
             )
     for entry in admission.entries:
@@ -1767,6 +1996,9 @@ def join_retained_proof(
                     occurrence_identity=witness.occurrence_id,
                     root_digest=None,
                     index=index,
+                    bridge_by_call=bridge_by_call,
+                    results_by_call=results_by_call,
+                    history_bounds=snapshot.namespace.history_bounds,
                 )
             )
     return tuple(spans)
@@ -2229,19 +2461,19 @@ def replace_sources(
                 # earns SPAN_DIGEST_MISMATCH in the plan.
                 selected_spans.append(span)
                 continue
-            if span.reproven and (
-                (
-                    span.entry_class == EntryClass.FILE_BUNDLE_ENTRY.value
-                    and span.content_key in omitted_keys
-                )
-                or _positively_superseded(span, evidence)
-            ):
+            if (
+                span.entry_class == EntryClass.FILE_BUNDLE_ENTRY.value
+                and span.content_key in omitted_keys
+            ) or _positively_superseded(span, evidence):
                 # Evidence-eligible: a current prepared optional
                 # source actually omitted by the accepted selection
                 # (root entries never qualify via omission), or a
                 # known positively superseded original proven by
-                # ACTUAL lineage.  An EVIDENCE edit or an accepted
-                # replay — never a dangling live reference.
+                # ACTUAL lineage.  Eligibility is independent of the
+                # raw-byte state; the plan still gates the EVIDENCE
+                # edit on the re-proof or an accepted replay.  An
+                # EVIDENCE edit or an accepted replay — never a
+                # dangling live reference.
                 evidence_spans.append(span)
                 continue
             # Merely retained (unselected, not omitted, no lineage
