@@ -151,6 +151,18 @@ def _slaif_marker_applies(marker: str, env: dict[str, str] | None = None) -> boo
     Version-like variables compare as zero-padded integer version tuples
     (a quoted version string is accepted for them, per PEP 508); anything
     outside the closed grammar raises ValueError instead of guessing.
+
+    Narrow disjunction extension (order 021-a, hf-xet regression): a
+    TOP-LEVEL (outside single-quoted literals) ` or ` is recognized ONLY
+    when EVERY term is a `platform_machine == '<arch>'` equality to a
+    simple quoted architecture name — the exact frozen hf-xet lock shape
+    (the frozen marker names are `AMD64`, `aarch64`, `amd64`, `arm64`,
+    `x86_64`). Such a disjunction applies iff the platform machine equals
+    one of the listed names. The text ` or ` INSIDE a quoted literal is
+    not a disjunction: such markers take the and-grammar path unchanged.
+    Any other top-level `or` use (mixed variables, non-equality operators,
+    unquoted or non-simple literals, `and` inside a term, parentheses,
+    dangling terms) still raises ValueError; no generic OR is admitted.
     """
     if env is None:
         env = {
@@ -164,6 +176,45 @@ def _slaif_marker_applies(marker: str, env: dict[str, str] | None = None) -> boo
             "python_full_version": ".".join(str(part) for part in sys.version_info[:3]),
             "implementation_name": sys.implementation.name,
         }
+
+    def _top_level_or_indices(text: str) -> list[int]:
+        # Start indices of ` or ` OUTSIDE single-quoted literals. The
+        # quoted-literal notion matches the and-grammar, where a quoted
+        # string may legally contain the text ` or `.
+        positions: list[int] = []
+        in_quote = False
+        for i in range(len(text) - 3):
+            char = text[i]
+            if in_quote:
+                if char == "'":
+                    in_quote = False
+            elif char == "'":
+                in_quote = True
+            elif text[i : i + 4] == " or ":
+                positions.append(i)
+        return positions
+
+    # Narrow disjunction: a top-level (outside-quotes) ` or ` admits ONLY
+    # the frozen hf-xet marker shape — every term a platform_machine
+    # equality to a simple quoted architecture name. An ` or ` inside a
+    # quoted literal is not a disjunction; the and-grammar below handles
+    # such markers exactly as before.
+    or_positions = _top_level_or_indices(marker)
+    if or_positions:
+        machine_term = re.compile(r"platform_machine == '([A-Za-z0-9_]+)'")
+        archs: list[str] = []
+        prev = 0
+        for end in [*or_positions, len(marker)]:
+            term = marker[prev:end].strip()
+            match = machine_term.fullmatch(term)
+            if match is None:
+                raise ValueError(f"unsupported marker disjunction term: {term!r}")
+            archs.append(match.group(1))
+            prev = end + 4
+        if "platform_machine" not in env:
+            raise ValueError("marker disjunction requires the platform_machine fact")
+        return env["platform_machine"] in archs
+
     version_vars = {"python_version", "python_full_version"}
 
     def _literal(token: str) -> str | tuple[int, ...]:
