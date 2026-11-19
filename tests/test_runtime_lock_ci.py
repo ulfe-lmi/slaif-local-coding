@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
+import platform
 import sys
 import types
 from pathlib import Path
@@ -39,6 +40,17 @@ LINUX_AMD64_PY312_ENV = {
     "python_full_version": "3.12.14",
     "implementation_name": "cpython",
 }
+
+# The exact frozen hf-xet environment marker as committed in uv.lock and
+# emitted by `uv export --frozen` — the only `or` marker in the locked
+# runtime closure (order 021-a regression: the frozen names).
+HF_XET_MARKER = (
+    "platform_machine == 'AMD64'"
+    " or platform_machine == 'aarch64'"
+    " or platform_machine == 'amd64'"
+    " or platform_machine == 'arm64'"
+    " or platform_machine == 'x86_64'"
+)
 
 
 def _load_module(path: Path, name: str) -> types.ModuleType:
@@ -176,10 +188,84 @@ class TestMarkerApplies:
             "sys_platform in 'linux'",  # in-operator: outside the closed grammar
             "not sys_platform == 'linux'",  # negation: outside the closed grammar
             "extra == 'x'",  # unknown variable
-            "sys_platform == 'linux' or python_version == '3.12'",  # or: outside the grammar
         ],
     )
     def test_outside_closed_grammar_fails_closed(self, dqc: types.ModuleType, marker: str) -> None:
+        with pytest.raises(ValueError):
+            dqc._slaif_marker_applies(marker, self.env)
+
+    # -- narrow machine disjunction (order 021-a, hf-xet lock shape) --
+
+    def test_hf_xet_lock_disjunction_positive(self, dqc: types.ModuleType) -> None:
+        # The supported image platform is linux/amd64 (x86_64): applicable.
+        assert dqc._slaif_marker_applies(HF_XET_MARKER, self.env) is True
+        for machine in ("AMD64", "aarch64", "amd64", "arm64", "x86_64"):
+            env = dict(self.env)
+            env["platform_machine"] = machine
+            assert dqc._slaif_marker_applies(HF_XET_MARKER, env) is True
+
+    def test_hf_xet_lock_disjunction_nonmatch_false(self, dqc: types.ModuleType) -> None:
+        # A non-listed machine: the disjunction evaluates False (it never
+        # raises and never guesses a fallback).
+        for machine in ("riscv64", "ppc64le", "armv7l", "i686", "x86"):
+            env = dict(self.env)
+            env["platform_machine"] = machine
+            assert dqc._slaif_marker_applies(HF_XET_MARKER, env) is False
+
+    def test_hf_xet_disjunction_missing_machine_fact_fails_closed(
+        self, dqc: types.ModuleType
+    ) -> None:
+        env = {key: value for key, value in self.env.items() if key != "platform_machine"}
+        with pytest.raises(ValueError):
+            dqc._slaif_marker_applies(HF_XET_MARKER, env)
+
+    def test_exact_frozen_export_line(self, dqc: types.ModuleType) -> None:
+        # The exact `uv export --frozen` line for the locked hf-xet pin.
+        pins = dqc._slaif_parse_frozen_pins(
+            "hf-xet==1.8.0 ; platform_machine == 'AMD64' or platform_machine"
+            " == 'aarch64' or platform_machine == 'amd64' or platform_machine"
+            " == 'arm64' or platform_machine == 'x86_64'\n"
+        )
+        assert pins == {"hf-xet": ("1.8.0", HF_XET_MARKER)}
+        assert dqc._slaif_marker_applies(pins["hf-xet"][1], self.env) is True
+
+    def test_quoted_literal_containing_or_stays_and_grammar(self, dqc: types.ModuleType) -> None:
+        # LEGAL compatibility case: an ` or ` INSIDE a single-quoted literal
+        # is not a disjunction (no top-level outside-quotes ` or `), so the
+        # and-grammar handles the marker exactly as before the 021-a change.
+        marker = "platform_version == '6.1 or 6.2'"
+        assert dqc._slaif_marker_applies(marker, self.env) is False
+        env = dict(self.env)
+        env["platform_version"] = "6.1 or 6.2"
+        assert dqc._slaif_marker_applies(marker, env) is True
+
+    @pytest.mark.parametrize(
+        "marker",
+        [
+            "sys_platform == 'linux' or python_version == '3.12'",  # generic or
+            "platform_machine == 'AMD64' or sys_platform == 'linux'",  # mixed variables
+            "sys_platform == 'linux' or platform_machine == 'x86_64'",  # non-machine term
+            "platform_machine != 'x86_64' or platform_machine == 'AMD64'",  # non-equality op
+            "platform_machine == x86_64 or platform_machine == 'AMD64'",  # unquoted literal
+            (
+                "platform_machine == 'AMD64' or platform_machine == 'aarch64'"
+                " and python_version >= '3.12'"  # and inside a term
+            ),
+            "platform_machine == 'AMD 64' or platform_machine == 'AMD64'",  # non-simple name
+            "platform_machine == '' or platform_machine == 'AMD64'",  # empty name
+            "platform_machine == 'amd64.' or platform_machine == 'AMD64'",  # non-simple name (dot)
+            "platform_machine == 'AMD64' or (platform_machine == 'aarch64')",  # parentheses
+            "platform_machine == 'AMD64' or",  # dangling or
+            "or platform_machine == 'AMD64'",  # leading or
+            "platform_machine  == 'AMD64' or platform_machine == 'aarch64'",  # double-space op
+            # A top-level or whose term is a quoted literal containing the
+            # text ` or `: still a disjunction, and not machine-only.
+            "platform_version == '6.1 or 6.2' or platform_machine == 'AMD64'",
+        ],
+    )
+    def test_disjunction_outside_narrow_shape_fails_closed(
+        self, dqc: types.ModuleType, marker: str
+    ) -> None:
         with pytest.raises(ValueError):
             dqc._slaif_marker_applies(marker, self.env)
 
@@ -291,6 +377,67 @@ class TestEvaluateRuntimeClosure:
             dqc._slaif_evaluate_runtime_closure(
                 pins, self._installed(), "slaif-local-coding", "0.1.0"
             )
+
+
+# ---------------------------------------------------------------------------
+# Closure evaluation with the ACTUAL frozen hf-xet disjunction marker (021-a)
+# ---------------------------------------------------------------------------
+
+
+class TestHfXetDisjunctionClosure:
+    PINS: dict[str, tuple[str, str | None]] = {
+        "hf-xet": ("1.8.0", HF_XET_MARKER),
+        "anyio": ("4.14.2", None),
+    }
+
+    def _installed(self, **overrides: str) -> dict[str, str]:
+        base = {"anyio": "4.14.2", "slaif-local-coding": "0.1.0"}
+        base.update(overrides)
+        return base
+
+    def test_hf_xet_applicable_on_supported_machine(self, dqc: types.ModuleType) -> None:
+        # The supported image platform is linux/amd64; every frozen marker
+        # name makes the disjunction APPLICABLE, so the pin is required at
+        # exactly its locked version.
+        machine = platform.machine()
+        assert machine in {"AMD64", "aarch64", "amd64", "arm64", "x86_64"}
+        present = dqc._slaif_evaluate_runtime_closure(
+            self.PINS,
+            self._installed(**{"hf-xet": "1.8.0"}),
+            "slaif-local-coding",
+            "0.1.0",
+        )
+        assert present["ok"] is True
+        assert present["applicable_count"] == 2
+        absent = dqc._slaif_evaluate_runtime_closure(
+            self.PINS, self._installed(), "slaif-local-coding", "0.1.0"
+        )
+        assert absent["ok"] is False
+        assert absent["missing"] == {"hf-xet": "1.8.0"}
+
+    def test_nonmatching_machine_disjunction_skips_pin(self, dqc: types.ModuleType) -> None:
+        # A narrow disjunction on machines this runner is NOT: the pin is
+        # inapplicable and must be ABSENT (skip-pin law unchanged).
+        machine = platform.machine()
+        assert machine not in {"riscv64", "ppc64le"}
+        exotic_marker = "platform_machine == 'riscv64' or platform_machine == 'ppc64le'"
+        pins = {
+            "exoticpkg": ("1.0.0", exotic_marker),
+            "anyio": ("4.14.2", None),
+        }
+        installed = dqc._slaif_evaluate_runtime_closure(
+            pins,
+            self._installed(**{"exoticpkg": "1.0.0"}),
+            "slaif-local-coding",
+            "0.1.0",
+        )
+        assert installed["ok"] is False
+        assert installed["unexpected"] == {"exoticpkg": "1.0.0"}
+        absent = dqc._slaif_evaluate_runtime_closure(
+            pins, self._installed(), "slaif-local-coding", "0.1.0"
+        )
+        assert absent["ok"] is True
+        assert absent["applicable_count"] == 1
 
 
 # ---------------------------------------------------------------------------

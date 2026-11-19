@@ -54,6 +54,22 @@ This identifier is deployment evidence, not permission to redistribute it.
 Commercial packaging requires explicit verification of the model and checkpoint
 terms at the pinned revision.
 
+## Pinned tokenizer assets (objective 021)
+
+The v1 dependency-bundle cache tokenizer component ships the CPU tokenizer
+artifacts of the declared Qwen3.8-27B reference capability, pinned to the
+Hugging Face repository `Qwen/Qwen3.8-27B` at revision
+`37561816e66b5b9153b1b64c10968c18c1e6f4a0` (Apache-2.0):
+`tokenizer.json`, `tokenizer_config.json`, `chat_template.jinja` and the
+verbatim Apache-2.0 `LICENSE`, retained under
+`src/slaif_local_coding/constitution/bundles/tokenizer_assets/` with a
+`NOTICE` (see `docs/CACHE-TOKEN-COMPILER-CONTRACT.md`). Their exact sizes and
+SHA-256 digests are closed contract constants verified at load time; a byte
+change to any asset or template invalidates the tokenization identity and the
+derived compiled-entry identity. These are tokenizer artifacts only: no model
+weights, no training data, no serving configuration. The reference RTX 3090
+serving work remains credited as `syv-ai/qwen38-27b-rtx3090`.
+
 ## Other major dependencies
 
 vLLM, Codex CLI, FastAPI/Starlette, HTTPX, Pydantic, Uvicorn, Prometheus client,
@@ -64,6 +80,9 @@ The adapter uses FastAPI (MIT), Starlette (BSD-3-Clause), HTTPX (BSD-3-Clause),
 Pydantic (MIT), Uvicorn (BSD-3-Clause), and Prometheus client_python
 (Apache-2.0). Exact versions and transitive packages are fixed by `uv.lock`;
 this review is dependency provenance, not a relicensing of those projects.
+The objective-021 tokenizer component additionally uses the CPU-only
+`tokenizers` library (Apache-2.0), pinned exactly in `pyproject.toml` and
+`uv.lock`.
 
 ## SLAIF API Gateway
 

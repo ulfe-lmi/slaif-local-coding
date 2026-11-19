@@ -41,6 +41,10 @@ dependencies = [
   "prometheus-client>=0.22,<1",
   "pydantic>=2.11,<3",
   "uvicorn>=0.35,<1",
+  # Objective 021: minimal locked CPU-only tokenizer dependency for the v1
+  # dependency-bundle cache tokenizer component (pinned Qwen3.8-27B assets;
+  # no model weights, torch or hosted tokenizer calls).
+  "tokenizers==0.22.2",
 ]
 
 [project.optional-dependencies]
@@ -182,4 +186,9 @@ packages = ["slaif_local_coding"]
 # runtime via sys.path in the test module.
 [[tool.mypy.overrides]]
 module = "cutover_state_machine"
+ignore_missing_imports = true
+
+# Objective 021: the CPU-only tokenizers wheel ships no type stubs.
+[[tool.mypy.overrides]]
+module = "tokenizers.*"
 ignore_missing_imports = true
