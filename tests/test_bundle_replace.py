@@ -11,6 +11,21 @@ the SHA-256 of the exact observed bytes).  The lookups are read-only:
 the payload is never mutated and the slot references the payload's
 own string.
 
+Saved chunk 1b (the two accepted tool read carriers): the closed
+Responses ``function_call_output`` and Chat ``role="tool"`` result
+shapes resolve READ-ONLY to the payload's own decoded string, and
+the paired call-identity lookup re-joins the ORIGINAL call ID
+(constant-time; the identity never enters an operational
+representation).
+
+Saved chunk 1c (the closed replay scan gate): only a CURRENT
+authority (verdict ``ok``) may enter the replayed set.  A stale live
+reference -- a valid live tag for a retained entry that has left the
+accepted selection -- ALWAYS refuses at the transaction gate; the
+``stale`` verdict stays the marker layer's internal diagnostic.
+Forged, malformed, unknown-kind, moved and kind-incompatible markers
+refuse the same way; an accepted replay is recorded content-free.
+
 All records are ACTUAL 017 observations over synthetic payloads
 (Unicode/CRLF explicit, environment tail replayed at a shifted
 index); every refusal is the fixed typed detail with no echoed
@@ -21,6 +36,7 @@ the atomic application are later saved chunks of the same PR.
 from __future__ import annotations
 
 import copy
+import hashlib
 from typing import Any
 
 import pytest
@@ -28,11 +44,26 @@ import pytest
 from slaif_local_coding.constitution.bundles.bundle_replace import (
     CarrierDetail,
     CarrierSlot,
+    ExpectedTag,
+    MarkerExpectations,
+    RetainedSpan,
     SpanFacts,
     _ReplaceRefusal,
+    _scan_replayed_markers,
     check_carrier_span,
+    derive_evidence_tag,
+    derive_live_tag,
     join_root_occurrence,
+    lookup_call_identity,
     lookup_root_carrier,
+    lookup_tool_result_carrier,
+    make_evidence_marker,
+    make_live_marker,
+    verify_marker,
+)
+from slaif_local_coding.constitution.bundles.bundle_replace_models import (
+    MarkerKind,
+    MarkerRecord,
 )
 from slaif_local_coding.constitution.bundles.observation_models import (
     OccurrenceKind,
@@ -472,3 +503,647 @@ class TestRootOccurrenceJoin:
             occ.content_span.end,
         )
         assert payload == snapshot
+
+
+# --- Saved chunk 1b: the two tool carrier shapes --------------------------
+
+CHAT_RESULT_TEXT = (
+    "Chunk ID: 1\nWall time: 0.0001 seconds\n"
+    "Process exited with code 0\nOutput:\n"
+    "ALWAYS log the mutation.\n"
+)
+
+
+def chat_payload() -> dict[str, Any]:
+    """One decoded Chat request: one assistant tool call plus its tool
+    result message (the accepted 017 Chat read shapes)."""
+    return {
+        "model": "synthetic-model",
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "synthetic-read-1",
+                        "type": "function",
+                        "function": {
+                            "name": "exec_command",
+                            "arguments": '{"cmd": "cat /work/A.md"}',
+                        },
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "synthetic-read-1", "content": CHAT_RESULT_TEXT},
+        ],
+    }
+
+
+class TestToolResultCarrierLookup:
+    """The accepted Responses and Chat result carrier shapes."""
+
+    def test_responses_result_carrier_from_accepted_coordinates(self) -> None:
+        payload = base_payload()
+        report = observe_request(payload, context=_CTX, endpoint="responses")
+        (read,) = report.reads
+        assert read.outcome is not None
+        slot = lookup_tool_result_carrier(
+            payload, "responses", read.result_location, max_text_chars=10_000
+        )
+        assert slot.endpoint == "responses"
+        assert slot.location == "$.input[2]"
+        assert slot.field == "output"
+        assert slot.text is payload["input"][2]["output"]
+        assert slot.text.startswith("Chunk ID: 1\n")
+
+    def test_chat_result_carrier_from_accepted_coordinates(self) -> None:
+        payload = chat_payload()
+        report = observe_request(payload, context=_CTX, endpoint="chat")
+        (read,) = report.reads
+        slot = lookup_tool_result_carrier(
+            payload, "chat", read.result_location, max_text_chars=10_000
+        )
+        assert slot.endpoint == "chat"
+        assert slot.location == "$.messages[1]"
+        assert slot.field == "content"
+        assert slot.text is payload["messages"][1]["content"]
+        assert slot.text == CHAT_RESULT_TEXT
+
+    def test_dynamically_constructed_endpoint_string_dispatches_by_value(self) -> None:
+        # Endpoint membership and dispatch are VALUE equality: a
+        # dynamically constructed string equal to the domain dispatches
+        # exactly like the constant (no identity-dependent fallthrough
+        # into the other endpoint branch).
+        dyn_responses = "res" + "ponses"
+        dyn_chat = "ch" + "at"
+        payload = base_payload()
+        slot = lookup_tool_result_carrier(
+            payload, dyn_responses, "$.input[2]", max_text_chars=10_000
+        )
+        assert slot.endpoint == "responses"
+        assert slot.field == "output"
+        chat = chat_payload()
+        slot = lookup_tool_result_carrier(chat, dyn_chat, "$.messages[1]", max_text_chars=10_000)
+        assert slot.endpoint == "chat"
+        assert slot.field == "content"
+
+    def test_call_item_is_not_a_result_carrier(self) -> None:
+        payload = base_payload()
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier,
+                payload,
+                "responses",
+                "$.input[1]",
+                max_text_chars=10_000,
+            )
+            is CarrierDetail.SHAPE_UNSUPPORTED
+        )
+
+    def test_nonstring_result_field(self) -> None:
+        payload = base_payload()
+        payload["input"][2]["output"] = 123
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier,
+                payload,
+                "responses",
+                "$.input[2]",
+                max_text_chars=10_000,
+            )
+            is CarrierDetail.CARRIER_NOT_TEXT
+        )
+        chat = chat_payload()
+        del chat["messages"][1]["content"]
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier, chat, "chat", "$.messages[1]", max_text_chars=10_000
+            )
+            is CarrierDetail.CARRIER_NOT_TEXT
+        )
+
+    def test_non_tool_message_is_shape_unsupported(self) -> None:
+        chat = chat_payload()
+        chat["messages"][1] = {"role": "user", "content": CHAT_RESULT_TEXT}
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier, chat, "chat", "$.messages[1]", max_text_chars=10_000
+            )
+            is CarrierDetail.SHAPE_UNSUPPORTED
+        )
+
+    def test_absent_index_and_over_bound(self) -> None:
+        payload = base_payload()
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier,
+                payload,
+                "responses",
+                "$.input[9]",
+                max_text_chars=10_000,
+            )
+            is CarrierDetail.CARRIER_NOT_FOUND
+        )
+        chat = chat_payload()
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier, chat, "chat", "$.messages[9]", max_text_chars=10_000
+            )
+            is CarrierDetail.CARRIER_NOT_FOUND
+        )
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier, payload, "responses", "$.input[2]", max_text_chars=5
+            )
+            is CarrierDetail.OVER_BOUND
+        )
+
+    def test_closed_spelling_of_other_endpoint_domain(self) -> None:
+        payload = base_payload()
+        chat = chat_payload()
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier,
+                chat,
+                "responses",
+                "$.messages[1]",
+                max_text_chars=10_000,
+            )
+            is CarrierDetail.ENDPOINT_MISMATCH
+        )
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier, payload, "chat", "$.input[2]", max_text_chars=10_000
+            )
+            is CarrierDetail.ENDPOINT_MISMATCH
+        )
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            "$",
+            "$.input[01]",
+            "$.input[2].output",
+            "$.input[2].content[0]",  # the root shape: not a result spelling
+            "$.messages[0].tool_calls[0]",  # the Chat CALL shape: not a result spelling
+            "$.messages[1].content",
+        ],
+    )
+    def test_nonmatching_spellings_refuse(self, location: str) -> None:
+        payload = base_payload()
+        assert (
+            _refused_detail(
+                lookup_tool_result_carrier, payload, "responses", location, max_text_chars=10_000
+            )
+            is CarrierDetail.LOCATION_MALFORMED
+        )
+
+
+class TestCallIdentityLookup:
+    """The paired call-identity lookups (original association join)."""
+
+    def test_responses_call_identity_rejoined(self) -> None:
+        payload = base_payload()
+        report = observe_request(payload, context=_CTX, endpoint="responses")
+        (read,) = report.reads
+        identity = lookup_call_identity(
+            payload, "responses", read.call_location, expected_call_id="synthetic-read-1"
+        )
+        assert identity.endpoint == "responses"
+        assert identity.location == "$.input[1]"
+        assert identity.wire_family == "function_call"
+        assert identity.call_id == "synthetic-read-1"
+        # The private ID never enters the operational representation.
+        assert "synthetic-read-1" not in repr(identity)
+
+    def test_responses_custom_tool_call_family_is_identity_only(self) -> None:
+        payload = base_payload()
+        payload["input"][1] = {
+            "type": "custom_tool_call",
+            "call_id": "synthetic-opaque-1",
+            "input": "opaque",
+        }
+        identity = lookup_call_identity(
+            payload, "responses", "$.input[1]", expected_call_id="synthetic-opaque-1"
+        )
+        assert identity.wire_family == "custom_tool_call"
+        assert identity.call_id == "synthetic-opaque-1"
+
+    def test_chat_call_identity_rejoined(self) -> None:
+        chat = chat_payload()
+        report = observe_request(chat, context=_CTX, endpoint="chat")
+        (read,) = report.reads
+        identity = lookup_call_identity(
+            chat, "chat", read.call_location, expected_call_id="synthetic-read-1"
+        )
+        assert identity.endpoint == "chat"
+        assert identity.location == "$.messages[0].tool_calls[0]"
+        assert identity.wire_family == "function"
+        assert identity.call_id == "synthetic-read-1"
+        assert "synthetic-read-1" not in repr(identity)
+
+    def test_dynamically_constructed_endpoint_string_dispatches_by_value(self) -> None:
+        payload = base_payload()
+        identity = lookup_call_identity(
+            payload, "res" + "ponses", "$.input[1]", expected_call_id="synthetic-read-1"
+        )
+        assert identity.wire_family == "function_call"
+        chat = chat_payload()
+        identity = lookup_call_identity(
+            chat, "ch" + "at", "$.messages[0].tool_calls[0]", expected_call_id="synthetic-read-1"
+        )
+        assert identity.wire_family == "function"
+
+    def test_identity_mismatch_on_diverging_call_id(self) -> None:
+        payload = base_payload()
+        assert (
+            _refused_detail(
+                lookup_call_identity,
+                payload,
+                "responses",
+                "$.input[1]",
+                expected_call_id="other-call",
+            )
+            is CarrierDetail.IDENTITY_MISMATCH
+        )
+        chat = chat_payload()
+        assert (
+            _refused_detail(
+                lookup_call_identity,
+                chat,
+                "chat",
+                "$.messages[0].tool_calls[0]",
+                expected_call_id="other-call",
+            )
+            is CarrierDetail.IDENTITY_MISMATCH
+        )
+
+    def test_result_item_is_not_a_call(self) -> None:
+        payload = base_payload()
+        assert (
+            _refused_detail(lookup_call_identity, payload, "responses", "$.input[2]")
+            is CarrierDetail.SHAPE_UNSUPPORTED
+        )
+        chat = chat_payload()
+        assert (
+            _refused_detail(lookup_call_identity, chat, "chat", "$.messages[1]")
+            is CarrierDetail.LOCATION_MALFORMED
+        )
+
+    @pytest.mark.parametrize(
+        ("item", "detail"),
+        [
+            ({"type": "function_call", "name": "exec_command"}, CarrierDetail.CALL_NOT_FOUND),
+            (
+                {"type": "function_call", "name": "exec_command", "call_id": ""},
+                CarrierDetail.CALL_NOT_FOUND,
+            ),
+            (
+                {"type": "function_call", "name": "exec_command", "call_id": 7},
+                CarrierDetail.CALL_NOT_FOUND,
+            ),
+            (
+                {"type": "function_call", "name": "exec_command", "call_id": "ok"},
+                CarrierDetail.CALL_NOT_FOUND,
+            )
+            if False
+            else (
+                {"type": "user_message", "call_id": "ok"},
+                CarrierDetail.SHAPE_UNSUPPORTED,
+            ),
+        ],
+    )
+    def test_call_id_and_family_laws(self, item: dict[str, Any], detail: CarrierDetail) -> None:
+        payload = base_payload()
+        payload["input"][1] = item
+        assert _refused_detail(lookup_call_identity, payload, "responses", "$.input[1]") is detail
+
+    def test_absent_indexes(self) -> None:
+        payload = base_payload()
+        assert (
+            _refused_detail(lookup_call_identity, payload, "responses", "$.input[9]")
+            is CarrierDetail.CARRIER_NOT_FOUND
+        )
+        chat = chat_payload()
+        assert (
+            _refused_detail(lookup_call_identity, chat, "chat", "$.messages[9].tool_calls[0]")
+            is CarrierDetail.CARRIER_NOT_FOUND
+        )
+        assert (
+            _refused_detail(lookup_call_identity, chat, "chat", "$.messages[0].tool_calls[9]")
+            is CarrierDetail.SHAPE_UNSUPPORTED
+        )
+
+    def test_closed_spelling_of_other_endpoint_domain(self) -> None:
+        payload = base_payload()
+        chat = chat_payload()
+        assert (
+            _refused_detail(lookup_call_identity, chat, "responses", "$.messages[0].tool_calls[0]")
+            is CarrierDetail.ENDPOINT_MISMATCH
+        )
+        assert (
+            _refused_detail(lookup_call_identity, payload, "chat", "$.input[1]")
+            is CarrierDetail.ENDPOINT_MISMATCH
+        )
+
+    def test_lookups_are_read_only(self) -> None:
+        payload = base_payload()
+        snapshot = copy.deepcopy(payload)
+        lookup_tool_result_carrier(payload, "responses", "$.input[2]", max_text_chars=10_000)
+        lookup_call_identity(
+            payload, "responses", "$.input[1]", expected_call_id="synthetic-read-1"
+        )
+        assert payload == snapshot
+
+
+# --- Saved chunk 1c: the closed replay scan gate -------------------------
+#
+# The transaction-level closed gate (``_scan_replayed_markers``):
+# only a CURRENT authority (verdict ``ok``) enters the replayed set.
+# A stale live reference (a valid live tag for a retained entry that
+# has left the accepted selection) ALWAYS refuses; the ``stale``
+# verdict stays the marker layer's internal diagnostic.  Forged,
+# cross-namespace, malformed, unknown-version, moved and
+# kind-incompatible markers refuse the same way; an accepted replay
+# is recorded content-free.
+
+MARKER_KEY = b"synthetic-session-key-022b"
+MK_CONTENT_KEY = "ab" * 32
+MK_SOURCE_DIGEST = "cd" * 32
+MK_COMPILED_DIGEST = "ef" * 32
+MK_ENDPOINT = "responses"
+MK_LOCATION = "$.input[2]"
+MK_PREFIX = "P" * 10
+MK_SUFFIX = "Q" * 4
+_MK_BINDING_KEY: tuple[str, str, int, int, int, int, str] = (
+    MK_ENDPOINT,
+    "synthetic-read-1",
+    1,
+    2,
+    0,
+    0,
+    MK_CONTENT_KEY,
+)
+
+
+def _mk_live_marker(key: bytes = MARKER_KEY, namespace: str = "synthetic-namespace") -> str:
+    return make_live_marker(
+        key,
+        namespace_key=namespace,
+        original_role="file_tool_result",
+        occurrence_identity="synthetic-occurrence",
+        endpoint=MK_ENDPOINT,
+        call_id="synthetic-read-1",
+        call_position=1,
+        result_position=2,
+        piece_index=0,
+        segment_index=0,
+        entry_class="file_entry",
+        content_key=MK_CONTENT_KEY,
+        compiled_digest=MK_COMPILED_DIGEST,
+        source_digest=MK_SOURCE_DIGEST,
+    )
+
+
+def _mk_live_tag(
+    key: bytes = MARKER_KEY,
+    namespace: str = "synthetic-namespace",
+    stale: bool = False,
+) -> ExpectedTag:
+    return derive_live_tag(
+        key,
+        namespace_key=namespace,
+        original_role="file_tool_result",
+        occurrence_identity="synthetic-occurrence",
+        endpoint=MK_ENDPOINT,
+        call_id="synthetic-read-1",
+        call_position=1,
+        result_position=2,
+        piece_index=0,
+        segment_index=0,
+        entry_class="file_entry",
+        content_key=MK_CONTENT_KEY,
+        compiled_digest=MK_COMPILED_DIGEST,
+        source_digest=MK_SOURCE_DIGEST,
+        stale=stale,
+    )
+
+
+def _mk_evidence_marker(key: bytes = MARKER_KEY) -> str:
+    return make_evidence_marker(
+        key,
+        namespace_key="synthetic-namespace",
+        original_role="file_tool_result",
+        occurrence_identity="synthetic-occurrence",
+        endpoint=MK_ENDPOINT,
+        call_id="synthetic-read-1",
+        call_position=1,
+        result_position=2,
+        piece_index=0,
+        segment_index=0,
+        source_digest=MK_SOURCE_DIGEST,
+        content_key=MK_CONTENT_KEY,
+    )
+
+
+def _mk_evidence_tag(key: bytes = MARKER_KEY) -> ExpectedTag:
+    return derive_evidence_tag(
+        key,
+        namespace_key="synthetic-namespace",
+        original_role="file_tool_result",
+        occurrence_identity="synthetic-occurrence",
+        endpoint=MK_ENDPOINT,
+        call_id="synthetic-read-1",
+        call_position=1,
+        result_position=2,
+        piece_index=0,
+        segment_index=0,
+        source_digest=MK_SOURCE_DIGEST,
+        content_key=MK_CONTENT_KEY,
+    )
+
+
+def _mk_span(start: int, end: int) -> RetainedSpan:
+    return RetainedSpan(
+        content_key=MK_CONTENT_KEY,
+        entry_class="file_entry",
+        role="file_tool_result",
+        endpoint=MK_ENDPOINT,
+        occurrence_identity="synthetic-occurrence",
+        call_id="synthetic-read-1",
+        call_position=1,
+        result_position=2,
+        piece_index=0,
+        segment_index=0,
+        location=MK_LOCATION,
+        field="output",
+        start=start,
+        end=end,
+        source_digest=MK_SOURCE_DIGEST,
+        reproven=True,
+        bytes_mismatch=False,
+    )
+
+
+def _mk_binding(
+    span: RetainedSpan, kinds: frozenset[str]
+) -> dict[tuple[str, str, int, int, int, int, str], tuple[RetainedSpan, frozenset[str]]]:
+    return {_MK_BINDING_KEY: (span, kinds)}
+
+
+def _scan(
+    carrier: str,
+    expectations: MarkerExpectations,
+    binding: dict[tuple[str, str, int, int, int, int, str], tuple[RetainedSpan, frozenset[str]]],
+) -> dict[tuple[str, str, int], MarkerRecord]:
+    return _scan_replayed_markers({(MK_ENDPOINT, MK_LOCATION): carrier}, expectations, binding)
+
+
+class TestReplayedMarkerScan:
+    """The closed gate: only the ``ok`` verdict enters the replayed set."""
+
+    def test_stale_live_token_always_refuses(self) -> None:
+        marker = _mk_live_marker()
+        span = _mk_span(10, 10 + len(marker))
+        expectations = MarkerExpectations((_mk_live_tag(stale=True),))
+        with pytest.raises(_ReplaceRefusal) as excinfo:
+            _scan(
+                MK_PREFIX + marker + MK_SUFFIX,
+                expectations,
+                _mk_binding(span, frozenset({"live"})),
+            )
+        assert excinfo.value.detail is CarrierDetail.MARKER_INVALID
+
+    def test_stale_token_refuses_even_with_stale_kind_bound(self) -> None:
+        marker = _mk_live_marker()
+        span = _mk_span(10, 10 + len(marker))
+        expectations = MarkerExpectations((_mk_live_tag(stale=True),))
+        with pytest.raises(_ReplaceRefusal) as excinfo:
+            _scan(
+                MK_PREFIX + marker + MK_SUFFIX,
+                expectations,
+                _mk_binding(span, frozenset({"stale", "live"})),
+            )
+        assert excinfo.value.detail is CarrierDetail.MARKER_INVALID
+
+    def test_stale_verdict_stays_internal_diagnostic(self) -> None:
+        marker = _mk_live_marker()
+        stale = MarkerExpectations((_mk_live_tag(stale=True),))
+        verdict = verify_marker(marker, 10, expectations=stale)
+        assert verdict.valid is False
+        assert verdict.reason == "stale"
+        current = MarkerExpectations((_mk_live_tag(stale=False),))
+        verdict = verify_marker(marker, 10, expectations=current)
+        assert verdict.valid is True
+        assert verdict.reason == "ok"
+
+    def test_current_live_token_replay_accepted_content_free(self) -> None:
+        marker = _mk_live_marker()
+        span = _mk_span(10, 10 + len(marker))
+        expectations = MarkerExpectations((_mk_live_tag(),))
+        replayed = _scan(
+            MK_PREFIX + marker + MK_SUFFIX,
+            expectations,
+            _mk_binding(span, frozenset({"live"})),
+        )
+        ((key, record),) = replayed.items()
+        assert key == (MK_ENDPOINT, MK_LOCATION, 10)
+        assert record.replayed is True
+        assert record.kind is MarkerKind.LIVE_REFERENCE
+        assert record.carrier_location == MK_LOCATION
+        assert record.field == "output"
+        assert record.start == 10
+        assert record.end == 10 + len(marker)
+        assert record.marker_bytes == len(marker.encode("utf-8"))
+        assert record.marker_sha256 == hashlib.sha256(marker.encode("utf-8")).hexdigest()
+        assert record.target_content_key == MK_CONTENT_KEY
+        assert record.source_digest == MK_SOURCE_DIGEST
+        # The private call identity never enters the representation.
+        assert "synthetic-read-1" not in repr(record)
+
+    def test_evidence_token_accepted_when_evidence_kind_bound(self) -> None:
+        marker = _mk_evidence_marker()
+        span = _mk_span(10, 10 + len(marker))
+        expectations = MarkerExpectations((_mk_evidence_tag(),))
+        replayed = _scan(
+            MK_PREFIX + marker + MK_SUFFIX,
+            expectations,
+            _mk_binding(span, frozenset({"evidence"})),
+        )
+        ((key, record),) = replayed.items()
+        assert key == (MK_ENDPOINT, MK_LOCATION, 10)
+        assert record.replayed is True
+        assert record.kind is MarkerKind.EVIDENCE
+
+    def test_forged_token_refuses(self) -> None:
+        marker = _mk_live_marker()
+        span = _mk_span(10, 10 + len(marker))
+        expectations = MarkerExpectations((_mk_live_tag(key=b"other-session-key"),))
+        with pytest.raises(_ReplaceRefusal) as excinfo:
+            _scan(
+                MK_PREFIX + marker + MK_SUFFIX,
+                expectations,
+                _mk_binding(span, frozenset({"live"})),
+            )
+        assert excinfo.value.detail is CarrierDetail.MARKER_INVALID
+
+    def test_cross_namespace_token_refuses(self) -> None:
+        marker = _mk_live_marker(namespace="other-namespace")
+        span = _mk_span(10, 10 + len(marker))
+        expectations = MarkerExpectations((_mk_live_tag(),))
+        with pytest.raises(_ReplaceRefusal) as excinfo:
+            _scan(
+                MK_PREFIX + marker + MK_SUFFIX,
+                expectations,
+                _mk_binding(span, frozenset({"live"})),
+            )
+        assert excinfo.value.detail is CarrierDetail.MARKER_INVALID
+
+    def test_moved_token_refuses(self) -> None:
+        marker = _mk_live_marker()
+        span = _mk_span(10, 10 + len(marker))
+        expectations = MarkerExpectations((_mk_live_tag(),))
+        with pytest.raises(_ReplaceRefusal) as excinfo:
+            _scan(
+                "P" * 12 + marker + MK_SUFFIX,
+                expectations,
+                _mk_binding(span, frozenset({"live"})),
+            )
+        assert excinfo.value.detail is CarrierDetail.MARKER_INVALID
+
+    def test_kind_incompatible_token_refuses(self) -> None:
+        marker = _mk_live_marker()
+        span = _mk_span(10, 10 + len(marker))
+        expectations = MarkerExpectations((_mk_live_tag(),))
+        with pytest.raises(_ReplaceRefusal) as excinfo:
+            _scan(
+                MK_PREFIX + marker + MK_SUFFIX,
+                expectations,
+                _mk_binding(span, frozenset({"evidence"})),
+            )
+        assert excinfo.value.detail is CarrierDetail.MARKER_INVALID
+
+    def test_unknown_version_refuses(self) -> None:
+        span = _mk_span(10, 53)
+        expectations = MarkerExpectations((_mk_live_tag(),))
+        unknown = MK_PREFIX + "[slaif-live:v9:" + "A" * 43 + "]" + MK_SUFFIX
+        with pytest.raises(_ReplaceRefusal) as excinfo:
+            _scan(unknown, expectations, _mk_binding(span, frozenset({"live"})))
+        assert excinfo.value.detail is CarrierDetail.MARKER_INVALID
+
+    def test_malformed_tag_refuses(self) -> None:
+        span = _mk_span(10, 53)
+        expectations = MarkerExpectations((_mk_live_tag(),))
+        malformed = MK_PREFIX + "[slaif-live:v1:" + "A" * 40 + "]" + MK_SUFFIX
+        with pytest.raises(_ReplaceRefusal) as excinfo:
+            _scan(malformed, expectations, _mk_binding(span, frozenset({"live"})))
+        assert excinfo.value.detail is CarrierDetail.MARKER_INVALID
+
+    def test_plain_text_without_markers_replays_nothing(self) -> None:
+        span = _mk_span(10, 16)
+        expectations = MarkerExpectations((_mk_live_tag(),))
+        replayed = _scan(
+            MK_PREFIX + "plain text" + MK_SUFFIX,
+            expectations,
+            _mk_binding(span, frozenset({"live"})),
+        )
+        assert replayed == {}
