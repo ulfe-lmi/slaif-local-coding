@@ -6,9 +6,11 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..config import ObservationPolicy
+if TYPE_CHECKING:
+    from ..config import ObservationPolicy
+
 from .models import (
     CandidateReference,
     ConstitutionSourceObservation,

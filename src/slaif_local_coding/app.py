@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
 
-from .config import RouteConfig, Settings, validate_service_token
+from .config import V1_PROFILE, RouteConfig, Settings, validate_service_token
 from .constitution import (
     ObservationContext,
     observe_request_for_pipeline,
@@ -217,11 +217,29 @@ async def _read_bounded_error_diagnostic(
         return None
 
 
+V1_RUNTIME_UNAVAILABLE_MESSAGE = (
+    "the dependency-bundles-v1 profile is selected but the v1 runtime is unavailable in this build"
+)
+
+
+class V1RuntimeUnavailableError(RuntimeError):
+    """Fixed startup refusal for a selected v1 profile (022-a guard).
+
+    Raised by ``create_app`` before any HTTP client, legacy cache or
+    recovery owner is constructed. The guard is removed only when the
+    same-022 transaction is wired. A settings model or an app refused
+    before starting does not establish v1 readiness, source replacement,
+    native-format, streaming or recovery qualification.
+    """
+
+
 def create_app(
     settings: Settings,
     transport: httpx.AsyncBaseTransport | None = None,
     signed_identity_clock: Callable[[], float] | None = None,
 ) -> FastAPI:
+    if settings.context_cache.profile == V1_PROFILE:
+        raise V1RuntimeUnavailableError(V1_RUNTIME_UNAVAILABLE_MESSAGE)
     timeout = httpx.Timeout(
         connect=settings.upstream.connect_timeout_seconds,
         read=settings.upstream.request_timeout_seconds,

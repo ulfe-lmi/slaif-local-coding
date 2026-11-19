@@ -2,6 +2,7 @@ import asyncio
 import gzip
 import json
 import logging
+import re
 from collections.abc import AsyncIterator, Callable, Coroutine, MutableMapping
 from pathlib import Path
 from typing import Any, cast
@@ -11,17 +12,27 @@ import pytest
 from starlette.requests import Request
 
 import slaif_local_coding.app as app_module
-from slaif_local_coding.app import create_app
+from slaif_local_coding.app import (
+    V1_RUNTIME_UNAVAILABLE_MESSAGE,
+    V1RuntimeUnavailableError,
+    create_app,
+)
 from slaif_local_coding.config import (
     CacheConfig,
     CompilerConfig,
     ConstitutionIntegrationConfig,
+    ContextCacheConfig,
+    ContextCacheRecoveryConfig,
+    ContextCacheRouteContract,
     GatewayIngressConfig,
     RouteConfig,
     ServerConfig,
     Settings,
     UpstreamConfig,
 )
+from slaif_local_coding.constitution.bundles.bundle_budget import BundleBudgetConfig
+from slaif_local_coding.constitution.bundles.bundle_compiler import BundleCompilerConfig
+from slaif_local_coding.constitution.bundles.ram_state_models import RamStateBounds
 from tests.helpers.transport_observer import DirectTransportObserver
 
 
@@ -1109,3 +1120,107 @@ async def test_normal_governed_request_makes_zero_constitution_pipeline_calls(
     selector_call.assert_not_called()
     responses_inject.assert_not_called()
     chat_inject.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# 022-a: the fixed v1 startup refusal at the create_app entry point and the
+# preserved legacy entry points (fake transports, synthetic identity and
+# environment names, no real secrets, no live upstream).
+# ---------------------------------------------------------------------------
+
+
+def _v1_refusal_settings(tmp_path: Path) -> Settings:
+    """A fully valid closed v1 settings whose refusal proves the entry-point
+    guard, not a configuration failure."""
+    return Settings(
+        server=ServerConfig(request_body_max_bytes=4096),
+        upstream=UpstreamConfig(
+            base_url="http://127.0.0.1:18020/v1",
+            api_key_env="TEST_V1_UPSTREAM_KEY",
+            model="qwen38-27b",
+        ),
+        routes=[
+            RouteConfig(
+                name="text",
+                model="qwen38-27b",
+                max_images_per_request=0,
+                image_overflow_policy="reject",
+                observation_enabled=True,
+                constitution_enabled=True,
+            )
+        ],
+        constitution=ConstitutionIntegrationConfig(
+            enabled=True,
+            identity_source="static",
+            principal="local-principal",
+            session="local-session",
+            repository="local-repository",
+        ),
+        context_cache=ContextCacheConfig(
+            profile="dependency-bundles-v1",
+            budget=BundleBudgetConfig(context_tokens=32_768),
+            compiler=BundleCompilerConfig(
+                model="qwen38-27b",
+                base_url="http://127.0.0.1:18020/v1",
+                model_revision="a" * 40,
+                compatibility_identity="slaif-rtx3090-compat-1",
+                api_key_env="TEST_V1_COMPILER_KEY",
+            ),
+            ram=RamStateBounds(
+                session_max_owned_bytes=128 * 1024 * 1024,
+                process_max_owned_bytes=512 * 1024 * 1024,
+            ),
+            recovery=ContextCacheRecoveryConfig(
+                enabled=True,
+                root=tmp_path / "v1-recovery",
+            ),
+            route_contracts={
+                "text": ContextCacheRouteContract(model="qwen38-27b", context_tokens=32_768)
+            },
+        ),
+    )
+
+
+def test_v1_profile_refused_before_any_runtime_construction(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def _forbidden_client(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the v1 refusal must precede HTTP client construction")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _forbidden_client)
+    settings = _v1_refusal_settings(tmp_path)
+    recovery_root = settings.context_cache.recovery.root
+    assert recovery_root is not None
+    with pytest.raises(V1RuntimeUnavailableError, match=re.escape(V1_RUNTIME_UNAVAILABLE_MESSAGE)):
+        create_app(settings)
+    # The refusal precedes the client and the recovery owner: the configured
+    # store root was never created, opened or probed.
+    assert not recovery_root.exists()
+    # The refusal holds with an injected transport as well: the transport is
+    # never wired because no client is constructed.
+    with pytest.raises(V1RuntimeUnavailableError, match=re.escape(V1_RUNTIME_UNAVAILABLE_MESSAGE)):
+        create_app(
+            settings,
+            transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"ok": True})),
+        )
+    assert not recovery_root.exists()
+
+
+@pytest.mark.asyncio
+async def test_explicit_legacy_profile_stays_usable_through_existing_entry_point(
+    settings: Settings,
+) -> None:
+    legacy = Settings(
+        server=settings.server,
+        upstream=settings.upstream,
+        routes=settings.routes,
+        context_cache=ContextCacheConfig(profile="legacy"),
+    )
+    assert legacy.context_cache.profile == "legacy"
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("healthz must not touch the upstream")
+
+    response = await call(legacy, handler, "GET", "/healthz")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

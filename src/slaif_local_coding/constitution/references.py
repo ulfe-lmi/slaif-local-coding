@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from ..config import ObservationPolicy
+if TYPE_CHECKING:
+    from ..config import ObservationPolicy
+
 from .models import (
     CandidateReference,
     EvidenceRecord,
