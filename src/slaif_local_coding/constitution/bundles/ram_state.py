@@ -1083,18 +1083,22 @@ class RamStateOwner:
                     session_owned_bytes=self.owned_bytes,
                     process_owned_bytes=self.process_owned_bytes,
                 )
-            # The 020 recovery fence: a live
-            # recovery IO / reservation for
-            # this session (the held transient
-            # term) refuses the direct store
-            # release -- the recovery owner's
-            # explicit composed teardown drains
-            # it first (a late recovery write
+            # The 020 recovery fence: live
+            # recovery IO for this session (the
+            # held transient term OR a claimed
+            # synchronous recovery operation --
+            # the closed 020-b preemption gap:
+            # a claimed operation can still
+            # reserve / publish) refuses the
+            # direct store release -- the
+            # recovery owner's explicit
+            # composed teardown drains it
+            # first (a late recovery write
             # can never publish after the RAM
             # ownership is released); with no
             # live recovery IO the 019
             # behavior is unchanged.
-            if self._registry._recovery_session_transient.get(self.namespace.lineage_key, 0) > 0:
+            if self._registry.recovery_io_live(self.namespace.lineage_key):
                 return RamStateTeardownResult(
                     outcome=RamStateOutcome.REFUSED,
                     limitation=RamStateLimitation.RECOVERY_IN_FLIGHT,
@@ -1171,6 +1175,7 @@ class RamStateOwnerRegistry:
         "_work",
         "_recovery_transient",
         "_recovery_session_transient",
+        "_recovery_op_owner",
         "_owned_store_io",
     )
 
@@ -1217,6 +1222,32 @@ class RamStateOwnerRegistry:
         # capacity check add this term, so concurrent
         # allocations see the reservation.
         self._recovery_session_transient: dict[str, int] = {}
+        # The 020-b claimed synchronous recovery
+        # operation (the closed preemption-gap
+        # term): the ONE claimed operation's
+        # owner record itself, or None when no
+        # operation is claimed (holding the owner
+        # reference -- not a lineage string -- so
+        # the end matches by IDENTITY: a stale /
+        # foreign end never clears another
+        # operation's claim, even for a replaced
+        # owner of the same session).  Bounded by
+        # the ONE closed process owned store IO
+        # slot: a claim is admitted ONLY while
+        # the caller holds that slot, so at most
+        # ONE operation can ever be claimed (the
+        # slot bound is the growth bound of this
+        # field).  A claimed operation can still
+        # reserve / publish, so no store / work
+        # release may run while the claim is live
+        # (the composed recovery teardown drains
+        # it before release; a direct release is
+        # the typed recovery_in_flight refusal).
+        # A pure identity: no byte charge (the
+        # owner reference is the session's
+        # existing registered owner, charged
+        # with it).
+        self._recovery_op_owner: RamStateOwner | None = None
         # The ONE closed process-owned store IO slot
         # (020 requirement 4): at most ONE owned
         # durable store IO runs in the whole
@@ -1626,6 +1657,103 @@ class RamStateOwnerRegistry:
                 self._recovery_session_transient[key] = reserved - nbytes
             self._recovery_transient -= nbytes
             self._process_owned_bytes -= nbytes
+
+    def recovery_op_begin(self, owner: RamStateOwner) -> bool:
+        """The 020-b synchronous recovery operation
+        admission claim (the closed preemption gap):
+        the EXACT live-owner join and the claim are
+        ONE atomic step under the registry lock --
+        the registered, unfenced live owner must BE
+        the claimed owner record (an absent / fenced
+        / replaced owner refuses), and the owner's
+        019 work plane must not already be DRAINING
+        (a fenced work owner refuses: its teardown
+        owns the drain and releases the store owner
+        atomically, so no new synchronous operation
+        may join it) -- so no teardown can retire
+        the owner between the operation's entry
+        check and its claim to reserve / operate on
+        the live owner: a teardown that wins retires
+        the owner and the claim is a clean typed
+        refusal (no cold reservation, no
+        publication), while a write that wins the
+        claim keeps the owner un-releasable until
+        the operation ends (the composed recovery
+        teardown drains the claim before release; a
+        direct store / work release is the typed
+        ``recovery_in_flight`` refusal).  This same-
+        lock work-drain refusal keeps the reverse
+        ordering closed while a 019 teardown is
+        ALREADY draining, and the established
+        fence-case results are preserved on a
+        claim refusal: ``admit_with_fence`` reports
+        the established ``FENCE_REFUSED`` blocked-
+        continuation outcome (the ``WRITER_CONFLICT``
+        fence) and ``checkpoint_current`` the
+        established ``WRITER_CONFLICT``.  The claim
+        is TIED to the ONE closed process owned
+        store IO slot (admitted only while the
+        caller holds it: at most ONE operation can
+        ever be claimed, the slot bound is the
+        field's growth bound), and is released
+        exactly once by ``recovery_op_end`` on
+        every outcome."""
+        with self._lock:
+            if self._owned_store_io == 0:
+                # The claim is tied to the ONE
+                # process owned store IO slot: a
+                # claimed operation is the slot
+                # holder.
+                return False
+            key = owner.namespace.lineage_key
+            existing = self._owners.get(key)
+            if existing is not owner or existing.epoch_fenced:
+                return False
+            work_plane = self._work
+            if work_plane is not None and work_plane.owner_teardown_fenced(key):
+                return False
+            self._recovery_op_owner = owner
+            return True
+
+    def recovery_op_end(self, owner: RamStateOwner) -> None:
+        """Release ONE prior ``recovery_op_begin``
+        claim exactly once (no double release): the
+        claim ends ONLY on the EXACT owner record
+        that claimed it (identity match -- a stale /
+        foreign end never clears another
+        operation's claim, even for a replaced
+        owner of the same session)."""
+        with self._lock:
+            if self._recovery_op_owner is owner:
+                self._recovery_op_owner = None
+
+    def recovery_op_live(self, lineage_key: str) -> bool:
+        """Whether the identified session's
+        synchronous recovery operation is claimed
+        (the caller holds the registry lock): the
+        composed recovery teardown's drain waits for
+        this term (plus the store in-flight count)
+        to clear before the RAM ownership can be
+        fenced / released (a write that won its
+        claim can still publish)."""
+        claimed = self._recovery_op_owner
+        return claimed is not None and claimed.namespace.lineage_key == lineage_key
+
+    def recovery_io_live(self, lineage_key: str) -> bool:
+        """The 020 live-recovery-IO fence predicate
+        (the caller holds the registry lock): True
+        while a recovery transient is held OR the
+        session's synchronous recovery operation is
+        claimed -- either can still publish, so a
+        direct store / work release may never run
+        under it (a late recovery write can never
+        publish after the RAM ownership is
+        released).  With no live recovery IO the
+        019 behavior is unchanged."""
+        claimed = self._recovery_op_owner
+        return self._recovery_session_transient.get(lineage_key, 0) > 0 or (
+            claimed is not None and claimed.namespace.lineage_key == lineage_key
+        )
 
     @staticmethod
     def _validate_recovery_transient_key(key: object) -> str:

@@ -1991,6 +1991,249 @@ async def test_resume_epoch_binding_publish_fault_releases_owner_and_writer(
 
 @pytest.mark.parametrize("mode", MODES)
 @pytest.mark.parametrize("endpoint", ENDPOINTS)
+async def test_resume_epoch_binding_readback_io_fault_releases_owner_and_writer(
+    mode: Any, endpoint: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Epoch-binding READ-BACK I/O fault (020-b
+    requirement 2): with a REAL committed checkpoint
+    (generation 1), an ordinary filesystem read fault
+    injected at the epoch-binding write's post-
+    publication read-back (the pointer rename is already
+    committed) is contained at the store boundary as a
+    typed ``io_failure`` with the BEST actual observed
+    generation (the committed binding pointer,
+    generation 2 -- never a raw ``os.read`` escape past
+    owner teardown / session close, never an assumption
+    of the previous state); the leak regression holds:
+    the partially prepared owner is removed, the rebound
+    reservation is released, the writer is released and
+    no claimed operation survives; a fresh open observes
+    the committed generation and a fresh SAME-registry
+    resume succeeds (a distinct epoch strictly above the
+    durably bound prior)."""
+    identity = RequestIdentity(
+        principal="bindfault-io-principal",
+        session="bindfault-io-session",
+        repository="bindfault-io-repo",
+        route="bindfault-io-route",
+    )
+    ns, _state, _result, _ow, rec = _session_chain(mode, endpoint, identity, "bindfault-io-lineage")
+    address = RecoverySessionAddress.from_namespace(ns)
+    store = RecoveryStore(_prepared_root(tmp_path))
+    sess = store.open_session(address)
+    try:
+        pub = sess.publish(rec, expected_generation=0)
+        assert pub.limitation is RecoveryStoreLimitation.OK
+        assert pub.generation == 1
+    finally:
+        sess.close()
+    registry = _work_registry()
+    proc_before = registry.process_owned_bytes
+    session_dir = store.root / session_directory_name(address)
+    session_ino = os.stat(session_dir).st_ino
+    # The fault arms ONLY when the binding publication
+    # reaches its post-rename directory fsync, and then
+    # targets the binding checkpoint file (generation 2)
+    # at the read-back: the real checkpoint bytes are on
+    # disk and the pointer rename has committed.
+    fault: dict[str, int | bool] = {"armed": False, "checkpoint_ino": 0}
+    real_fsync = os.fsync
+    real_read = os.read
+
+    def flaky_fsync(fd: int) -> None:
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            real_fsync(fd)
+            return
+        if st.st_ino == session_ino and not fault["armed"]:
+            fault["checkpoint_ino"] = os.stat(session_dir / "checkpoint-2.json").st_ino
+            fault["armed"] = True
+        real_fsync(fd)
+
+    def flaky_read(fd: int, size: int) -> bytes:
+        if fault["armed"] and os.fstat(fd).st_ino == fault["checkpoint_ino"]:
+            raise OSError("injected read-back IO failure")
+        return real_read(fd, size)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(os, "fsync", flaky_fsync)
+        scoped.setattr(os, "read", flaky_read)
+        failed = resume_session(registry, store, address)
+    assert failed.outcome is RecoveryResumeOutcome.STORE_REFUSED
+    assert failed.limitation is RecoveryStoreLimitation.IO_FAILURE
+    # The BEST actual observed generation: the pointer
+    # rename committed (generation 2) and the pointer is
+    # readable -- never the assumed prior state (1) and
+    # never an unobservable None:
+    assert failed.generation == 2
+    assert failed.owner is None
+    assert failed.recovery is None
+    # The leak regression: the partially prepared owner
+    # is removed, the rebound reservation is released,
+    # the writer is released and no claimed operation
+    # survives (the retained registry high-water table
+    # charge is container metadata, so the process total
+    # may legitimately stay at or above the pre-resume
+    # baseline):
+    assert registry.get(rec.namespace) is None
+    assert registry._recovery_session_transient.get(rec.namespace.lineage_key, 0) == 0
+    assert registry._recovery_op_owner is None
+    assert registry.process_owned_bytes >= proc_before
+    # The committed generation is still 2 (the binding
+    # pointer is committed; the fault is at the read-
+    # back) and the record is intact:
+    fresh = store.open_session(address)
+    try:
+        assert fresh.current_generation() == 2
+        loaded = fresh.load()
+        assert loaded.limitation is RecoveryStoreLimitation.OK
+        assert loaded.pointer is not None
+        assert loaded.pointer.generation == 2
+        bound_record = loaded.record
+        assert bound_record is not None
+        bound_prior_epoch = bound_record.prior_epoch
+    finally:
+        fresh.close()
+    # Fresh open / resume in the SAME registry: a
+    # distinct epoch strictly above the durably bound
+    # prior, generation + 1:
+    retry = resume_session(registry, store, address)
+    assert retry.outcome is RecoveryResumeOutcome.RESUMED
+    assert retry.generation == 3
+    assert retry.new_epoch is not None and retry.new_epoch > bound_prior_epoch
+    retry_owner = retry.owner
+    assert retry_owner is not None
+    retry_recovery = retry.recovery
+    assert retry_recovery is not None
+    td = await retry_recovery.teardown()
+    assert td.outcome is RecoveryTeardownOutcome.TEARDOWN
+    assert registry.get(retry_owner.namespace) is None
+    fresh2 = store.open_session(address)
+    try:
+        assert fresh2.current_generation() == 3
+    finally:
+        fresh2.close()
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+async def test_preemption_gap_teardown_wins_claim_refuses_retired_owner(
+    mode: Any, endpoint: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The closed 020-b preemption gap (requirement 3): the
+    synchronous recovery operation's entry check and its
+    claim to reserve / operate on the live owner are ONE
+    atomic join under the registry lock, but the entry
+    check (tearing-down false, slot free) and the claim
+    are separate steps -- a teardown that retires the
+    owner BETWEEN them must make the claim a clean typed
+    refusal.  The operation is deterministically gated at
+    its ORIGINAL ``recovery_op_begin`` (the documented
+    entry gap, class-scope gate on the slotted registry),
+    the 019 work teardown wins the race while the
+    operation is gated (NO live recovery IO at its entry:
+    not claimed, not reserved) and retires the owner, and
+    only then is the gate released: the claim targets the
+    RETIRED owner and refuses cleanly (typed writer
+    conflict with the actual observed generation) with NO
+    cold reservation and NO publication -- the single
+    bounded slot and the typed fences preserved; the
+    committed generation stays where the teardown left
+    it."""
+    identity = RequestIdentity(
+        principal="preempt-gap-principal",
+        session="preempt-gap-session",
+        repository="preempt-gap-repo",
+        route="preempt-gap-route",
+    )
+    ns, _state, _result, _ow, rec = _session_chain(mode, endpoint, identity, "preempt-gap-lineage")
+    address = RecoverySessionAddress.from_namespace(ns)
+    store = RecoveryStore(_prepared_root(tmp_path))
+    sess = store.open_session(address)
+    try:
+        pub = sess.publish(rec, expected_generation=0)
+        assert pub.limitation is RecoveryStoreLimitation.OK
+        assert pub.generation == 1
+    finally:
+        sess.close()
+    registry = _work_registry()
+    work = registry.work
+    assert work is not None
+    resumed = resume_session(registry, store, address)
+    assert resumed.outcome is RecoveryResumeOutcome.RESUMED
+    assert resumed.generation == 2
+    owner = resumed.owner
+    assert owner is not None
+    rec_owner = resumed.recovery
+    assert rec_owner is not None
+    okey = owner.namespace.lineage_key
+    entered = threading.Event()
+    release = threading.Event()
+    real_begin = RamStateOwnerRegistry.recovery_op_begin
+
+    def gated_begin(self: RamStateOwnerRegistry, owner_obj: RamStateOwner) -> bool:
+        # The deterministic barrier ON the documented
+        # entry gap: the ONE live registry's synchronous
+        # operation is held at its original claim (entry
+        # check passed, slot held, claim not yet run);
+        # every other registry / call passes through.
+        if self is registry and not release.is_set():
+            entered.set()
+            release.wait(60)
+        return real_begin(self, owner_obj)
+
+    monkeypatch.setattr(RamStateOwnerRegistry, "recovery_op_begin", gated_begin)
+    cp_task = asyncio.create_task(asyncio.to_thread(rec_owner.checkpoint_current))
+    try:
+        assert await asyncio.to_thread(entered.wait, 30)
+        # The operation is inside the documented entry
+        # gap: its entry check passed and the ONE bounded
+        # slot is held, but its claim has not run -- and
+        # so NO live recovery IO exists for the teardown
+        # entry check (not claimed, not reserved):
+        assert registry._owned_store_io == 1
+        assert registry._recovery_op_owner is None
+        assert registry._recovery_session_transient.get(okey, 0) == 0
+        # Teardown wins the race and retires the owner:
+        td = await work.teardown_owner(owner.namespace)
+        assert td.outcome is RamWorkOutcome.TEARDOWN
+        assert td.freed_bytes > 0
+        assert registry.get(owner.namespace) is None
+        proc_after = registry.process_owned_bytes
+        # Release the gate: the claim now targets the
+        # RETIRED owner -- a clean typed refusal with the
+        # actual observed generation, NO cold
+        # reservation, NO publication (the process total
+        # is EXACTLY unchanged by the refused claim):
+        release.set()
+        cp = await cp_task
+        assert cp.limitation is RecoveryStoreLimitation.WRITER_CONFLICT
+        assert cp.generation is None
+        assert cp.pointer is None
+        assert cp.actual_generation == 2
+        assert registry._recovery_op_owner is None
+        assert registry._recovery_session_transient.get(okey, 0) == 0
+        assert registry.process_owned_bytes == proc_after
+        assert rec_owner.bound_generation == 2
+        assert registry._owned_store_io == 0
+    finally:
+        release.set()
+    # No publication happened: the committed generation
+    # stays 2 (the durable record remains for restart);
+    # caller-level lifecycle cut as in the reverse-order
+    # case (the work teardown released the store owner,
+    # not the writer session).
+    rec_owner.session.close()
+    fresh = store.open_session(address)
+    try:
+        assert fresh.current_generation() == 2
+    finally:
+        fresh.close()
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
 async def test_checkpoint_caller_cancellation_drains_owned_write(
     mode: Any, endpoint: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

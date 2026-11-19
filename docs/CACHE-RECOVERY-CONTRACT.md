@@ -105,7 +105,17 @@ source freshness. Faults preserve the previous committed generation
 or report the ACTUAL committed outcome explicitly (the post-rename
 fault reports the actual observed generation — the rename may be
 committed while directory durability is unconfirmed — and a caller
-must assume neither the old nor the new state); `current_generation()`
+must assume neither the old nor the new state); an ORDINARY
+filesystem fault (a raw `os.read` / `fstat` error) is contained at
+the store boundary as the closed `io_failure` limitation on every
+read path — the publication read-back fence, the load fence,
+the pre-publication pointer CAS read and the generation probe
+— never a raw escape: the read-back fault is a TYPED failure
+carrying the BEST actual observed generation (the committed
+pointer generation when it is readable, unknown when it is not;
+a short read is the genuinely-torn `checkpoint_torn`, preserved),
+and a pre-publication pointer fault refuses with the actual
+generation carried (the pointer untouched); `current_generation()`
 distinguishes MISSING (0) from corrupt/invalid current (typed
 refusal), so no load failure maps silently to 0. A crashed prior
 attempt of the SAME generation may leave orphan checkpoint bytes; they
@@ -209,7 +219,15 @@ run over ONE process-wide owned store IO slot
 (`owned_store_io_acquire` / `owned_store_io_release`, closed
 constant 1): a second concurrent owned publication is refused typed
 `write_in_flight` BEFORE any new thread starts (the store in-flight
-law is the second fence). The async path runs the synchronous
+law is the second fence).  The ONE writer-owned session
+ADDITIONALLY serializes the ENTIRE generation CAS and publication
+attempt at the store level: a competing same-handle publication is
+refused `write_in_flight` BEFORE it can read the same expected
+generation or touch the shared pointer temp (both publish entry
+points — `publish` delegates to `publish_encoded`, the single
+in-flight gate), and a closed session refuses `session_closed`
+before any IO; the same-descriptor flock, the close / drain law and
+the observed-generation semantics are unchanged. The async path runs the synchronous
 publication in ONE owned worker thread (`asyncio.to_thread`) with the
 bounded transient reserved on the loop BEFORE dispatch (section 4).
 Cancellation / timeout / teardown cannot release ownership while an
@@ -229,13 +247,35 @@ AFTER the namespace identity join, BEFORE the capacity checks) and
 refuses with `RamStateWorkTeardownFenceError`, so a draining work
 teardown can never reach its later store release under live recovery
 IO, and work teardown refuses `recovery_in_flight` while a recovery
-reservation is held. The component contract documents an off-loop
-integration for the synchronous primitives (the existing bounded
-ownership / cancellation behavior applies; actual ASGI wiring is
-022); a documented residual preemption micro-window (a publication
-thread stalled between the entry check and the reserve while no live
-work holds the drain) is preserved as a process qualification, not
-tested.
+reservation is held OR a synchronous recovery operation is claimed
+(020-b, the claimed-owner fence: the claim can still reserve /
+publish, so the direct release is refused at entry on either term).
+The component contract documents an off-loop integration for the
+synchronous primitives (the existing bounded ownership / cancellation
+behavior applies; actual ASGI wiring is 022).  The former residual
+preemption micro-window (a publication stalled between the entry
+check and the reserve while no live work holds the drain) is CLOSED
+(020-b): the synchronous operation's entry check and its claim to
+reserve / operate on the live owner are ONE atomic step under the
+registry lock (`recovery_op_begin`: the registered, unfenced live
+owner must BE the claimed owner record — an absent / fenced /
+replaced owner refuses), tied to the ONE process owned store IO
+slot (a claim is admitted only while the caller holds it, so at most
+ONE operation is ever claimed — the slot bound is the claim's
+growth bound) and released exactly once on every outcome by
+`recovery_op_end` (identity match: a stale / foreign end never
+clears another operation's claim).  An ALREADY-SET work-teardown
+fence is NOT a claim refusal: the accepted 020-a same-lock
+reservation fence applies to a fenced claim unchanged (the
+established `FENCE_REFUSED` / `WRITER_CONFLICT` results are
+preserved), and a fenced claim can never publish (its reservation
+is refused under the SAME lock after the fence), so the teardown's
+atomic release stays safe under it.  A teardown that wins retires
+the owner and the claim is a clean typed refusal (no cold
+reservation, no publication); a write that wins its claim keeps the
+ownership un-releasable until the operation ends (the composed
+recovery teardown drains the claim the same way it drains the store
+in-flight count, before the writer is released).
 
 ## 8. Lazy rebuild and no hot reads
 

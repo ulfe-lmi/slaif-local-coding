@@ -435,7 +435,25 @@ class RecoverySessionOwner:
                 self._session.observed_generation,
             )
         try:
-            return self.checkpoint_current_locked()
+            if not self._registry.recovery_op_begin(self._owner):
+                # The closed 020-b preemption gap: the
+                # exact live-owner join refused (the
+                # owner is absent / fenced / replaced,
+                # or its 019 work plane is already
+                # draining and owns the release) -- a
+                # clean typed refusal with NO cold
+                # reservation and NO publication (the
+                # established WRITER_CONFLICT result).
+                return RecoveryPublishResult(
+                    RecoveryStoreLimitation.WRITER_CONFLICT,
+                    None,
+                    None,
+                    self._session.observed_generation,
+                )
+            try:
+                return self.checkpoint_current_locked()
+            finally:
+                self._registry.recovery_op_end(self._owner)
         finally:
             self._registry.owned_store_io_release()
 
@@ -796,11 +814,41 @@ class RecoverySessionOwner:
                 bound_generation=self._bound,
             )
         try:
-            return self._admit_with_fence_held(
-                state,
-                t_result,
-                expected_revision=expected_revision,
-            )
+            if not self._registry.recovery_op_begin(self._owner):
+                # The closed 020-b preemption gap: the
+                # exact live-owner join refused (the
+                # owner is absent / fenced / replaced,
+                # or its 019 work plane is already
+                # draining and owns the release) -- a
+                # clean typed refusal with NO cold
+                # reservation and NO publication.  The
+                # fenced case carries the ESTABLISHED
+                # 020-a ``FENCE_REFUSED`` blocked-
+                # continuation outcome (the durable
+                # fence could not be published, so NO
+                # transition is permitted -- the
+                # accepted reverse-order result,
+                # preserved) with the existing
+                # ``WRITER_CONFLICT`` in the fence.
+                return RecoveryFencedAdmitResult(
+                    RecoveryAdmitOutcome.FENCE_REFUSED,
+                    fence=RecoveryPublishResult(
+                        RecoveryStoreLimitation.WRITER_CONFLICT,
+                        None,
+                        None,
+                        self._session.observed_generation,
+                    ),
+                    owner_quarantined=bool(self._owner.quarantined),
+                    bound_generation=self._bound,
+                )
+            try:
+                return self._admit_with_fence_held(
+                    state,
+                    t_result,
+                    expected_revision=expected_revision,
+                )
+            finally:
+                self._registry.recovery_op_end(self._owner)
         finally:
             self._registry.owned_store_io_release()
 
@@ -925,14 +973,27 @@ class RecoverySessionOwner:
             # publication completes (or faults) to
             # its typed result before the lock can be
             # released, so a late old-epoch write can
-            # never publish after teardown.  A
-            # cancelled teardown keeps the session
-            # held (the except path below closes
-            # only when the store owner is ACTUALLY
-            # gone), so the drain may be retried and
-            # the writer lock never leaks under
-            # cancellation.
-            while self._session.in_flight > 0:
+            # never publish after teardown.  The
+            # claimed synchronous recovery operation
+            # drains the SAME way (020-b, the closed
+            # preemption gap): a write that won its
+            # exact live-owner claim can still
+            # reserve / publish, so the RAM
+            # ownership is never fenced / released
+            # and the session never closed until the
+            # claim clears (a teardown that wins
+            # instead retires the owner and the
+            # claim refuses cleanly).  A cancelled
+            # teardown keeps the session held (the
+            # except path below closes only when the
+            # store owner is ACTUALLY gone), so the
+            # drain may be retried and the writer
+            # lock never leaks under cancellation.
+            while True:
+                with self._registry._lock:
+                    op_live = self._registry.recovery_op_live(namespace.lineage_key)
+                if not op_live and self._session.in_flight == 0:
+                    break
                 await asyncio.sleep(0.01)
             work = self._registry.work
             if work is not None:

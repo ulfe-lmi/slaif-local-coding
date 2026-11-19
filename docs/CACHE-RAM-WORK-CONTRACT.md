@@ -320,7 +320,11 @@ recovery publication still acquires the owned slot / reserve,
 and the work teardown would otherwise reach its later store
 release under live recovery IO. The composed async
 `teardown_owner` refuses with the fixed `recovery_in_flight`
-while a recovery reservation is held at entry (the work plane
+while recovery IO is live at entry — a recovery reservation
+held OR a synchronous recovery operation claimed (020-b, the
+claimed-owner fence: the claim can still reserve / publish, so
+the direct store release is refused from EITHER branch while it
+is live) (the work plane
 stays fenced and the store is not released under live recovery
 IO). The session-reserved recovery transient is charged against
 the SAME atomic process / session sums the work plane already

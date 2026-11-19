@@ -247,17 +247,27 @@ def _verify_chain(root: Path) -> Path:
 
 def _read_bounded(fd: int, size: int, limit: int) -> bytes:
     """Bounded full read of an fstat-sized file from the
-    SAME descriptor that was validated."""
+    SAME descriptor that was validated.  An ordinary
+    filesystem read fault (a raw ``os.read`` error) is
+    contained at this store boundary as the closed
+    ``io_failure`` limitation -- never a raw escape out
+    of a read path (the publication read-back fence, the
+    load fence and the generation probe all stay typed).
+    A short read is the closed ``checkpoint_torn``
+    outcome (genuinely torn bytes are preserved)."""
     if size > limit:
         raise RecoveryStoreError(RecoveryStoreLimitation.OVERSIZED)
     chunks: list[bytes] = []
     remaining = size
-    while remaining > 0:
-        chunk = os.read(fd, min(_IO_CHUNK, remaining))
-        if not chunk:
-            break
-        chunks.append(chunk)
-        remaining -= len(chunk)
+    try:
+        while remaining > 0:
+            chunk = os.read(fd, min(_IO_CHUNK, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+    except OSError:
+        raise RecoveryStoreError(RecoveryStoreLimitation.IO_FAILURE) from None
     data = b"".join(chunks)
     if len(data) != size:
         raise RecoveryStoreError(RecoveryStoreLimitation.CHECKPOINT_TORN)
@@ -352,15 +362,26 @@ class RecoverySession:
         unreadable / corrupt, never an assumption)."""
         return self._observed_generation()
 
-    def _begin_write(self) -> bool:
+    def _begin_write(self) -> RecoveryStoreLimitation | None:
         """Claim the in-flight slot for ONE owned durable
-        write; False when the session is already closed
-        (no new write may start after close)."""
+        write; None when claimed, otherwise the closed
+        refusal to report.  The single writer-owned
+        session serializes the ENTIRE generation CAS and
+        publication attempt: a competing same-handle
+        publication is refused BEFORE it can read the
+        same expected generation or touch the shared
+        pointer temp (the closed ``write_in_flight``
+        law: drain the owned write first), and a closed
+        session refuses before any IO
+        (``session_closed``) -- no new write may start
+        after close."""
         with self._write_guard:
             if self._closing:
-                return False
+                return RecoveryStoreLimitation.SESSION_CLOSED
+            if self._in_flight > 0:
+                return RecoveryStoreLimitation.WRITE_IN_FLIGHT
             self._in_flight += 1
-            return True
+            return None
 
     def _end_write(self) -> None:
         with self._write_guard:
@@ -385,7 +406,15 @@ class RecoverySession:
             # file) is the fixed ownership refusal -- never
             # a raw error or a blocked open.
             raise RecoveryStoreError(RecoveryStoreLimitation.FOREIGN_OWNER) from None
-        st = os.fstat(fd)
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            # An ordinary filesystem fault AFTER the
+            # open is the closed io_failure with the
+            # descriptor cleaned up -- never a raw
+            # escape or a leaked fd.
+            os.close(fd)
+            raise RecoveryStoreError(RecoveryStoreLimitation.IO_FAILURE) from None
         if not stat_module.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             os.close(fd)
             raise RecoveryStoreError(RecoveryStoreLimitation.FOREIGN_OWNER)
@@ -398,12 +427,22 @@ class RecoverySession:
         """Open the committed pointer, validated on the
         same descriptor; None when no generation is
         committed yet.  Raises the fixed store error on
-        unsafe ownership / mode / oversize."""
+        unsafe ownership / mode / oversize (and the
+        closed io_failure on an ordinary post-open
+        fault, descriptor cleaned up)."""
         try:
             fd = self._open_verified("current.json")
         except FileNotFoundError:
             return None
-        st = os.fstat(fd)
+        try:
+            st = os.fstat(fd)
+        except OSError:
+            # An ordinary filesystem fault AFTER the
+            # open is the closed io_failure with the
+            # descriptor cleaned up -- never a raw
+            # escape or a leaked fd.
+            os.close(fd)
+            raise RecoveryStoreError(RecoveryStoreLimitation.IO_FAILURE) from None
         if st.st_size > POINTER_MAX_BYTES:
             os.close(fd)
             raise RecoveryStoreError(RecoveryStoreLimitation.OVERSIZED)
@@ -465,6 +504,12 @@ class RecoverySession:
                 raw = _read_bounded(fd, os.fstat(fd).st_size, POINTER_MAX_BYTES)
             except RecoveryStoreError:
                 return None
+        except OSError:
+            # An ordinary filesystem fault on the
+            # probe descriptor (fstat or read) is a
+            # closed UNKNOWN observation -- never a
+            # raw escape.
+            return None
         finally:
             os.close(fd)
         pointer = self._parse_pointer(raw)
@@ -488,10 +533,24 @@ class RecoverySession:
         try:
             try:
                 raw = _read_bounded(fd, os.fstat(fd).st_size, POINTER_MAX_BYTES)
-            except RecoveryStoreError:
+            except RecoveryStoreError as exc:
                 # A short / torn pointer document is a
-                # closed malformed document.
-                return RecoveryLoadResult(RecoveryStoreLimitation.MALFORMED, None, None)
+                # closed malformed document; an ordinary
+                # filesystem read fault is the closed
+                # io_failure (typed, never a raw escape).
+                return RecoveryLoadResult(
+                    RecoveryStoreLimitation.MALFORMED
+                    if exc.limitation is RecoveryStoreLimitation.CHECKPOINT_TORN
+                    else exc.limitation,
+                    None,
+                    None,
+                )
+        except OSError:
+            # An ordinary filesystem fault on the
+            # pointer descriptor (fstat or read) is
+            # the closed io_failure (typed, never a
+            # raw escape).
+            return RecoveryLoadResult(RecoveryStoreLimitation.IO_FAILURE, None, None)
         finally:
             os.close(fd)
         pointer = self._parse_pointer(raw)
@@ -514,7 +573,21 @@ class RecoverySession:
                 return RecoveryLoadResult(RecoveryStoreLimitation.CHECKPOINT_TORN, None, None)
             if st.st_size > self._store.max_bytes:
                 return RecoveryLoadResult(RecoveryStoreLimitation.OVERSIZED, None, None)
-            data = _read_bounded(data_fd, st.st_size, self._store.max_bytes)
+            try:
+                data = _read_bounded(data_fd, st.st_size, self._store.max_bytes)
+            except RecoveryStoreError as exc:
+                # A genuinely torn read and an ordinary
+                # filesystem read fault are BOTH closed
+                # load results (the previous committed
+                # generation is never mixed with
+                # unreadable bytes; no raw escape).
+                return RecoveryLoadResult(exc.limitation, None, None)
+        except OSError:
+            # An ordinary filesystem fault on the
+            # checkpoint descriptor (fstat or read) is
+            # the closed io_failure (typed, never a
+            # raw escape).
+            return RecoveryLoadResult(RecoveryStoreLimitation.IO_FAILURE, None, None)
         finally:
             os.close(data_fd)
         digest = hashlib.sha256(data).hexdigest()
@@ -611,8 +684,9 @@ class RecoverySession:
             # would be too late -- the write runs
             # first).
             return self._refused(RecoveryStoreLimitation.CHECKPOINT_TORN)
-        if not self._begin_write():
-            return self._refused(RecoveryStoreLimitation.SESSION_CLOSED)
+        refused = self._begin_write()
+        if refused is not None:
+            return self._refused(refused)
         try:
             return self._publish_encoded_locked(encoded, record, expected_generation)
         finally:
@@ -644,14 +718,32 @@ class RecoverySession:
             else:
                 try:
                     raw = _read_bounded(current_fd, os.fstat(current_fd).st_size, POINTER_MAX_BYTES)
-                except RecoveryStoreError:
-                    return self._refused(RecoveryStoreLimitation.MALFORMED)
+                except RecoveryStoreError as exc:
+                    # A short / torn pointer document is
+                    # the closed malformed outcome
+                    # (preserved); an ordinary filesystem
+                    # read fault is the closed io_failure
+                    # with the ACTUAL observed generation
+                    # carried (pre-publication failure:
+                    # the pointer is untouched).
+                    return self._refused(
+                        RecoveryStoreLimitation.MALFORMED
+                        if exc.limitation is RecoveryStoreLimitation.CHECKPOINT_TORN
+                        else exc.limitation
+                    )
                 parsed = self._parse_pointer(raw)
                 if not isinstance(parsed, RecoveryPointer):
                     return self._refused(parsed)
                 if expected_generation != parsed.generation:
                     return self._refused(RecoveryStoreLimitation.GENERATION_MISMATCH)
                 current = parsed
+        except OSError:
+            # An ordinary filesystem fault on the
+            # committed pointer (fstat or read) is the
+            # closed io_failure with the ACTUAL observed
+            # generation carried (a pre-publication
+            # failure: the pointer is untouched).
+            return self._refused(RecoveryStoreLimitation.IO_FAILURE)
         finally:
             if current_fd is not None:
                 os.close(current_fd)
@@ -817,6 +909,12 @@ class RecoverySession:
         try:
             raw = _read_bounded(fd, os.fstat(fd).st_size, POINTER_MAX_BYTES)
         except RecoveryStoreError:
+            return 0
+        except OSError:
+            # An ordinary filesystem fault on the
+            # probe descriptor (fstat or read) is the
+            # closed 0 (no usable committed size; the
+            # reservation floor still applies).
             return 0
         finally:
             os.close(fd)

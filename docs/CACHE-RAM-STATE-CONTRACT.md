@@ -245,6 +245,21 @@ process-wide owned store IO slot
 constant 1, the typed busy refusal) that bounds concurrent owned
 recovery publications; and the fixed `recovery_in_flight`
 refusal on the synchronous store teardown (and on the work
-teardown) while recovery IO / reservation is live at entry, so
-both teardown paths compose with the 020 recovery owner without
-an orphaned writer.
+teardown) while recovery IO is live at entry — the held
+transient reservation OR a claimed synchronous recovery
+operation (020-b: the claim is the ONE registry-held
+`_recovery_op_owner` record, admitted only while the caller holds
+the ONE process owned store IO slot, so at most ONE operation is
+ever claimed; `recovery_op_begin` joins the registered, unfenced
+live owner in the SAME critical section as the claim — an
+absent / fenced / replaced owner refuses, while an ALREADY-SET
+work-teardown fence is NOT a claim refusal (the accepted 020-a
+same-lock reservation fence applies to a fenced claim unchanged,
+preserving the established `FENCE_REFUSED` / `WRITER_CONFLICT`
+results, and a fenced claim can never publish) — and
+`recovery_op_end` releases it by identity on every outcome) — so
+both teardown paths compose with the 020 recovery owner without an
+orphaned writer: a teardown that wins retires the owner and the
+claim is a clean typed refusal (no cold reservation, no
+publication), while a write that wins its claim keeps the
+ownership un-releasable until the operation ends.

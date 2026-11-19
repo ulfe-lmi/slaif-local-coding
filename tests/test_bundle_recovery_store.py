@@ -26,6 +26,7 @@ import signal
 import stat
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -42,6 +43,7 @@ from slaif_local_coding.constitution.bundles.recovery_models import (
     RecoverySessionAddress,
 )
 from slaif_local_coding.constitution.bundles.recovery_store import (
+    RecoveryPublishResult,
     RecoveryStore,
     RecoveryStoreError,
     RecoveryStoreLimitation,
@@ -785,6 +787,99 @@ def test_stale_pointer_tmp_is_consumed_by_publish(tmp_path: Path) -> None:
         assert ok.generation == 1
         assert not (session_dir / "current.json.tmp").exists()
         assert session.load().record == record_a
+    finally:
+        session.close()
+
+
+def _held_fsync_barrier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[threading.Event, threading.Event]:
+    """A bounded global ``os.fsync`` barrier: the FIRST
+    fsync after installation signals ``entered`` and
+    blocks until ``release`` is set; after release every
+    fsync (including the held one) completes for real.
+    Returns ``(entered, release)`` (the existing held-
+    write test pattern)."""
+    entered = threading.Event()
+    release = threading.Event()
+    real_fsync = os.fsync
+
+    def held_fsync(fd: int) -> None:
+        if not release.is_set():
+            entered.set()
+            release.wait(60)
+        real_fsync(fd)
+
+    monkeypatch.setattr(os, "fsync", held_fsync)
+    return entered, release
+
+
+@pytest.mark.parametrize("mode,endpoint", list(zip(MODES, ENDPOINTS, strict=True)))
+def test_held_write_serializes_same_handle_cas_and_publication(
+    tmp_path: Path,
+    mode: AdmissionMode,
+    endpoint: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ONE writer-owned session serializes the ENTIRE
+    generation CAS and publication attempt (020-b
+    requirement 1): a competing same-handle publication
+    is refused ``write_in_flight`` BEFORE it can read the
+    same expected generation or touch the shared pointer
+    temp (the actual observed generation is carried, the
+    pointer is untouched); after the held write commits,
+    a stale expected generation is refused
+    ``generation_mismatch`` with the ACTUAL committed
+    generation, and the record on disk is the held
+    write's (the actual record verified)."""
+    address, record_a, record_b = _address_and_records(mode, endpoint)
+    store = RecoveryStore(_prepared_root(tmp_path))
+    session = store.open_session(address)
+    try:
+        ok1 = session.publish(record_a, expected_generation=0)
+        assert ok1.limitation is RecoveryStoreLimitation.OK
+        assert ok1.generation == 1
+        entered, release = _held_fsync_barrier(monkeypatch)
+        held: dict[str, RecoveryPublishResult] = {}
+
+        def held_write() -> None:
+            held["pub"] = session.publish(record_b, expected_generation=1)
+
+        worker = threading.Thread(target=held_write, daemon=True)
+        worker.start()
+        try:
+            assert entered.wait(30)
+            # The competing same-handle writer cannot
+            # start its own CAS or pointer mutation while
+            # the owned write is in flight:
+            competing = session.publish(record_a, expected_generation=1)
+            assert competing.limitation is RecoveryStoreLimitation.WRITE_IN_FLIGHT
+            assert competing.generation is None
+            assert competing.pointer is None
+            assert competing.actual_generation == 1
+            # Release the held write: it commits to its
+            # ACTUAL outcome (generation 2).
+            release.set()
+            worker.join(30)
+            assert not worker.is_alive()
+            assert held["pub"].limitation is RecoveryStoreLimitation.OK
+            assert held["pub"].generation == 2
+            # The stale expected generation is refused
+            # with the ACTUAL committed generation:
+            stale = session.publish(record_a, expected_generation=1)
+            assert stale.limitation is RecoveryStoreLimitation.GENERATION_MISMATCH
+            assert stale.generation is None
+            assert stale.actual_generation == 2
+            # The ACTUAL record on disk is the held
+            # write's:
+            loaded = session.load()
+            assert loaded.limitation is RecoveryStoreLimitation.OK
+            assert loaded.pointer is not None
+            assert loaded.pointer.generation == 2
+            assert loaded.record == record_b
+        finally:
+            release.set()
+            worker.join(30)
     finally:
         session.close()
 

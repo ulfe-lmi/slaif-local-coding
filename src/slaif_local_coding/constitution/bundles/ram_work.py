@@ -1207,18 +1207,22 @@ class RamWorkCoordinator:
         tasks: list[asyncio.Task[None]] = []
         task_las: list[_LiveAttempt] = []
         with self._registry._lock:
-            # The 020 recovery fence: a live
-            # recovery IO / reservation for
-            # this session (the held transient
-            # term) refuses the direct store
-            # release from EITHER branch below
-            # -- the recovery owner's explicit
-            # composed teardown drains it first
-            # (a late recovery write can never
-            # publish after the RAM ownership is
-            # released); with no live recovery
-            # IO the 019 behavior is unchanged.
-            if self._registry._recovery_session_transient.get(okey, 0) > 0:
+            # The 020 recovery fence (020-b: the
+            # claimed-owner fence completes it):
+            # live recovery IO for this session
+            # -- the held transient term OR a
+            # claimed synchronous recovery
+            # operation, which can still reserve
+            # / publish -- refuses the direct
+            # store release from EITHER branch
+            # below; the recovery owner's
+            # explicit composed teardown drains
+            # it first (a late recovery write can
+            # never publish after the RAM
+            # ownership is released); with no
+            # live recovery IO the 019 behavior
+            # is unchanged.
+            if self._registry.recovery_io_live(okey):
                 return RamWorkTeardownResult(
                     outcome=RamWorkOutcome.REFUSED,
                     limitation=RamWorkLimitation.RECOVERY_IN_FLIGHT,
