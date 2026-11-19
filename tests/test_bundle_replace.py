@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
 from typing import Any
 
 import pytest
@@ -52,8 +53,10 @@ from slaif_local_coding.constitution.bundles.bundle_replace import (
     MarkerExpectations,
     RetainedSpan,
     SpanFacts,
+    _positively_superseded,
     _ReplaceRefusal,
     _scan_replayed_markers,
+    _SupersessionEvidence,
     _verify_call_binding,
     check_carrier_span,
     derive_evidence_tag,
@@ -74,6 +77,7 @@ from slaif_local_coding.constitution.bundles.bundle_replace_models import (
     ReplacementOutcome,
 )
 from slaif_local_coding.constitution.bundles.bundle_selection import (
+    SelectionOmissionReason,
     SelectionOutcome,
     select_working_set,
 )
@@ -81,6 +85,7 @@ from slaif_local_coding.constitution.bundles.bundle_tokenizer import (
     get_bundle_tokenizer,
 )
 from slaif_local_coding.constitution.bundles.causal_history_models import (
+    CAUSAL_ROOT_FACT,
     HistoryBounds,
 )
 from slaif_local_coding.constitution.bundles.observation_models import (
@@ -98,8 +103,17 @@ from slaif_local_coding.constitution.bundles.recovery_store import (
     RecoveryPublishResult,
     RecoveryStoreLimitation,
 )
+from slaif_local_coding.constitution.bundles.root_lineage_models import (
+    RootLineageOutcome,
+)
+from slaif_local_coding.constitution.bundles.root_region_admission import (
+    derive_root_region_admission,
+)
 from slaif_local_coding.constitution.bundles.root_region_admission_models import (
     AdmissionMode,
+)
+from slaif_local_coding.constitution.bundles.root_region_admission_result_models import (
+    RootRegionAdmissionOutcome,
 )
 from tests.test_bundle_compiler import (
     A_BODY,
@@ -126,11 +140,13 @@ from tests.test_causal_history import (
     out_item as _ch_out_item,
 )
 from tests.test_causal_history import (
-    root_item as _ch_root_item,
-)
-from tests.test_causal_history import (
+    read_request,
     sha256_hex,
 )
+from tests.test_causal_history import (
+    root_item as _ch_root_item,
+)
+from tests.test_root_region_lineage import r_bootstrap, r_issue, r_observe
 
 _CTX = PathContext(workspace="/work")
 
@@ -517,6 +533,32 @@ class TestRootOccurrenceJoin:
                 max_text_chars=10_000,
             )
             is CarrierDetail.CARRIER_NOT_FOUND
+        )
+
+    def test_join_foreign_workspace_scope_refuses(self) -> None:
+        original = base_payload()
+        original_report = observe_request(original, context=_CTX, endpoint="responses")
+        (retained,) = original_report.roots.roots
+
+        # Same source bytes, same shape, same content digest, but the
+        # envelope's workspace scope is FOREIGN to the prepared trusted
+        # namespace: the existing scope conflict refuses before any
+        # span work -- never an edit on identical bytes.
+        foreign = base_payload(ROOT_TEXT.replace("/work", "/other"))
+        foreign_report = observe_request(foreign, context=_CTX, endpoint="responses")
+        (foreign_occ,) = foreign_report.roots.roots
+        assert foreign_occ.scope_label == "/other"
+        assert foreign_occ.digest == retained.digest
+        assert (
+            _refused_detail(
+                join_root_occurrence,
+                foreign,
+                foreign_occ,
+                expected_digest=retained.digest,
+                expected_workspace=_CTX.workspace,
+                max_text_chars=10_000,
+            )
+            is CarrierDetail.CARRIER_UNRESOLVED
         )
 
     def test_join_refuses_non_root_and_non_ok_occurrences(self) -> None:
@@ -1280,33 +1322,35 @@ REPLAY_BODY = A_BODY + "REPLAYSEP\n" + B_BODY
 TRANSACTION_BUDGET = 12288
 
 
-def _transaction_records() -> dict[str, Any]:
+def _transaction_records(
+    reads: tuple[tuple[str, str, str], ...] = (
+        ("c1", REPLAY_BODY, REPLAY_CMD),
+        ("c2", C_BODY, "cat C.md"),
+    ),
+    mode: AdmissionMode = AdmissionMode.LEAN,
+    endpoint: str = "responses",
+    lineage: str = "replace022b-transaction",
+    deps: tuple[Any, ...] = (
+        _dep("A.md", "P1", 90, "immediate"),
+        _dep("B.md", "P2", 50, "next_turn"),
+        _dep("C.md", "P2", 30, "background"),
+    ),
+) -> dict[str, Any]:
     """The ACTUAL P/T fixture and its prepared transaction inputs
-    (snapshot, durable-generation proof, ready entries, selection)."""
-    ns, state, t = _states(
-        ROOT_REQUIRED,
-        (("c1", REPLAY_BODY, REPLAY_CMD), ("c2", C_BODY, "cat C.md")),
-        AdmissionMode.LEAN,
-        "responses",
-        "replace022b-transaction",
-    )
+    (snapshot, durable-generation proof, ready entries, selection).
+
+    ``reads`` is the issued read history ``(cid, body, cmd)``; the
+    bundle entry is the admitted entry containing A.md and B.md (the
+    proven [A,B] partition or the [A,B,C] 3-member partition of the
+    omission variant) and ``entry_c`` the admitted C.md singleton."""
+    ns, state, t = _states(ROOT_REQUIRED, reads, mode, endpoint, lineage)
     root_entry = t.admission.root_entry
-    bundle = next(e for e in t.admission.entries if set(_represented(t, e)) == {"A.md", "B.md"})
+    bundle = next(e for e in t.admission.entries if {"A.md", "B.md"} <= set(_represented(t, e)))
     entry_c = _entry_for(t, "C.md")
     tokenizer = get_bundle_tokenizer()
     config = _config()
     plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
-    root_index = _root_index(
-        root_entry,
-        config,
-        tokenizer,
-        plan,
-        (
-            _dep("A.md", "P1", 90, "immediate"),
-            _dep("B.md", "P2", 50, "next_turn"),
-            _dep("C.md", "P2", 30, "background"),
-        ),
-    )
+    root_index = _root_index(root_entry, config, tokenizer, plan, deps)
     index_bundle = _file_index(
         bundle,
         (),
@@ -1373,6 +1417,86 @@ def _transaction_payload() -> dict[str, Any]:
     }
 
 
+def _transaction_payload_tail() -> dict[str, Any]:
+    """The transaction payload whose root envelope carries the
+    environment-context tail.  The P-state bootstrap envelope carries
+    the SAME root content facts (the tail is excluded from the content
+    span by the 017 envelope law), so the join proves the exact
+    retained span inside the tailed envelope."""
+    payload = _transaction_payload()
+    payload["input"][0]["content"][0]["text"] = (
+        "# AGENTS.md instructions for /work\n"
+        "\n"
+        "<INSTRUCTIONS>\n" + ROOT_REQUIRED + "\n</INSTRUCTIONS>\n"
+        "<environment_context>\n"
+        "  <cwd>/work</cwd>\n"
+        "</environment_context>"
+    )
+    return payload
+
+
+OMISSION_CMD = "cat A.md && echo 'REPLAYSEP' && cat B.md && echo 'REPLAYSEP2' && cat C.md"
+OMISSION_BODY = A_BODY + "REPLAYSEP\n" + B_BODY + "REPLAYSEP2\n" + C_BODY
+
+
+def _omission_records() -> dict[str, Any]:
+    """The omission variant: the proven [A,B,C] 3-member partition plus
+    the C.md singleton whose path the bundle covers, so the accepted
+    selection omits the singleton WHOLE (COVERAGE_DEDUPLICATED)."""
+    return _transaction_records(
+        reads=(("c1", OMISSION_BODY, OMISSION_CMD), ("c2", C_BODY, "cat C.md")),
+        lineage="replace022b-omission",
+    )
+
+
+def _omission_payload() -> dict[str, Any]:
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(ROOT_REQUIRED),
+            _ch_exec_call("c1", OMISSION_CMD),
+            _ch_out_item("c1", _ch_frame(OMISSION_BODY)),
+            _ch_exec_call("c2", "cat C.md"),
+            _ch_out_item("c2", _ch_frame(C_BODY)),
+        ],
+    }
+
+
+def _chat_transaction_payload() -> dict[str, Any]:
+    """The same two complete read pairs on the Chat read endpoint (one
+    assistant tool-call message, two tool result messages).  Root
+    authority is a separate Responses envelope, so this payload carries
+    no root carrier: the root earns zero edits (source-absent)."""
+    return {
+        "model": "synthetic-model",
+        "messages": [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "c1",
+                        "type": "function",
+                        "function": {
+                            "name": "exec_command",
+                            "arguments": json.dumps({"cmd": REPLAY_CMD}),
+                        },
+                    },
+                    {
+                        "id": "c2",
+                        "type": "function",
+                        "function": {
+                            "name": "exec_command",
+                            "arguments": json.dumps({"cmd": "cat C.md"}),
+                        },
+                    },
+                ],
+            },
+            {"role": "tool", "tool_call_id": "c1", "content": _ch_frame(REPLAY_BODY)},
+            {"role": "tool", "tool_call_id": "c2", "content": _ch_frame(C_BODY)},
+        ],
+    }
+
+
 class TestTransactionReplay:
     """The ACTUAL replace_sources entry point over the smoke fixture:
     replace the original payload, then replay the transformed output."""
@@ -1426,3 +1550,369 @@ class TestTransactionReplay:
         assert result2.edits_planned == 0
         assert result2.edits_committed == 0
         assert result2.markers_replayed == 4
+        # Historical marker idempotence: a THIRD round of the same
+        # transformed payload replays again -- an accepted replay
+        # neither changes authority nor creates a second edit.
+        obs3 = observe_request(result2.transformed_payload, endpoint="responses", context=_CTX)
+        result3 = replace_sources(
+            result2.transformed_payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs3,
+            root_occurrence=obs3.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result3.outcome is ReplacementOutcome.OK, result3
+        assert result3.transformed_payload == result2.transformed_payload
+        assert result3.edits_planned == 0
+        assert result3.edits_committed == 0
+        assert result3.markers_replayed == 4
+
+    def test_foreign_workspace_envelope_refuses_all_or_nothing(self) -> None:
+        rec = _transaction_records()
+        payload = _transaction_payload()
+        # The SAME root source bytes in a same-shaped envelope whose
+        # workspace scope is foreign to the prepared trusted namespace:
+        # the proof bridge has already refused that workspace, and the
+        # repeated-root join must refuse the existing scope conflict --
+        # never an edit on identical bytes, never an accepted marker.
+        payload["input"][0]["content"][0]["text"] = payload["input"][0]["content"][0][
+            "text"
+        ].replace("/work", "/other")
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        (foreign_occ,) = obs.roots.roots
+        assert foreign_occ.scope_label == "/other"
+        result = replace_sources(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=foreign_occ,
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result.outcome is ReplacementOutcome.ENTRY_UNRESOLVED
+
+    def test_historical_raw_replay_replaces_again(self) -> None:
+        rec = _transaction_records()
+        first = _transaction_payload()
+        obs_first = observe_request(first, endpoint="responses", context=_CTX)
+        result_first = replace_sources(
+            first,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs_first,
+            root_occurrence=obs_first.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result_first.outcome is ReplacementOutcome.OK, result_first
+        # The ORIGINAL raw payload replayed later (untransformed
+        # history, no markers anywhere) replaces the raw source AGAIN
+        # through the RAM hits: the same live edits, the same
+        # transformed output, no rollback.
+        raw = _transaction_payload()
+        obs_raw = observe_request(raw, endpoint="responses", context=_CTX)
+        result_raw = replace_sources(
+            raw,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs_raw,
+            root_occurrence=obs_raw.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result_raw.outcome is ReplacementOutcome.OK, result_raw
+        assert len(result_raw.edits) == 4
+        assert all(e.kind is MarkerKind.LIVE_REFERENCE for e in result_raw.edits)
+        assert result_raw.markers_replayed == 0
+        assert result_raw.transformed_payload == result_first.transformed_payload
+
+    def test_root_envelope_replay_with_environment_tail(self) -> None:
+        rec = _transaction_records(lineage="replace022b-tail")
+        tail = "<environment_context>\n  <cwd>/work</cwd>\n</environment_context>"
+        payload1 = _transaction_payload_tail()
+        frozen = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        assert payload1 == frozen
+        assert len(result1.edits) == 4
+        assert all(e.kind is MarkerKind.LIVE_REFERENCE for e in result1.edits)
+        # The environment tail is NOT part of the root content span:
+        # it survives the replacement byte-for-byte, and the result
+        # carries the ONE selected compiled working set (the accepted
+        # decision's working set, once).
+        assert tail in result1.transformed_payload["input"][0]["content"][0]["text"]
+        assert result1.selected_content_keys == tuple(
+            w.content_key for w in rec["decision"].working_set
+        )
+        # The repeated root envelope replayed at round 2: the
+        # observer's ACTUAL same-scope occurrence, the same single
+        # working set, the fixed point, the tail still preserved.
+        payload2 = result1.transformed_payload
+        obs2 = observe_request(payload2, endpoint="responses", context=_CTX)
+        (current_occ,) = obs2.roots.roots
+        assert current_occ.scope_label == "/work"
+        result2 = replace_sources(
+            payload2,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=current_occ,
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == payload2
+        assert result2.edits_planned == 0
+        assert result2.markers_replayed == 4
+        assert result2.selected_content_keys == result1.selected_content_keys
+        assert tail in result2.transformed_payload["input"][0]["content"][0]["text"]
+
+    def test_optional_omission_earns_evidence_marker(self) -> None:
+        rec = _omission_records()
+        decision = rec["decision"]
+        ready_c = rec["ready"][2]
+        c_key = ready_c.entry.content_key
+        # The ACTUAL selection omits the C singleton WHOLE (its path
+        # is covered by the admitted [A,B,C] bundle): an observable
+        # closed omission with the required content intact.
+        omitted = {row.content_key: row.reason for row in decision.omitted}
+        assert omitted.get(c_key) is SelectionOmissionReason.COVERAGE_DEDUPLICATED
+        payload1 = _omission_payload()
+        frozen = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        assert payload1 == frozen
+        # Exactly four LIVE edits (root + the three proven [A,B,C]
+        # splices) and ONE non-resolving evidence marker for the
+        # omitted C singleton span: no dangling live reference.
+        assert len(result1.edits) == 5
+        evidence = [e for e in result1.edits if e.kind is MarkerKind.EVIDENCE]
+        live = [e for e in result1.edits if e.kind is MarkerKind.LIVE_REFERENCE]
+        assert len(evidence) == 1 and len(live) == 4
+        assert evidence[0].carrier_location == "$.input[4]"
+        # The lean partition preserves the printed marker lines, and
+        # the omitted singleton stays out of the selected working set.
+        assert "REPLAYSEP\n" in result1.transformed_payload["input"][2]["output"]
+        assert "REPLAYSEP2\n" in result1.transformed_payload["input"][2]["output"]
+        assert c_key not in result1.selected_content_keys
+        # Round 2: the evidence marker replays (historical evidence),
+        # nothing is planned, the payload is the fixed point.
+        payload2 = result1.transformed_payload
+        obs2 = observe_request(payload2, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            payload2,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == payload2
+        assert result2.edits_planned == 0
+        assert result2.markers_replayed == 5
+
+    def test_chat_read_endpoint_transaction(self) -> None:
+        rec = _transaction_records(
+            endpoint="chat",
+            lineage="replace022b-chat",
+        )
+        payload1 = _chat_transaction_payload()
+        frozen = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="chat", context=_CTX)
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=None,
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        assert payload1 == frozen
+        # The root authority is a separate Responses envelope: this
+        # Chat payload carries no root carrier, so the root earns
+        # ZERO edits (source-absent) and the three read spans earn
+        # live edits on the Chat carriers.
+        assert len(result1.edits) == 3
+        assert all(e.kind is MarkerKind.LIVE_REFERENCE for e in result1.edits)
+        assert all(e.carrier_location.startswith("$.messages") for e in result1.edits)
+        payload2 = result1.transformed_payload
+        obs2 = observe_request(payload2, endpoint="chat", context=_CTX)
+        result2 = replace_sources(
+            payload2,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=None,
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == payload2
+        assert result2.edits_planned == 0
+        assert result2.markers_replayed == 3
+
+
+# --- The ACTUAL lineage supersession evidence (chunk 1d law) ----------
+#
+# The supersession predicate is exercised over the ACTUAL same-run
+# overlay of the prepared P/T state: a genuinely later A.md read
+# (descendant issuance) earns PROVEN_CHANGE on the OLD occurrence's
+# A.md group; the boundaryless overlap earns OWNERSHIP_AMBIGUITY; an
+# absent (occurrence, group) record proves nothing.
+
+SUPERSEDED_A_BODY = "The revised A procedure supersedes the old one.\n"
+
+
+def _supersession_state() -> tuple[Any, Any, str]:
+    """The ACTUAL P/T state: the proven [A,B] read, then a genuinely
+    LATER A.md singleton issued with the completed c1 occurrence as
+    its frozen frontier parent, then the C singleton."""
+    ns, s0 = r_bootstrap(AdmissionMode.GREEDY, "replace022b-supersession", root_body=ROOT_REQUIRED)
+    i1 = r_issue(s0, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), REPLAY_CMD)
+    o1 = r_observe(i1.state, ns, (read_request("responses", "c1", REPLAY_BODY, cmd=REPLAY_CMD),))
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    c1_occ = next(o for o in o1.state.d_state.occurrences if o.proof.call_id == "c1")
+    i3 = r_issue(o1.state, ns, "c3", "responses", (c1_occ.occurrence_id,), "cat A.md")
+    o3 = r_observe(i3.state, ns, (read_request("responses", "c3", SUPERSEDED_A_BODY, "cat A.md"),))
+    assert o3.outcome is RootLineageOutcome.ACCEPTED, o3.diagnostics
+    i2 = r_issue(o3.state, ns, "c2", "responses", (CAUSAL_ROOT_FACT,), "cat C.md")
+    o2 = r_observe(i2.state, ns, (read_request("responses", "c2", C_BODY, "cat C.md"),))
+    assert o2.outcome is RootLineageOutcome.ACCEPTED, o2.diagnostics
+    t = derive_root_region_admission(o2.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    return o2.state, t, c1_occ.occurrence_id
+
+
+def _ambiguous_state() -> tuple[Any, Any, str]:
+    """The ACTUAL P/T state: two boundaryless bundles that share B.md,
+    so the B.md row of each owning group carries OWNERSHIP_AMBIGUITY."""
+    ns, s0 = r_bootstrap(AdmissionMode.LEAN, "replace022b-ambiguous", root_body=ROOT_REQUIRED)
+    i1 = r_issue(s0, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), "cat A.md && cat B.md")
+    req1 = read_request("responses", "c1", A_BODY + B_BODY, cmd="cat A.md && cat B.md")
+    o1 = r_observe(i1.state, ns, (req1,))
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    i2 = r_issue(o1.state, ns, "c2", "responses", (CAUSAL_ROOT_FACT,), "cat B.md && cat C.md")
+    req2 = read_request("responses", "c2", B_BODY + C_BODY, cmd="cat B.md && cat C.md")
+    o2 = r_observe(i2.state, ns, (req2,))
+    assert o2.outcome is RootLineageOutcome.ACCEPTED, o2.diagnostics
+    t = derive_root_region_admission(o2.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    c1_occ = next(o for o in o2.state.d_state.occurrences if o.proof.call_id == "c1")
+    return o2.state, t, c1_occ.occurrence_id
+
+
+class TestSupersessionEvidence:
+    """The ACTUAL lineage supersession predicate over prepared
+    same-run records (the closed chunk 1d law)."""
+
+    @staticmethod
+    def _span(occurrence_id: str, segment_index: int) -> RetainedSpan:
+        return RetainedSpan(
+            content_key="ab" * 32,
+            entry_class="file_bundle_entry",
+            role="tool_result",
+            endpoint="responses",
+            occurrence_identity=occurrence_id,
+            call_id="",
+            call_position=0,
+            result_position=0,
+            piece_index=0,
+            segment_index=segment_index,
+            location="$.input[2]",
+            field="output",
+            start=0,
+            end=1,
+            source_digest="00" * 32,
+            reproven=True,
+            bytes_mismatch=False,
+        )
+
+    @staticmethod
+    def _evidence(state: Any, t: Any) -> _SupersessionEvidence:
+        return _SupersessionEvidence(
+            overlay=t.r_result.e_overlay,
+            root_currentness=t.r_result.q_result,
+            retained_root_digests=frozenset(fact.source_digest for fact in state.root_facts),
+        )
+
+    def test_proven_change_is_superseded(self) -> None:
+        state, t, c1_occ = _supersession_state()
+        record = next(
+            g
+            for g in t.r_result.e_overlay.groups
+            if g.occurrence_id == c1_occ and g.group_index == 0
+        )
+        # The ACTUAL derived record carries the proven change on the
+        # old A.md row.
+        assert any(
+            reason.value == "proven_change" for row in record.path_rows for reason in row.reasons
+        )
+        assert _positively_superseded(self._span(c1_occ, 0), self._evidence(state, t))
+
+    def test_ambiguous_group_is_not_superseded(self) -> None:
+        state, t, c1_occ = _ambiguous_state()
+        record = next(
+            g
+            for g in t.r_result.e_overlay.groups
+            if g.occurrence_id == c1_occ and g.group_index == 0
+        )
+        # The ACTUAL derived record carries the ownership ambiguity on
+        # the B.md row: ambiguous groups stay out of historical
+        # evidence even when their other rows are clean.
+        assert any(
+            reason.value == "ownership_ambiguity"
+            for row in record.path_rows
+            for reason in row.reasons
+        )
+        assert not _positively_superseded(self._span(c1_occ, 0), self._evidence(state, t))
+
+    def test_absent_group_record_proves_nothing(self) -> None:
+        state, t, c1_occ = _supersession_state()
+        # No (occurrence, group) record at these coordinates: a mere
+        # omission earns no supersession proof.
+        assert not _positively_superseded(self._span(c1_occ, 99), self._evidence(state, t))

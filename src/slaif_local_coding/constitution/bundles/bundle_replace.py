@@ -1017,6 +1017,21 @@ def check_carrier_span(
     )
 
 
+def _root_scope_check(occurrence: RootOccurrence, workspace: str) -> None:
+    """The ACTUAL scope label of ONE accepted root occurrence must
+    equal the prepared trusted namespace workspace (constant-time).
+
+    A same-shaped envelope in a FOREIGN workspace scope is the
+    existing scope conflict (``CARRIER_UNRESOLVED``, the plan-13 409
+    family), never an edit: the proof bridge has already refused that
+    workspace, and byte-identical source in another scope does not
+    re-establish the root here; its carrier is never recognized as
+    marker authority."""
+    label = occurrence.scope_label
+    if label is None or not hmac.compare_digest(label.encode("utf-8"), workspace.encode("utf-8")):
+        raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
+
+
 def join_root_occurrence(
     payload: dict[str, Any],
     occurrence: RootOccurrence,
@@ -1024,6 +1039,7 @@ def join_root_occurrence(
     expected_digest: str | None = None,
     expected_char_length: int | None = None,
     expected_byte_length: int | None = None,
+    expected_workspace: str | None = None,
     max_text_chars: int,
 ) -> tuple[CarrierSlot, SpanFacts]:
     """Join ONE accepted 017 root occurrence to its exact CURRENT
@@ -1043,14 +1059,20 @@ def join_root_occurrence(
     read-only and returns ``(carrier, span facts)``; a carrier shape
     failure, a span out of bounds or a length/digest mismatch refuses
     with the fixed detail (the observed coordinates or the span leave
-    the retained original facts).  A non-root or non-OK occurrence is
-    refused as an unsupported shape (no root authority is inferred)."""
+    the retained original facts).  ``expected_workspace``, when
+    supplied, is the prepared trusted namespace workspace: the
+    occurrence's ACTUAL scope label must equal it (a same-shaped
+    foreign-workspace envelope refuses the existing scope conflict,
+    never an edit).  A non-root or non-OK occurrence is refused as an
+    unsupported shape (no root authority is inferred)."""
     if (
         occurrence.kind is not OccurrenceKind.ROOT
         or occurrence.status is not RootStatus.OK
         or occurrence.content_span is None
     ):
         raise _refuse(CarrierDetail.SHAPE_UNSUPPORTED)
+    if expected_workspace is not None:
+        _root_scope_check(occurrence, expected_workspace)
     slot = lookup_root_carrier(payload, occurrence.location, max_text_chars=max_text_chars)
     span = occurrence.content_span
     facts = check_carrier_span(
@@ -1897,6 +1919,15 @@ def join_retained_proof(
     root_key = root_entry.content_key
     if root_key in working_keys and not root_entry.witnesses:
         if root_occurrence is not None:
+            # The repeated-root join is scoped: EVERY accepted root
+            # occurrence in this payload must carry the prepared
+            # trusted namespace workspace (its ACTUAL scope label); a
+            # same-shaped foreign-workspace envelope is the existing
+            # scope conflict, never an edit or an accepted marker,
+            # even when its bytes are identical.
+            for accepted in observation.roots.roots:
+                if accepted.kind is OccurrenceKind.ROOT and accepted.status is RootStatus.OK:
+                    _root_scope_check(accepted, snapshot.namespace.workspace)
             transformed = False
             slot: CarrierSlot | None = None
             facts: SpanFacts | None = None
@@ -1905,6 +1936,7 @@ def join_retained_proof(
                     payload,
                     root_occurrence,
                     expected_digest=root_entry.root_digest,
+                    expected_workspace=snapshot.namespace.workspace,
                     max_text_chars=max_text_chars,
                 )
             except _ReplaceRefusal as refusal:
@@ -1924,6 +1956,7 @@ def join_retained_proof(
                         payload,
                         root_occurrence,
                         expected_digest=None,
+                        expected_workspace=snapshot.namespace.workspace,
                         max_text_chars=max_text_chars,
                     )
                     transformed = True
