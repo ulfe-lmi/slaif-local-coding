@@ -109,8 +109,13 @@ BUDGET_MAX_COMPILED_BLOCK_BYTES_DEFAULT = 2_097_152
 #     tags, a function tag line, one parameter tag line per
 #     argument, close lines); (3) per tool result a result wrapper
 #     (open/close result tags, user framing for consecutive
-#     results); (4) a generation / think framing at the end
-#     (assistant turn tag + open/close think tags).
+#     results); (4) per assistant history message a thinking
+#     frame (fixed open/close pieces around any carried
+#     reasoning text, rendered by default even when the NEW
+#     generation's thinking is off); (5) the no-tools reasoning
+#     system preamble when the effective reasoning instruction
+#     text is present; (6) a generation / think framing at the
+#     end (assistant turn tag + open/close think tags).
 # Every FIXED fragment is charged with a closed conservative
 # numeric overhead (the ENVELOPE_*_BOUND_TOKENS constants below):
 # a documented over-estimate of the fragment's real-tokenizer
@@ -160,6 +165,23 @@ ENVELOPE_THINK_FRAMING_BOUND_BYTES: Final = 19
 #: length (817), verified at test time to be >= the real-tokenizer
 #: count of the exact pinned template literal (177).
 ENVELOPE_TOOL_REMINDER_BOUND_TOKENS: Final = 817
+
+
+#: Pinned assistant-history thinking-frame bounds, charged once
+#: per assistant message in history.  The frame renders by
+#: default (the pinned template's preserve_thinking default)
+#: even when the NEW generation's thinking is off.  The two
+#: fixed pieces measure 8 and 11 UTF-8 bytes; the pinned
+#: tokenizer counts them 2 and 3 tokens separately, and with an
+#: empty carried reasoning text the pieces render joined and
+#: count 4 tokens (the measured joined count is charged instead
+#: of the 2 + 3 sum).  The carried reasoning text itself is
+#: dynamic and counted with the real pinned tokenizer.
+ENVELOPE_HIST_THINK_OPEN_BOUND_BYTES: Final = 8
+ENVELOPE_HIST_THINK_CLOSE_BOUND_BYTES: Final = 11
+ENVELOPE_HIST_THINK_OPEN_BOUND_TOKENS: Final = 2
+ENVELOPE_HIST_THINK_CLOSE_BOUND_TOKENS: Final = 3
+ENVELOPE_HIST_THINK_EMPTY_BOUND_TOKENS: Final = 4
 
 
 class BundleBudgetReason(StrEnum):
@@ -321,15 +343,28 @@ class BundleBudgetConfig(_GraphFrozen):
 
 
 class BudgetMessage(_GraphFrozen):
-    """One request message for envelope accounting (roles closed)."""
+    """One request message for envelope accounting (roles closed).
+
+    ``reasoning_content`` carries the assistant's already-
+    generated reasoning text (the pinned envelope renders it,
+    trimmed, inside the assistant history thinking frame); it is
+    countable ONLY on assistant messages -- any other shape is
+    refused explicitly, never silently dropped or guessed.
+    """
 
     role: str = Field(min_length=1, max_length=16)
     content: str = Field(max_length=4_194_304)
+    reasoning_content: str | None = Field(default=None, max_length=4_194_304)
 
     @model_validator(mode="after")
     def _v_role(self) -> BudgetMessage:
         if self.role not in {"system", "user", "assistant", "tool"}:
             raise _fixed("the budget message role is not in the closed set")
+        if self.reasoning_content is not None and self.role != "assistant":
+            raise _fixed(
+                "carried reasoning text is countable only on assistant "
+                "messages (the pinned envelope renders it nowhere else)"
+            )
         return self
 
 
@@ -416,6 +451,13 @@ class BundleBudgetPlan:
         self._gen_open_tokens = tokenizer.count_tokens(_IM_START + "assistant\n")
         self._gen_think_on_tokens = ENVELOPE_THINK_FRAMING_BOUND_TOKENS
         self._gen_think_off_tokens = ENVELOPE_THINK_FRAMING_BOUND_TOKENS
+        # Pinned assistant-history thinking-frame bounds (the
+        # measured fixed pieces; charged per assistant message,
+        # rendered by default even when the new generation's
+        # thinking is off):
+        self._hist_think_open_tokens = ENVELOPE_HIST_THINK_OPEN_BOUND_TOKENS
+        self._hist_think_close_tokens = ENVELOPE_HIST_THINK_CLOSE_BOUND_TOKENS
+        self._hist_think_empty_tokens = ENVELOPE_HIST_THINK_EMPTY_BOUND_TOKENS
         # Measured fixed byte bounds for the fixed framing
         # fragments (each is the measured UTF-8 length of the
         # pinned template fragment it accounts for):
@@ -428,6 +470,8 @@ class BundleBudgetPlan:
         self._result_user_open_bytes = len((_IM_START + "user").encode("utf-8"))
         self._result_user_close_bytes = len((_IM_END + "\n").encode("utf-8"))
         self._gen_think_bytes = ENVELOPE_THINK_FRAMING_BOUND_BYTES
+        self._hist_think_open_bytes = ENVELOPE_HIST_THINK_OPEN_BOUND_BYTES
+        self._hist_think_close_bytes = ENVELOPE_HIST_THINK_CLOSE_BOUND_BYTES
 
     # -- identity -------------------------------------------------------
 
@@ -629,6 +673,16 @@ class BundleBudgetPlan:
                 total += self._result_close_bytes
             else:
                 total += self._utf8_len(_IM_START + message.role + "\n" + _IM_END + "\n")
+                if message.role == "assistant":
+                    # The pinned assistant-history thinking frame
+                    # at its measured fixed byte bounds plus the
+                    # carried reasoning text at its exact bytes.
+                    rc = (message.reasoning_content or "").strip()
+                    total += (
+                        self._hist_think_open_bytes
+                        + self._hist_think_close_bytes
+                        + self._utf8_len(rc)
+                    )
                 total += self._utf8_len(message.content)
             prev_role = message.role
         if tools:
@@ -717,6 +771,21 @@ class BundleBudgetPlan:
                 actual += self._result_close_tokens
             else:
                 actual += self._frame_tokens[message.role]
+                if message.role == "assistant":
+                    # The pinned assistant-history thinking frame
+                    # (rendered by default, even with the new
+                    # generation's thinking off): the fixed pieces
+                    # at their measured counts plus the carried
+                    # reasoning text with the real tokenizer; with
+                    # no reasoning text the joined pieces are the
+                    # measured joined count.
+                    rc = (message.reasoning_content or "").strip()
+                    if rc:
+                        actual += self._hist_think_open_tokens
+                        actual += self.tokenizer.count_tokens(rc)
+                        actual += self._hist_think_close_tokens
+                    else:
+                        actual += self._hist_think_empty_tokens
                 actual += self.tokenizer.count_tokens(message.content)
             prev_role = message.role
         actual += self._count_preamble_actual(tools, enable_thinking, reasoning_instructions)
