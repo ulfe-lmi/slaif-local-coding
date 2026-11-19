@@ -1,0 +1,22 @@
+Tokenizer assets for the pinned Qwen3.8-27B reference capability
+(objective 021, docs/CACHE-TOKEN-COMPILER-CONTRACT.md).
+
+Source: Hugging Face repository `Qwen/Qwen3.8-27B`, pinned revision
+`37561816e66b5b9153b1b64c10968c18c1e6f4a0` (Apache-2.0).
+
+Files (exact sizes and SHA-256 digests are closed constants of the
+tokenizer contract and verified at load time):
+
+- tokenizer.json         12809320 bytes
+- tokenizer_config.json    9984 bytes
+- chat_template.jinja      9004 bytes
+- LICENSE                 11544 bytes (Apache License 2.0, verbatim)
+
+These assets are CPU tokenizer artifacts only. They contain no model
+weights, no training data, and no serving configuration. The adapter
+loads them once from the package at startup of the v1 tokenizer
+component; it never downloads, re-encodes or re-serializes them at
+runtime, and never calls a hosted tokenizer endpoint.
+
+The reference RTX 3090 serving work that informed the local Qwen
+deployment remains credited as `syv-ai/qwen38-27b-rtx3090`.
