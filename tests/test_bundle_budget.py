@@ -366,9 +366,9 @@ def test_tool_preamble_serialized_data_real_counted(
     assert plan.count_tool_preamble((), enable_thinking=False) == 0
     params = {"type": "object", "properties": {"q": {"type": "string"}}}
     tool = BudgetToolSpec(name="lookup", description="Look up.", parameters=params)
-    # the pinned template's OWN JSON serialization (its tojson form:
-    # sorted keys, compact commas, a space after each colon) -- the
-    # minified form would render fewer bytes / tokens:
+    # the pinned template's OWN JSON serialization (the Transformers
+    # tojson override: json.dumps defaults with ensure_ascii=False)
+    # -- the minified form would render fewer bytes / tokens:
     serialized = json.dumps(
         {
             "type": "function",
@@ -378,8 +378,7 @@ def test_tool_preamble_serialized_data_real_counted(
                 "parameters": params,
             },
         },
-        sort_keys=True,
-        separators=(",", ": "),
+        ensure_ascii=False,
     )
     expected = (
         ENVELOPE_TOOLS_PREFIX_BOUND_TOKENS
@@ -401,8 +400,7 @@ def test_tool_preamble_serialized_data_real_counted(
                 "parameters": params,
             },
         },
-        sort_keys=True,
-        separators=(",", ": "),
+        ensure_ascii=False,
     )
     expected2 = expected + 1 + tokenizer.count_tokens(serialized2)
     assert plan.count_tool_preamble((tool, tool2), enable_thinking=False) == expected2
@@ -412,41 +410,42 @@ def test_tool_serialization_is_the_pinned_template_form(
     tokenizer: BundleTokenizer,
 ) -> None:
     """The serialized tool data is the pinned template's own JSON
-    render (tojson form), never the minified form: for a nested
-    spec the template form is EXACTLY one byte longer per JSON
-    colon (the space after each colon), so minified counting
-    undercounts."""
+    render: the Transformers tojson override (verified in
+    huggingface/transformers
+    ``src/transformers/utils/chat_template_utils.py``) is
+    ``json.dumps`` defaults with ``ensure_ascii=False`` --
+    insertion-ordered keys, default ``', '`` / ``': '`` separators,
+    no ASCII escaping.  For a nested spec the pinned form is
+    EXACTLY one byte longer per JSON comma AND per JSON colon over
+    the minified form (the space after each separator), and
+    non-ASCII stays raw, so re-sorted / minified / ASCII-escaped
+    counting undercounts the real render."""
     plan = _plan(_config(), tokenizer)
     params = {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "integer"}}}
+    obj = {
+        "type": "function",
+        "function": {
+            "name": "lookup",
+            "description": "d",
+            "parameters": params,
+        },
+    }
     tool = BudgetToolSpec(name="lookup", description="d", parameters=params)
     got = plan._serialized_tool(tool)
-    minified = json.dumps(
-        {
-            "type": "function",
-            "function": {
-                "name": "lookup",
-                "description": "d",
-                "parameters": params,
-            },
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    template_form = json.dumps(
-        {
-            "type": "function",
-            "function": {
-                "name": "lookup",
-                "description": "d",
-                "parameters": params,
-            },
-        },
-        sort_keys=True,
-        separators=(",", ": "),
-    )
+    minified = json.dumps(obj, separators=(",", ":"))
+    template_form = json.dumps(obj, ensure_ascii=False)
     assert got == template_form
-    # one extra byte (the space) per colon:
-    assert len(got) == len(minified) + minified.count(":")
+    # insertion order: the top-level keys are NOT re-sorted:
+    assert got.startswith('{"type": "function", "function": {"name":')
+    # one extra byte (the space) per comma AND per colon separator:
+    assert len(got) == len(minified) + minified.count(",") + minified.count(":")
+    # non-ASCII stays raw (no ASCII escaping in the pinned form):
+    unicode_tool = BudgetToolSpec(
+        name="lookup", description="L\u00e4uft \u2014 caf\u00e9 \u597d", parameters=params
+    )
+    got_u = plan._serialized_tool(unicode_tool)
+    assert "L\u00e4uft \u2014 caf\u00e9 \u597d" in got_u
+    assert "\\u" not in got_u
     # and the preamble count follows the template form:
     expected = (
         ENVELOPE_TOOLS_PREFIX_BOUND_TOKENS
@@ -522,15 +521,15 @@ def test_request_byte_fence_counts_serialized_tool_form(
 ) -> None:
     """The byte fence measures the tool data in the pinned
     template's JSON form: a spec that fits under the fence in
-    minified bytes but not in the template form is refused."""
+    minified bytes but not in the pinned form is refused."""
     plan = _plan(_config(max_request_bytes=700), tokenizer)
-    # one key per colon adds one template byte over the minified
-    # form; size the spec so the template form crosses 700 while
-    # the minified form would fit:
+    # one byte (the space) per comma AND per colon separator adds
+    # over the minified form; size the spec so the pinned form
+    # crosses 700 while the minified form would fit:
     props = {f"k{i:02d}": {"type": "string"} for i in range(24)}
     tool = BudgetToolSpec(name="lookup", description="d", parameters={"properties": props})
     template_form = plan._serialized_tool(tool)
-    minified = template_form.replace(": ", ":")
+    minified = template_form.replace(": ", ":").replace(", ", ",")
     assert len(minified) < 700 <= len(template_form) + 300
     msg = BudgetMessage(role="user", content="x")
     with pytest.raises(BundleBudgetError) as exc:

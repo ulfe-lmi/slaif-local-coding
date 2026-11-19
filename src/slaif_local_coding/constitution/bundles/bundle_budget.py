@@ -22,10 +22,14 @@ Law (objective 021 item 2 + plan policy 10 + compact architecture
 - remaining request content and tool / envelope emissions are
   counted under EXPLICIT finite item limits: ordinary message
   content and the serialized tool data (the pinned template's own
-  JSON serialization -- its tojson form: sorted keys, compact
-  commas, a space after each colon, ASCII-escaped -- never the
-  minified form, which would undercount that render) are counted
-  with the real tokenizer over the pinned message framing; the
+  JSON serialization -- the Transformers ``tojson`` override
+  verified in huggingface/transformers
+  ``src/transformers/utils/chat_template_utils.py``: ``json.dumps``
+  defaults with ``ensure_ascii=False``: insertion-ordered keys,
+  default ``', '`` / ``': '`` separators, no indent, no ASCII
+  escaping -- never a re-sorted or minified form, which would
+  undercount that render) are counted with the real tokenizer
+  over the pinned message framing; the
   pinned model envelope's fixed template pieces and
   per-item framing (tool preamble header/footer, the call /
   result wrapper tags, the generation / think framing) are
@@ -507,10 +511,14 @@ class BundleBudgetPlan:
 
     def _serialized_tool(self, tool: BudgetToolSpec) -> str:
         """The tool JSON in the pinned template's own serialization
-        form (its ``tojson`` render: sorted keys, compact commas,
-        a space after each colon, ASCII-escaped).  The minified
-        form renders fewer bytes / tokens than that template
-        output and is never used for counting."""
+        form: the Transformers ``tojson`` override (verified in
+        huggingface/transformers
+        ``src/transformers/utils/chat_template_utils.py``) is
+        ``json.dumps`` defaults with ``ensure_ascii=False`` --
+        insertion-ordered keys, default ``', '`` / ``': '``
+        separators, no indent, no ASCII escaping.  A re-sorted or
+        minified form renders fewer bytes / tokens than that
+        template output and is never used for counting."""
         obj = {
             "type": "function",
             "function": {
@@ -520,7 +528,7 @@ class BundleBudgetPlan:
             },
         }
         try:
-            return json.dumps(obj, sort_keys=True, separators=(",", ": "))
+            return json.dumps(obj, ensure_ascii=False)
         except (TypeError, ValueError) as exc:
             raise BundleBudgetError(BundleBudgetReason.BAD_INPUT, "tool spec") from exc
 
@@ -534,7 +542,7 @@ class BundleBudgetPlan:
         """The pinned tool preamble: the fixed template pieces
         (header, per-tool separator, footer, closed reminder bound,
         reasoning instructions) plus the serialized tool data
-        (canonical minified JSON) counted with the real tokenizer."""
+        (the pinned tojson form) counted with the real tokenizer."""
         c = self.config
         if len(tools) > c.max_tools:
             raise BundleBudgetError(BundleBudgetReason.ITEM_LIMIT_EXCEEDED, "tools")

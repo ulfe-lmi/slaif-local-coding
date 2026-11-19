@@ -87,9 +87,13 @@ validated configuration contract:
   content and tool / envelope emissions are counted through the pinned
   compatible rendering (`qwen3-model-envelope/v1`): every DYNAMIC text is
   counted with the real tokenizer — the serialized tool data in the pinned
-  template's own JSON serialization (its `tojson` form: sorted keys,
-  compact commas, a space after each colon, ASCII-escaped; the minified
-  form renders fewer bytes / tokens and is never counted) — and every
+  template's own JSON serialization (the Transformers `tojson` override,
+  verified in huggingface/transformers
+  `src/transformers/utils/chat_template_utils.py`: `json.dumps` defaults
+  with `ensure_ascii=False` — insertion-ordered keys, default `', '` /
+  `': '` separators, no indent, no ASCII escaping; a re-sorted or
+  minified form renders fewer bytes / tokens and is never counted) —
+  and every
   FIXED template framing fragment is charged a closed conservative
   structural bound (the `ENVELOPE_*_BOUND_TOKENS` constants, provable
   over-estimates re-derived from the pinned template asset at test time),
