@@ -1859,6 +1859,80 @@ def _join_file_witness(
     return tuple(spans)
 
 
+def _join_envelope_root_span(
+    spans: list[RetainedSpan],
+    payload: dict[str, Any],
+    occurrence: RootOccurrence,
+    *,
+    root_entry: Any,
+    root_key: str,
+    workspace: str,
+    max_text_chars: int,
+) -> None:
+    """Join ONE accepted envelope-root occurrence to its own
+    current carrier (the repeated-envelope join: byte- and
+    scope-identical envelopes each earn their own span — one per
+    carrier — and the working set still holds the single root
+    entry).
+
+    The original retained root digest is the join's proof.  A
+    digest or length mismatch is the TRANSFORMED carrier — the
+    envelope already carries the accepted marker where the original
+    source was — and the re-join proves carrier shape and span
+    bounds only (no expected digest) so the raw mismatch cannot
+    refuse before the replay scan matches the valid tag at the
+    splice start.  A genuinely absent carrier earns zero edits and
+    no refusal (a source-absent replay); every other refusal
+    propagates all-or-nothing."""
+    transformed = False
+    try:
+        slot, facts = join_root_occurrence(
+            payload,
+            occurrence,
+            expected_digest=root_entry.root_digest,
+            expected_workspace=workspace,
+            max_text_chars=max_text_chars,
+        )
+    except _ReplaceRefusal as refusal:
+        if refusal.detail is not CarrierDetail.CARRIER_NOT_FOUND:
+            if refusal.detail not in (
+                CarrierDetail.SPAN_DIGEST_MISMATCH,
+                CarrierDetail.SPAN_LENGTH_MISMATCH,
+            ):
+                raise
+            slot, facts = join_root_occurrence(
+                payload,
+                occurrence,
+                expected_digest=None,
+                expected_workspace=workspace,
+                max_text_chars=max_text_chars,
+            )
+            transformed = True
+        else:
+            return
+    spans.append(
+        RetainedSpan(
+            content_key=root_key,
+            entry_class=root_entry.entry_class.value,
+            role=_ROOT_ENVELOPE_ROLE,
+            endpoint=ENDPOINT_RESPONSES,
+            occurrence_identity=root_key,
+            call_id="",
+            call_position=0,
+            result_position=0,
+            piece_index=0,
+            segment_index=0,
+            location=slot.location,
+            field=slot.field,
+            start=facts.start,
+            end=facts.end,
+            source_digest=root_entry.root_digest,
+            reproven=not transformed,
+            bytes_mismatch=transformed,
+        )
+    )
+
+
 def join_retained_proof(
     payload: dict[str, Any],
     *,
@@ -1877,15 +1951,22 @@ def join_retained_proof(
     entries with their ORIGINAL witnesses) and the retained original
     occurrence owners in the D state.  The accepted 017
     ``root_occurrence`` (``kind`` ROOT, ``status`` OK, from the
-    actual observation of THIS payload) supplies the root carrier
-    coordinates.  Every admitted FILE entry is joined — selected,
+    actual observation of THIS payload) names the payload's
+    governing envelope root.  The join coordinates come from the
+    observation's ACTUAL accepted occurrences: repeated byte- and
+    scope-identical envelopes of the same root are each joined to
+    their own carrier and earn their own span (the working set still
+    holds the single root entry), and a named location the
+    observation does not accept refuses CARRIER_UNRESOLVED
+    all-or-nothing.  Every admitted FILE entry is joined — selected,
     omitted and merely retained alike — because a stale live
     reference or an evidence marker may be earned by any of them; the
     caller classifies each span against the accepted selection.
     A governing root with retained read witnesses keeps its carrier a
     tool result with the tool-result carrier role (the envelope text
-    is never edited for it); an envelope root earns its single
-    content span.
+    is never edited for it); an envelope root earns its content
+    span on EACH accepted occurrence (each repeated envelope its
+    own carrier, each with its own edit).
 
     ``observation`` is the ACTUAL 017 observation of THIS payload and
     is the raw-tool edit bridge: every retained tool piece re-joins
@@ -1925,66 +2006,40 @@ def join_retained_proof(
             # same-shaped foreign-workspace envelope is the existing
             # scope conflict, never an edit or an accepted marker,
             # even when its bytes are identical.
-            for accepted in observation.roots.roots:
-                if accepted.kind is OccurrenceKind.ROOT and accepted.status is RootStatus.OK:
-                    _root_scope_check(accepted, snapshot.namespace.workspace)
-            transformed = False
-            slot: CarrierSlot | None = None
-            facts: SpanFacts | None = None
-            try:
-                slot, facts = join_root_occurrence(
+            accepted = [
+                o
+                for o in observation.roots.roots
+                if o.kind is OccurrenceKind.ROOT and o.status is RootStatus.OK
+            ]
+            for occ in accepted:
+                _root_scope_check(occ, snapshot.namespace.workspace)
+            # Repeated byte- and scope-identical envelopes of the same
+            # root are idempotent: each ACTUAL accepted occurrence is
+            # joined to its own carrier and earns its own span and
+            # edit, while the working set still holds the ONE root
+            # entry.  The caller names THIS payload's governing
+            # envelope root; a named location the observation does not
+            # accept is a stale or foreign assertion and fails closed
+            # (all-or-nothing).
+            if accepted:
+                if root_occurrence.location not in {o.location for o in accepted}:
+                    raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
+                join_occurrences = accepted
+            else:
+                # A source-absent replay: the observation reports no
+                # accepted root occurrence (the named carrier is
+                # gone); the join earns zero edits, no refusal, and
+                # the exact selected context is still returned.
+                join_occurrences = [root_occurrence]
+            for occ in join_occurrences:
+                _join_envelope_root_span(
+                    spans,
                     payload,
-                    root_occurrence,
-                    expected_digest=root_entry.root_digest,
-                    expected_workspace=snapshot.namespace.workspace,
+                    occ,
+                    root_entry=root_entry,
+                    root_key=root_key,
+                    workspace=snapshot.namespace.workspace,
                     max_text_chars=max_text_chars,
-                )
-            except _ReplaceRefusal as refusal:
-                if refusal.detail is not CarrierDetail.CARRIER_NOT_FOUND:
-                    if refusal.detail not in (
-                        CarrierDetail.SPAN_DIGEST_MISMATCH,
-                        CarrierDetail.SPAN_LENGTH_MISMATCH,
-                    ):
-                        raise
-                    # The transformed root: the current envelope carries
-                    # the accepted marker where the original source was.
-                    # Re-join proving carrier shape and span bounds only
-                    # (no expected digest) so the raw mismatch cannot
-                    # refuse before the replay scan matches the valid
-                    # tag at the splice start.
-                    slot, facts = join_root_occurrence(
-                        payload,
-                        root_occurrence,
-                        expected_digest=None,
-                        expected_workspace=snapshot.namespace.workspace,
-                        max_text_chars=max_text_chars,
-                    )
-                    transformed = True
-                # A source-absent replay: the governing envelope root
-                # is not carried by the current payload — zero edits
-                # for the root, no refusal; the exact selected context
-                # is still returned.
-            if slot is not None and facts is not None:
-                spans.append(
-                    RetainedSpan(
-                        content_key=root_key,
-                        entry_class=root_entry.entry_class.value,
-                        role=_ROOT_ENVELOPE_ROLE,
-                        endpoint=ENDPOINT_RESPONSES,
-                        occurrence_identity=root_key,
-                        call_id="",
-                        call_position=0,
-                        result_position=0,
-                        piece_index=0,
-                        segment_index=0,
-                        location=slot.location,
-                        field=slot.field,
-                        start=facts.start,
-                        end=facts.end,
-                        source_digest=root_entry.root_digest,
-                        reproven=not transformed,
-                        bytes_mismatch=transformed,
-                    )
                 )
     elif root_key in working_keys:
         for witness in root_entry.witnesses:
@@ -2351,7 +2406,10 @@ def _set_carrier_text(
 def _scan_replayed_markers(
     carriers: dict[tuple[str, str], str],
     expectations: MarkerExpectations,
-    binding_of: dict[tuple[str, str, int, int, int, int, str], tuple[RetainedSpan, frozenset[str]]],
+    binding_of: dict[
+        tuple[str, str, int, int, int, int, str],
+        tuple[tuple[RetainedSpan, frozenset[str]], ...],
+    ],
 ) -> dict[tuple[str, str, int], MarkerRecord]:
     """Verify every marker candidate of the recognized source fields
     (the joined carriers) by RE-DERIVATION and return the ACCEPTED
@@ -2378,6 +2436,8 @@ def _scan_replayed_markers(
             if kind is None:
                 raise AssertionError("unreachable: an ok verdict carries its kind")
             required = "live" if kind is MarkerKind.LIVE_REFERENCE else "evidence"
+            span: RetainedSpan | None = None
+            kinds: frozenset[str] = frozenset()
             entry = binding_of.get(
                 _binding_key(
                     verdict.endpoint,
@@ -2389,14 +2449,20 @@ def _scan_replayed_markers(
                     verdict.content_key,
                 )
             )
-            if entry is None:
-                raise _refuse(CarrierDetail.MARKER_INVALID)
-            span, kinds = entry
-            # Start-only position law: the marker must sit at the
-            # span's original splice start; the transformed tag's
-            # wire length differs from the raw span length, so the
-            # replay is verified independent of the raw bytes.
-            if required not in kinds or span.location != location or span.start != start:
+            if entry is not None:
+                # Start-only position law: the marker must sit at the
+                # span's original splice start; the transformed tag's
+                # wire length differs from the raw span length, so the
+                # replay is verified independent of the raw bytes.  A
+                # binding may carry several spans (the repeated root
+                # envelope): the span of THIS carrier coordinate is
+                # the one the marker binds.
+                for cand_span, cand_kinds in entry:
+                    if cand_span.location == location and cand_span.start == start:
+                        span = cand_span
+                        kinds = cand_kinds
+                        break
+            if span is None or required not in kinds:
                 raise _refuse(CarrierDetail.MARKER_INVALID)
             candidate_bytes = candidate.encode("utf-8")
             replayed[(endpoint, location, span.start)] = MarkerRecord(
@@ -2522,7 +2588,8 @@ def replace_sources(
         # ``stale`` diagnostic keeps an old live reference refusing).
         tags: list[ExpectedTag] = []
         binding_of: dict[
-            tuple[str, str, int, int, int, int, str], tuple[RetainedSpan, frozenset[str]]
+            tuple[str, str, int, int, int, int, str],
+            tuple[tuple[RetainedSpan, frozenset[str]], ...],
         ] = {}
 
         def _note(span: RetainedSpan, tag: ExpectedTag, kind: str) -> None:
@@ -2536,10 +2603,29 @@ def replace_sources(
                 tag.segment_index,
                 tag.content_key,
             )
-            prev_span, prev_kinds = binding_of.get(b, (span, frozenset()))
-            if prev_span is not span:
-                raise AssertionError("unreachable: tag binding collision")
-            binding_of[b] = (span, prev_kinds | frozenset({kind}))
+            entries = list(binding_of.get(b, ()))
+            merged = False
+            for i, (prev_span, prev_kinds) in enumerate(entries):
+                if prev_span is span:
+                    entries[i] = (prev_span, prev_kinds | frozenset({kind}))
+                    merged = True
+                    break
+            if not merged:
+                # A DISTINCT span may share the ORIGINAL association
+                # binding only on a DISTINCT carrier coordinate (the
+                # repeated root envelope: the same root source, its own
+                # occurrence and carrier).  Two distinct spans on the
+                # SAME carrier region are the forbidden double edit.
+                for prev_span, _ in entries:
+                    if (
+                        prev_span.endpoint == span.endpoint
+                        and prev_span.location == span.location
+                        and prev_span.start == span.start
+                        and prev_span.end == span.end
+                    ):
+                        raise AssertionError("unreachable: tag binding collision")
+                entries.append((span, frozenset({kind})))
+            binding_of[b] = tuple(entries)
 
         for span in selected_spans:
             ready = ready_by_key[span.content_key]

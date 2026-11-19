@@ -42,6 +42,9 @@ from typing import Any
 
 import pytest
 
+from slaif_local_coding.constitution.bundles.bundle_admission_models import (
+    AdmissionMode,
+)
 from slaif_local_coding.constitution.bundles.bundle_budget import (
     BundleBudgetConfig,
     BundleBudgetPlan,
@@ -108,9 +111,6 @@ from slaif_local_coding.constitution.bundles.root_lineage_models import (
 )
 from slaif_local_coding.constitution.bundles.root_region_admission import (
     derive_root_region_admission,
-)
-from slaif_local_coding.constitution.bundles.root_region_admission_models import (
-    AdmissionMode,
 )
 from slaif_local_coding.constitution.bundles.root_region_admission_result_models import (
     RootRegionAdmissionOutcome,
@@ -358,6 +358,7 @@ class TestExactSpanChecking:
         report = observe_request(payload, context=_CTX, endpoint="responses")
         (occ,) = report.roots.roots
         assert occ.status is RootStatus.OK
+        assert occ.content_span is not None
         slot = lookup_root_carrier(payload, occ.location, max_text_chars=10_000)
         facts = check_carrier_span(
             slot,
@@ -390,6 +391,7 @@ class TestExactSpanChecking:
         payload = base_payload(ROOT_TEXT_CRLF)
         report = observe_request(payload, context=_CTX, endpoint="responses")
         (occ,) = report.roots.roots
+        assert occ.content_span is not None
         slot = lookup_root_carrier(payload, occ.location, max_text_chars=10_000)
         facts = check_carrier_span(
             slot,
@@ -423,8 +425,10 @@ class TestExactSpanChecking:
         payload = base_payload()
         report = observe_request(payload, context=_CTX, endpoint="responses")
         (occ,) = report.roots.roots
+        assert occ.byte_length is not None
         slot = lookup_root_carrier(payload, occ.location, max_text_chars=10_000)
         span = occ.content_span
+        assert span is not None
         assert (
             _refused_detail(
                 check_carrier_span,
@@ -467,6 +471,7 @@ class TestRootOccurrenceJoin:
         original = base_payload()
         original_report = observe_request(original, context=_CTX, endpoint="responses")
         (retained,) = original_report.roots.roots
+        assert retained.content_span is not None
         retained_digest = retained.digest
         retained_char_length = retained.content_span.length
         retained_byte_length = retained.byte_length
@@ -493,6 +498,7 @@ class TestRootOccurrenceJoin:
         assert facts.digest == retained_digest
         assert facts.char_length == retained_char_length
         assert facts.byte_length == retained_byte_length
+        assert current.content_span is not None
         start = current.content_span.start
         assert slot.text[start : start + retained_char_length] == ROOT_CONTENT
 
@@ -523,7 +529,7 @@ class TestRootOccurrenceJoin:
 
         # The observed location exists in the ORIGINAL payload, not in
         # this one: the observed coordinates leave the decoded request.
-        other = {"input": []}
+        other: dict[str, Any] = {"input": []}
         assert (
             _refused_detail(
                 join_root_occurrence,
@@ -597,6 +603,7 @@ class TestRootOccurrenceJoin:
         snapshot = copy.deepcopy(payload)
         report = observe_request(payload, context=_CTX, endpoint="responses")
         (occ,) = report.roots.roots
+        assert occ.content_span is not None
         join_root_occurrence(payload, occ, expected_digest=occ.digest, max_text_chars=10_000)
         check_carrier_span(
             lookup_root_carrier(payload, occ.location, max_text_chars=10_000),
@@ -1143,14 +1150,20 @@ def _mk_span(start: int, end: int) -> RetainedSpan:
 
 def _mk_binding(
     span: RetainedSpan, kinds: frozenset[str]
-) -> dict[tuple[str, str, int, int, int, int, str], tuple[RetainedSpan, frozenset[str]]]:
-    return {_MK_BINDING_KEY: (span, kinds)}
+) -> dict[
+    tuple[str, str, int, int, int, int, str],
+    tuple[tuple[RetainedSpan, frozenset[str]], ...],
+]:
+    return {_MK_BINDING_KEY: ((span, kinds),)}
 
 
 def _scan(
     carrier: str,
     expectations: MarkerExpectations,
-    binding: dict[tuple[str, str, int, int, int, int, str], tuple[RetainedSpan, frozenset[str]]],
+    binding: dict[
+        tuple[str, str, int, int, int, int, str],
+        tuple[tuple[RetainedSpan, frozenset[str]], ...],
+    ],
 ) -> dict[tuple[str, str, int], MarkerRecord]:
     return _scan_replayed_markers({(MK_ENDPOINT, MK_LOCATION): carrier}, expectations, binding)
 
@@ -1533,6 +1546,7 @@ class TestTransactionReplay:
         # its current carrier coordinates (the earlier splice shifted the
         # later one), no edit is planned, and the payload is fixed.
         payload2 = result1.transformed_payload
+        assert payload2 is not None
         obs2 = observe_request(payload2, endpoint="responses", context=_CTX)
         result2 = replace_sources(
             payload2,
@@ -1553,9 +1567,11 @@ class TestTransactionReplay:
         # Historical marker idempotence: a THIRD round of the same
         # transformed payload replays again -- an accepted replay
         # neither changes authority nor creates a second edit.
-        obs3 = observe_request(result2.transformed_payload, endpoint="responses", context=_CTX)
+        out2 = result2.transformed_payload
+        assert out2 is not None
+        obs3 = observe_request(out2, endpoint="responses", context=_CTX)
         result3 = replace_sources(
-            result2.transformed_payload,
+            out2,
             proof=rec["proof"],
             current_snapshot=rec["snapshot"],
             ready_entries=rec["ready"],
@@ -1662,14 +1678,16 @@ class TestTransactionReplay:
         # it survives the replacement byte-for-byte, and the result
         # carries the ONE selected compiled working set (the accepted
         # decision's working set, once).
-        assert tail in result1.transformed_payload["input"][0]["content"][0]["text"]
+        out1 = result1.transformed_payload
+        assert out1 is not None
+        assert tail in out1["input"][0]["content"][0]["text"]
         assert result1.selected_content_keys == tuple(
             w.content_key for w in rec["decision"].working_set
         )
         # The repeated root envelope replayed at round 2: the
         # observer's ACTUAL same-scope occurrence, the same single
         # working set, the fixed point, the tail still preserved.
-        payload2 = result1.transformed_payload
+        payload2 = out1
         obs2 = observe_request(payload2, endpoint="responses", context=_CTX)
         (current_occ,) = obs2.roots.roots
         assert current_occ.scope_label == "/work"
@@ -1689,7 +1707,114 @@ class TestTransactionReplay:
         assert result2.edits_planned == 0
         assert result2.markers_replayed == 4
         assert result2.selected_content_keys == result1.selected_content_keys
-        assert tail in result2.transformed_payload["input"][0]["content"][0]["text"]
+        out2 = result2.transformed_payload
+        assert out2 is not None
+        assert tail in out2["input"][0]["content"][0]["text"]
+
+    def test_repeated_root_envelopes_replay_both_carriers(self) -> None:
+        rec = _transaction_records(lineage="replace022b-repeat")
+        tail = "<environment_context>\n  <cwd>/work</cwd>\n</environment_context>"
+        payload1 = _transaction_payload_tail()
+        # A SECOND byte- and scope-identical root envelope item
+        # coexisting in the SAME decoded Responses history, with its
+        # own environment tail (the section-11 repeated-envelope
+        # case): the observer's ACTUAL occurrences (plural), both
+        # carrier edits, ONE compiled working set.
+        payload1["input"].insert(1, copy.deepcopy(payload1["input"][0]))
+        frozen = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        assert len(obs1.roots.roots) == 2
+        assert {o.location for o in obs1.roots.roots} == {
+            "$.input[0].content[0]",
+            "$.input[1].content[0]",
+        }
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        assert payload1 == frozen
+        # BOTH envelope carriers earn their own LIVE edit (the two
+        # root edits target the same retained root key on DISTINCT
+        # carrier regions) plus the three read edits: five total.
+        assert len(result1.edits) == 5
+        assert all(e.kind is MarkerKind.LIVE_REFERENCE for e in result1.edits)
+        root_edits = [e for e in result1.edits if e.target_entry_class == "root_entry"]
+        assert len(root_edits) == 2
+        assert {e.carrier_location for e in root_edits} == {
+            "$.input[0].content[0]",
+            "$.input[1].content[0]",
+        }
+        assert {e.target_content_key for e in root_edits} == {
+            e.target_content_key for e in root_edits
+        }
+        assert root_edits[0].target_content_key == root_edits[1].target_content_key
+        assert result1.edits_planned == 5
+        assert result1.markers_emitted == 5
+        assert result1.markers_replayed == 0
+        payload2 = result1.transformed_payload
+        assert payload2 is not None
+        # Each envelope's environment tail is outside the content
+        # span and survives byte-for-byte on its own carrier; the
+        # result carries the ONE selected compiled working set.
+        for index in (0, 1):
+            assert tail in payload2["input"][index]["content"][0]["text"]
+        assert result1.selected_content_keys == tuple(
+            w.content_key for w in rec["decision"].working_set
+        )
+        # Round 2: the transformed output re-observed — the
+        # observer's ACTUAL same-scope occurrences (both), every
+        # marker replays at its own carrier coordinates, no edit is
+        # planned, the fixed point, the same single working set, the
+        # tails still preserved.
+        obs2 = observe_request(payload2, endpoint="responses", context=_CTX)
+        assert len(obs2.roots.roots) == 2
+        result2 = replace_sources(
+            payload2,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == payload2
+        assert result2.edits_planned == 0
+        assert result2.edits_committed == 0
+        assert result2.markers_replayed == 5
+        assert result2.selected_content_keys == result1.selected_content_keys
+        for index in (0, 1):
+            assert tail in payload2["input"][index]["content"][0]["text"]
+        # Round 3: the accepted replay of the same markers neither
+        # changes authority nor creates a second edit (fixed point).
+        out2 = result2.transformed_payload
+        assert out2 is not None
+        obs3 = observe_request(out2, endpoint="responses", context=_CTX)
+        result3 = replace_sources(
+            out2,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs3,
+            root_occurrence=obs3.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result3.outcome is ReplacementOutcome.OK, result3
+        assert result3.transformed_payload == result2.transformed_payload
+        assert result3.edits_planned == 0
+        assert result3.markers_replayed == 5
 
     def test_optional_omission_earns_evidence_marker(self) -> None:
         rec = _omission_records()
@@ -1727,12 +1852,14 @@ class TestTransactionReplay:
         assert evidence[0].carrier_location == "$.input[4]"
         # The lean partition preserves the printed marker lines, and
         # the omitted singleton stays out of the selected working set.
-        assert "REPLAYSEP\n" in result1.transformed_payload["input"][2]["output"]
-        assert "REPLAYSEP2\n" in result1.transformed_payload["input"][2]["output"]
+        out1 = result1.transformed_payload
+        assert out1 is not None
+        assert "REPLAYSEP\n" in out1["input"][2]["output"]
+        assert "REPLAYSEP2\n" in out1["input"][2]["output"]
         assert c_key not in result1.selected_content_keys
         # Round 2: the evidence marker replays (historical evidence),
         # nothing is planned, the payload is the fixed point.
-        payload2 = result1.transformed_payload
+        payload2 = out1
         obs2 = observe_request(payload2, endpoint="responses", context=_CTX)
         result2 = replace_sources(
             payload2,
@@ -1779,6 +1906,7 @@ class TestTransactionReplay:
         assert all(e.kind is MarkerKind.LIVE_REFERENCE for e in result1.edits)
         assert all(e.carrier_location.startswith("$.messages") for e in result1.edits)
         payload2 = result1.transformed_payload
+        assert payload2 is not None
         obs2 = observe_request(payload2, endpoint="chat", context=_CTX)
         result2 = replace_sources(
             payload2,
