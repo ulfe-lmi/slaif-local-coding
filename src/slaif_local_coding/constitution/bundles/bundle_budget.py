@@ -122,6 +122,12 @@ BUDGET_MAX_COMPILED_BLOCK_BYTES_DEFAULT = 2_097_152
 _ENVELOPE_L = chr(60)
 _ENVELOPE_R = chr(62)
 
+#: The pinned per-argument close fragment: one newline, the closed
+#: slash-parameter tag and one newline (14 UTF-8 bytes, measured
+#: against the pinned template asset; charged per argument, the
+#: complete wrapper).
+_ENVELOPE_PARAM_CLOSE: Final = "\n" + _ENVELOPE_L + "/parameter" + _ENVELOPE_R + "\n"
+
 #: Closed conservative token overheads for the fixed template
 #: framing fragments of the pinned model envelope (one constant
 #: per fragment family; each is a provable over-estimate of the
@@ -574,7 +580,7 @@ class BundleBudgetPlan:
                 _ENVELOPE_L + "parameter=" + arg_name + _ENVELOPE_R + "\n"
             )
             total += self.tokenizer.count_tokens(arg_value)
-            total += self.tokenizer.count_tokens(_ENVELOPE_L + _ENVELOPE_R + "\n")
+            total += self.tokenizer.count_tokens(_ENVELOPE_PARAM_CLOSE)
         total += self.tokenizer.count_tokens(_ENVELOPE_L + _ENVELOPE_R + "\n")
         total += self._call_close_tokens
         return total
@@ -640,7 +646,7 @@ class BundleBudgetPlan:
             for arg_name, arg_value in call.arguments:
                 total += self._utf8_len(_ENVELOPE_L + "parameter=" + arg_name + _ENVELOPE_R + "\n")
                 total += self._utf8_len(arg_value)
-                total += self._utf8_len(_ENVELOPE_L + _ENVELOPE_R + "\n")
+                total += self._utf8_len(_ENVELOPE_PARAM_CLOSE)
             total += self._utf8_len(_ENVELOPE_L + _ENVELOPE_R + "\n")
             total += self._call_close_bytes
         total += self._utf8_len(_IM_START + "assistant\n")
