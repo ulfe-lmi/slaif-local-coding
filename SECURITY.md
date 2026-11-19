@@ -95,9 +95,13 @@ This exception is not a general permission to log or store bodies:
   automatic timed deletion. Where required by deployment, filesystem
   encryption is an explicit prerequisite, not an unimplemented guarantee.
 
-Until the v1 profile is implemented and qualified, no such store exists and
-the default prohibition applies unchanged. Operational logs and metrics
-remain content-free in every profile.
+The 020-a protected per-session recovery store is implemented as an INERT
+component (contract [docs/CACHE-RECOVERY-CONTRACT.md](docs/CACHE-RECOVERY-CONTRACT.md);
+PENDING strategic review at its bounded inert component scope): it is not active
+in the adapter, no configuration key enables it, and no v1 profile is qualified.
+Until the v1 profile is implemented and qualified, no such store is active and
+the default prohibition applies unchanged in every active profile. Operational
+logs and metrics remain content-free in every profile.
 
 ## Protected live-host resources
 

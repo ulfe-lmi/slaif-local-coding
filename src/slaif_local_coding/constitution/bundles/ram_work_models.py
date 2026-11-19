@@ -317,6 +317,7 @@ class RamWorkLimitation(StrEnum):
     TRUNCATED_OUTPUT = "truncated_output"
     ALL_WAITERS_DEPARTED = "all_waiters_departed"
     EPOCH_CHANGED = "epoch_changed"
+    RECOVERY_IN_FLIGHT = "recovery_in_flight"
 
 
 #: The closed fixed typed status mapping of the work-plane
@@ -335,6 +336,7 @@ RAM_WORK_HTTP_STATUS: Final[dict[RamWorkLimitation, int]] = {
     RamWorkLimitation.TRUNCATED_OUTPUT: 422,
     RamWorkLimitation.ALL_WAITERS_DEPARTED: 503,
     RamWorkLimitation.EPOCH_CHANGED: 409,
+    RamWorkLimitation.RECOVERY_IN_FLIGHT: 503,
 }
 
 #: The closed shared capacity-status mapping for the two store

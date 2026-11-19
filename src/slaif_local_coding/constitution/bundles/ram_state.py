@@ -152,6 +152,18 @@ class RamStateCapacityError(RamStateError):
     registration with the fixed typed error."""
 
 
+class RamStateWorkTeardownFenceError(RamStateError):
+    """A live work-teardown fence (020 requirement 4): the
+    owner's async work teardown is FENCED (its drain, or the
+    atomic release it guards, is in progress) and no NEW
+    recovery transient reservation may be admitted for that
+    namespace, so the work teardown's atomic release can
+    never run under a newly live recovery publication (the
+    reverse order of the teardown's own entry fence).
+    Raised atomically under the registry critical section;
+    every counter stays unchanged."""
+
+
 class RamStateDuplicateOwnerError(RamStateError):
     """An unsupported multi-worker / duplicate live-owner
     configuration for one trusted namespace (component
@@ -531,31 +543,31 @@ class RamStateOwner:
         snapshot = snapshot.model_copy(update={"owned_bytes": value})
         return value, snapshot
 
-    def _quarantine_if_adverse(self, result: RootRegionAdmissionResult) -> None:
-        """Set the adverse-currentness quarantine (019-c) when
-        the capacity-refused genuine NEW state would INVALIDATE
-        the retained current usable rows.  A non-READY result
-        carries no current rows at all (an unresolved maximal
-        root uncertainty or another refused currentness); a
-        READY result is adverse when it WITHDRAWS or REKEYS any
-        retained current key (a changed governing root rekeys
-        the root and FILE rows; an overlapping changed file
-        withdraws its entry).  A READY candidate preserving
-        EVERY retained current key is the non-adverse
-        additive control: the refusal then preserves the old
-        usable state exactly.  The quarantine itself is
-        bounded and pre-accounted (this single flag; the
-        refused result is NOT retained, so no new bytes are
-        charged)."""
+    def _adverse_to_current(self, result: RootRegionAdmissionResult) -> bool:
+        """The PURE adverse-currentness classifier (the 019-c
+        predicate, the 020 pre-fence): True when the
+        capacity-refused candidate would INVALIDATE the
+        retained current usable rows.  A non-READY result
+        carries no current rows at all (an unresolved
+        maximal root uncertainty or another refused
+        currentness); a READY result is adverse when it
+        WITHDRAWS or REKEYS any retained current key (a
+        changed governing root rekeys the root and FILE
+        rows; an overlapping changed file withdraws its
+        entry).  A READY candidate preserving EVERY
+        retained current key is the non-adverse additive
+        control.  Never mutates; an empty or non-READY-
+        current owner classifies non-adverse (no retained
+        current rows can be invalidated)."""
         snapshot = self._snapshot
         if snapshot is None:
-            return
+            return False
         old_result = snapshot.result
         if old_result.outcome is not RootRegionAdmissionOutcome.READY:
-            return
+            return False
         old_admission = old_result.admission
         if old_admission is None:
-            return
+            return False
         old_keys = {
             old_admission.root_entry.content_key,
             *(e.content_key for e in old_admission.entries),
@@ -568,8 +580,126 @@ class RamStateOwner:
                     candidate_admission.root_entry.content_key,
                     *(e.content_key for e in candidate_admission.entries),
                 }
-        if old_keys - candidate_keys:
+        return bool(old_keys - candidate_keys)
+
+    def would_quarantine(self, result: object) -> bool:
+        """The 020 pre-fence classifier (pure, never
+        mutates): would a capacity refusal of this
+        validated candidate set the adverse-currentness
+        quarantine on this owner?  The SAME predicate as
+        the 019-c capacity-refusal side effect, exposed so
+        the 020 recovery boundary can establish the
+        durable fail-closed fence BEFORE permitting the
+        transition that would make the older durable bytes
+        unsafe."""
+        if type(result) is not RootRegionAdmissionResult:
+            raise RamStateInputError(
+                "the ram state result must be the original 018-t result record class"
+            )
+        return self._adverse_to_current(result)
+
+    def _quarantine_if_adverse(self, result: RootRegionAdmissionResult) -> None:
+        """Set the adverse-currentness quarantine (019-c)
+        when the capacity-refused candidate is classified
+        adverse against the retained current rows (the
+        pure predicate is ``_adverse_to_current``; the
+        020 pre-fence classifier ``would_quarantine`` is
+        the same law without the mutation).  The
+        quarantine itself is bounded and pre-accounted
+        (this single flag; the refused result is NOT
+        retained, so no new bytes are charged)."""
+        if self._adverse_to_current(result):
             self._quarantined = True
+
+    def _refused_preflight(self, limitation: RamStateLimitation) -> RamStateAdmissionResult:
+        # The caller holds the lock.  The exact refusal
+        # shape ``admit`` would return at the pre-charge
+        # stage: zero charge, unchanged occupancy and
+        # revision, the current snapshot carried.
+        work = self._registry._work
+        work_extra = work.session_bytes(self.namespace.lineage_key) if work is not None else 0
+        return RamStateAdmissionResult(
+            outcome=RamStateOutcome.REFUSED,
+            limitation=limitation,
+            snapshot=self._snapshot,
+            charged_bytes=0,
+            session_owned_bytes=(
+                self.owned_bytes
+                + work_extra
+                + self._registry.recovery_session_reserved(self.namespace.lineage_key)
+            ),
+            process_owned_bytes=self.process_owned_bytes,
+            revision=self.revision,
+            http_status=None,
+        )
+
+    def preflight_admission(
+        self,
+        state: object,
+        result: object,
+        namespace: object,
+        *,
+        expected_revision: int,
+    ) -> RamStateAdmissionResult | None:
+        """The PURE 020 pre-fence preflight (no mutation,
+        no charge, no retention): runs the accepted
+        ``admit`` pre-charge fence law -- the
+        registration / epoch fence, the closed input-class
+        fences, the mandatory trusted-namespace fence, the
+        quarantine fence, the closed T result header law,
+        the ACTUAL complete 018-t result model law, the
+        expected-revision CAS and the lineage-rollback
+        fence -- the SAME helpers and order ``admit``
+        applies BEFORE any charge / ceiling / commit.
+        Returns None when every fence passes, or the exact
+        typed refusal ``admit`` would return at that
+        stage; a type / namespace fence raises the fixed
+        ``RamStateInputError`` exactly as on ``admit``.
+        The 020 recovery boundary uses it to establish the
+        durable fail-closed fence ONLY for a candidate the
+        accepted law already accepts as a genuine
+        transition: object class alone is not authority,
+        and no forged / copied / mismatched / stale
+        candidate can trigger a durable side effect.
+        ``admit`` re-runs the ENTIRE law under its own
+        critical section: a concurrent transition between
+        the preflight and the admit is refused there."""
+        with self._registry._lock:
+            if self._registration is None and not self.epoch_fenced:
+                raise RamStateInputError(
+                    "the ram state owner is not registered with a live process registry"
+                )
+            if self.epoch_fenced:
+                return self._refused_preflight(RamStateLimitation.EPOCH_FENCED)
+            if type(state) is not RootRegionLineageState:
+                raise RamStateInputError(
+                    "the ram state state must be the original 018-p state record class"
+                )
+            if type(result) is not RootRegionAdmissionResult:
+                raise RamStateInputError(
+                    "the ram state result must be the original 018-t result record class"
+                )
+            if type(expected_revision) is not int or expected_revision < 0:
+                raise RamStateInputError("the expected revision must be a non-negative integer")
+            self._fence_trusted_namespace(namespace)
+            if self._quarantined:
+                return self._refused_preflight(RamStateLimitation.OWNER_QUARANTINED)
+            self._fence_result_law(state, result)
+            try:
+                RootRegionAdmissionResult.model_validate(result)
+            except Exception:
+                raise RamStateInputError(
+                    "the ram state result does not satisfy the complete 018-t result law"
+                ) from None
+            if self.revision != expected_revision:
+                return self._refused_preflight(RamStateLimitation.REVISION_MISMATCH)
+            snapshot = self._snapshot
+            if snapshot is not None:
+                if state.revision < snapshot.state.revision:
+                    return self._refused_preflight(RamStateLimitation.STALE_STATE_REVISION)
+                if state is not snapshot.state and state.revision == snapshot.state.revision:
+                    return self._refused_preflight(RamStateLimitation.STALE_STATE_REVISION)
+            return None
 
     def admit(
         self,
@@ -599,7 +729,12 @@ class RamStateOwner:
         with self._registry._lock:
             work = self._registry._work
             work_extra = work.session_bytes(self.namespace.lineage_key) if work is not None else 0
-            session_sum = self.owned_bytes + work_extra
+            # The 020 bound-session recovery transient
+            # reservation is part of the SAME atomic sum
+            # (the reserved restore / serialize bytes are
+            # still held while this commit decides).
+            recovery_session = self._registry.recovery_session_reserved(self.namespace.lineage_key)
+            session_sum = self.owned_bytes + work_extra + recovery_session
             if self._registration is None and not self.epoch_fenced:
                 raise RamStateInputError(
                     "the ram state owner is not registered with a live process registry"
@@ -719,7 +854,7 @@ class RamStateOwner:
             # the work plane charges against: this commit's
             # store charge plus the owner's current charged
             # work occupancy.
-            if charge + work_extra > self.session_max_owned_bytes:
+            if charge + work_extra + recovery_session > self.session_max_owned_bytes:
                 self._quarantine_if_adverse(result)
                 return RamStateAdmissionResult(
                     outcome=RamStateOutcome.REFUSED,
@@ -755,7 +890,7 @@ class RamStateOwner:
                 limitation=None,
                 snapshot=new_snapshot,
                 charged_bytes=charge,
-                session_owned_bytes=self.owned_bytes + work_extra,
+                session_owned_bytes=(self.owned_bytes + work_extra + recovery_session),
                 process_owned_bytes=self.process_owned_bytes,
                 revision=new_snapshot.revision,
                 http_status=None,
@@ -948,6 +1083,29 @@ class RamStateOwner:
                     session_owned_bytes=self.owned_bytes,
                     process_owned_bytes=self.process_owned_bytes,
                 )
+            # The 020 recovery fence: live
+            # recovery IO for this session (the
+            # held transient term OR a claimed
+            # synchronous recovery operation --
+            # the closed 020-b preemption gap:
+            # a claimed operation can still
+            # reserve / publish) refuses the
+            # direct store release -- the
+            # recovery owner's explicit
+            # composed teardown drains it
+            # first (a late recovery write
+            # can never publish after the RAM
+            # ownership is released); with no
+            # live recovery IO the 019
+            # behavior is unchanged.
+            if self._registry.recovery_io_live(self.namespace.lineage_key):
+                return RamStateTeardownResult(
+                    outcome=RamStateOutcome.REFUSED,
+                    limitation=RamStateLimitation.RECOVERY_IN_FLIGHT,
+                    freed_bytes=0,
+                    session_owned_bytes=self.owned_bytes,
+                    process_owned_bytes=self.process_owned_bytes,
+                )
             freed = self._release_locked()
             # An IDLE work plane (no live work, not fenced) is
             # released in the SAME critical section as the
@@ -1015,6 +1173,10 @@ class RamStateOwnerRegistry:
         "_process_owned_bytes",
         "_epoch_counter",
         "_work",
+        "_recovery_transient",
+        "_recovery_session_transient",
+        "_recovery_op_owner",
+        "_owned_store_io",
     )
 
     def __init__(
@@ -1043,6 +1205,58 @@ class RamStateOwnerRegistry:
         self._owners_table_charged = sys.getsizeof(self._owners)
         self._epoch_counter = 0
         self._process_owned_bytes = 0
+        # The 020 recovery transient reservation:
+        # bounded restore / serialize bytes
+        # charged into the SAME process
+        # occupancy BEFORE the owning write or
+        # retention begins; the reserved amount
+        # is tracked so a release can never
+        # underflow the counter (released
+        # exactly once, the transient charge
+        # never enters any owner's retained
+        # occupancy).
+        self._recovery_transient = 0
+        # The SAME transient bytes bound PER TRUSTED
+        # SESSION (lineage key): the per-session
+        # ceiling check and every store / work
+        # capacity check add this term, so concurrent
+        # allocations see the reservation.
+        self._recovery_session_transient: dict[str, int] = {}
+        # The 020-b claimed synchronous recovery
+        # operation (the closed preemption-gap
+        # term): the ONE claimed operation's
+        # owner record itself, or None when no
+        # operation is claimed (holding the owner
+        # reference -- not a lineage string -- so
+        # the end matches by IDENTITY: a stale /
+        # foreign end never clears another
+        # operation's claim, even for a replaced
+        # owner of the same session).  Bounded by
+        # the ONE closed process owned store IO
+        # slot: a claim is admitted ONLY while
+        # the caller holds that slot, so at most
+        # ONE operation can ever be claimed (the
+        # slot bound is the growth bound of this
+        # field).  A claimed operation can still
+        # reserve / publish, so no store / work
+        # release may run while the claim is live
+        # (the composed recovery teardown drains
+        # it before release; a direct release is
+        # the typed recovery_in_flight refusal).
+        # A pure identity: no byte charge (the
+        # owner reference is the session's
+        # existing registered owner, charged
+        # with it).
+        self._recovery_op_owner: RamStateOwner | None = None
+        # The ONE closed process-owned store IO slot
+        # (020 requirement 4): at most ONE owned
+        # durable store IO runs in the whole
+        # process at a time; a second concurrent
+        # owned IO is refused typed (no queue),
+        # and the slot is held across the owning
+        # operation's whole bounded IO (including
+        # a worker-thread publication).
+        self._owned_store_io = 0
         # The shared registry shell (the instance, its live-
         # owner map, its critical-section lock, its epoch
         # counter, its occupancy counter and its closed
@@ -1056,6 +1270,9 @@ class RamStateOwnerRegistry:
             + sys.getsizeof(self._lock)
             + sys.getsizeof(self._epoch_counter)
             + sys.getsizeof(self._process_owned_bytes)
+            + sys.getsizeof(self._recovery_transient)
+            + sys.getsizeof(self._recovery_session_transient)
+            + sys.getsizeof(self._owned_store_io)
             + bounds_shell
         )
         # The 019-b async work plane is OPT-IN: an explicit
@@ -1142,7 +1359,11 @@ class RamStateOwnerRegistry:
         return value
 
     def _allocate(
-        self, namespace: RootRegionLineageNamespace, session_ceiling: int
+        self,
+        namespace: RootRegionLineageNamespace,
+        session_ceiling: int,
+        *,
+        epoch_floor: int = 0,
     ) -> RamStateOwner:
         # The caller holds the lock.  The owner base metadata
         # (the measured shell and the retained trusted
@@ -1164,6 +1385,15 @@ class RamStateOwnerRegistry:
         # high water: removals never shrink the table, and a
         # later smaller candidate replacement retains the
         # charge as an explicit conservative over-charge.
+        # The recovery restart (020) supplies the durable
+        # prior-epoch floor: the allocated epoch is strictly
+        # greater than BOTH every epoch this registry has
+        # allocated and that floor, so a fresh process never
+        # reuses a recorded prior epoch.  The default floor
+        # keeps the normal acquire / new_owner allocation
+        # byte-for-byte unchanged.
+        if self._epoch_counter < epoch_floor:
+            self._epoch_counter = epoch_floor
         self._epoch_counter += 1
         owner = RamStateOwner(
             namespace,
@@ -1179,7 +1409,7 @@ class RamStateOwnerRegistry:
             raise RamStateCapacityError(
                 "the process ceiling cannot cover a new owner owned metadata"
             )
-        if base > session_ceiling:
+        if base + self._recovery_session_transient.get(namespace.lineage_key, 0) > session_ceiling:
             raise RamStateCapacityError(
                 "the session ceiling cannot cover a new owner owned metadata"
             )
@@ -1229,6 +1459,487 @@ class RamStateOwnerRegistry:
                     )
                 return owner
             return self._allocate(namespace, self._bounds.session_max_owned_bytes)
+
+    def acquire_new_with_epoch_floor(self, namespace: object, *, floor: int) -> RamStateOwner:
+        """The STRICT recovery-restart allocation (020): a
+        new owner for the identity whose epoch is strictly
+        greater than BOTH every epoch this registry has
+        allocated and the supplied durable ``floor`` (the
+        prior live epoch recorded in a protected recovery
+        record) -- allocated ONCE under the registry
+        critical section, with no idempotent join and no
+        burn / re-acquire.  A live registered owner for the
+        identity refuses with the fixed duplicate-owner
+        error before any identity join (a value-equal
+        foreign copy cannot mint a second owner and never
+        reaches the registered record).  The complete
+        trusted namespace law re-runs at this boundary
+        exactly as on ``acquire`` / ``new_owner``; the
+        normal paths are unchanged."""
+        if not self._validate_namespace(namespace):
+            # Unreachable: the guard raises on every refusal.
+            raise RamStateInputError("the ram state namespace failed validation")
+        if isinstance(floor, bool) or not isinstance(floor, int) or floor < 1:
+            raise RamStateInputError("the recovery epoch floor must be a positive integer")
+        with self._lock:
+            existing = self._owners.get(namespace.lineage_key)
+            if existing is not None and not existing.epoch_fenced:
+                raise RamStateDuplicateOwnerError(RamStateDuplicateOwnerError.MESSAGE)
+            return self._allocate(
+                namespace, self._bounds.session_max_owned_bytes, epoch_floor=floor
+            )
+
+    def recovery_session_reserved(self, lineage_key: str) -> int:
+        """The 020 bound-session transient bytes
+        currently reserved for the identified session
+        (0 when none): the SAME atomic-sum term the
+        store ``admit`` and the work-plane capacity
+        checks add, so concurrent store / work
+        allocations see the reservation.  The caller
+        holds the registry lock (every seam commits
+        under it)."""
+        return self._recovery_session_transient.get(lineage_key, 0)
+
+    def reserve_recovery_transient(self, namespace: object, nbytes: int) -> None:
+        """The 020 bounded transient-reservation seam
+        (requirement 4): charge ACTUAL bounded
+        restore / serialize transient bytes, bound to
+        the TRUSTED SESSION, into the SAME 019
+        process AND per-session ceilings BEFORE the
+        owning write or retention begins, atomically
+        under the registry critical section.  The
+        process ceiling is enforced against the
+        registry total exactly as on every commit;
+        the per-session ceiling is enforced against
+        the bound session's SAME atomic sum (retained
+        owner occupancy + charged work occupancy +
+        this session's already-reserved transient)
+        when a live owner exists -- joined by the
+        SAME identity law as ``get`` / ``acquire``
+        (a value-equal foreign copy carrying the
+        registered lineage key is refused with the
+        fixed ``RamStateInputError``) -- and, with NO
+        live owner (the cold-restore case), against
+        the configured registry session ceiling
+        before any allocation (a NEW owner's base
+        then must still fit the same ceiling
+        together with the session's pre-reserved
+        transient, ``_allocate``).  A crossing
+        raises the fixed
+        ``RamStateCapacityError`` (the typed 503
+        contract at this inert boundary) and leaves
+        every counter unchanged.  The reservation is
+        TRANSIENT: it never enters any owner's
+        retained occupancy and is released exactly
+        once by ``release_recovery_transient`` (no
+        underflow, no double release).  Input law:
+        the complete trusted-namespace law (the fixed
+        ``RamStateInputError`` on a foreign copy)
+        plus a positive NON-BOOL integer byte count
+        (bool / wrong type / nonpositive refuse
+        before any accounting)."""
+        if not self._validate_namespace(namespace):
+            # Unreachable: the guard raises on every refusal.
+            raise RamStateInputError("the ram state namespace failed validation")
+        if isinstance(nbytes, bool) or not isinstance(nbytes, int) or nbytes < 1:
+            raise RamStateInputError(
+                "the recovery transient reservation must be a positive integer"
+            )
+        key = namespace.lineage_key
+        with self._lock:
+            if self._process_owned_bytes + nbytes > self._bounds.process_max_owned_bytes:
+                raise RamStateCapacityError(
+                    "the process ceiling cannot cover the recovery transient reservation"
+                )
+            existing = self._owners.get(key)
+            if existing is not None and not existing.epoch_fenced:
+                # The same identity join as ``get`` /
+                # ``acquire``: a value-equal foreign copy
+                # carrying the registered lineage key is
+                # refused, never bound to the registered
+                # owner.
+                if namespace is not existing.namespace:
+                    raise RamStateInputError(
+                        "the ram state namespace is not the registered trusted namespace record"
+                    )
+                # The 020 work-teardown fence (requirement 4):
+                # while the owner's async work teardown is
+                # FENCED (draining, or guarding its atomic
+                # release), no NEW recovery transient
+                # reservation may be admitted for that
+                # namespace -- checked AFTER the existing
+                # namespace / identity gate and BEFORE any
+                # session capacity decision.  The work
+                # teardown's entry check (the transient
+                # term under the SAME lock) and this
+                # refusal close BOTH orderings: a
+                # reservation admitted before the fence is
+                # already counted in the transient term the
+                # entry check sees, and a reservation after
+                # the fence is refused here -- so the
+                # atomic work release can never run under
+                # a newly live recovery publication.  The
+                # refusal leaves every counter unchanged.
+                work_plane = self._work
+                if work_plane is not None and work_plane.owner_teardown_fenced(key):
+                    raise RamStateWorkTeardownFenceError(
+                        "a live work teardown fence refuses the recovery transient reservation"
+                    )
+                work_extra = self._work.session_bytes(key) if self._work is not None else 0
+                session_total = (
+                    existing.owned_bytes
+                    + work_extra
+                    + self._recovery_session_transient.get(key, 0)
+                    + nbytes
+                )
+                if session_total > existing.session_max_owned_bytes:
+                    raise RamStateCapacityError(
+                        "the session ceiling cannot cover the recovery transient reservation"
+                    )
+            else:
+                # COLD restore (no live owner): the
+                # configured session ceiling still
+                # bounds the reservation BEFORE any
+                # owner allocation; ``_allocate`` then
+                # tightens the same ceiling by the
+                # actual owner base.
+                reserved = self._recovery_session_transient.get(key, 0)
+                if reserved + nbytes > self._bounds.session_max_owned_bytes:
+                    raise RamStateCapacityError(
+                        "the session ceiling cannot cover the recovery transient reservation"
+                    )
+            self._recovery_session_transient[key] = (
+                self._recovery_session_transient.get(key, 0) + nbytes
+            )
+            self._recovery_transient += nbytes
+            self._process_owned_bytes += nbytes
+
+    def release_recovery_transient(self, namespace: object, nbytes: int) -> None:
+        """Release a prior
+        ``reserve_recovery_transient`` charge of the
+        SAME trusted session exactly once (the 020
+        write-completion and teardown path): the same
+        namespace and positive NON-BOOL input law,
+        and a release exceeding that session's
+        still-reserved amount raises the fixed
+        ``RamStateInputError`` with every counter
+        unchanged (no underflow, no double
+        release)."""
+        if not self._validate_namespace(namespace):
+            # Unreachable: the guard raises on every refusal.
+            raise RamStateInputError("the ram state namespace failed validation")
+        if isinstance(nbytes, bool) or not isinstance(nbytes, int) or nbytes < 1:
+            raise RamStateInputError("the recovery transient release must be a positive integer")
+        key = namespace.lineage_key
+        with self._lock:
+            existing = self._owners.get(key)
+            if existing is not None and not existing.epoch_fenced:
+                # The same identity join as ``get`` /
+                # ``acquire``: only the registered
+                # namespace record releases its
+                # session's reserved transient while
+                # the owner is live (a fenced / retired
+                # owner no longer gates the release; the
+                # underflow guard still protects the
+                # counters).
+                if namespace is not existing.namespace:
+                    raise RamStateInputError(
+                        "the ram state namespace is not the registered trusted namespace record"
+                    )
+            reserved = self._recovery_session_transient.get(key, 0)
+            if nbytes > reserved:
+                raise RamStateInputError(
+                    "the recovery transient release exceeds the reserved transient bytes"
+                )
+            if reserved - nbytes == 0:
+                del self._recovery_session_transient[key]
+            else:
+                self._recovery_session_transient[key] = reserved - nbytes
+            self._recovery_transient -= nbytes
+            self._process_owned_bytes -= nbytes
+
+    def recovery_op_begin(self, owner: RamStateOwner) -> bool:
+        """The 020-b synchronous recovery operation
+        admission claim (the closed preemption gap):
+        the EXACT live-owner join and the claim are
+        ONE atomic step under the registry lock --
+        the registered, unfenced live owner must BE
+        the claimed owner record (an absent / fenced
+        / replaced owner refuses), and the owner's
+        019 work plane must not already be DRAINING
+        (a fenced work owner refuses: its teardown
+        owns the drain and releases the store owner
+        atomically, so no new synchronous operation
+        may join it) -- so no teardown can retire
+        the owner between the operation's entry
+        check and its claim to reserve / operate on
+        the live owner: a teardown that wins retires
+        the owner and the claim is a clean typed
+        refusal (no cold reservation, no
+        publication), while a write that wins the
+        claim keeps the owner un-releasable until
+        the operation ends (the composed recovery
+        teardown drains the claim before release; a
+        direct store / work release is the typed
+        ``recovery_in_flight`` refusal).  This same-
+        lock work-drain refusal keeps the reverse
+        ordering closed while a 019 teardown is
+        ALREADY draining, and the established
+        fence-case results are preserved on a
+        claim refusal: ``admit_with_fence`` reports
+        the established ``FENCE_REFUSED`` blocked-
+        continuation outcome (the ``WRITER_CONFLICT``
+        fence) and ``checkpoint_current`` the
+        established ``WRITER_CONFLICT``.  The claim
+        is TIED to the ONE closed process owned
+        store IO slot (admitted only while the
+        caller holds it: at most ONE operation can
+        ever be claimed, the slot bound is the
+        field's growth bound), and is released
+        exactly once by ``recovery_op_end`` on
+        every outcome."""
+        with self._lock:
+            if self._owned_store_io == 0:
+                # The claim is tied to the ONE
+                # process owned store IO slot: a
+                # claimed operation is the slot
+                # holder.
+                return False
+            key = owner.namespace.lineage_key
+            existing = self._owners.get(key)
+            if existing is not owner or existing.epoch_fenced:
+                return False
+            work_plane = self._work
+            if work_plane is not None and work_plane.owner_teardown_fenced(key):
+                return False
+            self._recovery_op_owner = owner
+            return True
+
+    def recovery_op_end(self, owner: RamStateOwner) -> None:
+        """Release ONE prior ``recovery_op_begin``
+        claim exactly once (no double release): the
+        claim ends ONLY on the EXACT owner record
+        that claimed it (identity match -- a stale /
+        foreign end never clears another
+        operation's claim, even for a replaced
+        owner of the same session)."""
+        with self._lock:
+            if self._recovery_op_owner is owner:
+                self._recovery_op_owner = None
+
+    def recovery_op_live(self, lineage_key: str) -> bool:
+        """Whether the identified session's
+        synchronous recovery operation is claimed
+        (the caller holds the registry lock): the
+        composed recovery teardown's drain waits for
+        this term (plus the store in-flight count)
+        to clear before the RAM ownership can be
+        fenced / released (a write that won its
+        claim can still publish)."""
+        claimed = self._recovery_op_owner
+        return claimed is not None and claimed.namespace.lineage_key == lineage_key
+
+    def recovery_io_live(self, lineage_key: str) -> bool:
+        """The 020 live-recovery-IO fence predicate
+        (the caller holds the registry lock): True
+        while a recovery transient is held OR the
+        session's synchronous recovery operation is
+        claimed -- either can still publish, so a
+        direct store / work release may never run
+        under it (a late recovery write can never
+        publish after the RAM ownership is
+        released).  With no live recovery IO the
+        019 behavior is unchanged."""
+        claimed = self._recovery_op_owner
+        return self._recovery_session_transient.get(lineage_key, 0) > 0 or (
+            claimed is not None and claimed.namespace.lineage_key == lineage_key
+        )
+
+    @staticmethod
+    def _validate_recovery_transient_key(key: object) -> str:
+        """The closed 64-hex identity form shared by
+        the cold transient seams (the same shape the
+        namespace lineage keys carry); bool / wrong
+        type / non-hex refuse with the fixed
+        ``RamStateInputError`` before any accounting."""
+        if type(key) is not str or len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
+            raise RamStateInputError(
+                "the recovery transient key must be the closed 64-hex identity form"
+            )
+        return key
+
+    def reserve_recovery_transient_cold(self, lineage_key: str, nbytes: int) -> None:
+        """The 020 COLD initial-load transient
+        reservation (requirement 4): the resume
+        boundary reserves the initial LOAD / DECODE
+        transient under the TRUSTED RESUME ADDRESS key
+        BEFORE the loaded namespace exists (the loaded
+        full namespace is validated from the record
+        afterwards and joined by
+        ``rebind_recovery_transient_cold``), so the
+        first restore allocation is already bounded.
+        Input law: the closed 64-hex key form plus a
+        positive NON-BOOL integer byte count.  Under
+        the registry critical section: the process
+        ceiling is enforced against the registry total
+        exactly as on every commit; a live (non-
+        fenced) owner under the key is refused with
+        the fixed ``RamStateInputError`` (the identity
+        join cannot be proven without the registered
+        namespace record, and the resume boundary maps
+        that to its duplicate-live-owner outcome); and
+        with no live owner the CONFIGURED registry
+        session ceiling bounds the reservation before
+        any allocation (the SAME check the namespace-
+        based seam applies to the cold case;
+        ``_allocate`` then tightens the same ceiling
+        by the actual owner base).  A crossing raises
+        the fixed ``RamStateCapacityError`` leaving
+        every counter unchanged; a commit charges the
+        process total and the key's reserved amount."""
+        self._validate_recovery_transient_key(lineage_key)
+        if isinstance(nbytes, bool) or not isinstance(nbytes, int) or nbytes < 1:
+            raise RamStateInputError(
+                "the recovery transient reservation must be a positive integer"
+            )
+        with self._lock:
+            if self._process_owned_bytes + nbytes > self._bounds.process_max_owned_bytes:
+                raise RamStateCapacityError(
+                    "the process ceiling cannot cover the recovery transient reservation"
+                )
+            existing = self._owners.get(lineage_key)
+            if existing is not None and not existing.epoch_fenced:
+                raise RamStateInputError(
+                    "the recovery cold reservation cannot bind a live owner "
+                    "without its registered namespace record"
+                )
+            reserved = self._recovery_session_transient.get(lineage_key, 0)
+            if reserved + nbytes > self._bounds.session_max_owned_bytes:
+                raise RamStateCapacityError(
+                    "the session ceiling cannot cover the recovery transient reservation"
+                )
+            self._recovery_session_transient[lineage_key] = (
+                self._recovery_session_transient.get(lineage_key, 0) + nbytes
+            )
+            self._recovery_transient += nbytes
+            self._process_owned_bytes += nbytes
+
+    def rebind_recovery_transient_cold(self, from_key: str, namespace: object) -> None:
+        """Bind a COLD initial-load reservation to the
+        validated loaded namespace (requirements 4 and
+        2): after the resume boundary has loaded and
+        validated the record's COMPLETE trusted
+        namespace, the reserved bytes move in ONE
+        registry critical section from the trusted
+        address key to the namespace's lineage key, so
+        the SAME atomic sums (the store ``admit`` and
+        the work-plane capacity checks) see the in-
+        flight initial-load transient under the
+        session's real key while the restore /
+        allocation / publication still runs.  Input
+        law: the closed 64-hex from key plus the
+        complete trusted-namespace law.  The move
+        requires a positive reservation under the from
+        key (fixed ``RamStateInputError`` when none),
+        and, when a live (non-fenced) owner exists
+        under the namespace key, the SAME identity
+        join as ``get`` / ``acquire`` (a value-equal
+        foreign copy is refused -- the duplicate-live-
+        owner case, which the resume boundary maps to
+        its duplicate-live-owner outcome).  The
+        process total is unchanged (the SAME bytes
+        re-keyed); every counter is exact on every
+        outcome."""
+        self._validate_recovery_transient_key(from_key)
+        if not self._validate_namespace(namespace):
+            # Unreachable: the guard raises on every refusal.
+            raise RamStateInputError("the ram state namespace failed validation")
+        to_key = namespace.lineage_key
+        with self._lock:
+            amount = self._recovery_session_transient.get(from_key, 0)
+            if amount < 1:
+                raise RamStateInputError(
+                    "the recovery transient rebind has no reserved bytes to bind"
+                )
+            if from_key == to_key:
+                return
+            existing = self._owners.get(to_key)
+            if existing is not None and not existing.epoch_fenced:
+                # The same identity join as ``get`` /
+                # ``acquire``: a value-equal foreign
+                # copy carrying the registered lineage
+                # key is refused, never bound.
+                if namespace is not existing.namespace:
+                    raise RamStateInputError(
+                        "the ram state namespace is not the registered trusted namespace record"
+                    )
+            self._recovery_session_transient[to_key] = (
+                self._recovery_session_transient.get(to_key, 0) + amount
+            )
+            del self._recovery_session_transient[from_key]
+
+    def release_recovery_transient_cold(self, lineage_key: str, nbytes: int) -> None:
+        """Release a COLD initial-load reservation
+        under its CURRENT key exactly once (the 020
+        resume boundary's completion path, after the
+        rebind when one ran): the closed 64-hex key
+        form plus a positive NON-BOOL integer byte
+        count, and a release exceeding that key's
+        still-reserved amount raises the fixed
+        ``RamStateInputError`` with every counter
+        unchanged (no underflow, no double release).
+        Registry owners are keyed by NAMESPACE
+        lineage keys, never by the trusted address
+        key, so no live-owner identity join gates this
+        seam; the namespace-based
+        ``release_recovery_transient`` (with its
+        identity join) remains the seam for the
+        live-owner checkpoint path."""
+        self._validate_recovery_transient_key(lineage_key)
+        if isinstance(nbytes, bool) or not isinstance(nbytes, int) or nbytes < 1:
+            raise RamStateInputError("the recovery transient release must be a positive integer")
+        with self._lock:
+            reserved = self._recovery_session_transient.get(lineage_key, 0)
+            if nbytes > reserved:
+                raise RamStateInputError(
+                    "the recovery transient release exceeds the reserved transient bytes"
+                )
+            if reserved - nbytes == 0:
+                del self._recovery_session_transient[lineage_key]
+            else:
+                self._recovery_session_transient[lineage_key] = reserved - nbytes
+            self._recovery_transient -= nbytes
+            self._process_owned_bytes -= nbytes
+
+    def owned_store_io_acquire(self) -> bool:
+        """Acquire the ONE closed process-owned
+        store IO slot (020 requirement 4): at most
+        ONE owned durable store IO runs in the
+        whole process at a time; a second
+        concurrent owned IO is refused typed by
+        the caller (there is no queue).  The slot
+        is a pure-memory count under the registry
+        critical section; it is held across the
+        owning operation's whole bounded IO
+        (including a worker-thread publication)
+        and released exactly once."""
+        with self._lock:
+            if self._owned_store_io > 0:
+                return False
+            self._owned_store_io += 1
+            return True
+
+    def owned_store_io_release(self) -> None:
+        """Release the ONE process-owned store IO
+        slot (exactly once per acquisition): a
+        release with no held slot raises the
+        fixed typed error (a slot leak must fail
+        loudly, never silently corrupt the busy
+        law)."""
+        with self._lock:
+            if self._owned_store_io <= 0:
+                raise RamStateInputError("the process owned store IO slot is not held")
+            self._owned_store_io -= 1
 
     def new_owner(
         self,

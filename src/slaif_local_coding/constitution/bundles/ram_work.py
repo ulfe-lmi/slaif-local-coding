@@ -349,8 +349,10 @@ class RamWorkCoordinator:
 
     def session_bytes(self, lineage_key: str) -> int:
         """The owner's charged WORK occupancy (the synchronous
-        admit's session ceiling check adds this to the store
-        occupancy; the caller holds the registry lock)."""
+        admit's session ceiling check adds this, plus the
+        020 bound-session recovery transient reservation,
+        to the store occupancy; the caller holds the
+        registry lock)."""
         ow = self._owners.get(lineage_key)
         return ow.bytes if ow is not None else 0
 
@@ -361,6 +363,19 @@ class RamWorkCoordinator:
         work.  The caller holds the registry lock."""
         ow = self._owners.get(lineage_key)
         return ow is not None and (ow.fenced or bool(ow.live))
+
+    def owner_teardown_fenced(self, lineage_key: str) -> bool:
+        """The 020 recovery admission fence: True while the
+        owner's work plane is FENCED by its async teardown
+        (the drain, and the atomic release it guards, is in
+        progress).  The recovery transient reservation for
+        this namespace is refused under the SAME registry
+        lock while True, so the work teardown's atomic
+        release can never run under a newly live recovery
+        publication (the reverse order of its own entry
+        fence).  The caller holds the registry lock."""
+        ow = self._owners.get(lineage_key)
+        return ow is not None and ow.fenced
 
     def release_idle_owner(self, lineage_key: str) -> int:
         """Release an IDLE work plane in the synchronous
@@ -620,7 +635,10 @@ class RamWorkCoordinator:
             # published only when the claim is accepted).
             m_candidate = {**self._owners, okey: ow}
             m_growth = max(0, sys.getsizeof(m_candidate) - self._owners_table_charged)
-        if owner.owned_bytes + ow.bytes > owner.session_max_owned_bytes:
+        if (
+            owner.owned_bytes + ow.bytes + self._registry.recovery_session_reserved(okey)
+            > owner.session_max_owned_bytes
+        ):
             self._roll_back_waiter_locked(okey, ow, la, fut, created_la, created_ow)
             return self._refused(RamStateLimitation.SESSION_OWNED_BYTES_OVER_BOUND, epoch)
         # The queued entry's closed tuple reservation (it is
@@ -801,7 +819,13 @@ class RamWorkCoordinator:
                 # reservation: nothing else changes in this
                 # critical section).
                 delta = RAM_WORK_TASK_RESERVATION_BYTES
-                if owner.owned_bytes + ow.bytes + delta > owner.session_max_owned_bytes:
+                if (
+                    owner.owned_bytes
+                    + ow.bytes
+                    + delta
+                    + self._registry.recovery_session_reserved(owner.namespace.lineage_key)
+                    > owner.session_max_owned_bytes
+                ):
                     self._queue.popleft()
                     self._registry._commit_process_delta(-RAM_WORK_QUEUE_ENTRY_RESERVATION_BYTES)
                     self._finalize_attempt_locked(
@@ -929,7 +953,14 @@ class RamWorkCoordinator:
                             ow.payloads = {**ow.payloads, (la.epoch, la.content_key): payload}
                             ow.bytes = self._owner_work_bytes(ow)
                             p_delta = ow.bytes - old
-                            if owner.owned_bytes + ow.bytes > owner.session_max_owned_bytes:
+                            if (
+                                owner.owned_bytes
+                                + ow.bytes
+                                + self._registry.recovery_session_reserved(
+                                    owner.namespace.lineage_key
+                                )
+                                > owner.session_max_owned_bytes
+                            ):
                                 ow.payloads = payloads_before
                                 ow.bytes = self._owner_work_bytes(ow)
                                 limitation = RamStateLimitation.SESSION_OWNED_BYTES_OVER_BOUND
@@ -1176,6 +1207,30 @@ class RamWorkCoordinator:
         tasks: list[asyncio.Task[None]] = []
         task_las: list[_LiveAttempt] = []
         with self._registry._lock:
+            # The 020 recovery fence (020-b: the
+            # claimed-owner fence completes it):
+            # live recovery IO for this session
+            # -- the held transient term OR a
+            # claimed synchronous recovery
+            # operation, which can still reserve
+            # / publish -- refuses the direct
+            # store release from EITHER branch
+            # below; the recovery owner's
+            # explicit composed teardown drains
+            # it first (a late recovery write can
+            # never publish after the RAM
+            # ownership is released); with no
+            # live recovery IO the 019 behavior
+            # is unchanged.
+            if self._registry.recovery_io_live(okey):
+                return RamWorkTeardownResult(
+                    outcome=RamWorkOutcome.REFUSED,
+                    limitation=RamWorkLimitation.RECOVERY_IN_FLIGHT,
+                    freed_bytes=0,
+                    attempts_cancelled=0,
+                    waiters_notified=0,
+                    http_status=ram_work_http_status(RamWorkLimitation.RECOVERY_IN_FLIGHT),
+                )
             ow = self._owners.get(okey)
             if ow is None:
                 # No work plane for this live store owner:
