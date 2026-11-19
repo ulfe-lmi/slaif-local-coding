@@ -71,6 +71,7 @@ from dataclasses import field as dataclass_field
 from enum import StrEnum
 from typing import Any
 
+from .bundle_admission_models import EntryClass
 from .bundle_proof_models import BundlePiece, BundleProof, BundleSurface
 from .bundle_replace_models import (
     EVIDENCE_MARKER_DOMAIN,
@@ -93,6 +94,7 @@ from .bundle_selection import (
     SelectionReadyEntry,
 )
 from .current_admission_models import CurrentAdmissionWitness
+from .currentness_models import CurrentnessOverlay, CurrentnessReason
 from .observation_models import (
     PRIVATE_ID_PLACEHOLDER,
     CharSpan,
@@ -108,6 +110,11 @@ from .observation_models import (
 from .observe import ENDPOINT_CHAT, ENDPOINT_RESPONSES
 from .ram_state_models import RamStateSnapshot
 from .recovery_store import RecoveryStoreLimitation
+from .root_lineage_models import RootSelectionOutcome
+from .root_region_currentness_models import (
+    RootRegionCurrentnessOutcome,
+    RootRegionCurrentnessResult,
+)
 
 
 def _durable_guard(
@@ -1766,6 +1773,170 @@ def join_retained_proof(
 
 
 # ---------------------------------------------------------------------------
+# Positive supersession by ACTUAL lineage (objective 022-b)
+# ---------------------------------------------------------------------------
+#
+# A retained original that has left the current prepared set is a
+# KNOWN POSITIVELY SUPERSEDED original only when the ACTUAL records
+# prove it; the proof is re-derived from the actual retained snapshot
+# records, never asserted by the caller and never read from the
+# current raw bytes:
+#
+# * FILE spans: the ACTUAL 018-e nonroot currentness decision carried
+#   by the accepted same-run R result of the prepared snapshot for
+#   the span's OWN witness occurrence and group (the occurrence-local
+#   segment order — the span's ``segment_index``), reused by
+#   reference, never re-derived.  The group must
+#   carry the closed ``proven_change`` reason on one of its path rows
+#   (a provably later claim with a KNOWN different digest) and NO
+#   ``known_content_conflict`` / ``ownership_ambiguity`` blocker.
+#   An ambiguous or conflicting group, an unchanged current version,
+#   a later claim without an equality proof, a group the derivation
+#   never recorded (a mere omission) or an absent overlay (a mapped
+#   refusal or non-ready R outcome) earns no evidence marker (fail
+#   closed).
+#
+# * old root envelopes: the ACTUAL P/Q root-region lineage carried by
+#   the prepared snapshot's actual same-run 018-q result.  The Q
+#   currentness must be ``ready``, the actual P
+#   selection must be ``ok`` with a selected source digest DIFFERENT
+#   from the retained root digest, and that retained digest must be
+#   an ACTUAL retained root fact — a known superseded root original
+#   (including a genuine new old-bytes occurrence superseded by a
+#   proven descendant).  An absent Q result, any non-ready Q outcome,
+#   a differing-root conflict, a no-selected-root or refused P
+#   selection, or an unretained digest earns no evidence marker (fail
+#   closed).
+#
+# Mere absence from the prepared set / selection never proves
+# historical supersession (that is the separate selection-omission
+# basis, not lineage).
+
+
+@dataclass(frozen=True, slots=True)
+class _SupersessionEvidence:
+    """The ACTUAL same-run lineage evidence carried by the prepared
+    snapshot (reused by reference, never re-derived).
+
+    ``overlay`` is the ACTUAL 018-e nonroot currentness overlay the
+    accepted R result derived in the SAME run as the prepared working
+    set — ``None`` when the R result carries no E overlay (a mapped
+    refusal or non-ready outcome; fail closed: no FILE supersession
+    proof).  ``root_currentness`` is the ACTUAL same-run 018-q root
+    currentness result with its ACTUAL P selection by reference —
+    ``None`` when the R result carries no Q result (fail closed: no
+    root supersession proof).  ``retained_root_digests`` is the
+    closed set of the ACTUAL retained root source digests of the
+    snapshot's exact state (a known superseded root original must be
+    one of them).  Nothing advances a revision or mints authority."""
+
+    overlay: CurrentnessOverlay | None
+    root_currentness: RootRegionCurrentnessResult | None
+    retained_root_digests: frozenset[str]
+
+
+def _historical_supersession(
+    snapshot: RamStateSnapshot,
+) -> _SupersessionEvidence:
+    """The ACTUAL lineage evidence of the prepared snapshot itself.
+
+    The prepared working set was selected from the accepted R result
+    of the EXACT retained state, so the SAME-RUN Q root currentness
+    (with its actual P selection) and E nonroot currentness overlay
+    carried by that result are the supersession evidence: reused by
+    reference, never re-derived (a second derivation could not
+    restate the prepared run and would spend a second bounded graph
+    pass).  Absent intermediates and non-ready outcomes fail closed
+    with no evidence marker."""
+    r_result = snapshot.result.r_result
+    if r_result is None:
+        # The admitted result carries no same-run R result (a
+        # mapped T-level refusal before R ran): no same-run Q/E
+        # evidence exists — fail closed with no supersession proof.
+        return _SupersessionEvidence(
+            overlay=None,
+            root_currentness=None,
+            retained_root_digests=frozenset(
+                fact.source_digest for fact in snapshot.state.root_facts
+            ),
+        )
+    return _SupersessionEvidence(
+        overlay=r_result.e_overlay,
+        root_currentness=r_result.q_result,
+        retained_root_digests=frozenset(fact.source_digest for fact in snapshot.state.root_facts),
+    )
+
+
+def _file_span_superseded(
+    span: RetainedSpan,
+    evidence: _SupersessionEvidence,
+) -> bool:
+    """ACTUAL 018-e group decision for the span's OWN witness
+    occurrence and group (see the section law).  A refused
+    derivation, no group record for the span's coordinates (a mere
+    omission), an ambiguous or conflicting group, or a later claim
+    without a KNOWN different digest earns no supersession proof."""
+    overlay = evidence.overlay
+    if overlay is None:
+        return False
+    record = next(
+        (
+            group
+            for group in overlay.groups
+            if group.occurrence_id == span.occurrence_identity
+            and group.group_index == span.segment_index
+        ),
+        None,
+    )
+    if record is None:
+        return False
+    reasons = {reason for row in record.path_rows for reason in row.reasons}
+    if (
+        CurrentnessReason.KNOWN_CONTENT_CONFLICT in reasons
+        or CurrentnessReason.OWNERSHIP_AMBIGUITY in reasons
+    ):
+        return False
+    return CurrentnessReason.PROVEN_CHANGE in reasons
+
+
+def _root_span_superseded(
+    span: RetainedSpan,
+    evidence: _SupersessionEvidence,
+) -> bool:
+    """ACTUAL P/Q root lineage for an old root envelope (see the
+    section law): the actual same-run Q must be ready, the actual P
+    selection ok with a selected digest DIFFERENT from the retained
+    root digest, and that retained digest an ACTUAL retained root
+    fact (a known superseded root original)."""
+    root = evidence.root_currentness
+    if root is None or root.outcome is not RootRegionCurrentnessOutcome.READY:
+        return False
+    selection = root.p_selection
+    if selection is None or selection.outcome is not RootSelectionOutcome.OK:
+        return False
+    selected = selection.selected_source_digest
+    old = span.source_digest
+    return selected is not None and selected != old and old in evidence.retained_root_digests
+
+
+def _positively_superseded(
+    span: RetainedSpan,
+    evidence: _SupersessionEvidence,
+) -> bool:
+    """A retained span is a known positively superseded original only
+    through its ACTUAL lineage proof (see the section law): the
+    actual 018-e currentness group decision for a FILE span, the
+    actual P/Q root-region lineage for an old root envelope.  Every
+    absent, ambiguous or refused record fails closed (no evidence
+    marker)."""
+    if span.entry_class == EntryClass.ROOT_ENTRY.value:
+        return _root_span_superseded(span, evidence)
+    if span.entry_class == EntryClass.FILE_BUNDLE_ENTRY.value:
+        return _file_span_superseded(span, evidence)
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Pure transaction (objective 022-b — saved chunk 3)
 # ---------------------------------------------------------------------------
 #
@@ -1783,6 +1954,10 @@ def join_retained_proof(
 #    (``join_retained_proof``: every span through its own owner proof,
 #    the current accepted 017 observation, the result-side paired ID and
 #    the exact re-proven segment facts).
+# 4. The historical supersession evidence is the prepared snapshot's
+#    OWN same-run R/Q/E records (``_historical_supersession``: reused
+#    by reference, never re-derived; absent or non-ready
+#    intermediates fail closed with no evidence marker).
 #
 # Marker law: every marker in a recognized source field (a joined
 # carrier) is verified by RE-DERIVATION against the expectations table.
@@ -1796,17 +1971,30 @@ def join_retained_proof(
 # Ordinary text outside the joined carriers is never recognized as
 # marker authority.
 #
-# Edit law: a selected REPROVEN span earns a LIVE edit (or a replay); an
-# omitted (positively superseded) reproven span earns an EVIDENCE edit
-# (or a replay) — never a dangling live reference; a merely retained
-# reproven span earns no edit (stale authority only).  A selected span
-# whose current bytes leave the retained original (``bytes_mismatch``)
-# refuses SPAN_MISMATCH all-or-nothing; a selected span whose carrier is
-# absent or not earned earns zero edits (a source-absent replay still
-# returns the exact selected context).  Edits obey the closed bounds,
-# never overlap in one carrier (never two edits to the same root
-# region) and are applied atomically to a deep copy: the input payload
-# is never mutated.
+# Edit law: a selected span earns a LIVE edit (or an accepted replay),
+# derived from the authorized witnesses INDEPENDENT of the current raw
+# bytes — the valid transformed tag is matched BEFORE the raw digest
+# mismatch: a selected span whose current bytes leave the retained
+# original AND carries no valid transformed tag at its original splice
+# start refuses SPAN_MISMATCH all-or-nothing.  An evidence-eligible
+# span earns an EVIDENCE edit (or an accepted replay), never a
+# dangling live reference: either a current prepared optional source
+# actually omitted by the accepted selection (all closed omission
+# reasons leave every required content or the exact missing-binding
+# guidance in the working set), or a known positively superseded
+# original retained in history proven by ACTUAL lineage (the
+# accepted 018-e currentness group decision with its proven-change
+# reason for a FILE span, or the actual P/Q root-region lineage for
+# an old root envelope; mere absence from selection or
+# uncertain/conflicting attribution never proves supersession).  A
+# merely retained span
+# earns no edit (a live tag there is a stale live reference and
+# refuses).  A selected span whose carrier is absent or not earned
+# earns zero edits (a source-absent replay still returns the exact
+# selected context).  Edits obey the closed bounds, never overlap in
+# one carrier (never two edits to the same root region) and are
+# applied atomically to a deep copy: the input payload is never
+# mutated.
 
 
 @dataclass(frozen=True, slots=True)
@@ -1909,8 +2097,8 @@ def _scan_replayed_markers(
     reference — a valid live tag for a retained entry that has left
     the accepted selection — ALWAYS refuses: the ``stale`` verdict
     stays the marker layer's internal diagnostic (``verify_marker``),
-    never a replay.  A forged, malformed, unknown-kind, moved (outside
-    the span's own exact interval) or kind-incompatible marker refuses
+    never a replay.  A forged, malformed, unknown-kind, moved (off the
+    span's original splice start) or kind-incompatible marker refuses
     the same way.  An accepted replay neither changes its authority
     nor creates a second edit; its record is content-free (the
     coordinates, the kind and the digest/length of the exact wired
@@ -1939,19 +2127,18 @@ def _scan_replayed_markers(
             if entry is None:
                 raise _refuse(CarrierDetail.MARKER_INVALID)
             span, kinds = entry
-            if (
-                required not in kinds
-                or span.location != location
-                or span.start != start
-                or span.end != start + len(candidate)
-            ):
+            # Start-only position law: the marker must sit at the
+            # span's original splice start; the transformed tag's
+            # wire length differs from the raw span length, so the
+            # replay is verified independent of the raw bytes.
+            if required not in kinds or span.location != location or span.start != start:
                 raise _refuse(CarrierDetail.MARKER_INVALID)
             candidate_bytes = candidate.encode("utf-8")
             replayed[(endpoint, location, span.start)] = MarkerRecord(
                 carrier_location=location,
                 field=span.field,
                 start=span.start,
-                end=span.end,
+                end=start + len(candidate),
                 kind=kind,
                 replayed=True,
                 marker_sha256=hashlib.sha256(candidate_bytes).hexdigest(),
@@ -2029,29 +2216,45 @@ def replace_sources(
                 # re-derived for it).
                 raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
         omitted_keys = {o.content_key for o in decision.omitted}
-        live_spans: list[RetainedSpan] = []
+        evidence = _historical_supersession(current_snapshot)
+        selected_spans: list[RetainedSpan] = []
         evidence_spans: list[RetainedSpan] = []
         stale_spans: list[RetainedSpan] = []
         for span in spans:
             if (span.content_key, span.entry_class) in working_rows:
-                if span.bytes_mismatch:
-                    raise _refuse(CarrierDetail.SPAN_DIGEST_MISMATCH)
-                if span.reproven:
-                    live_spans.append(span)
+                # Selected spans are NOT raw-gated here: the valid
+                # transformed tag at the original splice start is
+                # matched BEFORE any raw digest mismatch (the scan
+                # below); a selected span without an accepted replay
+                # earns SPAN_DIGEST_MISMATCH in the plan.
+                selected_spans.append(span)
                 continue
-            if span.content_key in omitted_keys:
-                if span.reproven:
-                    evidence_spans.append(span)
-                stale_spans.append(span)
+            if span.reproven and (
+                (
+                    span.entry_class == EntryClass.FILE_BUNDLE_ENTRY.value
+                    and span.content_key in omitted_keys
+                )
+                or _positively_superseded(span, evidence)
+            ):
+                # Evidence-eligible: a current prepared optional
+                # source actually omitted by the accepted selection
+                # (root entries never qualify via omission), or a
+                # known positively superseded original proven by
+                # ACTUAL lineage.  An EVIDENCE edit or an accepted
+                # replay — never a dangling live reference.
+                evidence_spans.append(span)
                 continue
-            if span.reproven:
-                stale_spans.append(span)
-        # Expectations: current live tags for the selected reproven
-        # spans, an evidence tag AND a stale live tag for each omitted
-        # reproven span (honest old raw replay and already transformed
-        # historical replay), a stale live tag for each merely
-        # retained reproven span.  An entry without a ready compiled
-        # index earns NO tag (no compiled identity to reference).
+            # Merely retained (unselected, not omitted, no lineage
+            # proof): no edit; a live tag there is a stale live
+            # reference and refuses.
+            stale_spans.append(span)
+        # Expectations (derived INDEPENDENT of the current raw
+        # bytes): a current live tag for EVERY selected span (the
+        # transformed replay is matched before the raw digest
+        # mismatch); an evidence tag for EVERY evidence-eligible span
+        # (no ready index needed); a stale live tag for every other
+        # span whose entry has a ready compiled index (the internal
+        # ``stale`` diagnostic keeps an old live reference refusing).
         tags: list[ExpectedTag] = []
         binding_of: dict[
             tuple[str, str, int, int, int, int, str], tuple[RetainedSpan, frozenset[str]]
@@ -2073,7 +2276,7 @@ def replace_sources(
                 raise AssertionError("unreachable: tag binding collision")
             binding_of[b] = (span, prev_kinds | frozenset({kind}))
 
-        for span in live_spans:
+        for span in selected_spans:
             ready = ready_by_key[span.content_key]
             _note(
                 span,
@@ -2096,9 +2299,6 @@ def replace_sources(
                 "live",
             )
         for span in evidence_spans:
-            maybe_ready = ready_by_key.get(span.content_key)
-            if maybe_ready is None:
-                continue
             _note(
                 span,
                 derive_evidence_tag(
@@ -2117,27 +2317,29 @@ def replace_sources(
                 ),
                 "evidence",
             )
-            _note(
-                span,
-                derive_live_tag(
-                    key,
-                    namespace_key=namespace_key,
-                    original_role=span.role,
-                    occurrence_identity=span.occurrence_identity,
-                    endpoint=span.endpoint,
-                    call_id=span.call_id,
-                    call_position=span.call_position,
-                    result_position=span.result_position,
-                    piece_index=span.piece_index,
-                    segment_index=span.segment_index,
-                    entry_class=span.entry_class,
-                    content_key=span.content_key,
-                    compiled_digest=maybe_ready.index.compile_key,
-                    source_digest=span.source_digest,
-                    stale=True,
-                ),
-                "stale",
-            )
+            maybe_ready = ready_by_key.get(span.content_key)
+            if maybe_ready is not None:
+                _note(
+                    span,
+                    derive_live_tag(
+                        key,
+                        namespace_key=namespace_key,
+                        original_role=span.role,
+                        occurrence_identity=span.occurrence_identity,
+                        endpoint=span.endpoint,
+                        call_id=span.call_id,
+                        call_position=span.call_position,
+                        result_position=span.result_position,
+                        piece_index=span.piece_index,
+                        segment_index=span.segment_index,
+                        entry_class=span.entry_class,
+                        content_key=span.content_key,
+                        compiled_digest=maybe_ready.index.compile_key,
+                        source_digest=span.source_digest,
+                        stale=True,
+                    ),
+                    "stale",
+                )
         for span in stale_spans:
             maybe_ready = ready_by_key.get(span.content_key)
             if maybe_ready is None:
@@ -2179,13 +2381,21 @@ def replace_sources(
                 )
             carriers[carrier_key] = slot.text
         replayed = _scan_replayed_markers(carriers, expectations, binding_of)
-        # Plan: a selected reproven span earns a LIVE edit unless an
-        # accepted replay occupies exactly its span; an omitted
-        # reproven span earns an EVIDENCE edit the same way.
+        # Plan (the accepted replay at the original splice start is
+        # matched BEFORE the raw digest mismatch): a selected span
+        # without a replay whose bytes left the original refuses
+        # SPAN_DIGEST_MISMATCH all-or-nothing; a reproven selected
+        # span earns a LIVE edit.  An evidence-eligible span without
+        # a replay earns an EVIDENCE edit only when reproven (a
+        # drifted non-selected carrier is not a recognized source and
+        # stays untouched; no ready index is needed — lineage spans
+        # are not ready).
         planned: list[_PlannedEdit] = []
-        for span in live_spans:
+        for span in selected_spans:
             if (span.endpoint, span.location, span.start) in replayed:
                 continue
+            if not span.reproven:
+                raise _refuse(CarrierDetail.SPAN_DIGEST_MISMATCH)
             ready = ready_by_key[span.content_key]
             planned.append(
                 _PlannedEdit(
@@ -2213,8 +2423,7 @@ def replace_sources(
         for span in evidence_spans:
             if (span.endpoint, span.location, span.start) in replayed:
                 continue
-            maybe_ready = ready_by_key.get(span.content_key)
-            if maybe_ready is None:
+            if not span.reproven:
                 continue
             planned.append(
                 _PlannedEdit(
