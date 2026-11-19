@@ -1359,10 +1359,15 @@ def test_wheel_excludes_exporter_and_evidence() -> None:
     assert src_package.is_dir()
     assert not (src_package / "safe_evidence.py").exists()
     dependencies: list[Any] = pyproject["project"]["dependencies"]
+    # Objective 021 (order 021-a item 1): the explicitly authorized
+    # minimal locked CPU-only tokenizer dependency stays pinned at
+    # tokenizers==0.22.2; the other runtime dependencies keep their
+    # range form and the exact closed set is otherwise unchanged.
     assert {dep.split(">=")[0].strip() for dep in dependencies} == {
         "fastapi",
         "httpx",
         "prometheus-client",
         "pydantic",
+        "tokenizers==0.22.2",
         "uvicorn",
     }
