@@ -985,6 +985,59 @@ def test_v1_rejects_explicitly_supplied_legacy_policies(
         load_settings(path)
 
 
+def test_v1_malformed_legacy_cache_toml_rejects_at_boundary_without_echo(
+    tmp_path: Path,
+) -> None:
+    # 022-b migration-boundary law: with v1 selected, a malformed explicit
+    # legacy [cache] field must reject at the fixed migration refusal,
+    # never through standalone nested validation that echoes its value.
+    canary = "canary-cache-migration-7f3a9d"
+    toml = _v1_base_toml() + f'[cache]\nttl_seconds = "{canary}"\n'
+    path = tmp_path / "v1-malformed-cache.toml"
+    path.write_text(toml)
+    with pytest.raises(ValidationError) as excinfo:
+        load_settings(path)
+    rendered = str(excinfo.value)
+    assert V1_LEGACY_CACHE_CONFLICT in rendered
+    assert canary not in rendered
+
+
+def test_v1_malformed_legacy_rehydration_toml_rejects_at_boundary_without_echo(
+    tmp_path: Path,
+) -> None:
+    # 022-b migration-boundary law: with v1 selected, a malformed explicit
+    # legacy [constitution.rehydration] field must reject at the fixed
+    # migration refusal, never through standalone nested validation that
+    # echoes its value.
+    canary = "canary-rehydration-migration-2b8c41"
+    toml = _v1_base_toml() + (
+        f'[constitution.rehydration]\nttl_seconds = "{canary}"\n'
+    )
+    path = tmp_path / "v1-malformed-rehydration.toml"
+    path.write_text(toml)
+    with pytest.raises(ValidationError) as excinfo:
+        load_settings(path)
+    rendered = str(excinfo.value)
+    assert V1_LEGACY_REHYDRATION_CONFLICT in rendered
+    assert canary not in rendered
+
+
+def test_legacy_profile_malformed_cache_keeps_standalone_typed_loading(
+    tmp_path: Path,
+) -> None:
+    # Existing legacy loading is preserved: without a selected v1 profile
+    # the legacy [cache] section still passes through standalone typed
+    # validation (the 022-b boundary fix is v1-scoped only).
+    toml = _v1_base_toml().replace(
+        'profile = "dependency-bundles-v1"\n', ""
+    )
+    toml += '[cache]\nttl_seconds = "not-a-number"\n'
+    path = tmp_path / "legacy-malformed-cache.toml"
+    path.write_text(toml)
+    with pytest.raises(ValidationError, match="ttl_seconds"):
+        load_settings(path)
+
+
 def test_v1_allows_common_fields_empty_blocks_and_materialized_defaults(
     tmp_path: Path,
 ) -> None:

@@ -894,6 +894,21 @@ def load_settings(path: Path) -> Settings:
     """Load a TOML file and reject unknown or invalid configuration."""
     with path.open("rb") as stream:
         raw = tomllib.load(stream)
+    # 022-b migration-boundary law: under a selected v1 profile the legacy
+    # conflict-target sections (filesystem cache, legacy compiler,
+    # constitution byte-injection/selector and derived-rehydration policy)
+    # must not pass through standalone nested validation before the fixed
+    # migration refusal: a malformed explicitly supplied legacy field must
+    # reject at that intended boundary with its fixed message, never
+    # echoing its value. They are therefore handed to Settings raw, whose
+    # before-validator applies the closed conflict law first. The legacy
+    # profile keeps the existing standalone materialization (existing
+    # legacy loading is unchanged).
+    context_cache_raw = raw.get("context_cache")
+    v1_selected = (
+        isinstance(context_cache_raw, dict)
+        and context_cache_raw.get("profile") == V1_PROFILE
+    )
     # Sections are materialized only when explicitly present so that a
     # materialized default never counts as an operator-supplied setting
     # (022-a migration law). Bounded section validation happens here;
@@ -904,13 +919,16 @@ def load_settings(path: Path) -> Settings:
             raw.pop("gateway_ingress")
         )
     if "compiler" in raw:
-        explicit["compiler"] = CompilerConfig.model_validate(raw.pop("compiler"))
+        if not v1_selected:
+            explicit["compiler"] = CompilerConfig.model_validate(raw.pop("compiler"))
     if "cache" in raw:
-        explicit["cache"] = CacheConfig.model_validate(raw.pop("cache"))
+        if not v1_selected:
+            explicit["cache"] = CacheConfig.model_validate(raw.pop("cache"))
     if "constitution" in raw:
-        explicit["constitution"] = ConstitutionIntegrationConfig.model_validate(
-            raw.pop("constitution")
-        )
+        if not v1_selected:
+            explicit["constitution"] = ConstitutionIntegrationConfig.model_validate(
+                raw.pop("constitution")
+            )
     if "context_cache" in raw:
         explicit["context_cache"] = ContextCacheConfig.model_validate(raw.pop("context_cache"))
     if "observability" in raw:
