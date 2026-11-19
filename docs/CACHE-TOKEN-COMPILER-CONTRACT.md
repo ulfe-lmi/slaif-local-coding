@@ -86,12 +86,16 @@ validated configuration contract:
   included — is counted with the REAL pinned tokenizer. Remaining request
   content and tool / envelope emissions are counted through the pinned
   compatible rendering (`qwen3-model-envelope/v1`): every DYNAMIC text is
-  counted with the real tokenizer, and every FIXED template framing fragment
-  is charged a closed conservative structural bound (the
-  `ENVELOPE_*_BOUND_TOKENS` constants, provable over-estimates re-derived from
-  the pinned template asset at test time), under explicit finite item limits
-  (files / messages / tools / calls / args / images, each a closed
-  positive identity-bound configuration value).
+  counted with the real tokenizer — the serialized tool data in the pinned
+  template's own JSON serialization (its `tojson` form: sorted keys,
+  compact commas, a space after each colon, ASCII-escaped; the minified
+  form renders fewer bytes / tokens and is never counted) — and every
+  FIXED template framing fragment is charged a closed conservative
+  structural bound (the `ENVELOPE_*_BOUND_TOKENS` constants, provable
+  over-estimates re-derived from the pinned template asset at test time),
+  under explicit finite item limits (files / messages / tools / calls /
+  args / images, each a closed positive identity-bound configuration
+  value).
 - Byte / parse limits (per-message, per-request, per-entry, per-compiled-
   block bytes; JSON depth) are INDEPENDENT of tokens and enforced before
   token work; a crossing is a typed refusal (`ITEM_LIMIT_EXCEEDED`,
@@ -122,10 +126,12 @@ The compiler is a DIRECT authenticated tool-free NON-RECURSIVE upstream
 channel that treats the admitted entry's source as data:
 
 - The input is ONE actual `RootRegionAdmissionEntry` (018-t): the ROOT row's
-  source is its actual `ResolvedRootRegionSource`; the FILE row's source is
-  its actual first-compatible original `BundleProof` aggregate; the digest /
-  byte length are re-derived and must agree (`SOURCE_HASH_MISMATCH`
-  otherwise). Boundaryless mixed admitted content keeps unknown possible
+  source is its actual `ResolvedRootRegionSource`; the FILE row's source
+  is its actual admitted region of the retained first-compatible original
+  `BundleProof` (the whole bundle, or one proven group under the accepted
+  018-s/T retained-content law); the digest / byte length are re-derived
+  and must agree (`SOURCE_HASH_MISMATCH` otherwise). Boundaryless mixed
+  admitted content keeps unknown possible
   origins and the original data role: no invented governing attribution, no
   promotion of off-graph content, no dependency may be P0 (only the supplied
   root is P0).

@@ -21,9 +21,12 @@ Law (objective 021 item 2 + plan policy 10 + compact architecture
   identity-bound and validated against C;
 - remaining request content and tool / envelope emissions are
   counted under EXPLICIT finite item limits: ordinary message
-  content and the serialized tool data (canonical minified JSON)
-  are counted with the real tokenizer over the pinned message
-  framing; the pinned model envelope's fixed template pieces and
+  content and the serialized tool data (the pinned template's own
+  JSON serialization -- its tojson form: sorted keys, compact
+  commas, a space after each colon, ASCII-escaped -- never the
+  minified form, which would undercount that render) are counted
+  with the real tokenizer over the pinned message framing; the
+  pinned model envelope's fixed template pieces and
   per-item framing (tool preamble header/footer, the call /
   result wrapper tags, the generation / think framing) are
   charged as documented conservative structure bounds -- one
@@ -36,7 +39,11 @@ Law (objective 021 item 2 + plan policy 10 + compact architecture
   retained count upstream);
 - unknown / mismatched template / model / context / vision
   capability refuses; byte / parse limits stay INDEPENDENT of
-  token limits; no padding, no silent truncation.
+  token limits: the per-request byte fence (max_request_bytes)
+  is a conservative UTF-8 total (exact dynamic bytes, exact
+  in-module literal bytes, measured fixed byte bounds for the
+  fixed framing fragments) enforced BEFORE any token work,
+  independent of token fit; no padding, no silent truncation.
 
 INERT: no request-pipeline wiring, no v1 runtime activation.
 """
@@ -121,6 +128,18 @@ ENVELOPE_TOOLS_SUFFIX_BOUND_TOKENS: Final = 64
 ENVELOPE_CALL_WRAPPER_BOUND_TOKENS: Final = 32
 ENVELOPE_RESULT_WRAPPER_BOUND_TOKENS: Final = 32
 ENVELOPE_THINK_FRAMING_BOUND_TOKENS: Final = 32
+
+
+#: Measured fixed byte bounds for the fixed template framing
+#: fragments: each value is the measured UTF-8 length of the
+#: pinned template fragment the bound accounts for (a measured
+#: fixed byte bound -- no BPE token-width assumption is used in
+#: the byte fence).
+ENVELOPE_TOOLS_PREFIX_BOUND_BYTES: Final = 78
+ENVELOPE_TOOLS_SUFFIX_BOUND_BYTES: Final = 12
+ENVELOPE_CALL_WRAPPER_BOUND_BYTES: Final = 37
+ENVELOPE_RESULT_WRAPPER_BOUND_BYTES: Final = 22
+ENVELOPE_THINK_FRAMING_BOUND_BYTES: Final = 19
 
 
 #: The pinned fixed tool-call reminder block (the template literal
@@ -387,6 +406,18 @@ class BundleBudgetPlan:
         self._gen_open_tokens = tokenizer.count_tokens(_IM_START + "assistant\n")
         self._gen_think_on_tokens = ENVELOPE_THINK_FRAMING_BOUND_TOKENS
         self._gen_think_off_tokens = ENVELOPE_THINK_FRAMING_BOUND_TOKENS
+        # Measured fixed byte bounds for the fixed framing
+        # fragments (each is the measured UTF-8 length of the
+        # pinned template fragment it accounts for):
+        self._tools_prefix_bytes = ENVELOPE_TOOLS_PREFIX_BOUND_BYTES
+        self._tools_suffix_bytes = ENVELOPE_TOOLS_SUFFIX_BOUND_BYTES
+        self._call_open_bytes = ENVELOPE_CALL_WRAPPER_BOUND_BYTES
+        self._call_close_bytes = ENVELOPE_CALL_WRAPPER_BOUND_BYTES
+        self._result_open_bytes = ENVELOPE_RESULT_WRAPPER_BOUND_BYTES
+        self._result_close_bytes = ENVELOPE_RESULT_WRAPPER_BOUND_BYTES
+        self._result_user_open_bytes = len((_IM_START + "user").encode("utf-8"))
+        self._result_user_close_bytes = len((_IM_END + "\n").encode("utf-8"))
+        self._gen_think_bytes = ENVELOPE_THINK_FRAMING_BOUND_BYTES
 
     # -- identity -------------------------------------------------------
 
@@ -475,6 +506,11 @@ class BundleBudgetPlan:
     # -- request envelope accounting --------------------------------------
 
     def _serialized_tool(self, tool: BudgetToolSpec) -> str:
+        """The tool JSON in the pinned template's own serialization
+        form (its ``tojson`` render: sorted keys, compact commas,
+        a space after each colon, ASCII-escaped).  The minified
+        form renders fewer bytes / tokens than that template
+        output and is never used for counting."""
         obj = {
             "type": "function",
             "function": {
@@ -484,7 +520,7 @@ class BundleBudgetPlan:
             },
         }
         try:
-            return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+            return json.dumps(obj, sort_keys=True, separators=(",", ": "))
         except (TypeError, ValueError) as exc:
             raise BundleBudgetError(BundleBudgetReason.BAD_INPUT, "tool spec") from exc
 
@@ -535,6 +571,74 @@ class BundleBudgetPlan:
         total += self._call_close_tokens
         return total
 
+    # -- request byte preflight (max_request_bytes) -------------------
+
+    @staticmethod
+    def _utf8_len(text: str) -> int:
+        return len(text.encode("utf-8"))
+
+    def _envelope_byte_cost(
+        self,
+        messages: tuple[BudgetMessage, ...],
+        tools: tuple[BudgetToolSpec, ...],
+        tool_calls: tuple[BudgetToolCall, ...],
+        enable_thinking: bool,
+        reasoning_instructions: str,
+    ) -> int:
+        """Conservative UTF-8 byte total of the full pinned envelope
+        (the ``max_request_bytes`` fence measure): every DYNAMIC
+        text at its exact rendered bytes; every FIXED framing
+        literal this module renders at its exact bytes; every
+        fixed framing fragment at its measured fixed byte bound
+        (the measured UTF-8 length of the pinned template
+        fragment -- no BPE token-width assumption).
+        A ``tool`` message is counted under the pinned template's
+        tool-result wrapper group framing (the result tags plus
+        the user framing that opens a consecutive tool-result
+        group), never the ordinary message frame.
+        Deterministic, with no tokenizer call and no
+        token-capacity input: the byte fence is independent of
+        token fit and runs before any token work."""
+        total = 0
+        prev_role: str | None = None
+        for message in messages:
+            if message.role == "tool":
+                if prev_role is None or prev_role != "tool":
+                    total += (
+                        self._result_user_open_bytes
+                        + self._result_open_bytes
+                        + self._result_close_bytes
+                    )
+                else:
+                    total += self._result_open_bytes
+                total += self._utf8_len(message.content)
+                total += self._result_close_bytes
+            else:
+                total += self._utf8_len(_IM_START + message.role + "\n" + _IM_END + "\n")
+                total += self._utf8_len(message.content)
+            prev_role = message.role
+        if tools:
+            total += self._tools_prefix_bytes
+            total += self._tools_suffix_bytes
+            total += 4 * ENVELOPE_TOOL_REMINDER_BOUND_TOKENS
+            if enable_thinking and reasoning_instructions:
+                total += self._utf8_len(reasoning_instructions) + 2
+            for tool in tools:
+                total += 1  # the pinned per-tool newline separator
+                total += self._utf8_len(self._serialized_tool(tool))
+        for call in tool_calls:
+            total += self._call_open_bytes + 4 * 2  # the pinned blank-line separator
+            total += self._utf8_len(_ENVELOPE_L + "function=" + call.name + _ENVELOPE_R + "\n")
+            for arg_name, arg_value in call.arguments:
+                total += self._utf8_len(_ENVELOPE_L + "parameter=" + arg_name + _ENVELOPE_R + "\n")
+                total += self._utf8_len(arg_value)
+                total += self._utf8_len(_ENVELOPE_L + _ENVELOPE_R + "\n")
+            total += self._utf8_len(_ENVELOPE_L + _ENVELOPE_R + "\n")
+            total += self._call_close_bytes
+        total += self._utf8_len(_IM_START + "assistant\n")
+        total += self._gen_think_bytes
+        return total
+
     def count_request_envelope(
         self,
         messages: tuple[BudgetMessage, ...],
@@ -548,19 +652,32 @@ class BundleBudgetPlan:
     ) -> int:
         """The full pinned model envelope, counted per the law:
         message content and serialized tool data with the real
-        tokenizer; the fixed / per-item template framing with the
-        documented conservative structure bounds; explicit finite
-        item limits; byte limits independent of tokens.  The capacity
-        decision is made ONLY on the actual tokenizer count plus the
-        structure costs -- never on a byte-length pre-bound."""
+        tokenizer (the pinned template's own JSON serialization for
+        the tool data); the fixed / per-item template framing with
+        the documented conservative structure bounds; explicit
+        finite item limits; byte limits independent of tokens,
+        the per-request fence enforced before any token work.
+        The capacity decision is made ONLY on the actual tokenizer
+        count plus the structure costs -- never on a byte-length
+        pre-bound."""
         c = self.config
         if len(messages) > c.max_messages:
             raise BundleBudgetError(BundleBudgetReason.ITEM_LIMIT_EXCEEDED, "messages")
         if len(tool_calls) > c.max_tool_calls:
             raise BundleBudgetError(BundleBudgetReason.ITEM_LIMIT_EXCEEDED, "tool calls")
+        if len(tools) > c.max_tools:
+            raise BundleBudgetError(BundleBudgetReason.ITEM_LIMIT_EXCEEDED, "tools")
+        for call in tool_calls:
+            if len(call.arguments) > c.max_tool_args:
+                raise BundleBudgetError(BundleBudgetReason.ITEM_LIMIT_EXCEEDED, "tool args")
         for message in messages:
             if len(message.content.encode("utf-8")) > c.max_message_bytes:
                 raise BundleBudgetError(BundleBudgetReason.BYTE_LIMIT_EXCEEDED, "message content")
+        request_bytes = self._envelope_byte_cost(
+            messages, tools, tool_calls, enable_thinking, reasoning_instructions
+        )
+        if request_bytes > c.max_request_bytes:
+            raise BundleBudgetError(BundleBudgetReason.BYTE_LIMIT_EXCEEDED, "request")
         # The caller-requested generation and the image reserves are
         # capacity consumers, not envelope bytes; the capacity check
         # is made below on the ACTUAL tokenizer count (real framing,
@@ -570,9 +687,24 @@ class BundleBudgetPlan:
         generation = self.generation_effective(requested_max_tokens)
         capacity = self.request_capacity(generation, retained_images)
         actual = 0
+        prev_role: str | None = None
         for message in messages:
-            actual += self._frame_tokens[message.role]
-            actual += self.tokenizer.count_tokens(message.content)
+            if message.role == "tool":
+                # The pinned template wraps tool results: the user
+                # framing opens each consecutive tool-result group,
+                # the result tags bracket every tool result.
+                if prev_role is None or prev_role != "tool":
+                    actual += self._result_user_open_tokens
+                    actual += self._result_open_tokens
+                    actual += self._result_close_tokens
+                else:
+                    actual += self._result_open_tokens
+                actual += self.tokenizer.count_tokens(message.content)
+                actual += self._result_close_tokens
+            else:
+                actual += self._frame_tokens[message.role]
+                actual += self.tokenizer.count_tokens(message.content)
+            prev_role = message.role
         actual += self._count_preamble_actual(tools, enable_thinking, reasoning_instructions)
         for call in tool_calls:
             actual += self.count_tool_call(call)

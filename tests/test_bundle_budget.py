@@ -366,6 +366,9 @@ def test_tool_preamble_serialized_data_real_counted(
     assert plan.count_tool_preamble((), enable_thinking=False) == 0
     params = {"type": "object", "properties": {"q": {"type": "string"}}}
     tool = BudgetToolSpec(name="lookup", description="Look up.", parameters=params)
+    # the pinned template's OWN JSON serialization (its tojson form:
+    # sorted keys, compact commas, a space after each colon) -- the
+    # minified form would render fewer bytes / tokens:
     serialized = json.dumps(
         {
             "type": "function",
@@ -376,7 +379,7 @@ def test_tool_preamble_serialized_data_real_counted(
             },
         },
         sort_keys=True,
-        separators=(",", ":"),
+        separators=(",", ": "),
     )
     expected = (
         ENVELOPE_TOOLS_PREFIX_BOUND_TOKENS
@@ -388,6 +391,7 @@ def test_tool_preamble_serialized_data_real_counted(
     assert plan.count_tool_preamble((tool,), enable_thinking=False) == expected
     # a second tool adds its serialized data + the per-tool separator:
     tool2 = BudgetToolSpec(name="second", description="d2", parameters=params)
+    # the second tool: the same pinned template form:
     serialized2 = json.dumps(
         {
             "type": "function",
@@ -398,10 +402,140 @@ def test_tool_preamble_serialized_data_real_counted(
             },
         },
         sort_keys=True,
-        separators=(",", ":"),
+        separators=(",", ": "),
     )
     expected2 = expected + 1 + tokenizer.count_tokens(serialized2)
     assert plan.count_tool_preamble((tool, tool2), enable_thinking=False) == expected2
+
+
+def test_tool_serialization_is_the_pinned_template_form(
+    tokenizer: BundleTokenizer,
+) -> None:
+    """The serialized tool data is the pinned template's own JSON
+    render (tojson form), never the minified form: for a nested
+    spec the template form is EXACTLY one byte longer per JSON
+    colon (the space after each colon), so minified counting
+    undercounts."""
+    plan = _plan(_config(), tokenizer)
+    params = {"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "integer"}}}
+    tool = BudgetToolSpec(name="lookup", description="d", parameters=params)
+    got = plan._serialized_tool(tool)
+    minified = json.dumps(
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "d",
+                "parameters": params,
+            },
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    template_form = json.dumps(
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "d",
+                "parameters": params,
+            },
+        },
+        sort_keys=True,
+        separators=(",", ": "),
+    )
+    assert got == template_form
+    # one extra byte (the space) per colon:
+    assert len(got) == len(minified) + minified.count(":")
+    # and the preamble count follows the template form:
+    expected = (
+        ENVELOPE_TOOLS_PREFIX_BOUND_TOKENS
+        + ENVELOPE_TOOLS_SUFFIX_BOUND_TOKENS
+        + ENVELOPE_TOOL_REMINDER_BOUND_TOKENS
+        + 1
+        + tokenizer.count_tokens(template_form)
+    )
+    assert plan.count_tool_preamble((tool,), enable_thinking=False) == expected
+
+
+def test_envelope_tool_limit_preflight(tokenizer: BundleTokenizer) -> None:
+    """count_request_envelope enforces the SAME max_tools law as
+    count_tool_preamble -- BEFORE any token work (the old
+    _count_preamble_actual path bypassed the guard)."""
+    plan = _plan(_config(max_tools=2), tokenizer)
+    tools = tuple(BudgetToolSpec(name=f"t{i}", description="d") for i in range(3))
+    with pytest.raises(BundleBudgetError) as exc:
+        plan.count_request_envelope(
+            (BudgetMessage(role="user", content="x"),),
+            tools,
+            enable_thinking=False,
+        )
+    assert exc.value.reason is BundleBudgetReason.ITEM_LIMIT_EXCEEDED
+    assert exc.value.detail == "tools"
+    # the dedicated entry point's own limit still applies:
+    with pytest.raises(BundleBudgetError) as exc:
+        plan.count_tool_preamble(tools, enable_thinking=False)
+    assert exc.value.reason is BundleBudgetReason.ITEM_LIMIT_EXCEEDED
+    # exactly at the limit the envelope counts normally:
+    assert (
+        plan.count_request_envelope(
+            (BudgetMessage(role="user", content="x"),),
+            tools[:2],
+            enable_thinking=False,
+        )
+        > 0
+    )
+
+
+def test_request_byte_fence_preflight(tokenizer: BundleTokenizer) -> None:
+    """max_request_bytes is enforced at the normal entry point
+    BEFORE any token work, independent of token fit: the content
+    below is tiny in tokens (fits any capacity) yet its
+    conservative byte total crosses the fence."""
+    plan = _plan(_config(max_request_bytes=512), tokenizer)
+    # the fixed framing costs 71 bytes (33 user frame + 19
+    # assistant open + 19 think bound): 450 + 71 = 521 > 512:
+    content = "x" * 450
+    assert tokenizer.count_tokens(content) < plan.aggregate
+    with pytest.raises(BundleBudgetError) as exc:
+        plan.count_request_envelope(
+            (BudgetMessage(role="user", content=content),),
+            (),
+            enable_thinking=False,
+        )
+    assert exc.value.reason is BundleBudgetReason.BYTE_LIMIT_EXCEEDED
+    assert exc.value.detail == "request"
+    # the fence is a UTF-8 BYTE fence (not a char / token fence):
+    # 200 CJK chars = 600 bytes, tiny in tokens, crosses 512:
+    cjk = BudgetMessage(role="user", content="\u4f60" * 200)
+    with pytest.raises(BundleBudgetError) as exc:
+        plan.count_request_envelope((cjk,), (), enable_thinking=False)
+    assert exc.value.reason is BundleBudgetReason.BYTE_LIMIT_EXCEEDED
+    # and a request whose conservative byte total stays under the
+    # fence counts normally (no false positive):
+    small = BudgetMessage(role="user", content="x" * 100)
+    assert plan.count_request_envelope((small,), (), enable_thinking=False) > 0
+
+
+def test_request_byte_fence_counts_serialized_tool_form(
+    tokenizer: BundleTokenizer,
+) -> None:
+    """The byte fence measures the tool data in the pinned
+    template's JSON form: a spec that fits under the fence in
+    minified bytes but not in the template form is refused."""
+    plan = _plan(_config(max_request_bytes=700), tokenizer)
+    # one key per colon adds one template byte over the minified
+    # form; size the spec so the template form crosses 700 while
+    # the minified form would fit:
+    props = {f"k{i:02d}": {"type": "string"} for i in range(24)}
+    tool = BudgetToolSpec(name="lookup", description="d", parameters={"properties": props})
+    template_form = plan._serialized_tool(tool)
+    minified = template_form.replace(": ", ":")
+    assert len(minified) < 700 <= len(template_form) + 300
+    msg = BudgetMessage(role="user", content="x")
+    with pytest.raises(BundleBudgetError) as exc:
+        plan.count_request_envelope((msg,), (tool,), enable_thinking=False)
+    assert exc.value.reason is BundleBudgetReason.BYTE_LIMIT_EXCEEDED
 
 
 def test_tool_call_data_real_counted(tokenizer: BundleTokenizer) -> None:
@@ -468,6 +602,18 @@ def test_item_limits(tokenizer: BundleTokenizer) -> None:
             enable_thinking=False,
         )
     assert exc.value.reason is BundleBudgetReason.ITEM_LIMIT_EXCEEDED
+    # the per-call argument limit is prefetched at the SAME entry
+    # point, before any token work or byte walk:
+    over_args = (BudgetToolCall(name="a", arguments=(("a", "1"), ("b", "2"), ("c", "3"))),)
+    with pytest.raises(BundleBudgetError) as exc:
+        plan.count_request_envelope(
+            one,
+            (),
+            tool_calls=over_args,
+            enable_thinking=False,
+        )
+    assert exc.value.reason is BundleBudgetReason.ITEM_LIMIT_EXCEEDED
+    assert exc.value.detail == "tool args"
     with pytest.raises(BundleBudgetError) as exc:
         plan.count_tool_call(
             BudgetToolCall(

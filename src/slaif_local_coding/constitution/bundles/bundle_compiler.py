@@ -11,8 +11,10 @@ Law (objective 021 item 3 + plan policy 9):
 
 - the input is ONE actual ``RootRegionAdmissionEntry`` (018-t): the ROOT
   row's source is its actual ``ResolvedRootRegionSource``; the FILE row's
-  source is its actual first-compatible original ``BundleProof``
-  aggregate.  The digest / byte length are re-derived and must agree;
+  source is its actual admitted region of the retained first-
+  compatible original ``BundleProof`` (the whole bundle, or one proven
+  group under the accepted 018-s/T retained-content law).  The digest /
+  byte length are re-derived and must agree;
 - the full compile key binds the entry identity, the source digest /
   length, the mandatory deterministic candidate paths, the config
   identity (the DECLARED immutable model revision plus the opaque
