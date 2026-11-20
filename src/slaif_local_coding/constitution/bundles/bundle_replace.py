@@ -102,6 +102,7 @@ from .bundle_selection import (
 from .causal_history import _collect, _RootLineageContext
 from .causal_history_models import (
     CausalHistoryOutcome,
+    CompletedReadOccurrence,
     HistoryBounds,
     ResultFingerprintRecord,
     canonicalize_tool_arguments,
@@ -131,6 +132,7 @@ from .root_region_currentness_models import (
     RootRegionCurrentnessResult,
 )
 from .root_region_lineage import _region_d_namespace
+from .root_region_lineage_models import RootRegionReadProvenance
 
 
 def _durable_guard(
@@ -265,13 +267,18 @@ def _evidence_scope_fields(
     piece_index: int,
     segment_index: int,
     source_digest: str,
-    content_key: str,
 ) -> bytes:
     """The closed evidence-marker HMAC scope: the original namespace,
     the exact occurrence/root-source identity, the ORIGINAL
-    endpoint/call/result/piece/segment association and the prepared
-    entry content key (a known positively superseded original or an
-    actual selection omission of a prepared optional source)."""
+    endpoint/call/result/piece/segment association and the exact
+    original source digest.  The marker is deliberately NOT bound to
+    any entry content key: a known positively superseded original may
+    be absent from the current admission entirely, and reconstructing
+    the old entry key is prohibited — the non-resolving marker
+    identifies the exact original occurrence (namespace + occurrence +
+    source digest + segment/carrier association), never a current
+    entry (a known positively superseded original or an actual
+    selection omission of a prepared optional source)."""
     return _field_bytes(
         EVIDENCE_MARKER_DOMAIN,
         namespace_key,
@@ -284,7 +291,6 @@ def _evidence_scope_fields(
         str(piece_index),
         str(segment_index),
         source_digest,
-        content_key,
     )
 
 
@@ -343,14 +349,15 @@ def make_evidence_marker(
     piece_index: int,
     segment_index: int,
     source_digest: str,
-    content_key: str,
 ) -> str:
     """Build the versioned opaque non-resolving evidence marker (kind 2).
 
     Tied to the original namespace, the exact occurrence/root-source
     identity, the original endpoint/call/result/piece/segment
-    association and the prepared entry content key; emits ONLY the
-    versioned kind plus the fixed-length canonical MAC tag."""
+    association and the exact original source digest — never to an
+    entry content key (the old entry key of a superseded original is
+    never reconstructed); emits ONLY the versioned kind plus the
+    fixed-length canonical MAC tag."""
     body = _evidence_scope_fields(
         namespace_key,
         original_role,
@@ -362,7 +369,6 @@ def make_evidence_marker(
         piece_index,
         segment_index,
         source_digest,
-        content_key,
     )
     return _encode_tag(_mac(key, body), MarkerKind.EVIDENCE)
 
@@ -496,11 +502,11 @@ def derive_evidence_tag(
     piece_index: int,
     segment_index: int,
     source_digest: str,
-    content_key: str,
 ) -> ExpectedTag:
     """Re-derive ONE expected evidence tag from trusted derivation
     inputs (a known positively superseded original or an actual
-    selection omission of a prepared optional source)."""
+    selection omission of a prepared optional source; the scope
+    carries no entry content key — see ``_evidence_scope_fields``)."""
     body = _evidence_scope_fields(
         namespace_key,
         original_role,
@@ -512,7 +518,6 @@ def derive_evidence_tag(
         piece_index,
         segment_index,
         source_digest,
-        content_key,
     )
     mac = _mac(key, body)
     return ExpectedTag(
@@ -528,7 +533,7 @@ def derive_evidence_tag(
         segment_index=segment_index,
         role=original_role,
         source_digest=source_digest,
-        content_key=content_key,
+        content_key=None,
         compiled_digest=None,
         entry_class=None,
         stale=False,
@@ -1466,7 +1471,12 @@ class RetainedSpan:
     carrier.  ``location`` / ``field`` address the ACTUAL current
     carrier (the current accepted 017 observation's positions); the
     original association stays bound by the call/result positions and
-    the marker scope.  A span grants no authority by itself."""
+    the marker scope.  ``historical`` marks a span joined through the
+    positive-supersession phase from a retained-D nonroot occurrence
+    that is ABSENT from the current admission (a known positively
+    superseded original): its ``content_key`` is the retained segment's
+    source digest (the old entry key is never reconstructed).  A span
+    grants no authority by itself."""
 
     content_key: str
     entry_class: str
@@ -1490,6 +1500,10 @@ class RetainedSpan:
     #: refuses SPAN_MISMATCH all-or-nothing; an unselected span
     #: simply earns no edit).
     bytes_mismatch: bool
+    #: True ONLY for a span joined through the positive-supersession
+    #: phase from a retained-D nonroot occurrence absent from the
+    #: current admission (a known positively superseded original).
+    historical: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1619,15 +1633,34 @@ def _current_piece_subspan(
     """The ACTUAL current in-carrier sub-span of ONE retained
     piece/segment (the join's current coordinates).
 
-    The process surface keeps the retained sub-span (separate piece
-    carriers; no intra-carrier shift).  A whole read maps to the
-    current accepted read's own content span; a partitioned read maps
-    to the current 018-b bridge segment (the same segment index and
-    member positions) per-piece span.  ``None`` means no current
-    coverage: the piece leaves the segment unproven (the zero-edit
-    law is unchanged)."""
+    Every surface re-derives the position from the CURRENT accepted
+    proof on the CURRENT decoded string: the process surface from the
+    current process observation's own per-piece sub-span (matched by
+    the SAME original piece call identity — the retained coordinates
+    stay the piece's identity, never its position; a shifted or
+    re-parsed current frame leaves the piece uncovered), a whole read
+    from the current accepted read's own content span, and a
+    partitioned read from the current 018-b bridge segment (the same
+    segment index and member positions) per-piece span.  ``None``
+    means no current coverage: the piece leaves the segment unproven
+    (the zero-edit law is unchanged)."""
     if proof.surface is not BundleSurface.READ:
-        return segment.piece_spans[piece_index]
+        process = index.processes_by_exec_call.get(proof.call_id)
+        if process is None or process.outcome is not ProcessOutcome.COMPLETE:
+            return None
+        if piece.call_id == proof.call_id:
+            current = next(
+                (p for p in process.pieces if p.result_location == process.initial_result_location),
+                None,
+            )
+        else:
+            current = next(
+                (poll.piece for poll in process.polls if poll.poll_call_id == piece.call_id),
+                None,
+            )
+        if current is None or current.piece_index != piece_index:
+            return None
+        return current.char_span
     if proof.kind is BundleProofKind.WHOLE:
         read = index.reads_by_call.get(piece.call_id)
         if read is None:
@@ -1636,11 +1669,14 @@ def _current_piece_subspan(
     bridge = bridge_by_call.get(piece.call_id)
     if bridge is None:
         return None
-    for current in bridge.segments:
-        if current.index == segment.index and current.member_positions == segment.member_positions:
-            if piece_index >= len(current.piece_spans):
+    for bridge_segment in bridge.segments:
+        if (
+            bridge_segment.index == segment.index
+            and bridge_segment.member_positions == segment.member_positions
+        ):
+            if piece_index >= len(bridge_segment.piece_spans):
                 return None
-            return current.piece_spans[piece_index]
+            return bridge_segment.piece_spans[piece_index]
     return None
 
 
@@ -1689,6 +1725,175 @@ def _verify_result_call_id(
         raise _refuse(CarrierDetail.IDENTITY_MISMATCH)
 
 
+def _join_segment_spans(
+    payload: dict[str, Any],
+    proof: BundleProof,
+    segment_index: int,
+    *,
+    max_text_chars: int,
+    content_key: str,
+    entry_class_value: str,
+    role: str,
+    occurrence_identity: str,
+    root_digest: str | None,
+    index: _CurrentReadIndex,
+    bridge_by_call: dict[str, BundleProof],
+    results_by_call: dict[str, ResultFingerprintRecord],
+    history_bounds: HistoryBounds,
+    historical: bool = False,
+) -> tuple[RetainedSpan, ...]:
+    """Join ONE retained original segment of ONE owner proof to its
+    ACTUAL current carrier pieces (the shared per-segment join of
+    the retained/current proof law).
+
+    ``root_digest``, when supplied (a governing root selected through
+    a read), must equal the digest of the governing segment and is
+    the span's ``source_digest``.  A segment index that leaves the
+    owner proof's segments is a spliced / detached retained record
+    (refused all-or-nothing).  A well-formed carrier or call that is
+    ABSENT from the current payload earns no edit for its spans (no
+    refusal); every other carrier-layer refusal propagates.  The
+    segment re-proof runs over ALL pieces the segment overlaps (one
+    absent piece carrier leaves the segment unproven, never
+    partially proven).  Each resolved piece carrier is ALSO re-proven
+    on the result side: the result record's own call ID (the
+    Responses ``call_id`` / the Chat ``tool_call_id``) must equal the
+    SAME original piece call ID (a divergence is refused
+    all-or-nothing).  A segment whose every overlapping piece carrier
+    is GENUINELY ABSENT from the current payload earns ZERO edits (no
+    refusal): a source-absent replay can still return the exact
+    selected context.  A segment that overlaps no carrier piece at
+    all is a malformed retained coordinate.  Each piece re-joins its
+    ACTUAL current carrier through the CURRENT accepted 017
+    observation bound to the SAME original call ID (the current read
+    or process chain, outcome COMPLETE, same endpoint domain): a
+    piece with no accepted current observation (absent, cross-domain,
+    or a nonzero / truncated / partial / unsupported current wrapper)
+    earns zero edits for its spans — retained proof and matching
+    bytes alone never earn deletion.  A PARTITIONED read-surface
+    piece re-joins instead through the ACTUAL current 018-b
+    bundle-proof bridge (the bare current 017 read never proves an
+    inner compound boundary).  Every piece's current call is also
+    re-verified as the ACTUAL original tool identity: the retained D
+    result record's per-piece producing-call binding (tool name plus
+    canonical argument fingerprint) must equal the current call's
+    (a reused call ID under a different command is refused
+    IDENTITY_MISMATCH, never an edit).
+
+    ``historical`` marks a span joined through the
+    positive-supersession phase (a retained-D nonroot occurrence
+    ABSENT from the current admission): its ``content_key`` is the
+    retained segment's source digest — the old entry key is never
+    reconstructed."""
+    if segment_index >= len(proof.segments):
+        raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+    segment = proof.segments[segment_index]
+    if root_digest is not None and segment.digest != root_digest:
+        raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+    resolved: list[tuple[BundlePiece, CharSpan, str, str]] = []
+    complete = True
+    overlapping = 0
+    for piece_index, sub in enumerate(segment.piece_spans):
+        if sub is None:
+            continue
+        overlapping += 1
+        if piece_index >= len(proof.pieces):
+            raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+        piece = proof.pieces[piece_index]
+        carriers = _current_piece_carriers(proof, piece, index, bridge_by_call)
+        if carriers is None:
+            # No ACCEPTED current 017 observation earns this
+            # piece: zero edits for the span, no refusal (a
+            # matching-bytes retention on a nonzero / truncated
+            # wrapper is never a deletion).
+            complete = False
+            continue
+        call_location, result_location = carriers
+        try:
+            slot = lookup_tool_result_carrier(
+                payload,
+                proof.endpoint,
+                result_location,
+                max_text_chars=max_text_chars,
+            )
+        except _ReplaceRefusal as refusal:
+            if refusal.detail is CarrierDetail.CARRIER_NOT_FOUND:
+                complete = False
+                continue
+            raise
+        _verify_result_call_id(payload, proof.endpoint, result_location, piece.call_id)
+        try:
+            identity = lookup_call_identity(
+                payload,
+                proof.endpoint,
+                call_location,
+                expected_call_id=piece.call_id,
+            )
+        except _ReplaceRefusal as refusal:
+            if refusal.detail is CarrierDetail.CALL_NOT_FOUND:
+                complete = False
+                continue
+            raise
+        _verify_call_binding(identity, proof.call_id, piece_index, results_by_call, history_bounds)
+        cur = _current_piece_subspan(proof, piece, piece_index, segment, index, bridge_by_call)
+        if cur is None:
+            # No CURRENT coverage of this piece in the segment:
+            # the segment stays unproven (zero-edit law below).
+            complete = False
+            continue
+        resolved.append((piece, cur, slot.text, result_location))
+    if not resolved:
+        if overlapping == 0:
+            # A segment that overlaps NO carrier piece at all is a
+            # malformed retained coordinate (an empty segment keeps
+            # its real zero-width carrier span, never all-None).
+            raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+        # Genuinely absent carriers: the original pieces are no
+        # longer carried by the current payload (compaction). The
+        # segment earns ZERO edits — no refusal — so a
+        # source-absent replay can still return the exact
+        # selected context.
+        return ()
+    reproven = False
+    bytes_mismatch = False
+    if complete:
+        joined_text = "".join(
+            text[cur.start : cur.end] for _piece, cur, text, _location in resolved
+        )
+        joined_bytes = joined_text.encode("utf-8")
+        reproven = (
+            len(joined_text) == segment.char_length
+            and len(joined_bytes) == segment.byte_length
+            and hmac.compare_digest(hashlib.sha256(joined_bytes).hexdigest(), segment.digest)
+        )
+    bytes_mismatch = complete and not reproven
+    spans: list[RetainedSpan] = []
+    for piece, cur, _text, result_location in resolved:
+        spans.append(
+            RetainedSpan(
+                content_key=content_key,
+                entry_class=entry_class_value,
+                role=role,
+                endpoint=proof.endpoint,
+                occurrence_identity=occurrence_identity,
+                call_id=piece.call_id,
+                call_position=piece.call_position,
+                result_position=piece.result_position,
+                piece_index=piece.piece_index,
+                segment_index=segment_index,
+                location=result_location,
+                field="output" if proof.endpoint == ENDPOINT_RESPONSES else "content",
+                start=cur.start,
+                end=cur.end,
+                source_digest=root_digest if root_digest is not None else segment.digest,
+                reproven=reproven,
+                bytes_mismatch=bytes_mismatch,
+                historical=historical,
+            )
+        )
+    return tuple(spans)
+
+
 def _join_file_witness(
     payload: dict[str, Any],
     proof: BundleProof,
@@ -1706,42 +1911,17 @@ def _join_file_witness(
     history_bounds: HistoryBounds,
 ) -> tuple[RetainedSpan, ...]:
     """Join ONE retained witness of ONE entry through ITS OWN owner
-    proof.
+    proof (the per-segment carrier law lives in
+    ``_join_segment_spans`` and is inherited unchanged).
 
     ``root_digest``, when supplied (a governing root selected through
     a read), must equal the digest of every governing segment and is
     the span's ``source_digest``.  A witness whose original
-    coordinates leave the owner proof's, or whose segment index
-    leaves the owner proof's segments, is a spliced / detached
-    retained record (refused all-or-nothing).  A well-formed carrier
-    or call that is ABSENT from the current payload earns no edit for
-    its spans (no refusal); every other carrier-layer refusal
-    propagates.  The segment re-proof runs over ALL pieces the
-    segment overlaps (one absent piece carrier leaves the segment
-    unproven, never partially proven).  Each resolved piece carrier is
-    ALSO re-proven on the result side: the result record's own call
-    ID (the Responses ``call_id`` / the Chat ``tool_call_id``) must
-    equal the SAME original piece call ID (a divergence is refused
-    all-or-nothing).  A segment whose every overlapping piece carrier
-    is GENUINELY ABSENT from the current payload earns ZERO edits (no
-    refusal): a source-absent replay can still return the exact
-    selected context.  A segment that overlaps no carrier piece at
-     all is a malformed retained coordinate.  Each piece re-joins its
-     ACTUAL current carrier through the CURRENT accepted 017
-     observation bound to the SAME original call ID (the current read
-     or process chain, outcome COMPLETE, same endpoint domain): a
-     piece with no accepted current observation (absent, cross-domain,
-     or a nonzero / truncated / partial / unsupported current wrapper)
-     earns zero edits for its spans — retained proof and matching
-     bytes alone never earn deletion.  A PARTITIONED read-surface
-     piece re-joins instead through the ACTUAL current 018-b
-     bundle-proof bridge (the bare current 017 read never proves an
-     inner compound boundary).  Every piece's current call is also
-     re-verified as the ACTUAL original tool identity: the retained D
-     result record's per-piece producing-call binding (tool name plus
-     canonical argument fingerprint) must equal the current call's
-     (a reused call ID under a different command is refused
-     IDENTITY_MISMATCH, never an edit)."""
+    coordinates leave the owner proof's (request index / call
+    position / result position) is a spliced / detached retained
+    record (refused all-or-nothing) BEFORE any segment work; a
+    segment index the witness leaves its owner proof's segments is
+    refused by the per-segment join."""
     if (
         proof.request_index != witness.request_index
         or proof.call_position != witness.call_position
@@ -1750,112 +1930,81 @@ def _join_file_witness(
         raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
     spans: list[RetainedSpan] = []
     for segment_index in witness.segment_indices:
-        if segment_index >= len(proof.segments):
-            raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+        spans.extend(
+            _join_segment_spans(
+                payload,
+                proof,
+                segment_index,
+                max_text_chars=max_text_chars,
+                content_key=content_key,
+                entry_class_value=entry_class_value,
+                role=role,
+                occurrence_identity=occurrence_identity,
+                root_digest=root_digest,
+                index=index,
+                bridge_by_call=bridge_by_call,
+                results_by_call=results_by_call,
+                history_bounds=history_bounds,
+            )
+        )
+    return tuple(spans)
+
+
+def _join_superseded_occurrence(
+    payload: dict[str, Any],
+    owner: CompletedReadOccurrence,
+    segment_indices: tuple[int, ...],
+    *,
+    max_text_chars: int,
+    index: _CurrentReadIndex,
+    bridge_by_call: dict[str, BundleProof],
+    results_by_call: dict[str, ResultFingerprintRecord],
+    history_bounds: HistoryBounds,
+) -> tuple[RetainedSpan, ...]:
+    """Join ONE retained-D nonroot occurrence that is ABSENT from the
+    current admission (a known positively superseded original, proven
+    by the prepared T result's same-run E overlay group facts)
+    through the SAME per-segment carrier join.
+
+    The consistency anchor is the retained D record itself (no
+    admission witness exists to fabricate against): the
+    occurrence's issuance identity must agree with its verbatim
+    retained proof (a spliced or detached record refuses
+    RETAINED_RECORD_MALFORMED all-or-nothing) and every named
+    segment must exist in that proof.  The span's content identity is
+    the retained segment's OWN source digest — the old entry key is
+    never reconstructed — under the closed file-bundle entry class
+    and the tool-result carrier role (its carrier stays a tool
+    result, exactly as an admitted file witness).  The carrier-layer
+    law is inherited unchanged from ``_join_segment_spans`` (a
+    genuinely absent carrier earns zero edits; every other refusal
+    propagates)."""
+    proof = owner.proof
+    if owner.call_id != proof.call_id or owner.endpoint != proof.endpoint:
+        raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+    if any(s >= len(proof.segments) for s in segment_indices):
+        raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+    spans: list[RetainedSpan] = []
+    for segment_index in segment_indices:
         segment = proof.segments[segment_index]
-        if root_digest is not None and segment.digest != root_digest:
-            raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
-        resolved: list[tuple[BundlePiece, CharSpan, str, str]] = []
-        complete = True
-        overlapping = 0
-        for piece_index, sub in enumerate(segment.piece_spans):
-            if sub is None:
-                continue
-            overlapping += 1
-            if piece_index >= len(proof.pieces):
-                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
-            piece = proof.pieces[piece_index]
-            carriers = _current_piece_carriers(proof, piece, index, bridge_by_call)
-            if carriers is None:
-                # No ACCEPTED current 017 observation earns this
-                # piece: zero edits for the span, no refusal (a
-                # matching-bytes retention on a nonzero / truncated
-                # wrapper is never a deletion).
-                complete = False
-                continue
-            call_location, result_location = carriers
-            try:
-                slot = lookup_tool_result_carrier(
-                    payload,
-                    proof.endpoint,
-                    result_location,
-                    max_text_chars=max_text_chars,
-                )
-            except _ReplaceRefusal as refusal:
-                if refusal.detail is CarrierDetail.CARRIER_NOT_FOUND:
-                    complete = False
-                    continue
-                raise
-            _verify_result_call_id(payload, proof.endpoint, result_location, piece.call_id)
-            try:
-                identity = lookup_call_identity(
-                    payload,
-                    proof.endpoint,
-                    call_location,
-                    expected_call_id=piece.call_id,
-                )
-            except _ReplaceRefusal as refusal:
-                if refusal.detail is CarrierDetail.CALL_NOT_FOUND:
-                    complete = False
-                    continue
-                raise
-            _verify_call_binding(
-                identity, proof.call_id, piece_index, results_by_call, history_bounds
+        spans.extend(
+            _join_segment_spans(
+                payload,
+                proof,
+                segment_index,
+                max_text_chars=max_text_chars,
+                content_key=segment.digest,
+                entry_class_value=EntryClass.FILE_BUNDLE_ENTRY.value,
+                role=_TOOL_RESULT_ROLE,
+                occurrence_identity=owner.occurrence_id,
+                root_digest=None,
+                index=index,
+                bridge_by_call=bridge_by_call,
+                results_by_call=results_by_call,
+                history_bounds=history_bounds,
+                historical=True,
             )
-            cur = _current_piece_subspan(proof, piece, piece_index, segment, index, bridge_by_call)
-            if cur is None:
-                # No CURRENT coverage of this piece in the segment:
-                # the segment stays unproven (zero-edit law below).
-                complete = False
-                continue
-            resolved.append((piece, cur, slot.text, result_location))
-        if not resolved:
-            if overlapping == 0:
-                # A segment that overlaps NO carrier piece at all is a
-                # malformed retained coordinate (an empty segment keeps
-                # its real zero-width carrier span, never all-None).
-                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
-            # Genuinely absent carriers: the original pieces are no
-            # longer carried by the current payload (compaction). The
-            # segment earns ZERO edits — no refusal — so a
-            # source-absent replay can still return the exact
-            # selected context.
-            continue
-        reproven = False
-        bytes_mismatch = False
-        if complete:
-            joined_text = "".join(
-                text[cur.start : cur.end] for _piece, cur, text, _location in resolved
-            )
-            joined_bytes = joined_text.encode("utf-8")
-            reproven = (
-                len(joined_text) == segment.char_length
-                and len(joined_bytes) == segment.byte_length
-                and hmac.compare_digest(hashlib.sha256(joined_bytes).hexdigest(), segment.digest)
-            )
-        bytes_mismatch = complete and not reproven
-        for piece, cur, _text, result_location in resolved:
-            spans.append(
-                RetainedSpan(
-                    content_key=content_key,
-                    entry_class=entry_class_value,
-                    role=role,
-                    endpoint=proof.endpoint,
-                    occurrence_identity=occurrence_identity,
-                    call_id=piece.call_id,
-                    call_position=piece.call_position,
-                    result_position=piece.result_position,
-                    piece_index=piece.piece_index,
-                    segment_index=segment_index,
-                    location=result_location,
-                    field="output" if proof.endpoint == ENDPOINT_RESPONSES else "content",
-                    start=cur.start,
-                    end=cur.end,
-                    source_digest=root_digest if root_digest is not None else segment.digest,
-                    reproven=reproven,
-                    bytes_mismatch=bytes_mismatch,
-                )
-            )
+        )
     return tuple(spans)
 
 
@@ -1933,6 +2082,160 @@ def _join_envelope_root_span(
     )
 
 
+def _join_historical_root_envelopes(
+    spans: list[RetainedSpan],
+    payload: dict[str, Any],
+    observation: ObservationReport,
+    *,
+    snapshot: RamStateSnapshot,
+    root_entry: Any,
+    root_key: str,
+    evidence: _SupersessionEvidence,
+    historical_root_tags: dict[str, ExpectedTag],
+    max_text_chars: int,
+) -> None:
+    """Join each ACTUAL accepted same-scope (ROOT, OK) root occurrence
+    whose digest is an ACTUAL AUTHORITATIVE root fact of the
+    same-run P state (the bootstrap anchor or an issued fact — a
+    retained unissued digest is insufficient) DIFFERENT from the
+    governing root digest (the historical old-root anchor — the
+    order's evidence law: a known positively superseded root
+    original retained in history).
+
+    The anchor earns its NON-RESOLVING evidence splice through the
+    historical raw re-join: the original retained OLD digest is the
+    join's proof (re-proven against the old bytes at the anchor's own
+    content span), and the span's ``source_digest`` is that OLD
+    digest with ``historical`` set — the caller classifies it
+    through ``_root_span_superseded`` (the actual P/Q lineage) and it
+    earns an EVIDENCE edit, never a live reference.  A drifted
+    anchor (already transformed) re-joins shape-only (no expected
+    digest) so the replay scan decides by tag at the splice start; a
+    genuinely absent carrier earns zero edits and no refusal (the
+    source-absent law).  The scope law applies before any join work:
+    a foreign-workspace anchor claiming a retained old digest is the
+    existing scope conflict (all-or-nothing).  The CURRENT envelope
+    of the governing digest is NOT joined here — in the
+    read/read_region case the read splice is the root's only live
+    edit and the current envelope stays separate and untouched.
+    Every other refusal propagates all-or-nothing.
+
+    Drifted-anchor law (the already-transformed historical replay):
+    an accepted occurrence whose digest is neither the governing
+    digest nor a retained old digest is the ALREADY TRANSFORMED old
+    anchor (its content span now carries the marker, not the old
+    bytes).  It re-joins shape-only, and the marker candidate at its
+    ORIGINAL splice start is re-authenticated by MAC against
+    ``historical_root_tags`` (the prepared transaction's candidate
+    evidence tag per authoritative old digest — the tag identity is
+    the OLD source's own digest, so later root changes re-derive the
+    same tag — computed by the caller which alone holds the marker
+    key): an ``ok`` match on exactly one
+    candidate is the anchor's own non-resolving evidence replay — a
+    historical span (that candidate's source digest, ``reproven``
+    False) that the replay scan accepts without a second edit.  A
+    marker matching NO candidate (a stale live form, a forged or
+    foreign tag, or a tampered one) or a drifted carrier with no
+    marker at the splice start earns the fail-closed shape-only span
+    (governing digest, ``historical`` False, ``reproven`` False): the
+    recognized source field then refuses all-or-nothing (the marker
+    layer's stale/forged refusal, or the selected-span raw gate).
+    """
+    workspace = snapshot.namespace.workspace
+    for occ in observation.roots.roots:
+        if occ.kind is not OccurrenceKind.ROOT or occ.status is not RootStatus.OK:
+            continue
+        if occ.digest == root_entry.root_digest:
+            continue  # the current envelope: separate, never joined here
+        _root_scope_check(occ, workspace)
+        transformed = False
+        raw_anchor = occ.digest in evidence.authoritative_root_digests
+        try:
+            slot, facts = join_root_occurrence(
+                payload,
+                occ,
+                expected_digest=occ.digest if raw_anchor else None,
+                expected_workspace=workspace,
+                max_text_chars=max_text_chars,
+            )
+        except _ReplaceRefusal as refusal:
+            if refusal.detail is not CarrierDetail.CARRIER_NOT_FOUND:
+                if refusal.detail not in (
+                    CarrierDetail.SPAN_DIGEST_MISMATCH,
+                    CarrierDetail.SPAN_LENGTH_MISMATCH,
+                ):
+                    raise
+                slot, facts = join_root_occurrence(
+                    payload,
+                    occ,
+                    expected_digest=None,
+                    expected_workspace=workspace,
+                    max_text_chars=max_text_chars,
+                )
+                transformed = True
+            else:
+                continue
+        occ_digest = occ.digest
+        if raw_anchor:
+            if occ_digest is None:
+                # Membership in the authoritative digest set
+                # implies an exact digest; fail closed on the
+                # impossible shape.
+                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+            source_digest = occ_digest
+        else:
+            source_digest = root_entry.root_digest
+        historical = raw_anchor
+        if not raw_anchor:
+            # The already-transformed anchor: re-authenticate the
+            # marker at the ORIGINAL splice start by MAC against the
+            # prepared candidate evidence tags (exactly one ok match
+            # is the anchor's own non-resolving evidence replay).
+            candidate = next(
+                (c for s, c in find_markers(slot.text) if s == facts.start),
+                None,
+            )
+            if candidate is not None:
+                verdict = verify_marker(
+                    candidate,
+                    facts.start,
+                    expectations=MarkerExpectations(tuple(historical_root_tags.values())),
+                )
+                if verdict.reason == "ok" and verdict.source_digest is not None:
+                    source_digest = verdict.source_digest
+                    historical = True
+                # A non-ok verdict (stale live form, forged,
+                # tampered, unknown kind, malformed) keeps the
+                # fail-closed span below: the recognized source
+                # field refuses all-or-nothing at the marker layer.
+        spans.append(
+            RetainedSpan(
+                content_key=root_key,
+                entry_class=root_entry.entry_class.value,
+                role=_ROOT_ENVELOPE_ROLE,
+                endpoint=ENDPOINT_RESPONSES,
+                # The evidence identity is the OLD source's own
+                # digest in the trusted namespace workspace
+                # (immutable across later root changes), never the
+                # current root entry key.
+                occurrence_identity=source_digest,
+                call_id="",
+                call_position=0,
+                result_position=0,
+                piece_index=0,
+                segment_index=0,
+                location=slot.location,
+                field=slot.field,
+                start=facts.start,
+                end=facts.end,
+                source_digest=source_digest,
+                reproven=not transformed,
+                bytes_mismatch=transformed,
+                historical=historical,
+            )
+        )
+
+
 def join_retained_proof(
     payload: dict[str, Any],
     *,
@@ -1941,6 +2244,8 @@ def join_retained_proof(
     observation: ObservationReport,
     root_occurrence: RootOccurrence | None,
     max_text_chars: int,
+    evidence: _SupersessionEvidence,
+    historical_root_tags: dict[str, ExpectedTag],
 ) -> tuple[RetainedSpan, ...]:
     """Join every retained entry's exact original source spans to the
     ACTUAL current payload (the transaction's trusted carrier
@@ -1962,11 +2267,53 @@ def join_retained_proof(
     omitted and merely retained alike — because a stale live
     reference or an evidence marker may be earned by any of them; the
     caller classifies each span against the accepted selection.
-    A governing root with retained read witnesses keeps its carrier a
-    tool result with the tool-result carrier role (the envelope text
-    is never edited for it); an envelope root earns its content
-    span on EACH accepted occurrence (each repeated envelope its
-    own carrier, each with its own edit).
+    The root join dispatches on the ACTUAL retained root provenance
+    (``root_entry.root_source.kind``): the T root row's ``witnesses``
+    stay empty on EVERY provenance (the read provenance lives in the
+    resolved source) and are never the dispatch.  An ENVELOPE root
+    earns its content span on EACH accepted occurrence (each
+    repeated envelope its own carrier, each with its own edit; the
+    envelope text is otherwise never edited).  A governing root
+    selected through a READ or READ_REGION keeps its carrier a tool
+    result with the tool-result carrier role and joins the resolved
+    source's ACTUAL original occurrence/proof at its own retained
+    coordinates (the read's one attributable complete-singleton
+    segment; the region provenance's root segment fenced to the
+    single attributable member that IS the governing root digest) —
+    that exact (occurrence, segment) coordinate is then skipped by
+    the FILE join below so the same root-region bytes can never earn
+    a second edit, while a shared entry's other distinct original
+    coordinates still join through their own witnesses.
+    In the read/read_region case the HISTORICAL old-root anchor is
+    joined too: an accepted same-scope root occurrence whose digest
+    is an ACTUAL retained root fact DIFFERENT from the governing
+    root digest (a known positively superseded root original per the
+    order's evidence law) earns its non-resolving evidence splice
+    through the historical raw re-join (re-proven against the OLD
+    bytes; a drifted — already transformed — anchor re-joins
+    shape-only so the replay scan decides by tag), while the
+    current envelope of the governing digest stays separate and
+    untouched.
+    ``historical_root_tags`` are the prepared transaction's
+    candidate evidence tags for the drifted-anchor re-authentication
+    (one per retained old digest, keyed by that digest; computed by
+    the caller, which alone holds the marker key).
+
+    The POSITIVE-SUPERSESSION phase then joins the retained-D
+    NONROOT originals ABSENT from the current admission: for each
+    group record of the prepared T result's SAME-RUN E overlay
+    (``evidence``) that positively proves supersession at an
+    (occurrence, group) coordinate the admission carries no witness
+    for (``proven_change`` on a path row, no
+    ``known_content_conflict`` / ``ownership_ambiguity`` blocker),
+    the ACTUAL retained D occurrence is joined through
+    ``_join_superseded_occurrence`` — the group index IS the
+    occurrence-local segment index, and the span's content identity
+    is the retained segment's source digest (the old entry key is
+    never reconstructed).  A coordinate covered by any current
+    admission witness (root or file) stays with the admission join
+    above; a group record with no retained occurrence is detached
+    (refused all-or-nothing); an absent overlay proves nothing.
 
     ``observation`` is the ACTUAL 017 observation of THIS payload and
     is the raw-tool edit bridge: every retained tool piece re-joins
@@ -1998,68 +2345,118 @@ def join_retained_proof(
     spans: list[RetainedSpan] = []
     root_entry = admission.root_entry
     root_key = root_entry.content_key
-    if root_key in working_keys and not root_entry.witnesses:
-        if root_occurrence is not None:
-            # The repeated-root join is scoped: EVERY accepted root
-            # occurrence in this payload must carry the prepared
-            # trusted namespace workspace (its ACTUAL scope label); a
-            # same-shaped foreign-workspace envelope is the existing
-            # scope conflict, never an edit or an accepted marker,
-            # even when its bytes are identical.
-            accepted = [
-                o
-                for o in observation.roots.roots
-                if o.kind is OccurrenceKind.ROOT and o.status is RootStatus.OK
-            ]
-            for occ in accepted:
-                _root_scope_check(occ, snapshot.namespace.workspace)
-            # Repeated byte- and scope-identical envelopes of the same
-            # root are idempotent: each ACTUAL accepted occurrence is
-            # joined to its own carrier and earns its own span and
-            # edit, while the working set still holds the ONE root
-            # entry.  The caller names THIS payload's governing
-            # envelope root; a named location the observation does not
-            # accept is a stale or foreign assertion and fails closed
-            # (all-or-nothing).
-            if accepted:
-                if root_occurrence.location not in {o.location for o in accepted}:
-                    raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
-                join_occurrences = accepted
-            else:
-                # A source-absent replay: the observation reports no
-                # accepted root occurrence (the named carrier is
-                # gone); the join earns zero edits, no refusal, and
-                # the exact selected context is still returned.
-                join_occurrences = [root_occurrence]
-            for occ in join_occurrences:
-                _join_envelope_root_span(
-                    spans,
-                    payload,
-                    occ,
-                    root_entry=root_entry,
-                    root_key=root_key,
-                    workspace=snapshot.namespace.workspace,
-                    max_text_chars=max_text_chars,
-                )
-    elif root_key in working_keys:
-        for witness in root_entry.witnesses:
-            owner = owners.get(witness.occurrence_id)
+    # The T root row's ``witnesses`` stay empty on every provenance
+    # (the read provenance lives in the resolved source), so the root
+    # join dispatches on the ACTUAL retained root provenance kind.
+    root_read_coords: set[tuple[str, int]] = set()
+    if root_key in working_keys:
+        root_source = root_entry.root_source
+        if root_source is None:
+            raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
+        if root_source.kind == "envelope":
+            if root_occurrence is not None:
+                # The repeated-root join is scoped: EVERY accepted root
+                # occurrence in this payload must carry the prepared
+                # trusted namespace workspace (its ACTUAL scope label); a
+                # same-shaped foreign-workspace envelope is the existing
+                # scope conflict, never an edit or an accepted marker,
+                # even when its bytes are identical.
+                accepted = [
+                    o
+                    for o in observation.roots.roots
+                    if o.kind is OccurrenceKind.ROOT and o.status is RootStatus.OK
+                ]
+                for occ in accepted:
+                    _root_scope_check(occ, snapshot.namespace.workspace)
+                # Repeated byte- and scope-identical envelopes of the same
+                # root are idempotent: each ACTUAL accepted occurrence is
+                # joined to its own carrier and earns its own span and
+                # edit, while the working set still holds the ONE root
+                # entry.  The caller names THIS payload's governing
+                # envelope root; a named location the observation does not
+                # accept is a stale or foreign assertion and fails closed
+                # (all-or-nothing).
+                if accepted:
+                    if root_occurrence.location not in {o.location for o in accepted}:
+                        raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
+                    join_occurrences = accepted
+                else:
+                    # A source-absent replay: the observation reports no
+                    # accepted root occurrence (the named carrier is
+                    # gone); the join earns zero edits, no refusal, and
+                    # the exact selected context is still returned.
+                    join_occurrences = [root_occurrence]
+                for occ in join_occurrences:
+                    _join_envelope_root_span(
+                        spans,
+                        payload,
+                        occ,
+                        root_entry=root_entry,
+                        root_key=root_key,
+                        workspace=snapshot.namespace.workspace,
+                        max_text_chars=max_text_chars,
+                    )
+        else:
+            # A governing root selected through a READ or READ_REGION:
+            # the root's OWN retained original witness is the splice —
+            # its carrier stays a tool result with the tool-result
+            # carrier role, and the root authority stays bound by the
+            # entry class and the governing root digest.  The join is
+            # from the resolved source's ACTUAL original occurrence/
+            # proof (the retained D owner, by identity) at its own
+            # retained segment coordinate; the historical envelope is
+            # a separate concern and is not joined here.
+            occurrence = root_source.occurrence
+            if occurrence is None or root_source.proof is None:
+                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+            owner = owners.get(occurrence.occurrence_id)
             if owner is None:
                 raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
+            proof = owner.proof
+            if proof is not root_source.proof:
+                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+            if root_source.kind == "read":
+                # A complete whole singleton: the root member IS the
+                # proof's one attributable segment (a boundaryless or
+                # multi-member aggregate never proves the complete
+                # root source).
+                if len(proof.segments) != 1:
+                    raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+                segment = proof.segments[0]
+                if segment.member_digest != root_entry.root_digest:
+                    raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+                segment_index = segment.index
+            else:  # read_region
+                provenance = root_source.fact.provenance
+                if not isinstance(provenance, RootRegionReadProvenance):
+                    raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+                segment_index = provenance.root_segment_index
+                if segment_index >= len(proof.segments):
+                    raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+                segment = proof.segments[segment_index]
+                # The region segment must own exactly the single
+                # attributable root member (its digest IS the
+                # governing root digest, at its proven member
+                # position); a boundaryless multi-member group leaves
+                # the root region's internal boundary unproven (fail
+                # closed, never a partial splice).
+                if (
+                    segment.member_digest != root_entry.root_digest
+                    or len(segment.member_positions) != 1
+                    or segment.member_positions[0] != provenance.root_member_position
+                ):
+                    raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+            root_read_coords = {(occurrence.occurrence_id, segment_index)}
             spans.extend(
-                _join_file_witness(
+                _join_segment_spans(
                     payload,
-                    owner.proof,
-                    witness,
+                    proof,
+                    segment_index,
                     max_text_chars=max_text_chars,
                     content_key=root_key,
                     entry_class_value=root_entry.entry_class.value,
-                    # A governing root selected through a read keeps
-                    # its carrier a tool result with the tool-result
-                    # carrier role; the root authority stays bound by
-                    # the entry class and the governing root digest.
                     role=_TOOL_RESULT_ROLE,
-                    occurrence_identity=witness.occurrence_id,
+                    occurrence_identity=occurrence.occurrence_id,
                     root_digest=root_entry.root_digest,
                     index=index,
                     bridge_by_call=bridge_by_call,
@@ -2067,22 +2464,109 @@ def join_retained_proof(
                     history_bounds=snapshot.namespace.history_bounds,
                 )
             )
+            # The historical old-root anchor (the order's evidence
+            # law): a known positively superseded root original
+            # present in the payload earns its non-resolving
+            # EVIDENCE splice — never a dangling live reference.
+            _join_historical_root_envelopes(
+                spans,
+                payload,
+                observation,
+                snapshot=snapshot,
+                root_entry=root_entry,
+                root_key=root_key,
+                evidence=evidence,
+                historical_root_tags=historical_root_tags,
+                max_text_chars=max_text_chars,
+            )
     for entry in admission.entries:
         for witness in entry.witnesses:
             owner = owners.get(witness.occurrence_id)
             if owner is None:
                 raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
+            join_witness = witness
+            if root_read_coords:
+                # The root's own read splice owns its exact
+                # (occurrence, segment) coordinate: the same
+                # root-region bytes can never earn a second edit,
+                # while a shared entry's OTHER distinct coordinates
+                # still join through their own witnesses.
+                remaining = tuple(
+                    s
+                    for s in witness.segment_indices
+                    if (witness.occurrence_id, s) not in root_read_coords
+                )
+                if not remaining:
+                    continue
+                join_witness = CurrentAdmissionWitness(
+                    occurrence_id=witness.occurrence_id,
+                    request_index=witness.request_index,
+                    call_position=witness.call_position,
+                    result_position=witness.result_position,
+                    segment_indices=remaining,
+                )
             spans.extend(
                 _join_file_witness(
                     payload,
                     owner.proof,
-                    witness,
+                    join_witness,
                     max_text_chars=max_text_chars,
                     content_key=entry.content_key,
                     entry_class_value=entry.entry_class.value,
                     role=_TOOL_RESULT_ROLE,
                     occurrence_identity=witness.occurrence_id,
                     root_digest=None,
+                    index=index,
+                    bridge_by_call=bridge_by_call,
+                    results_by_call=results_by_call,
+                    history_bounds=snapshot.namespace.history_bounds,
+                )
+            )
+    # Positive supersession (the order's evidence law): a retained-D
+    # NONROOT original absent from the current admission earns its
+    # historical spans only when the prepared T result's SAME-RUN E
+    # overlay group record positively proves supersession at the
+    # (occurrence, group) coordinate (the group index is the
+    # occurrence-local segment index).  Granularity is
+    # (occurrence, segment): a coordinate covered by ANY current
+    # admission witness (root or file) stays with the admission join
+    # above (its spans earn their own classification); this phase
+    # never re-joins a coordinate the admission already carries.
+    # The join is from the ACTUAL retained D occurrence records and
+    # the same-run E group facts — the old entry key is never
+    # consulted; the span's content identity is the retained
+    # segment's source digest.  A group record with no retained
+    # occurrence is detached (RETAINED_RECORD_MALFORMED, all-
+    # or-nothing); an absent overlay proves nothing (fail closed).
+    covered: set[tuple[str, int]] = set()
+    covered.update(root_read_coords)
+    for entry in (root_entry, *admission.entries):
+        for witness in entry.witnesses:
+            covered.update((witness.occurrence_id, s) for s in witness.segment_indices)
+    overlay = evidence.overlay
+    if overlay is not None:
+        joined: set[tuple[str, int]] = set()
+        for record in overlay.groups:
+            coord = (record.occurrence_id, record.group_index)
+            if coord in covered or coord in joined:
+                continue
+            reasons = {reason for row in record.path_rows for reason in row.reasons}
+            if (
+                CurrentnessReason.PROVEN_CHANGE not in reasons
+                or CurrentnessReason.KNOWN_CONTENT_CONFLICT in reasons
+                or CurrentnessReason.OWNERSHIP_AMBIGUITY in reasons
+            ):
+                continue
+            owner = owners.get(record.occurrence_id)
+            if owner is None:
+                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+            joined.add(coord)
+            spans.extend(
+                _join_superseded_occurrence(
+                    payload,
+                    owner,
+                    (record.group_index,),
+                    max_text_chars=max_text_chars,
                     index=index,
                     bridge_by_call=bridge_by_call,
                     results_by_call=results_by_call,
@@ -2145,14 +2629,25 @@ class _SupersessionEvidence:
     proof).  ``root_currentness`` is the ACTUAL same-run 018-q root
     currentness result with its ACTUAL P selection by reference —
     ``None`` when the R result carries no Q result (fail closed: no
-    root supersession proof).  ``retained_root_digests`` is the
-    closed set of the ACTUAL retained root source digests of the
-    snapshot's exact state (a known superseded root original must be
-    one of them).  Nothing advances a revision or mints authority."""
+    root supersession proof).  ``authoritative_root_digests`` is the
+    closed set of the ACTUAL root source digests carrying ACTUAL
+    derived authority in the snapshot's exact same-run P state (the
+    bootstrap anchor fact and every issued root fact; a retained
+    UNISSUED digest is never authoritative and never proves
+    supersession).  A known superseded root original must be one of
+    them.  ``admitted_paths`` is the closed set of paths the
+    PREPARED admission actually represents in its reverse member
+    index (at least one admitted content key) under the approved
+    lean/greedy rules of the session: a group whose member paths
+    leave that set has no retained admission provenance, so a D
+    occurrence plus PROVEN_CHANGE alone never earns an evidence
+    splice for it (ordinary off-graph tool output stays intact).
+    Nothing advances a revision or mints authority."""
 
     overlay: CurrentnessOverlay | None
     root_currentness: RootRegionCurrentnessResult | None
-    retained_root_digests: frozenset[str]
+    authoritative_root_digests: frozenset[str]
+    admitted_paths: frozenset[str]
 
 
 def _historical_supersession(
@@ -2169,6 +2664,17 @@ def _historical_supersession(
     pass).  Absent intermediates and non-ready outcomes fail closed
     with no evidence marker."""
     r_result = snapshot.result.r_result
+    # The retained admission provenance for the exact group gate:
+    # the paths the PREPARED admission actually represents (its
+    # reverse member index, at least one admitted content key each)
+    # under the approved lean/greedy rules.  A non-READY T result
+    # carries no admission — fail closed with the empty set.
+    prepared_admission = snapshot.result.admission
+    admitted_paths = (
+        frozenset()
+        if prepared_admission is None
+        else frozenset(row.path for row in prepared_admission.path_associations if row.content_keys)
+    )
     if r_result is None:
         # The admitted result carries no same-run R result (a
         # mapped T-level refusal before R ran): no same-run Q/E
@@ -2176,14 +2682,18 @@ def _historical_supersession(
         return _SupersessionEvidence(
             overlay=None,
             root_currentness=None,
-            retained_root_digests=frozenset(
-                fact.source_digest for fact in snapshot.state.root_facts
+            authoritative_root_digests=frozenset(
+                fact.source_digest for fact in snapshot.state.root_facts if fact.authority
             ),
+            admitted_paths=admitted_paths,
         )
     return _SupersessionEvidence(
         overlay=r_result.e_overlay,
         root_currentness=r_result.q_result,
-        retained_root_digests=frozenset(fact.source_digest for fact in snapshot.state.root_facts),
+        authoritative_root_digests=frozenset(
+            fact.source_digest for fact in snapshot.state.root_facts if fact.authority
+        ),
+        admitted_paths=admitted_paths,
     )
 
 
@@ -2194,8 +2704,12 @@ def _file_span_superseded(
     """ACTUAL 018-e group decision for the span's OWN witness
     occurrence and group (see the section law).  A refused
     derivation, no group record for the span's coordinates (a mere
-    omission), an ambiguous or conflicting group, or a later claim
-    without a KNOWN different digest earns no supersession proof."""
+    omission), an ambiguous or conflicting group, a group whose
+    member paths leave the PREPARED admission's reverse member
+    index (a positively changed path that was never admitted is
+    ordinary off-graph tool output — a D occurrence plus
+    PROVEN_CHANGE alone never removes it), or a later claim without
+    a KNOWN different digest earns no supersession proof."""
     overlay = evidence.overlay
     if overlay is None:
         return False
@@ -2209,6 +2723,12 @@ def _file_span_superseded(
         None,
     )
     if record is None:
+        return False
+    # Retained admission provenance for the EXACT group: every
+    # nonroot member path must be admitted in the prepared admission
+    # (the approved lean/greedy rules already applied there).  The
+    # group's occurrence plus PROVEN_CHANGE alone is never enough.
+    if not all(row.path in evidence.admitted_paths for row in record.path_rows):
         return False
     reasons = {reason for row in record.path_rows for reason in row.reasons}
     if (
@@ -2226,8 +2746,10 @@ def _root_span_superseded(
     """ACTUAL P/Q root lineage for an old root envelope (see the
     section law): the actual same-run Q must be ready, the actual P
     selection ok with a selected digest DIFFERENT from the retained
-    root digest, and that retained digest an ACTUAL retained root
-    fact (a known superseded root original)."""
+    root digest, and that digest an ACTUAL AUTHORITATIVE root fact
+    of the same-run P state (the bootstrap anchor or an issued fact
+    — a retained unissued digest is insufficient; a known
+    superseded root original must be one of them)."""
     root = evidence.root_currentness
     if root is None or root.outcome is not RootRegionCurrentnessOutcome.READY:
         return False
@@ -2236,7 +2758,7 @@ def _root_span_superseded(
         return False
     selected = selection.selected_source_digest
     old = span.source_digest
-    return selected is not None and selected != old and old in evidence.retained_root_digests
+    return selected is not None and selected != old and old in evidence.authoritative_root_digests
 
 
 def _positively_superseded(
@@ -2450,15 +2972,23 @@ def _scan_replayed_markers(
                 )
             )
             if entry is not None:
-                # Start-only position law: the marker must sit at the
-                # span's original splice start; the transformed tag's
-                # wire length differs from the raw span length, so the
-                # replay is verified independent of the raw bytes.  A
-                # binding may carry several spans (the repeated root
-                # envelope): the span of THIS carrier coordinate is
-                # the one the marker binds.
+                # Full-current-splice position law: the tag must sit
+                # at the span's CURRENT proved splice start AND
+                # occupy its full proved length — the current proof's
+                # splice is the marker's own region once transformed,
+                # so a shifted, truncated or residue-bearing tag
+                # refuses; the replay stays verified independent of
+                # the raw bytes (the retained coordinates are the
+                # tag's identity, never its position).  A binding may
+                # carry several spans (the repeated root envelope):
+                # the span of THIS carrier coordinate is the one the
+                # marker binds.
                 for cand_span, cand_kinds in entry:
-                    if cand_span.location == location and cand_span.start == start:
+                    if (
+                        cand_span.location == location
+                        and cand_span.start == start
+                        and cand_span.end == start + len(candidate)
+                    ):
                         span = cand_span
                         kinds = cand_kinds
                         break
@@ -2528,6 +3058,41 @@ def replace_sources(
             return ReplacementResult(outcome=ReplacementOutcome.NO_REPLACEMENT)
         _durable_guard(proof, current_snapshot)
         namespace_key = current_snapshot.namespace.lineage_key
+        evidence = _historical_supersession(current_snapshot)
+        # The historical old-root anchor's candidate evidence tags:
+        # one per ACTUAL authoritative old root digest DIFFERENT from
+        # the governing root digest (the bootstrap anchor and every
+        # issued root fact of the same-run P state — a retained
+        # unissued digest never proves supersession and earns no
+        # tag).  The tag identity is the OLD source's own digest in
+        # the trusted namespace workspace — immutable across later
+        # root changes, so already-issued evidence for the same old
+        # anchor keeps verifying (a second genuine root change
+        # re-derives the same tag; it does not invalidate the old
+        # anchor's evidence).  The drifted — already transformed —
+        # old anchor is re-authenticated against these by MAC at its
+        # own splice start; a marker matching none refuses.  The old
+        # entry key is never reconstructed.
+        hist_admission = current_snapshot.result.admission
+        historical_root_tags: dict[str, ExpectedTag] = {}
+        if hist_admission is not None:
+            historical_root_tags = {
+                d: derive_evidence_tag(
+                    key,
+                    namespace_key=namespace_key,
+                    original_role=_ROOT_ENVELOPE_ROLE,
+                    occurrence_identity=d,
+                    endpoint=ENDPOINT_RESPONSES,
+                    call_id="",
+                    call_position=0,
+                    result_position=0,
+                    piece_index=0,
+                    segment_index=0,
+                    source_digest=d,
+                )
+                for d in evidence.authoritative_root_digests
+                if d != hist_admission.root_entry.root_digest
+            }
         spans = join_retained_proof(
             payload,
             snapshot=current_snapshot,
@@ -2535,6 +3100,8 @@ def replace_sources(
             observation=observation,
             root_occurrence=root_occurrence,
             max_text_chars=max_text_chars,
+            evidence=evidence,
+            historical_root_tags=historical_root_tags,
         )
         ready_by_key = {r.entry.content_key: r for r in ready_entries}
         working_rows = {
@@ -2547,11 +3114,25 @@ def replace_sources(
                 # re-derived for it).
                 raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
         omitted_keys = {o.content_key for o in decision.omitted}
-        evidence = _historical_supersession(current_snapshot)
         selected_spans: list[RetainedSpan] = []
         evidence_spans: list[RetainedSpan] = []
         stale_spans: list[RetainedSpan] = []
         for span in spans:
+            if span.historical:
+                # A retained-D nonroot original joined through the
+                # positive-supersession phase: its (occurrence, group)
+                # record positively proved supersession at the join;
+                # re-verify through the closed predicate (fail closed:
+                # a record that no longer proves earns no edit).  The
+                # join is from the ACTUAL retained D occurrence and
+                # the prepared T result's same-run E group facts, even
+                # though the occurrence is absent from the current
+                # admission (the old entry key is never consulted).
+                if _positively_superseded(span, evidence):
+                    evidence_spans.append(span)
+                else:
+                    stale_spans.append(span)
+                continue
             if (span.content_key, span.entry_class) in working_rows:
                 # Selected spans are NOT raw-gated here: the valid
                 # transformed tag at the original splice start is
@@ -2664,7 +3245,6 @@ def replace_sources(
                     piece_index=span.piece_index,
                     segment_index=span.segment_index,
                     source_digest=span.source_digest,
-                    content_key=span.content_key,
                 ),
                 "evidence",
             )
@@ -2792,7 +3372,6 @@ def replace_sources(
                         piece_index=span.piece_index,
                         segment_index=span.segment_index,
                         source_digest=span.source_digest,
-                        content_key=span.content_key,
                     ),
                     compiled_digest=None,
                 )

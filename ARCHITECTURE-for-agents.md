@@ -944,9 +944,11 @@ unproven-member-origin provenance line, and the aggregate
 limit decided over the EXACT COMBINED final injected text
 with the real pinned tokenizer). It is INERT: no wire /
 HTTP integration, no v1 runtime activation; the 022-a
-configuration slice (below) is the first same-objective 022
-stage, and 022-b.. and 023-024 remain mandatory. The stage
-stays inert and inactive.
+configuration and 022-b pure-transaction slices
+(below) are the delivered same-objective 022
+stages, and the later same-022 application wiring
+plus 023-024 remain mandatory. The stage stays
+inert and inactive.
 **Validated opt-in cache configuration (022-a inert,
 implemented, PENDING strategic review).** The explicit
 `[context_cache]` profile selector on the actual `Settings`
@@ -990,6 +992,77 @@ HTTP client, legacy cache or recovery owner construction
 (`tests/test_config.py`, `tests/test_app.py`). It is INERT:
 no v1 runtime, no source replacement, no wire integration;
 the same-022 transaction wiring removes the guard.
+**Pure exact-span source replacement
+transaction (022-b inert, implemented, PENDING strategic
+review).** The separately versioned
+`cache-bundle-replace/v1` policy-12 pure exact-span
+transaction (`bundle_replace.py` /
+`bundle_replace_models.py`) over the ACTUAL
+017/018/019/021 records: the edit plan is derived
+from the actual current decoded request, the
+accepted 017 observations, the original 018-p
+proof/occurrence and 018-t admission witnesses and
+the actual prepared 021 working set; the root
+content span excludes its delimiters and
+environment tail, both accepted read endpoints are
+joined, and a governing root selected through a
+read/read_region keeps its carrier a tool result
+with that exact (occurrence, segment) coordinate
+skipped by the FILE join (the same root region is
+never double-edited); every retained witness
+re-joins through ITS OWN owner proof bound to the
+SAME original call ID, genuinely absent carriers
+earn zero edits, and an unsupported/nonzero/
+truncated/unpaired current wrapper earns no proof
+and no edit; the two unambiguously versioned
+opaque marker kinds (live reference, non-resolving
+evidence) are authenticated with a domain-
+separated standard HMAC under supplied private
+per-session key material, scoped to the complete
+trusted namespace, the original role, the exact
+occurrence or root-source identity and the
+segment/carrier association, the wire form
+exposing only the versioned kind tag plus the
+fixed-length canonical base64url MAC tag; a known
+positively superseded original earns the
+non-resolving evidence marker only from the ACTUAL
+same-run E overlay group facts (the proven change
+on the admitted paths, no conflict or ambiguity
+blocker) and the ACTUAL same-run P/Q root lineage
+(a retained unissued digest, mere absence from
+selection or uncertain attribution never proves),
+and an omitted prepared optional source earns the
+same marker, never a dangling live reference; all
+edits are planned and applied atomically on a deep
+copy (the input is never mutated; roles, non-
+source text, wrappers, prefix/suffix, printed
+delimiters, Unicode/CRLF, images and every tool
+ID/name/argument/status/order are preserved);
+every committed edit is earned by the narrow
+durable-generation handoff (the ACTUAL accepted
+`RecoveryPublishResult`/pointer and the EXACT
+retained `RamStateSnapshot` by identity); the
+closed replay scan gate (an accepted replay at the
+original splice start replays content-free at its
+shifted coordinates to the fixed point; a stale
+live reference, forged, cross-namespace, moved or
+kind-incompatible marker always refuses; the
+marker claim stays at its earned scope: this
+pure round verifies and re-joins the markers
+and persists no new observation, and pre-
+acquisition wiring into actual lineage/state
+belongs to the later application slice); and
+the plan-13 typed all-or-nothing
+failure families (nonusable selection and over-
+bound 422, missing/failed/mismatched durability
+503, span/marker/namespace conflicts 409).
+`tests/test_bundle_replace.py`. It is INERT: no
+wire / HTTP integration, no actual upstream tool
+issuance, no recovery IO, no v1 runtime
+activation; the `create_app` v1 startup refusal is
+unchanged, and the same-022 application wiring
+plus the full R01-R05 / S01-S02 actual-upstream
+evidence remain mandatory later stages (NOT RUN).
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
 NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
@@ -1619,7 +1692,23 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`); objective 019 is active (019-a: ACCEPTED at its bounded inert RAM owner/store scope WITH PROCESS QUALIFICATIONS AND IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/019-a-decision.md`; contract `docs/CACHE-RAM-STATE-CONTRACT.md`); 019-b: delivered bounded async single-flight work plane, NOT ACCEPTED against the complete accounting requirement or whole 019 (strategic decision `S/reviews/019-b-decision.md`; contract `docs/CACHE-RAM-WORK-CONTRACT.md`); 019-c: whole-019 closure at the INERT injected-work layer (the bounded pre-accounted `owner_quarantined` adverse-currentness fence, aggregate pressure with high-water shared-container retention, substantial-source/accumulated-history over ACTUAL accepted records, cancellation/update/teardown races and the denied-filesystem lifecycle proof; `tests/test_bundle_ram_lifecycle.py`) implemented, PENDING strategic review; 020-a: whole-020 protected session recovery component at the INERT recovery-component layer (the versioned closed recovery record, the trusted address-only resume, the protected per-session store with atomic generation publication and the actual committed-outcome fault law, the bounded shared-RAM recovery reservations against the SAME 019 ceilings, the durable epoch binding republished on every resume, the durable fail-closed adverse-quarantine fence, the owned bounded async store IO with drain-before-release cancellation / timeout / teardown, and the lazy once-per-epoch rebuild through the actual 019 work plane; contract `docs/CACHE-RECOVERY-CONTRACT.md`; `tests/test_bundle_recovery_codec.py`, `tests/test_bundle_recovery_store.py`, `tests/test_bundle_recovery_resume.py`); 020-b: the 020-a ownership / fault corrections at the same inert scope (the single-writer CAS / publication serialization, the typed read-back `io_failure` law with the BEST actual observed generation, and the claimed-owner fence closing the preemption gap on both direct teardown paths) implemented, PENDING strategic review; 021-a: the 021 component stage (the pinned actual Qwen3.8-27B CPU tokenizer with the closed digest-pinned asset table and load-once identity, the explicit validated C/32 slot / width x slot / aggregate floor(C/4) / reserve budgets with real-tokenizer counting, the direct authenticated tool-free non-recursive compiler with the no-retry/compile-once law, the compile-through-RAM composition with the configured-policy fingerprint fence, and the deterministic required-then-optional selection; contract `docs/CACHE-TOKEN-COMPILER-CONTRACT.md`; `tests/test_bundle_tokenizer.py`, `tests/test_bundle_budget.py`, `tests/test_bundle_compiler.py`, `tests/test_bundle_compile_work.py`, `tests/test_bundle_selection.py`) ACCEPTED at its bounded inert component scope (whole 021 accepted, PR 29 merged to main at 144af0bd5e34387afcb8e3f9ddf761eabd56e817, per the 022 order). Objective 022 is active (022-a: the validated opt-in cache configuration slice (the explicit `[context_cache]` profile selector on the actual `Settings` and TOML loader, the closed typed v1 configuration reusing the accepted 021 budget/compiler and 019 RAM types, the strict one-worker policy, the legacy/v1 migration conflict law, the governed-route model contracts and the fixed `create_app` v1 startup refusal; `tests/test_config.py`, `tests/test_app.py`) implemented at the INERT configuration layer, PENDING strategic review at its bounded configuration scope; 022-b.. and objectives 023-024 remain the mandatory unearned v1 implementation stages)). The per-round history (017-a through 017-am) is NOT restated here;
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`); objective 019 is active (019-a: ACCEPTED at its bounded inert RAM owner/store scope WITH PROCESS QUALIFICATIONS AND IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/019-a-decision.md`; contract `docs/CACHE-RAM-STATE-CONTRACT.md`); 019-b: delivered bounded async single-flight work plane, NOT ACCEPTED against the complete accounting requirement or whole 019 (strategic decision `S/reviews/019-b-decision.md`; contract `docs/CACHE-RAM-WORK-CONTRACT.md`); 019-c: whole-019 closure at the INERT injected-work layer (the bounded pre-accounted `owner_quarantined` adverse-currentness fence, aggregate pressure with high-water shared-container retention, substantial-source/accumulated-history over ACTUAL accepted records, cancellation/update/teardown races and the denied-filesystem lifecycle proof; `tests/test_bundle_ram_lifecycle.py`) implemented, PENDING strategic review; 020-a: whole-020 protected session recovery component at the INERT recovery-component layer (the versioned closed recovery record, the trusted address-only resume, the protected per-session store with atomic generation publication and the actual committed-outcome fault law, the bounded shared-RAM recovery reservations against the SAME 019 ceilings, the durable epoch binding republished on every resume, the durable fail-closed adverse-quarantine fence, the owned bounded async store IO with drain-before-release cancellation / timeout / teardown, and the lazy once-per-epoch rebuild through the actual 019 work plane; contract `docs/CACHE-RECOVERY-CONTRACT.md`; `tests/test_bundle_recovery_codec.py`, `tests/test_bundle_recovery_store.py`, `tests/test_bundle_recovery_resume.py`); 020-b: the 020-a ownership / fault corrections at the same inert scope (the single-writer CAS / publication serialization, the typed read-back `io_failure` law with the BEST actual observed generation, and the claimed-owner fence closing the preemption gap on both direct teardown paths) implemented, PENDING strategic review; 021-a: the 021 component stage (the pinned actual Qwen3.8-27B CPU tokenizer with the closed digest-pinned asset table and load-once identity, the explicit validated C/32 slot / width x slot / aggregate floor(C/4) / reserve budgets with real-tokenizer counting, the direct authenticated tool-free non-recursive compiler with the no-retry/compile-once law, the compile-through-RAM composition with the configured-policy fingerprint fence, and the deterministic required-then-optional selection; contract `docs/CACHE-TOKEN-COMPILER-CONTRACT.md`; `tests/test_bundle_tokenizer.py`, `tests/test_bundle_budget.py`, `tests/test_bundle_compiler.py`, `tests/test_bundle_compile_work.py`, `tests/test_bundle_selection.py`) ACCEPTED at its bounded inert component scope (whole 021 accepted, PR 29 merged to main at 144af0bd5e34387afcb8e3f9ddf761eabd56e817, per the 022 order). Objective 022 is active (022-a: the validated opt-in cache configuration slice (the explicit `[context_cache]` profile selector on the actual `Settings` and TOML loader, the closed typed v1 configuration reusing the accepted 021 budget/compiler and 019 RAM types, the strict one-worker policy, the legacy/v1 migration conflict law, the governed-route model contracts and the fixed `create_app` v1 startup refusal; `tests/test_config.py`, `tests/test_app.py`) implemented at the INERT configuration layer, PENDING strategic review at its bounded configuration scope; 022-b: the pure exact-span source replacement
+transaction (the versioned
+`cache-bundle-replace/v1` policy-12 transaction
+over the ACTUAL 017/018/019/021 records: the
+retained/current proof join through each retained
+witness's own owner proof, the closed root/read
+carrier law with the read-root no-double-edit
+fence, the two versioned opaque HMAC marker kinds
+with the closed replay scan gate, the positive-
+supersession evidence law with the eligible-
+source constraint, the narrow durable-generation
+handoff and the plan-13 typed all-or-nothing
+failures; `tests/test_bundle_replace.py`)
+implemented at the INERT pure-transaction layer,
+PENDING strategic review at its bounded pure-
+transaction scope; the later same-022 application
+wiring and objectives 023-024 remain the mandatory unearned v1 implementation stages)). The per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
 `docs/CACHE-OBSERVATION-CONTRACT.md`.
@@ -1805,7 +1894,7 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`); objective 019 is active (019-a: ACCEPTED at its bounded inert RAM owner/store scope WITH PROCESS QUALIFICATIONS AND IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/019-a-decision.md`; contract `docs/CACHE-RAM-STATE-CONTRACT.md`); 019-b: delivered bounded async single-flight work plane, NOT ACCEPTED against the complete accounting requirement or whole 019 (strategic decision `S/reviews/019-b-decision.md`; contract `docs/CACHE-RAM-WORK-CONTRACT.md`); 019-c: whole-019 closure at the INERT injected-work layer (the bounded pre-accounted `owner_quarantined` adverse-currentness fence, aggregate pressure with high-water shared-container retention, substantial-source/accumulated-history over ACTUAL accepted records, cancellation/update/teardown races and the denied-filesystem lifecycle proof; `tests/test_bundle_ram_lifecycle.py`) implemented, PENDING strategic review; 020-a: whole-020 protected session recovery component at the INERT recovery-component layer (the versioned closed recovery record, the trusted address-only resume, the protected per-session store with atomic generation publication and the actual committed-outcome fault law, the bounded shared-RAM recovery reservations against the SAME 019 ceilings, the durable epoch binding republished on every resume, the durable fail-closed adverse-quarantine fence, the owned bounded async store IO with drain-before-release cancellation / timeout / teardown, and the lazy once-per-epoch rebuild through the actual 019 work plane; contract `docs/CACHE-RECOVERY-CONTRACT.md`; `tests/test_bundle_recovery_codec.py`, `tests/test_bundle_recovery_store.py`, `tests/test_bundle_recovery_resume.py`); 020-b: the 020-a ownership / fault corrections at the same inert scope (the single-writer CAS / publication serialization, the typed read-back `io_failure` law with the BEST actual observed generation, and the claimed-owner fence closing the preemption gap on both direct teardown paths) implemented, PENDING strategic review; 021-a: the 021 component stage (the pinned actual Qwen3.8-27B CPU tokenizer with the closed digest-pinned asset table and load-once identity, the explicit validated C/32 slot / width x slot / aggregate floor(C/4) / reserve budgets with real-tokenizer counting, the direct authenticated tool-free non-recursive compiler with the no-retry/compile-once law, the compile-through-RAM composition with the configured-policy fingerprint fence, and the deterministic required-then-optional selection; contract `docs/CACHE-TOKEN-COMPILER-CONTRACT.md`; `tests/test_bundle_tokenizer.py`, `tests/test_bundle_budget.py`, `tests/test_bundle_compiler.py`, `tests/test_bundle_compile_work.py`, `tests/test_bundle_selection.py`) ACCEPTED at its bounded inert component scope (whole 021 accepted, PR 29 merged to main at 144af0bd5e34387afcb8e3f9ddf761eabd56e817, per the 022 order); objective 022 is active (022-a: the validated opt-in cache configuration slice (the explicit `[context_cache]` profile selector on the actual `Settings` and TOML loader, the closed typed v1 configuration reusing the accepted 021 budget/compiler and 019 RAM types, the strict one-worker policy, the legacy/v1 migration conflict law, the governed-route model contracts and the fixed `create_app` v1 startup refusal; `tests/test_config.py`, `tests/test_app.py`) implemented at the INERT configuration layer, PENDING strategic review at its bounded configuration scope; 022-b.. and objectives 023-024 (full-stack and actual-model/genuine-Codex stages) remain the mandatory unearned v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`)); the original
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`); objective 019 is active (019-a: ACCEPTED at its bounded inert RAM owner/store scope WITH PROCESS QUALIFICATIONS AND IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/019-a-decision.md`; contract `docs/CACHE-RAM-STATE-CONTRACT.md`); 019-b: delivered bounded async single-flight work plane, NOT ACCEPTED against the complete accounting requirement or whole 019 (strategic decision `S/reviews/019-b-decision.md`; contract `docs/CACHE-RAM-WORK-CONTRACT.md`); 019-c: whole-019 closure at the INERT injected-work layer (the bounded pre-accounted `owner_quarantined` adverse-currentness fence, aggregate pressure with high-water shared-container retention, substantial-source/accumulated-history over ACTUAL accepted records, cancellation/update/teardown races and the denied-filesystem lifecycle proof; `tests/test_bundle_ram_lifecycle.py`) implemented, PENDING strategic review; 020-a: whole-020 protected session recovery component at the INERT recovery-component layer (the versioned closed recovery record, the trusted address-only resume, the protected per-session store with atomic generation publication and the actual committed-outcome fault law, the bounded shared-RAM recovery reservations against the SAME 019 ceilings, the durable epoch binding republished on every resume, the durable fail-closed adverse-quarantine fence, the owned bounded async store IO with drain-before-release cancellation / timeout / teardown, and the lazy once-per-epoch rebuild through the actual 019 work plane; contract `docs/CACHE-RECOVERY-CONTRACT.md`; `tests/test_bundle_recovery_codec.py`, `tests/test_bundle_recovery_store.py`, `tests/test_bundle_recovery_resume.py`); 020-b: the 020-a ownership / fault corrections at the same inert scope (the single-writer CAS / publication serialization, the typed read-back `io_failure` law with the BEST actual observed generation, and the claimed-owner fence closing the preemption gap on both direct teardown paths) implemented, PENDING strategic review; 021-a: the 021 component stage (the pinned actual Qwen3.8-27B CPU tokenizer with the closed digest-pinned asset table and load-once identity, the explicit validated C/32 slot / width x slot / aggregate floor(C/4) / reserve budgets with real-tokenizer counting, the direct authenticated tool-free non-recursive compiler with the no-retry/compile-once law, the compile-through-RAM composition with the configured-policy fingerprint fence, and the deterministic required-then-optional selection; contract `docs/CACHE-TOKEN-COMPILER-CONTRACT.md`; `tests/test_bundle_tokenizer.py`, `tests/test_bundle_budget.py`, `tests/test_bundle_compiler.py`, `tests/test_bundle_compile_work.py`, `tests/test_bundle_selection.py`) ACCEPTED at its bounded inert component scope (whole 021 accepted, PR 29 merged to main at 144af0bd5e34387afcb8e3f9ddf761eabd56e817, per the 022 order); objective 022 is active (022-a: the validated opt-in cache configuration slice (the explicit `[context_cache]` profile selector on the actual `Settings` and TOML loader, the closed typed v1 configuration reusing the accepted 021 budget/compiler and 019 RAM types, the strict one-worker policy, the legacy/v1 migration conflict law, the governed-route model contracts and the fixed `create_app` v1 startup refusal; `tests/test_config.py`, `tests/test_app.py`) implemented at the INERT configuration layer, PENDING strategic review at its bounded configuration scope; 022-b: the pure exact-span source replacement transaction (the versioned `cache-bundle-replace/v1` policy-12 transaction over the ACTUAL 017/018/019/021 records: the retained/current proof join through each retained witness's own owner proof, the closed root/read carrier law with the read-root no-double-edit fence, the two versioned opaque HMAC marker kinds with the closed replay scan gate, the positive-supersession evidence law with the eligible-source constraint, the narrow durable-generation handoff and the plan-13 typed all-or-nothing failures; `tests/test_bundle_replace.py`) implemented at the INERT pure-transaction layer, PENDING strategic review at its bounded pure-transaction scope; the later same-022 application wiring and objectives 023-024 (full-stack and actual-model/genuine-Codex stages) remain the mandatory unearned v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`)); the original
 planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric
 objective=one PR; coding never merges.

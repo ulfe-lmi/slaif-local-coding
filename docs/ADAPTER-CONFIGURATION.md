@@ -407,7 +407,7 @@ of signed identity, gateway quotas/accounting, generic production readiness, and
 cutover remain outside this repository's production boundary. Fixture-specific acceptance is recorded in the
 [historical ledger](OBJECTIVE-004-LEDGER.md).
 
-## The `dependency-bundles-v1` profile (022-a configuration slice implemented; v1 runtime planned)
+## The `dependency-bundles-v1` profile (022-a configuration and 022-b pure-transaction slices implemented; v1 runtime planned)
 
 The approved dependency-bundle cache rework ([the handoff](CACHE-REWORK.md),
 [the implementation plan](CACHE-IMPLEMENTATION-PLAN.md)) is selected by the
@@ -547,8 +547,15 @@ contract [the token-compiler contract](CACHE-TOKEN-COMPILER-CONTRACT.md)).
 The 022-a slice is the first same-objective 022 stage: this explicit
 configuration contract plus the fixed `create_app` v1 startup refusal,
 implemented at the INERT configuration layer (PENDING strategic review).
-022-b.. and 023-024 remain the mandatory unearned runtime stages; the
-planned mechanism above stays inert until the owning stages land.
+The 022-b pure exact-span source replacement transaction (policy 12 /
+rework section 11; `bundle_replace.py` / `bundle_replace_models.py`;
+`tests/test_bundle_replace.py`) is implemented at the INERT pure-
+transaction layer (PENDING strategic review at its bounded pure-
+transaction scope); it changes no configuration surface and the
+`create_app` v1 startup refusal is unchanged. The later same-022
+application wiring and 023-024 remain the mandatory unearned runtime
+stages; the planned mechanism above stays inert until the owning
+stages land.
 
 ## Running the adapter
 

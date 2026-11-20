@@ -44,10 +44,15 @@ import pytest
 
 from slaif_local_coding.constitution.bundles.bundle_admission_models import (
     AdmissionMode,
+    EntryClass,
 )
 from slaif_local_coding.constitution.bundles.bundle_budget import (
     BundleBudgetConfig,
     BundleBudgetPlan,
+)
+from slaif_local_coding.constitution.bundles.bundle_compiler import (
+    UNPROVEN_MEMBER_PROVENANCE_PREFIX,
+    unproven_member_paths,
 )
 from slaif_local_coding.constitution.bundles.bundle_replace import (
     CarrierDetail,
@@ -74,6 +79,7 @@ from slaif_local_coding.constitution.bundles.bundle_replace import (
     verify_marker,
 )
 from slaif_local_coding.constitution.bundles.bundle_replace_models import (
+    LIVE_MARKER_TAG,
     MarkerKind,
     MarkerRecord,
     PreparedGenerationProof,
@@ -91,11 +97,18 @@ from slaif_local_coding.constitution.bundles.causal_history_models import (
     CAUSAL_ROOT_FACT,
     HistoryBounds,
 )
+from slaif_local_coding.constitution.bundles.currentness_models import (
+    CurrentnessReason,
+)
 from slaif_local_coding.constitution.bundles.observation_models import (
+    ExitStatus,
+    Limitation,
     OccurrenceKind,
     PathContext,
+    ReadOutcome,
     RootOccurrence,
     RootStatus,
+    TruncationStatus,
 )
 from slaif_local_coding.constitution.bundles.observe import observe_request
 from slaif_local_coding.constitution.bundles.ram_state_models import (
@@ -108,12 +121,19 @@ from slaif_local_coding.constitution.bundles.recovery_store import (
 )
 from slaif_local_coding.constitution.bundles.root_lineage_models import (
     RootLineageOutcome,
+    RootSelectionOutcome,
 )
 from slaif_local_coding.constitution.bundles.root_region_admission import (
     derive_root_region_admission,
 )
 from slaif_local_coding.constitution.bundles.root_region_admission_result_models import (
     RootRegionAdmissionOutcome,
+)
+from slaif_local_coding.constitution.bundles.root_region_currentness_models import (
+    RootRegionCurrentnessOutcome,
+)
+from slaif_local_coding.constitution.bundles.root_region_lineage import (
+    register_root_region_issuance,
 )
 from tests.test_bundle_compiler import (
     A_BODY,
@@ -131,6 +151,15 @@ from tests.test_bundle_selection import (
     _states,
 )
 from tests.test_causal_history import (
+    CHAIN_SESSION,
+    chain_request,
+    poll_arguments,
+    read_request,
+    running_frame,
+    sha256_hex,
+    terminal_frame,
+)
+from tests.test_causal_history import (
     exec_call as _ch_exec_call,
 )
 from tests.test_causal_history import (
@@ -138,10 +167,6 @@ from tests.test_causal_history import (
 )
 from tests.test_causal_history import (
     out_item as _ch_out_item,
-)
-from tests.test_causal_history import (
-    read_request,
-    sha256_hex,
 )
 from tests.test_causal_history import (
     root_item as _ch_root_item,
@@ -1047,6 +1072,19 @@ _MK_BINDING_KEY: tuple[str, str, int, int, int, int, str] = (
     0,
     MK_CONTENT_KEY,
 )
+# The evidence tag carries NO entry content key (the old entry key of a
+# superseded original is never reconstructed): the binding slot is the
+# empty string, exactly as ``_binding_key`` derives it from the
+# expectation's ``content_key=None``.
+_MK_EVIDENCE_BINDING_KEY: tuple[str, str, int, int, int, int, str] = (
+    MK_ENDPOINT,
+    "synthetic-read-1",
+    1,
+    2,
+    0,
+    0,
+    "",
+)
 
 
 def _mk_live_marker(key: bytes = MARKER_KEY, namespace: str = "synthetic-namespace") -> str:
@@ -1105,7 +1143,6 @@ def _mk_evidence_marker(key: bytes = MARKER_KEY) -> str:
         piece_index=0,
         segment_index=0,
         source_digest=MK_SOURCE_DIGEST,
-        content_key=MK_CONTENT_KEY,
     )
 
 
@@ -1122,7 +1159,6 @@ def _mk_evidence_tag(key: bytes = MARKER_KEY) -> ExpectedTag:
         piece_index=0,
         segment_index=0,
         source_digest=MK_SOURCE_DIGEST,
-        content_key=MK_CONTENT_KEY,
     )
 
 
@@ -1237,7 +1273,7 @@ class TestReplayedMarkerScan:
         replayed = _scan(
             MK_PREFIX + marker + MK_SUFFIX,
             expectations,
-            _mk_binding(span, frozenset({"evidence"})),
+            {_MK_EVIDENCE_BINDING_KEY: ((span, frozenset({"evidence"})),)},
         )
         ((key, record),) = replayed.items()
         assert key == (MK_ENDPOINT, MK_LOCATION, 10)
@@ -1974,6 +2010,50 @@ def _ambiguous_state() -> tuple[Any, Any, str]:
     return o2.state, t, c1_occ.occurrence_id
 
 
+X_BODY = "Off-graph X notes outside the root reach.\n"
+X_V2_BODY = "The revised X notes change the off-graph file.\n"
+GATE_ROOT = "Follow `A.md` before mutation.\n"
+GATE_CMD = "cat A.md && echo 'GATESEP' && cat X.md"
+GATE_BODY = A_BODY + "GATESEP\n" + X_BODY
+
+
+def _off_graph_state() -> tuple[Any, Any, str]:
+    """The ACTUAL P/T state: the root reaches ONLY A.md (LEAN); the
+    partitioned c1 read covers A.md and the off-graph X.md; genuine
+    LATER descendant claims then supersede BOTH — A.md is readmitted
+    by its descendant (admitted), X.md is never graph-eligible and
+    never admitted (ordinary tool output)."""
+    ns, s0 = r_bootstrap(AdmissionMode.LEAN, "replace022b-offgraph", root_body=GATE_ROOT)
+    i1 = r_issue(s0, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), GATE_CMD)
+    o1 = r_observe(i1.state, ns, (read_request("responses", "c1", GATE_BODY, cmd=GATE_CMD),))
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    c1_occ = next(o for o in o1.state.d_state.occurrences if o.proof.call_id == "c1")
+    i2 = r_issue(o1.state, ns, "c2", "responses", (c1_occ.occurrence_id,), "cat A.md")
+    o2 = r_observe(
+        i2.state,
+        ns,
+        (read_request("responses", "c2", SUPERSEDED_A_BODY, "cat A.md"),),
+    )
+    assert o2.outcome is RootLineageOutcome.ACCEPTED, o2.diagnostics
+    i3 = r_issue(o2.state, ns, "c3", "responses", (c1_occ.occurrence_id,), "cat X.md")
+    o3 = r_observe(
+        i3.state,
+        ns,
+        (read_request("responses", "c3", X_V2_BODY, "cat X.md"),),
+    )
+    assert o3.outcome is RootLineageOutcome.ACCEPTED, o3.diagnostics
+    t = derive_root_region_admission(o3.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    # Lean admits the root and the readmitted A.md singleton ONLY:
+    # the off-graph X.md never earns a row in the reverse index.
+    admission = t.admission
+    assert admission is not None
+    assert [_represented(t, e) for e in admission.entries] == [("A.md",)]
+    admitted = {row.path for row in admission.path_associations if row.content_keys}
+    assert "A.md" in admitted and "X.md" not in admitted
+    return o3.state, t, c1_occ.occurrence_id
+
+
 class TestSupersessionEvidence:
     """The ACTUAL lineage supersession predicate over prepared
     same-run records (the closed chunk 1d law)."""
@@ -2002,10 +2082,17 @@ class TestSupersessionEvidence:
 
     @staticmethod
     def _evidence(state: Any, t: Any) -> _SupersessionEvidence:
+        admission = t.admission
+        assert admission is not None
         return _SupersessionEvidence(
             overlay=t.r_result.e_overlay,
             root_currentness=t.r_result.q_result,
-            retained_root_digests=frozenset(fact.source_digest for fact in state.root_facts),
+            authoritative_root_digests=frozenset(
+                fact.source_digest for fact in state.root_facts if fact.authority
+            ),
+            admitted_paths=frozenset(
+                row.path for row in admission.path_associations if row.content_keys
+            ),
         )
 
     def test_proven_change_is_superseded(self) -> None:
@@ -2044,3 +2131,2564 @@ class TestSupersessionEvidence:
         # No (occurrence, group) record at these coordinates: a mere
         # omission earns no supersession proof.
         assert not _positively_superseded(self._span(c1_occ, 99), self._evidence(state, t))
+
+    def test_proven_change_on_unadmitted_path_is_not_superseded(self) -> None:
+        state, t, c1_occ = _off_graph_state()
+        evidence = self._evidence(state, t)
+        # The ACTUAL derived records: the partitioned c1 read owns
+        # TWO groups in segment order — the A.md segment (group 0)
+        # and the off-graph X.md segment (group 1).  BOTH group rows
+        # carry the proven change (genuine later descendant claims),
+        # so the D occurrence plus PROVEN_CHANGE alone would remove
+        # the X.md tool output ...
+        a_group = next(
+            g
+            for g in t.r_result.e_overlay.groups
+            if g.occurrence_id == c1_occ and g.group_index == 0
+        )
+        x_group = next(
+            g
+            for g in t.r_result.e_overlay.groups
+            if g.occurrence_id == c1_occ and g.group_index == 1
+        )
+        assert a_group.members == ("A.md",)
+        assert x_group.members == ("X.md",)
+        for group in (a_group, x_group):
+            assert any(
+                reason is CurrentnessReason.PROVEN_CHANGE
+                for row in group.path_rows
+                for reason in row.reasons
+            )
+        # ... but only the path the PREPARED admission actually
+        # represents (A.md, readmitted by the descendant) has
+        # retained admission provenance.  The off-group X.md is
+        # ordinary tool output: the exact-group eligibility gate
+        # refuses the evidence splice for it ...
+        assert not _positively_superseded(self._span(c1_occ, 1), evidence)
+        # ... while the admitted A.md original stays positively
+        # superseded.
+        assert _positively_superseded(self._span(c1_occ, 0), evidence)
+
+
+# ---------------------------------------------------------------------------
+# The v1->v2 old-raw / evidence-replay / stale-live transaction (saved
+# chunk 1h): the retained-D nonroot join.  A singleton A.md that is
+# genuinely superseded by a later descendant read: the OLD v1 occurrence
+# is ABSENT from the current admission, and the prepared T result's
+# SAME-RUN E overlay group record positively proves the supersession, so
+# the old original earns a NON-RESOLVING EVIDENCE marker tied to its
+# original namespace and exact occurrence/source digest (the old entry
+# key is never reconstructed).  The new v2 original earns a LIVE marker;
+# an old v1 LIVE token in the old original's carrier is a stale live
+# reference that ALWAYS refuses (no scan carve-out, no rollback).
+# ---------------------------------------------------------------------------
+
+ROOT_V1V2 = "Follow `A.md` before mutation.\n"
+
+
+def _v1v2_records() -> dict[str, Any]:
+    """The ACTUAL P/T fixture for the singleton v1->v2 supersession: the
+    rooted bootstrap, the genuinely issued c1 read of A.md (v1), the
+    genuinely LATER c2 read of A.md (v2) issued with the completed c1
+    occurrence as its frozen frontier parent, admitted lean.
+
+    The current admission carries ONLY the c2 singleton as the A.md
+    entry: the c1 occurrence is ABSENT from the current admission, and
+    its same-run E overlay group record carries the proven change on the
+    A.md row (a genuinely later claim with a KNOWN different digest)."""
+    ns, s0 = r_bootstrap(AdmissionMode.LEAN, "replace022b-v1v2", root_body=ROOT_V1V2)
+    i1 = r_issue(s0, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), "cat A.md")
+    o1 = r_observe(i1.state, ns, (read_request("responses", "c1", A_BODY, "cat A.md"),))
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    c1_occ = next(o for o in o1.state.d_state.occurrences if o.call_id == "c1")
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    # ---- The retained PREVIOUS v1 prepared stage -------------------
+    # Derive the actual prepared context as it stood AFTER the v1 read
+    # (before the v2 descendant): the A.md entry is the c1 singleton,
+    # with its real entry content key and real compiled index.  A real
+    # v1 transaction over the v1 raw payload emits the REAL v1 LIVE
+    # marker for the c1 span — the genuine stale live reference the
+    # final round must refuse.
+    t1 = derive_root_region_admission(o1.state, ns)
+    assert t1.outcome is RootRegionAdmissionOutcome.READY, t1.diagnostics
+    admission1 = t1.admission
+    assert admission1 is not None
+    entry_a1 = _entry_for(t1, "A.md")
+    assert all(w.occurrence_id == c1_occ.occurrence_id for w in entry_a1.witnesses)
+    root_index = _root_index(
+        admission1.root_entry,
+        config,
+        tokenizer,
+        plan,
+        (
+            _dep("A.md", "P1", 90, "immediate"),
+            _dep("B.md", "P2", 50, "next_turn"),
+            _dep("C.md", "P2", 30, "background"),
+        ),
+    )
+    index_a1 = _file_index(
+        entry_a1,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="a-procedure-v1",
+        statement="The original A procedure.",
+        location="A.md",
+    )
+    snapshot_v1 = RamStateSnapshot(
+        namespace=ns, state=o1.state, result=t1, revision=o1.state.revision, epoch=1, owned_bytes=0
+    )
+    proof_v1 = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record-v1"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot_v1,
+    )
+    ready_root_v1 = _ready(t1, admission1.root_entry, root_index, ("A.md", "B.md", "C.md"))
+    ready_a1 = _ready(t1, entry_a1, index_a1, ())
+    decision_v1 = select_working_set(ready_root_v1, (ready_a1,), plan)
+    assert decision_v1.outcome is SelectionOutcome.OK
+    v1_payload = {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(ROOT_V1V2),
+            _ch_exec_call("c1", "cat A.md"),
+            _ch_out_item("c1", _ch_frame(A_BODY)),
+        ],
+    }
+    obs_v1 = observe_request(v1_payload, endpoint="responses", context=_CTX)
+    result_v1 = replace_sources(
+        v1_payload,
+        proof=proof_v1,
+        current_snapshot=snapshot_v1,
+        ready_entries=(ready_root_v1, ready_a1),
+        decision=decision_v1,
+        observation=obs_v1,
+        root_occurrence=obs_v1.roots.roots[0],
+        key=MARKER_KEY,
+        max_text_chars=100_000,
+    )
+    assert result_v1.outcome is ReplacementOutcome.OK, result_v1
+    v1_c1_edits = [e for e in result_v1.edits if e.carrier_location == "$.input[2]"]
+    assert len(v1_c1_edits) == 1
+    (v1_c1_edit,) = v1_c1_edits
+    assert v1_c1_edit.kind is MarkerKind.LIVE_REFERENCE
+    assert v1_c1_edit.target_content_key == entry_a1.content_key
+    out_v1 = result_v1.transformed_payload
+    assert out_v1 is not None
+    # The frame's source span runs to the end of the frame: the
+    # emitted marker is the exact rendered tail.
+    v1_marker = out_v1["input"][2]["output"][v1_c1_edit.start :]
+    assert v1_marker.startswith(LIVE_MARKER_TAG)
+    assert v1_marker.endswith("]")
+    i2 = r_issue(o1.state, ns, "c2", "responses", (c1_occ.occurrence_id,), "cat A.md")
+    o2 = r_observe(i2.state, ns, (read_request("responses", "c2", SUPERSEDED_A_BODY, "cat A.md"),))
+    assert o2.outcome is RootLineageOutcome.ACCEPTED, o2.diagnostics
+    t = derive_root_region_admission(o2.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    r_result = t.r_result
+    assert r_result is not None
+    admission = t.admission
+    assert admission is not None
+    overlay = r_result.e_overlay
+    assert overlay is not None
+    # The same-run E overlay group record of the OLD occurrence carries
+    # the proven change on the A.md row (the ACTUAL supersession proof;
+    # the group index is the occurrence-local segment index).
+    record = next(g for g in overlay.groups if g.occurrence_id == c1_occ.occurrence_id)
+    assert record.group_index == 0
+    assert any(
+        reason.value == "proven_change" for row in record.path_rows for reason in row.reasons
+    )
+    # The current admission carries the v2 singleton only: the old
+    # occurrence is ABSENT from the current admission (the whole point
+    # of the retained-D nonroot join).
+    entry_a2 = _entry_for(t, "A.md")
+    assert entry_a2.witnesses
+    assert all(w.occurrence_id != c1_occ.occurrence_id for w in entry_a2.witnesses)
+    root_entry = admission.root_entry
+    # The root source is unchanged between the two prepared stages:
+    # the root entry keeps the same content key, so the compiled root
+    # index (built from the v1 stage's identical root entry) serves
+    # both ready sets.
+    assert root_entry.content_key == admission1.root_entry.content_key
+    index_a2 = _file_index(
+        entry_a2,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="a-procedure",
+        statement="The revised A procedure.",
+        location="A.md",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns, state=o2.state, result=t, revision=o2.state.revision, epoch=1, owned_bytes=0
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("A.md", "B.md", "C.md"))
+    ready_a2 = _ready(t, entry_a2, index_a2, ())
+    decision = select_working_set(ready_root, (ready_a2,), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    return {
+        "snapshot": snapshot,
+        "proof": proof,
+        "ready": (ready_root, ready_a2),
+        "decision": decision,
+        "root_entry": root_entry,
+        "entry_a2": entry_a2,
+        "c1_occ": c1_occ,
+        "v1_marker": v1_marker,
+    }
+
+
+def _v1v2_payload() -> dict[str, Any]:
+    """One decoded Responses request: the automatic root envelope, the
+    old c1 read pair (A.md v1) and the newer c2 read pair (A.md v2),
+    plus an ordinary assistant message the transaction must preserve
+    byte-for-byte (ordinary non-admitted output keeps its role)."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(ROOT_V1V2),
+            _ch_exec_call("c1", "cat A.md"),
+            _ch_out_item("c1", _ch_frame(A_BODY)),
+            _ch_exec_call("c2", "cat A.md"),
+            _ch_out_item("c2", _ch_frame(SUPERSEDED_A_BODY)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Continuing with the mutation."}],
+            },
+        ],
+    }
+
+
+class TestTransactionV1V2Supersession:
+    """The ACTUAL replace_sources entry point over the singleton
+    v1->v2 supersession fixture: the old raw payload earns the root
+    LIVE, the v2 LIVE and the non-resolving EVIDENCE edit (three
+    rounds total: old raw, evidence replay fixed point, and the stale
+    live refusal)."""
+
+    def test_old_raw_evidence_replay_stale_live(self) -> None:
+        rec = _v1v2_records()
+        snapshot = rec["snapshot"]
+        root_key = rec["root_entry"].content_key
+        a2_key = rec["entry_a2"].content_key
+        c1 = rec["c1_occ"]
+        piece = c1.proof.pieces[0]
+        segment = c1.proof.segments[0]
+        assert piece.call_id == "c1"
+        assert segment.digest == sha256_hex(A_BODY)
+
+        # ---- Round 1: the honest OLD RAW payload -------------------
+        payload1 = _v1v2_payload()
+        frozen = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        assert payload1 == frozen
+        # Exactly three edits: the root envelope LIVE, the v2 A.md LIVE,
+        # the old v1 A.md NON-RESOLVING EVIDENCE (the old entry key is
+        # never reconstructed).
+        assert len(result1.edits) == 3
+        assert result1.edits_planned == 3
+        assert result1.edits_committed == 3
+        assert result1.markers_emitted == 3
+        assert result1.markers_replayed == 0
+        root_edits = [e for e in result1.edits if e.carrier_location == "$.input[0].content[0]"]
+        c1_edits = [e for e in result1.edits if e.carrier_location == "$.input[2]"]
+        c2_edits = [e for e in result1.edits if e.carrier_location == "$.input[4]"]
+        assert len(root_edits) == 1 and len(c1_edits) == 1 and len(c2_edits) == 1
+        (root_edit,) = root_edits
+        (c1_edit,) = c1_edits
+        (c2_edit,) = c2_edits
+        assert root_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert root_edit.target_content_key == root_key
+        assert c2_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert c2_edit.target_content_key == a2_key
+        assert c1_edit.kind is MarkerKind.EVIDENCE
+        assert c1_edit.target_compiled_digest is None
+        assert c1_edit.source_digest == sha256_hex(A_BODY)
+        # The selected compiled pairing is the working set (root + v2
+        # A); the old v1 content is not a selected entry.
+        assert result1.selected_content_keys == tuple(
+            row.content_key for row in rec["decision"].working_set
+        )
+        assert set(result1.selected_content_keys) == {root_key, a2_key}
+        out1 = result1.transformed_payload
+        assert out1 is not None
+        # The emitted evidence marker is the EXACT re-derived tag:
+        # original namespace + occurrence + source digest + segment
+        # association, and NO entry content key.
+        expected_ev = derive_evidence_tag(
+            MARKER_KEY,
+            namespace_key=snapshot.namespace.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=c1.occurrence_id,
+            endpoint="responses",
+            call_id=piece.call_id,
+            call_position=piece.call_position,
+            result_position=piece.result_position,
+            piece_index=piece.piece_index,
+            segment_index=0,
+            source_digest=sha256_hex(A_BODY),
+        )
+        assert expected_ev.content_key is None
+        original_c1_text = _ch_frame(A_BODY)
+        c1_text = out1["input"][2]["output"]
+        # The edit coordinates address the ORIGINAL source span (the
+        # rendered marker has its own length, longer than the raw
+        # span): the marker renders at the splice start, the prefix is
+        # unchanged, and the suffix after the original span end is
+        # preserved byte-for-byte (the frame wrapper stays intact).
+        marker_len = len(expected_ev.marker)
+        assert c1_text[c1_edit.start : c1_edit.start + marker_len] == expected_ev.marker
+        assert c1_text[: c1_edit.start] == original_c1_text[: c1_edit.start]
+        assert c1_text[c1_edit.start + marker_len :] == original_c1_text[c1_edit.end :]
+        c2_text = out1["input"][4]["output"]
+        assert c2_text[c2_edit.start : c2_edit.end + 10].startswith(LIVE_MARKER_TAG)
+        root_text = out1["input"][0]["content"][0]["text"]
+        assert root_text[root_edit.start : root_edit.end + 10].startswith(LIVE_MARKER_TAG)
+        # The ordinary assistant message (non-admitted output) is
+        # preserved byte-for-byte.
+        assert out1["input"][5] == frozen["input"][5]
+
+        # ---- Round 2: the already-transformed historical replay -----
+        obs2 = observe_request(out1, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            out1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        # The transformed history replays all three markers at their
+        # current coordinates to the fixed point: no second edit, no
+        # rollback, the non-resolving evidence marker neither changes
+        # its authority nor resolves to stale compiled text.
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == out1
+        assert result2.edits_planned == 0
+        assert result2.edits_committed == 0
+        assert result2.markers_replayed == 3
+
+        # ---- Round 3: a STALE LIVE token in the old carrier ---------
+        # The GENUINE stale live reference: the marker ACTUALLY emitted
+        # by the previous real v1 prepared transaction (its real v1
+        # entry content key and compiled digest, valid at that stage).
+        # That entry has now left the accepted selection: the tag
+        # cannot re-derive against ANY current authority, so the
+        # accepted-replay gate refuses it — the stale live reference
+        # ALWAYS refuses (no scan carve-out, no rollback).
+        payload3 = _v1v2_payload()
+        payload3["input"][2]["output"] = _ch_frame(rec["v1_marker"])
+        frozen3 = copy.deepcopy(payload3)
+        obs3 = observe_request(payload3, endpoint="responses", context=_CTX)
+        result3 = replace_sources(
+            payload3,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs3,
+            root_occurrence=obs3.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        # The stale live reference ALWAYS refuses all-or-nothing (no
+        # scan carve-out): no transformed payload, no partial edits,
+        # the input is never mutated.
+        assert result3.outcome is ReplacementOutcome.MARKER_INVALID, result3
+        assert result3.http_status == 409
+        assert result3.transformed_payload is None
+        assert result3.edits == ()
+        assert payload3 == frozen3
+
+
+# ---------------------------------------------------------------------------
+# 022-b saved chunk 1i (authority gate): the order's evidence law is
+# gated on ACTUAL authority from the ready same-run P/Q lineage.  A
+# retained root original that was never authoritative — a complete but
+# UNISSUED read, retained as UNPROVEN source and never selectable — is
+# insufficient for positive supersession: the envelope carrying the
+# unissued digest earns NO evidence splice and the transaction refuses
+# all-or-nothing.
+# ---------------------------------------------------------------------------
+
+
+def _unissued_gate_records() -> dict[str, Any]:
+    """The ACTUAL P/T fixture for the authority gate: the rooted
+    bootstrap on the OLD root, a complete but NEVER ISSUED AGENTS.md
+    read carrying the NEW root (retained as UNPROVEN source —
+    issued/authority False — and never selectable), plus the issued
+    A.md read — admitted lean.
+
+    The OLD bootstrap anchor remains the selected governing root
+    (envelope provenance); the unissued NEW digest is retained but
+    carries no ACTUAL authority."""
+    ns, s0 = r_bootstrap(AdmissionMode.LEAN, "replace022b-unissued-gate", root_body=READROOT_OLD)
+    # The NEW root read is observed complete but is NEVER issued: it
+    # is retained as UNPROVEN source and can never be selected.
+    o1 = r_observe(s0, ns, (read_request("responses", "r1", READROOT_NEW, "cat AGENTS.md"),))
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    read_fact = next(f for f in o1.state.root_facts if f.source_digest == sha256_hex(READROOT_NEW))
+    assert read_fact.issued is False and read_fact.authority is False
+    i2 = r_issue(o1.state, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), "cat A.md")
+    o2 = r_observe(i2.state, ns, (read_request("responses", "c1", A_BODY, "cat A.md"),))
+    assert o2.outcome is RootLineageOutcome.ACCEPTED, o2.diagnostics
+    t = derive_root_region_admission(o2.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    r_result = t.r_result
+    assert r_result is not None
+    q_result = r_result.q_result
+    assert q_result is not None
+    assert q_result.outcome is RootRegionCurrentnessOutcome.READY
+    p_selection = q_result.p_selection
+    assert p_selection is not None
+    assert p_selection.outcome is RootSelectionOutcome.OK
+    # The UNISSUED read is never selected: the OLD anchor governs.
+    assert p_selection.selected_source_digest == sha256_hex(READROOT_OLD)
+    admission = t.admission
+    assert admission is not None
+    root_entry = admission.root_entry
+    assert root_entry.root_digest == sha256_hex(READROOT_OLD)
+    root_source = root_entry.root_source
+    assert root_source is not None
+    assert root_source.kind == "envelope"
+    # Only the A.md file entry is admitted: while the root comes from
+    # the anchor, the root-bearing AGENTS.md group never supplies root
+    # text, so its read earns no FILE entry of its own.
+    assert len(admission.entries) == 1
+    entry_a = _entry_for(t, "A.md")
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (
+            _dep("A.md", "P1", 90, "immediate"),
+            _dep("B.md", "P2", 50, "next_turn"),
+        ),
+    )
+    index_a = _file_index(
+        entry_a,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="a-procedure",
+        statement="The A procedure.",
+        location="A.md",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns, state=o2.state, result=t, revision=o2.state.revision, epoch=1, owned_bytes=0
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record-unissued-gate"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("A.md", "B.md"))
+    ready_a = _ready(t, entry_a, index_a, ())
+    decision = select_working_set(ready_root, (ready_a,), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    assert [row.content_key for row in decision.working_set] == [
+        root_entry.content_key,
+        entry_a.content_key,
+    ]
+    return {
+        "ns": ns,
+        "snapshot": snapshot,
+        "proof": proof,
+        "root_entry": root_entry,
+        "entry_a": entry_a,
+        "ready": (ready_root, ready_a),
+        "decision": decision,
+    }
+
+
+class TestHistoricalAnchorAuthorityGate:
+    """A retained UNISSUED root digest earns no evidence marker: the
+    actual P/Q lineage gate fails closed (no tag, no splice, no
+    partial edit) while the transaction refuses all-or-nothing and
+    never mutates the input."""
+
+    def test_unissued_retained_root_earns_no_evidence(self) -> None:
+        rec = _unissued_gate_records()
+        # The honest decoded request: the governing OLD envelope, the
+        # envelope carrying the UNISSUED NEW original, the read
+        # carriers and the assistant message.
+        payload = {
+            "model": "synthetic-model",
+            "input": [
+                _ch_root_item(READROOT_OLD),
+                _ch_root_item(READROOT_NEW),
+                _ch_exec_call("r1", "cat AGENTS.md"),
+                _ch_out_item("r1", _ch_frame(READROOT_NEW)),
+                _ch_exec_call("c1", "cat A.md"),
+                _ch_out_item("c1", _ch_frame(A_BODY)),
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "Proceeding."}],
+                },
+            ],
+        }
+        frozen = copy.deepcopy(payload)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        assert [o.location for o in obs.roots.roots] == [
+            "$.input[0].content[0]",
+            "$.input[1].content[0]",
+        ]
+        assert [o.digest for o in obs.roots.roots] == [
+            sha256_hex(READROOT_OLD),
+            sha256_hex(READROOT_NEW),
+        ]
+        result = replace_sources(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        # A retained UNISSUED digest proves no supersession: the
+        # envelope carrying it is a recognized root field the
+        # transaction cannot honestly replace — all-or-nothing
+        # refusal, no evidence marker, no partial edits.
+        assert result.outcome is ReplacementOutcome.SPAN_MISMATCH, result
+        assert result.http_status == 409
+        assert result.transformed_payload is None
+        assert result.edits == ()
+        assert result.edits_planned == 0
+        assert result.markers_emitted == 0
+        assert payload == frozen
+
+
+# ---------------------------------------------------------------------------
+# 022-b saved chunk 1j (native multi-piece): a native process read
+# (initial EXEC + causally associated poll) of a CRLF/Unicode source
+# through the ACTUAL transaction: each piece earns its own LIVE splice
+# on its OWN carrier, the per-piece current coordinates come from the
+# CURRENT process proof on the CURRENT decoded string (the retained
+# coordinates stay the piece identity), the wrappers and the CRLF/
+# Unicode outside the edits are preserved byte-for-byte, the transformed
+# replay is a fixed point (every present tag occupies its full proved
+# current splice), and a moved or residue-bearing tag refuses
+# all-or-nothing.
+# ---------------------------------------------------------------------------
+
+A_NATIVE_PENDING = "Synthetic a content.\r\n"
+A_NATIVE_TAIL = "ünïcode ✓ tail\r\n"
+A_NATIVE = A_NATIVE_PENDING + A_NATIVE_TAIL
+
+
+def _native_records() -> dict[str, Any]:
+    """The ACTUAL P/T fixture for the native multi-piece read: the
+    rooted bootstrap, the issued native exec of ``cat A.md`` with its
+    running frame (the CRLF piece), the causally associated write_stdin
+    poll and its terminal frame (the Unicode piece) — admitted lean.
+
+    The A.md entry's single segment carries the two retained piece
+    spans (one per piece carrier); the piece call/result positions are
+    the chain-relative structural positions."""
+    ns, s0 = r_bootstrap(AdmissionMode.LEAN, "replace022b-native", root_body=ROOT_REQUIRED)
+    i1 = r_issue(s0, ns, "n1", "responses", (CAUSAL_ROOT_FACT,), "cat A.md")
+    pend = r_observe(i1.state, ns, (chain_request("responses", "n1", A_NATIVE_PENDING),))
+    assert pend.outcome is RootLineageOutcome.ACCEPTED, pend.diagnostics
+    pi = register_root_region_issuance(
+        pend.state,
+        ns,
+        "n1p",
+        "responses",
+        "write_stdin",
+        poll_arguments(CHAIN_SESSION),
+        (CAUSAL_ROOT_FACT,),
+        pend.state.revision,
+    )
+    assert pi.outcome is RootLineageOutcome.ACCEPTED, pi.diagnostics
+    full = r_observe(
+        pi.state,
+        ns,
+        (chain_request("responses", "n1", A_NATIVE_PENDING, "n1p", terminal_frame(A_NATIVE_TAIL)),),
+    )
+    assert full.outcome is RootLineageOutcome.ACCEPTED, full.diagnostics
+    t = derive_root_region_admission(full.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    admission = t.admission
+    assert admission is not None
+    entry_a = _entry_for(t, "A.md")
+    n1_occ = next(o for o in full.state.d_state.occurrences if o.call_id == "n1")
+    # The retained proof carries the two pieces, one per carrier.
+    assert [p.piece_index for p in n1_occ.proof.pieces] == [0, 1]
+    assert n1_occ.proof.pieces[0].call_id == "n1"
+    assert n1_occ.proof.pieces[1].call_id == "n1p"
+    assert n1_occ.proof.pieces[0].call_position == 0
+    assert n1_occ.proof.pieces[0].result_position == 1
+    assert n1_occ.proof.pieces[1].call_position == 2
+    assert n1_occ.proof.pieces[1].result_position == 3
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    root_entry = admission.root_entry
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (
+            _dep("A.md", "P1", 90, "immediate"),
+            _dep("B.md", "P2", 50, "next_turn"),
+        ),
+    )
+    index_a = _file_index(
+        entry_a,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="a-procedure",
+        statement="The A procedure.",
+        location="A.md",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns,
+        state=full.state,
+        result=t,
+        revision=full.state.revision,
+        epoch=1,
+        owned_bytes=0,
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record-native"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("A.md", "B.md"))
+    ready_a = _ready(t, entry_a, index_a, ())
+    decision = select_working_set(ready_root, (ready_a,), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    assert [row.content_key for row in decision.working_set] == [
+        root_entry.content_key,
+        entry_a.content_key,
+    ]
+    return {
+        "ns": ns,
+        "snapshot": snapshot,
+        "proof": proof,
+        "root_entry": root_entry,
+        "entry_a": entry_a,
+        "n1_occ": n1_occ,
+        "root_index": root_index,
+        "index_a": index_a,
+        "ready": (ready_root, ready_a),
+        "decision": decision,
+    }
+
+
+def _native_payload() -> dict[str, Any]:
+    """The honest decoded request: the root envelope, the native exec
+    chain (running frame, poll call, terminal frame) and the assistant
+    message (the CRLF/Unicode that lives OUTSIDE the edits)."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(ROOT_REQUIRED),
+            exec_call("n1", "cat A.md"),
+            out_item("n1", running_frame(A_NATIVE_PENDING, CHAIN_SESSION)),
+            {
+                "type": "function_call",
+                "call_id": "n1p",
+                "name": "write_stdin",
+                "arguments": poll_arguments(CHAIN_SESSION),
+            },
+            out_item("n1p", terminal_frame(A_NATIVE_TAIL)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "Proceeding.\r\nÜnïcode ✓ check.\n",
+                    }
+                ],
+            },
+        ],
+    }
+
+
+class TestTransactionNativeMultiPiece:
+    """The ACTUAL replace_sources entry point over the native
+    multi-piece (initial-EXEC + poll) CRLF/Unicode read: per-piece
+    splices from the CURRENT process proof, fixed-point replay, and
+    moved/residue tag refusal."""
+
+    def test_native_multi_piece_crlf_unicode_transaction(self) -> None:
+        rec = _native_records()
+        ns = rec["ns"]
+        root_key = rec["root_entry"].content_key
+        a_key = rec["entry_a"].content_key
+        n1_occ = rec["n1_occ"]
+        root_index = rec["root_index"]
+        index_a = rec["index_a"]
+
+        # ---- Round 1: the honest raw native payload ------------------
+        payload = _native_payload()
+        frozen = copy.deepcopy(payload)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        assert [o.location for o in obs.roots.roots] == ["$.input[0].content[0]"]
+        result = replace_sources(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result.outcome is ReplacementOutcome.OK, result
+        assert result.selected_content_keys == (root_key, a_key)
+        # EXACTLY three edits: the root envelope splice and the TWO
+        # native piece splices (initial EXEC piece, poll piece), each
+        # on its OWN carrier.
+        assert len(result.edits) == 3
+        root_edit, exec_edit, poll_edit = sorted(result.edits, key=lambda e: e.carrier_location)
+        assert root_edit.carrier_location == "$.input[0].content[0]"
+        assert root_edit.field == "text"
+        assert root_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert root_edit.target_entry_class == "root_entry"
+        assert root_edit.target_content_key == root_key
+        assert root_edit.target_compiled_digest == root_index.compile_key
+        assert root_edit.source_digest == sha256_hex(ROOT_REQUIRED)
+        assert root_edit.occurrence_identity == root_key
+        assert (root_edit.start, root_edit.end) == (51, 51 + len(ROOT_REQUIRED))
+        assert exec_edit.carrier_location == "$.input[2]"
+        assert exec_edit.field == "output"
+        assert exec_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert exec_edit.target_entry_class == "file_bundle_entry"
+        assert exec_edit.target_content_key == a_key
+        assert exec_edit.target_compiled_digest == index_a.compile_key
+        assert exec_edit.source_digest == sha256_hex(A_NATIVE)
+        assert exec_edit.occurrence_identity == n1_occ.occurrence_id
+        assert (exec_edit.start, exec_edit.end) == (112, 134)
+        assert poll_edit.carrier_location == "$.input[4]"
+        assert (poll_edit.start, poll_edit.end) == (102, 118)
+        assert result.edits_planned == 3
+        assert result.edits_committed == 3
+        assert result.markers_emitted == 3
+        assert result.markers_replayed == 0
+        assert result.carriers_touched == 3
+        assert result.chars_replaced == len(ROOT_REQUIRED) + len(A_NATIVE_PENDING) + len(
+            A_NATIVE_TAIL
+        )
+        out1 = result.transformed_payload
+        assert out1 is not None
+        # The input payload is never mutated.
+        assert payload == frozen
+        # The emitted markers are the EXACT re-derived tags: the root
+        # envelope (root-source identity) and each piece under its OWN
+        # retained piece identity (the chain-relative call/result
+        # positions, the piece index, the occurrence).
+        root_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="root_envelope",
+            occurrence_identity=root_key,
+            endpoint="responses",
+            call_id="",
+            call_position=0,
+            result_position=0,
+            piece_index=0,
+            segment_index=0,
+            entry_class="root_entry",
+            content_key=root_key,
+            compiled_digest=root_index.compile_key,
+            source_digest=sha256_hex(ROOT_REQUIRED),
+        )
+        exec_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=n1_occ.occurrence_id,
+            endpoint="responses",
+            call_id="n1",
+            call_position=0,
+            result_position=1,
+            piece_index=0,
+            segment_index=0,
+            entry_class="file_bundle_entry",
+            content_key=a_key,
+            compiled_digest=index_a.compile_key,
+            source_digest=sha256_hex(A_NATIVE),
+        )
+        poll_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=n1_occ.occurrence_id,
+            endpoint="responses",
+            call_id="n1p",
+            call_position=2,
+            result_position=3,
+            piece_index=1,
+            segment_index=0,
+            entry_class="file_bundle_entry",
+            content_key=a_key,
+            compiled_digest=index_a.compile_key,
+            source_digest=sha256_hex(A_NATIVE),
+        )
+        f1 = frozen["input"]
+        o1 = out1["input"]
+        # Root envelope: the wrapper prefix and the environment tail
+        # are preserved byte-for-byte around the splice.
+        root_text = o1[0]["content"][0]["text"]
+        root_orig = f1[0]["content"][0]["text"]
+        assert root_text[:51] == root_orig[:51]
+        assert root_text[51 : 51 + len(root_marker)] == root_marker
+        assert root_text[51 + len(root_marker) :] == root_orig[51 + len(ROOT_REQUIRED) :]
+        # Exec piece (running frame): the wrapper (headers, delimiters)
+        # is preserved byte-for-byte around the splice.
+        e1, e0 = o1[2]["output"], f1[2]["output"]
+        assert e1[:112] == e0[:112]
+        assert e1[112 : 112 + len(exec_marker)] == exec_marker
+        assert e1[112 + len(exec_marker) :] == e0[112 + len(A_NATIVE_PENDING) :]
+        # Poll piece (terminal frame): same wrapper law.
+        p1, p0 = o1[4]["output"], f1[4]["output"]
+        assert p1[:102] == p0[:102]
+        assert p1[102 : 102 + len(poll_marker)] == poll_marker
+        assert p1[102 + len(poll_marker) :] == p0[102 + len(A_NATIVE_TAIL) :]
+        # The exec call, the poll call and the assistant message (the
+        # CRLF/Unicode OUTSIDE the edits) are byte-identical.
+        assert o1[1] == f1[1]
+        assert o1[3] == f1[3]
+        assert o1[5] == f1[5]
+        assert "\r\n" in o1[5]["content"][0]["text"]
+
+        # ---- Round 2: the transformed replay is a fixed point -------
+        # Every present tag occupies its FULL proved current splice:
+        # the per-piece positions are re-derived from the CURRENT
+        # process proof on the CURRENT decoded string.
+        obs2 = observe_request(out1, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            out1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.edits == ()
+        assert result2.edits_planned == 0
+        assert result2.markers_replayed == 3
+        assert result2.transformed_payload == out1
+
+        # ---- Round 3: a MOVED tag (the poll marker shifted three
+        # characters inside its body) ALWAYS refuses all-or-nothing.
+        out3 = copy.deepcopy(out1)
+        proc2 = next(pr for pr in obs2.processes if pr.exec_call_id == "n1")
+        poll_piece = next(poll.piece for poll in proc2.polls if poll.poll_call_id == "n1p")
+        s, e = poll_piece.char_span.start, poll_piece.char_span.end
+        item3 = out3["input"][4]
+        item3["output"] = item3["output"][:s] + "xyz" + item3["output"][s:e]
+        frozen3 = copy.deepcopy(out3)
+        obs3 = observe_request(out3, endpoint="responses", context=_CTX)
+        result3 = replace_sources(
+            out3,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs3,
+            root_occurrence=obs3.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result3.outcome is ReplacementOutcome.MARKER_INVALID, result3
+        assert result3.http_status == 409
+        assert result3.transformed_payload is None
+        assert result3.edits == ()
+        assert out3 == frozen3
+
+        # ---- Round 4: a RESIDUE-BEARING tag (one extra byte inside
+        # the body after the exec marker) ALWAYS refuses all-or-
+        # nothing: the tag no longer occupies its full proved current
+        # splice.
+        out4 = copy.deepcopy(out1)
+        exec_piece = next(
+            pr for pr in proc2.pieces if pr.result_location == proc2.initial_result_location
+        )
+        e4 = exec_piece.char_span.end
+        item4 = out4["input"][2]
+        item4["output"] = item4["output"][:e4] + "Z" + item4["output"][e4:]
+        frozen4 = copy.deepcopy(out4)
+        obs4 = observe_request(out4, endpoint="responses", context=_CTX)
+        result4 = replace_sources(
+            out4,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs4,
+            root_occurrence=obs4.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result4.outcome is ReplacementOutcome.MARKER_INVALID, result4
+        assert result4.http_status == 409
+        assert result4.transformed_payload is None
+        assert result4.edits == ()
+        assert out4 == frozen4
+
+
+# ---------------------------------------------------------------------------
+# 022-b saved chunk 1i (read-root dispatch): the governing root selected
+# through a READ — the T root row's ``witnesses`` stay empty (the read
+# provenance lives in the resolved source), so the root join dispatches
+# on ``root_entry.root_source.kind``: the root's OWN retained original
+# witness is the splice, its carrier stays a tool result, and the FILE
+# join skips that exact (occurrence, segment) coordinate so the same
+# root-region bytes can never earn a second edit.  The historical
+# envelope (the retained OLD root original present as a payload anchor)
+# is a separate concern: it is not a joined carrier and stays untouched.
+# ---------------------------------------------------------------------------
+
+READROOT_OLD = "Follow `A.md` before mutation.\n"
+READROOT_NEW = "Follow `A.md` and `B.md` before mutation.\n"
+
+
+def _readroot_records() -> dict[str, Any]:
+    """The ACTUAL P/T fixture for the governing read-root: the rooted
+    bootstrap on the OLD root, the genuinely issued whole-singleton
+    AGENTS.md read carrying the NEW root (the governing read
+    provenance), plus the issued A.md read — admitted lean.
+
+    The NEW root is selected; the OLD root fact stays retained (the
+    historical anchor).  The AGENTS.md read is ALSO a FILE entry whose
+    sole witness is the root read coordinate (the shared root-region
+    bytes); the actual selection omits it as coverage-deduplicated."""
+    ns, s0 = r_bootstrap(AdmissionMode.LEAN, "replace022b-readroot", root_body=READROOT_OLD)
+    i1 = r_issue(s0, ns, "r1", "responses", (CAUSAL_ROOT_FACT,), "cat AGENTS.md")
+    o1 = r_observe(i1.state, ns, (read_request("responses", "r1", READROOT_NEW, "cat AGENTS.md"),))
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    i2 = r_issue(o1.state, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), "cat A.md")
+    o2 = r_observe(i2.state, ns, (read_request("responses", "c1", A_BODY, "cat A.md"),))
+    assert o2.outcome is RootLineageOutcome.ACCEPTED, o2.diagnostics
+    t = derive_root_region_admission(o2.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    r_result = t.r_result
+    assert r_result is not None
+    q_result = r_result.q_result
+    assert q_result is not None
+    assert q_result.outcome is RootRegionCurrentnessOutcome.READY
+    p_selection = q_result.p_selection
+    assert p_selection is not None
+    assert p_selection.outcome is RootSelectionOutcome.OK
+    assert p_selection.selected_source_digest == sha256_hex(READROOT_NEW)
+    # Both root originals are ACTUAL retained root facts: the bootstrap
+    # envelope (OLD) and the governing read (NEW).
+    fact_digests = {f.source_digest for f in o2.state.root_facts}
+    assert fact_digests == {sha256_hex(READROOT_OLD), sha256_hex(READROOT_NEW)}
+    admission = t.admission
+    assert admission is not None
+    root_entry = admission.root_entry
+    # The T law: the root row's witnesses stay EMPTY on every
+    # provenance; the read provenance lives in the resolved source.
+    assert root_entry.witnesses == ()
+    root_source = root_entry.root_source
+    assert root_source is not None
+    assert root_source.kind == "read"
+    r1_occ = next(o for o in o2.state.d_state.occurrences if o.call_id == "r1")
+    root_occurrence = root_source.occurrence
+    assert root_occurrence is not None
+    assert root_occurrence is r1_occ
+    assert root_source.proof is not None
+    assert root_source.proof is r1_occ.proof
+    entry_a = _entry_for(t, "A.md")
+    agents_candidates = [
+        e
+        for e in admission.entries
+        if any(w.occurrence_id == r1_occ.occurrence_id for w in e.witnesses)
+    ]
+    assert len(agents_candidates) == 1
+    entry_agents = agents_candidates[0]
+    assert all(w.occurrence_id == r1_occ.occurrence_id for w in entry_agents.witnesses)
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (
+            _dep("A.md", "P1", 90, "immediate"),
+            _dep("B.md", "P2", 50, "next_turn"),
+        ),
+    )
+    index_a = _file_index(
+        entry_a,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="a-procedure",
+        statement="The A procedure.",
+        location="A.md",
+    )
+    index_agents = _file_index(
+        entry_agents,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="root-reference",
+        statement="The root reference.",
+        location="AGENTS.md",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns, state=o2.state, result=t, revision=o2.state.revision, epoch=1, owned_bytes=0
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record-readroot"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("A.md", "B.md"))
+    ready_a = _ready(t, entry_a, index_a, ())
+    ready_agents = _ready(t, entry_agents, index_agents, ())
+    decision = select_working_set(ready_root, (ready_agents, ready_a), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    # The ACTUAL selection covers the root itself: the AGENTS.md file
+    # entry (the same bytes under a file member) is omitted as
+    # coverage-deduplicated, leaving every required content in the
+    # working set.
+    assert [row.content_key for row in decision.working_set] == [
+        root_entry.content_key,
+        entry_a.content_key,
+    ]
+    assert [(o.content_key, o.reason) for o in decision.omitted] == [
+        (entry_agents.content_key, SelectionOmissionReason.COVERAGE_DEDUPLICATED)
+    ]
+    return {
+        "ns": ns,
+        "snapshot": snapshot,
+        "proof": proof,
+        "root_entry": root_entry,
+        "entry_a": entry_a,
+        "entry_agents": entry_agents,
+        "r1_occ": r1_occ,
+        "root_index": root_index,
+        "ready": (ready_root, ready_agents, ready_a),
+        "decision": decision,
+    }
+
+
+def _readroot_payload() -> dict[str, Any]:
+    """The honest payload: the CURRENT root envelope, the HISTORICAL
+    old-root envelope (the retained OLD original, still an accepted
+    same-scope root occurrence), the two read pairs and the assistant
+    message."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(READROOT_NEW),
+            _ch_root_item(READROOT_OLD),
+            _ch_exec_call("r1", "cat AGENTS.md"),
+            _ch_out_item("r1", _ch_frame(READROOT_NEW)),
+            _ch_exec_call("c1", "cat A.md"),
+            _ch_out_item("c1", _ch_frame(A_BODY)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Proceeding."}],
+            },
+        ],
+    }
+
+
+class TestTransactionReadRootGoverning:
+    """The ACTUAL replace_sources entry point over the governing
+    read-root fixture: the root's OWN retained read witness earns the
+    single root LIVE splice (a tool result), the A read earns its own
+    LIVE splice, the historical old-root envelope anchor earns its
+    non-resolving EVIDENCE splice (the order's evidence law), the
+    current envelope stays separate, and a stale live form on the old
+    anchor refuses."""
+
+    def test_read_root_governing_carrier_with_historical_anchor(self) -> None:
+        rec = _readroot_records()
+        ns = rec["ns"]
+        snapshot = rec["snapshot"]
+        root_key = rec["root_entry"].content_key
+        a_key = rec["entry_a"].content_key
+        r1_occ = rec["r1_occ"]
+        root_index = rec["root_index"]
+
+        # ---- Round 1: the honest old raw payload -------------------
+        payload1 = _readroot_payload()
+        frozen1 = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        # The observer accepts BOTH envelopes (current + historical
+        # anchor) as same-scope root occurrences.
+        assert [o.location for o in obs1.roots.roots] == [
+            "$.input[0].content[0]",
+            "$.input[1].content[0]",
+        ]
+        assert [o.digest for o in obs1.roots.roots] == [
+            sha256_hex(READROOT_NEW),
+            sha256_hex(READROOT_OLD),
+        ]
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=snapshot,
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        assert result1.http_status is None
+        assert result1.selected_content_keys == (root_key, a_key)
+        # EXACTLY three edits: the root splice on the READ carrier (a
+        # tool result, the root's own occurrence), the A splice, and
+        # the non-resolving EVIDENCE splice on the historical
+        # old-root envelope anchor.
+        assert len(result1.edits) == 3
+        old_edit, root_edit, a_edit = sorted(result1.edits, key=lambda e: e.carrier_location)
+        assert old_edit.carrier_location == "$.input[1].content[0]"
+        assert old_edit.field == "text"
+        assert old_edit.kind is MarkerKind.EVIDENCE
+        assert old_edit.target_entry_class == "root_entry"
+        assert old_edit.target_content_key == root_key
+        assert old_edit.target_compiled_digest is None
+        assert old_edit.source_digest == sha256_hex(READROOT_OLD)
+        # The evidence identity is the OLD source's own digest in
+        # the trusted workspace (immutable across later root
+        # changes — a second genuine root change re-derives the same
+        # tag), never the current root entry key.
+        assert old_edit.occurrence_identity == sha256_hex(READROOT_OLD)
+        assert (old_edit.start, old_edit.end) == (51, 51 + len(READROOT_OLD))
+        assert root_edit.carrier_location == "$.input[3]"
+        assert root_edit.field == "output"
+        assert root_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert root_edit.target_entry_class == "root_entry"
+        assert root_edit.target_content_key == root_key
+        assert root_edit.target_compiled_digest == root_index.compile_key
+        assert root_edit.source_digest == sha256_hex(READROOT_NEW)
+        assert root_edit.occurrence_identity == r1_occ.occurrence_id
+        assert (root_edit.start, root_edit.end) == (81, 81 + len(READROOT_NEW))
+        assert a_edit.carrier_location == "$.input[5]"
+        assert a_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert a_edit.target_entry_class == "file_bundle_entry"
+        assert a_edit.target_content_key == a_key
+        assert a_edit.source_digest == sha256_hex(A_BODY)
+        assert result1.edits_planned == 3
+        assert result1.edits_committed == 3
+        assert result1.markers_emitted == 3
+        assert result1.markers_replayed == 0
+        assert result1.carriers_touched == 3
+        assert result1.chars_replaced == len(READROOT_NEW) + len(A_BODY) + len(READROOT_OLD)
+        out1 = result1.transformed_payload
+        assert out1 is not None
+        # The input payload is never mutated.
+        assert payload1 == frozen1
+        # The emitted root marker is the EXACT re-derived live tag for
+        # the root's own read splice (tool-result role, the read
+        # occurrence identity, the root entry class and content key,
+        # the selected root source digest).
+        expected_root_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=r1_occ.occurrence_id,
+            endpoint="responses",
+            call_id="r1",
+            call_position=0,
+            result_position=1,
+            piece_index=0,
+            segment_index=0,
+            entry_class="root_entry",
+            content_key=root_key,
+            compiled_digest=root_index.compile_key,
+            source_digest=sha256_hex(READROOT_NEW),
+        )
+        r1_text = out1["input"][3]["output"]
+        frame1 = _ch_frame(READROOT_NEW)
+        assert r1_text[:81] == frame1[:81]
+        assert r1_text[81 : 81 + len(expected_root_marker)] == expected_root_marker
+        assert r1_text[81 + len(expected_root_marker) :] == frame1[81 + len(READROOT_NEW) :]
+        # The HISTORICAL old-root anchor earns the EXACT re-derived
+        # non-resolving evidence marker (root-envelope role, the root
+        # source identity, the OLD source digest; no content key —
+        # the old entry key is never reconstructed), with the
+        # envelope delimiters and tail preserved around the splice.
+        expected_old_marker = make_evidence_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="root_envelope",
+            occurrence_identity=sha256_hex(READROOT_OLD),
+            endpoint="responses",
+            call_id="",
+            call_position=0,
+            result_position=0,
+            piece_index=0,
+            segment_index=0,
+            source_digest=sha256_hex(READROOT_OLD),
+        )
+        old_text = out1["input"][1]["content"][0]["text"]
+        old_orig = _ch_root_item(READROOT_OLD)["content"][0]["text"]
+        assert old_text[:51] == old_orig[:51]
+        assert old_text[51 : 51 + len(expected_old_marker)] == expected_old_marker
+        assert old_text[51 + len(expected_old_marker) :] == old_orig[51 + len(READROOT_OLD) :]
+        # The CURRENT envelope of the governing digest stays separate
+        # and byte-identical (the read splice is the root's only live
+        # edit), as do both exec carriers and the assistant message.
+        assert out1["input"][0] == payload1["input"][0]
+        assert out1["input"][2] == payload1["input"][2]
+        assert out1["input"][4] == payload1["input"][4]
+        assert out1["input"][6] == payload1["input"][6]
+
+        # ---- Round 2: the transformed replay is a fixed point -----
+        obs2 = observe_request(out1, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            out1,
+            proof=rec["proof"],
+            current_snapshot=snapshot,
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.edits == ()
+        assert result2.edits_planned == 0
+        # ALL THREE markers replay at their own coordinates: the two
+        # live splices and the old anchor's non-resolving evidence
+        # marker (an accepted replay changes no authority).
+        assert result2.markers_replayed == 3
+        assert result2.transformed_payload == out1
+
+        # ---- Round 3: a STALE LIVE form on the old anchor --------
+        # The live-format marker bound to the OLD root original (the
+        # exact tag a prior stage emitted when the OLD root was the
+        # selected governing root) is a stale live reference: it
+        # verifies against the retained-entry expectation, but that
+        # entry has left the accepted selection — it ALWAYS refuses
+        # (no replay, no carve-out).
+        payload3 = copy.deepcopy(out1)
+        stale_live = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="root_envelope",
+            occurrence_identity=root_key,
+            endpoint="responses",
+            call_id="",
+            call_position=0,
+            result_position=0,
+            piece_index=0,
+            segment_index=0,
+            entry_class="root_entry",
+            content_key=root_key,
+            compiled_digest=root_index.compile_key,
+            source_digest=sha256_hex(READROOT_OLD),
+        )
+        old_body = payload3["input"][1]["content"][0]["text"]
+        payload3["input"][1]["content"][0]["text"] = (
+            old_body[:51] + stale_live + old_body[51 + len(expected_old_marker) :]
+        )
+        frozen3 = copy.deepcopy(payload3)
+        obs3 = observe_request(payload3, endpoint="responses", context=_CTX)
+        result3 = replace_sources(
+            payload3,
+            proof=rec["proof"],
+            current_snapshot=snapshot,
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs3,
+            root_occurrence=obs3.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        # The stale live form ALWAYS refuses all-or-nothing: no
+        # transformed payload, no partial edits, the input is never
+        # mutated.
+        assert result3.outcome is ReplacementOutcome.MARKER_INVALID, result3
+        assert result3.http_status == 409
+        assert result3.transformed_payload is None
+        assert result3.edits == ()
+        assert payload3 == frozen3
+
+
+# ---------------------------------------------------------------------------
+# 022-b saved chunk 1k (shared entry + lean preservation): the
+# reference fixture pattern
+# tests/test_current_admission.py::test_f_isolated_b_different_proof_coordinates
+# on the ACTUAL P/T path.  The root reaches only B.md; the proven
+# partitioned [A,B] read puts B at segment 1 of its own proof and the
+# identical standalone B read uses segment 0 -- ONE canonical B entry
+# retaining BOTH original witnesses at their OWN distinct coordinates.
+# Lean admits no A row (the root never reaches A.md), so the partition
+# carrier must preserve the unadmitted A source and the printed
+# delimiter byte-for-byte around the single B splice.  The original
+# payload earns exactly THREE live edits (the root envelope and the two
+# B splices: one compiled working set, two occurrence identities, two
+# carriers), and the transformed output replays all three to a fixed
+# point.
+# ---------------------------------------------------------------------------
+
+SHARED_ROOT = "Follow `B.md` before mutation.\n"
+SHARED_CMD = "cat A.md && echo 'SHSEP' && cat B.md"
+SHARED_BODY = A_BODY + "SHSEP\n" + B_BODY
+
+
+def _shared_records() -> dict[str, Any]:
+    """The ACTUAL P/T shared-entry fixture: the standalone B read is
+    issued FIRST (the B entry's first compatible original proof), then
+    the proven partitioned [A,B] read (the B entry's second witness).
+    The root declares B.md ONLY, so LEAN admits the root and the ONE
+    B entry; A.md never earns a row."""
+    ns, s0 = r_bootstrap(AdmissionMode.LEAN, "replace022b-shared", root_body=SHARED_ROOT)
+    i1 = r_issue(s0, ns, "c2", "responses", (CAUSAL_ROOT_FACT,), "cat B.md")
+    assert i1.outcome is RootLineageOutcome.ACCEPTED, i1.diagnostics
+    o1 = r_observe(i1.state, ns, (read_request("responses", "c2", B_BODY, "cat B.md"),))
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    i2 = r_issue(o1.state, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), SHARED_CMD)
+    assert i2.outcome is RootLineageOutcome.ACCEPTED, i2.diagnostics
+    o2 = r_observe(i2.state, ns, (read_request("responses", "c1", SHARED_BODY, cmd=SHARED_CMD),))
+    assert o2.outcome is RootLineageOutcome.ACCEPTED, o2.diagnostics
+    t = derive_root_region_admission(o2.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    admission = t.admission
+    assert admission is not None
+    # Lean: exactly ONE file entry, the B entry; A.md never earns a row.
+    assert [_represented(t, e) for e in admission.entries] == [("B.md",)]
+    entry_b = _entry_for(t, "B.md")
+    c1_occ = next(o for o in o2.state.d_state.occurrences if o.call_id == "c1")
+    c2_occ = next(o for o in o2.state.d_state.occurrences if o.call_id == "c2")
+    # Shared entry, DISTINCT original coordinates: the standalone
+    # witness at segment (0,) of its own proof, the partitioned
+    # witness at segment (1,) of its own proof, in canonical
+    # coordinate order, each the ACTUAL retained D occurrence.
+    assert [(w.occurrence_id, w.segment_indices) for w in entry_b.witnesses] == [
+        (c2_occ.occurrence_id, (0,)),
+        (c1_occ.occurrence_id, (1,)),
+    ]
+    # FIRST compatible original proof = the standalone read; the
+    # entry member origin is fully proven (no unproven member path).
+    assert entry_b.proof.source_text == B_BODY
+    assert unproven_member_paths(entry_b) == ()
+    # The partitioned B segment is the SAME source bytes (the proven
+    # per-member digest), which is what interns both witnesses under
+    # the ONE canonical B key.
+    c1_segment_b = c1_occ.proof.segments[1]
+    assert c1_segment_b.digest == sha256_hex(B_BODY)
+    assert c2_occ.proof.segments[0].digest == sha256_hex(B_BODY)
+
+    root_entry = admission.root_entry
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (_dep("B.md", "P1", 90, "immediate"),),
+    )
+    index_b = _file_index(
+        entry_b,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="b-procedure",
+        statement="The B procedure.",
+        location="B.md",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns, state=o2.state, result=t, revision=o2.state.revision, epoch=1, owned_bytes=0
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("B.md",))
+    ready_b = _ready(t, entry_b, index_b, ())
+    decision = select_working_set(ready_root, (ready_b,), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    # The root and the shared B entry are BOTH required (the root's
+    # P1 binding closure is covered by the proven B origin).
+    assert [row.required for row in decision.working_set] == [True, True]
+    assert [row.entry_class for row in decision.working_set] == [
+        EntryClass.ROOT_ENTRY,
+        EntryClass.FILE_BUNDLE_ENTRY,
+    ]
+    return {
+        "snapshot": snapshot,
+        "proof": proof,
+        "ready": (ready_root, ready_b),
+        "decision": decision,
+        "root_entry": root_entry,
+        "entry_b": entry_b,
+        "root_index": root_index,
+        "index_b": index_b,
+        "occ_split": c1_occ,
+        "occ_standalone": c2_occ,
+    }
+
+
+def _shared_payload() -> dict[str, Any]:
+    """One decoded Responses request: the automatic root envelope plus
+    the two complete read pairs (the partitioned [A,B] read and the
+    standalone B read) exactly as the P/T fixture observed them, and
+    the ordinary assistant tail."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(SHARED_ROOT),
+            _ch_exec_call("c1", SHARED_CMD),
+            _ch_out_item("c1", _ch_frame(SHARED_BODY)),
+            _ch_exec_call("c2", "cat B.md"),
+            _ch_out_item("c2", _ch_frame(B_BODY)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Proceeding."}],
+            },
+        ],
+    }
+
+
+class TestTransactionSharedEntry:
+    """Shared-entry distinct original coordinates + lean preservation
+    through the ACTUAL replace_sources entry point (objective 022-b):
+    one canonical B entry with two witnesses at distinct original
+    coordinates, both spliced to the ONE compiled working set, while
+    the unadmitted A source and its printed delimiter stay
+    byte-for-byte in the partition carrier."""
+
+    def test_shared_entry_lean_preservation_transaction(self) -> None:
+        rec = _shared_records()
+        ns = rec["snapshot"].namespace
+        root_key = rec["root_entry"].content_key
+        b_key = rec["entry_b"].content_key
+        root_index = rec["root_index"]
+        index_b = rec["index_b"]
+        split_occ = rec["occ_split"]
+        stand_occ = rec["occ_standalone"]
+        split_piece = split_occ.proof.pieces[0]
+        stand_piece = stand_occ.proof.pieces[0]
+        assert split_piece.call_id == "c1"
+        assert stand_piece.call_id == "c2"
+
+        # ---- Round 1: the honest raw shared-entry payload ----------
+        payload = _shared_payload()
+        frozen = copy.deepcopy(payload)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        assert [o.location for o in obs.roots.roots] == ["$.input[0].content[0]"]
+        result = replace_sources(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result.outcome is ReplacementOutcome.OK, result
+        # The input payload is never mutated.
+        assert payload == frozen
+        # Exactly THREE live edits: the root envelope splice and the
+        # TWO B splices on their OWN carriers (the shared entry is
+        # spliced TWICE, once per retained original coordinate).
+        assert result.edits_planned == 3
+        assert result.edits_committed == 3
+        assert result.markers_emitted == 3
+        assert result.markers_replayed == 0
+        assert result.carriers_touched == 3
+        assert len(result.edits) == 3
+        assert all(e.kind is MarkerKind.LIVE_REFERENCE for e in result.edits)
+        by_loc = {e.carrier_location: e for e in result.edits}
+        assert set(by_loc) == {"$.input[0].content[0]", "$.input[2]", "$.input[4]"}
+        root_edit = by_loc["$.input[0].content[0]"]
+        split_edit = by_loc["$.input[2]"]
+        stand_edit = by_loc["$.input[4]"]
+        # Root: the exact content span (the 017 envelope law excludes
+        # the delimiters), the retained root key, its own compiled
+        # digest.
+        assert root_edit.field == "text"
+        assert root_edit.target_entry_class == "root_entry"
+        assert root_edit.target_content_key == root_key
+        assert root_edit.occurrence_identity == root_key
+        assert root_edit.target_compiled_digest == root_index.compile_key
+        assert root_edit.source_digest == sha256_hex(SHARED_ROOT)
+        assert (root_edit.start, root_edit.end) == (51, 51 + len(SHARED_ROOT))
+        # Both B splices: the ONE shared content key and the SAME
+        # compiled digest (the ONE selected working set) ...
+        assert split_edit.field == "output"
+        assert stand_edit.field == "output"
+        assert split_edit.target_entry_class == "file_bundle_entry"
+        assert stand_edit.target_entry_class == "file_bundle_entry"
+        assert split_edit.target_content_key == b_key
+        assert stand_edit.target_content_key == b_key
+        assert split_edit.target_compiled_digest == index_b.compile_key
+        assert stand_edit.target_compiled_digest == index_b.compile_key
+        assert split_edit.source_digest == sha256_hex(B_BODY)
+        assert stand_edit.source_digest == sha256_hex(B_BODY)
+        # ... but DISTINCT occurrence identities: each splice is its
+        # OWN retained original witness (the ACTUAL D occurrence IDs).
+        assert split_edit.occurrence_identity == split_occ.occurrence_id
+        assert stand_edit.occurrence_identity == stand_occ.occurrence_id
+        assert split_edit.occurrence_identity != stand_edit.occurrence_identity
+        # The exact original coordinates: the partition B piece at
+        # segment 1 of its own proof, the standalone B at segment 0.
+        assert (split_edit.start, split_edit.end) == (123, 123 + len(B_BODY))
+        assert (stand_edit.start, stand_edit.end) == (81, 81 + len(B_BODY))
+        # The selected compiled pairing is the working set (root + B)
+        # and nothing is missing from the binding closure.
+        assert result.selected_content_keys == (root_key, b_key)
+        assert result.missing_bindings == ()
+        assert len(result.compiled_blocks) == 2
+        out = result.transformed_payload
+        assert out is not None
+        # The emitted markers are the EXACT re-derived tags: the root
+        # envelope (root-source identity) and each B splice under its
+        # OWN retained piece/segment identity (the chain-relative
+        # call/result positions from the retained piece, the witness
+        # segment index, the witness occurrence).
+        root_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="root_envelope",
+            occurrence_identity=root_key,
+            endpoint="responses",
+            call_id="",
+            call_position=0,
+            result_position=0,
+            piece_index=0,
+            segment_index=0,
+            entry_class="root_entry",
+            content_key=root_key,
+            compiled_digest=root_index.compile_key,
+            source_digest=sha256_hex(SHARED_ROOT),
+        )
+        split_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=split_occ.occurrence_id,
+            endpoint="responses",
+            call_id=split_piece.call_id,
+            call_position=split_piece.call_position,
+            result_position=split_piece.result_position,
+            piece_index=split_piece.piece_index,
+            segment_index=1,
+            entry_class="file_bundle_entry",
+            content_key=b_key,
+            compiled_digest=index_b.compile_key,
+            source_digest=sha256_hex(B_BODY),
+        )
+        stand_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=stand_occ.occurrence_id,
+            endpoint="responses",
+            call_id=stand_piece.call_id,
+            call_position=stand_piece.call_position,
+            result_position=stand_piece.result_position,
+            piece_index=stand_piece.piece_index,
+            segment_index=0,
+            entry_class="file_bundle_entry",
+            content_key=b_key,
+            compiled_digest=index_b.compile_key,
+            source_digest=sha256_hex(B_BODY),
+        )
+        f0, o0 = frozen["input"], out["input"]
+        # Root envelope: the wrapper prefix is preserved byte-for-byte
+        # around the splice; the suffix after the original span end is
+        # untouched.
+        root_orig, root_new = f0[0]["content"][0]["text"], o0[0]["content"][0]["text"]
+        assert root_new[:51] == root_orig[:51]
+        assert root_new[51 : 51 + len(root_marker)] == root_marker
+        assert root_new[51 + len(root_marker) :] == root_orig[51 + len(SHARED_ROOT) :]
+        # Partition carrier: the LEAN preservation law -- the frame
+        # wrapper, the UNADMITTED A source and the printed delimiter
+        # are all preserved byte-for-byte before the B splice, and the
+        # marker renders at the splice start with its own length.
+        split_orig, split_new = f0[2]["output"], o0[2]["output"]
+        assert split_new[:123] == split_orig[:123]
+        assert split_new[:123].endswith(A_BODY + "SHSEP\n")
+        assert split_new[123 : 123 + len(split_marker)] == split_marker
+        assert split_new[123 + len(split_marker) :] == split_orig[123 + len(B_BODY) :]
+        assert A_BODY in split_new
+        assert "SHSEP\n" in split_new
+        # Standalone carrier: the wrapper prefix is preserved around
+        # the splice too.
+        stand_orig, stand_new = f0[4]["output"], o0[4]["output"]
+        assert stand_new[:81] == stand_orig[:81]
+        assert stand_new[81 : 81 + len(stand_marker)] == stand_marker
+        assert stand_new[81 + len(stand_marker) :] == stand_orig[81 + len(B_BODY) :]
+        # The two exec calls and the ordinary assistant tail (the
+        # non-admitted output) are byte-identical.
+        assert o0[1] == f0[1]
+        assert o0[3] == f0[3]
+        assert o0[5] == f0[5]
+
+        # ---- Round 2: the transformed replay is a fixed point ------
+        # Every present tag occupies its FULL proved current splice
+        # (the replay scan re-verifies start and end); no second edit,
+        # no rollback.
+        obs2 = observe_request(out, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            out,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == out
+        assert result2.edits == ()
+        assert result2.edits_planned == 0
+        assert result2.edits_committed == 0
+        assert result2.markers_replayed == 3
+        assert result2.selected_content_keys == (root_key, b_key)
+
+
+# ---------------------------------------------------------------------------
+# 022-b eligible-source constraint on the historical D join: the E
+# overlay can carry positively changed paths that were NEVER ADMITTED.
+# A retained D occurrence plus PROVEN_CHANGE alone must not remove
+# unrelated (off-graph) tool output: the exact group's member paths
+# must have retained admission provenance in the PREPARED admission's
+# reverse member index under the approved lean/greedy rules.  The
+# admitted A.md original of the same partition still earns its
+# non-resolving evidence marker; the off-graph X.md output stays
+# byte-for-byte.
+# ---------------------------------------------------------------------------
+
+
+def _off_graph_records() -> dict[str, Any]:
+    """The prepared transaction inputs over the ACTUAL off-graph
+    supersession state (the root reaches only A.md; X.md is never
+    admitted)."""
+    state, t, _c1_id = _off_graph_state()
+    ns = t.ns
+    admission = t.admission
+    root_entry = admission.root_entry
+    entry_a = _entry_for(t, "A.md")
+    c1_occ = next(o for o in state.d_state.occurrences if o.proof.call_id == "c1")
+    c2_occ = next(o for o in state.d_state.occurrences if o.proof.call_id == "c2")
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (_dep("A.md", "P1", 90, "immediate"),),
+    )
+    index_a = _file_index(
+        entry_a,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="a-procedure",
+        statement="The A procedure.",
+        location="A.md",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns, state=state, result=t, revision=state.revision, epoch=1, owned_bytes=0
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("A.md",))
+    ready_a = _ready(t, entry_a, index_a, ())
+    decision = select_working_set(ready_root, (ready_a,), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    return {
+        "snapshot": snapshot,
+        "proof": proof,
+        "ready": (ready_root, ready_a),
+        "decision": decision,
+        "root_entry": root_entry,
+        "entry_a": entry_a,
+        "root_index": root_index,
+        "index_a": index_a,
+        "c1_occ": c1_occ,
+        "c2_occ": c2_occ,
+    }
+
+
+def _off_graph_payload() -> dict[str, Any]:
+    """One decoded Responses request: the automatic root envelope plus
+    the partitioned [A, X] read, the readmitted A.md singleton and the
+    off-graph X.md singleton, exactly as the P/T fixture observed
+    them, and the ordinary assistant tail."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(GATE_ROOT),
+            _ch_exec_call("c1", GATE_CMD),
+            _ch_out_item("c1", _ch_frame(GATE_BODY)),
+            _ch_exec_call("c2", "cat A.md"),
+            _ch_out_item("c2", _ch_frame(SUPERSEDED_A_BODY)),
+            _ch_exec_call("c3", "cat X.md"),
+            _ch_out_item("c3", _ch_frame(X_V2_BODY)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Proceeding."}],
+            },
+        ],
+    }
+
+
+class TestTransactionOffGraphSupersession:
+    """The eligible-source constraint through the ACTUAL
+    replace_sources entry point (objective 022-b): the off-group
+    proven change keeps the X.md tool output byte-for-byte while the
+    admitted A.md original earns its non-resolving evidence marker."""
+
+    def test_unadmitted_proven_change_keeps_tool_output(self) -> None:
+        rec = _off_graph_records()
+        ns = rec["snapshot"].namespace
+        root_key = rec["root_entry"].content_key
+        a_key = rec["entry_a"].content_key
+        root_index = rec["root_index"]
+        index_a = rec["index_a"]
+        c1_occ = rec["c1_occ"]
+        c2_occ = rec["c2_occ"]
+
+        # ---- Round 1: the honest raw off-graph payload -------------
+        payload = _off_graph_payload()
+        frozen = copy.deepcopy(payload)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        assert [o.location for o in obs.roots.roots] == ["$.input[0].content[0]"]
+        result = replace_sources(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result.outcome is ReplacementOutcome.OK, result
+        assert payload == frozen
+        # Exactly THREE edits: the root envelope LIVE, the readmitted
+        # A.md LIVE, and the OLD admitted A.md original's
+        # non-resolving EVIDENCE marker.  The off-graph X.md output
+        # earns NO edit (no entry, no retained admission provenance).
+        assert result.edits_planned == 3
+        assert result.edits_committed == 3
+        assert result.markers_emitted == 3
+        assert result.markers_replayed == 0
+        assert len(result.edits) == 3
+        by_loc = {e.carrier_location: e for e in result.edits}
+        assert set(by_loc) == {"$.input[0].content[0]", "$.input[2]", "$.input[4]"}
+        root_edit = by_loc["$.input[0].content[0]"]
+        a2_edit = by_loc["$.input[4]"]
+        a1_edit = by_loc["$.input[2]"]
+        assert root_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert root_edit.target_content_key == root_key
+        assert root_edit.target_compiled_digest == root_index.compile_key
+        assert root_edit.source_digest == sha256_hex(GATE_ROOT)
+        assert (root_edit.start, root_edit.end) == (51, 51 + len(GATE_ROOT))
+        assert a2_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert a2_edit.target_content_key == a_key
+        assert a2_edit.occurrence_identity == c2_occ.occurrence_id
+        assert a2_edit.target_compiled_digest == index_a.compile_key
+        assert a2_edit.source_digest == sha256_hex(SUPERSEDED_A_BODY)
+        # The OLD A.md original: non-resolving EVIDENCE, the old entry
+        # key never reconstructed (the content key is the retained
+        # segment's own source digest), NO compiled digest.
+        assert a1_edit.kind is MarkerKind.EVIDENCE
+        assert a1_edit.occurrence_identity == c1_occ.occurrence_id
+        assert a1_edit.target_compiled_digest is None
+        assert a1_edit.source_digest == sha256_hex(A_BODY)
+        assert (a1_edit.start, a1_edit.end) == (81, 81 + len(A_BODY))
+        # The selected compiled pairing is the working set (root +
+        # readmitted A); the off-graph X content is not a selected
+        # entry.
+        assert result.selected_content_keys == (root_key, a_key)
+        assert result.missing_bindings == ()
+        assert len(result.compiled_blocks) == 2
+        out = result.transformed_payload
+        assert out is not None
+        # The exact re-derived evidence tag for the OLD A.md original
+        # (original namespace + occurrence + source digest + segment
+        # association, NO entry content key).
+        a1_piece = c1_occ.proof.pieces[0]
+        expected_ev = derive_evidence_tag(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=c1_occ.occurrence_id,
+            endpoint="responses",
+            call_id=a1_piece.call_id,
+            call_position=a1_piece.call_position,
+            result_position=a1_piece.result_position,
+            piece_index=a1_piece.piece_index,
+            segment_index=0,
+            source_digest=sha256_hex(A_BODY),
+        )
+        # The exact re-derived live tag for the root envelope
+        # (root-source identity).
+        root_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="root_envelope",
+            occurrence_identity=root_key,
+            endpoint="responses",
+            call_id="",
+            call_position=0,
+            result_position=0,
+            piece_index=0,
+            segment_index=0,
+            entry_class="root_entry",
+            content_key=root_key,
+            compiled_digest=root_index.compile_key,
+            source_digest=sha256_hex(GATE_ROOT),
+        )
+        f0, o0 = frozen["input"], out["input"]
+        # Root envelope: the wrapper prefix preserved around the
+        # splice, the exact marker at the splice start, and the
+        # suffix after the original span end untouched.
+        root_orig, root_new = f0[0]["content"][0]["text"], o0[0]["content"][0]["text"]
+        assert root_new[:51] == root_orig[:51]
+        assert root_new[51 : 51 + len(root_marker)] == root_marker
+        assert root_new[51 + len(root_marker) :] == root_orig[51 + len(GATE_ROOT) :]
+        # Partition carrier: the frame wrapper preserved before the
+        # OLD A.md splice, the exact marker at the splice start, and
+        # the ENTIRE suffix after the original A.md span end -- the
+        # printed delimiter AND the off-graph X.md output --
+        # preserved byte-for-byte (the eligible-source constraint).
+        c1_orig, c1_new = f0[2]["output"], o0[2]["output"]
+        assert c1_new[:81] == c1_orig[:81]
+        assert c1_new[81 : 81 + len(expected_ev.marker)] == expected_ev.marker
+        assert c1_new[81 + len(expected_ev.marker) :] == c1_orig[81 + len(A_BODY) :]
+        assert "GATESEP\n" in c1_new
+        assert X_BODY in c1_new
+        assert A_BODY not in c1_new
+        # The off-graph X.md singleton carrier is byte-identical
+        # (never admitted, never spliced).
+        assert o0[6] == f0[6]
+        assert o0[5] == f0[5]
+        assert o0[7] == f0[7]
+        assert o0[1] == f0[1]
+        assert o0[3] == f0[3]
+
+        # ---- Round 2: the transformed replay is a fixed point ------
+        obs2 = observe_request(out, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            out,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == out
+        assert result2.edits == ()
+        assert result2.edits_planned == 0
+        assert result2.edits_committed == 0
+        assert result2.markers_replayed == 3
+        assert result2.selected_content_keys == (root_key, a_key)
+
+
+# ---------------------------------------------------------------------------
+# 022-b boundaryless whole bundle: the earned all-cat read
+# ``cat A.md B.md`` (NO internal member boundary) is admitted under
+# GREEDY as ONE whole-bundle entry with unproven per-member origin.
+# The selection carries it as OPTIONAL BACKGROUND provenance (never
+# required, never binding coverage: the root's P1 A.md binding stays
+# MISSING with its exact guidance), and the transaction splices the
+# WHOLE bundle content as ONE span on the read carrier; the honest
+# boundaryless provenance line stays in the carried compiled block.
+# ---------------------------------------------------------------------------
+
+BOUNDARYLESS_CMD = "cat A.md B.md"
+BOUNDARYLESS_BODY = A_BODY + B_BODY
+
+
+def _boundaryless_records() -> dict[str, Any]:
+    """The ACTUAL P/T boundaryless whole-bundle fixture: one earned
+    all-cat read of A.md and B.md with NO internal boundary,
+    admitted under GREEDY as the ONE whole-bundle entry (unproven
+    per-member origin)."""
+    ns, s0 = r_bootstrap(AdmissionMode.GREEDY, "replace022b-boundaryless", root_body=ROOT_REQUIRED)
+    i1 = r_issue(s0, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), BOUNDARYLESS_CMD)
+    assert i1.outcome is RootLineageOutcome.ACCEPTED, i1.diagnostics
+    o1 = r_observe(
+        i1.state,
+        ns,
+        (read_request("responses", "c1", BOUNDARYLESS_BODY, cmd=BOUNDARYLESS_CMD),),
+    )
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    t = derive_root_region_admission(o1.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    admission = t.admission
+    assert admission is not None
+    # GREEDY admits the ONE whole-bundle entry for the boundaryless
+    # read; BOTH member paths are represented by the SAME content key
+    # (a whole-bundle digest, never labeled as each member's hash).
+    file_entries = [e for e in admission.entries if e.entry_class is EntryClass.FILE_BUNDLE_ENTRY]
+    assert len(file_entries) == 1
+    entry_ab = file_entries[0]
+    assert _represented(t, entry_ab) == ("A.md", "B.md")
+    assert len(entry_ab.witnesses) == 1
+    assert entry_ab.witnesses[0].segment_indices == (0,)
+    assert entry_ab.admitted_segments == (0,)
+    c1_occ = next(o for o in o1.state.d_state.occurrences if o.call_id == "c1")
+    assert entry_ab.witnesses[0].occurrence_id == c1_occ.occurrence_id
+    # The retained proof is ONE boundaryless segment covering BOTH
+    # member positions: it proves no per-member origin.
+    assert len(c1_occ.proof.segments) == 1
+    assert c1_occ.proof.segments[0].member_positions == (0, 1)
+    assert c1_occ.proof.segments[0].digest is not None
+    assert unproven_member_paths(entry_ab) == ("A.md", "B.md")
+    a_row = next(row for row in admission.path_associations if row.path == "A.md")
+    b_row = next(row for row in admission.path_associations if row.path == "B.md")
+    assert set(a_row.content_keys) == set(b_row.content_keys) == {entry_ab.content_key}
+
+    root_entry = admission.root_entry
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (
+            _dep("A.md", "P1", 90, "immediate"),
+            _dep("B.md", "P2", 50, "next_turn"),
+            _dep("C.md", "P2", 30, "background"),
+        ),
+    )
+    index_ab = _file_index(
+        entry_ab,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="ab-procedure",
+        statement="The boundaryless AB procedure.",
+        location="",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns, state=o1.state, result=t, revision=o1.state.revision, epoch=1, owned_bytes=0
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("A.md", "B.md", "C.md"))
+    ready_ab = _ready(t, entry_ab, index_ab, (), origin_proven=False)
+    decision = select_working_set(ready_root, (ready_ab,), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    # The root is required; the boundaryless bundle is OPTIONAL
+    # BACKGROUND (unproven member origin is never classified
+    # required), and the root's P1 A.md binding stays MISSING with
+    # its exact acquisition guidance (an uncertain attribution never
+    # substitutes for usable required content).
+    assert [row.required for row in decision.working_set] == [True, False]
+    assert [row.entry_class for row in decision.working_set] == [
+        EntryClass.ROOT_ENTRY,
+        EntryClass.FILE_BUNDLE_ENTRY,
+    ]
+    assert [b.path for b in decision.missing_bindings] == ["A.md"]
+    return {
+        "snapshot": snapshot,
+        "proof": proof,
+        "ready": (ready_root, ready_ab),
+        "decision": decision,
+        "root_entry": root_entry,
+        "entry_ab": entry_ab,
+        "root_index": root_index,
+        "index_ab": index_ab,
+        "c1_occ": c1_occ,
+    }
+
+
+def _boundaryless_payload() -> dict[str, Any]:
+    """One decoded Responses request: the automatic root envelope plus
+    the boundaryless whole-bundle read exactly as the P/T fixture
+    observed it, and the ordinary assistant tail."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(ROOT_REQUIRED),
+            _ch_exec_call("c1", BOUNDARYLESS_CMD),
+            _ch_out_item("c1", _ch_frame(BOUNDARYLESS_BODY)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Proceeding."}],
+            },
+        ],
+    }
+
+
+class TestTransactionBoundarylessWholeBundle:
+    """The boundaryless whole bundle through the ACTUAL
+    replace_sources entry point (objective 022-b): ONE span for the
+    whole bundle content, optional background provenance, the root's
+    missing P1 binding carried, honest provenance line in the
+    compiled block, fixed-point replay."""
+
+    def test_boundaryless_whole_bundle_background_splice(self) -> None:
+        rec = _boundaryless_records()
+        ns = rec["snapshot"].namespace
+        root_key = rec["root_entry"].content_key
+        ab_key = rec["entry_ab"].content_key
+        root_index = rec["root_index"]
+        index_ab = rec["index_ab"]
+        c1_occ = rec["c1_occ"]
+
+        # ---- Round 1: the honest raw boundaryless payload ----------
+        payload = _boundaryless_payload()
+        frozen = copy.deepcopy(payload)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        assert [o.location for o in obs.roots.roots] == ["$.input[0].content[0]"]
+        result = replace_sources(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result.outcome is ReplacementOutcome.OK, result
+        assert payload == frozen
+        # Exactly TWO live edits: the root envelope splice and the
+        # WHOLE bundle content as ONE span (no internal member
+        # boundary exists in the retained proof).
+        assert result.edits_planned == 2
+        assert result.edits_committed == 2
+        assert result.markers_emitted == 2
+        assert result.markers_replayed == 0
+        assert len(result.edits) == 2
+        assert all(e.kind is MarkerKind.LIVE_REFERENCE for e in result.edits)
+        root_edit, ab_edit = sorted(result.edits, key=lambda e: e.carrier_location)
+        assert root_edit.carrier_location == "$.input[0].content[0]"
+        assert root_edit.target_content_key == root_key
+        assert root_edit.target_compiled_digest == root_index.compile_key
+        assert root_edit.source_digest == sha256_hex(ROOT_REQUIRED)
+        assert (root_edit.start, root_edit.end) == (51, 51 + len(ROOT_REQUIRED))
+        assert ab_edit.carrier_location == "$.input[2]"
+        assert ab_edit.target_entry_class == "file_bundle_entry"
+        assert ab_edit.target_content_key == ab_key
+        assert ab_edit.occurrence_identity == c1_occ.occurrence_id
+        assert ab_edit.target_compiled_digest == index_ab.compile_key
+        # The span's source digest is the WHOLE boundaryless segment
+        # digest (never labeled as each member's hash).
+        assert ab_edit.source_digest == c1_occ.proof.segments[0].digest
+        assert (ab_edit.start, ab_edit.end) == (81, 81 + len(BOUNDARYLESS_BODY))
+        # The selected compiled pairing is the working set (root +
+        # background bundle); the exact missing-binding guidance for
+        # the root's P1 A.md is CARRIED in the same result.
+        assert result.selected_content_keys == (root_key, ab_key)
+        assert [b.path for b in result.missing_bindings] == ["A.md"]
+        assert len(result.compiled_blocks) == 2
+        # The honest boundaryless provenance line stays in the
+        # carried compiled block (the unknown mixed origin is
+        # emitted, never hidden).
+        assert result.compiled_blocks[1].endswith(
+            "\n" + UNPROVEN_MEMBER_PROVENANCE_PREFIX + "A.md,B.md"
+        )
+        out = result.transformed_payload
+        assert out is not None
+        # The exact re-derived tags: the root envelope and the whole
+        # bundle under its own occurrence/segment identity.
+        root_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="root_envelope",
+            occurrence_identity=root_key,
+            endpoint="responses",
+            call_id="",
+            call_position=0,
+            result_position=0,
+            piece_index=0,
+            segment_index=0,
+            entry_class="root_entry",
+            content_key=root_key,
+            compiled_digest=root_index.compile_key,
+            source_digest=sha256_hex(ROOT_REQUIRED),
+        )
+        ab_piece = c1_occ.proof.pieces[0]
+        assert ab_piece.call_id == "c1"
+        ab_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=c1_occ.occurrence_id,
+            endpoint="responses",
+            call_id=ab_piece.call_id,
+            call_position=ab_piece.call_position,
+            result_position=ab_piece.result_position,
+            piece_index=ab_piece.piece_index,
+            segment_index=0,
+            entry_class="file_bundle_entry",
+            content_key=ab_key,
+            compiled_digest=index_ab.compile_key,
+            source_digest=c1_occ.proof.segments[0].digest,
+        )
+        f0, o0 = frozen["input"], out["input"]
+        # Root envelope: the wrapper prefix preserved around the
+        # splice; the suffix after the original span end untouched.
+        root_orig, root_new = f0[0]["content"][0]["text"], o0[0]["content"][0]["text"]
+        assert root_new[:51] == root_orig[:51]
+        assert root_new[51 : 51 + len(root_marker)] == root_marker
+        assert root_new[51 + len(root_marker) :] == root_orig[51 + len(ROOT_REQUIRED) :]
+        # Bundle carrier: the frame wrapper preserved before the
+        # splice; the WHOLE bundle content replaced by the ONE
+        # marker; nothing after the original span end.
+        ab_orig, ab_new = f0[2]["output"], o0[2]["output"]
+        assert ab_new[:81] == ab_orig[:81]
+        assert ab_new[81 : 81 + len(ab_marker)] == ab_marker
+        assert ab_new[81 + len(ab_marker) :] == ab_orig[81 + len(BOUNDARYLESS_BODY) :]
+        # The exec call and the ordinary assistant tail are
+        # byte-identical.
+        assert o0[1] == f0[1]
+        assert o0[3] == f0[3]
+
+        # ---- Round 2: the transformed replay is a fixed point ------
+        obs2 = observe_request(out, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            out,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.transformed_payload == out
+        assert result2.edits == ()
+        assert result2.edits_planned == 0
+        assert result2.edits_committed == 0
+        assert result2.markers_replayed == 2
+        assert result2.selected_content_keys == (root_key, ab_key)
+
+
+# ---------------------------------------------------------------------------
+# Entry-point guard paths (objective 022-b)
+# ---------------------------------------------------------------------------
+#
+# The remaining explicit guard paths of the ACTUAL replace_sources entry
+# point, each exercised over the SAME prepared fixture (one
+# _transaction_records snapshot / proof / ready / decision state):
+#
+# * missing/failed/mismatched durable generation or a mismatched
+#   snapshot identity: the fixed GENERATION_NOT_DURABLE refusal (the
+#   plan-13 503 family) with no transformed payload, no edit and the
+#   input unmutated;
+# * a VALID source-absent pairing: the payload carries neither the root
+#   nor any retained read carrier; the transaction still earns OK with
+#   zero edits and returns the exact prepared selected compiled blocks
+#   and missing-binding guidance;
+# * a genuinely unsupported / nonzero / truncated paired read: its exact
+#   result stays unchanged (no proof, no edit) while the observer's own
+#   limitation remains recorded and the rest of the transaction proceeds.
+#
+# The marker-side atomicity (stale/moved/forged live tokens) is the
+# existing TestReplayedMarkerScan and transaction replay surface.
+
+SOURCE_ABSENT_TEXT = "Summarize the protected fixture policy."
+
+
+class TestEntryPointGuards:
+    """The explicit entry-point guard paths over ONE prepared fixture."""
+
+    def test_durable_guard_refusals_earn_nothing_and_keep_input(self) -> None:
+        rec = _transaction_records()
+        base = _transaction_payload()
+        frozen = copy.deepcopy(base)
+        base_obs = observe_request(base, endpoint="responses", context=_CTX)
+        pointer = rec["proof"].publish.pointer
+        good = rec["proof"].publish
+        variants = (
+            (
+                "missing generation",
+                RecoveryPublishResult(
+                    limitation=RecoveryStoreLimitation.OK,
+                    generation=None,
+                    pointer=None,
+                    actual_generation=0,
+                ),
+            ),
+            (
+                "failed publication",
+                RecoveryPublishResult(
+                    limitation=RecoveryStoreLimitation.IO_FAILURE,
+                    generation=None,
+                    pointer=None,
+                    actual_generation=0,
+                ),
+            ),
+            (
+                "pointer generation mismatch",
+                RecoveryPublishResult(
+                    limitation=RecoveryStoreLimitation.OK,
+                    generation=good.generation,
+                    pointer=RecoveryPointer(
+                        generation=2,
+                        file_name=pointer.file_name,
+                        file_digest=pointer.file_digest,
+                        record_bytes=pointer.record_bytes,
+                    ),
+                    actual_generation=2,
+                ),
+            ),
+            (
+                "observed generation mismatch",
+                RecoveryPublishResult(
+                    limitation=RecoveryStoreLimitation.OK,
+                    generation=good.generation,
+                    pointer=pointer,
+                    actual_generation=2,
+                ),
+            ),
+        )
+        for label, publish in variants:
+            payload = copy.deepcopy(base)
+            result = replace_sources(
+                payload,
+                proof=PreparedGenerationProof(publish=publish, snapshot=rec["snapshot"]),
+                current_snapshot=rec["snapshot"],
+                ready_entries=rec["ready"],
+                decision=rec["decision"],
+                observation=base_obs,
+                root_occurrence=base_obs.roots.roots[0],
+                key=MARKER_KEY,
+                max_text_chars=100_000,
+            )
+            assert result.outcome is ReplacementOutcome.GENERATION_NOT_DURABLE, (label, result)
+            assert result.http_status == 503
+            assert result.diagnostics == (ReplacementOutcome.GENERATION_NOT_DURABLE,)
+            assert result.transformed_payload is None
+            assert result.edits == ()
+            assert result.markers == ()
+            assert result.edits_planned == 0
+            assert result.chars_replaced == 0
+            # The input is never touched by the refused transaction.
+            assert payload == frozen
+        # A MISMATCHED snapshot identity (the proof is bound to the
+        # OTHER snapshot) refuses the same fixed way.
+        snapshot = rec["snapshot"]
+        other = RamStateSnapshot(
+            namespace=snapshot.namespace,
+            state=snapshot.state,
+            result=snapshot.result,
+            revision=snapshot.revision + 1,
+            epoch=2,
+            owned_bytes=0,
+        )
+        payload = copy.deepcopy(base)
+        result = replace_sources(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=other,
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=base_obs,
+            root_occurrence=base_obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result.outcome is ReplacementOutcome.GENERATION_NOT_DURABLE, result
+        assert result.http_status == 503
+        assert result.transformed_payload is None
+        assert result.edits == ()
+        assert payload == frozen
+
+    def test_source_absent_pairing_carries_prepared_context(self) -> None:
+        rec = _transaction_records()
+        # Ordinary user text only: neither the governing root nor any
+        # retained read carrier is present in the current payload.
+        plain = {
+            "model": "synthetic-model",
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": SOURCE_ABSENT_TEXT}],
+                },
+            ],
+        }
+        obs = observe_request(plain, endpoint="responses", context=_CTX)
+        assert obs.roots.roots == ()
+        assert obs.reads == ()
+        result = replace_sources(
+            plain,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=None,
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result.outcome is ReplacementOutcome.OK, result
+        # Nothing in the payload carries a retained source: zero edits,
+        # zero markers, nothing touched.
+        assert result.edits == ()
+        assert result.markers == ()
+        assert result.edits_planned == 0
+        assert result.edits_committed == 0
+        assert result.markers_emitted == 0
+        assert result.markers_replayed == 0
+        assert result.carriers_touched == 0
+        assert result.chars_replaced == 0
+        # The exact payload comes back unchanged (a new structure with
+        # the same value; the input is never mutated).
+        assert result.transformed_payload is not None
+        assert result.transformed_payload == plain
+        assert result.transformed_payload is not plain
+        # The VALID pairing is still carried: the exact selected
+        # compiled blocks and the actual missing-binding guidance of
+        # the prepared decision.
+        assert result.selected_content_keys == tuple(
+            w.content_key for w in rec["decision"].working_set
+        )
+        assert result.compiled_blocks == tuple(
+            w.rendered_block for w in rec["decision"].working_set
+        )
+        assert result.missing_bindings == rec["decision"].missing_bindings
+
+    def test_noncomplete_paired_read_result_stays_unchanged(self) -> None:
+        rec = _transaction_records()
+        base = _transaction_payload()
+        # The c2 pair is the retained COMPLETE C.md singleton: the
+        # nonzero / truncated / unsupported variants break that read
+        # itself (its own read-level outcome), while the c1 [A,B]
+        # partition keeps the positive path (its 017 plan-level
+        # OUTER_BOUNDARY_UNPROVEN state is unchanged, as in the
+        # baseline) and the root stays edited.
+        cases = (
+            (
+                "nonzero",
+                "cat C.md",
+                "Chunk ID: synthetic\nWall time: 0.0000 seconds\n"
+                "Process exited with code 1\nOutput:\n"
+                "cat: C.md: No such file or directory\n",
+                ReadOutcome.NONZERO_EXIT,
+                (Limitation.NONZERO_EXIT,),
+            ),
+            (
+                "truncated",
+                "cat C.md",
+                "Chunk ID: synthetic\nWall time: 0.0000 seconds\n"
+                "Process exited with code 0\nTruncated: true\nOutput:\n"
+                "Background notes f",
+                ReadOutcome.TRUNCATED,
+                (Limitation.TRUNCATED_OUTPUT,),
+            ),
+            (
+                "unsupported",
+                "cat C.md; echo done",
+                _ch_frame(C_BODY),
+                ReadOutcome.UNSUPPORTED,
+                (Limitation.MULTIPLE_COMMANDS,),
+            ),
+        )
+        for label, cmd, frame, expected_outcome, expected_reasons in cases:
+            payload = {
+                "model": "synthetic-model",
+                "input": [
+                    base["input"][0],
+                    base["input"][1],
+                    base["input"][2],
+                    _ch_exec_call("c2", cmd),
+                    _ch_out_item("c2", frame),
+                ],
+            }
+            frozen = copy.deepcopy(payload)
+            obs = observe_request(payload, endpoint="responses", context=_CTX)
+            # The observer's own limitation stays recorded on the
+            # paired read (never erased, never reinterpreted).
+            read_c2 = next(r for r in obs.reads if r.call_id == "c2")
+            assert read_c2.outcome is expected_outcome, (label, read_c2)
+            for reason in expected_reasons:
+                assert reason in read_c2.reasons, (label, read_c2.reasons)
+            if label == "nonzero":
+                assert read_c2.wrapper.exit_status is ExitStatus.NONZERO
+            if label == "truncated":
+                assert read_c2.wrapper.truncation is TruncationStatus.TRUE
+            read_c1 = next(r for r in obs.reads if r.call_id == "c1")
+            assert Limitation.OUTER_BOUNDARY_UNPROVEN in read_c1.reasons
+            result = replace_sources(
+                payload,
+                proof=rec["proof"],
+                current_snapshot=rec["snapshot"],
+                ready_entries=rec["ready"],
+                decision=rec["decision"],
+                observation=obs,
+                root_occurrence=obs.roots.roots[0],
+                key=MARKER_KEY,
+                max_text_chars=100_000,
+            )
+            assert result.outcome is ReplacementOutcome.OK, (label, result)
+            # The non-complete paired read earns no proof and no edit:
+            # exactly the root and the c1 [A,B] splices are applied.
+            assert [(e.carrier_location, e.kind) for e in result.edits] == [
+                ("$.input[0].content[0]", MarkerKind.LIVE_REFERENCE),
+                ("$.input[2]", MarkerKind.LIVE_REFERENCE),
+                ("$.input[2]", MarkerKind.LIVE_REFERENCE),
+            ]
+            out = result.transformed_payload
+            assert out is not None
+            # The c2 result is byte-for-byte the exact input result.
+            assert out["input"][4]["output"] == payload["input"][4]["output"]
+            assert out["input"][4]["output"] == frame
+            # The input is never mutated; the prepared pairing is
+            # still carried unchanged.
+            assert payload == frozen
+            assert result.selected_content_keys == tuple(
+                w.content_key for w in rec["decision"].working_set
+            )
+            assert result.compiled_blocks == tuple(
+                w.rendered_block for w in rec["decision"].working_set
+            )
+            assert result.missing_bindings == rec["decision"].missing_bindings

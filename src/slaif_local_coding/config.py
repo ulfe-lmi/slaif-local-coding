@@ -906,8 +906,7 @@ def load_settings(path: Path) -> Settings:
     # legacy loading is unchanged).
     context_cache_raw = raw.get("context_cache")
     v1_selected = (
-        isinstance(context_cache_raw, dict)
-        and context_cache_raw.get("profile") == V1_PROFILE
+        isinstance(context_cache_raw, dict) and context_cache_raw.get("profile") == V1_PROFILE
     )
     # Sections are materialized only when explicitly present so that a
     # materialized default never counts as an operator-supplied setting
