@@ -75,11 +75,15 @@ from slaif_local_coding.constitution.bundles.bundle_replace import (
     lookup_tool_result_carrier,
     make_evidence_marker,
     make_live_marker,
+    payload_has_marker_candidates,
     replace_sources,
+    unsplice_replayed_markers,
     verify_marker,
 )
 from slaif_local_coding.constitution.bundles.bundle_replace_models import (
+    EVIDENCE_MARKER_TAG,
     LIVE_MARKER_TAG,
+    MARKER_SUFFIX,
     MarkerKind,
     MarkerRecord,
     PreparedGenerationProof,
@@ -1201,7 +1205,10 @@ def _scan(
         tuple[tuple[RetainedSpan, frozenset[str]], ...],
     ],
 ) -> dict[tuple[str, str, int], MarkerRecord]:
-    return _scan_replayed_markers({(MK_ENDPOINT, MK_LOCATION): carrier}, expectations, binding)
+    replayed, _replayed_span = _scan_replayed_markers(
+        {(MK_ENDPOINT, MK_LOCATION): carrier}, expectations, binding
+    )
+    return replayed
 
 
 class TestReplayedMarkerScan:
@@ -4692,3 +4699,1023 @@ class TestEntryPointGuards:
                 w.rendered_block for w in rec["decision"].working_set
             )
             assert result.missing_bindings == rec["decision"].missing_bindings
+
+
+# ---------------------------------------------------------------------------
+# 022-c section 1 (the historical read-root gap): the approved
+# evidence-marker policy applies to a SUPERSEDED AUTHORITATIVE WHOLE
+# ROOT READ (and root region) as well as the bootstrap envelope.  The
+# ACTUAL r2 descendant of the accepted read-root fixture: the rooted
+# bootstrap (BOOT v0) -> the genuinely issued whole-singleton read r1
+# (MID v1) -> the genuinely issued DESCENDANT read r2 (NEW v2) -> the
+# issued A read c1.  Under the r1-GOVERNING prepared stage (retained in
+# the same fixture) r1's own carrier was the governing root and the
+# ACTUAL transaction minted its live tag; under the r2-governing
+# prepared stage the replayed r1 RAW carrier must earn the
+# non-resolving EVIDENCE splice with the current working set and
+# durable snapshot, its transformed evidence must replay, and the
+# previously minted live tag must refuse with no output or partial
+# edit.  The bootstrap envelope anchor stays the separate historical
+# envelope path; a genuinely new old-bytes read r3 re-establishes MID
+# under normal currentness (no reclassification).
+# ---------------------------------------------------------------------------
+
+READROOT2_BOOT = "Follow `A.md`.\n"
+READROOT2_MID = "Follow `A.md` before mutation.\n"
+READROOT2_NEW = "Follow `A.md` and `B.md` before mutation.\n"
+
+
+def _readroot_r2_records() -> dict[str, Any]:
+    """The ACTUAL single-lineage r2-descendant fixture over the
+    accepted P/D issuances, selected root provenance and T results.
+
+    Stage 1 (retained): the r1-GOVERNING prepared snapshot and its
+    ACTUAL prior transaction (the actual previously minted root live
+    tag on the r1 carrier is extracted from its transformed payload,
+    exactly re-derived).  Stage 2: the r2-GOVERNING prepared snapshot
+    (the transaction under test).  Stage 3: the authoritative REVERT
+    (a genuinely new complete read r3 of the old bytes, descended
+    from r2) re-establishing MID under normal currentness."""
+    ns, s0 = r_bootstrap(AdmissionMode.LEAN, "replace022c-readroot2", root_body=READROOT2_BOOT)
+
+    # r1: the genuinely issued whole-singleton AGENTS.md read (MID).
+    i1 = r_issue(s0, ns, "r1", "responses", (CAUSAL_ROOT_FACT,), "cat AGENTS.md")
+    o1 = r_observe(i1.state, ns, (read_request("responses", "r1", READROOT2_MID, "cat AGENTS.md"),))
+    assert o1.outcome is RootLineageOutcome.ACCEPTED, o1.diagnostics
+    r1_fact = next(
+        f
+        for f in o1.state.root_facts
+        if f.provenance.kind == "read" and f.provenance.call_id == "r1"
+    )
+    # The issuance outcome is proven BEFORE the descendant is observed.
+    assert r1_fact.issued and r1_fact.authority
+    assert r1_fact.source_digest == sha256_hex(READROOT2_MID)
+
+    # ---- Stage 1: the r1-GOVERNING prepared stage ---------------
+    t1 = derive_root_region_admission(o1.state, ns)
+    assert t1.outcome is RootRegionAdmissionOutcome.READY, t1.diagnostics
+    r_result_1 = t1.r_result
+    assert r_result_1 is not None
+    q1 = r_result_1.q_result
+    assert q1 is not None
+    assert q1.outcome is RootRegionCurrentnessOutcome.READY
+    p1 = q1.p_selection
+    assert p1 is not None
+    assert p1.outcome is RootSelectionOutcome.OK
+    assert p1.selected_source_digest == sha256_hex(READROOT2_MID)
+    admission_1 = t1.admission
+    assert admission_1 is not None
+    root_entry_1 = admission_1.root_entry
+    assert root_entry_1.root_source is not None
+    assert root_entry_1.root_source.kind == "read"
+    assert root_entry_1.root_digest == sha256_hex(READROOT2_MID)
+    r1_occ_1 = next(o for o in o1.state.d_state.occurrences if o.call_id == "r1")
+    root_occurrence_1 = root_entry_1.root_source.occurrence
+    assert root_occurrence_1 is not None
+    assert root_occurrence_1 is r1_occ_1
+    entry_agents_1 = next(
+        e
+        for e in admission_1.entries
+        if any(w.occurrence_id == r1_occ_1.occurrence_id for w in e.witnesses)
+    )
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=TRANSACTION_BUDGET))
+    root_index_1 = _root_index(
+        root_entry_1,
+        config,
+        tokenizer,
+        plan,
+        (_dep("A.md", "P1", 90, "immediate"),),
+    )
+    index_agents_1 = _file_index(
+        entry_agents_1,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="root-reference",
+        statement="The root reference.",
+        location="AGENTS.md",
+    )
+    snapshot_1 = RamStateSnapshot(
+        namespace=ns, state=o1.state, result=t1, revision=o1.state.revision, epoch=1, owned_bytes=0
+    )
+    proof_1 = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record-readroot2-r1"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot_1,
+    )
+    ready_root_1 = _ready(t1, root_entry_1, root_index_1, ("A.md",))
+    ready_agents_1 = _ready(t1, entry_agents_1, index_agents_1, ())
+    decision_1 = select_working_set(ready_root_1, (ready_agents_1,), plan)
+    assert decision_1.outcome is SelectionOutcome.OK
+    assert [row.content_key for row in decision_1.working_set] == [root_entry_1.content_key]
+    assert [(o.content_key, o.reason) for o in decision_1.omitted] == [
+        (entry_agents_1.content_key, SelectionOmissionReason.COVERAGE_DEDUPLICATED)
+    ]
+    payload_1 = {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(READROOT2_BOOT),
+            _ch_exec_call("r1", "cat AGENTS.md"),
+            _ch_out_item("r1", _ch_frame(READROOT2_MID)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Proceeding."}],
+            },
+        ],
+    }
+    obs1 = observe_request(payload_1, endpoint="responses", context=_CTX)
+    assert [o.digest for o in obs1.roots.roots] == [sha256_hex(READROOT2_BOOT)]
+    result_1 = replace_sources(
+        payload_1,
+        proof=proof_1,
+        current_snapshot=snapshot_1,
+        ready_entries=(ready_root_1, ready_agents_1),
+        decision=decision_1,
+        observation=obs1,
+        root_occurrence=obs1.roots.roots[0],
+        key=MARKER_KEY,
+        max_text_chars=100_000,
+    )
+    assert result_1.outcome is ReplacementOutcome.OK, result_1
+    assert len(result_1.edits) == 2
+    env_edit_1, live_edit_1 = sorted(result_1.edits, key=lambda e: e.carrier_location)
+    assert env_edit_1.carrier_location == "$.input[0].content[0]"
+    assert env_edit_1.kind is MarkerKind.EVIDENCE
+    assert env_edit_1.source_digest == sha256_hex(READROOT2_BOOT)
+    assert live_edit_1.carrier_location == "$.input[2]"
+    assert live_edit_1.kind is MarkerKind.LIVE_REFERENCE
+    assert live_edit_1.source_digest == sha256_hex(READROOT2_MID)
+    out_1 = result_1.transformed_payload
+    assert out_1 is not None
+    # The ACTUAL previously minted live tag: valid MAC under the
+    # session key, minted by the ACTUAL prior prepared selection (r1
+    # governing).  Extracted from the transformed carrier and exactly
+    # re-derived.
+    old_live_marker = out_1["input"][2]["output"][81:]
+    assert old_live_marker.startswith(LIVE_MARKER_TAG)
+    assert old_live_marker.endswith(MARKER_SUFFIX)
+    assert old_live_marker == make_live_marker(
+        MARKER_KEY,
+        namespace_key=ns.lineage_key,
+        original_role="file_tool_result",
+        occurrence_identity=r1_occ_1.occurrence_id,
+        endpoint="responses",
+        call_id="r1",
+        call_position=0,
+        result_position=1,
+        piece_index=0,
+        segment_index=0,
+        entry_class="root_entry",
+        content_key=root_entry_1.content_key,
+        compiled_digest=root_index_1.compile_key,
+        source_digest=sha256_hex(READROOT2_MID),
+    )
+
+    # ---- Stage 2: the r2-GOVERNING prepared stage ---------------
+    i2 = r_issue(
+        o1.state, ns, "r2", "responses", (r1_fact.provenance.occurrence_id,), "cat AGENTS.md"
+    )
+    o2 = r_observe(i2.state, ns, (read_request("responses", "r2", READROOT2_NEW, "cat AGENTS.md"),))
+    assert o2.outcome is RootLineageOutcome.ACCEPTED, o2.diagnostics
+    r2_fact = next(
+        f
+        for f in o2.state.root_facts
+        if f.provenance.kind == "read" and f.provenance.call_id == "r2"
+    )
+    assert r2_fact.issued and r2_fact.authority
+    assert r2_fact.source_digest == sha256_hex(READROOT2_NEW)
+    # The superseded old read fact stays retained and authoritative
+    # (no reclassification of issued data).
+    r1_fact_2 = next(
+        f
+        for f in o2.state.root_facts
+        if f.provenance.kind == "read" and f.provenance.call_id == "r1"
+    )
+    assert r1_fact_2.issued and r1_fact_2.authority
+    assert r1_fact_2.source_digest == sha256_hex(READROOT2_MID)
+
+    i3 = r_issue(o2.state, ns, "c1", "responses", (CAUSAL_ROOT_FACT,), "cat A.md")
+    o3 = r_observe(i3.state, ns, (read_request("responses", "c1", A_BODY, "cat A.md"),))
+    assert o3.outcome is RootLineageOutcome.ACCEPTED, o3.diagnostics
+    t = derive_root_region_admission(o3.state, ns)
+    assert t.outcome is RootRegionAdmissionOutcome.READY, t.diagnostics
+    r_result = t.r_result
+    assert r_result is not None
+    q = r_result.q_result
+    assert q is not None
+    assert q.outcome is RootRegionCurrentnessOutcome.READY
+    p_sel = q.p_selection
+    assert p_sel is not None
+    assert p_sel.outcome is RootSelectionOutcome.OK
+    assert p_sel.selected_source_digest == sha256_hex(READROOT2_NEW)
+    admission = t.admission
+    assert admission is not None
+    root_entry = admission.root_entry
+    assert root_entry.root_source is not None
+    assert root_entry.root_source.kind == "read"
+    assert root_entry.root_digest == sha256_hex(READROOT2_NEW)
+    r1_occ = next(o for o in o3.state.d_state.occurrences if o.call_id == "r1")
+    r2_occ = next(o for o in o3.state.d_state.occurrences if o.call_id == "r2")
+    root_occurrence = root_entry.root_source.occurrence
+    assert root_occurrence is not None
+    assert root_occurrence is r2_occ
+    root_proof = root_entry.root_source.proof
+    assert root_proof is not None
+    assert root_proof is r2_occ.proof
+    entry_a = _entry_for(t, "A.md")
+    entry_agents = next(
+        e
+        for e in admission.entries
+        if any(w.occurrence_id == r2_occ.occurrence_id for w in e.witnesses)
+    )
+    assert all(w.occurrence_id == r2_occ.occurrence_id for w in entry_agents.witnesses)
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (
+            _dep("A.md", "P1", 90, "immediate"),
+            _dep("B.md", "P2", 50, "next_turn"),
+        ),
+    )
+    index_a = _file_index(
+        entry_a,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="a-procedure",
+        statement="The A procedure.",
+        location="A.md",
+    )
+    index_agents = _file_index(
+        entry_agents,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="root-reference",
+        statement="The root reference.",
+        location="AGENTS.md",
+    )
+    snapshot = RamStateSnapshot(
+        namespace=ns, state=o3.state, result=t, revision=o3.state.revision, epoch=1, owned_bytes=0
+    )
+    proof = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=1,
+            pointer=RecoveryPointer(
+                generation=1,
+                file_name="recovery-0001.bin",
+                file_digest=sha256_hex("synthetic-recovery-record-readroot2-r2"),
+                record_bytes=64,
+            ),
+            actual_generation=1,
+        ),
+        snapshot=snapshot,
+    )
+    ready_root = _ready(t, root_entry, root_index, ("A.md", "B.md"))
+    ready_a = _ready(t, entry_a, index_a, ())
+    ready_agents = _ready(t, entry_agents, index_agents, ())
+    decision = select_working_set(ready_root, (ready_agents, ready_a), plan)
+    assert decision.outcome is SelectionOutcome.OK
+    assert [row.content_key for row in decision.working_set] == [
+        root_entry.content_key,
+        entry_a.content_key,
+    ]
+    assert [(o.content_key, o.reason) for o in decision.omitted] == [
+        (entry_agents.content_key, SelectionOmissionReason.COVERAGE_DEDUPLICATED)
+    ]
+
+    # ---- Stage 3: the authoritative REVERT (normal currentness) --
+    i4 = r_issue(
+        o3.state, ns, "r3", "responses", (r2_fact.provenance.occurrence_id,), "cat AGENTS.md"
+    )
+    o4 = r_observe(i4.state, ns, (read_request("responses", "r3", READROOT2_MID, "cat AGENTS.md"),))
+    assert o4.outcome is RootLineageOutcome.ACCEPTED, o4.diagnostics
+    t3 = derive_root_region_admission(o4.state, ns)
+    assert t3.outcome is RootRegionAdmissionOutcome.READY, t3.diagnostics
+    r_result3 = t3.r_result
+    assert r_result3 is not None
+    q3 = r_result3.q_result
+    assert q3 is not None
+    assert q3.outcome is RootRegionCurrentnessOutcome.READY
+    p3 = q3.p_selection
+    assert p3 is not None
+    assert p3.outcome is RootSelectionOutcome.OK
+    assert p3.selected_source_digest == sha256_hex(READROOT2_MID)
+    admission3 = t3.admission
+    assert admission3 is not None
+    root_entry3 = admission3.root_entry
+    assert root_entry3.root_source is not None
+    assert root_entry3.root_source.kind == "read"
+    assert root_entry3.root_digest == sha256_hex(READROOT2_MID)
+    r3_occ = next(o for o in o4.state.d_state.occurrences if o.call_id == "r3")
+    root_occurrence3 = root_entry3.root_source.occurrence
+    assert root_occurrence3 is not None
+    assert root_occurrence3 is r3_occ
+    entry_a3 = _entry_for(t3, "A.md")
+    entry_agents3 = next(
+        e
+        for e in admission3.entries
+        if any(w.occurrence_id == r3_occ.occurrence_id for w in e.witnesses)
+    )
+    root_index3 = _root_index(
+        root_entry3,
+        config,
+        tokenizer,
+        plan,
+        (_dep("A.md", "P1", 90, "immediate"),),
+    )
+    index_a3 = _file_index(
+        entry_a3,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="a-procedure",
+        statement="The A procedure.",
+        location="A.md",
+    )
+    index_agents3 = _file_index(
+        entry_agents3,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="root-reference",
+        statement="The root reference.",
+        location="AGENTS.md",
+    )
+    snapshot3 = RamStateSnapshot(
+        namespace=ns, state=o4.state, result=t3, revision=o4.state.revision, epoch=1, owned_bytes=0
+    )
+    proof3 = PreparedGenerationProof(
+        publish=RecoveryPublishResult(
+            limitation=RecoveryStoreLimitation.OK,
+            generation=2,
+            pointer=RecoveryPointer(
+                generation=2,
+                file_name="recovery-0002.bin",
+                file_digest=sha256_hex("synthetic-recovery-record-readroot2-r3"),
+                record_bytes=64,
+            ),
+            actual_generation=2,
+        ),
+        snapshot=snapshot3,
+    )
+    ready_root3 = _ready(t3, root_entry3, root_index3, ("A.md",))
+    ready_a3 = _ready(t3, entry_a3, index_a3, ())
+    ready_agents3 = _ready(t3, entry_agents3, index_agents3, ())
+    decision3 = select_working_set(ready_root3, (ready_agents3, ready_a3), plan)
+    assert decision3.outcome is SelectionOutcome.OK
+    assert [row.content_key for row in decision3.working_set] == [
+        root_entry3.content_key,
+        entry_a3.content_key,
+    ]
+    return {
+        "ns": ns,
+        "snapshot": snapshot,
+        "proof": proof,
+        "root_entry": root_entry,
+        "entry_a": entry_a,
+        "r1_occ": r1_occ,
+        "r2_occ": r2_occ,
+        "root_index": root_index,
+        "ready": (ready_root, ready_agents, ready_a),
+        "decision": decision,
+        "old_live_marker": old_live_marker,
+        "snapshot3": snapshot3,
+        "proof3": proof3,
+        "root_entry3": root_entry3,
+        "r3_occ": r3_occ,
+        "root_index3": root_index3,
+        "ready3": (ready_root3, ready_agents3, ready_a3),
+        "decision3": decision3,
+    }
+
+
+def _readroot_r2_payload(*, r1_output: str) -> dict[str, Any]:
+    """The r2-stage replayed history: the original envelope, the
+    superseded r1 read (its carrier content is the test parameter),
+    the current r2 read, the A read and the assistant message."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(READROOT2_BOOT),
+            _ch_exec_call("r1", "cat AGENTS.md"),
+            _ch_out_item("r1", r1_output),
+            _ch_exec_call("r2", "cat AGENTS.md"),
+            _ch_out_item("r2", _ch_frame(READROOT2_NEW)),
+            _ch_exec_call("c1", "cat A.md"),
+            _ch_out_item("c1", _ch_frame(A_BODY)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Proceeding."}],
+            },
+        ],
+    }
+
+
+def _readroot_r3_payload() -> dict[str, Any]:
+    """The revert-stage replayed history: everything of the r2 stage
+    plus the genuinely new old-bytes read r3."""
+    return {
+        "model": "synthetic-model",
+        "input": [
+            _ch_root_item(READROOT2_BOOT),
+            _ch_exec_call("r1", "cat AGENTS.md"),
+            _ch_out_item("r1", _ch_frame(READROOT2_MID)),
+            _ch_exec_call("r2", "cat AGENTS.md"),
+            _ch_out_item("r2", _ch_frame(READROOT2_NEW)),
+            _ch_exec_call("r3", "cat AGENTS.md"),
+            _ch_out_item("r3", _ch_frame(READROOT2_MID)),
+            _ch_exec_call("c1", "cat A.md"),
+            _ch_out_item("c1", _ch_frame(A_BODY)),
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "Proceeding."}],
+            },
+        ],
+    }
+
+
+class TestTransactionReadRootHistorical:
+    """022-c section 1 over the ACTUAL replace_sources entry point and
+    the single-lineage r2-descendant fixture: the superseded
+    authoritative whole-root READ earns its non-resolving EVIDENCE
+    splice (the old raw carrier, with the current working set and the
+    durable snapshot), the transformed evidence replays to a fixed
+    point, the previously minted live tag refuses all-or-nothing, the
+    old carrier role/wrappers and the other mixed-read members are
+    preserved, and the genuine authoritative revert follows normal
+    currentness (the envelope anchor stays the separate path)."""
+
+    def test_superseded_read_root_raw_evidence_and_replay(self) -> None:
+        rec = _readroot_r2_records()
+        ns = rec["ns"]
+        snapshot = rec["snapshot"]
+        root_key = rec["root_entry"].content_key
+        a_key = rec["entry_a"].content_key
+        r1_occ = rec["r1_occ"]
+        r2_occ = rec["r2_occ"]
+        root_index = rec["root_index"]
+
+        # ---- Round 1: the honest replayed RAW r1 carrier ---------
+        payload1 = _readroot_r2_payload(r1_output=_ch_frame(READROOT2_MID))
+        frozen1 = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        assert [o.location for o in obs1.roots.roots] == ["$.input[0].content[0]"]
+        assert [o.digest for o in obs1.roots.roots] == [sha256_hex(READROOT2_BOOT)]
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=snapshot,
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        assert result1.http_status is None
+        assert result1.selected_content_keys == (root_key, a_key)
+        # EXACTLY four edits: the separate bootstrap envelope anchor
+        # EVIDENCE, the superseded READ root EVIDENCE (022-c section
+        # 1), the current governing read LIVE and the A read LIVE.
+        assert len(result1.edits) == 4
+        env_edit, r1_edit, r2_edit, a_edit = sorted(result1.edits, key=lambda e: e.carrier_location)
+        assert env_edit.carrier_location == "$.input[0].content[0]"
+        assert env_edit.field == "text"
+        assert env_edit.kind is MarkerKind.EVIDENCE
+        assert env_edit.target_entry_class == "root_entry"
+        assert env_edit.target_content_key == root_key
+        assert env_edit.source_digest == sha256_hex(READROOT2_BOOT)
+        assert env_edit.occurrence_identity == sha256_hex(READROOT2_BOOT)
+        assert (env_edit.start, env_edit.end) == (51, 51 + len(READROOT2_BOOT))
+        # The superseded authoritative whole-root READ: the old raw
+        # carrier earns its non-resolving EVIDENCE splice, its carrier
+        # stays a tool result and the evidence identity is the OLD
+        # source's own digest in the trusted workspace (never the
+        # current root entry key, no compiled binding).
+        assert r1_edit.carrier_location == "$.input[2]"
+        assert r1_edit.field == "output"
+        assert r1_edit.kind is MarkerKind.EVIDENCE
+        assert r1_edit.target_entry_class == "root_entry"
+        assert r1_edit.target_content_key == sha256_hex(READROOT2_MID)
+        assert r1_edit.source_digest == sha256_hex(READROOT2_MID)
+        assert r1_edit.occurrence_identity == r1_occ.occurrence_id
+        assert r1_edit.target_compiled_digest is None
+        assert (r1_edit.start, r1_edit.end) == (81, 81 + len(READROOT2_MID))
+        # The current governing read keeps its OWN live splice.
+        assert r2_edit.carrier_location == "$.input[4]"
+        assert r2_edit.field == "output"
+        assert r2_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert r2_edit.target_entry_class == "root_entry"
+        assert r2_edit.target_content_key == root_key
+        assert r2_edit.source_digest == sha256_hex(READROOT2_NEW)
+        assert r2_edit.occurrence_identity == r2_occ.occurrence_id
+        assert r2_edit.target_compiled_digest == root_index.compile_key
+        assert (r2_edit.start, r2_edit.end) == (81, 81 + len(READROOT2_NEW))
+        assert a_edit.carrier_location == "$.input[6]"
+        assert a_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert a_edit.target_entry_class == "file_bundle_entry"
+        assert a_edit.target_content_key == a_key
+        assert a_edit.source_digest == sha256_hex(A_BODY)
+        assert (a_edit.start, a_edit.end) == (81, 81 + len(A_BODY))
+        assert result1.edits_planned == 4
+        assert result1.edits_committed == 4
+        assert result1.markers_emitted == 4
+        assert result1.markers_replayed == 0
+        assert result1.carriers_touched == 4
+        assert result1.chars_replaced == (
+            len(READROOT2_BOOT) + len(READROOT2_MID) + len(READROOT2_NEW) + len(A_BODY)
+        )
+        out1 = result1.transformed_payload
+        assert out1 is not None
+        # The input payload is never mutated.
+        assert payload1 == frozen1
+        # The r1 splice carries EXACTLY the re-derived non-resolving
+        # evidence tag (tool-result role, the read occurrence
+        # identity, the OLD source digest); the rendered marker is
+        # compared by its own length and the edit end is the
+        # original-source end.
+        expected_r1_marker = make_evidence_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=r1_occ.occurrence_id,
+            endpoint="responses",
+            call_id="r1",
+            call_position=0,
+            result_position=1,
+            piece_index=0,
+            segment_index=0,
+            source_digest=sha256_hex(READROOT2_MID),
+        )
+        r1_text = out1["input"][2]["output"]
+        r1_orig = _ch_frame(READROOT2_MID)
+        assert r1_text[:81] == r1_orig[:81]
+        assert r1_text[81 : 81 + len(expected_r1_marker)] == expected_r1_marker
+        assert r1_text[81 + len(expected_r1_marker) :] == r1_orig[81 + len(READROOT2_MID) :]
+        # The wrappers, the other mixed-read members, the exec
+        # carriers and the assistant message are preserved exactly.
+        expected_r2_marker = make_live_marker(
+            MARKER_KEY,
+            namespace_key=ns.lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=r2_occ.occurrence_id,
+            endpoint="responses",
+            call_id="r2",
+            call_position=0,
+            result_position=1,
+            piece_index=0,
+            segment_index=0,
+            entry_class="root_entry",
+            content_key=root_key,
+            compiled_digest=root_index.compile_key,
+            source_digest=sha256_hex(READROOT2_NEW),
+        )
+        r2_text = out1["input"][4]["output"]
+        assert r2_text[:81] == _ch_frame(READROOT2_NEW)[:81]
+        assert r2_text[81 : 81 + len(expected_r2_marker)] == expected_r2_marker
+        assert (
+            r2_text[81 + len(expected_r2_marker) :]
+            == _ch_frame(READROOT2_NEW)[81 + len(READROOT2_NEW) :]
+        )
+        assert out1["input"][1] == frozen1["input"][1]
+        assert out1["input"][3] == frozen1["input"][3]
+        assert out1["input"][5] == frozen1["input"][5]
+        assert out1["input"][7] == frozen1["input"][7]
+
+        # ---- Round 2: the transformed evidence replays -----------
+        payload2 = out1
+        frozen2 = copy.deepcopy(payload2)
+        obs2 = observe_request(payload2, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            payload2,
+            proof=rec["proof"],
+            current_snapshot=snapshot,
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.http_status is None
+        assert result2.selected_content_keys == (root_key, a_key)
+        # The fixed point: no new edit, every marker replays at its
+        # own coordinates (an accepted replay changes no authority).
+        assert result2.edits == ()
+        assert result2.edits_planned == 0
+        assert result2.edits_committed == 0
+        assert result2.markers_emitted == 0
+        assert result2.markers_replayed == 4
+        assert result2.carriers_touched == 4
+        assert result2.transformed_payload == payload2
+        assert payload2 == frozen2
+        replays = sorted(result2.markers, key=lambda m: m.carrier_location)
+        assert [(m.carrier_location, m.kind, m.replayed) for m in replays] == [
+            ("$.input[0].content[0]", MarkerKind.EVIDENCE, True),
+            ("$.input[2]", MarkerKind.EVIDENCE, True),
+            ("$.input[4]", MarkerKind.LIVE_REFERENCE, True),
+            ("$.input[6]", MarkerKind.LIVE_REFERENCE, True),
+        ]
+        r1_replay = next(m for m in result2.markers if m.carrier_location == "$.input[2]")
+        assert r1_replay.source_digest == sha256_hex(READROOT2_MID)
+        assert r1_replay.target_content_key == sha256_hex(READROOT2_MID)
+        r2_replay = next(m for m in result2.markers if m.carrier_location == "$.input[4]")
+        assert r2_replay.source_digest == sha256_hex(READROOT2_NEW)
+        assert r2_replay.target_content_key == root_key
+
+    def test_superseded_read_root_stale_live_refuses(self) -> None:
+        rec = _readroot_r2_records()
+        snapshot = rec["snapshot"]
+        # The r1 carrier's original bytes are replaced by the ACTUAL
+        # previously minted live tag (the valid-MAC tag the r1-
+        # governing prepared stage emitted); the rest of the replayed
+        # history stays raw.
+        prefix = _ch_frame(READROOT2_MID)[:81]
+        suffix = _ch_frame(READROOT2_MID)[81 + len(READROOT2_MID) :]
+        payload = _readroot_r2_payload(r1_output=prefix + rec["old_live_marker"] + suffix)
+        frozen = copy.deepcopy(payload)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        result = replace_sources(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=snapshot,
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        # The previously minted live tag for the superseded read root
+        # is a stale live reference: it ALWAYS refuses all-or-nothing
+        # (no transformed payload, no partial edit, no replay).
+        assert result.outcome is ReplacementOutcome.MARKER_INVALID, result
+        assert result.http_status == 409
+        assert result.transformed_payload is None
+        assert result.edits == ()
+        assert result.markers == ()
+        assert payload == frozen
+
+    def test_authoritative_revert_follows_normal_currentness(self) -> None:
+        rec = _readroot_r2_records()
+        snapshot3 = rec["snapshot3"]
+        root_key3 = rec["root_entry3"].content_key
+        a_key3 = rec["decision3"].working_set[1].content_key
+        r1_occ = rec["r1_occ"]
+        r2_occ = rec["r2_occ"]
+        r3_occ = rec["r3_occ"]
+        root_index3 = rec["root_index3"]
+
+        payload = _readroot_r3_payload()
+        frozen = copy.deepcopy(payload)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        assert [o.digest for o in obs.roots.roots] == [sha256_hex(READROOT2_BOOT)]
+        result = replace_sources(
+            payload,
+            proof=rec["proof3"],
+            current_snapshot=snapshot3,
+            ready_entries=rec["ready3"],
+            decision=rec["decision3"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result.outcome is ReplacementOutcome.OK, result
+        assert result.http_status is None
+        # The genuine new old-bytes read r3 is the governing root
+        # again (normal currentness): its carrier earns the LIVE root
+        # splice; the superseded r2 read (NEW) earns its non-resolving
+        # EVIDENCE splice through the same lineage law; the r1 raw
+        # carrier (the same MID bytes the omitted AGENTS.md file
+        # entry represents) earns its omission EVIDENCE splice; the
+        # envelope anchor and the A read are unchanged in kind.
+        assert len(result.edits) == 5
+        env_edit, r1_edit, r2_edit, r3_edit, a_edit = sorted(
+            result.edits, key=lambda e: e.carrier_location
+        )
+        assert env_edit.carrier_location == "$.input[0].content[0]"
+        assert env_edit.kind is MarkerKind.EVIDENCE
+        assert env_edit.source_digest == sha256_hex(READROOT2_BOOT)
+        assert r1_edit.carrier_location == "$.input[2]"
+        assert r1_edit.kind is MarkerKind.EVIDENCE
+        assert r1_edit.source_digest == sha256_hex(READROOT2_MID)
+        assert r1_edit.occurrence_identity == r1_occ.occurrence_id
+        assert r2_edit.carrier_location == "$.input[4]"
+        assert r2_edit.kind is MarkerKind.EVIDENCE
+        assert r2_edit.target_entry_class == "root_entry"
+        assert r2_edit.source_digest == sha256_hex(READROOT2_NEW)
+        assert r2_edit.occurrence_identity == r2_occ.occurrence_id
+        assert r2_edit.target_compiled_digest is None
+        assert r3_edit.carrier_location == "$.input[6]"
+        assert r3_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert r3_edit.target_entry_class == "root_entry"
+        assert r3_edit.target_content_key == root_key3
+        assert r3_edit.source_digest == sha256_hex(READROOT2_MID)
+        assert r3_edit.occurrence_identity == r3_occ.occurrence_id
+        assert r3_edit.target_compiled_digest == root_index3.compile_key
+        assert a_edit.carrier_location == "$.input[8]"
+        assert a_edit.kind is MarkerKind.LIVE_REFERENCE
+        assert a_edit.target_content_key == a_key3
+        assert a_edit.source_digest == sha256_hex(A_BODY)
+        assert result.edits_planned == 5
+        assert result.edits_committed == 5
+        assert result.markers_emitted == 5
+        assert result.markers_replayed == 0
+        out = result.transformed_payload
+        assert out is not None
+        assert payload == frozen
+        # The transformed revert replays to the same fixed point.
+        obs2 = observe_request(out, endpoint="responses", context=_CTX)
+        result2 = replace_sources(
+            out,
+            proof=rec["proof3"],
+            current_snapshot=snapshot3,
+            ready_entries=rec["ready3"],
+            decision=rec["decision3"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result2.outcome is ReplacementOutcome.OK, result2
+        assert result2.edits == ()
+        assert result2.markers_replayed == 5
+        assert result2.transformed_payload == out
+
+
+# ---------------------------------------------------------------------------
+# 022-c: the pure replay unsplice seam (the marker-shaped source replay
+# is detected and authenticated BEFORE any raw state acquisition;
+# verified replays unsplice to the retained originals, and stale /
+# forged / moved markers refuse at the marker layer).
+# ---------------------------------------------------------------------------
+
+
+class TestReplayUnsplice:
+    """The unsplice seam over the ACTUAL fixtures: the transformed
+    payload (live and evidence markers in place of the source bytes)
+    unsplices byte-for-byte to the originals the transition must
+    observe; a previously minted live tag for a superseded read root,
+    a forged tag and a moved tag each refuse all-or-nothing with the
+    fixed marker-side outcome (no shadow, no raw acquisition); and a
+    marker-shaped string outside a recognized source field is ordinary
+    data (the closed-location scan never sees it)."""
+
+    def test_readroot_transformed_payload_unsplices_to_the_originals(self) -> None:
+        rec = _readroot_r2_records()
+        payload1 = _readroot_r2_payload(r1_output=_ch_frame(READROOT2_MID))
+        frozen = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        out1 = result1.transformed_payload
+        assert out1 is not None
+        frozen_out = copy.deepcopy(out1)
+        # The transformed payload carries marker candidates (the cheap
+        # detector fires); the input was never mutated.
+        assert payload_has_marker_candidates(out1)
+        assert payload1 == frozen
+        obs2 = observe_request(out1, endpoint="responses", context=_CTX)
+        unspliced = unsplice_replayed_markers(
+            out1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        # Every one of the four markers is exactly verified and
+        # unspliced: the shadow IS the raw original payload
+        # byte-for-byte (the root envelope body from the bootstrap
+        # anchor's retained root text; the r1 / r2 / A carriers from
+        # the retained read proofs' self-contained segment text).
+        assert unspliced.outcome is ReplacementOutcome.OK, unspliced
+        assert unspliced.markers_replayed == 4
+        assert unspliced.carriers_unspliced == 4
+        assert unspliced.shadow_payload == payload1
+        # The transformed input is never mutated by the unsplice.
+        assert out1 == frozen_out
+
+    def test_previously_minted_live_tag_refuses_before_unsplice(self) -> None:
+        rec = _readroot_r2_records()
+        # The ACTUAL live tag minted when r1 was the governing root
+        # (extracted from the stage-1 transformed payload by the
+        # fixture): under the r2-governing stage it matches NO
+        # expected tag (the old entry key is never reconstructed and
+        # the evidence identity is the OLD source's own digest).
+        r1_carrier = _ch_frame(READROOT2_MID)
+        prefix = r1_carrier[:81]
+        suffix = r1_carrier[81 + len(READROOT2_MID) :]
+        payload = _readroot_r2_payload(r1_output=prefix + rec["old_live_marker"] + suffix)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        unspliced = unsplice_replayed_markers(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        # The fixed marker-side refusal BEFORE any raw acquisition:
+        # no shadow, no partial unsplice.
+        assert unspliced.outcome is ReplacementOutcome.MARKER_INVALID
+        assert unspliced.shadow_payload is None
+        assert unspliced.markers_replayed == 0
+        assert unspliced.carriers_unspliced == 0
+
+    def test_forged_marker_refuses(self) -> None:
+        rec = _readroot_r2_records()
+        r1_carrier = _ch_frame(READROOT2_MID)
+        prefix = r1_carrier[:81]
+        suffix = r1_carrier[81 + len(READROOT2_MID) :]
+        # A marker of the exact wire shape under a DIFFERENT key
+        # (unknown-key / cross-namespace material): fixed forged.
+        forged = make_evidence_marker(
+            b"other-key-material-0123456789abcd",
+            namespace_key=rec["ns"].lineage_key,
+            original_role="file_tool_result",
+            occurrence_identity=rec["r1_occ"].occurrence_id,
+            endpoint="responses",
+            call_id="r1",
+            call_position=0,
+            result_position=1,
+            piece_index=0,
+            segment_index=0,
+            source_digest=sha256_hex(READROOT2_MID),
+        )
+        assert forged != rec["old_live_marker"]
+        payload = _readroot_r2_payload(r1_output=prefix + forged + suffix)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        unspliced = unsplice_replayed_markers(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert unspliced.outcome is ReplacementOutcome.MARKER_INVALID
+        assert unspliced.shadow_payload is None
+
+    def test_moved_marker_refuses(self) -> None:
+        rec = _readroot_r2_records()
+        # The honest round one: the VALID current r1 evidence tag at
+        # its splice start.
+        payload1 = _readroot_r2_payload(r1_output=_ch_frame(READROOT2_MID))
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        out1 = result1.transformed_payload
+        assert out1 is not None
+        r1_text = out1["input"][2]["output"]
+        r1_carrier = _ch_frame(READROOT2_MID)
+        header = r1_carrier[:81]
+        # Shift the valid tag ONE character right inside the content:
+        # the wrapper stays intact (the carrier remains a recognized
+        # source) and the MAC is genuine, but the tag no longer
+        # occupies the span's proved splice start (a shifted tag
+        # refuses; a broken wrapper would merely leave the carrier
+        # unrecognized -- the separate zero-edit law).
+        marker = r1_text[81:]
+        assert marker.startswith(EVIDENCE_MARKER_TAG) and marker.endswith(MARKER_SUFFIX)
+        shifted = header + "X" + marker
+        out1["input"][2]["output"] = shifted
+        obs2 = observe_request(out1, endpoint="responses", context=_CTX)
+        unspliced = unsplice_replayed_markers(
+            out1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert unspliced.outcome is ReplacementOutcome.MARKER_INVALID
+        assert unspliced.shadow_payload is None
+
+    def test_non_source_marker_text_stays_data(self) -> None:
+        rec = _readroot_r2_records()
+        payload = _readroot_r2_payload(r1_output=_ch_frame(READROOT2_MID))
+        # A marker-shaped string inside ORDINARY (non-source) text:
+        # the cheap detector fires, but the closed-location carrier
+        # scan never reads it -- the payload unsplices to ITSELF by
+        # equality (no marker accounting, no edit made).
+        payload["input"][7]["content"][0]["text"] = "Note: " + rec["old_live_marker"]
+        assert payload_has_marker_candidates(payload)
+        obs = observe_request(payload, endpoint="responses", context=_CTX)
+        unspliced = unsplice_replayed_markers(
+            payload,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs,
+            root_occurrence=obs.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert unspliced.outcome is ReplacementOutcome.OK
+        assert unspliced.markers_replayed == 0
+        assert unspliced.carriers_unspliced == 0
+        assert unspliced.shadow_payload == payload
+
+    def test_envelope_transformed_payload_unsplices_to_the_originals(self) -> None:
+        rec = _transaction_records()
+        payload1 = _transaction_payload()
+        frozen = copy.deepcopy(payload1)
+        obs1 = observe_request(payload1, endpoint="responses", context=_CTX)
+        result1 = replace_sources(
+            payload1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs1,
+            root_occurrence=obs1.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        assert result1.outcome is ReplacementOutcome.OK, result1
+        out1 = result1.transformed_payload
+        assert out1 is not None
+        frozen_out = copy.deepcopy(out1)
+        obs2 = observe_request(out1, endpoint="responses", context=_CTX)
+        unspliced = unsplice_replayed_markers(
+            out1,
+            proof=rec["proof"],
+            current_snapshot=rec["snapshot"],
+            ready_entries=rec["ready"],
+            decision=rec["decision"],
+            observation=obs2,
+            root_occurrence=obs2.roots.roots[0],
+            key=MARKER_KEY,
+            max_text_chars=100_000,
+        )
+        # Four live markers (the root envelope, the two proven [A,B]
+        # splices, the C singleton) unsplice from THREE carriers to
+        # the exact original payload byte-for-byte: the envelope body
+        # is the bootstrap anchor's retained root text, the file
+        # splices the retained partitioned/singleton proof text.
+        assert unspliced.outcome is ReplacementOutcome.OK, unspliced
+        assert unspliced.markers_replayed == 4
+        assert unspliced.carriers_unspliced == 3
+        assert unspliced.shadow_payload == payload1
+        assert payload1 == frozen
+        assert out1 == frozen_out

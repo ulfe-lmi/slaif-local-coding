@@ -407,7 +407,7 @@ of signed identity, gateway quotas/accounting, generic production readiness, and
 cutover remain outside this repository's production boundary. Fixture-specific acceptance is recorded in the
 [historical ledger](OBJECTIVE-004-LEDGER.md).
 
-## The `dependency-bundles-v1` profile (022-a configuration and 022-b pure-transaction slices implemented; v1 runtime planned)
+## The `dependency-bundles-v1` profile (022-a configuration, 022-b pure-transaction and 022-c application-transaction slices implemented; the v1 runtime active on opted-in routes at its bounded application scope)
 
 The approved dependency-bundle cache rework ([the handoff](CACHE-REWORK.md),
 [the implementation plan](CACHE-IMPLEMENTATION-PLAN.md)) is selected by the
@@ -418,13 +418,20 @@ configuration; unknown, incompatible or ambiguous settings fail closed. The
 criterion-level gates for the profile live in
 [the stage ledger](CACHE-REWORK-LEDGER.md).
 
-The configuration is validated, but the v1 runtime is not yet wired:
-`create_app` refuses a valid selected v1 profile at startup with a fixed
-error before constructing an HTTP client, legacy cache or recovery owner. A
-settings model or a refused app does not establish v1 readiness, source
-replacement, native-format, streaming or recovery qualification. The guard is
-removed only when the same-022 transaction is wired. Legacy remains usable
-through its existing entry points.
+The configuration is validated, and the 022-c application
+transaction wires the v1 runtime on opted-in governed routes:
+`create_app` builds the runnable v1 runtime (the process-owned
+recovery store, the pinned tokenizer, the RAM registry, the direct
+tool-free compiler channel, and the live session table) when the
+closed v1 configuration is complete and valid, and refuses at
+startup with a fixed typed error (before constructing an HTTP
+client) only on a missing or unprepared recovery root or an
+unresolvable marker key reference. A settings model or a refused
+app does not establish v1 readiness, source replacement,
+native-format, streaming or recovery qualification beyond the
+bounded 022-c fake-upstream application scope; the later 023-024
+stages remain unearned. Legacy remains usable through its existing
+entry points.
 
 ### The `[context_cache]` keys
 
@@ -464,6 +471,15 @@ through its existing entry points.
   deviation fails closed) and the configured effective `C`. Orphan or
   missing contracts fail closed; compatible routes may explicitly share a
   contract.
+- `marker_key_env`: the distinct application-owned private marker key
+  material (022-c) as a PROTECTED ENVIRONMENT REFERENCE (the name of the
+  environment variable holding the key bytes), never the key itself;
+  mandatory for the v1 profile. The value is resolved once at v1 runtime
+  construction, stays in process memory (repr-suppressed) and never
+  crosses Git, logs, refs, response fields, test captures or operational
+  reprs. It is never a gateway / service credential and never a public
+  digest; the stable authenticated session binding stays the MAC-bound
+  trusted namespace key (stable across recovery).
 
 ### Legacy/v1 migration law
 
@@ -488,14 +504,16 @@ is illustrative: it requires the normal surrounding configuration
 (`server`, `upstream`, at least one `routes` entry, and the enabled
 constitution identity for a v1 profile), and the `model_revision`
 placeholder is shown for shape only — a real value must be the pinned
-40-hex revision or validation fails closed. Even a complete valid v1
-configuration is refused at startup in this build because the v1
-runtime is not yet wired.
+40-hex revision or validation fails closed. A complete valid v1
+configuration builds the runnable v1 runtime in this build (022-c);
+the `marker_key_env` reference must name a resolvable environment
+variable holding the application-owned private marker key.
 
 ```toml
 [context_cache]
 profile = "dependency-bundles-v1"
 admission_mode = "lean"       # or "greedy"; must be explicit
+marker_key_env = "SLAIF_V1_MARKER_KEY"  # protected env reference, 022-c
 
 [context_cache.budget]
 context_tokens = 32768
@@ -551,11 +569,25 @@ The 022-b pure exact-span source replacement transaction (policy 12 /
 rework section 11; `bundle_replace.py` / `bundle_replace_models.py`;
 `tests/test_bundle_replace.py`) is implemented at the INERT pure-
 transaction layer (PENDING strategic review at its bounded pure-
-transaction scope); it changes no configuration surface and the
-`create_app` v1 startup refusal is unchanged. The later same-022
-application wiring and 023-024 remain the mandatory unearned runtime
-stages; the planned mechanism above stays inert until the owning
-stages land.
+transaction scope). The 022-c application transaction (the runnable
+governed v1 request path on the actual `create_app` entry point: the
+closed historical read-root replay gap, the marker pre-check before
+raw acquisition, the single outgoing transformed body at the byte-
+identical fixed point, the per-request FROZEN represented-frontier
+trusted issuance binding over the ACTUAL direct main upstream
+response (actual nonstream and split-SSE, never compiler traffic,
+never rebased), the pre-forward protected generation with the
+retained publish bound to the exact snapshot/epoch it actually
+published (a faulted publication keeps the prior bound; the newer
+undurable record set is refused on replay, never forwarded under the
+stale proof), the fixed typed v1 refusal family with no raw fallback,
+and the `marker_key_env` protected environment reference;
+`tests/test_app.py`, `tests/test_v1_application.py`) is implemented
+at the APPLICATION-TRANSACTION layer, active on opted-in v1 routes
+(PENDING strategic review at its bounded fake-upstream application
+scope). Objectives 023-024 remain the mandatory unearned runtime
+stages; the planned mechanism above beyond the 022-c scope stays
+unearned.
 
 ## Running the adapter
 

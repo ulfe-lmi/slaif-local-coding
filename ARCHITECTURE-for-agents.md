@@ -942,13 +942,15 @@ uncertain greedy row never substitutes for or suppresses,
 observable whole-entry duplicate-coverage omissions, the
 unproven-member-origin provenance line, and the aggregate
 limit decided over the EXACT COMBINED final injected text
-with the real pinned tokenizer). It is INERT: no wire /
-HTTP integration, no v1 runtime activation; the 022-a
-configuration and 022-b pure-transaction slices
-(below) are the delivered same-objective 022
-stages, and the later same-022 application wiring
-plus 023-024 remain mandatory. The stage stays
-inert and inactive.
+with the real pinned tokenizer). It is INERT as a
+standalone stage: no wire / HTTP integration; the
+022-a configuration, 022-b pure-transaction and
+022-c application-transaction slices (below) are
+the delivered same-objective 022 stages, and
+023-024 remain mandatory; the 022-c wiring
+activates these components inside the governed
+v1 request path (at its bounded fake-upstream
+application scope, PENDING strategic review).
 **Validated opt-in cache configuration (022-a inert,
 implemented, PENDING strategic review).** The explicit
 `[context_cache]` profile selector on the actual `Settings`
@@ -1059,10 +1061,89 @@ bound 422, missing/failed/mismatched durability
 `tests/test_bundle_replace.py`. It is INERT: no
 wire / HTTP integration, no actual upstream tool
 issuance, no recovery IO, no v1 runtime
-activation; the `create_app` v1 startup refusal is
-unchanged, and the same-022 application wiring
-plus the full R01-R05 / S01-S02 actual-upstream
-evidence remain mandatory later stages (NOT RUN).
+activation; the same-022 application wiring
+lands in 022-c (below), and the 023-024 full
+actual-upstream evidence beyond the 022-c
+fake-upstream scope remains mandatory (NOT
+RUN).
+**V1 application transaction (022-c implemented,
+active on opted-in v1 routes, PENDING strategic
+review).** The runnable v1 application
+transaction on the ACTUAL `create_app` entry
+point (`app.py`, `v1_runtime.py`,
+`v1_application.py`): the cold / resumed /
+steady-state session join over the ACTUAL
+accepted 020 owned/fenced admit/checkpoint
+path (no raw writer shortcut), the marker-
+shaped source replay detected and
+authenticated BEFORE the transition's raw
+acquisition (the fixed typed marker-side
+refusal on a tampered tag, no raw fallback),
+the single outgoing body of the one main
+upstream forward (the transformed payload on
+OK, the unchanged original on NO_REPLACEMENT)
+and the byte-identical transformed-round
+fixed point; the historical read-root replay
+gap closed (a positively superseded read-
+root original joined at its own retained
+coordinates through the governing read/
+read_region source with its carrier a tool
+result, that exact (occurrence, segment)
+coordinate skipped by the FILE join, the
+historical old-anchor envelope kept
+separate, and the stale live format refused
+on replay); the per-request FROZEN
+represented-frontier trusted issuance
+binding (the ACTUAL direct main upstream
+response only — actual nonstream and
+split-SSE issuance causality, never
+compiler traffic — each COMPLETE supported
+call registered under the committed-state
+CAS against the exact represented
+completed-fact frontier of THIS specific
+committed request: the represented root fact
+plus every selected file entry's witness
+provenance and verified raw-carrier join of
+this payload, reduced over PROVEN frozen
+ancestors only; retention alone never
+establishes a parent; the frontier freezes
+at this request's commit and is never
+rebased on later state, caller items,
+result arrival, new call IDs, revisions or
+replay metadata — two distinct frozen
+frontiers prove no later-fact rebasing);
+the pre-forward protected generation
+(every committed edit earned by the ACTUAL
+successful publication of the exact
+snapshot the edits rely on, the retained
+successful pointer bound to the exact
+snapshot/epoch it actually published: a
+faulted publication keeps the prior bound,
+the newer undurable record set is refused
+on replay and never forwarded under the
+stale generation proof, and a replay after
+fault refuses until the generation heals);
+the fixed typed v1 request refusal family
+(422 budget / invalid transform, 409
+version / scope conflict including the
+marker-side refusal, 503 infrastructure /
+recovery / resource) with NO raw fallback
+forward; and the application-owned private
+marker key as a PROTECTED ENVIRONMENT
+REFERENCE resolved once at v1 runtime
+construction (repr-suppressed, never a
+gateway / service credential, never
+persisted or logged). `tests/test_app.py`,
+`tests/test_v1_application.py`. Bounded
+FAKE-UPSTREAM application scope only
+(synthetic identity and fixture sources;
+the real app entry point, the actual
+forwarding, compiles and recovery content
+reads instrumented): the 023 expanded
+adversarial/lifecycle/telemetry matrix and
+the 024 actual-model/genuine-Codex
+qualification remain mandatory (NOT RUN).
+
 **Current-root composition (018-i inert, NOT ACCEPTED; 018-j
 PARTIAL, NOT ACCEPTED; 018-k NOT ACCEPTED; 018-l PARTIAL,
 NOT ACCEPTED; 018-m PARTIAL, NOT ACCEPTED; 018-n repairs
@@ -1707,8 +1788,33 @@ handoff and the plan-13 typed all-or-nothing
 failures; `tests/test_bundle_replace.py`)
 implemented at the INERT pure-transaction layer,
 PENDING strategic review at its bounded pure-
-transaction scope; the later same-022 application
-wiring and objectives 023-024 remain the mandatory unearned v1 implementation stages)). The per-round history (017-a through 017-am) is NOT restated here;
+transaction scope; 022-c: the v1 application
+transaction on the ACTUAL `create_app` entry
+point (the closed historical read-root replay
+gap, the marker pre-check before raw
+acquisition, the single outgoing transformed
+body at the byte-identical fixed point, the
+per-request FROZEN represented-frontier
+trusted issuance binding over the ACTUAL
+direct main upstream response — actual
+nonstream and split-SSE, never compiler
+traffic, never rebased — the pre-forward
+protected generation with the retained publish
+bound to the exact snapshot/epoch it actually
+published (a faulted publication keeps the
+prior bound; the newer undurable record set is
+refused on replay, never forwarded under the
+stale proof), the fixed typed v1 refusal family
+with no raw fallback, and the application-
+owned private marker key as a protected
+environment reference resolved once at runtime;
+`tests/test_app.py`, `tests/test_v1_application.py`)
+implemented at the APPLICATION-TRANSACTION
+layer, active on opted-in v1 routes (at its
+bounded fake-upstream application scope),
+PENDING strategic review; objectives 023-024
+remain the mandatory unearned v1 implementation
+stages)). The per-round history (017-a through 017-am) is NOT restated here;
 it lives in `docs/CACHE-REWORK-LEDGER.md` and the immutable OAP round
 reports `oap/reports/017-*.md`, and the versioned normative contract is
 `docs/CACHE-OBSERVATION-CONTRACT.md`.
@@ -1894,7 +2000,7 @@ ACCEPTED at its bounded inert query scope WITH PROCESS
 QUALIFICATIONS AND HISTORICAL-REPORT CORRECTIONS
 (strategic decision `S/reviews/018-q-decision.md`), and
 the 018-r consumer slice (contract
-`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`); objective 019 is active (019-a: ACCEPTED at its bounded inert RAM owner/store scope WITH PROCESS QUALIFICATIONS AND IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/019-a-decision.md`; contract `docs/CACHE-RAM-STATE-CONTRACT.md`); 019-b: delivered bounded async single-flight work plane, NOT ACCEPTED against the complete accounting requirement or whole 019 (strategic decision `S/reviews/019-b-decision.md`; contract `docs/CACHE-RAM-WORK-CONTRACT.md`); 019-c: whole-019 closure at the INERT injected-work layer (the bounded pre-accounted `owner_quarantined` adverse-currentness fence, aggregate pressure with high-water shared-container retention, substantial-source/accumulated-history over ACTUAL accepted records, cancellation/update/teardown races and the denied-filesystem lifecycle proof; `tests/test_bundle_ram_lifecycle.py`) implemented, PENDING strategic review; 020-a: whole-020 protected session recovery component at the INERT recovery-component layer (the versioned closed recovery record, the trusted address-only resume, the protected per-session store with atomic generation publication and the actual committed-outcome fault law, the bounded shared-RAM recovery reservations against the SAME 019 ceilings, the durable epoch binding republished on every resume, the durable fail-closed adverse-quarantine fence, the owned bounded async store IO with drain-before-release cancellation / timeout / teardown, and the lazy once-per-epoch rebuild through the actual 019 work plane; contract `docs/CACHE-RECOVERY-CONTRACT.md`; `tests/test_bundle_recovery_codec.py`, `tests/test_bundle_recovery_store.py`, `tests/test_bundle_recovery_resume.py`); 020-b: the 020-a ownership / fault corrections at the same inert scope (the single-writer CAS / publication serialization, the typed read-back `io_failure` law with the BEST actual observed generation, and the claimed-owner fence closing the preemption gap on both direct teardown paths) implemented, PENDING strategic review; 021-a: the 021 component stage (the pinned actual Qwen3.8-27B CPU tokenizer with the closed digest-pinned asset table and load-once identity, the explicit validated C/32 slot / width x slot / aggregate floor(C/4) / reserve budgets with real-tokenizer counting, the direct authenticated tool-free non-recursive compiler with the no-retry/compile-once law, the compile-through-RAM composition with the configured-policy fingerprint fence, and the deterministic required-then-optional selection; contract `docs/CACHE-TOKEN-COMPILER-CONTRACT.md`; `tests/test_bundle_tokenizer.py`, `tests/test_bundle_budget.py`, `tests/test_bundle_compiler.py`, `tests/test_bundle_compile_work.py`, `tests/test_bundle_selection.py`) ACCEPTED at its bounded inert component scope (whole 021 accepted, PR 29 merged to main at 144af0bd5e34387afcb8e3f9ddf761eabd56e817, per the 022 order); objective 022 is active (022-a: the validated opt-in cache configuration slice (the explicit `[context_cache]` profile selector on the actual `Settings` and TOML loader, the closed typed v1 configuration reusing the accepted 021 budget/compiler and 019 RAM types, the strict one-worker policy, the legacy/v1 migration conflict law, the governed-route model contracts and the fixed `create_app` v1 startup refusal; `tests/test_config.py`, `tests/test_app.py`) implemented at the INERT configuration layer, PENDING strategic review at its bounded configuration scope; 022-b: the pure exact-span source replacement transaction (the versioned `cache-bundle-replace/v1` policy-12 transaction over the ACTUAL 017/018/019/021 records: the retained/current proof join through each retained witness's own owner proof, the closed root/read carrier law with the read-root no-double-edit fence, the two versioned opaque HMAC marker kinds with the closed replay scan gate, the positive-supersession evidence law with the eligible-source constraint, the narrow durable-generation handoff and the plan-13 typed all-or-nothing failures; `tests/test_bundle_replace.py`) implemented at the INERT pure-transaction layer, PENDING strategic review at its bounded pure-transaction scope; the later same-022 application wiring and objectives 023-024 (full-stack and actual-model/genuine-Codex stages) remain the mandatory unearned v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`)); the original
+`docs/CACHE-ROOT-REGION-GRAPH-CONTRACT.md`) is ACCEPTED at its bounded inert selected-root source/current-graph scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-r-decision.md`); the 018-s region-compatible admission-models slice (contract `docs/CACHE-ROOT-REGION-ADMISSION-MODELS-CONTRACT.md`) is ACCEPTED at its bounded inert MODEL/LOCAL-BOUNDARY scope WITH PROCESS QUALIFICATIONS AND EXPLICIT HISTORICAL-REPORT CORRECTIONS (strategic decision `S/reviews/018-s-decision.md`); the 018-t complete root-region admission consumer (contract `docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md`) is ACCEPTED at its bounded complete-consumer scope WITH PROCESS QUALIFICATIONS AND EXPLICIT IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/018-t-decision.md`); objective 019 is active (019-a: ACCEPTED at its bounded inert RAM owner/store scope WITH PROCESS QUALIFICATIONS AND IMMUTABLE-REPORT CORRECTIONS (strategic decision `S/reviews/019-a-decision.md`; contract `docs/CACHE-RAM-STATE-CONTRACT.md`); 019-b: delivered bounded async single-flight work plane, NOT ACCEPTED against the complete accounting requirement or whole 019 (strategic decision `S/reviews/019-b-decision.md`; contract `docs/CACHE-RAM-WORK-CONTRACT.md`); 019-c: whole-019 closure at the INERT injected-work layer (the bounded pre-accounted `owner_quarantined` adverse-currentness fence, aggregate pressure with high-water shared-container retention, substantial-source/accumulated-history over ACTUAL accepted records, cancellation/update/teardown races and the denied-filesystem lifecycle proof; `tests/test_bundle_ram_lifecycle.py`) implemented, PENDING strategic review; 020-a: whole-020 protected session recovery component at the INERT recovery-component layer (the versioned closed recovery record, the trusted address-only resume, the protected per-session store with atomic generation publication and the actual committed-outcome fault law, the bounded shared-RAM recovery reservations against the SAME 019 ceilings, the durable epoch binding republished on every resume, the durable fail-closed adverse-quarantine fence, the owned bounded async store IO with drain-before-release cancellation / timeout / teardown, and the lazy once-per-epoch rebuild through the actual 019 work plane; contract `docs/CACHE-RECOVERY-CONTRACT.md`; `tests/test_bundle_recovery_codec.py`, `tests/test_bundle_recovery_store.py`, `tests/test_bundle_recovery_resume.py`); 020-b: the 020-a ownership / fault corrections at the same inert scope (the single-writer CAS / publication serialization, the typed read-back `io_failure` law with the BEST actual observed generation, and the claimed-owner fence closing the preemption gap on both direct teardown paths) implemented, PENDING strategic review; 021-a: the 021 component stage (the pinned actual Qwen3.8-27B CPU tokenizer with the closed digest-pinned asset table and load-once identity, the explicit validated C/32 slot / width x slot / aggregate floor(C/4) / reserve budgets with real-tokenizer counting, the direct authenticated tool-free non-recursive compiler with the no-retry/compile-once law, the compile-through-RAM composition with the configured-policy fingerprint fence, and the deterministic required-then-optional selection; contract `docs/CACHE-TOKEN-COMPILER-CONTRACT.md`; `tests/test_bundle_tokenizer.py`, `tests/test_bundle_budget.py`, `tests/test_bundle_compiler.py`, `tests/test_bundle_compile_work.py`, `tests/test_bundle_selection.py`) ACCEPTED at its bounded inert component scope (whole 021 accepted, PR 29 merged to main at 144af0bd5e34387afcb8e3f9ddf761eabd56e817, per the 022 order); objective 022 is active (022-a: the validated opt-in cache configuration slice (the explicit `[context_cache]` profile selector on the actual `Settings` and TOML loader, the closed typed v1 configuration reusing the accepted 021 budget/compiler and 019 RAM types, the strict one-worker policy, the legacy/v1 migration conflict law, the governed-route model contracts and the fixed `create_app` v1 startup refusal; `tests/test_config.py`, `tests/test_app.py`) implemented at the INERT configuration layer, PENDING strategic review at its bounded configuration scope; 022-b: the pure exact-span source replacement transaction (the versioned `cache-bundle-replace/v1` policy-12 transaction over the ACTUAL 017/018/019/021 records: the retained/current proof join through each retained witness's own owner proof, the closed root/read carrier law with the read-root no-double-edit fence, the two versioned opaque HMAC marker kinds with the closed replay scan gate, the positive-supersession evidence law with the eligible-source constraint, the narrow durable-generation handoff and the plan-13 typed all-or-nothing failures; `tests/test_bundle_replace.py`) implemented at the INERT pure-transaction layer, PENDING strategic review at its bounded pure-transaction scope; 022-c: the v1 application transaction on the ACTUAL `create_app` entry point (the closed historical read-root replay gap, the marker pre-check before raw acquisition, the single outgoing transformed body at the byte-identical fixed point, the per-request FROZEN represented-frontier trusted issuance binding over the ACTUAL direct main upstream response — actual nonstream and split-SSE, never compiler traffic, never rebased — the pre-forward protected generation with the retained publish bound to the exact snapshot/epoch it actually published (a faulted publication keeps the prior bound; the newer undurable record set is refused on replay, never forwarded under the stale proof), the fixed typed v1 refusal family with no raw fallback, and the application-owned private marker key as a protected environment reference resolved once at runtime; `tests/test_app.py`, `tests/test_v1_application.py`) implemented at the APPLICATION-TRANSACTION layer, active on opted-in v1 routes (at its bounded fake-upstream application scope), PENDING strategic review; objectives 023-024 (the 023 expanded adversarial/lifecycle/telemetry matrix and the 024 actual-model/genuine-Codex stages) remain the mandatory unearned v1 implementation stages (see `docs/CACHE-REWORK-LEDGER.md`)); the original
 planned meanings of numeric 006-008 are historical planning prose, not
 live identifiers. Strategy may revise only from verified evidence. One numeric
 objective=one PR; coding never merges.

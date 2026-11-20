@@ -610,6 +610,7 @@ V1_COMPAT_A = "slaif-rtx3090-compat-1"
 V1_COMPAT_B = "slaif-rtx3090-compat-2"
 V1_UPSTREAM_KEY_ENV = "TEST_V1_UPSTREAM_KEY"
 V1_COMPILER_KEY_ENV = "TEST_V1_COMPILER_KEY"
+V1_MARKER_KEY_ENV = "TEST_V1_MARKER_KEY"
 V1_EFFECTIVE_C = 32_768
 
 
@@ -671,6 +672,7 @@ def _v1_context_cache(**over: Any) -> dict[str, Any]:
         "ram": _v1_ram(),
         "recovery": _v1_recovery(),
         "route_contracts": {"text": _v1_route_contract("qwen38-27b")},
+        "marker_key_env": V1_MARKER_KEY_ENV,
     }
     value.update(over)
     return value
@@ -808,6 +810,7 @@ def test_context_cache_unknown_profile_and_unknown_fields_fail_closed() -> None:
         {"recovery": {"enabled": True}},
         {"admission_mode": "greedy"},
         {"route_contracts": {"text": _v1_route_contract("qwen38-27b")}},
+        {"marker_key_env": V1_MARKER_KEY_ENV},
     ],
     ids=[
         "budget",
@@ -817,6 +820,7 @@ def test_context_cache_unknown_profile_and_unknown_fields_fail_closed() -> None:
         "recovery-rootless",
         "greedy",
         "route-contracts",
+        "marker-key-env",
     ],
 )
 def test_context_cache_v1_fields_under_legacy_profile_fail_closed(
@@ -862,6 +866,7 @@ def test_context_cache_empty_blocks_do_not_select_v1_fields() -> None:
             "requires the explicit protected-recovery opt-in",
         ),
         ({"recovery": {"enabled": True}}, "requires the configured recovery root"),
+        ({"marker_key_env": None}, "requires the explicit application-owned marker key reference"),
     ],
 )
 def test_v1_profile_requires_closed_configuration(override: dict[str, Any], message: str) -> None:
@@ -912,6 +917,7 @@ session = "local-session"
 repository = "local-repository"
 [context_cache]
 profile = "dependency-bundles-v1"
+marker_key_env = "TEST_V1_MARKER_KEY"
 [context_cache.route_contracts.text]
 model = "qwen38-27b"
 context_tokens = 32768

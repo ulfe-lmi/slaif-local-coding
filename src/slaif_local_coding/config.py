@@ -559,6 +559,20 @@ class ContextCacheConfig(BaseModel):
     # the route name binds its declared model to the pinned tokenizer/render
     # capability and the configured effective C (022-a).
     route_contracts: dict[str, ContextCacheRouteContract] = Field(default_factory=dict)
+    # The distinct application-owned private marker key material (022-c):
+    # a PROTECTED ENVIRONMENT REFERENCE (the name of the environment
+    # variable holding the key bytes), never the key itself.  The value
+    # is resolved once at v1 runtime construction, stays in process
+    # memory (repr-suppressed) and never crosses Git, logs, refs,
+    # response fields, test captures or operational reprs.  It is never
+    # a gateway / service credential and never a public digest; the
+    # stable authenticated session binding is the MAC-bound trusted
+    # namespace key (stable across recovery).
+    marker_key_env: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+        repr=False,
+    )
 
     @model_validator(mode="after")
     def profile_closure(self) -> ContextCacheConfig:
@@ -587,12 +601,21 @@ class ContextCacheConfig(BaseModel):
                 raise ValueError(
                     "the dependency-bundles-v1 profile requires the configured recovery root"
                 )
+            if "marker_key_env" not in provided or self.marker_key_env is None:
+                raise ValueError(
+                    "the dependency-bundles-v1 profile requires the explicit "
+                    "application-owned marker key reference"
+                )
             return self
         for field in ("budget", "compiler", "ram"):
             if field in provided and getattr(self, field) is not None:
                 raise ValueError(
                     "the v1 context-cache settings require the dependency-bundles-v1 profile"
                 )
+        if "marker_key_env" in provided and self.marker_key_env is not None:
+            raise ValueError(
+                "the v1 context-cache settings require the dependency-bundles-v1 profile"
+            )
         if "recovery" in provided and _section_provided(
             self.recovery, ContextCacheRecoveryConfig()
         ):

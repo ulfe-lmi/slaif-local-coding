@@ -93,11 +93,13 @@ from .bundle_replace_models import (
     ReplacementOutcome,
     ReplacementResult,
     SourceEdit,
+    UnspliceReplayResult,
 )
 from .bundle_selection import (
     BundleSelectionDecision,
     SelectionOutcome,
     SelectionReadyEntry,
+    SelectionWorkingEntry,
 )
 from .causal_history import _collect, _RootLineageContext
 from .causal_history_models import (
@@ -105,6 +107,7 @@ from .causal_history_models import (
     CompletedReadOccurrence,
     HistoryBounds,
     ResultFingerprintRecord,
+    RootAnchor,
     canonicalize_tool_arguments,
 )
 from .current_admission_models import CurrentAdmissionWitness
@@ -126,13 +129,16 @@ from .observe import ENDPOINT_CHAT, ENDPOINT_RESPONSES
 from .ram_state_models import RamStateSnapshot
 from .recovery_store import RecoveryStoreLimitation
 from .root_lineage import _HOuter
-from .root_lineage_models import RootSelectionOutcome
+from .root_lineage_models import ReadRootProvenance, RootSelectionOutcome
 from .root_region_currentness_models import (
     RootRegionCurrentnessOutcome,
     RootRegionCurrentnessResult,
 )
 from .root_region_lineage import _region_d_namespace
-from .root_region_lineage_models import RootRegionReadProvenance
+from .root_region_lineage_models import (
+    RootRegionLineageFact,
+    RootRegionReadProvenance,
+)
 
 
 def _durable_guard(
@@ -2236,6 +2242,118 @@ def _join_historical_root_envelopes(
         )
 
 
+def _join_historical_read_roots(
+    spans: list[RetainedSpan],
+    payload: dict[str, Any],
+    *,
+    snapshot: RamStateSnapshot,
+    owners: dict[str, CompletedReadOccurrence],
+    root_entry: Any,
+    root_read_coords: set[tuple[str, int]],
+    index: _CurrentReadIndex,
+    bridge_by_call: dict[str, BundleProof],
+    results_by_call: dict[str, ResultFingerprintRecord],
+    max_text_chars: int,
+    history_bounds: HistoryBounds,
+) -> None:
+    """Join each ACTUAL retained authoritative read/read_region root
+    fact DIFFERENT from the governing root digest (the superseded
+    authoritative whole-root read / root region -- the 022-c
+    section-1 evidence law, the read half of the historical old-root
+    anchor law the envelope join covers).
+
+    The facts are enumerated SEPARATELY from the E nonroot groups:
+    the same-run P state of the prepared snapshot is the only source,
+    and only ACTUAL authoritative facts qualify (the bootstrap
+    anchor or an issued fact -- a retained unissued digest is never
+    authority and never proves supersession).  The envelope fact is
+    the separate envelope anchor, and the governing fact's own
+    digest is the current read splice, never a historical join.
+
+    Each fact's exact original occurrence and whole/region segment
+    are resolved from the fact's OWN provenance against the SAME
+    retained D owner (the consistency anchor -- a spliced or
+    detached record refuses all-or-nothing), and a mixed or
+    boundaryless read never proves the complete root source (the
+    governing join's exact shape law, mirrored).  The span's content
+    identity is the OLD source's own digest in the trusted namespace
+    (the immutable evidence identity -- the old entry key is never
+    reconstructed and the current root entry key never replaces
+    it), under the root entry class and the tool-result carrier
+    role (the carrier stays a tool result, exactly as the governing
+    read splice).  The per-piece carrier law is inherited unchanged
+    from ``_join_segment_spans``: a genuinely absent carrier earns
+    zero edits (the source-absent law), and a drifted -- already
+    transformed -- carrier re-joins through the current content
+    span so the replay scan decides by tag at the splice start.
+    Each joined coordinate enters ``root_read_coords`` so the same
+    root-region bytes can never earn a second edit (the FILE
+    witness join and the nonroot positive-supersession phase both
+    skip it).
+    """
+    for fact in snapshot.state.root_facts:
+        if not fact.authority:
+            continue
+        provenance = fact.provenance
+        if provenance.kind not in ("read", "read_region"):
+            continue
+        if fact.source_digest == root_entry.root_digest:
+            continue
+        occurrence_id = provenance.occurrence_id
+        owner = owners.get(occurrence_id)
+        if owner is None:
+            raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
+        proof = owner.proof
+        if isinstance(provenance, ReadRootProvenance):
+            # A complete whole singleton: the root member IS the
+            # proof's one attributable segment (a boundaryless or
+            # multi-member aggregate never proves the complete
+            # root source).
+            if len(proof.segments) != 1:
+                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+            segment = proof.segments[0]
+            if segment.member_digest != fact.source_digest:
+                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+            segment_index = segment.index
+        else:  # read_region (the kind filter above fences the class)
+            if not isinstance(provenance, RootRegionReadProvenance):
+                raise AssertionError("unreachable: closed provenance kinds")
+            segment_index = provenance.root_segment_index
+            if segment_index >= len(proof.segments):
+                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+            segment = proof.segments[segment_index]
+            # The region segment must own exactly the single
+            # attributable root member at its proven position (a
+            # boundaryless multi-member group leaves the root
+            # region's internal boundary unproven; fail closed,
+            # never a partial splice).
+            if (
+                segment.member_digest != fact.source_digest
+                or len(segment.member_positions) != 1
+                or segment.member_positions[0] != provenance.root_member_position
+            ):
+                raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+        spans.extend(
+            _join_segment_spans(
+                payload,
+                proof,
+                segment_index,
+                max_text_chars=max_text_chars,
+                content_key=fact.source_digest,
+                entry_class_value=root_entry.entry_class.value,
+                role=_TOOL_RESULT_ROLE,
+                occurrence_identity=occurrence_id,
+                root_digest=fact.source_digest,
+                index=index,
+                bridge_by_call=bridge_by_call,
+                results_by_call=results_by_call,
+                history_bounds=history_bounds,
+                historical=True,
+            )
+        )
+        root_read_coords.add((occurrence_id, segment_index))
+
+
 def join_retained_proof(
     payload: dict[str, Any],
     *,
@@ -2294,6 +2412,17 @@ def join_retained_proof(
     shape-only so the replay scan decides by tag), while the
     current envelope of the governing digest stays separate and
     untouched.
+    The SUPERSEDED AUTHORITATIVE WHOLE-ROOT READ / ROOT REGION is
+    joined the same way through its own retained record: every
+    ACTUAL authoritative read/read_region root fact of the same-run
+    P state DIFFERENT from the governing root digest is enumerated
+    (separately from the E nonroot groups) and re-joins its exact
+    original occurrence and whole/region segment through
+    ``_join_historical_read_roots`` — historical, tool-result
+    carrier role, the OLD source digest as content identity (the
+    old entry key is never reconstructed) — and each joined
+    coordinate is fenced out of the FILE join so the same
+    root-region bytes can never earn a second edit.
     ``historical_root_tags`` are the prepared transaction's
     candidate evidence tags for the drifted-anchor re-authentication
     (one per retained old digest, keyed by that digest; computed by
@@ -2479,6 +2608,27 @@ def join_retained_proof(
                 historical_root_tags=historical_root_tags,
                 max_text_chars=max_text_chars,
             )
+        # The superseded authoritative whole-root read / root region
+        # (the 022-c section-1 evidence law): every ACTUAL retained
+        # authoritative read/read_region root fact DIFFERENT from the
+        # governing root digest earns its non-resolving evidence
+        # splice, enumerated separately from the E nonroot groups
+        # (the bootstrap envelope anchor is the separate envelope
+        # join above; the governing fact is the current read splice,
+        # never a historical one).
+        _join_historical_read_roots(
+            spans,
+            payload,
+            snapshot=snapshot,
+            owners=owners,
+            root_entry=root_entry,
+            root_read_coords=root_read_coords,
+            index=index,
+            bridge_by_call=bridge_by_call,
+            results_by_call=results_by_call,
+            max_text_chars=max_text_chars,
+            history_bounds=snapshot.namespace.history_bounds,
+        )
     for entry in admission.entries:
         for witness in entry.witnesses:
             owner = owners.get(witness.occurrence_id)
@@ -2600,17 +2750,22 @@ def join_retained_proof(
 #   refusal or non-ready R outcome) earns no evidence marker (fail
 #   closed).
 #
-# * old root envelopes: the ACTUAL P/Q root-region lineage carried by
+# * old root envelopes and superseded authoritative whole-root
+#   reads/regions: the ACTUAL P/Q root-region lineage carried by
 #   the prepared snapshot's actual same-run 018-q result.  The Q
 #   currentness must be ``ready``, the actual P
 #   selection must be ``ok`` with a selected source digest DIFFERENT
 #   from the retained root digest, and that retained digest must be
 #   an ACTUAL retained root fact — a known superseded root original
 #   (including a genuine new old-bytes occurrence superseded by a
-#   proven descendant).  An absent Q result, any non-ready Q outcome,
-#   a differing-root conflict, a no-selected-root or refused P
-#   selection, or an unretained digest earns no evidence marker (fail
-#   closed).
+#   proven descendant).  A superseded authoritative whole-root read
+#   or root region (an issued read/read_region root fact different
+#   from the governing digest, joined through its OWN retained
+#   occurrence and whole/region segment) earns the same marker
+#   through the same P/Q lineage.  An absent Q result, any non-ready
+#   Q outcome, a differing-root conflict, a no-selected-root or
+#   refused P selection, or an unretained digest earns no evidence
+#   marker (fail closed).
 #
 # Mere absence from the prepared set / selection never proves
 # historical supersession (that is the separate selection-omission
@@ -2826,8 +2981,9 @@ def _positively_superseded(
 # guidance in the working set), or a known positively superseded
 # original retained in history proven by ACTUAL lineage (the
 # accepted 018-e currentness group decision with its proven-change
-# reason for a FILE span, or the actual P/Q root-region lineage for
-# an old root envelope; mere absence from selection or
+# reason for a FILE span, or the actual P/Q root-region lineage
+# for an old root envelope or a superseded authoritative whole-root
+# read/region; mere absence from selection or
 # uncertain/conflicting attribution never proves supersession).  A
 # merely retained span
 # earns no edit (a live tag there is a stale live reference and
@@ -2932,7 +3088,7 @@ def _scan_replayed_markers(
         tuple[str, str, int, int, int, int, str],
         tuple[tuple[RetainedSpan, frozenset[str]], ...],
     ],
-) -> dict[tuple[str, str, int], MarkerRecord]:
+) -> tuple[dict[tuple[str, str, int], MarkerRecord], dict[tuple[str, str, int], RetainedSpan]]:
     """Verify every marker candidate of the recognized source fields
     (the joined carriers) by RE-DERIVATION and return the ACCEPTED
     replays.
@@ -2947,8 +3103,11 @@ def _scan_replayed_markers(
     the same way.  An accepted replay neither changes its authority
     nor creates a second edit; its record is content-free (the
     coordinates, the kind and the digest/length of the exact wired
-    bytes)."""
+    bytes).  The second result maps the SAME keys to the bound
+    :class:`RetainedSpan` (the unsplice seam's original-text
+    resolution; the transaction plan uses only the records)."""
     replayed: dict[tuple[str, str, int], MarkerRecord] = {}
+    replayed_span: dict[tuple[str, str, int], RetainedSpan] = {}
     for (endpoint, location), text in carriers.items():
         for start, candidate in find_markers(text):
             verdict = verify_marker(candidate, start, expectations=expectations)
@@ -3007,7 +3166,496 @@ def _scan_replayed_markers(
                 target_content_key=span.content_key,
                 source_digest=span.source_digest,
             )
-    return replayed
+            replayed_span[(endpoint, location, span.start)] = span
+    return replayed, replayed_span
+
+
+# ---------------------------------------------------------------------------
+# Replay unsplice (objective 022-c: the marker-shaped source replay is
+# detected and authenticated BEFORE any raw state acquisition)
+# ---------------------------------------------------------------------------
+#
+# A client may resend its previously transformed payload: the source
+# fields carry the accepted markers in place of the original source
+# bytes.  Feeding that payload to the region-lineage transition would
+# let the D law see marker bytes as NEW source (a changed root / a new
+# file version) -- both the fixed-point refusal and the mixed commit
+# of marker text are wrong.  The unsplice is the pure seam that
+# restores the ORIGINALS the transition must observe:
+#
+# - the SAME trusted plan prelude as the transaction runs first (the
+#   durable-generation guard, the retained-proof join, the
+#   selection-anchored tag expectations and the closed replay scan):
+#   any stale / forged / malformed / unknown-kind / moved marker
+#   refuses all-or-nothing with the fixed typed marker-side outcome,
+#   BEFORE the raw acquisition is committed;
+# - every exactly-verified (``ok``) replay is replaced in a shadow
+#   payload by its exact retained original source text, re-derived
+#   from the trusted state alone (the retained occurrence proof's
+#   self-contained segment text, or the bootstrap anchor's retained
+#   root body); a marker whose original cannot be exactly re-derived
+#   refuses fail-closed -- the unsplice never guesses;
+# - ordinary non-source text stays data: the closed-location carrier
+#   scan is the only place marker candidates are read, so a
+#   marker-shaped string anywhere else in the payload is invisible.
+
+
+def _proof_span_text(proof: BundleProof, segment_index: int, piece_index: int) -> str:
+    """The exact original source text of ONE retained piece/segment
+    sub-span.
+
+    The self-contained proof's aggregate text is the ordered segment
+    concatenation (model-verified against its own digest), and the
+    segment is tiled in piece order by its non-None piece spans --
+    the same concatenation law the segment re-proof re-proves against
+    the retained digest.  A coordinate that leaves the proof is a
+    spliced / detached retained record (refused all-or-nothing)."""
+    if segment_index >= len(proof.segments):
+        raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+    segment = proof.segments[segment_index]
+    if piece_index >= len(segment.piece_spans):
+        raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+    sub = segment.piece_spans[piece_index]
+    if sub is None:
+        raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+    seg_start = sum(seg.char_length for seg in proof.segments[:segment_index])
+    seg_text = proof.source_text[seg_start : seg_start + segment.char_length]
+    offset = 0
+    for position, piece_sub in enumerate(segment.piece_spans):
+        if position == piece_index:
+            return seg_text[offset : offset + (sub.end - sub.start)]
+        if piece_sub is not None:
+            offset += piece_sub.end - piece_sub.start
+    raise _refuse(CarrierDetail.RETAINED_RECORD_MALFORMED)
+
+
+def _retained_original_text(
+    span: RetainedSpan,
+    *,
+    owners: dict[str, CompletedReadOccurrence],
+    root_anchor: RootAnchor | None,
+    root_facts: tuple[RootRegionLineageFact, ...],
+) -> str:
+    """The exact original source text the replayed marker replaced,
+    re-derived from the trusted retained state alone (the unsplice
+    fail-closed: a marker whose original cannot be exactly re-derived
+    never unsplices -- the marker layer refuses, and the raw
+    acquisition is never committed over marker bytes).
+
+    A tool-result-role span is its piece's sub-span of the retained
+    occurrence's self-contained proof (the read / read_region / file
+    witness / historical joins all carry the actual occurrence
+    identity and piece coordinate).  An envelope-role span is the
+    bootstrap anchor's retained root body when the span's source
+    digest IS the anchor's; a historical read-root anchor presented
+    raw resolves its retained occurrence through the same-run P state
+    (the whole singleton segment, or the region's root segment -- the
+    historical read-root join's own resolution law).  The old entry
+    key is never reconstructed and the current root entry key never
+    replaces the evidence identity."""
+    if span.role == _TOOL_RESULT_ROLE:
+        owner = owners.get(span.occurrence_identity)
+        if owner is None:
+            raise _refuse(CarrierDetail.MARKER_INVALID)
+        return _proof_span_text(owner.proof, span.segment_index, span.piece_index)
+    if root_anchor is not None and span.source_digest == root_anchor.root_digest:
+        # The bootstrap envelope anchor (governing or historical):
+        # the anchor's retained root body IS the exact original.
+        return root_anchor.root_text
+    # A historical read-root anchor presented as a raw envelope:
+    # resolve its retained occurrence through the same-run P state.
+    for fact in root_facts:
+        if (
+            not fact.authority
+            or fact.source_digest != span.source_digest
+            or fact.provenance.kind not in ("read", "read_region")
+        ):
+            continue
+        provenance = fact.provenance
+        owner = owners.get(provenance.occurrence_id)
+        if owner is None:
+            raise _refuse(CarrierDetail.MARKER_INVALID)
+        proof = owner.proof
+        if provenance.kind == "read":
+            if len(proof.segments) != 1 or proof.segments[0].member_digest != fact.source_digest:
+                raise _refuse(CarrierDetail.MARKER_INVALID)
+            segment_index = 0
+        else:
+            if not isinstance(provenance, RootRegionReadProvenance):
+                raise _refuse(CarrierDetail.MARKER_INVALID)
+            segment_index = provenance.root_segment_index
+            if segment_index >= len(proof.segments):
+                raise _refuse(CarrierDetail.MARKER_INVALID)
+            segment = proof.segments[segment_index]
+            if (
+                segment.member_digest != fact.source_digest
+                or len(segment.member_positions) != 1
+                or segment.member_positions[0] != provenance.root_member_position
+            ):
+                raise _refuse(CarrierDetail.MARKER_INVALID)
+        # A single attributable member's segment overlaps exactly
+        # ONE piece (the whole-singleton / region shape law).
+        non_none = [
+            i for i, s in enumerate(proof.segments[segment_index].piece_spans) if s is not None
+        ]
+        if len(non_none) != 1:
+            raise _refuse(CarrierDetail.MARKER_INVALID)
+        return _proof_span_text(proof, segment_index, non_none[0])
+    raise _refuse(CarrierDetail.MARKER_INVALID)
+
+
+_MARKER_LIKE_PREFIXES: tuple[str, str] = ("[slaif-live:v", "[slaif-evidence:v")
+
+
+def payload_has_marker_candidates(payload: dict[str, Any]) -> bool:
+    """A bounded recursive scan for marker-like tag prefixes anywhere
+    in the decoded payload (the cheap replay detector).
+
+    A false positive only costs one pure pre-check: the unsplice's
+    closed-location carrier scan is the only place marker candidates
+    are read, so a marker-shaped string OUTSIDE a recognized source
+    field is ordinary data (ordinary non-source text stays data)."""
+    stack: list[Any] = [payload]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, str):
+            if any(prefix in value for prefix in _MARKER_LIKE_PREFIXES):
+                return True
+        elif isinstance(value, dict):
+            stack.extend(value.values())
+        elif isinstance(value, (list, tuple)):
+            stack.extend(value)
+    return False
+
+
+@dataclass(slots=True)
+class _ReplacePlanPrelude:
+    """The shared trusted plan prelude of the pure transaction.
+
+    ONE implementation of the pre-scan law, used by BOTH
+    ``replace_sources`` (which then plans and applies the edits) and
+    ``unsplice_replayed_markers`` (which then restores the originals
+    the transition observes): the durable-generation guard, the
+    retained-proof join, the selection-anchored span classification,
+    the tag expectations and the closed replay scan over the ACTUAL
+    current carriers.  ``owners`` / ``root_anchor`` / ``root_facts``
+    are the trusted references the unsplice's original-text
+    resolution reads (never re-derived from the payload)."""
+
+    eff_bounds: ReplacementBounds
+    namespace_key: str
+    spans: tuple[RetainedSpan, ...]
+    selected_spans: tuple[RetainedSpan, ...]
+    evidence_spans: tuple[RetainedSpan, ...]
+    stale_spans: tuple[RetainedSpan, ...]
+    expectations: MarkerExpectations
+    binding_of: dict[
+        tuple[str, str, int, int, int, int, str],
+        tuple[tuple[RetainedSpan, frozenset[str]], ...],
+    ]
+    carriers: dict[tuple[str, str], str]
+    replayed: dict[tuple[str, str, int], MarkerRecord]
+    replayed_span: dict[tuple[str, str, int], RetainedSpan]
+    ready_by_key: dict[str, SelectionReadyEntry]
+    working_rows: dict[tuple[str, str], SelectionWorkingEntry]
+    omitted_keys: set[str]
+    owners: dict[str, CompletedReadOccurrence]
+    root_anchor: RootAnchor | None
+    root_facts: tuple[RootRegionLineageFact, ...]
+
+
+def _prepare_replace_plan(
+    payload: dict[str, Any],
+    *,
+    proof: PreparedGenerationProof,
+    current_snapshot: RamStateSnapshot,
+    ready_entries: tuple[SelectionReadyEntry, ...],
+    decision: BundleSelectionDecision,
+    observation: ObservationReport,
+    root_occurrence: RootOccurrence | None,
+    key: bytes,
+    bounds: ReplacementBounds | None,
+    max_text_chars: int,
+) -> _ReplacePlanPrelude:
+    """Run the shared trusted plan prelude (see
+    :class:`_ReplacePlanPrelude`), refusing all-or-nothing with the
+    fixed carrier-layer detail on any carrier / span / marker
+    problem (the caller maps the typed outcome)."""
+    eff_bounds = bounds if bounds is not None else ReplacementBounds()
+    _durable_guard(proof, current_snapshot)
+    namespace_key = current_snapshot.namespace.lineage_key
+    evidence = _historical_supersession(current_snapshot)
+    # The historical old-root anchor's candidate evidence tags:
+    # one per ACTUAL authoritative old root digest DIFFERENT from
+    # the governing root digest (the bootstrap anchor and every
+    # issued root fact of the same-run P state — a retained
+    # unissued digest never proves supersession and earns no
+    # tag).  The tag identity is the OLD source's own digest in
+    # the trusted namespace workspace — immutable across later
+    # root changes, so already-issued evidence for the same old
+    # anchor keeps verifying (a second genuine root change
+    # re-derives the same tag; it does not invalidate the old
+    # anchor's evidence).  The drifted — already transformed —
+    # old anchor is re-authenticated against these by MAC at its
+    # own splice start; a marker matching none refuses.  The old
+    # entry key is never reconstructed.
+    hist_admission = current_snapshot.result.admission
+    historical_root_tags: dict[str, ExpectedTag] = {}
+    if hist_admission is not None:
+        historical_root_tags = {
+            d: derive_evidence_tag(
+                key,
+                namespace_key=namespace_key,
+                original_role=_ROOT_ENVELOPE_ROLE,
+                occurrence_identity=d,
+                endpoint=ENDPOINT_RESPONSES,
+                call_id="",
+                call_position=0,
+                result_position=0,
+                piece_index=0,
+                segment_index=0,
+                source_digest=d,
+            )
+            for d in evidence.authoritative_root_digests
+            if d != hist_admission.root_entry.root_digest
+        }
+    spans = join_retained_proof(
+        payload,
+        snapshot=current_snapshot,
+        decision=decision,
+        observation=observation,
+        root_occurrence=root_occurrence,
+        max_text_chars=max_text_chars,
+        evidence=evidence,
+        historical_root_tags=historical_root_tags,
+    )
+    ready_by_key = {r.entry.content_key: r for r in ready_entries}
+    working_rows = {(row.content_key, row.entry_class.value): row for row in decision.working_set}
+    for row_key in working_rows:
+        if row_key[0] not in ready_by_key:
+            # A selected working row without its prepared compiled
+            # index is a broken prepared context (no marker can be
+            # re-derived for it).
+            raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
+    omitted_keys = {o.content_key for o in decision.omitted}
+    selected_spans: list[RetainedSpan] = []
+    evidence_spans: list[RetainedSpan] = []
+    stale_spans: list[RetainedSpan] = []
+    for span in spans:
+        if span.historical:
+            # A retained-D nonroot original joined through the
+            # positive-supersession phase: its (occurrence, group)
+            # record positively proved supersession at the join;
+            # re-verify through the closed predicate (fail closed:
+            # a record that no longer proves earns no edit).  The
+            # join is from the ACTUAL retained D occurrence and
+            # the prepared T result's same-run E group facts, even
+            # though the occurrence is absent from the current
+            # admission (the old entry key is never consulted).
+            if _positively_superseded(span, evidence):
+                evidence_spans.append(span)
+            else:
+                stale_spans.append(span)
+            continue
+        if (span.content_key, span.entry_class) in working_rows:
+            # Selected spans are NOT raw-gated here: the valid
+            # transformed tag at the original splice start is
+            # matched BEFORE any raw digest mismatch (the scan
+            # below); a selected span without an accepted replay
+            # earns SPAN_DIGEST_MISMATCH in the plan.
+            selected_spans.append(span)
+            continue
+        if (
+            span.entry_class == EntryClass.FILE_BUNDLE_ENTRY.value
+            and span.content_key in omitted_keys
+        ) or _positively_superseded(span, evidence):
+            # Evidence-eligible: a current prepared optional
+            # source actually omitted by the accepted selection
+            # (root entries never qualify via omission), or a
+            # known positively superseded original proven by
+            # ACTUAL lineage.  Eligibility is independent of the
+            # raw-byte state; the plan still gates the EVIDENCE
+            # edit on the re-proof or an accepted replay.  An
+            # EVIDENCE edit or an accepted replay — never a
+            # dangling live reference.
+            evidence_spans.append(span)
+            continue
+        # Merely retained (unselected, not omitted, no lineage
+        # proof): no edit; a live tag there is a stale live
+        # reference and refuses.
+        stale_spans.append(span)
+    # Expectations (derived INDEPENDENT of the current raw
+    # bytes): a current live tag for EVERY selected span (the
+    # transformed replay is matched before the raw digest
+    # mismatch); an evidence tag for EVERY evidence-eligible span
+    # (no ready index needed); a stale live tag for every other
+    # span whose entry has a ready compiled index (the internal
+    # ``stale`` diagnostic keeps an old live reference refusing).
+    tags: list[ExpectedTag] = []
+    binding_of: dict[
+        tuple[str, str, int, int, int, int, str],
+        tuple[tuple[RetainedSpan, frozenset[str]], ...],
+    ] = {}
+
+    def _note(span: RetainedSpan, tag: ExpectedTag, kind: str) -> None:
+        tags.append(tag)
+        b = _binding_key(
+            tag.endpoint,
+            tag.call_id,
+            tag.call_position,
+            tag.result_position,
+            tag.piece_index,
+            tag.segment_index,
+            tag.content_key,
+        )
+        entries = list(binding_of.get(b, ()))
+        merged = False
+        for i, (prev_span, prev_kinds) in enumerate(entries):
+            if prev_span is span:
+                entries[i] = (prev_span, prev_kinds | frozenset({kind}))
+                merged = True
+                break
+        if not merged:
+            # A DISTINCT span may share the ORIGINAL association
+            # binding only on a DISTINCT carrier coordinate (the
+            # repeated root envelope: the same root source, its own
+            # occurrence and carrier).  Two distinct spans on the
+            # SAME carrier region are the forbidden double edit.
+            for prev_span, _ in entries:
+                if (
+                    prev_span.endpoint == span.endpoint
+                    and prev_span.location == span.location
+                    and prev_span.start == span.start
+                    and prev_span.end == span.end
+                ):
+                    raise AssertionError("unreachable: tag binding collision")
+            entries.append((span, frozenset({kind})))
+        binding_of[b] = tuple(entries)
+
+    for span in selected_spans:
+        ready = ready_by_key[span.content_key]
+        _note(
+            span,
+            derive_live_tag(
+                key,
+                namespace_key=namespace_key,
+                original_role=span.role,
+                occurrence_identity=span.occurrence_identity,
+                endpoint=span.endpoint,
+                call_id=span.call_id,
+                call_position=span.call_position,
+                result_position=span.result_position,
+                piece_index=span.piece_index,
+                segment_index=span.segment_index,
+                entry_class=span.entry_class,
+                content_key=span.content_key,
+                compiled_digest=ready.index.compile_key,
+                source_digest=span.source_digest,
+            ),
+            "live",
+        )
+    for span in evidence_spans:
+        _note(
+            span,
+            derive_evidence_tag(
+                key,
+                namespace_key=namespace_key,
+                original_role=span.role,
+                occurrence_identity=span.occurrence_identity,
+                endpoint=span.endpoint,
+                call_id=span.call_id,
+                call_position=span.call_position,
+                result_position=span.result_position,
+                piece_index=span.piece_index,
+                segment_index=span.segment_index,
+                source_digest=span.source_digest,
+            ),
+            "evidence",
+        )
+        maybe_ready = ready_by_key.get(span.content_key)
+        if maybe_ready is not None:
+            _note(
+                span,
+                derive_live_tag(
+                    key,
+                    namespace_key=namespace_key,
+                    original_role=span.role,
+                    occurrence_identity=span.occurrence_identity,
+                    endpoint=span.endpoint,
+                    call_id=span.call_id,
+                    call_position=span.call_position,
+                    result_position=span.result_position,
+                    piece_index=span.piece_index,
+                    segment_index=span.segment_index,
+                    entry_class=span.entry_class,
+                    content_key=span.content_key,
+                    compiled_digest=maybe_ready.index.compile_key,
+                    source_digest=span.source_digest,
+                    stale=True,
+                ),
+                "stale",
+            )
+    for span in stale_spans:
+        maybe_ready = ready_by_key.get(span.content_key)
+        if maybe_ready is None:
+            continue
+        _note(
+            span,
+            derive_live_tag(
+                key,
+                namespace_key=namespace_key,
+                original_role=span.role,
+                occurrence_identity=span.occurrence_identity,
+                endpoint=span.endpoint,
+                call_id=span.call_id,
+                call_position=span.call_position,
+                result_position=span.result_position,
+                piece_index=span.piece_index,
+                segment_index=span.segment_index,
+                entry_class=span.entry_class,
+                content_key=span.content_key,
+                compiled_digest=maybe_ready.index.compile_key,
+                source_digest=span.source_digest,
+                stale=True,
+            ),
+            "stale",
+        )
+    expectations = MarkerExpectations(tuple(tags))
+    # Scan the recognized source fields (the joined carriers) for
+    # marker candidates and verify each by re-derivation.
+    carriers: dict[tuple[str, str], str] = {}
+    for span in spans:
+        carrier_key = (span.endpoint, span.location)
+        if carrier_key in carriers:
+            continue
+        if span.role == _ROOT_ENVELOPE_ROLE:
+            slot = lookup_root_carrier(payload, span.location, max_text_chars=max_text_chars)
+        else:
+            slot = lookup_tool_result_carrier(
+                payload, span.endpoint, span.location, max_text_chars=max_text_chars
+            )
+        carriers[carrier_key] = slot.text
+    replayed, replayed_span = _scan_replayed_markers(carriers, expectations, binding_of)
+    d_state = current_snapshot.state.d_state
+    return _ReplacePlanPrelude(
+        eff_bounds=eff_bounds,
+        namespace_key=namespace_key,
+        spans=tuple(spans),
+        selected_spans=tuple(selected_spans),
+        evidence_spans=tuple(evidence_spans),
+        stale_spans=tuple(stale_spans),
+        expectations=expectations,
+        binding_of=binding_of,
+        carriers=carriers,
+        replayed=replayed,
+        replayed_span=replayed_span,
+        ready_by_key=ready_by_key,
+        working_rows=working_rows,
+        omitted_keys=omitted_keys,
+        owners={o.occurrence_id: o for o in d_state.occurrences},
+        root_anchor=d_state.root,
+        root_facts=tuple(current_snapshot.state.root_facts),
+    )
 
 
 def replace_sources(
@@ -3048,7 +3696,6 @@ def replace_sources(
     actual injection order and the actual missing-binding guidance.
     Every failure returns no transformed payload under the typed
     plan-13 family."""
-    eff_bounds = bounds if bounds is not None else ReplacementBounds()
     if max_text_chars < 1:
         raise ValueError("max_text_chars must be positive")
     try:
@@ -3056,262 +3703,18 @@ def replace_sources(
             return _failure(ReplacementOutcome.SELECTION_NOT_READY)
         if not decision.working_set:
             return ReplacementResult(outcome=ReplacementOutcome.NO_REPLACEMENT)
-        _durable_guard(proof, current_snapshot)
-        namespace_key = current_snapshot.namespace.lineage_key
-        evidence = _historical_supersession(current_snapshot)
-        # The historical old-root anchor's candidate evidence tags:
-        # one per ACTUAL authoritative old root digest DIFFERENT from
-        # the governing root digest (the bootstrap anchor and every
-        # issued root fact of the same-run P state — a retained
-        # unissued digest never proves supersession and earns no
-        # tag).  The tag identity is the OLD source's own digest in
-        # the trusted namespace workspace — immutable across later
-        # root changes, so already-issued evidence for the same old
-        # anchor keeps verifying (a second genuine root change
-        # re-derives the same tag; it does not invalidate the old
-        # anchor's evidence).  The drifted — already transformed —
-        # old anchor is re-authenticated against these by MAC at its
-        # own splice start; a marker matching none refuses.  The old
-        # entry key is never reconstructed.
-        hist_admission = current_snapshot.result.admission
-        historical_root_tags: dict[str, ExpectedTag] = {}
-        if hist_admission is not None:
-            historical_root_tags = {
-                d: derive_evidence_tag(
-                    key,
-                    namespace_key=namespace_key,
-                    original_role=_ROOT_ENVELOPE_ROLE,
-                    occurrence_identity=d,
-                    endpoint=ENDPOINT_RESPONSES,
-                    call_id="",
-                    call_position=0,
-                    result_position=0,
-                    piece_index=0,
-                    segment_index=0,
-                    source_digest=d,
-                )
-                for d in evidence.authoritative_root_digests
-                if d != hist_admission.root_entry.root_digest
-            }
-        spans = join_retained_proof(
+        plan = _prepare_replace_plan(
             payload,
-            snapshot=current_snapshot,
+            proof=proof,
+            current_snapshot=current_snapshot,
+            ready_entries=ready_entries,
             decision=decision,
             observation=observation,
             root_occurrence=root_occurrence,
+            key=key,
+            bounds=bounds,
             max_text_chars=max_text_chars,
-            evidence=evidence,
-            historical_root_tags=historical_root_tags,
         )
-        ready_by_key = {r.entry.content_key: r for r in ready_entries}
-        working_rows = {
-            (row.content_key, row.entry_class.value): row for row in decision.working_set
-        }
-        for row_key in working_rows:
-            if row_key[0] not in ready_by_key:
-                # A selected working row without its prepared compiled
-                # index is a broken prepared context (no marker can be
-                # re-derived for it).
-                raise _refuse(CarrierDetail.CARRIER_UNRESOLVED)
-        omitted_keys = {o.content_key for o in decision.omitted}
-        selected_spans: list[RetainedSpan] = []
-        evidence_spans: list[RetainedSpan] = []
-        stale_spans: list[RetainedSpan] = []
-        for span in spans:
-            if span.historical:
-                # A retained-D nonroot original joined through the
-                # positive-supersession phase: its (occurrence, group)
-                # record positively proved supersession at the join;
-                # re-verify through the closed predicate (fail closed:
-                # a record that no longer proves earns no edit).  The
-                # join is from the ACTUAL retained D occurrence and
-                # the prepared T result's same-run E group facts, even
-                # though the occurrence is absent from the current
-                # admission (the old entry key is never consulted).
-                if _positively_superseded(span, evidence):
-                    evidence_spans.append(span)
-                else:
-                    stale_spans.append(span)
-                continue
-            if (span.content_key, span.entry_class) in working_rows:
-                # Selected spans are NOT raw-gated here: the valid
-                # transformed tag at the original splice start is
-                # matched BEFORE any raw digest mismatch (the scan
-                # below); a selected span without an accepted replay
-                # earns SPAN_DIGEST_MISMATCH in the plan.
-                selected_spans.append(span)
-                continue
-            if (
-                span.entry_class == EntryClass.FILE_BUNDLE_ENTRY.value
-                and span.content_key in omitted_keys
-            ) or _positively_superseded(span, evidence):
-                # Evidence-eligible: a current prepared optional
-                # source actually omitted by the accepted selection
-                # (root entries never qualify via omission), or a
-                # known positively superseded original proven by
-                # ACTUAL lineage.  Eligibility is independent of the
-                # raw-byte state; the plan still gates the EVIDENCE
-                # edit on the re-proof or an accepted replay.  An
-                # EVIDENCE edit or an accepted replay — never a
-                # dangling live reference.
-                evidence_spans.append(span)
-                continue
-            # Merely retained (unselected, not omitted, no lineage
-            # proof): no edit; a live tag there is a stale live
-            # reference and refuses.
-            stale_spans.append(span)
-        # Expectations (derived INDEPENDENT of the current raw
-        # bytes): a current live tag for EVERY selected span (the
-        # transformed replay is matched before the raw digest
-        # mismatch); an evidence tag for EVERY evidence-eligible span
-        # (no ready index needed); a stale live tag for every other
-        # span whose entry has a ready compiled index (the internal
-        # ``stale`` diagnostic keeps an old live reference refusing).
-        tags: list[ExpectedTag] = []
-        binding_of: dict[
-            tuple[str, str, int, int, int, int, str],
-            tuple[tuple[RetainedSpan, frozenset[str]], ...],
-        ] = {}
-
-        def _note(span: RetainedSpan, tag: ExpectedTag, kind: str) -> None:
-            tags.append(tag)
-            b = _binding_key(
-                tag.endpoint,
-                tag.call_id,
-                tag.call_position,
-                tag.result_position,
-                tag.piece_index,
-                tag.segment_index,
-                tag.content_key,
-            )
-            entries = list(binding_of.get(b, ()))
-            merged = False
-            for i, (prev_span, prev_kinds) in enumerate(entries):
-                if prev_span is span:
-                    entries[i] = (prev_span, prev_kinds | frozenset({kind}))
-                    merged = True
-                    break
-            if not merged:
-                # A DISTINCT span may share the ORIGINAL association
-                # binding only on a DISTINCT carrier coordinate (the
-                # repeated root envelope: the same root source, its own
-                # occurrence and carrier).  Two distinct spans on the
-                # SAME carrier region are the forbidden double edit.
-                for prev_span, _ in entries:
-                    if (
-                        prev_span.endpoint == span.endpoint
-                        and prev_span.location == span.location
-                        and prev_span.start == span.start
-                        and prev_span.end == span.end
-                    ):
-                        raise AssertionError("unreachable: tag binding collision")
-                entries.append((span, frozenset({kind})))
-            binding_of[b] = tuple(entries)
-
-        for span in selected_spans:
-            ready = ready_by_key[span.content_key]
-            _note(
-                span,
-                derive_live_tag(
-                    key,
-                    namespace_key=namespace_key,
-                    original_role=span.role,
-                    occurrence_identity=span.occurrence_identity,
-                    endpoint=span.endpoint,
-                    call_id=span.call_id,
-                    call_position=span.call_position,
-                    result_position=span.result_position,
-                    piece_index=span.piece_index,
-                    segment_index=span.segment_index,
-                    entry_class=span.entry_class,
-                    content_key=span.content_key,
-                    compiled_digest=ready.index.compile_key,
-                    source_digest=span.source_digest,
-                ),
-                "live",
-            )
-        for span in evidence_spans:
-            _note(
-                span,
-                derive_evidence_tag(
-                    key,
-                    namespace_key=namespace_key,
-                    original_role=span.role,
-                    occurrence_identity=span.occurrence_identity,
-                    endpoint=span.endpoint,
-                    call_id=span.call_id,
-                    call_position=span.call_position,
-                    result_position=span.result_position,
-                    piece_index=span.piece_index,
-                    segment_index=span.segment_index,
-                    source_digest=span.source_digest,
-                ),
-                "evidence",
-            )
-            maybe_ready = ready_by_key.get(span.content_key)
-            if maybe_ready is not None:
-                _note(
-                    span,
-                    derive_live_tag(
-                        key,
-                        namespace_key=namespace_key,
-                        original_role=span.role,
-                        occurrence_identity=span.occurrence_identity,
-                        endpoint=span.endpoint,
-                        call_id=span.call_id,
-                        call_position=span.call_position,
-                        result_position=span.result_position,
-                        piece_index=span.piece_index,
-                        segment_index=span.segment_index,
-                        entry_class=span.entry_class,
-                        content_key=span.content_key,
-                        compiled_digest=maybe_ready.index.compile_key,
-                        source_digest=span.source_digest,
-                        stale=True,
-                    ),
-                    "stale",
-                )
-        for span in stale_spans:
-            maybe_ready = ready_by_key.get(span.content_key)
-            if maybe_ready is None:
-                continue
-            _note(
-                span,
-                derive_live_tag(
-                    key,
-                    namespace_key=namespace_key,
-                    original_role=span.role,
-                    occurrence_identity=span.occurrence_identity,
-                    endpoint=span.endpoint,
-                    call_id=span.call_id,
-                    call_position=span.call_position,
-                    result_position=span.result_position,
-                    piece_index=span.piece_index,
-                    segment_index=span.segment_index,
-                    entry_class=span.entry_class,
-                    content_key=span.content_key,
-                    compiled_digest=maybe_ready.index.compile_key,
-                    source_digest=span.source_digest,
-                    stale=True,
-                ),
-                "stale",
-            )
-        expectations = MarkerExpectations(tuple(tags))
-        # Scan the recognized source fields (the joined carriers) for
-        # marker candidates and verify each by re-derivation.
-        carriers: dict[tuple[str, str], str] = {}
-        for span in spans:
-            carrier_key = (span.endpoint, span.location)
-            if carrier_key in carriers:
-                continue
-            if span.role == _ROOT_ENVELOPE_ROLE:
-                slot = lookup_root_carrier(payload, span.location, max_text_chars=max_text_chars)
-            else:
-                slot = lookup_tool_result_carrier(
-                    payload, span.endpoint, span.location, max_text_chars=max_text_chars
-                )
-            carriers[carrier_key] = slot.text
-        replayed = _scan_replayed_markers(carriers, expectations, binding_of)
         # Plan (the accepted replay at the original splice start is
         # matched BEFORE the raw digest mismatch): a selected span
         # without a replay whose bytes left the original refuses
@@ -3322,19 +3725,19 @@ def replace_sources(
         # stays untouched; no ready index is needed — lineage spans
         # are not ready).
         planned: list[_PlannedEdit] = []
-        for span in selected_spans:
-            if (span.endpoint, span.location, span.start) in replayed:
+        for span in plan.selected_spans:
+            if (span.endpoint, span.location, span.start) in plan.replayed:
                 continue
             if not span.reproven:
                 raise _refuse(CarrierDetail.SPAN_DIGEST_MISMATCH)
-            ready = ready_by_key[span.content_key]
+            ready = plan.ready_by_key[span.content_key]
             planned.append(
                 _PlannedEdit(
                     span=span,
                     kind=MarkerKind.LIVE_REFERENCE,
                     marker=make_live_marker(
                         key,
-                        namespace_key=namespace_key,
+                        namespace_key=plan.namespace_key,
                         original_role=span.role,
                         occurrence_identity=span.occurrence_identity,
                         endpoint=span.endpoint,
@@ -3351,8 +3754,8 @@ def replace_sources(
                     compiled_digest=ready.index.compile_key,
                 )
             )
-        for span in evidence_spans:
-            if (span.endpoint, span.location, span.start) in replayed:
+        for span in plan.evidence_spans:
+            if (span.endpoint, span.location, span.start) in plan.replayed:
                 continue
             if not span.reproven:
                 continue
@@ -3362,7 +3765,7 @@ def replace_sources(
                     kind=MarkerKind.EVIDENCE,
                     marker=make_evidence_marker(
                         key,
-                        namespace_key=namespace_key,
+                        namespace_key=plan.namespace_key,
                         original_role=span.role,
                         occurrence_identity=span.occurrence_identity,
                         endpoint=span.endpoint,
@@ -3377,20 +3780,20 @@ def replace_sources(
                 )
             )
         # Closed bounds (fail closed before unbounded work).
-        if len(planned) > eff_bounds.max_edits:
+        if len(planned) > plan.eff_bounds.max_edits:
             raise _refuse(CarrierDetail.REPLACEMENT_OVER_BOUND)
         replaced_chars = sum(p.span.end - p.span.start for p in planned)
-        if replaced_chars > eff_bounds.max_replaced_chars:
+        if replaced_chars > plan.eff_bounds.max_replaced_chars:
             raise _refuse(CarrierDetail.REPLACEMENT_OVER_BOUND)
         for p in planned:
-            if len(p.marker.encode("utf-8")) > eff_bounds.max_marker_bytes:
+            if len(p.marker.encode("utf-8")) > plan.eff_bounds.max_marker_bytes:
                 raise _refuse(CarrierDetail.REPLACEMENT_OVER_BOUND)
         by_carrier: dict[tuple[str, str], list[_PlannedEdit]] = {}
         for p in planned:
             by_carrier.setdefault((p.span.endpoint, p.span.location), []).append(p)
         touched = set(by_carrier)
-        touched |= {(endpoint, location) for endpoint, location, _start in replayed}
-        if len(touched) > eff_bounds.max_carriers:
+        touched |= {(endpoint, location) for endpoint, location, _start in plan.replayed}
+        if len(touched) > plan.eff_bounds.max_carriers:
             raise _refuse(CarrierDetail.REPLACEMENT_OVER_BOUND)
         # No two edits may occupy the same carrier region (the same
         # root region is never double-edited).
@@ -3406,10 +3809,10 @@ def replace_sources(
         # status/order and API fields) is preserved.
         out = copy.deepcopy(payload)
         source_edits: list[SourceEdit] = []
-        marker_records: list[MarkerRecord] = list(replayed.values())
+        marker_records: list[MarkerRecord] = list(plan.replayed.values())
         for (endpoint, location), edits in by_carrier.items():
             field = edits[0].span.field
-            text = carriers[(endpoint, location)]
+            text = plan.carriers[(endpoint, location)]
             for p in sorted(edits, key=lambda p: p.span.start, reverse=True):
                 text = text[: p.span.start] + p.marker + text[p.span.end :]
             _set_carrier_text(out, endpoint, location, field, text)
@@ -3454,9 +3857,105 @@ def replace_sources(
             edits_planned=len(planned),
             edits_committed=len(planned),
             markers_emitted=len(planned),
-            markers_replayed=len(replayed),
+            markers_replayed=len(plan.replayed),
             carriers_touched=len(touched),
             chars_replaced=replaced_chars,
         )
     except _ReplaceRefusal as refusal:
         return _failure(refusal.outcome)
+
+
+def unsplice_replayed_markers(
+    payload: dict[str, Any],
+    *,
+    proof: PreparedGenerationProof,
+    current_snapshot: RamStateSnapshot,
+    ready_entries: tuple[SelectionReadyEntry, ...],
+    decision: BundleSelectionDecision,
+    observation: ObservationReport,
+    root_occurrence: RootOccurrence | None,
+    key: bytes,
+    bounds: ReplacementBounds | None = None,
+    max_text_chars: int,
+) -> UnspliceReplayResult:
+    """The pure replay unsplice (the marker-shaped source replay
+    detected and authenticated BEFORE any raw state acquisition).
+
+    Runs the SAME trusted plan prelude as the transaction (the
+    durable-generation guard, the retained-proof join, the
+    selection-anchored expectations and the closed replay scan): a
+    stale / forged / malformed / unknown-kind / moved marker in a
+    recognized source field refuses all-or-nothing with the fixed
+    typed marker-side outcome (the raw acquisition is never
+    committed over marker bytes).  Every exactly-verified (``ok``)
+    replay is then replaced in a SHADOW payload by its exact
+    retained original source text (re-derived from the trusted state
+    alone — the retained occurrence proof's self-contained segment
+    text or the bootstrap anchor's retained root body; the old entry
+    key is never reconstructed), and the shadow is what the
+    region-lineage transition observes.
+
+    On ``OK`` with no marker in any joined carrier the shadow EQUALS
+    the input payload (a detector false positive: ordinary non-source
+    text stays data; the closed-location scan saw no marker).  The
+    input is never mutated."""
+    if max_text_chars < 1:
+        raise ValueError("max_text_chars must be positive")
+    try:
+        if decision.outcome is not SelectionOutcome.OK:
+            return UnspliceReplayResult(outcome=ReplacementOutcome.SELECTION_NOT_READY)
+        plan = _prepare_replace_plan(
+            payload,
+            proof=proof,
+            current_snapshot=current_snapshot,
+            ready_entries=ready_entries,
+            decision=decision,
+            observation=observation,
+            root_occurrence=root_occurrence,
+            key=key,
+            bounds=bounds,
+            max_text_chars=max_text_chars,
+        )
+        if not plan.replayed:
+            # No verified marker in any recognized source field: no
+            # replay is present; the transition observes the payload
+            # as-is (the shadow equals the input; no edit was made).
+            return UnspliceReplayResult(
+                outcome=ReplacementOutcome.OK,
+                shadow_payload=payload,
+                markers_replayed=0,
+                carriers_unspliced=0,
+            )
+        # Every replayed marker is exactly verified (the scan
+        # refused any non-ok verdict); restore its exact retained
+        # original in a deep copy, per carrier, outermost-first.
+        by_carrier: dict[tuple[str, str], tuple[str, list[tuple[int, int, str]]]] = {}
+        for (endpoint, location, start), record in plan.replayed.items():
+            span = plan.replayed_span[(endpoint, location, start)]
+            original = _retained_original_text(
+                span,
+                owners=plan.owners,
+                root_anchor=plan.root_anchor,
+                root_facts=plan.root_facts,
+            )
+            entry = by_carrier.get((endpoint, location))
+            if entry is None:
+                by_carrier[(endpoint, location)] = (span.field, [(start, record.end, original)])
+            else:
+                entry[1].append((start, record.end, original))
+        out = copy.deepcopy(payload)
+        carriers_unspliced = 0
+        for (endpoint, location), (field, edits) in by_carrier.items():
+            text = plan.carriers[(endpoint, location)]
+            for start, end, original in sorted(edits, key=lambda e: e[0], reverse=True):
+                text = text[:start] + original + text[end:]
+            _set_carrier_text(out, endpoint, location, field, text)
+            carriers_unspliced += 1
+        return UnspliceReplayResult(
+            outcome=ReplacementOutcome.OK,
+            shadow_payload=out,
+            markers_replayed=len(plan.replayed),
+            carriers_unspliced=carriers_unspliced,
+        )
+    except _ReplaceRefusal as refusal:
+        return UnspliceReplayResult(outcome=refusal.outcome)

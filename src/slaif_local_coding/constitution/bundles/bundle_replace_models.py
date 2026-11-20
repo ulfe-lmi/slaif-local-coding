@@ -222,3 +222,26 @@ class ReplacementResult(_Frozen):
     markers_replayed: int = Field(default=0, ge=0)
     carriers_touched: int = Field(default=0, ge=0)
     chars_replaced: int = Field(default=0, ge=0)
+
+
+class UnspliceReplayResult(_Frozen):
+    """The closed result of the pure replay unsplice (objective 022-c).
+
+    ``shadow_payload`` is the payload the region-lineage transition
+    observes BEFORE any raw acquisition: every exactly-verified
+    current marker of the recognized source fields replaced by its
+    retained original source text (the transition sees the originals,
+    never marker bytes as source).  On ``OK`` with no marker in any
+    joined carrier it EQUALS the INPUT payload (no marker was
+    present; no edit was made).  On every failure it is ``None``
+    (all-or-nothing; no shadow is claimed).  ``markers_replayed`` is
+    the count of exactly-verified markers unspliced and
+    ``carriers_unspliced`` the count of carriers whose text changed.
+    Content-free: the shadow payload carries the client's own
+    previously-observed source and is repr-suppressed."""
+
+    contract_version: str = BUNDLE_REPLACE_CONTRACT_VERSION
+    outcome: ReplacementOutcome
+    shadow_payload: dict[str, Any] | None = Field(default=None, repr=False)
+    markers_replayed: int = Field(default=0, ge=0)
+    carriers_unspliced: int = Field(default=0, ge=0)

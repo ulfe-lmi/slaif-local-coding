@@ -2,7 +2,7 @@ import asyncio
 import gzip
 import json
 import logging
-import re
+import os
 from collections.abc import AsyncIterator, Callable, Coroutine, MutableMapping
 from pathlib import Path
 from typing import Any, cast
@@ -12,11 +12,7 @@ import pytest
 from starlette.requests import Request
 
 import slaif_local_coding.app as app_module
-from slaif_local_coding.app import (
-    V1_RUNTIME_UNAVAILABLE_MESSAGE,
-    V1RuntimeUnavailableError,
-    create_app,
-)
+from slaif_local_coding.app import V1RuntimeUnavailableError, create_app
 from slaif_local_coding.config import (
     CacheConfig,
     CompilerConfig,
@@ -31,9 +27,25 @@ from slaif_local_coding.config import (
     UpstreamConfig,
 )
 from slaif_local_coding.constitution.bundles.bundle_budget import BundleBudgetConfig
-from slaif_local_coding.constitution.bundles.bundle_compiler import BundleCompilerConfig
+from slaif_local_coding.constitution.bundles.bundle_compile_work import BundleCompileWork
+from slaif_local_coding.constitution.bundles.bundle_compiler import (
+    BundleCompilerConfig,
+    serialize_compiled_index,
+)
+from slaif_local_coding.constitution.bundles.bundle_tokenizer import BundleTokenizer
+from slaif_local_coding.constitution.bundles.causal_history_models import CAUSAL_ROOT_FACT
+from slaif_local_coding.constitution.bundles.ram_state import RamStateOwnerRegistry
 from slaif_local_coding.constitution.bundles.ram_state_models import RamStateBounds
+from slaif_local_coding.constitution.bundles.recovery_store import RecoveryStore
+from slaif_local_coding.constitution.bundles.v1_application import (
+    V1Session,
+    build_session_address,
+)
+from slaif_local_coding.constitution.bundles.v1_runtime import V1Runtime, V1RuntimeReason
+from slaif_local_coding.constitution.cache import RequestIdentity
 from tests.helpers.transport_observer import DirectTransportObserver
+from tests.test_causal_history import WORKSPACE, exec_call, frame, out_item, root_item
+from tests.test_v1_application import _echo_compiler_handler, _index_for_demand
 
 
 @pytest.fixture
@@ -1129,9 +1141,10 @@ async def test_normal_governed_request_makes_zero_constitution_pipeline_calls(
 # ---------------------------------------------------------------------------
 
 
-def _v1_refusal_settings(tmp_path: Path) -> Settings:
-    """A fully valid closed v1 settings whose refusal proves the entry-point
-    guard, not a configuration failure."""
+def _v1_settings(tmp_path: Path) -> Settings:
+    """A fully valid closed v1 settings (the recovery root is NOT
+    prepared here: the startup-failure case proves the capability
+    refusal, the runnable case prepares the root explicitly)."""
     return Settings(
         server=ServerConfig(request_body_max_bytes=4096),
         upstream=UpstreamConfig(
@@ -1174,6 +1187,7 @@ def _v1_refusal_settings(tmp_path: Path) -> Settings:
                 enabled=True,
                 root=tmp_path / "v1-recovery",
             ),
+            marker_key_env="TEST_V1_MARKER_KEY",
             route_contracts={
                 "text": ContextCacheRouteContract(model="qwen38-27b", context_tokens=32_768)
             },
@@ -1181,29 +1195,104 @@ def _v1_refusal_settings(tmp_path: Path) -> Settings:
     )
 
 
-def test_v1_profile_refused_before_any_runtime_construction(
+def test_v1_profile_startup_failure_before_any_runtime_construction(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     def _forbidden_client(*args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("the v1 refusal must precede HTTP client construction")
+        raise AssertionError("the v1 startup failure must precede HTTP client construction")
 
     monkeypatch.setattr(httpx, "AsyncClient", _forbidden_client)
-    settings = _v1_refusal_settings(tmp_path)
+    settings = _v1_settings(tmp_path)
     recovery_root = settings.context_cache.recovery.root
     assert recovery_root is not None
-    with pytest.raises(V1RuntimeUnavailableError, match=re.escape(V1_RUNTIME_UNAVAILABLE_MESSAGE)):
+    with pytest.raises(V1RuntimeUnavailableError) as excinfo:
         create_app(settings)
-    # The refusal precedes the client and the recovery owner: the configured
-    # store root was never created, opened or probed.
+    assert excinfo.value.reason is V1RuntimeReason.RECOVERY_ROOT
+    # The failure precedes the client and the recovery owner: the
+    # configured store root was never created, opened or probed.
     assert not recovery_root.exists()
-    # The refusal holds with an injected transport as well: the transport is
-    # never wired because no client is constructed.
-    with pytest.raises(V1RuntimeUnavailableError, match=re.escape(V1_RUNTIME_UNAVAILABLE_MESSAGE)):
+    # The failure holds with an injected transport as well: the
+    # transport is never wired because no client is constructed.
+    with pytest.raises(V1RuntimeUnavailableError) as excinfo:
         create_app(
             settings,
             transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"ok": True})),
         )
+    assert excinfo.value.reason is V1RuntimeReason.RECOVERY_ROOT
     assert not recovery_root.exists()
+
+
+def test_v1_profile_startup_builds_the_runnable_runtime(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The distinct application-owned private marker key material: a
+    # protected environment REFERENCE resolved once at runtime
+    # construction (022-c).  Synthetic test material, 16-256 bytes.
+    monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+    settings = _v1_settings(tmp_path)
+    recovery_root = settings.context_cache.recovery.root
+    assert recovery_root is not None
+    # The operator-prepared protected root (the store never creates it).
+    recovery_root.mkdir(mode=0o700)
+    recovery_root.chmod(0o700)
+    app = create_app(settings)
+    runtime = app.state.v1_runtime
+    assert isinstance(runtime, V1Runtime)
+    # V1 governed routes never instantiate the legacy pipeline.
+    assert app.state.constitution_pipeline is None
+    # The ACTUAL accepted components are process-owned.
+    assert type(runtime.recovery_store) is RecoveryStore
+    assert type(runtime.tokenizer) is BundleTokenizer
+    assert type(runtime.ram_registry) is RamStateOwnerRegistry
+    assert runtime.ram_registry.work is not None
+    assert type(runtime.compile_work) is BundleCompileWork
+    # The marker key resolved once, repr-suppressed, length-bounded.
+    assert runtime.marker_key == b"0123456789abcdef0123456789abcdef"
+    assert "marker_key" not in repr(runtime)
+    assert set(runtime.governed_routes) == {"text"}
+    assert runtime.governed_routes["text"].model == "qwen38-27b"
+    assert runtime.budget_plan.config.context_tokens == 32_768
+    assert runtime.admission_mode == "lean"
+
+
+def test_v1_profile_startup_marker_key_failure_precedes_http_client(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def _forbidden_client(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the v1 marker-key failure must precede HTTP client construction")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _forbidden_client)
+    # The configured reference names an environment variable that is
+    # unset: the fixed typed marker-key capability failure, before any
+    # network component and before the recovery owner is constructed.
+    monkeypatch.delenv("TEST_V1_MARKER_KEY", raising=False)
+    settings = _v1_settings(tmp_path)
+    recovery_root = settings.context_cache.recovery.root
+    assert recovery_root is not None
+    recovery_root.mkdir(mode=0o700)
+    recovery_root.chmod(0o700)
+    with pytest.raises(V1RuntimeUnavailableError) as excinfo:
+        create_app(settings)
+    assert excinfo.value.reason is V1RuntimeReason.MARKER_KEY
+
+
+def test_v1_profile_startup_marker_key_out_of_range_precedes_http_client(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def _forbidden_client(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("the v1 marker-key failure must precede HTTP client construction")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _forbidden_client)
+    # A 15-byte value is below the closed 16-256 byte bound.
+    monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcde")
+    settings = _v1_settings(tmp_path)
+    recovery_root = settings.context_cache.recovery.root
+    assert recovery_root is not None
+    recovery_root.mkdir(mode=0o700)
+    recovery_root.chmod(0o700)
+    with pytest.raises(V1RuntimeUnavailableError) as excinfo:
+        create_app(settings)
+    assert excinfo.value.reason is V1RuntimeReason.MARKER_KEY
 
 
 @pytest.mark.asyncio
@@ -1224,3 +1313,835 @@ async def test_explicit_legacy_profile_stays_usable_through_existing_entry_point
     response = await call(legacy, handler, "GET", "/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# 022-c: the governed v1 request path end-to-end over the ACTUAL
+# create_app entry point (one bounded fake upstream serving BOTH the
+# main forward and the direct tool-free compiler channel; synthetic
+# identity and environment names; no real secrets, no live upstream).
+# ---------------------------------------------------------------------------
+
+
+class TestV1GovernedRequestPath:
+    """The ordered app-seam proof: the marker pre-check before raw
+    acquisition, the byte-identical transformed-round fixed point of
+    the single outgoing body and the marker-side 409 refusal."""
+
+    @staticmethod
+    def _governed_payload() -> dict[str, Any]:
+        """One decoded Responses request: the legitimate root
+        envelope plus a complete (recognized, not yet acquired --
+        trusted issuance is the order section 3 wiring) read pair."""
+        return {
+            "model": "qwen38-27b",
+            "input": [
+                root_item("Follow the workspace protocol.\n"),
+                exec_call("c1", "cat c1.md"),
+                out_item("c1", frame("A body.\n")),
+            ],
+        }
+
+    async def test_governed_round_fixed_point_and_marker_refusal(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        # The operator-prepared protected root (the store never creates it).
+        recovery_root.mkdir(mode=0o700)
+        recovery_root.chmod(0o700)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": "resp-022c"})
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        # V1 governed routes never instantiate the legacy pipeline.
+        assert app.state.constitution_pipeline is None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one: the first governed request.  The marker
+            # pre-check finds no candidate in the ORIGINAL payload;
+            # the transition accepts; the transaction compiles the
+            # ACTUAL admitted root entry through the work plane (the
+            # direct tool-free channel) and commits the root LIVE
+            # edit before the single outgoing serialization.
+            response1 = await client.post("/v1/responses", json=self._governed_payload())
+            assert response1.status_code == 200
+            assert response1.json() == {"id": "resp-022c"}
+            assert len(captured_main) == 1
+            round1_body = captured_main[0].content
+            # The outgoing body is canonical JSON: the envelope newlines
+            # cross the wire as \n escapes (the environment head bytes).
+            head = f"# AGENTS.md instructions for {WORKSPACE}\\n\\n<INSTRUCTIONS>\\n".encode()
+            assert head in round1_body
+            assert round1_body.count(b"[slaif-live:v") == 1
+            assert round1_body.count(b"[slaif-evidence:v") == 0
+            # The root source is replaced; the unacquired read carrier
+            # stays raw (the admission entries only are edited).
+            assert b"Follow the workspace protocol" not in round1_body
+            assert b"A body." in round1_body
+            assert captured_main[0].url.host == "127.0.0.1"
+            assert captured_main[0].url.port == 18020
+            assert captured_main[0].url.path == "/v1/responses"
+            assert captured_main[0].headers["authorization"] == "Bearer test-only-upstream"
+            # The ONE direct tool-free compiler call for the admitted
+            # entry (never the public adapter pipeline).
+            assert len(captured_compile) == 1
+            compile_request = captured_compile[0]
+            assert compile_request.url.host == "127.0.0.1"
+            assert compile_request.url.port == 18020
+            assert compile_request.url.path == "/v1/chat/completions"
+            assert compile_request.headers["authorization"] == "Bearer test-only-compiler"
+            compile_body = json.loads(compile_request.content)
+            assert compile_body["stream"] is False
+            assert "tools" not in compile_body
+            assert [m["role"] for m in compile_body["messages"]] == ["system", "user"]
+            # Round two: the client resends its OWN transformed
+            # payload: the pre-check unsplices the shadow, the
+            # ordinary hit publishes nothing, and the transaction
+            # replays the marker in place -- the single outgoing body
+            # is byte-identical (the fixed point).
+            response2 = await client.post(
+                "/v1/responses",
+                content=round1_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response2.status_code == 200
+            assert len(captured_main) == 2
+            assert captured_main[1].content == round1_body
+            # In-epoch compile reuse: the retained payload is a
+            # RAM-only HIT (no further upstream call).
+            assert len(captured_compile) == 1
+            # Round three: a tampered tag in the resent transformed
+            # payload is the fixed typed marker-side refusal -- NO
+            # raw fallback forward, NO raw acquisition committed.
+            tag_start = round1_body.find(b"[slaif-live:v")
+            assert tag_start != -1
+            flip = tag_start + 20  # well inside the base64url tag body
+            flipped = b"A" if round1_body[flip : flip + 1] != b"A" else b"B"
+            tampered = round1_body[:flip] + flipped + round1_body[flip + 1 :]
+            response3 = await client.post(
+                "/v1/responses",
+                content=tampered,
+                headers={"content-type": "application/json"},
+            )
+            assert response3.status_code == 409
+            error = response3.json()["error"]
+            assert error["code"] == "v1_transaction_conflict"
+            assert error["message"] == "governed v1 request refused"
+            assert len(captured_main) == 2  # never a raw fallback
+            # The refusal committed nothing: the untampered round
+            # still replays to the fixed point.
+            response4 = await client.post(
+                "/v1/responses",
+                content=round1_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response4.status_code == 200
+            assert len(captured_main) == 3
+            assert captured_main[2].content == round1_body
+
+    @staticmethod
+    def _governed_session(app: Any, settings: Settings) -> V1Session | None:
+        """The live session of the static governed identity (the
+        trusted static closure of these tests)."""
+        runtime = app.state.v1_runtime
+        assert runtime is not None
+        identity = RequestIdentity(
+            principal="local-principal",
+            session="local-session",
+            repository="local-repository",
+            route="text",
+        )
+        address = build_session_address(
+            runtime,
+            identity,
+            settings.routes[0],
+            settings.context_cache.route_contracts["text"],
+        )
+        return cast("V1Session | None", app.state.v1_sessions.get(address))
+
+    async def test_upstream_tool_call_issuance_marks_the_read_next_round(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The order section 3 app wiring end to end: the round-one
+        ACTUAL direct upstream response issues the trusted call
+        through the per-request frozen issuance context (committed
+        under the state CAS and the protected generation); the
+        round-two matching read pair is then ACQUIRED and the single
+        outgoing body carries the root LIVE marker and the read LIVE
+        marker; the resend is the byte-identical fixed point with no
+        further upstream calls."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700)
+        recovery_root.chmod(0o700)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `c1.md` before acting.\n"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            if len(captured_main) == 1:
+                # The round-one direct response issues c1.
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "resp-r1",
+                        "status": "completed",
+                        "output": (
+                            {
+                                "type": "function_call",
+                                "id": "fc-c1",
+                                "call_id": "c1",
+                                "name": "exec_command",
+                                "arguments": json.dumps({"cmd": "cat c1.md"}),
+                            },
+                        ),
+                    },
+                )
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one: the root-only request.  The direct response
+            # issues c1; the per-request issuance context registers
+            # it under the committed-state CAS.
+            response1 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+            )
+            assert response1.status_code == 200
+            round1_body = captured_main[0].content
+            assert round1_body.count(b"[slaif-live:v") == 1
+            assert b"Follow `c1.md` before acting." not in round1_body
+            assert len(captured_compile) == 1  # the admitted root entry
+            # The issuance committed (revision over the bootstrap).
+            session = self._governed_session(app, settings)
+            assert session is not None
+            assert session.owner.revision == 2
+            # Round two: the client result for the issued call.  The
+            # read pair is now ACQUIRED (the same-run FILE entry):
+            # the outgoing body edits BOTH carriers.
+            round2_payload = {
+                "model": "qwen38-27b",
+                "input": [
+                    root_item(root_body),
+                    exec_call("c1", "cat c1.md"),
+                    out_item("c1", frame("A body.\n")),
+                ],
+            }
+            response2 = await client.post("/v1/responses", json=round2_payload)
+            assert response2.status_code == 200
+            round2_body = captured_main[1].content
+            assert round2_body.count(b"[slaif-live:v") == 2
+            assert round2_body.count(b"[slaif-evidence:v") == 0
+            assert b"A body." not in round2_body
+            assert b"Follow `c1.md` before acting." not in round2_body
+            assert len(captured_compile) == 2  # + the acquired read entry
+            # Round three: the resend of the OWN transformed payload
+            # is the byte-identical fixed point, no further upstream
+            # calls (the RAM hit).
+            response3 = await client.post(
+                "/v1/responses",
+                content=round2_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response3.status_code == 200
+            assert captured_main[2].content == round2_body
+            assert len(captured_compile) == 2
+
+    async def test_upstream_error_response_earns_no_issuance(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The 400-or-higher error path never feeds the issuance
+        observer: the upstream error body carrying a completed
+        function call earns NO issuance (the fixed generic error is
+        still passed through), and the subsequent read pair of that
+        call stays unacquired and raw."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700)
+        recovery_root.chmod(0o700)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            if len(captured_main) == 1:
+                # A 500 whose body carries a completed function call:
+                # issuance evidence only ever comes from the ACTUAL
+                # direct main response below 400.
+                return httpx.Response(
+                    500,
+                    json={
+                        "id": "resp-err",
+                        "status": "completed",
+                        "output": (
+                            {
+                                "type": "function_call",
+                                "id": "fc-c9",
+                                "call_id": "c9",
+                                "name": "exec_command",
+                                "arguments": json.dumps({"cmd": "cat c9.md"}),
+                            },
+                        ),
+                    },
+                )
+            return httpx.Response(200, json={"id": "resp-r2"})
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [root_item("Follow `c9.md` before acting.\n")],
+                },
+            )
+            assert response1.status_code == 500
+            error1 = response1.json()["error"]
+            assert error1["code"] == "upstream_error"
+            assert error1["message"] == "upstream returned an error"
+            round1_body = captured_main[0].content
+            # The error response earned no issuance.
+            session = self._governed_session(app, settings)
+            assert session is not None
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            assert snapshot.state.d_state.issuances == ()
+            # Round two: the c9 read pair is rejoined over the SAME-run
+            # evidence (the root references c9.md): the FILE entry and
+            # its LIVE marker are earned by the graph, but the
+            # occurrence is retained UNANCHORED (no issuance binding
+            # was ever registered from the error body).
+            r1 = json.loads(round1_body)
+            round2_payload = {
+                "model": "qwen38-27b",
+                "input": [
+                    *r1["input"],
+                    exec_call("c9", "cat c9.md"),
+                    out_item("c9", frame("B body.\n")),
+                ],
+            }
+            response2 = await client.post("/v1/responses", json=round2_payload)
+            assert response2.status_code == 200
+            round2_body = captured_main[1].content
+            assert round2_body.count(b"[slaif-live:v") == 2
+            assert b"B body." not in round2_body
+            session = self._governed_session(app, settings)
+            assert session is not None
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            d_state = snapshot.state.d_state
+            assert d_state.issuances == ()  # the error body still earns none
+            occurrences = [o for o in d_state.occurrences if o.call_id == "c9"]
+            assert len(occurrences) == 1
+            assert occurrences[0].anchored is False
+
+    async def test_compiler_traffic_never_observed_for_issuance(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The compiler upstream (the direct tool-free channel) is
+        never fed to the issuance observer: the compiler's completion
+        carries a well-formed tool call that WOULD be an issuance if
+        it were observed as the main response, and no such issuance
+        is registered (the compiler's own validation of the content
+        still runs and the round completes)."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700)
+        recovery_root.chmod(0o700)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+
+        def compiler_handler(request: httpx.Request) -> httpx.Response:
+            captured_compile.append(request)
+            body = json.loads(request.content)
+            user = body["messages"][1]["content"]
+            index = _index_for_demand(user, body["model"])
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl-022c",
+                    "object": "chat.completion",
+                    "model": "qwen38-27b",
+                    "choices": (
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": serialize_compiled_index(index).decode("utf-8"),
+                                "tool_calls": (
+                                    {
+                                        "id": "evil-1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "exec_command",
+                                            "arguments": json.dumps({"cmd": "cat evil.md"}),
+                                        },
+                                    },
+                                ),
+                            },
+                            "finish_reason": "stop",
+                        },
+                    ),
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                },
+            )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_handler(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": "resp-022c"})
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [root_item("Follow `c1.md` before acting.\n")],
+                },
+            )
+            assert response1.status_code == 200
+            assert response1.json() == {"id": "resp-022c"}
+            # The compile ran (the content validated through the
+            # ACTUAL compiler parser) and the root marker was minted.
+            assert len(captured_compile) == 1
+            assert captured_main[0].content.count(b"[slaif-live:v") == 1
+            # The compiler's tool call was NEVER observed as an
+            # issuance (the observer only consumes the actual direct
+            # main upstream response).
+            session = self._governed_session(app, settings)
+            assert session is not None
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            assert snapshot.state.d_state.issuances == ()
+
+    async def test_two_distinct_frozen_frontiers_never_rebase_on_later_facts(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The per-request FROZEN represented-frontier law end to end
+        over the ACTUAL FastAPI entry point (two distinct frontiers):
+        round one (the cold bootstrap commits the graph-admitted cA
+        read UNANCHORED) issues xA from the ACTUAL split SSE stream
+        under its own frozen frontier (the root fact plus the cA
+        occurrence); round two pairs the xA receipt, anchoring the
+        new occurrence under that EXACT frozen frontier (one proven
+        parent edge per member), and this request's own represented
+        frontier reduces to the single new occurrence (both proven
+        ancestors reduce); the round-two nonstream response then
+        issues y under THAT distinct frontier.  The two retained
+        issuances carry two DISTINCT frozen frontiers: the first one
+        is never rebased on the later-committed receipt."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700)
+        recovery_root.chmod(0o700)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `cA.md` and `x1.md` before acting.\n"
+        xA_args = json.dumps({"cmd": "cat x1.md"})
+
+        def sse(data: dict[str, Any]) -> bytes:
+            return (
+                b"data: "
+                + json.dumps(data, separators=(",", ":"), ensure_ascii=True).encode()
+                + b"\n\n"
+            )
+
+        # The round-one ACTUAL direct SSE response: the complete xA
+        # function call assembled over bounded chunk seams (one frame
+        # is deliberately split across two yielded chunks so the
+        # incremental assembly runs over real seams).
+        frame_added = sse(
+            {
+                "type": "response.output_item.added",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc-xA",
+                    "call_id": "xA",
+                    "name": "exec_command",
+                    "arguments": "",
+                },
+            }
+        )
+        frame_delta_1 = sse(
+            {
+                "type": "response.function_call_arguments.delta",
+                "item_id": "xA",
+                "delta": '{"cmd": "',
+            }
+        )
+        frame_delta_2 = sse(
+            {
+                "type": "response.function_call_arguments.delta",
+                "item_id": "xA",
+                "delta": 'cat x1.md"}',
+            }
+        )
+        frame_completed = sse(
+            {
+                "type": "response.function_call_arguments.completed",
+                "item_id": "xA",
+                "item": {
+                    "type": "function_call",
+                    "id": "fc-xA",
+                    "call_id": "xA",
+                    "name": "exec_command",
+                    "arguments": xA_args,
+                },
+            }
+        )
+        frame_done = sse(
+            {"type": "response.completed", "response": {"id": "resp-r1", "status": "completed"}}
+        )
+        full_stream = (
+            frame_added
+            + frame_delta_1
+            + frame_delta_2
+            + frame_completed
+            + frame_done
+            + b"data: [DONE]\n\n"
+        )
+        split_at = len(frame_added) + len(frame_delta_1) // 2  # mid-frame
+
+        class XStream(httpx.AsyncByteStream):
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                yield full_stream[:split_at]
+                yield full_stream[split_at:]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            if len(captured_main) == 1:
+                return httpx.Response(
+                    200, headers={"content-type": "text/event-stream"}, stream=XStream()
+                )
+            if len(captured_main) == 2:
+                # The round-two direct (nonstream) response issues y.
+                return httpx.Response(
+                    200,
+                    json={
+                        "id": "resp-r2",
+                        "status": "completed",
+                        "output": (
+                            {
+                                "type": "function_call",
+                                "id": "fc-y",
+                                "call_id": "y",
+                                "name": "exec_command",
+                                "arguments": json.dumps({"cmd": "cat y1.md"}),
+                            },
+                        ),
+                    },
+                )
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one: the cold bootstrap over root + the cA read
+            # pair (the root references cA.md: graph-admitted); the
+            # ACTUAL split SSE issues xA under this request's frozen
+            # represented frontier.
+            response1 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [
+                        root_item(root_body),
+                        exec_call("cA", "cat cA.md"),
+                        out_item("cA", frame("CA body.\n")),
+                    ],
+                    "stream": True,
+                },
+            )
+            assert response1.status_code == 200
+            # The actual SSE passes through byte-identical.
+            assert response1.content == full_stream
+            round1_body = captured_main[0].content
+            assert round1_body.count(b"[slaif-live:v") == 2  # root + cA
+            assert b"CA body." not in round1_body
+            assert b"Follow `cA.md` and `x1.md` before acting." not in round1_body
+            assert len(captured_compile) == 2  # root + cA, once each
+            session = self._governed_session(app, settings)
+            assert session is not None
+            # The bootstrap (root + cA) is revision one; the xA
+            # issuance registration is revision two.
+            assert session.owner.revision == 2
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            d = snapshot.state.d_state
+            occs = {o.call_id: o for o in d.occurrences}
+            assert set(occs) == {"cA"}
+            occ_a = occs["cA"]
+            assert occ_a.anchored is False  # client history: no binding
+            issuances = {i.call_id: i for i in d.issuances}
+            assert set(issuances) == {"xA"}
+            x_issuance = issuances["xA"]
+            # The FROZEN round-one frontier: exactly the two facts
+            # this request represents (never the retained state).
+            assert x_issuance.parent_frontier == tuple(
+                sorted((CAUSAL_ROOT_FACT, occ_a.occurrence_id))
+            )
+            # Round two: the xA receipt pairs with the retained
+            # issuance: the new occurrence is ANCHORED under the
+            # frozen round-one frontier (one proven parent edge per
+            # member), and this request's own represented frontier
+            # reduces to the single new occurrence (both proven
+            # ancestors reduce).
+            round2_payload = {
+                "model": "qwen38-27b",
+                "input": [
+                    root_item(root_body),
+                    exec_call("xA", "cat x1.md"),
+                    out_item("xA", frame("X1 body.\n")),
+                ],
+            }
+            response2 = await client.post("/v1/responses", json=round2_payload)
+            assert response2.status_code == 200
+            round2_body = captured_main[1].content
+            assert round2_body.count(b"[slaif-live:v") == 2  # root + x1
+            assert b"X1 body." not in round2_body
+            assert b"Follow `cA.md` and `x1.md` before acting." not in round2_body
+            assert len(captured_compile) == 3  # + the x1 read entry
+            session = self._governed_session(app, settings)
+            assert session is not None
+            # The anchor (revision three) and the y issuance
+            # (revision four).
+            assert session.owner.revision == 4
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            d = snapshot.state.d_state
+            occs = {o.call_id: o for o in d.occurrences}
+            assert set(occs) == {"cA", "xA"}
+            occ_x1 = occs["xA"]
+            assert occ_x1.anchored is True
+            links = {(link.child, link.parent) for link in d.parent_links}
+            assert (occ_x1.occurrence_id, CAUSAL_ROOT_FACT) in links
+            assert (occ_x1.occurrence_id, occ_a.occurrence_id) in links
+            issuances = {i.call_id: i for i in d.issuances}
+            assert set(issuances) == {"xA", "y"}
+            y_issuance = issuances["y"]
+            # The two DISTINCT frozen frontiers: y registered under
+            # the reduced round-two frontier; xA's frontier is the
+            # EXACT round-one one (never rebased on the later
+            # committed receipt).
+            assert y_issuance.parent_frontier == (occ_x1.occurrence_id,)
+            assert x_issuance.parent_frontier == tuple(
+                sorted((CAUSAL_ROOT_FACT, occ_a.occurrence_id))
+            )
+            assert x_issuance.parent_frontier != y_issuance.parent_frontier
+            assert occ_x1.occurrence_id not in x_issuance.parent_frontier
+            # Round three: the resend of the OWN transformed payload
+            # is the byte-identical fixed point (no rebase, no
+            # further upstream calls: the RAM hit).
+            response3 = await client.post(
+                "/v1/responses",
+                content=round2_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response3.status_code == 200
+            assert captured_main[2].content == round2_body
+            assert len(captured_compile) == 3
+
+    async def test_publish_fault_refuses_replay_until_the_generation_heals(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The replay-after-fault proof through the ACTUAL
+        FastAPI/fake-upstream path: the round-two transition commits
+        (the RAM revision advances) while the protected generation
+        faults on fsync -- the fixed 503 refusal with NO forward,
+        the durable generation and its bound untouched; the SAME
+        payload resent while the fault persists is refused again (
+        the retained generation-one pointer is bound to the
+        revision-one snapshot it actually published: it can never
+        prove the newer undurable record set); once the fault heals
+        the same payload publishes generation two, the single
+        outgoing body is the exact transformed form, and the resend
+        is the byte-identical fixed point."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700)
+        recovery_root.chmod(0o700)
+        real_fsync = os.fsync
+        fault = {"on": False}
+
+        def faulty_fsync(fd: int) -> None:
+            if fault["on"]:
+                raise OSError(5, "I/O error")
+            real_fsync(fd)
+
+        # The injected durable-fault window: the round-two protected
+        # generation (and every attempt while the window is open)
+        # fails at fsync; everything else is the real fsync.
+        monkeypatch.setattr(os, "fsync", faulty_fsync)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `c1.md` before acting.\n"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one: the cold bootstrap publishes generation one.
+            response1 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+            )
+            assert response1.status_code == 200
+            round1_body = captured_main[0].content
+            assert round1_body.count(b"[slaif-live:v") == 1
+            assert b"Follow `c1.md` before acting." not in round1_body
+            session = self._governed_session(app, settings)
+            assert session is not None
+            assert session.session_owner is not None
+            assert session.last_publish is not None
+            assert session.last_publish.generation == 1
+            assert session.last_publish_bound is not None
+            assert session.last_publish_bound[0] == 1
+            assert session.session_owner.bound_generation == 1
+            round2_payload = {
+                "model": "qwen38-27b",
+                "input": [
+                    root_item(root_body),
+                    exec_call("c1", "cat c1.md"),
+                    out_item("c1", frame("A body.\n")),
+                ],
+            }
+            # Round two: the commit applies (RAM revision two) while
+            # the protected generation faults: the fixed 503 refusal
+            # with NO forward.
+            fault["on"] = True
+            response2 = await client.post("/v1/responses", json=round2_payload)
+            assert response2.status_code == 503
+            error2 = response2.json()["error"]
+            assert error2["code"] == "v1_publish_refused"
+            assert error2["message"] == "governed v1 request refused"
+            assert len(captured_main) == 1  # no forward, no raw fallback
+            assert session.owner.revision == 2
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            assert snapshot.state.d_state.revision == 2
+            # The durable generation and its bound are UNTOUCHED:
+            # the retained pointer still proves only revision one.
+            assert session.last_publish is not None
+            assert session.last_publish.generation == 1
+            assert session.last_publish_bound is not None
+            assert session.last_publish_bound[0] == 1
+            assert session.session_owner is not None
+            assert session.session_owner.bound_generation == 1
+            # The SAME payload resent while the fault persists:
+            # refused again (the newer undurable record set is never
+            # forwarded under the stale proof).
+            response3 = await client.post("/v1/responses", json=round2_payload)
+            assert response3.status_code == 503
+            assert response3.json()["error"]["code"] == "v1_publish_refused"
+            assert len(captured_main) == 1
+            assert session.owner.revision == 2
+            assert session.session_owner is not None
+            assert session.session_owner.bound_generation == 1
+            assert session.last_publish is not None
+            assert session.last_publish.generation == 1
+            # The fault heals: the same payload now publishes
+            # generation two and the single outgoing body is the
+            # exact transformed form.
+            fault["on"] = False
+            response4 = await client.post("/v1/responses", json=round2_payload)
+            assert response4.status_code == 200
+            round2_body = captured_main[1].content
+            assert round2_body.count(b"[slaif-live:v") == 2  # root + c1
+            assert b"A body." not in round2_body
+            assert b"Follow `c1.md` before acting." not in round2_body
+            assert len(captured_compile) == 2
+            assert session.last_publish is not None
+            assert session.last_publish.generation == 2
+            assert session.last_publish_bound is not None
+            assert session.last_publish_bound[0] == 2
+            assert session.session_owner is not None
+            assert session.session_owner.bound_generation == 2
+            # The resend of the OWN transformed payload: the
+            # byte-identical fixed point (the ordinary hit under the
+            # retained generation-two publication, no recompile).
+            response5 = await client.post(
+                "/v1/responses",
+                content=round2_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response5.status_code == 200
+            assert captured_main[2].content == round2_body
+            assert len(captured_compile) == 2
+            assert session.session_owner is not None
+            assert session.session_owner.bound_generation == 2

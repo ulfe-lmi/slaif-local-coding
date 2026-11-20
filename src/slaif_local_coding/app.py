@@ -22,7 +22,27 @@ from .constitution import (
     ObservationContext,
     observe_request_for_pipeline,
 )
-from .constitution.cache import CachePolicy
+from .constitution.bundles.observation_models import PathContext
+from .constitution.bundles.observe import observe_request
+from .constitution.bundles.v1_application import (
+    V1IssuanceContext,
+    V1RequestRefusal,
+    V1SessionTable,
+    advance_v1_session,
+    build_session_address,
+    establish_v1_session,
+    prepare_replay_shadow,
+    prepare_v1_transaction,
+)
+from .constitution.bundles.v1_runtime import (
+    V1Runtime,
+    build_v1_runtime,
+)
+
+# Explicit re-export of the fixed typed v1 startup failure (the 022-a
+# public entry-point surface; the definition lives with the component).
+from .constitution.bundles.v1_runtime import V1RuntimeUnavailableError as V1RuntimeUnavailableError
+from .constitution.cache import CachePolicy, RequestIdentity
 from .constitution.compiler import CompilerSettings
 from .constitution.models import IncompleteReason, ObservationResult, TrustClass
 from .constitution.pipeline import ConstitutionInjectionRejected, ConstitutionPipeline
@@ -217,29 +237,24 @@ async def _read_bounded_error_diagnostic(
         return None
 
 
-V1_RUNTIME_UNAVAILABLE_MESSAGE = (
-    "the dependency-bundles-v1 profile is selected but the v1 runtime is unavailable in this build"
-)
-
-
-class V1RuntimeUnavailableError(RuntimeError):
-    """Fixed startup refusal for a selected v1 profile (022-a guard).
-
-    Raised by ``create_app`` before any HTTP client, legacy cache or
-    recovery owner is constructed. The guard is removed only when the
-    same-022 transaction is wired. A settings model or an app refused
-    before starting does not establish v1 readiness, source replacement,
-    native-format, streaming or recovery qualification.
-    """
-
-
 def create_app(
     settings: Settings,
     transport: httpx.AsyncBaseTransport | None = None,
     signed_identity_clock: Callable[[], float] | None = None,
 ) -> FastAPI:
+    v1_runtime: V1Runtime | None = None
     if settings.context_cache.profile == V1_PROFILE:
-        raise V1RuntimeUnavailableError(V1_RUNTIME_UNAVAILABLE_MESSAGE)
+        # 022-c: the runnable v1 profile.  The closed construction order
+        # verifies the recovery capability and the pinned tokenizer
+        # BEFORE any HTTP client exists, so the fixed typed startup
+        # failure leaves no network component and no legacy pipeline
+        # behind; v1 governed routes never instantiate or use the
+        # legacy cache/compiler/rehydration.
+        v1_runtime = build_v1_runtime(settings, compiler_transport=transport)
+    # The process-owned live v1 session table (one worker, one
+    # process; the closed registry identity join over the actual
+    # registered namespace records).
+    v1_sessions: V1SessionTable | None = V1SessionTable() if v1_runtime is not None else None
     timeout = httpx.Timeout(
         connect=settings.upstream.connect_timeout_seconds,
         read=settings.upstream.request_timeout_seconds,
@@ -260,7 +275,7 @@ def create_app(
         if settings.gateway_ingress.signed
         else None
     )
-    if settings.constitution.enabled:
+    if settings.constitution.enabled and v1_runtime is None:
         compiler_settings = CompilerSettings(
             base_url=settings.upstream.base_url.rstrip("/"),
             api_key_env=settings.compiler.api_key_env,
@@ -402,6 +417,15 @@ def create_app(
         try:
             yield
         finally:
+            if v1_runtime is not None:
+                if v1_sessions is not None:
+                    # Explicit process teardown: fence and release
+                    # every live v1 owner (the retained recovery
+                    # writer sessions close with their owners).
+                    for session in v1_sessions.sessions():
+                        session.owner.teardown(session.namespace)
+                    v1_sessions.clear()
+                await v1_runtime.aclose()
             if constitution_pipeline is not None:
                 await constitution_pipeline.aclose()
             await client.aclose()
@@ -409,6 +433,8 @@ def create_app(
     app = FastAPI(lifespan=lifespan)
     app.state.constitution_pipeline = constitution_pipeline
     app.state.signed_identity_replay = replay_protector
+    app.state.v1_runtime = v1_runtime
+    app.state.v1_sessions = v1_sessions
 
     def route_for(endpoint: str, model: str) -> RouteConfig | None:
         matches = [
@@ -440,7 +466,17 @@ def create_app(
                     ingress_state = "ready"
         cache_state = "disabled"
         compiler_state = "disabled"
-        if constitution_pipeline is not None:
+        if v1_runtime is not None:
+            # The v1 runtime is process-owned: the recovery store root
+            # was verified at startup (ready) and the bounded compiler
+            # is ready when its protected credential reference resolves.
+            cache_state = "ready"
+            try:
+                v1_runtime.compiler.config.api_key()
+                compiler_state = "ready"
+            except ValueError:
+                compiler_state = "unavailable"
+        elif constitution_pipeline is not None:
             cache_state = (
                 "ready"
                 if (
@@ -535,6 +571,7 @@ def create_app(
         if body is None:
             return local_error(413, "request body exceeds configured limit", "request_too_large")
 
+        v1_issuance: V1IssuanceContext | None = None
         verified_identity = None
         if settings.gateway_ingress.signed:
             assert replay_protector is not None
@@ -648,10 +685,141 @@ def create_app(
                     payload = tool_result.payload
                     body = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode()
             post_image_body = body
+            # 022-c: the governed v1 request path.  Ordered after the
+            # request guard / auth / route match / image policy and the
+            # Responses tool policy (the closed pipeline order) and
+            # before the legacy observation: a v1 governed route never
+            # instantiates or touches the legacy cache / compiler /
+            # rehydration, and no caller assertion of scope / session /
+            # compiler bypass / trusted issuance is used (the verified
+            # signed identity or the configured trusted static one).
+            if v1_runtime is not None and v1_sessions is not None and route.constitution_enabled:
+                contract = v1_runtime.governed_routes.get(route.name)
+                if contract is not None:
+                    v1_endpoint = "responses" if endpoint == "/v1/responses" else "chat"
+                    if verified_identity is not None:
+                        v1_identity: RequestIdentity = verified_identity
+                    else:
+                        # The existing explicitly configured trusted
+                        # static identity (the v1 settings closure
+                        # requires the enabled constitution with the
+                        # complete static identity).
+                        assert (
+                            settings.constitution.principal is not None
+                            and settings.constitution.session is not None
+                            and settings.constitution.repository is not None
+                        )
+                        v1_identity = RequestIdentity(
+                            principal=settings.constitution.principal,
+                            route=route.name,
+                            session=settings.constitution.session,
+                            repository=settings.constitution.repository,
+                        )
+                    address = build_session_address(v1_runtime, v1_identity, route, contract)
+                    established = establish_v1_session(
+                        v1_runtime,
+                        v1_sessions,
+                        address=address,
+                        identity=v1_identity,
+                        route=route,
+                        contract=contract,
+                        observation=observe_request(payload, endpoint=v1_endpoint),
+                        payload=payload,
+                        endpoint=v1_endpoint,
+                    )
+                    if isinstance(established, V1RequestRefusal):
+                        return local_error(
+                            established.status_code,
+                            "governed v1 request refused",
+                            established.code,
+                        )
+                    if established is not None:
+                        # The workspace is the legitimate observed scope
+                        # (cold) or the verified resumed scope (resume);
+                        # the transaction geometry is re-observed under
+                        # it before the final replay scan.
+                        scoped_observation = observe_request(
+                            payload,
+                            context=PathContext(workspace=established.namespace.workspace),
+                            endpoint=v1_endpoint,
+                        )
+                        # The marker-shaped source replay is detected
+                        # and authenticated BEFORE the transition's
+                        # raw acquisition (022-c section 1/2): the
+                        # shadow the transition observes, or the fixed
+                        # typed marker-side refusal (no raw state
+                        # committed over marker bytes).
+                        shadow, precheck_refusal = await prepare_replay_shadow(
+                            established,
+                            v1_runtime,
+                            payload=payload,
+                            endpoint=v1_endpoint,
+                            observation=scoped_observation,
+                        )
+                        if precheck_refusal is not None:
+                            return local_error(
+                                precheck_refusal.status_code,
+                                "governed v1 request refused",
+                                precheck_refusal.code,
+                            )
+                        assert shadow is not None
+                        proof, advance_refusal = advance_v1_session(
+                            established,
+                            v1_runtime,
+                            payload=shadow,
+                            endpoint=v1_endpoint,
+                            observation=scoped_observation,
+                        )
+                        if advance_refusal is not None:
+                            return local_error(
+                                advance_refusal.status_code,
+                                "governed v1 request refused",
+                                advance_refusal.code,
+                            )
+                        assert proof is not None
+                        transaction = await prepare_v1_transaction(
+                            established,
+                            v1_runtime,
+                            payload=payload,
+                            endpoint=v1_endpoint,
+                            observation=scoped_observation,
+                            proof=proof,
+                        )
+                        if isinstance(transaction, V1RequestRefusal):
+                            return local_error(
+                                transaction.status_code,
+                                "governed v1 request refused",
+                                transaction.code,
+                            )
+                        # The single outgoing body of the one main
+                        # upstream forward (the transformed payload on
+                        # OK, the unchanged original payload on
+                        # NO_REPLACEMENT).
+                        body = transaction.body
+                        # The post-forward trusted-issuance context of
+                        # THIS committed request (022-c section 3):
+                        # the actual direct main upstream response
+                        # observed through it earns 018 issuances
+                        # under the committed-state CAS (never
+                        # compiler traffic; the frozen frontier is
+                        # THIS request's actual represented
+                        # completed-fact frontier, never the retained
+                        # state as a whole, and never rebased).
+                        v1_issuance = V1IssuanceContext(
+                            session=established,
+                            namespace=established.namespace,
+                            state=proof.snapshot.state,
+                            frontier=transaction.represented_frontier,
+                            endpoint=v1_endpoint,
+                        )
             observation: ObservationResult | None = None
             observation_sources: dict[tuple[str, str], bytes] = {}
             observation_dependencies: dict[str, bytes] = {}
-            if route.observation_enabled:
+            if route.observation_enabled and v1_runtime is None:
+                # Legacy observation surface: inert under the v1
+                # profile (v1 governed routes run the accepted 017
+                # composition at their own slice; legacy labels must
+                # not record v1 traffic).
                 observation_started = time.monotonic()
                 try:
                     observed_result, source_bytes, dependency_bytes = observe_request_for_pipeline(
@@ -814,10 +982,17 @@ def create_app(
             )
 
         if stream:
+            issuance = (
+                v1_issuance
+                if v1_issuance is not None and 200 <= upstream.status_code < 400
+                else None
+            )
 
             async def chunks() -> AsyncIterator[bytes]:
                 try:
                     async for chunk in upstream.aiter_raw():
+                        if issuance is not None:
+                            issuance.observe_stream_chunk(chunk)
                         yield chunk
                 except asyncio.CancelledError:
                     upstream_failures.labels("disconnect").inc()
@@ -860,6 +1035,8 @@ def create_app(
             return local_error(502, "upstream response failed", "upstream_error")
         finally:
             await upstream.aclose()
+        if v1_issuance is not None and 200 <= upstream.status_code < 400:
+            v1_issuance.observe_nonstream(content)
         return Response(content, status_code=upstream.status_code, headers=response_headers)
 
     return app

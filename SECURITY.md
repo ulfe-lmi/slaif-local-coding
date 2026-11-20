@@ -95,13 +95,24 @@ This exception is not a general permission to log or store bodies:
   automatic timed deletion. Where required by deployment, filesystem
   encryption is an explicit prerequisite, not an unimplemented guarantee.
 
-The 020-a protected per-session recovery store is implemented as an INERT
-component (contract [docs/CACHE-RECOVERY-CONTRACT.md](docs/CACHE-RECOVERY-CONTRACT.md);
-PENDING strategic review at its bounded inert component scope): it is not active
-in the adapter, no configuration key enables it, and no v1 profile is qualified.
-Until the v1 profile is implemented and qualified, no such store is active and
-the default prohibition applies unchanged in every active profile. Operational
-logs and metrics remain content-free in every profile.
+The 020-a protected per-session recovery store is implemented (contract
+[docs/CACHE-RECOVERY-CONTRACT.md](docs/CACHE-RECOVERY-CONTRACT.md)) and is
+active under the explicitly opted-in `dependency-bundles-v1` profile from
+022-c: every governed v1 request commits through the accepted 020
+owned/fenced admit/checkpoint path (cold, resumed and steady-state owners
+alike; no raw writer shortcut), and a request newly relies on a protected
+generation only after the ACTUAL successful publication of the exact
+snapshot the edits rely on — the retained successful publish is bound to
+the exact snapshot/epoch it actually published, a faulted publication
+keeps the prior bound, and a newer undurable record set is refused (the
+fixed typed v1 refusal, no raw fallback forward). The store remains
+PENDING strategic review at its bounded scope, and the default
+prohibition applies unchanged in the legacy profile. The 022-c marker
+key is a distinct application-owned private key carried only as a
+PROTECTED ENVIRONMENT REFERENCE (`marker_key_env`): resolved once at v1
+runtime construction, held in process memory (repr-suppressed), never a
+gateway or service credential, and never persisted, logged or echoed.
+Operational logs and metrics remain content-free in every profile.
 
 ## Protected live-host resources
 
