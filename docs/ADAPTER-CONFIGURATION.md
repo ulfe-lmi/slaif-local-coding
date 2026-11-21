@@ -407,71 +407,216 @@ of signed identity, gateway quotas/accounting, generic production readiness, and
 cutover remain outside this repository's production boundary. Fixture-specific acceptance is recorded in the
 [historical ledger](OBJECTIVE-004-LEDGER.md).
 
-## Planned: the `dependency-bundles-v1` profile (not implemented)
+## The `dependency-bundles-v1` profile (022-a configuration, 022-b pure-transaction and 022-c application-transaction slices implemented; the v1 runtime active on opted-in routes at its bounded application scope)
 
-The approved dependency-bundle cache rework will introduce an opt-in cache
-profile. The configuration names below are **design placeholders from
-[the handoff](CACHE-REWORK.md) and [the implementation
-plan](CACHE-IMPLEMENTATION-PLAN.md), not current keys**, and no example in
-this section is runnable in the current release. This section is the planned
-configuration contract; the criterion-level gates for it live in [the stage
-ledger](CACHE-REWORK-LEDGER.md).
+The approved dependency-bundle cache rework ([the handoff](CACHE-REWORK.md),
+[the implementation plan](CACHE-IMPLEMENTATION-PLAN.md)) is selected by the
+explicit `[context_cache]` configuration. Omitting the section, or
+`profile = "legacy"`, keeps the existing legacy behavior and defaults.
+`profile = "dependency-bundles-v1"` is accepted only with its closed, typed
+configuration; unknown, incompatible or ambiguous settings fail closed. The
+criterion-level gates for the profile live in
+[the stage ledger](CACHE-REWORK-LEDGER.md).
 
-Planned requirements:
+The configuration is validated, and the 022-c application
+transaction wires the v1 runtime on opted-in governed routes:
+`create_app` builds the runnable v1 runtime (the process-owned
+recovery store, the pinned tokenizer, the RAM registry, the direct
+tool-free compiler channel, and the live session table) when the
+closed v1 configuration is complete and valid, and refuses at
+startup with a fixed typed error (before constructing an HTTP
+client) only on a missing or unprepared recovery root or an
+unresolvable marker key reference. A settings model or a refused
+app does not establish v1 readiness, source replacement,
+native-format, streaming or recovery qualification beyond the
+bounded 022-c fake-upstream application scope; the later 023-024
+stages remain unearned. Legacy remains usable through its existing
+entry points.
 
-- Enable/disable the profile independently of image handling. Conflicting
-  legacy cache/TTL/byte-budget settings under the profile are configuration
-  errors surfaced with explicit migration errors, never silently
-  reinterpreted.
-- Explicit admission mode `lean` (default) or `greedy`, recorded in
-  configuration, cache identity and recovery state, and immutable within a
-  session configuration identity.
-- Trusted effective context token budget `C` from a validated route/session
-  contract (never inferred from the serving maximum), the base-slot divisor
-  `32`, the aggregate injection limit, and the generation/tool/uncertainty
-  reserves — all explicit, configurable, and bound into identity.
-- Pinned CPU-only actual-model tokenizer identity (version/digest); no model
-  weights, torch, or image decoding.
-- Validated compiler model, policy, output budget, timeout and concurrency
-  (one concurrent leader by default); no automatic infrastructure, schema or
-  truncation retry in the profile.
-- Session namespace/ownership (one service worker and one live owner per
-  session; unsupported multi-worker configuration rejected) and explicit
-  process/per-session RAM safety ceilings with fixed backpressure.
-- Explicit per-session restart-recovery opt-in, mandatory for an enabled v1
-  profile (the profile is not a supported configuration without it), with
-  protected location, atomic generation publication, retention/deletion
-  semantics, and stated encryption prerequisites.
-- Explicit unsupported-read, compile-failure, source-conflict and overflow
-  behavior (typed 503/409/422), with no hidden raw-source fallback.
-- Finite parser/request limits and explicit resource-pressure behavior.
+### The `[context_cache]` keys
 
-Component status: the first two inert slices of this planned profile have landed: 019-a — the bounded RAM owner and atomic state storage foundation (`RamStateOwnerRegistry`/`RamStateBounds` over ACTUAL accepted 018-p/018-t records, ACCEPTED at its bounded inert RAM owner/store scope, per [the RAM state contract](CACHE-RAM-STATE-CONTRACT.md)) — and 019-b — the bounded async single-flight work plane over the 019-a registry (`RamWorkCoordinator`/`RamWorkBounds`, opt-in via the registry `work_bounds`, per [the RAM work contract](CACHE-RAM-WORK-CONTRACT.md), delivered at its bounded inert single-flight scope NOT ACCEPTED against the complete accounting requirement or whole 019 per the 019-b strategic decision). The 019-c whole-019 closure round implements the remaining pressure/source-scale/lifecycle closure at the inert injected-work layer (PENDING strategic review). The 020-a whole-020 protected session recovery component (closed record/codec, protected per-session store, bounded shared-RAM recovery reservations, durable epoch binding, fail-closed quarantine fence, owned bounded async store IO, lazy once-per-epoch rebuild; contract [the recovery contract](CACHE-RECOVERY-CONTRACT.md)) is implemented at the inert recovery-component layer (PENDING strategic review). All of them are inert: no adapter configuration key, no application wiring or profile activation is implemented by them; the planned keys above remain placeholders until the owning stages land, and 020-024 stay unearned.
+- `profile`: `"legacy"` (default) or `"dependency-bundles-v1"`.
+- `workers`: strictly `1` (the one-worker policy). Any other integer and any
+  boolean, float or string value is a configuration error.
+- `admission_mode`: `"lean"` (default) or `"greedy"` (must be explicit);
+  v1 only.
+- `budget`: the explicit effective-context budget (the accepted 021
+  `BundleBudgetConfig`): the effective context `C`, the slot/width/aggregate/
+  reserve laws, and the explicit vision contract (`vision_enabled` with
+  the per-retained-image reserve and retained capacity) where the
+  enabled routes' image policy declares it: a capped vision route
+  requires it, a capped text-only route refuses it, and a passthrough
+  route (no enforced image limit) is neutral and may use the declared
+  vision contract or a text contract. One contract cannot serve mixed
+  vision and text-only declarations, and retained capacity must cover
+  each route's image limit.
+- `compiler`: the explicit bounded compiler policy (the accepted 021
+  `BundleCompilerConfig`): declared model, revision and compatibility
+  identity, bounded input/output/timeout policies, and a protected
+  environment credential reference for the direct upstream channel that may
+  share the private upstream environment name but never a Gateway
+  credential's environment name.
+- `ram`: the explicit bounded process/session RAM ownership (the accepted
+  019 `RamStateBounds`).
+- `recovery`: the explicit protected-recovery opt-in (`enabled` plus an
+  absolute normalized `root`); mandatory for the v1 profile. Configuration
+  validation never opens, creates, enumerates or probes the recovery store,
+  never resolves a request workspace, never reads credentials and never
+  calls an upstream. The operator-prepared directory, retention, deletion
+  and encryption obligations are the protected source-recovery contract in
+  `SECURITY.md`.
+- `route_contracts.<route>`: one explicit model contract per governed route,
+  binding the route's declared model to the pinned tokenizer/render
+  capability (the pinned upstream revision and render policy version; any
+  deviation fails closed) and the configured effective `C`. Orphan or
+  missing contracts fail closed; compatible routes may explicitly share a
+  contract.
+- `marker_key_env`: the distinct application-owned private marker key
+  material (022-c) as a PROTECTED ENVIRONMENT REFERENCE (the name of the
+  environment variable holding the key bytes), never the key itself;
+  mandatory for the v1 profile. The value is resolved once at v1 runtime
+  construction, stays in process memory (repr-suppressed) and never
+  crosses Git, logs, refs, response fields, test captures or operational
+  reprs. It is never a gateway / service credential and never a public
+  digest; the stable authenticated session binding stays the MAC-bound
+  trusted namespace key (stable across recovery).
 
-Illustrative vocabulary, **not runnable TOML for the current release**:.
+### Legacy/v1 migration law
+
+- Under the v1 profile, an explicitly supplied legacy cache/TTL/LRU,
+  derived-rehydration, compiler or byte-injection/selector policy is a
+  configuration error with a fixed message — even when supplied at its
+  default value. A materialized default or an empty policy block alone does
+  not conflict.
+- The common constitution enablement/identity fields and the route
+  observation/constitution flags are shared by both profiles; the legacy
+  compiler/selector schema rules apply to the legacy profile only.
+
+### Configuration privacy
+
+Configuration error messages are fixed; validation errors never echo the
+raw validation input, and the recovery root never appears in model reprs.
+
+### Illustrative settings excerpt (not a complete configuration document)
+
+The keys below are the current `[context_cache]` contract. The excerpt
+is illustrative: it requires the normal surrounding configuration
+(`server`, `upstream`, at least one `routes` entry, and the enabled
+constitution identity for a v1 profile), and the `model_revision`
+placeholder is shown for shape only — a real value must be the pinned
+40-hex revision or validation fails closed. A complete valid v1
+configuration builds the runnable v1 runtime in this build (022-c);
+the `marker_key_env` reference must name a resolvable environment
+variable holding the application-owned private marker key.
 
 ```toml
 [context_cache]
 profile = "dependency-bundles-v1"
-admission_mode = "lean"       # or "greedy"; selected explicitly
-working_storage = "memory"
-effective_context_tokens = 32768
-slot_divisor = 32
-active_session_retention = "retain_entries"
+admission_mode = "lean"       # or "greedy"; must be explicit
+marker_key_env = "SLAIF_V1_MARKER_KEY"  # protected env reference, 022-c
+
+[context_cache.budget]
+context_tokens = 32768
+# the explicit vision contract (vision_enabled / per_image_reserve /
+# max_retained_images) only under the enabled route's image policy
+
+[context_cache.compiler]
+model = "qwen38-27b"
+base_url = "http://127.0.0.1:18020/v1"
+model_revision = "<40-hex pinned revision>"
+compatibility_identity = "slaif-rtx3090-compat-1"
+api_key_env = "SLAIF_V1_COMPILER_KEY"
+
+[context_cache.ram]
+session_max_owned_bytes = 134217728
+process_max_owned_bytes = 536870912
 
 [context_cache.recovery]
-enabled = true   # mandatory for the v1 profile
-load_policy = "on_session_resume_after_restart"
-rebuild_compiled_entries = true
+enabled = true
+root = "/var/lib/slaif/v1-recovery"   # absolute, normalized, operator-prepared
+
+[context_cache.route_contracts.text]
+model = "qwen38-27b"
+context_tokens = 32768
+# tokenizer_upstream / tokenizer_revision / render_policy_version default to
+# the pinned capability; any deviation fails closed
 ```
 
-The complete operational configuration must additionally set the aggregate
-budget/reserves and the failure/ownership policies; they are never inferred
-from the abbreviated example or from the server's largest advertised context.
-The resolved configuration identity is persisted with each session. Until the
-configuration implementation lands, the adapter accepts none of these keys and
-this section documents intent only.
+The complete operational configuration must additionally set the vision
+contract and reserves where the route image policy requires them; they are
+never inferred from the abbreviated example or from the server's largest
+advertised context.
 
+Component status: the inert component stages of this profile have landed:
+whole 019 (the 019-a bounded RAM owner and atomic state storage,
+the 019-b bounded async single-flight work plane, and the 019-c
+whole-019 closure at the inert injected-work layer) is ACCEPTED at its
+bounded inert RAM/work scopes (contract
+[the RAM-state contract](CACHE-RAM-STATE-CONTRACT.md), [the RAM-work
+contract](CACHE-RAM-WORK-CONTRACT.md)); whole 020 (the protected session
+recovery component and its ownership/fault corrections at the inert
+recovery-component layer) is ACCEPTED at its bounded inert
+recovery-component scope (contract
+[the recovery contract](CACHE-RECOVERY-CONTRACT.md)); and whole 021 (the
+pinned tokenizer, budgets, direct compiler and selection component)
+is ACCEPTED at its bounded inert component scope (PR 29 merged to main
+at `144af0bd5e34387afcb8e3f9ddf761eabd56e817`, per the 022 order;
+contract [the token-compiler contract](CACHE-TOKEN-COMPILER-CONTRACT.md)).
+The 022-a slice is the first same-objective 022 stage: this explicit
+configuration contract plus the fixed `create_app` v1 startup refusal,
+implemented at the INERT configuration layer (PENDING strategic review).
+The 022-b pure exact-span source replacement transaction (policy 12 /
+rework section 11; `bundle_replace.py` / `bundle_replace_models.py`;
+`tests/test_bundle_replace.py`) is implemented at the INERT pure-
+transaction layer (PENDING strategic review at its bounded pure-
+transaction scope). The 022-c application transaction (the runnable
+governed v1 request path on the actual `create_app` entry point: the
+closed historical read-root replay gap, the marker pre-check before the transition's raw acquisition
+(the cold bootstrap's gate wired by 022-d), the single outgoing transformed body at the byte-
+identical fixed point, the per-request FROZEN represented-frontier
+trusted issuance binding over the ACTUAL direct main upstream
+response (actual nonstream and split-SSE, never compiler traffic,
+never rebased), the pre-forward protected generation with the
+retained publish bound to the exact snapshot/epoch it actually
+published (a faulted publication keeps the prior bound; the newer
+undurable record set is refused on replay, never forwarded under the
+stale proof), the fixed typed v1 refusal family with no raw fallback,
+and the `marker_key_env` protected environment reference;
+`tests/test_app.py`, `tests/test_v1_application.py`) is implemented
+at the APPLICATION-TRANSACTION layer, active on opted-in v1 routes
+(PENDING strategic review at its bounded fake-upstream application
+scope). The 022-d application closure (the closed COLD marker/
+source-carrier gate before any cold raw acquisition, owner allocation
+or checkpoint — the fixed typed 409 with zero new owner, generation,
+compile or main forward, ordinary non-source marker-shaped text
+staying data, the cross-namespace cold marker refused and the later
+legitimate bootstrap succeeding — correcting the 022-c cold path;
+the accepted 020 `admit_with_fence` on both cold and steady-state
+transitions with the safe prepublication cleanup, the same-process
+fail-closed fenced-epoch retry and the fresh-process idempotent same-
+generation orphan re-publication — correcting the 022-c cold admit
+plus separate checkpoint; the root-currentness 409 with zero main
+forward and no bootstrap fallback; the compiled-context injection at
+the endpoint-specific stable placement (Responses `instructions`,
+Chat first string-content system message else inserted at the front);
+the Chat endpoint evidence (endpoint-in-binding law: a responses-
+issued read cannot complete on chat, root authority Responses-only,
+actual nonstream and split-SSE chat issuance); the source-change law
+at the app boundary (issued re-read: EVIDENCE on the superseded
+original's retained carrier, LIVE on the new carrier, the stale OLD
+transformed body refused 409 with no forward, the genuine same-digest
+revert live again without recompile); the compiler/budget failure law
+at the app boundary (the typed fence before retention, the terminal
+failure re-served same-epoch with no retry, fresh-process recovery in
+a new epoch); stream disconnect closing the upstream; the ungoverned
+route forwarded byte-identical; and the fixed typed v1 refusal family
+at the app boundary with no raw fallback; `tests/test_app.py`,
+`tests/test_v1_application.py`) is implemented at the same
+APPLICATION-TRANSACTION layer, active on opted-in v1 routes (PENDING
+strategic review at its bounded fake-upstream application scope on
+both endpoints). Objectives 023-024 remain the mandatory unearned
+runtime stages; the planned mechanism above beyond the 022-d scope
+stays unearned.
 
 ## Running the adapter
 
