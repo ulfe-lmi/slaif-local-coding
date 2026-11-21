@@ -3328,6 +3328,60 @@ def payload_has_marker_candidates(payload: dict[str, Any]) -> bool:
     return False
 
 
+def cold_payload_has_marker_sources(
+    payload: dict[str, Any],
+    observation: ObservationReport,
+    *,
+    max_text_chars: int,
+) -> bool:
+    """The closed COLD marker/source-carrier law (order 022-d
+    section 1): a fresh trusted address has NO retained state that
+    could authenticate a source marker, so a marker-like candidate
+    is judged purely by location: a marker-like prefix inside the
+    ACTUAL cold-recognized source span (an accepted root content
+    span or a paired read result content span) is a source marker
+    with no retained proof, and the cold bootstrap is refused
+    BEFORE any raw acquisition, owner allocation or checkpoint.
+
+    The scan is READ-ONLY and closed-location: it resolves only
+    the ACTUAL 017-recognized carriers of THIS observation (the
+    accepted root occurrences and the paired read results, both
+    read endpoints) and reads only the EXACT content span of each
+    (the root delimiters / environment tail and the tool wrapper
+    stay outside the scan).  A marker-shaped string anywhere else
+    (ordinary user text, arguments, call IDs, wrappers) is
+    ordinary data: it stays data and never refuses the cold
+    start.  A carrier that leaves the accepted 017 shape can no
+    longer be recognized as a source carrier at this geometry, so
+    it carries no marker authority either (the candidate stays
+    ordinary data)."""
+    for occurrence in observation.roots.roots:
+        span = occurrence.content_span
+        if span is None:
+            continue
+        try:
+            slot = lookup_root_carrier(payload, occurrence.location, max_text_chars=max_text_chars)
+        except _ReplaceRefusal:
+            continue
+        text = slot.text[span.start : span.end]
+        if any(prefix in text for prefix in _MARKER_LIKE_PREFIXES):
+            return True
+    for read in observation.reads:
+        span = read.content_span
+        if span is None:
+            continue
+        try:
+            slot = lookup_tool_result_carrier(
+                payload, read.endpoint, read.result_location, max_text_chars=max_text_chars
+            )
+        except _ReplaceRefusal:
+            continue
+        text = slot.text[span.start : span.end]
+        if any(prefix in text for prefix in _MARKER_LIKE_PREFIXES):
+            return True
+    return False
+
+
 @dataclass(slots=True)
 class _ReplacePlanPrelude:
     """The shared trusted plan prelude of the pure transaction.

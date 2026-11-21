@@ -571,8 +571,8 @@ rework section 11; `bundle_replace.py` / `bundle_replace_models.py`;
 transaction layer (PENDING strategic review at its bounded pure-
 transaction scope). The 022-c application transaction (the runnable
 governed v1 request path on the actual `create_app` entry point: the
-closed historical read-root replay gap, the marker pre-check before
-raw acquisition, the single outgoing transformed body at the byte-
+closed historical read-root replay gap, the marker pre-check before the transition's raw acquisition
+(the cold bootstrap's gate wired by 022-d), the single outgoing transformed body at the byte-
 identical fixed point, the per-request FROZEN represented-frontier
 trusted issuance binding over the ACTUAL direct main upstream
 response (actual nonstream and split-SSE, never compiler traffic,
@@ -585,9 +585,38 @@ and the `marker_key_env` protected environment reference;
 `tests/test_app.py`, `tests/test_v1_application.py`) is implemented
 at the APPLICATION-TRANSACTION layer, active on opted-in v1 routes
 (PENDING strategic review at its bounded fake-upstream application
-scope). Objectives 023-024 remain the mandatory unearned runtime
-stages; the planned mechanism above beyond the 022-c scope stays
-unearned.
+scope). The 022-d application closure (the closed COLD marker/
+source-carrier gate before any cold raw acquisition, owner allocation
+or checkpoint — the fixed typed 409 with zero new owner, generation,
+compile or main forward, ordinary non-source marker-shaped text
+staying data, the cross-namespace cold marker refused and the later
+legitimate bootstrap succeeding — correcting the 022-c cold path;
+the accepted 020 `admit_with_fence` on both cold and steady-state
+transitions with the safe prepublication cleanup, the same-process
+fail-closed fenced-epoch retry and the fresh-process idempotent same-
+generation orphan re-publication — correcting the 022-c cold admit
+plus separate checkpoint; the root-currentness 409 with zero main
+forward and no bootstrap fallback; the compiled-context injection at
+the endpoint-specific stable placement (Responses `instructions`,
+Chat first string-content system message else inserted at the front);
+the Chat endpoint evidence (endpoint-in-binding law: a responses-
+issued read cannot complete on chat, root authority Responses-only,
+actual nonstream and split-SSE chat issuance); the source-change law
+at the app boundary (issued re-read: EVIDENCE on the superseded
+original's retained carrier, LIVE on the new carrier, the stale OLD
+transformed body refused 409 with no forward, the genuine same-digest
+revert live again without recompile); the compiler/budget failure law
+at the app boundary (the typed fence before retention, the terminal
+failure re-served same-epoch with no retry, fresh-process recovery in
+a new epoch); stream disconnect closing the upstream; the ungoverned
+route forwarded byte-identical; and the fixed typed v1 refusal family
+at the app boundary with no raw fallback; `tests/test_app.py`,
+`tests/test_v1_application.py`) is implemented at the same
+APPLICATION-TRANSACTION layer, active on opted-in v1 routes (PENDING
+strategic review at its bounded fake-upstream application scope on
+both endpoints). Objectives 023-024 remain the mandatory unearned
+runtime stages; the planned mechanism above beyond the 022-d scope
+stays unearned.
 
 ## Running the adapter
 

@@ -420,10 +420,17 @@ def create_app(
             if v1_runtime is not None:
                 if v1_sessions is not None:
                     # Explicit process teardown: fence and release
-                    # every live v1 owner (the retained recovery
-                    # writer sessions close with their owners).
+                    # every live v1 owner through the accepted 020
+                    # composed path (the owned IO drains, the work
+                    # plane and the RAM ownership release in the
+                    # accepted order, and the exclusive writer
+                    # session closes only after the store owner is
+                    # gone).
                     for session in v1_sessions.sessions():
-                        session.owner.teardown(session.namespace)
+                        if session.session_owner is not None:
+                            await session.session_owner.teardown()
+                        else:
+                            session.owner.teardown(session.namespace)
                     v1_sessions.clear()
                 await v1_runtime.aclose()
             if constitution_pipeline is not None:
@@ -716,7 +723,7 @@ def create_app(
                             repository=settings.constitution.repository,
                         )
                     address = build_session_address(v1_runtime, v1_identity, route, contract)
-                    established = establish_v1_session(
+                    established = await establish_v1_session(
                         v1_runtime,
                         v1_sessions,
                         address=address,

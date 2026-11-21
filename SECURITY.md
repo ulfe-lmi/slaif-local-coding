@@ -98,9 +98,15 @@ This exception is not a general permission to log or store bodies:
 The 020-a protected per-session recovery store is implemented (contract
 [docs/CACHE-RECOVERY-CONTRACT.md](docs/CACHE-RECOVERY-CONTRACT.md)) and is
 active under the explicitly opted-in `dependency-bundles-v1` profile from
-022-c: every governed v1 request commits through the accepted 020
-owned/fenced admit/checkpoint path (cold, resumed and steady-state owners
-alike; no raw writer shortcut), and a request newly relies on a protected
+022-c: the resumed and steady-state v1 owners commit
+through the accepted 020 owned/fenced admit/checkpoint
+path (no raw writer shortcut), and from the 022-d closure
+slice the cold bootstrap commits through the same
+fenced path as well (the 022-c cold path combined a
+direct admit with a separate checkpoint outside the
+adverse durable fence, corrected by 022-d; the safe
+cleanup of an acquired cold owner/writer runs on
+every prepublication failure), and a request newly relies on a protected
 generation only after the ACTUAL successful publication of the exact
 snapshot the edits rely on — the retained successful publish is bound to
 the exact snapshot/epoch it actually published, a faulted publication

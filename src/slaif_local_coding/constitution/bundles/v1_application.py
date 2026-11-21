@@ -60,6 +60,7 @@ The workspace of a resumed session is the VERIFIED resumed scope
 
 from __future__ import annotations
 
+import copy
 import json
 import threading
 from collections.abc import Mapping
@@ -76,6 +77,7 @@ from .bundle_compile_work import (
 )
 from .bundle_compiler import unproven_member_paths
 from .bundle_replace import (
+    cold_payload_has_marker_sources,
     payload_has_marker_candidates,
     replace_sources,
     unsplice_replayed_markers,
@@ -99,8 +101,10 @@ from .ram_state import RamStateOwner
 from .ram_state_models import RamStateOutcome
 from .recovery_models import RecoverySessionAddress
 from .recovery_resume import (
+    RecoveryAdmitOutcome,
     RecoveryResumeOutcome,
     RecoverySessionOwner,
+    RecoveryTeardownOutcome,
     resume_session,
 )
 from .recovery_store import (
@@ -344,7 +348,33 @@ def _cold_scope_refusal(reason: V1RequestReason) -> V1RequestRefusal:
     return V1RequestRefusal(reason)
 
 
-def establish_v1_session(
+async def _teardown_v1_session(
+    table: V1SessionTable,
+    address: RecoverySessionAddress,
+    session: V1Session,
+) -> None:
+    """The explicit teardown exit of ONE live v1 session (the
+    durable-quarantine exit, the COLD prepublication-failure
+    cleanup and the process teardown share the accepted 020
+    composed path: the owned IO drains, the work plane and the
+    RAM ownership release in the accepted order, and the
+    exclusive writer session closes only after the store owner
+    is gone).  The table entry is dropped only on the COMPLETED
+    teardown (a refused teardown keeps the session held -- no
+    partial release); a quarantined owner keeps its committed
+    fence record, so a later restart of this session fails
+    closed on it."""
+    if session.session_owner is not None:
+        result = await session.session_owner.teardown()
+        if result.outcome is RecoveryTeardownOutcome.TEARDOWN:
+            table.discard(address)
+        return
+    store = session.owner.teardown(session.namespace)
+    if store.outcome is RamStateOutcome.TEARDOWN:
+        table.discard(address)
+
+
+async def establish_v1_session(
     runtime: V1Runtime,
     table: V1SessionTable,
     *,
@@ -366,6 +396,17 @@ def establish_v1_session(
         # Steady state: the process-live owner by the ACTUAL
         # registered namespace record (the identity join).
         if runtime.ram_registry.get(existing.namespace) is existing.owner:
+            if existing.owner.quarantined:
+                # The durable-quarantine law (019-c/020): a
+                # quarantined owner can no longer certify
+                # currentness from the older retained state; the
+                # request is the fixed typed currentness refusal
+                # with no main forward, and the explicit teardown
+                # is the exit (no retry, no epoch reset, no
+                # revival; a restart of this session fails closed
+                # on the committed fence).
+                await _teardown_v1_session(table, address, existing)
+                return _cold_scope_refusal(V1RequestReason.TRANSACTION_CONFLICT)
             return existing
         # A fenced / torn-down owner is replaced ONLY by an
         # explicit re-establishment (the table entry is stale).
@@ -396,6 +437,15 @@ def establish_v1_session(
     workspace = _evidenced_workspace(observation)
     if workspace is None:
         return None
+    # The closed COLD marker/source-carrier law (order 022-d
+    # section 1): a fresh address cannot authenticate a retained
+    # source marker, so a marker-like candidate in the ACTUAL
+    # cold-recognized root / result source span is the fixed
+    # typed marker-side refusal BEFORE any raw acquisition, owner
+    # allocation or checkpoint (ordinary non-source text stays
+    # data).
+    if cold_payload_has_marker_sources(payload, observation, max_text_chars=_V1_MAX_TEXT_CHARS):
+        return _cold_scope_refusal(V1RequestReason.TRANSACTION_CONFLICT)
     namespace = build_v1_namespace(runtime, identity, route, contract, address, workspace)
     owner = runtime.ram_registry.acquire(namespace)
     context = PathContext(workspace=workspace)
@@ -403,16 +453,18 @@ def establish_v1_session(
         (GraphRequest(payload=payload, endpoint=endpoint, context=context),), namespace
     )
     if transition.outcome is not RootLineageOutcome.ACCEPTED:
+        # Safe cleanup of the ACQUIRED cold owner (no writer yet,
+        # nothing admitted): the fenced epoch frees the
+        # registration so a later request re-establishes cleanly.
+        owner.teardown(namespace)
         return _cold_scope_refusal(V1RequestReason.BOOTSTRAP_REFUSED)
     admission = derive_root_region_admission(transition.state, namespace)
-    commit = owner.admit(transition.state, admission, namespace, expected_revision=owner.revision)
-    if commit.outcome is not RamStateOutcome.ADMITTED:
-        return _cold_scope_refusal(V1RequestReason.COLD_ADMIT_REFUSED)
-    session = V1Session(namespace=namespace, owner=owner)
     try:
         bare = runtime.recovery_store.open_session(address)
     except Exception:
+        owner.teardown(namespace)
         return _cold_scope_refusal(V1RequestReason.COLD_PUBLISH_REFUSED)
+    session = V1Session(namespace=namespace, owner=owner)
     session.bare_session = bare
     # The COLD owner joins the SAME accepted 020 owned/fenced
     # checkpoint path as the resumed owner (the live-owner join,
@@ -430,16 +482,33 @@ def establish_v1_session(
         prior_epoch=0,
         new_epoch=owner.epoch,
     )
-    publish = session.checkpoint()
-    if publish.limitation is not RecoveryStoreLimitation.OK:
-        bare.close()
-        table.discard(address)
+    # The COLD transition enters through the SAME accepted 020
+    # owned/fenced admit kernel as every later transition (the
+    # adverse durable fence law, the owned store-IO slot, the
+    # bounded transient reservation and the bound-generation
+    # CAS; no raw admit followed by a separate checkpoint).
+    fenced = session.session_owner.admit_with_fence(
+        transition.state, admission, expected_revision=owner.revision
+    )
+    if fenced.outcome is not RecoveryAdmitOutcome.ADMITTED:
+        # Safe cleanup of the acquired COLD owner/writer on the
+        # prepublication failure (the composed teardown keeps a
+        # published fence durable: a restart of this session
+        # fails closed on it).
+        await _teardown_v1_session(table, address, session)
+        return _cold_scope_refusal(V1RequestReason.COLD_ADMIT_REFUSED)
+    advance = fenced.advance
+    if advance is None or advance.limitation is not RecoveryStoreLimitation.OK:
+        # The RAM state admitted but the protected generation did
+        # not publish: the cold owner/writer is torn down on the
+        # prepublication failure (no live owner with an undurable
+        # record set; a later request re-establishes).
+        await _teardown_v1_session(table, address, session)
         return _cold_scope_refusal(V1RequestReason.COLD_PUBLISH_REFUSED)
-    session.last_publish = publish
+    session.last_publish = advance
     snapshot = owner.snapshot
     if snapshot is None:
-        bare.close()
-        table.discard(address)
+        await _teardown_v1_session(table, address, session)
         return _cold_scope_refusal(V1RequestReason.COLD_PUBLISH_REFUSED)
     session.last_publish_bound = (snapshot.revision, snapshot.epoch)
     table.put(address, session)
@@ -490,19 +559,38 @@ def advance_v1_session(
     if transition.outcome is not RootLineageOutcome.ACCEPTED:
         return None, V1RequestRefusal(V1RequestReason.TRANSITION_REFUSED)
     admission = derive_root_region_admission(transition.state, namespace)
-    if admission.outcome is not RootRegionAdmissionOutcome.READY:
-        # A genuine non-READY T is admissible state (negative
-        # evidence is retained) but cannot carry a governed
-        # transaction: commit the record set and publish, the
-        # transaction stage forwards unchanged (no replacement).
-        pass
-    commit = owner.admit(transition.state, admission, namespace, expected_revision=owner.revision)
-    if commit.outcome is not RamStateOutcome.ADMITTED:
-        return None, V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
-    publish = session.checkpoint()
-    if publish.limitation is not RecoveryStoreLimitation.OK:
+    session_owner = session.session_owner
+    # Established sessions (cold establish / resume) always hold
+    # the 020 owned fenced checkpoint owner.
+    assert session_owner is not None
+    # A genuine non-READY T is admissible state (the negative
+    # P/Q evidence is retained in the committed record set) but
+    # cannot carry a governed transaction: the record set is
+    # committed and published through the SAME fenced advance,
+    # and the transaction stage refuses with the closed typed
+    # currentness / admission family (zero main forward, no
+    # bootstrap fallback).
+    fenced = session_owner.admit_with_fence(
+        transition.state, admission, expected_revision=owner.revision
+    )
+    if fenced.outcome is not RecoveryAdmitOutcome.ADMITTED:
+        # A refused / fence-blocked transition commits nothing
+        # (the durable fence could not be published so NO
+        # transition was permitted, or the accepted admit law
+        # refused the candidate with no quarantine): the prior
+        # committed generation stays valid and the request is the
+        # fixed typed refusal (a quarantined owner exits at the
+        # next request through the steady-state guard).
+        return None, V1RequestRefusal(V1RequestReason.TRANSITION_REFUSED)
+    advance = fenced.advance
+    if advance is None or advance.limitation is not RecoveryStoreLimitation.OK:
+        # The RAM state admitted but the protected generation did
+        # not publish: the prior bound is RETAINED (the failed
+        # publication keeps it) and the newer undurable record
+        # set is refused on replay, never forwarded under a stale
+        # proof.
         return None, V1RequestRefusal(V1RequestReason.PUBLISH_REFUSED)
-    session.last_publish = publish
+    session.last_publish = advance
     new_snapshot = owner.snapshot
     if new_snapshot is None:
         return None, V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
@@ -510,12 +598,129 @@ def advance_v1_session(
     # snapshot/epoch it actually published (the newer record set
     # is undurable until the bound moves over it).
     session.last_publish_bound = (new_snapshot.revision, new_snapshot.epoch)
-    return PreparedGenerationProof(publish=publish, snapshot=new_snapshot), None
+    return PreparedGenerationProof(publish=advance, snapshot=new_snapshot), None
 
 
 #: The accepted observation carrier bound (the 022-b transaction
 #: default; the transaction runs over THIS payload's geometry).
 _V1_MAX_TEXT_CHARS = 100_000
+
+#: The stable compiled-context region sentinels (order 022-d
+#: section 3): the ACTUAL selected compiled blocks accompany
+#: every transformed outgoing body at the endpoint-specific
+#: stable placement (top-level Responses ``instructions``; the
+#: Chat stable system location) -- an opaque marker alone is
+#: never the model's governing content.  The region is ordinary
+#: request text: it is never a source carrier, it carries none
+#: of the two closed marker kinds, and the re-injection is
+#: deterministic and idempotent across resent transformed
+#: payloads (the byte-identical fixed point is preserved).
+_COMPILED_HEADER = "[slaif-compiled-context:v1]"
+_COMPILED_FOOTER = "[/slaif-compiled-context:v1]"
+
+
+class _CompiledInjectionShapeError(Exception):
+    """The closed placement-shape failure (the target field of
+    the stable placement is present but not the accepted string
+    shape): the governed transaction is refused with the typed
+    422 invalid-transform family -- never a raw forward, never a
+    guessed placement."""
+
+
+def _compiled_region(blocks: tuple[str, ...]) -> str:
+    """The ONE stable region of the ACTUAL selected compiled
+    blocks in actual injection order (the rendered blocks
+    already carry their explicit scopes / authority /
+    references; the sentinels delimit the region for the
+    deterministic re-injection)."""
+    return "\n".join((_COMPILED_HEADER, "\n\n".join(blocks), _COMPILED_FOOTER))
+
+
+def _replace_region(text: str, region: str) -> str | None:
+    """Replace the previously injected region in place; ``None``
+    when no closed region (header AND footer) is present."""
+    start = text.find(_COMPILED_HEADER)
+    if start == -1:
+        return None
+    footer_start = text.find(_COMPILED_FOOTER, start)
+    if footer_start == -1:
+        return None
+    end = footer_start + len(_COMPILED_FOOTER)
+    if text[end : end + 1] == "\n":
+        end += 1
+    return text[:start] + region + text[end:]
+
+
+def _place_region(text: str, region: str) -> str:
+    """The deterministic placement into ONE string field: the
+    existing region is replaced in place; otherwise the region
+    is prepended (the accepted legacy placement convention:
+    the compiled context precedes the caller's own text)."""
+    replaced = _replace_region(text, region)
+    if replaced is not None:
+        return replaced
+    return region if not text else region + "\n\n" + text
+
+
+def inject_compiled_context(
+    payload: dict[str, Any], *, endpoint: str, blocks: tuple[str, ...]
+) -> dict[str, Any]:
+    """The endpoint-specific stable compiled-context placement
+    of the ACTUAL selected working set (order 022-d section 3;
+    the approved rule 6: the stable reference is accompanied by
+    the appropriate compiled context; R05: the source-absent
+    reconstructed working set is reinjected without original
+    source).
+
+    Responses: the top-level ``instructions`` string (created
+    when absent; the existing region replaced in place; the
+    caller's own instructions preserved after the region).
+    Chat: the stable system location (the first message when it
+    is a string-content system message, otherwise a new system
+    message inserted at the front; the same region law).  The
+    region content is the closed concatenation of the rendered
+    blocks in actual injection order -- the rendered blocks
+    keep every source role / authority explicit, so the stable
+    placement promotes nothing: off-graph content stays
+    background inside its own rendered block.
+
+    A non-empty working set whose placement field has an
+    unsupported shape is the closed ``_CompiledInjectionShapeError``
+    (the typed 422 refusal); an empty working set changes
+    nothing.  The input is never mutated (a deep copy)."""
+    if not blocks:
+        return payload
+    region = _compiled_region(blocks)
+    copied = copy.deepcopy(payload)
+    if endpoint == "responses":
+        existing = copied.get("instructions")
+        if existing is not None and not isinstance(existing, str):
+            raise _CompiledInjectionShapeError("instructions shape")
+        copied["instructions"] = (
+            _place_region(existing, region) if isinstance(existing, str) else region
+        )
+        return copied
+    if endpoint == "chat":
+        messages = copied.get("messages")
+        if (
+            not isinstance(messages, list)
+            or not messages
+            or not all(isinstance(item, dict) for item in messages)
+        ):
+            raise _CompiledInjectionShapeError("messages shape")
+        first = messages[0]
+        if first.get("role") == "system":
+            content = first.get("content")
+            if not isinstance(content, str):
+                raise _CompiledInjectionShapeError("system content shape")
+            first["content"] = _place_region(content, region)
+        else:
+            copied["messages"] = [
+                {"role": "system", "content": region},
+                *messages,
+            ]
+        return copied
+    raise _CompiledInjectionShapeError("endpoint shape")
 
 
 @dataclass(frozen=True, slots=True)
@@ -527,7 +732,11 @@ class V1TransactionResult:
     forward receives: the transformed payload on ``OK``, the
     unchanged original payload on ``NO_REPLACEMENT`` (no replacement
     was earned for this payload; the request forwards as received,
-    with no replacement claim and no dangling reference).  The
+    with no replacement claim and no dangling reference).  On
+    ``OK`` the ACTUAL selected compiled context is additionally
+    placed at the endpoint-specific stable location (top-level
+    Responses ``instructions``; the Chat stable system message)
+    before the single serialization.  The
     counters are the ACTUAL content-free transaction records
     (instrumentation evidence, never counter-only substitutes).
     ``selected_content_keys`` are digests (content-free).
@@ -781,21 +990,22 @@ async def prepare_v1_transaction(
         return V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
     t = snapshot.result
     if t.outcome is not RootRegionAdmissionOutcome.READY:
-        # A non-READY T is admissible state (the negative evidence
-        # is retained) but establishes no replacement: the request
-        # is forwarded unchanged (no replacement claim, no dangling
-        # reference, no hidden raw fallback).
-        return V1TransactionResult(
-            outcome=ReplacementOutcome.NO_REPLACEMENT,
-            body=_serialize_payload(payload),
-            represented_frontier=represented_frontier(
-                snapshot,
-                admission=None,
-                working_set=(),
-                file_edits=(),
-                root_observed=bool(observation.roots.roots),
-            ),
-        )
+        # The ACTUAL same-run T outcome classifies the governed
+        # transaction (order 022-d section 2): an established
+        # root whose currentness is UNPROVEN or whose authority
+        # CONFLICTS is the accepted typed 409 with zero main
+        # forward (the negative P/Q evidence is committed and
+        # retained, no bootstrap fallback), and a fixed typed T
+        # consumer refusal (a T-outer crossing, a mapped R
+        # refusal or an actual G-domain refusal) is the typed 503
+        # admission refusal.  Both refuse the transaction stage:
+        # no replacement, no raw forward, no dangling reference.
+        if t.outcome in (
+            RootRegionAdmissionOutcome.ROOT_CURRENTNESS_UNPROVEN,
+            RootRegionAdmissionOutcome.ROOT_AUTHORITY_CONFLICT,
+        ):
+            return V1RequestRefusal(V1RequestReason.TRANSACTION_CONFLICT)
+        return V1RequestRefusal(V1RequestReason.ADMISSION_REFUSED)
     admission = t.admission
     if admission is None:
         # Unreachable: the admission parent is present exactly on a
@@ -819,9 +1029,26 @@ async def prepare_v1_transaction(
     )
     if result.outcome is ReplacementOutcome.OK:
         assert result.transformed_payload is not None
+        try:
+            # The selected compiled context accompanies the
+            # transformed body at the endpoint-specific stable
+            # placement BEFORE the single serialization (order
+            # 022-d section 3: the marker is never the model's
+            # only governing content; the source-absent working
+            # set is reinjected without original source).
+            final_payload = inject_compiled_context(
+                result.transformed_payload,
+                endpoint=endpoint,
+                blocks=result.compiled_blocks,
+            )
+        except _CompiledInjectionShapeError:
+            # The placement field has an unsupported shape: the
+            # typed 422 invalid-transform refusal (never a raw
+            # forward, never a guessed placement).
+            return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
         return V1TransactionResult(
             outcome=result.outcome,
-            body=_serialize_payload(result.transformed_payload),
+            body=_serialize_payload(final_payload),
             edits_committed=result.edits_committed,
             markers_emitted=result.markers_emitted,
             markers_replayed=result.markers_replayed,
@@ -1319,11 +1546,15 @@ class V1IssuanceContext:
         """Register ONE complete supported call under the accepted
         018 issuance law against the committed-state CAS: the
         FROZEN frontier is never rebased; an ACCEPTED registration
-        commits through the ACTUAL owner admit + protected
-        generation (the permitted derived metadata only -- the
-        canonical fingerprint, never the raw arguments); a
-        REPLAYED or refused registration changes nothing (no
-        retry, no invented frontier, no upgraded evidence)."""
+        commits through the ACTUAL 020 owned/fenced admit (the
+        adverse durable fence law, the owned store-IO slot, the
+        bounded transient reservation and the bound-generation
+        CAS -- the permitted derived metadata only, the canonical
+        fingerprint, never the raw arguments); a REPLAYED or
+        refused registration changes nothing (no retry, no
+        invented frontier, no upgraded evidence); a quarantined
+        owner is torn down at the next request through the
+        steady-state guard (the durable-quarantine exit)."""
         transition = register_root_region_issuance(
             self.state,
             self.namespace,
@@ -1337,22 +1568,31 @@ class V1IssuanceContext:
         if transition.outcome is not RootLineageOutcome.ACCEPTED:
             return
         admission = derive_root_region_admission(transition.state, self.namespace)
-        commit = self.session.owner.admit(
+        session_owner = self.session.session_owner
+        assert session_owner is not None
+        fenced = session_owner.admit_with_fence(
             transition.state,
             admission,
-            self.namespace,
             expected_revision=self.session.owner.revision,
         )
-        if commit.outcome is not RamStateOutcome.ADMITTED:
+        if fenced.outcome is not RecoveryAdmitOutcome.ADMITTED:
+            # A refused / fence-blocked registration commits
+            # nothing and is never retried (the prior committed
+            # generation stays valid; a quarantined owner exits
+            # at the next request through the steady-state
+            # guard).
             return
-        publish = self.session.checkpoint()
         new_snapshot = self.session.owner.snapshot
-        if publish.limitation is RecoveryStoreLimitation.OK and new_snapshot is not None:
+        if (
+            fenced.advance is not None
+            and fenced.advance.limitation is RecoveryStoreLimitation.OK
+            and new_snapshot is not None
+        ):
             # The retained successful pointer is bound to the exact
             # snapshot/epoch it actually published (a faulted
             # publication keeps the prior bound: the newer record
             # set stays undurable and is refused on replay).
-            self.session.last_publish = publish
+            self.session.last_publish = fenced.advance
             self.session.last_publish_bound = (
                 new_snapshot.revision,
                 new_snapshot.epoch,
@@ -1377,6 +1617,7 @@ __all__ = [
     "build_v1_namespace",
     "establish_v1_session",
     "advance_v1_session",
+    "inject_compiled_context",
     "represented_frontier",
     "prepare_replay_shadow",
     "prepare_v1_transaction",

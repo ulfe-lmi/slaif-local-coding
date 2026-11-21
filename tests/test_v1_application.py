@@ -298,14 +298,14 @@ def _root_payload(*reads: tuple[str, str]) -> dict[str, Any]:
     return {"model": "qwen38-27b", "input": items}
 
 
-def test_cold_bootstrap_commits_and_publishes(tmp_path: Path) -> None:
+async def test_cold_bootstrap_commits_and_publishes(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     table = V1SessionTable()
     identity, route, contract = _identity(), _route(), _contract()
     address = build_session_address(runtime, identity, route, contract)
     payload = _root_payload()
     observation = observe_request(payload, endpoint="responses")
-    session = establish_v1_session(
+    session = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -351,13 +351,13 @@ def test_cold_bootstrap_commits_and_publishes(tmp_path: Path) -> None:
     assert session.bare_session.current_generation() == 1
 
 
-def test_new_read_advances_generation_then_replays(tmp_path: Path) -> None:
+async def test_new_read_advances_generation_then_replays(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     table = V1SessionTable()
     identity, route, contract = _identity(), _route(), _contract()
     address = build_session_address(runtime, identity, route, contract)
     bootstrap = _root_payload()
-    session = establish_v1_session(
+    session = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -405,13 +405,13 @@ def test_new_read_advances_generation_then_replays(tmp_path: Path) -> None:
     assert session.bare_session.current_generation() == 2
 
 
-def test_resume_restores_state_in_a_higher_epoch(tmp_path: Path) -> None:
+async def test_resume_restores_state_in_a_higher_epoch(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     table = V1SessionTable()
     identity, route, contract = _identity(), _route(), _contract()
     address = build_session_address(runtime, identity, route, contract)
     bootstrap = _root_payload()
-    session = establish_v1_session(
+    session = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -447,7 +447,7 @@ def test_resume_restores_state_in_a_higher_epoch(tmp_path: Path) -> None:
     session.bare_session.close()
     runtime2 = _runtime(tmp_path)
     table2 = V1SessionTable()
-    resumed = establish_v1_session(
+    resumed = await establish_v1_session(
         runtime2,
         table2,
         address=address,
@@ -499,7 +499,7 @@ def test_resume_restores_state_in_a_higher_epoch(tmp_path: Path) -> None:
     assert resumed.owner.revision == 2
 
 
-def test_rootless_request_is_not_governed(tmp_path: Path) -> None:
+async def test_rootless_request_is_not_governed(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     table = V1SessionTable()
     identity, route, contract = _identity(), _route(), _contract()
@@ -513,7 +513,7 @@ def test_rootless_request_is_not_governed(tmp_path: Path) -> None:
             }
         ],
     }
-    result = establish_v1_session(
+    result = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -536,7 +536,7 @@ def test_rootless_request_is_not_governed(tmp_path: Path) -> None:
         session.close()
 
 
-def test_distinct_sessions_are_distinct_addresses(tmp_path: Path) -> None:
+async def test_distinct_sessions_are_distinct_addresses(tmp_path: Path) -> None:
     runtime = _runtime(tmp_path)
     table = V1SessionTable()
     route, contract = _route(), _contract()
@@ -548,7 +548,7 @@ def test_distinct_sessions_are_distinct_addresses(tmp_path: Path) -> None:
     address_b = build_session_address(runtime, identity_b, route, contract)
     assert address_a.lineage_key != address_b.lineage_key
     bootstrap = _root_payload()
-    session_a = establish_v1_session(
+    session_a = await establish_v1_session(
         runtime,
         table,
         address=address_a,
@@ -559,7 +559,7 @@ def test_distinct_sessions_are_distinct_addresses(tmp_path: Path) -> None:
         payload=bootstrap,
         endpoint="responses",
     )
-    session_b = establish_v1_session(
+    session_b = await establish_v1_session(
         runtime,
         table,
         address=address_b,
@@ -592,7 +592,7 @@ async def test_round_one_transforms_and_round_two_is_the_fixed_point(tmp_path: P
     identity, route, contract = _identity(), _route(), _contract()
     address = build_session_address(runtime, identity, route, contract)
     bootstrap = _root_payload()
-    session = establish_v1_session(
+    session = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -650,7 +650,13 @@ async def test_round_one_transforms_and_round_two_is_the_fixed_point(tmp_path: P
     )
     assert pre2 is None
     assert shadow2 is not None and shadow2 is not transformed
-    assert shadow2 == payload2  # unspliced to the retained originals
+    # Unspliced to the retained originals at the source spans; the
+    # stable compiled-context region the round-one outgoing body
+    # carries is ordinary request text and passes the shadow
+    # through unchanged (order 022-d section 3).
+    expected_shadow2 = json.loads(json.dumps(payload2))
+    expected_shadow2["instructions"] = transformed["instructions"]
+    assert shadow2 == expected_shadow2
     proof2, refusal2 = advance_v1_session(
         session, runtime, payload=shadow2, endpoint="responses", observation=obs_t
     )
@@ -770,7 +776,7 @@ async def test_pre_forward_budget_refusal_keeps_the_exact_prior_state(
     identity, route, contract = _identity(), _route(), _contract()
     address = build_session_address(runtime, identity, route, contract)
     bootstrap = _ref_payload()
-    session = establish_v1_session(
+    session = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -873,7 +879,7 @@ async def _bootstrap_ref_session_with(
     identity, route, contract = _identity(), _route(), _contract()
     address = build_session_address(runtime, identity, route, contract)
     bootstrap = _ref_payload()
-    session = establish_v1_session(
+    session = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -1033,7 +1039,13 @@ async def test_nonstream_issuance_acquires_the_read_and_edits_it_live(
         session, runtime, payload=transformed, endpoint="responses", observation=obs_t
     )
     assert pre_t is None
-    assert shadow_t is not None and shadow_t == payload
+    assert shadow_t is not None
+    # Unspliced to the retained originals at the source spans; the
+    # stable compiled-context region is ordinary request text that
+    # passes the shadow through unchanged (order 022-d section 3).
+    expected_shadow_t = json.loads(json.dumps(payload))
+    expected_shadow_t["instructions"] = transformed["instructions"]
+    assert shadow_t == expected_shadow_t
     proof3, refusal3 = advance_v1_session(
         session, runtime, payload=shadow_t, endpoint="responses", observation=obs_t
     )
@@ -1477,7 +1489,7 @@ async def test_tampered_marker_is_refused_before_raw_acquisition(tmp_path: Path)
     identity, route, contract = _identity(), _route(), _contract()
     address = build_session_address(runtime, identity, route, contract)
     bootstrap = _root_payload()
-    session = establish_v1_session(
+    session = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -1533,7 +1545,7 @@ async def test_resumed_session_materializes_publish_and_replays_the_fixed_point(
     identity, route, contract = _identity(), _route(), _contract()
     address = build_session_address(runtime, identity, route, contract)
     bootstrap = _root_payload()
-    session = establish_v1_session(
+    session = await establish_v1_session(
         runtime,
         table,
         address=address,
@@ -1564,7 +1576,7 @@ async def test_resumed_session_materializes_publish_and_replays_the_fixed_point(
     session.bare_session.close()
     runtime2 = _runtime(tmp_path)
     table2 = V1SessionTable()
-    resumed = establish_v1_session(
+    resumed = await establish_v1_session(
         runtime2,
         table2,
         address=address,
@@ -1587,7 +1599,12 @@ async def test_resumed_session_materializes_publish_and_replays_the_fixed_point(
     )
     assert pre is None
     assert shadow is not None
-    assert shadow == payload2
+    # Unspliced to the retained originals at the source spans; the
+    # stable compiled-context region is ordinary request text that
+    # passes the shadow through unchanged (order 022-d section 3).
+    expected_shadow = json.loads(json.dumps(payload2))
+    expected_shadow["instructions"] = transformed["instructions"]
+    assert shadow == expected_shadow
     assert resumed.last_publish is not None
     assert resumed.last_publish.limitation is RecoveryStoreLimitation.OK
     # The resume's durable epoch binding moved the bound generation
