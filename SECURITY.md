@@ -118,6 +118,12 @@ key is a distinct application-owned private key carried only as a
 PROTECTED ENVIRONMENT REFERENCE (`marker_key_env`): resolved once at v1
 runtime construction, held in process memory (repr-suppressed), never a
 gateway or service credential, and never persisted, logged or echoed.
+The 022-e stable compiled-context region carries a placement-ownership
+tag that reuses the SAME application-owned private key material under a
+separate MAC domain, bound to the complete trusted namespace, the
+endpoint-specific placement and the exact rendered region payload; the
+wire form is content-free (versioned kind plus fixed-length MAC) and no
+second credential is introduced.
 Operational logs and metrics remain content-free in every profile.
 
 ## Protected live-host resources

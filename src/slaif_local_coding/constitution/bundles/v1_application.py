@@ -47,6 +47,25 @@ request composes, in this fixed order,
    revision, commit nothing and publish nothing: they perform NO
    recovery original reads and reuse the retained successful
    publication of the current snapshot.
+5a. the final-request budget gate (order 022-e section 2): the
+    supported endpoint generation fields (Responses
+    ``max_output_tokens``; Chat ``max_tokens``) are honored as-is
+    (a malformed or context-exceeding value is the fixed typed
+    422 before any compile or main forward); after the pure
+    exact-span transaction and the endpoint-specific stable
+    placement (whose prior rendered region is replacement-
+    eligible ONLY under the verifying placement-ownership tag --
+    literal delimiter-like caller text stays data, order 022-e
+    section 1), the REAL final rendered governance (framing,
+    guides and metadata) and the remaining text / tools /
+    request structure / retained images are each counted ONCE
+    with the real pinned tokenizer under the accepted
+    ``BundleBudgetPlan`` envelope / capacity / aggregate law:
+    the request-level overflow is the fixed typed 422 before
+    the single main forward, and the governance overflow omits
+    whole OPTIONAL entries deterministically (lowest priority
+    first) with a coherent replacement/selection re-run -- no
+    silent truncation, no dangling reference, no raw fallback.
 
 Fixed failure/limitation contracts: every refused / negative
 transition commits nothing and is refused with the closed typed
@@ -60,7 +79,10 @@ The workspace of a resumed session is the VERIFIED resumed scope
 
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
+import hmac
 import json
 import threading
 from collections.abc import Mapping
@@ -68,15 +90,27 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
+from ...image_policy import AmbiguousImageShape, count_images
 from ...json_structure import JsonNestingTooDeep, enforce_json_nesting
 from ..cache import RequestIdentity
 from .bundle_admission_models import AdmissionMode, EntryClass, make_bundle_admission_namespace
+from .bundle_budget import (
+    BudgetMessage,
+    BudgetToolCall,
+    BudgetToolSpec,
+    BundleBudgetError,
+    BundleBudgetPlan,
+)
 from .bundle_compile_work import (
     BundleCompileWorkOutcome,
     derive_compile_policy_fingerprint,
 )
 from .bundle_compiler import unproven_member_paths
 from .bundle_replace import (
+    MAC_TAG_B64_LENGTH,
+    MAC_TAG_BYTES,
     cold_payload_has_marker_sources,
     payload_has_marker_candidates,
     replace_sources,
@@ -619,6 +653,81 @@ _COMPILED_HEADER = "[slaif-compiled-context:v1]"
 _COMPILED_FOOTER = "[/slaif-compiled-context:v1]"
 
 
+#: The placement-ownership tag domain (order 022-e section 1):
+#: the SAME private per-session key material as the two closed
+#: source marker kinds, under a SEPARATE MAC domain, bound to
+#: the complete trusted namespace, the endpoint-specific stable
+#: placement and the exact rendered region payload (header +
+#: blocks + footer, without the tag).  A prior rendered region
+#: is eligible for replacement ONLY under a tag that verifies
+#: for THIS trusted session and placement (positive application
+#: ownership); literal delimiter-like caller text carries no
+#: verifying tag and stays ordinary data (never replaced,
+#: never lost).  The wire form is content-free (versioned kind
+#: + fixed-length canonical base64url MAC) and is invisible to
+#: the source-marker pre-check (its kind is distinct from the
+#: two closed marker kinds).
+_PO_TAG_PREFIX = "[slaif-placement-ownership:v1:"
+_PO_DOMAIN = "slaif-placement-ownership/v1"
+_PLACEMENT_RESPONSES = "responses:instructions"
+_PLACEMENT_CHAT = "chat:system"
+_PO_B64_ALPHABET = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+
+
+def _po_placement(endpoint: str) -> str:
+    """The closed endpoint-specific stable placement identity."""
+    if endpoint == "responses":
+        return _PLACEMENT_RESPONSES
+    if endpoint == "chat":
+        return _PLACEMENT_CHAT
+    raise _CompiledInjectionShapeError("endpoint shape")
+
+
+def _po_field_bytes(*fields: str) -> bytes:
+    """The closed MAC-input encoding (the same length-prefixed
+    UTF-8 field recipe as the approved private marker material;
+    the fields stay INSIDE the HMAC input and are never emitted
+    on the wire)."""
+    out = bytearray()
+    for value in fields:
+        raw = value.encode("utf-8")
+        out += len(raw).to_bytes(4, "big") + raw
+    return bytes(out)
+
+
+def _po_tag(key: bytes, namespace_key: str, placement: str, region_payload: str) -> str:
+    """The placement-ownership wire form under the separate MAC
+    domain: versioned kind tag + fixed-length canonical
+    base64url HMAC over (domain, complete trusted namespace,
+    placement, rendered region payload digest).  No private
+    field bytes on the wire."""
+    digest = hashlib.sha256(region_payload.encode("utf-8")).hexdigest()
+    mac = hmac.new(
+        key,
+        _po_field_bytes(_PO_DOMAIN, namespace_key, placement, digest),
+        hashlib.sha256,
+    ).digest()
+    opaque = base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")
+    if len(opaque) != MAC_TAG_B64_LENGTH:
+        raise AssertionError("the placement-ownership tag is not the fixed length")
+    return f"{_PO_TAG_PREFIX}{opaque}]"
+
+
+def _po_tag_valid(opaque: str) -> bool:
+    """The closed canonical wire-form check (the same law as the
+    source-marker tags: exact length, closed alphabet, zero
+    final padding bits, 32-byte MAC)."""
+    if len(opaque) != MAC_TAG_B64_LENGTH or any(c not in _PO_B64_ALPHABET for c in opaque):
+        return False
+    try:
+        mac = base64.urlsafe_b64decode(opaque + "=")
+    except Exception:
+        return False
+    if len(mac) != MAC_TAG_BYTES:
+        return False
+    return base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=") == opaque
+
+
 class _CompiledInjectionShapeError(Exception):
     """The closed placement-shape failure (the target field of
     the stable placement is present but not the accepted string
@@ -627,43 +736,116 @@ class _CompiledInjectionShapeError(Exception):
     guessed placement."""
 
 
-def _compiled_region(blocks: tuple[str, ...]) -> str:
+def _compiled_region(
+    blocks: tuple[str, ...], *, placement: str, namespace_key: str, key: bytes
+) -> str:
     """The ONE stable region of the ACTUAL selected compiled
     blocks in actual injection order (the rendered blocks
     already carry their explicit scopes / authority /
     references; the sentinels delimit the region for the
-    deterministic re-injection)."""
-    return "\n".join((_COMPILED_HEADER, "\n\n".join(blocks), _COMPILED_FOOTER))
+    deterministic re-injection) plus the closed
+    placement-ownership tag on its own line between the content
+    and the footer: bound to THIS trusted namespace, THIS
+    placement and THIS exact rendered payload, a byte-identical
+    working set renders a byte-identical region, so the
+    legitimate transformed replay stays the byte-identical
+    fixed point (order 022-e section 1)."""
+    body = "\n\n".join(blocks)
+    payload = f"{_COMPILED_HEADER}\n{body}\n{_COMPILED_FOOTER}"
+    tag = _po_tag(key, namespace_key, placement, payload)
+    return f"{_COMPILED_HEADER}\n{body}\n{tag}\n{_COMPILED_FOOTER}"
 
 
-def _replace_region(text: str, region: str) -> str | None:
-    """Replace the previously injected region in place; ``None``
-    when no closed region (header AND footer) is present."""
-    start = text.find(_COMPILED_HEADER)
-    if start == -1:
+def _owned_region_span(
+    text: str, *, placement: str, namespace_key: str, key: bytes
+) -> tuple[int, int] | None:
+    """The half-open span [start, end) of the FIRST complete
+    header/footer pair that carries a placement-ownership tag
+    verifying for THIS placement, THIS complete trusted
+    namespace and THIS exact rendered payload (the positive
+    application ownership of order 022-e section 1): the
+    bounded left-to-right scan walks every complete pair, so
+    an unauthenticated delimiter-like caller pair BEFORE the
+    authentic region is caller data (preserved byte-identical,
+    never replacement-eligible) while the authentic region
+    after it is still recognized and replaced in place; a
+    failed pair never hides a later header inside its span
+    (an unmatched literal opening delimiter consumes the
+    authentic region's footer in its candidate pair and the
+    scan resumes past the failed header alone, so the
+    ownership span is independent of the literal
+    delimiters).
+    ``end`` is EXACTLY the footer end: the entire suffix after
+    the footer (separator newlines and caller text alike) is
+    preserved byte-identical, so a legitimate transformed
+    replay stays the byte-identical fixed point whether or not
+    the caller had its own instructions/system content.
+    ``None`` when no pair carries a verifying tag: a second
+    session's tag fails under this session's own
+    namespace-scoped MAC, and a caller's literal delimiters
+    carry no tag at all (or never verify)."""
+    search = 0
+    while True:
+        header_start = text.find(_COMPILED_HEADER, search)
+        if header_start == -1:
+            return None
+        footer_start = text.find(_COMPILED_FOOTER, header_start + len(_COMPILED_HEADER))
+        if footer_start == -1:
+            return None
+        end = footer_start + len(_COMPILED_FOOTER)
+        inner = text[header_start + len(_COMPILED_HEADER) : footer_start]
+        if inner.startswith("\n") and inner.endswith("\n") and len(inner) >= 2:
+            middle = inner[1:-1]
+            last_nl = middle.rfind("\n")
+            if last_nl != -1:
+                tag, body = middle[last_nl + 1 :], middle[:last_nl]
+                if tag.startswith(_PO_TAG_PREFIX) and tag.endswith("]"):
+                    if _po_tag_valid(tag[len(_PO_TAG_PREFIX) : -1]):
+                        region_payload = f"{_COMPILED_HEADER}\n{body}\n{_COMPILED_FOOTER}"
+                        expected = _po_tag(key, namespace_key, placement, region_payload)
+                        if hmac.compare_digest(tag.encode("ascii"), expected.encode("ascii")):
+                            return header_start, end
+        search = header_start + len(_COMPILED_HEADER)
+
+
+def _replace_owned_region(
+    text: str, region: str, *, placement: str, namespace_key: str, key: bytes
+) -> str | None:
+    """Replace the positively owned prior-rendered region in
+    place; ``None`` when no complete pair is owned by this
+    trusted session and placement (no pair with a verifying
+    tag -- every delimited span is caller data and the
+    placement falls to the prepend law)."""
+    span = _owned_region_span(text, placement=placement, namespace_key=namespace_key, key=key)
+    if span is None:
         return None
-    footer_start = text.find(_COMPILED_FOOTER, start)
-    if footer_start == -1:
-        return None
-    end = footer_start + len(_COMPILED_FOOTER)
-    if text[end : end + 1] == "\n":
-        end += 1
+    start, end = span
     return text[:start] + region + text[end:]
 
 
-def _place_region(text: str, region: str) -> str:
+def _place_region(text: str, region: str, *, placement: str, namespace_key: str, key: bytes) -> str:
     """The deterministic placement into ONE string field: the
-    existing region is replaced in place; otherwise the region
-    is prepended (the accepted legacy placement convention:
-    the compiled context precedes the caller's own text)."""
-    replaced = _replace_region(text, region)
+    positively owned existing region is replaced in place (the
+    current compiled working set exactly -- a version change or
+    reduced history carries the current set without duplicating
+    a verified old region); otherwise the region is prepended
+    and the caller's own text stays byte-identical data
+    (including literal delimiter-like caller text)."""
+    replaced = _replace_owned_region(
+        text, region, placement=placement, namespace_key=namespace_key, key=key
+    )
     if replaced is not None:
         return replaced
     return region if not text else region + "\n\n" + text
 
 
 def inject_compiled_context(
-    payload: dict[str, Any], *, endpoint: str, blocks: tuple[str, ...]
+    payload: dict[str, Any],
+    *,
+    endpoint: str,
+    blocks: tuple[str, ...],
+    namespace_key: str,
+    key: bytes,
 ) -> dict[str, Any]:
     """The endpoint-specific stable compiled-context placement
     of the ACTUAL selected working set (order 022-d section 3;
@@ -684,20 +866,37 @@ def inject_compiled_context(
     placement promotes nothing: off-graph content stays
     background inside its own rendered block.
 
+    The placement-ownership law (order 022-e section 1): a
+    prior rendered region is eligible for replacement ONLY
+    under a verifying tag bound to this trusted namespace,
+    this placement and the exact rendered payload (the same
+    private per-session key material, a separate MAC domain);
+    literal delimiter-like caller text is data, preserved
+    byte-identical and never replaced.
+
     A non-empty working set whose placement field has an
     unsupported shape is the closed ``_CompiledInjectionShapeError``
     (the typed 422 refusal); an empty working set changes
     nothing.  The input is never mutated (a deep copy)."""
     if not blocks:
         return payload
-    region = _compiled_region(blocks)
+    placement = _po_placement(endpoint)
+    region = _compiled_region(blocks, placement=placement, namespace_key=namespace_key, key=key)
     copied = copy.deepcopy(payload)
     if endpoint == "responses":
         existing = copied.get("instructions")
         if existing is not None and not isinstance(existing, str):
             raise _CompiledInjectionShapeError("instructions shape")
         copied["instructions"] = (
-            _place_region(existing, region) if isinstance(existing, str) else region
+            _place_region(
+                existing,
+                region,
+                placement=placement,
+                namespace_key=namespace_key,
+                key=key,
+            )
+            if isinstance(existing, str)
+            else region
         )
         return copied
     if endpoint == "chat":
@@ -713,7 +912,13 @@ def inject_compiled_context(
             content = first.get("content")
             if not isinstance(content, str):
                 raise _CompiledInjectionShapeError("system content shape")
-            first["content"] = _place_region(content, region)
+            first["content"] = _place_region(
+                content,
+                region,
+                placement=placement,
+                namespace_key=namespace_key,
+                key=key,
+            )
         else:
             copied["messages"] = [
                 {"role": "system", "content": region},
@@ -759,6 +964,457 @@ def _serialize_payload(payload: dict[str, Any]) -> bytes:
     """The single outgoing serialization (the app's closed
     canonical form: compact separators, ASCII-escaped UTF-8)."""
     return json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode()
+
+
+# -- the final-request budget gate (order 022-e section 2) -------
+#
+# The accepted 021 tokenizer + BundleBudgetPlan envelope,
+# capacity and selection semantics composed into the normal v1
+# request path: the REAL final rendered governance (framing,
+# guides and metadata included) and the REMAINING text / tools /
+# request structure / retained images are each counted ONCE with
+# the real pinned tokenizer; the supported endpoint generation
+# fields are honored as-is (never silently changed); a required
+# overflow is the fixed typed 422 BEFORE the one main forward
+# (no silent truncation, no padding, no dangling reference).
+
+
+def _requested_generation(
+    payload: dict[str, Any], endpoint: str, plan: BundleBudgetPlan
+) -> int | None | V1RequestRefusal:
+    """The supported endpoint generation field (Responses
+    ``max_output_tokens``; Chat ``max_tokens``), honored as-is:
+    absent -> the plan's effective reserve; present -> a positive
+    integer within the effective context, else the fixed typed
+    422 (the budget invalid-transform family -- the value is
+    never silently changed or dropped)."""
+    value = payload.get("max_output_tokens" if endpoint == "responses" else "max_tokens")
+    if value is None:
+        return None
+    if (
+        type(value) is not int
+        or isinstance(value, bool)
+        or not (1 <= value <= plan.config.context_tokens)
+    ):
+        return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+    return value
+
+
+def _retained_image_count(payload: dict[str, Any]) -> int | V1RequestRefusal:
+    """The retained images of the (image-policy-applied) payload
+    under the app's own closed count (the per-image reserve
+    consumer of the explicit vision contract); an ambiguous or
+    over-bound shape is the fixed typed 422 (fail closed)."""
+    try:
+        return count_images(payload)
+    except (AmbiguousImageShape, RecursionError):
+        return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+
+
+def _final_generation_capacity(
+    plan: BundleBudgetPlan, requested_max_tokens: int | None, retained_images: int
+) -> int | V1RequestRefusal:
+    """The accepted residual capacity for ordinary request
+    content (C minus the aggregate reservation, the honored
+    generation, the tools and uncertainty reserves, and the
+    retained-image reserves); an over-subscribed configuration
+    or a retained image without the explicit vision contract is
+    the fixed typed 422 before any compile or main forward."""
+    try:
+        return plan.request_capacity(
+            plan.generation_effective(requested_max_tokens), retained_images
+        )
+    except BundleBudgetError:
+        return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+
+
+def _budget_tool_call(name: str, arguments: str) -> BudgetToolCall | None:
+    """The closed tool-call arguments mapping for the accepted
+    envelope model: the actual JSON object in insertion order,
+    string values as-is and every other value in the pinned
+    template's own JSON serialization (the same ensure-ASCII-
+    false form the template renders); any other shape is
+    uncountable (the fail-closed typed 422, never a guess)."""
+    try:
+        obj = json.loads(arguments)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    pairs: list[tuple[str, str]] = []
+    for arg_name, arg_value in obj.items():
+        if not isinstance(arg_name, str):
+            return None
+        if isinstance(arg_value, str):
+            pairs.append((arg_name, arg_value))
+        else:
+            try:
+                pairs.append((arg_name, json.dumps(arg_value, ensure_ascii=False)))
+            except (TypeError, ValueError):
+                return None
+    return BudgetToolCall(name=name, arguments=tuple(pairs))
+
+
+def _envelope_tools(payload: dict[str, Any]) -> tuple[BudgetToolSpec, ...] | None:
+    """The closed ``tools`` mapping: Responses carries the flat
+    function spec (``type`` / ``name`` / ``description`` /
+    ``parameters``) while Chat carries the same spec nested
+    under ``function``; any other shape is uncountable (the
+    fail-closed typed 422, never a guess)."""
+    tools_field = payload.get("tools")
+    if tools_field is None:
+        return ()
+    if not isinstance(tools_field, list):
+        return None
+    tools: list[BudgetToolSpec] = []
+    for tool in tools_field:
+        if not isinstance(tool, dict) or tool.get("type") != "function":
+            return None
+        spec = tool
+        if "function" in tool:
+            spec = tool["function"]
+            if not isinstance(spec, dict):
+                return None
+        name = spec.get("name")
+        description = spec.get("description", "")
+        parameters = spec.get("parameters", {})
+        if (
+            not isinstance(name, str)
+            or not isinstance(description, str)
+            or not isinstance(parameters, dict)
+        ):
+            return None
+        tools.append(BudgetToolSpec(name=name, description=description, parameters=parameters))
+    return tuple(tools)
+
+
+def _envelope_structure(
+    payload: dict[str, Any], endpoint: str
+) -> (
+    tuple[tuple[BudgetMessage, ...], tuple[BudgetToolSpec, ...], tuple[BudgetToolCall, ...]] | None
+):
+    """The CLOSED mapping of the final API payload to the
+    accepted model-envelope structure (messages / serialized
+    tool data / tool calls) for the real-tokenizer final-request
+    count: Responses top-level ``instructions`` as the system
+    frame (an explicit null carries none), the ``input`` (a
+    plain string or the items: the typed or easy message text
+    parts, the bare content parts, function / custom tool calls
+    and their outputs, carried reasoning summaries) and the
+    ``tools`` list; Chat the ``messages``
+    (string or text-part content, assistant tool calls, carried
+    reasoning) and the ``tools`` list.  Every element must be a
+    closed supported shape; any other shape is uncountable and
+    the governed transaction is the fixed typed 422 (unknown
+    capability fails closed -- never a guessed or dropped
+    count).  Retained images are NOT message content: they are
+    capacity consumers under the explicit vision contract
+    (counted separately, once, by the accepted reserves)."""
+    messages: list[BudgetMessage] = []
+    calls: list[BudgetToolCall] = []
+    if endpoint == "responses":
+        instructions = payload.get("instructions")
+        if instructions is not None:
+            # An explicit null is the API's no-instructions state
+            # (the placement law creates the field when the working
+            # set is non-empty); any other non-string is uncountable.
+            if not isinstance(instructions, str):
+                return None
+            messages.append(BudgetMessage(role="system", content=instructions))
+        input_items = payload.get("input")
+        if input_items is None:
+            pass
+        elif isinstance(input_items, str):
+            # The ordinary Responses string input: one plain user
+            # text message.
+            messages.append(BudgetMessage(role="user", content=input_items))
+        elif not isinstance(input_items, list):
+            return None
+        if isinstance(input_items, list):
+            for item in input_items:
+                if not isinstance(item, dict):
+                    return None
+                kind = item.get("type")
+                if kind is None:
+                    # The supported easy-message shape: no outer
+                    # "type", the closed role and the content (the
+                    # established session envelope law); any other
+                    # type-less shape is uncountable.
+                    if not (
+                        isinstance(item.get("role"), str)
+                        and item.get("role") in {"user", "assistant", "system", "developer"}
+                        and "content" in item
+                    ):
+                        return None
+                    kind = "message"
+                if not isinstance(kind, str):
+                    # A non-string item marker is never a supported
+                    # item type (the closed RC2 law: unhashable
+                    # values are never compared into a closed
+                    # set): uncountable, the fixed typed 422.
+                    return None
+                if kind == "message":
+                    role = item.get("role")
+                    if not isinstance(role, str) or role not in {
+                        "user",
+                        "assistant",
+                        "system",
+                        "developer",
+                    }:
+                        return None
+                    budget_role = "system" if role in {"system", "developer"} else role
+                    content = item.get("content")
+                    if isinstance(content, str):
+                        messages.append(BudgetMessage(role=budget_role, content=content))
+                    elif isinstance(content, list):
+                        text_parts: list[str] = []
+                        for part in content:
+                            if not isinstance(part, dict):
+                                return None
+                            part_type = part.get("type")
+                            if isinstance(part_type, str) and part_type in {
+                                "input_text",
+                                "output_text",
+                                "text",
+                            }:
+                                if not isinstance(part.get("text"), str):
+                                    return None
+                                text_parts.append(part["text"])
+                            elif part_type != "input_image":
+                                return None
+                        messages.append(
+                            BudgetMessage(role=budget_role, content="".join(text_parts))
+                        )
+                    else:
+                        return None
+                elif kind in {"function_call", "custom_tool_call"}:
+                    name = item.get("name")
+                    arguments = (
+                        item.get("arguments") if kind == "function_call" else item.get("input")
+                    )
+                    if not isinstance(name, str) or not isinstance(arguments, str):
+                        return None
+                    call = _budget_tool_call(name, arguments)
+                    if call is None:
+                        return None
+                    messages.append(BudgetMessage(role="assistant", content=""))
+                    calls.append(call)
+                elif kind in {"function_call_output", "custom_tool_call_output"}:
+                    output = item.get("output")
+                    if isinstance(output, str):
+                        messages.append(BudgetMessage(role="tool", content=output))
+                    elif isinstance(output, list):
+                        text_parts = []
+                        for part in output:
+                            if not isinstance(part, dict):
+                                return None
+                            part_type = part.get("type")
+                            if isinstance(part_type, str) and part_type in {
+                                "output_text",
+                                "text",
+                            }:
+                                if not isinstance(part.get("text"), str):
+                                    return None
+                                text_parts.append(part["text"])
+                            elif part_type != "input_image":
+                                return None
+                        messages.append(BudgetMessage(role="tool", content="".join(text_parts)))
+                    else:
+                        return None
+                elif kind == "reasoning":
+                    summary = item.get("summary")
+                    if not isinstance(summary, list):
+                        return None
+                    texts: list[str] = []
+                    for part in summary:
+                        if not isinstance(part, dict) or part.get("type") != "summary_text":
+                            return None
+                        if not isinstance(part.get("text"), str):
+                            return None
+                        texts.append(part["text"])
+                    messages.append(
+                        BudgetMessage(
+                            role="assistant",
+                            content="",
+                            reasoning_content="".join(texts),
+                        )
+                    )
+                elif kind in {"input_text", "output_text", "text"}:
+                    # A bare content part as plain user text input
+                    # (the supported raw input): counted once as
+                    # user text.
+                    if not isinstance(item.get("text"), str):
+                        return None
+                    messages.append(BudgetMessage(role="user", content=item["text"]))
+                elif kind == "input_image":
+                    # A bare retained image part: a capacity
+                    # consumer counted ONCE by the accepted per-
+                    # image reserves, never message text.
+                    pass
+                else:
+                    return None
+    else:  # endpoint == "chat"
+        messages_field = payload.get("messages")
+        if not isinstance(messages_field, list) or not messages_field:
+            return None
+        for message in messages_field:
+            if not isinstance(message, dict):
+                return None
+            role = message.get("role")
+            if not isinstance(role, str) or role not in {
+                "system",
+                "user",
+                "assistant",
+                "tool",
+            }:
+                return None
+            content = message.get("content")
+            if content is None:
+                text = ""
+            elif isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if not isinstance(part, dict):
+                        return None
+                    part_type = part.get("type")
+                    if part_type == "text":
+                        if not isinstance(part.get("text"), str):
+                            return None
+                        text_parts.append(part["text"])
+                    elif part_type != "image_url":
+                        return None
+                text = "".join(text_parts)
+            else:
+                return None
+            if role == "assistant":
+                reasoning = message.get("reasoning_content")
+                if reasoning is not None and not isinstance(reasoning, str):
+                    return None
+                if reasoning is not None:
+                    messages.append(
+                        BudgetMessage(role=role, content=text, reasoning_content=reasoning)
+                    )
+                else:
+                    messages.append(BudgetMessage(role=role, content=text))
+                tool_calls = message.get("tool_calls")
+                if tool_calls is not None:
+                    if not isinstance(tool_calls, list):
+                        return None
+                    for call_obj in tool_calls:
+                        if not isinstance(call_obj, dict) or call_obj.get("type") != "function":
+                            return None
+                        fn = call_obj.get("function")
+                        if not isinstance(fn, dict):
+                            return None
+                        name = fn.get("name")
+                        arguments = fn.get("arguments")
+                        if not isinstance(name, str) or not isinstance(arguments, str):
+                            return None
+                        call = _budget_tool_call(name, arguments)
+                        if call is None:
+                            return None
+                        calls.append(call)
+            else:
+                messages.append(BudgetMessage(role=role, content=text))
+    tools = _envelope_tools(payload)
+    if tools is None:
+        return None
+    return tuple(messages), tools, tuple(calls)
+
+
+def _strip_owned_region(
+    payload: dict[str, Any], *, endpoint: str, namespace_key: str, key: bytes
+) -> dict[str, Any]:
+    """The counting view of the final payload with the ONE
+    verified prior rendered placement region removed from the
+    placement field: on a transformed replay the old region is
+    governance being replaced in place -- it is never ordinary
+    request text, so the remaining request is counted once
+    WITHOUT it (the new region is counted separately as the
+    actual final rendered governance; nothing is double-counted
+    and nothing is lost).  The final system frame (the caller's
+    own instructions/system content after the region, separator
+    bytes included) and every other field are retained
+    byte-identical.  An unverified delimiter-like span is
+    caller data: it is retained and counted as text (the
+    over-count is the fail-closed direction -- the request is
+    never under-counted).  The input is never mutated."""
+    placement = _po_placement(endpoint)
+    if endpoint == "responses":
+        instructions = payload.get("instructions")
+        if not isinstance(instructions, str):
+            return payload
+        span = _owned_region_span(
+            instructions, placement=placement, namespace_key=namespace_key, key=key
+        )
+        if span is None:
+            return payload
+        start, end = span
+        return {**payload, "instructions": instructions[:start] + instructions[end:]}
+    messages = payload.get("messages")
+    if (
+        not isinstance(messages, list)
+        or not messages
+        or not isinstance(messages[0], dict)
+        or messages[0].get("role") != "system"
+        or not isinstance(messages[0].get("content"), str)
+    ):
+        return payload
+    content = messages[0]["content"]
+    span = _owned_region_span(content, placement=placement, namespace_key=namespace_key, key=key)
+    if span is None:
+        return payload
+    start, end = span
+    first = {**messages[0], "content": content[:start] + content[end:]}
+    return {**payload, "messages": [first, *messages[1:]]}
+
+
+def _count_final_rest(
+    payload: dict[str, Any],
+    *,
+    endpoint: str,
+    plan: BundleBudgetPlan,
+    requested_max_tokens: int | None,
+    retained_images: int,
+) -> int | V1RequestRefusal:
+    """The REAL pinned-tokenizer count of the final request
+    envelope of the given final payload (the caller supplies
+    the ``_strip_owned_region`` counting view: the remaining
+    text, tools, request structure and retained images, with
+    the ONE verified prior placement region removed -- an
+    unverified delimiter-like span is caller data and stays
+    counted as text): counted ONCE under the accepted
+    envelope / capacity semantics.  The accepted count raises
+    the typed ``REQUEST_OVERFLOW`` when the content alone
+    exceeds the residual capacity -- that is the fixed typed
+    422 before any main forward (every other budget error,
+    over-bound shape or missing vision contract, refuses the
+    same way)."""
+    try:
+        structure = _envelope_structure(payload, endpoint)
+    except ValidationError:
+        # The accepted budget model's own closed bounds
+        # (message-content / tool-description lengths) are
+        # crossed by the over-bound request: the same fixed
+        # typed 422, never a raw error.
+        structure = None
+    if structure is None:
+        return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+    messages, tools, calls = structure
+    try:
+        return plan.count_request_envelope(
+            messages,
+            tools,
+            tool_calls=calls,
+            enable_thinking=True,
+            reasoning_instructions="",
+            retained_images=retained_images,
+            requested_max_tokens=requested_max_tokens,
+        )
+    except BundleBudgetError:
+        return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
 
 
 def _root_candidate_paths(snapshot: Any, root_entry: Any) -> tuple[str, ...]:
@@ -1011,11 +1667,31 @@ async def prepare_v1_transaction(
         # Unreachable: the admission parent is present exactly on a
         # READY outcome; fail closed rather than guess.
         return V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
+    plan = runtime.budget_plan
+    # The final-request budget gate runs BEFORE any compile work
+    # (order 022-e section 2): the supported endpoint generation
+    # field and the retained-image reserves are honored as-is, and
+    # an over-subscribed request (generation beyond the effective
+    # context, or reserves plus the aggregate exceeding C) is the
+    # fixed typed 422 before any compile or main forward -- never
+    # a silent value change, never a raw forward.
+    req_gen = _requested_generation(payload, endpoint, plan)
+    if isinstance(req_gen, V1RequestRefusal):
+        return req_gen
+    images = _retained_image_count(payload)
+    if isinstance(images, V1RequestRefusal):
+        return images
+    capacity = _final_generation_capacity(plan, req_gen, images)
+    if isinstance(capacity, V1RequestRefusal):
+        return capacity
     compiled = await _compile_and_select(session, runtime, snapshot)
     if isinstance(compiled, V1RequestRefusal):
         return compiled
     ready, decision = compiled
     roots = observation.roots.roots
+    namespace_key = snapshot.namespace.lineage_key
+    key = runtime.marker_key
+    placement = _po_placement(endpoint)
     result = replace_sources(
         payload,
         proof=proof,
@@ -1029,39 +1705,133 @@ async def prepare_v1_transaction(
     )
     if result.outcome is ReplacementOutcome.OK:
         assert result.transformed_payload is not None
-        try:
+        decision_now = decision
+        result_now = result
+        forced: list[str] = []
+        while True:
             # The selected compiled context accompanies the
             # transformed body at the endpoint-specific stable
             # placement BEFORE the single serialization (order
             # 022-d section 3: the marker is never the model's
             # only governing content; the source-absent working
-            # set is reinjected without original source).
-            final_payload = inject_compiled_context(
-                result.transformed_payload,
-                endpoint=endpoint,
-                blocks=result.compiled_blocks,
+            # set is reinjected without original source); the
+            # region carries its placement-ownership tag (order
+            # 022-e section 1).
+            region = _compiled_region(
+                result_now.compiled_blocks,
+                placement=placement,
+                namespace_key=namespace_key,
+                key=key,
             )
-        except _CompiledInjectionShapeError:
-            # The placement field has an unsupported shape: the
-            # typed 422 invalid-transform refusal (never a raw
-            # forward, never a guessed placement).
-            return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+            assert result_now.transformed_payload is not None
+            try:
+                final_payload = inject_compiled_context(
+                    result_now.transformed_payload,
+                    endpoint=endpoint,
+                    blocks=result_now.compiled_blocks,
+                    namespace_key=namespace_key,
+                    key=key,
+                )
+            except _CompiledInjectionShapeError:
+                # The placement field has an unsupported shape:
+                # the typed 422 invalid-transform refusal (never
+                # a raw forward, never a guessed placement).
+                return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+            # The REAL final accounting (order 022-e section 2):
+            # the remaining request (the region-free transformed
+            # payload: text, tools, request structure and
+            # retained images) counted ONCE, and the actual final
+            # rendered governance (framing, guides and metadata
+            # included) counted ONCE -- both with the real pinned
+            # tokenizer, under the accepted capacity / aggregate
+            # law.
+            rest = _count_final_rest(
+                _strip_owned_region(
+                    result_now.transformed_payload,
+                    endpoint=endpoint,
+                    namespace_key=namespace_key,
+                    key=key,
+                ),
+                endpoint=endpoint,
+                plan=plan,
+                requested_max_tokens=req_gen,
+                retained_images=images,
+            )
+            if isinstance(rest, V1RequestRefusal):
+                return rest
+            try:
+                governance = plan.count_compiled_block(region)
+            except BundleBudgetError:
+                return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+            if governance <= plan.aggregate:
+                break
+            # The actual final rendered governance (its framing
+            # included) does not fit the aggregate: the
+            # deterministic whole-entry OPTIONAL omission, lowest
+            # priority first -- a coherent replacement/selection
+            # re-run (an omitted carrier earns only the
+            # non-resolving evidence marker, never a dangling
+            # live reference).  Required overflow is the fixed
+            # typed 422 (never truncated).
+            optionals = [row.content_key for row in decision_now.working_set if not row.required]
+            if not optionals:
+                return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+            forced.append(optionals[-1])
+            root_ready, *file_readys = ready
+            decision_now = select_working_set(
+                root_ready,
+                tuple(file_readys),
+                plan,
+                requested_max_tokens=req_gen,
+                retained_images=images,
+                force_omitted=tuple(forced),
+            )
+            if decision_now.outcome is not SelectionOutcome.OK:
+                return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
+            result_now = replace_sources(
+                payload,
+                proof=proof,
+                current_snapshot=snapshot,
+                ready_entries=tuple(ready),
+                decision=decision_now,
+                observation=observation,
+                root_occurrence=roots[0] if roots else None,
+                key=key,
+                max_text_chars=_V1_MAX_TEXT_CHARS,
+            )
+            if result_now.outcome is not ReplacementOutcome.OK:
+                return _transaction_refusal(result_now.outcome)
         return V1TransactionResult(
-            outcome=result.outcome,
+            outcome=result_now.outcome,
             body=_serialize_payload(final_payload),
-            edits_committed=result.edits_committed,
-            markers_emitted=result.markers_emitted,
-            markers_replayed=result.markers_replayed,
-            selected_content_keys=result.selected_content_keys,
+            edits_committed=result_now.edits_committed,
+            markers_emitted=result_now.markers_emitted,
+            markers_replayed=result_now.markers_replayed,
+            selected_content_keys=result_now.selected_content_keys,
             represented_frontier=represented_frontier(
                 snapshot,
                 admission=admission,
-                working_set=decision.working_set,
-                file_edits=result.edits,
+                working_set=decision_now.working_set,
+                file_edits=result_now.edits,
                 root_observed=bool(roots),
             ),
         )
     if result.outcome is ReplacementOutcome.NO_REPLACEMENT:
+        # The unchanged original still forwards as the ONE main
+        # request: the same final-request budget law applies to
+        # it (the honored generation, the retained-image
+        # reserves, the remaining text / tools / structure
+        # counted once); the request-level overflow is the fixed
+        # typed 422 before the main forward.
+        rest = _count_final_rest(
+            payload,
+            endpoint=endpoint,
+            plan=plan,
+            requested_max_tokens=req_gen,
+            retained_images=images,
+        )
+        if isinstance(rest, V1RequestRefusal):
+            return rest
         return V1TransactionResult(
             outcome=result.outcome,
             body=_serialize_payload(payload),

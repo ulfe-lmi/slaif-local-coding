@@ -34,7 +34,9 @@ from slaif_local_coding.constitution.bundles.bundle_compiler import (
     BundleCompilerConfig,
     serialize_compiled_index,
 )
-from slaif_local_coding.constitution.bundles.bundle_tokenizer import BundleTokenizer
+from slaif_local_coding.constitution.bundles.bundle_tokenizer import (
+    BundleTokenizer,
+)
 from slaif_local_coding.constitution.bundles.causal_history_models import CAUSAL_ROOT_FACT
 from slaif_local_coding.constitution.bundles.ram_state import RamStateOwnerRegistry
 from slaif_local_coding.constitution.bundles.ram_state_models import RamStateBounds
@@ -55,6 +57,7 @@ from slaif_local_coding.constitution.bundles.v1_application import (
 )
 from slaif_local_coding.constitution.bundles.v1_runtime import V1Runtime, V1RuntimeReason
 from slaif_local_coding.constitution.cache import RequestIdentity
+from slaif_local_coding.gateway_identity import canonical_identity_bytes, expected_signature
 from tests.helpers.transport_observer import DirectTransportObserver
 from tests.test_causal_history import WORKSPACE, exec_call, frame, out_item, root_item
 from tests.test_v1_application import (
@@ -4057,3 +4060,742 @@ class TestV1ApplicationClosure:
         assert b"Follow the workspace protocol." in captured_main[0].content
         assert len(captured_compile) == 0
         assert self._session(app, settings) is None
+
+
+# ---------------------------------------------------------------------------
+# 022-e: the wire closure of the actual final request (the
+# placement-ownership law for the stable compiled-context region and
+# the accepted budget on the actual outgoing body; both endpoints;
+# the signed-v1 application proof; bounded fake upstream, synthetic
+# identity and content).
+# ---------------------------------------------------------------------------
+
+_HEADER = "[slaif-compiled-context:v1]"
+_FOOTER = "[/slaif-compiled-context:v1]"
+_LITERAL_PAIR = (
+    "[slaif-compiled-context:v1]\n"
+    "ordinary synthetic caller text, not governance\n"
+    "[/slaif-compiled-context:v1]"
+)
+_SIGNED_NOW = 1_700_000_000.0
+_SIGNED_SERVICE_TOKEN = "synthetic-adapter-service-token"
+
+
+def _signed_secret() -> str:
+    vector = json.loads(
+        Path("tests/fixtures/gateway/signed_identity_v1_vectors.json").read_text(encoding="utf-8")
+    )
+    return str(vector["secret"]["value"])
+
+
+class TestV1WireClosure:
+    """Order 022-e acceptance on the ACTUAL create_app entry point:
+    the placement-ownership law for the stable compiled-context
+    region (literal delimiter-like caller text stays data, the
+    verified prior region is replaced in place across caller
+    delimiters, the legitimate transformed replay is the
+    byte-identical fixed point, version change / reduced history
+    carries exactly the current working set without duplicating a
+    verified old region); the accepted budget on the actual final
+    outgoing request (the honored endpoint generation field, the
+    real pinned-tokenizer count of the remaining request and the
+    actual final rendered governance, the fixed typed 422 before
+    any main forward, the deterministic whole-entry optional
+    omission, the synthetic tool / text / vision reserves); and
+    the signed-v1 application proof (accepted signatures reach the
+    actual v1 path and its fake upstream under the correct
+    namespace, the signed route mismatch refusal, and distinct
+    similarly-populated session isolation)."""
+
+    @staticmethod
+    def _handler(captured_main: list[httpx.Request], compiler_echo: Any) -> Any:
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                if request.headers["authorization"] == "Bearer test-only-compiler":
+                    return cast("httpx.Response", compiler_echo(request))
+                captured_main.append(request)
+                return httpx.Response(200, json={"id": f"chat-r{len(captured_main)}"})
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        return handler
+
+    @staticmethod
+    def _signed_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
+        """The closed v1 settings with the accepted signed v1
+        ingress (the synthetic protected environment references
+        only; the same fixture secret the signed-ingress suite
+        uses) and the protected recovery root prepared."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        monkeypatch.setenv("TEST_SIGNED_SERVICE_TOKEN", _SIGNED_SERVICE_TOKEN)
+        monkeypatch.setenv("TEST_SIGNED_SECRET", _signed_secret())
+        settings = _v1_settings(tmp_path)
+        settings = settings.model_copy(
+            update={
+                "gateway_ingress": GatewayIngressConfig(
+                    mode="service_bearer_signed_identity_v1",
+                    service_token_env="TEST_SIGNED_SERVICE_TOKEN",
+                    signing_secret_env="TEST_SIGNED_SECRET",
+                    clock_skew_seconds=60,
+                    replay_ttl_seconds=120,
+                    max_replay_entries=32,
+                    nonce_min_length=16,
+                    nonce_max_length=64,
+                ),
+                "constitution": settings.constitution.model_copy(
+                    update={"identity_source": "signed_request"}
+                ),
+            }
+        )
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        recovery_root.chmod(0o700)
+        return settings
+
+    @staticmethod
+    def _signed_headers(
+        settings: Settings,
+        *,
+        body: bytes,
+        nonce: str,
+        principal: str = "signed-principal",
+        session: str = "signed-session",
+        repository: str = "signed-repository",
+        route: str = "text",
+    ) -> dict[str, str]:
+        """The accepted signed v1 header set over the EXACT wire
+        bytes (method/path/raw-query/body/identity/route/timestamp/
+        nonce bound by the separate signing secret)."""
+        canonical = canonical_identity_bytes(
+            method="POST",
+            path="/v1/responses",
+            raw_query=b"",
+            body=body,
+            principal=principal,
+            session=session,
+            repository=repository,
+            route=route,
+            timestamp=str(int(_SIGNED_NOW)),
+            nonce=nonce,
+        )
+        signature = expected_signature(
+            secret=settings.gateway_ingress.signing_secret(), canonical=canonical
+        )
+        return {
+            "authorization": f"Bearer {_SIGNED_SERVICE_TOKEN}",
+            "x-slaif-identity-version": "v1",
+            "x-slaif-principal": principal,
+            "x-slaif-session": session,
+            "x-slaif-repository": repository,
+            "x-slaif-route": route,
+            "x-slaif-timestamp": str(int(_SIGNED_NOW)),
+            "x-slaif-nonce": nonce,
+            "x-slaif-signature": signature,
+        }
+
+    # -- 022-e section 1: the placement-ownership law --------------
+
+    async def test_responses_caller_literal_delimiters_are_data_and_replay_is_bounded(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The caller's own instructions carry literal
+        compiled-context delimiters around ordinary synthetic
+        text: the bootstrap preserves that caller content
+        byte-identical (the region is prepended, never replacing
+        it), and the follow-up rounds prove the bounded
+        ownership scan: a literal pair BEFORE the previously
+        emitted authenticated region, and an UNMATCHED literal
+        opening delimiter before it (whose candidate pair would
+        consume the region's footer), both keep the verified
+        region replaced in place -- one placement tag, the caller
+        text byte-present, never a second region. The resend of
+        the own transformed body is the byte-identical fixed
+        point."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        caller = f"Caller preamble note.\n\n{_LITERAL_PAIR}\n\nCaller postamble note."
+        root = {"model": "qwen38-27b", "input": [root_item("Follow the workspace protocol.\n")]}
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round 1: bootstrap; the region is prepended and the
+            # caller's literal delimiters stay data.
+            response1 = await client.post(
+                "/v1/responses",
+                json={**root, "instructions": caller},
+            )
+            assert response1.status_code == 200
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 1
+            body1 = captured_main[0].content
+            instructions1 = json.loads(body1)["instructions"]
+            region1 = instructions1[: instructions1.index(_FOOTER) + len(_FOOTER)]
+            assert instructions1.startswith("[slaif-compiled-context:v1]")
+            assert instructions1 == region1 + "\n\n" + caller
+            assert body1.count(b"slaif-placement-ownership:v1:") == 1
+            assert _TAG_RE.search(body1) is not None
+            assert b"Follow the workspace protocol." not in body1
+            assert b"ordinary synthetic caller text, not governance" in body1
+            # Round 2: the follow-up body keeps the previously
+            # emitted authenticated region and puts a literal pair
+            # BEFORE it in the same field: the owned span is
+            # recognized across the caller delimiters (one tag,
+            # not two; the caller text byte-present).
+            instructions2 = f"{_LITERAL_PAIR}\n\n{region1}"
+            response2 = await client.post(
+                "/v1/responses", json={**root, "instructions": instructions2}
+            )
+            assert response2.status_code == 200
+            body2 = captured_main[1].content
+            assert json.loads(body2)["instructions"] == instructions2
+            assert body2.count(b"slaif-placement-ownership:v1:") == 1
+            assert body2.count(b"[slaif-compiled-context:v1]") == 2
+            assert b"ordinary synthetic caller text, not governance" in body2
+            assert b"Follow the workspace protocol." not in body2
+            # Round 3: the UNMATCHED literal opening delimiter
+            # before the authentic region: the same in-place
+            # replacement (the hung pair stays caller data).
+            instructions3 = (
+                f"[slaif-compiled-context:v1]\nhung caller line without a footer\n\n{region1}"
+            )
+            response3 = await client.post(
+                "/v1/responses", json={**root, "instructions": instructions3}
+            )
+            assert response3.status_code == 200
+            body3 = captured_main[2].content
+            assert json.loads(body3)["instructions"] == instructions3
+            assert body3.count(b"slaif-placement-ownership:v1:") == 1
+            assert b"hung caller line without a footer" in body3
+            assert b"Follow the workspace protocol." not in body3
+            # Round 4: the resend of the own transformed body is
+            # the byte-identical fixed point (no recompile).
+            response4 = await client.post(
+                "/v1/responses",
+                content=body3,
+                headers={"content-type": "application/json"},
+            )
+            assert response4.status_code == 200
+            assert captured_main[3].content == body3
+            assert len(captured_compile) == 1
+
+    async def test_chat_caller_system_literal_delimiters_are_data_and_replay_is_fixed(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The same helper serves the Chat stable system
+        placement: the caller's own first string-content system
+        message with literal delimiters keeps its content
+        byte-identical after the region (the placement never
+        rewrites caller data), the user root text stays data (root
+        authority is Responses-only), no source carrier is edited
+        on the Chat endpoint, and the resend of the own
+        transformed Chat body is the byte-identical fixed
+        point."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        root_text = TestV1ApplicationClosure._root_envelope_text("Follow the workspace protocol.\n")
+        caller_system = f"Caller system note.\n\n{_LITERAL_PAIR}"
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [root_item("Follow the workspace protocol.\n")],
+                },
+            )
+            assert response1.status_code == 200
+            response2 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "messages": [
+                        {"role": "system", "content": caller_system},
+                        {"role": "user", "content": root_text},
+                    ],
+                },
+            )
+            assert response2.status_code == 200
+            assert len(captured_main) == 2
+            assert len(captured_compile) == 1
+            body2 = captured_main[1].content
+            out2 = json.loads(body2)
+            system2 = out2["messages"][0]
+            assert system2["role"] == "system"
+            chat_region = system2["content"][: system2["content"].index(_FOOTER) + len(_FOOTER)]
+            assert system2["content"] == chat_region + "\n\n" + caller_system
+            assert out2["messages"][1] == {"role": "user", "content": root_text}
+            assert body2.count(b"slaif-placement-ownership:v1:") == 1
+            assert _TAG_RE.search(body2) is None
+            assert b"ordinary synthetic caller text, not governance" in body2
+            # The resend: the byte-identical fixed point.
+            response3 = await client.post(
+                "/v1/chat/completions",
+                content=body2,
+                headers={"content-type": "application/json"},
+            )
+            assert response3.status_code == 200
+            assert captured_main[2].content == body2
+            assert len(captured_compile) == 1
+
+    # -- 022-e section 2: the budget on the actual final request ---
+
+    async def test_generation_beyond_context_refuses_before_any_compile_or_forward(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The D case inverted: context C=32,768 with an explicit
+        Responses generation allowance of 40,000 (beyond the
+        effective context) is the fixed typed 422 BEFORE any
+        compile or main forward (the D test recorded 200 and one
+        forward); the value is honored as-is, never silently
+        reduced."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "max_output_tokens": 40_000,
+                    "input": [root_item("Follow the workspace protocol.\n")],
+                },
+            )
+            assert response.status_code == 422
+            error = response.json()["error"]
+            assert error["code"] == "v1_selection_refused"
+            assert error["message"] == "governed v1 request refused"
+            assert len(captured_main) == 0
+            assert len(captured_compile) == 0
+
+    async def test_responses_inbound_control_counts_once_and_honors_the_generation_field(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The real in-bound control: an accepted request (the
+        honored max_output_tokens=4096, the caller instructions,
+        one flat Responses function tool) returns 200 with
+        exactly one main forward and one compile; the outgoing
+        body keeps the generation field and the tool definition
+        byte/shape-identical (counted, never dropped or
+        rewritten), carries the current compiled working set at
+        the stable placement with its placement tag, and
+        preserves the caller's instructions after the region."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        tools = [
+            {
+                "type": "function",
+                "name": "lookup",
+                "description": "Look up a term.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"term": {"type": "string"}},
+                    "required": ["term"],
+                },
+            }
+        ]
+        caller = "Caller note for the wire closure.\n"
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "max_output_tokens": 4096,
+                    "instructions": caller,
+                    "tools": tools,
+                    "input": [root_item("Follow the workspace protocol.\n")],
+                },
+            )
+            assert response.status_code == 200
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 1
+            body = captured_main[0].content
+            out = json.loads(body)
+            assert out["max_output_tokens"] == 4096
+            assert out["tools"] == tools
+            instructions = out["instructions"]
+            region = instructions[: instructions.index(_FOOTER) + len(_FOOTER)]
+            assert instructions == region + "\n\n" + caller
+            assert body.count(b"slaif-placement-ownership:v1:") == 1
+            assert _TAG_RE.search(body) is not None
+            assert b"Follow the workspace protocol." not in body
+            assert b"Caller note for the wire closure." in body
+
+    async def test_chat_inbound_control_honors_max_tokens_and_nested_function_tools(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The Chat in-bound control: the legal nested
+        ``function`` tool definition (name / description /
+        parameters under ``function``) is counted and survives
+        byte/shape-identical in the outgoing body; max_tokens is
+        honored as-is; the region sits at the stable system
+        location and the caller's user message (the envelope
+        text as data) is preserved."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        root_text = TestV1ApplicationClosure._root_envelope_text("Follow the workspace protocol.\n")
+        tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup",
+                    "description": "Look up a term.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"term": {"type": "string"}},
+                        "required": ["term"],
+                    },
+                },
+            }
+        ]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [root_item("Follow the workspace protocol.\n")],
+                },
+            )
+            assert response1.status_code == 200
+            response2 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "max_tokens": 4096,
+                    "tools": tools,
+                    "messages": [{"role": "user", "content": root_text}],
+                },
+            )
+            assert response2.status_code == 200
+            assert len(captured_main) == 2
+            assert len(captured_compile) == 1
+            out2 = json.loads(captured_main[1].content)
+            assert out2["max_tokens"] == 4096
+            assert out2["tools"] == tools
+            system2 = out2["messages"][0]
+            assert system2["role"] == "system"
+            assert system2["content"].startswith("[slaif-compiled-context:v1]")
+            assert out2["messages"][1] == {"role": "user", "content": root_text}
+
+    async def test_request_level_overflow_refuses_before_main_forward(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The request-level overflow: the remaining request
+        (the caller instructions sized with the real pinned
+        tokenizer beyond the accepted residual capacity) is the
+        fixed typed 422 BEFORE the main forward (the selected
+        working set still compiles; nothing is forwarded,
+        truncated or silently reduced)."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        settings = settings.model_copy(
+            update={
+                "server": settings.server.model_copy(update={"request_body_max_bytes": 4_194_304})
+            }
+        )
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        plan = app.state.v1_runtime.budget_plan
+        capacity = plan.request_capacity(plan.generation_effective(None), 0)
+        unit = "synthetic filler sentence for the final request budget gate. "
+        per_unit = plan.tokenizer.count_tokens(unit)
+        assert per_unit >= 1
+        huge = unit * (-(-(capacity + 4096) // per_unit))
+        assert plan.tokenizer.count_tokens(huge) > capacity
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "instructions": huge,
+                    "input": [root_item("Follow the workspace protocol.\n")],
+                },
+            )
+            assert response.status_code == 422
+            error = response.json()["error"]
+            assert error["code"] == "v1_selection_refused"
+            assert error["message"] == "governed v1 request refused"
+            assert len(captured_main) == 0
+            assert len(captured_compile) == 1
+
+    async def test_vision_reserve_counts_the_retained_image_once(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The synthetic vision reserve: with the explicit vision
+        contract (per-image reserve 1024, one retained image),
+        the in-bound request (root + one retained image) is 200
+        with exactly one main forward and the image preserved,
+        while the same shape with text beyond the image-reduced
+        residual capacity is the fixed typed 422 with zero main
+        forward (the retained image is a capacity consumer
+        counted once, never message text)."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        settings = settings.model_copy(
+            update={
+                "server": settings.server.model_copy(update={"request_body_max_bytes": 4_194_304})
+            }
+        )
+        context_cache = settings.context_cache.model_copy(
+            update={
+                "budget": BundleBudgetConfig(
+                    context_tokens=32_768,
+                    vision_enabled=True,
+                    per_image_reserve=1024,
+                    max_retained_images=1,
+                ),
+            }
+        )
+        settings = settings.model_copy(
+            update={
+                "routes": [
+                    RouteConfig(
+                        name="text",
+                        model="qwen38-27b",
+                        max_images_per_request=1,
+                        image_overflow_policy="retain_newest",
+                        observation_enabled=True,
+                        constitution_enabled=True,
+                    )
+                ],
+                "context_cache": context_cache,
+            }
+        )
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        plan = app.state.v1_runtime.budget_plan
+        capacity_image = plan.request_capacity(plan.generation_effective(None), 1)
+        assert capacity_image < plan.request_capacity(plan.generation_effective(None), 0)
+        image = {"type": "input_image", "image_url": "synthetic-image"}
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # The in-bound control: one retained image.
+            response1 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [
+                        root_item("Follow the workspace protocol.\n"),
+                        image,
+                    ],
+                },
+            )
+            assert response1.status_code == 200
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 1
+            out1 = json.loads(captured_main[0].content)
+            assert out1["input"][1] == image  # the retained image survives
+            # The request-level overflow under the image reserve.
+            unit = "synthetic filler sentence for the vision reserve gate. "
+            per_unit = plan.tokenizer.count_tokens(unit)
+            huge = unit * (-(-(capacity_image + 4096) // per_unit))
+            assert plan.tokenizer.count_tokens(huge) > capacity_image
+            response2 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "instructions": huge,
+                    "input": [
+                        root_item("Follow the workspace protocol.\n"),
+                        image,
+                    ],
+                },
+            )
+            assert response2.status_code == 422
+            error2 = response2.json()["error"]
+            assert error2["code"] == "v1_selection_refused"
+            assert len(captured_main) == 1  # zero main forward for the overflow
+            # The unchanged working set is a RAM hit (compile-once):
+            # the refusal is the final-request count, not a recompile.
+            assert len(captured_compile) == 1
+
+    # -- 022-e section 3: the signed-v1 application proof ----------
+
+    async def test_signed_accepted_reaches_the_v1_path_and_fake_upstream(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The accepted signature reaches the ACTUAL v1 path: the
+        verified identity (the signed principal / session /
+        repository, route text) establishes the governed session
+        under the correct namespace, the bootstrap compiles and
+        forwards to the fake upstream, and the outgoing body is
+        transformed (the raw root gone, the marker present)."""
+        settings = self._signed_settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(
+            settings,
+            httpx.MockTransport(self._handler(captured_main, compiler_echo)),
+            signed_identity_clock=lambda: _SIGNED_NOW,
+        )
+        assert app.state.v1_runtime is not None
+        payload = {
+            "model": "qwen38-27b",
+            "input": [root_item("Follow the workspace protocol.\n")],
+        }
+        sent = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode()
+        headers = self._signed_headers(settings, body=sent, nonce="nonce-wire-0000001")
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response = await client.post(
+                "/v1/responses",
+                content=sent,
+                headers={**headers, "content-type": "application/json"},
+            )
+        assert response.status_code == 200
+        assert len(captured_main) == 1
+        assert len(captured_compile) == 1
+        body = captured_main[0].content
+        assert b"Follow the workspace protocol." not in body
+        assert _TAG_RE.search(body) is not None
+        sessions = app.state.v1_sessions.sessions()
+        assert len(sessions) == 1
+        ns = sessions[0].namespace
+        assert ns.principal == "signed-principal"
+        assert ns.session == "signed-session"
+        assert ns.repository == "signed-repository"
+        assert ns.route == "text"
+
+    async def test_signed_route_mismatch_refuses_before_v1_work(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The signed route mismatch: an accepted signature whose
+        verified route does not match the route matched by the
+        request is the fixed 403 BEFORE any v1 work (zero
+        compile, zero main forward, no session)."""
+        settings = self._signed_settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(
+            settings,
+            httpx.MockTransport(self._handler(captured_main, compiler_echo)),
+            signed_identity_clock=lambda: _SIGNED_NOW,
+        )
+        assert app.state.v1_runtime is not None
+        payload = {
+            "model": "qwen38-27b",
+            "input": [root_item("Follow the workspace protocol.\n")],
+        }
+        sent = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode()
+        headers = self._signed_headers(
+            settings, body=sent, nonce="nonce-wire-0000002", route="other-route"
+        )
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response = await client.post(
+                "/v1/responses",
+                content=sent,
+                headers={**headers, "content-type": "application/json"},
+            )
+        assert response.status_code == 403
+        error = response.json()["error"]
+        assert error["code"] == "signed_identity_route_mismatch"
+        assert error["message"] == "signed identity route mismatch"
+        assert len(captured_main) == 0
+        assert len(captured_compile) == 0
+        assert app.state.v1_sessions.sessions() == ()
+
+    async def test_signed_distinct_sessions_are_isolated(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The isolation proof over the actual v1 path: two
+        distinct similarly-populated sessions (the same signed
+        principal and repository, the same source, one protected
+        recovery root) bootstrap independently (distinct
+        namespace-scoped markers); session B presenting A's
+        transformed body is the fixed 409 marker-side refusal
+        (A's live tag fails B's own namespace-scoped MAC, zero
+        main forward), while B's own transformed body replays
+        as the byte-identical fixed point (no cross-session
+        state, marker or compilation reuse)."""
+        settings = self._signed_settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(
+            settings,
+            httpx.MockTransport(self._handler(captured_main, compiler_echo)),
+            signed_identity_clock=lambda: _SIGNED_NOW,
+        )
+        assert app.state.v1_runtime is not None
+        payload = {
+            "model": "qwen38-27b",
+            "input": [root_item("Follow the workspace protocol.\n")],
+        }
+        sent = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode()
+
+        async def post(nonce: str, *, session: str, body: bytes) -> httpx.Response:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+            ) as client:
+                headers = self._signed_headers(settings, body=body, nonce=nonce, session=session)
+                return await client.post(
+                    "/v1/responses",
+                    content=body,
+                    headers={**headers, "content-type": "application/json"},
+                )
+
+        response_a = await post("nonce-wire-0000003", session="signed-session-a", body=sent)
+        assert response_a.status_code == 200
+        body_a = captured_main[0].content
+        response_b = await post("nonce-wire-0000004", session="signed-session-b", body=sent)
+        assert response_b.status_code == 200
+        body_b = captured_main[1].content
+        assert len(captured_compile) == 2
+        tag_a = _TAG_RE.search(body_a)
+        tag_b = _TAG_RE.search(body_b)
+        assert tag_a is not None and tag_b is not None
+        assert tag_a.group(0) != tag_b.group(0)  # namespace-scoped MAC
+        # B presents A's transformed body: the marker-side refusal.
+        response_x = await post("nonce-wire-0000005", session="signed-session-b", body=body_a)
+        assert response_x.status_code == 409
+        error_x = response_x.json()["error"]
+        assert error_x["code"] == "v1_transaction_conflict"
+        assert error_x["message"] == "governed v1 request refused"
+        assert len(captured_main) == 2  # zero main forward for the attempt
+        # B's own transformed body replays as the fixed point.
+        response_b2 = await post("nonce-wire-0000006", session="signed-session-b", body=body_b)
+        assert response_b2.status_code == 200
+        assert captured_main[2].content == body_b
+        assert len(captured_compile) == 2
+        assert len(app.state.v1_sessions.sessions()) == 2

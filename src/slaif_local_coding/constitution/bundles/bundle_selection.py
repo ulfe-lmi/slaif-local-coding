@@ -380,6 +380,7 @@ def select_working_set(
     requested_max_tokens: int | None = None,
     retained_images: int = 0,
     request_envelope_tokens: int = 0,
+    force_omitted: tuple[str, ...] = (),
 ) -> BundleSelectionDecision:
     """ONE deterministic complete selection over the ACTUAL
     admitted entries and validated compiled indexes.
@@ -396,6 +397,18 @@ def select_working_set(
     counted with the real pinned tokenizer (never the SUM of
     the individual block counts); required overflow is TYPED
     (422), never truncated or dangling.
+
+    ``force_omitted`` is the deterministic whole-entry OPTIONAL
+    omission channel of the application final-request budget
+    gate (order 022-e section 2): each named OPTIONAL content
+    key is omitted whole (recorded as a BUDGET omission) BEFORE
+    the coverage and aggregate law runs, so a later decision
+    stays a coherent replacement/selection (an omitted carrier
+    can only earn the non-resolving evidence marker, never a
+    dangling live reference).  Required governance -- the root
+    and every binding-closure entry -- is NEVER force-omitted;
+    a forced required key is the fixed selection failure, not
+    an omission.
     """
     if type(plan) is not BundleBudgetPlan:
         raise _fixed("the budget plan must be the actual pinned-tokenizer plan")
@@ -405,6 +418,9 @@ def select_working_set(
         raise _fixed("the selection root must carry its actual resolved root source")
     if not root.origin_proven:
         raise _fixed("the governing root row is always origin-proven")
+    forced = frozenset(force_omitted)
+    if root.entry.content_key in forced:
+        raise _fixed("the governing root row is never force-omitted")
     seen: set[str] = set()
     for ready in entries:
         if ready.entry.entry_class is not EntryClass.FILE_BUNDLE_ENTRY:
@@ -483,6 +499,10 @@ def select_working_set(
     for ready, _priority in required:
         paths = frozenset(ready.represented_paths)
         bound = paths & binding_paths
+        if ready.entry.content_key in forced:
+            # Required governance is never force-omitted (the
+            # whole-entry omission law is optional-only).
+            raise _fixed("required governance is never force-omitted")
         if bound <= covered_proven:
             omitted.append(
                 SelectionOmission(
@@ -495,6 +515,16 @@ def select_working_set(
         else:
             _select(ready, True)
     for ready, _priority in optional:
+        if ready.entry.content_key in forced:
+            omitted.append(
+                SelectionOmission(
+                    content_key=ready.entry.content_key,
+                    reason=SelectionOmissionReason.BUDGET,
+                    covered_by=None,
+                    detail="whole-entry budget omission",
+                )
+            )
+            continue
         paths = frozenset(ready.represented_paths)
         if paths <= covered:
             omitted.append(
