@@ -652,7 +652,19 @@ _V1_MAX_TEXT_CHARS = 100_000
 #: of the two closed marker kinds, and the re-injection is
 #: deterministic and idempotent across resent transformed
 #: payloads (the byte-identical fixed point is preserved).
-_COMPILED_HEADER = "[slaif-compiled-context:v1]"
+#: The region is the DETERMINISTIC frame (order 022-g section 2):
+#: the opening delimiter directly carries a fixed-width claim --
+#: the zero-padded body CHARACTER length and the closed canonical
+#: opaque under the distinct claim purpose of the placement
+#: domain -- so one closing position is located from the length
+#: and the exact body is verified by the existing
+#: placement-ownership tag (no source digest on the wire).
+_COMPILED_OPEN = "[slaif-compiled-context:v1:"
+_COMPILED_CLAIM_LEN_DIGITS = 8
+#: The closed character set of the claim's zero-padded length
+#: field (ASCII digits only; the claim shape is a fixed-width
+#: wire form, never an arbitrary integer encoding).
+_PO_CLAIM_LEN_CHARS = frozenset("0123456789")
 _COMPILED_FOOTER = "[/slaif-compiled-context:v1]"
 
 
@@ -672,6 +684,7 @@ _COMPILED_FOOTER = "[/slaif-compiled-context:v1]"
 #: two closed marker kinds).
 _PO_TAG_PREFIX = "[slaif-placement-ownership:v1:"
 _PO_DOMAIN = "slaif-placement-ownership/v1"
+_PO_CLAIM_DOMAIN = "slaif-placement-ownership/v1:claim"
 _PLACEMENT_RESPONSES = "responses:instructions"
 _PLACEMENT_CHAT = "chat:system"
 _PO_B64_ALPHABET = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
@@ -698,6 +711,25 @@ def _po_field_bytes(*fields: str) -> bytes:
     return bytes(out)
 
 
+def _po_tag_from_digest(
+    key: bytes, namespace_key: str, placement: str, region_payload_digest: str
+) -> str:
+    """The placement-ownership wire form from a PRE-COMPUTED
+    region-payload digest: versioned kind tag + fixed-length
+    canonical base64url HMAC over (domain, complete trusted
+    namespace, placement, digest).  No private field bytes on
+    the wire."""
+    mac = hmac.new(
+        key,
+        _po_field_bytes(_PO_DOMAIN, namespace_key, placement, region_payload_digest),
+        hashlib.sha256,
+    ).digest()
+    opaque = base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")
+    if len(opaque) != MAC_TAG_B64_LENGTH:
+        raise AssertionError("the placement-ownership tag is not the fixed length")
+    return f"{_PO_TAG_PREFIX}{opaque}]"
+
+
 def _po_tag(key: bytes, namespace_key: str, placement: str, region_payload: str) -> str:
     """The placement-ownership wire form under the separate MAC
     domain: versioned kind tag + fixed-length canonical
@@ -705,15 +737,30 @@ def _po_tag(key: bytes, namespace_key: str, placement: str, region_payload: str)
     placement, rendered region payload digest).  No private
     field bytes on the wire."""
     digest = hashlib.sha256(region_payload.encode("utf-8")).hexdigest()
+    return _po_tag_from_digest(key, namespace_key, placement, digest)
+
+
+def _po_claim_opaque(key: bytes, namespace_key: str, placement: str, body_len: int) -> str:
+    """The deterministic frame's fixed-width claim opaque
+    (order 022-g section 2): the closed canonical base64url
+    HMAC under the DISTINCT claim purpose of the placement
+    domain, bound to (claim domain, complete trusted
+    namespace, placement, the zero-padded 8-digit body
+    CHARACTER length).  The claim authenticates IN PLACE,
+    before any body walk, so the one closing position is
+    located from the authenticated length and the exact body
+    is verified by the existing placement-ownership tag: the
+    SAME protected per-session key material, no source digest
+    on the wire."""
     mac = hmac.new(
         key,
-        _po_field_bytes(_PO_DOMAIN, namespace_key, placement, digest),
+        _po_field_bytes(_PO_CLAIM_DOMAIN, namespace_key, placement, f"{body_len:08d}"),
         hashlib.sha256,
     ).digest()
     opaque = base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")
     if len(opaque) != MAC_TAG_B64_LENGTH:
-        raise AssertionError("the placement-ownership tag is not the fixed length")
-    return f"{_PO_TAG_PREFIX}{opaque}]"
+        raise AssertionError("the placement-ownership claim is not the fixed length")
+    return opaque
 
 
 def _po_tag_valid(opaque: str) -> bool:
@@ -752,93 +799,281 @@ def _compiled_region(
     placement and THIS exact rendered payload, a byte-identical
     working set renders a byte-identical region, so the
     legitimate transformed replay stays the byte-identical
-    fixed point (order 022-e section 1)."""
+    fixed point (order 022-e section 1).
+
+    The wire form is the DETERMINISTIC frame (order 022-g
+    section 2): the opening delimiter directly carries the
+    fixed-width claim (the zero-padded body CHARACTER length
+    and the closed canonical opaque under the distinct claim
+    purpose of the placement domain), then the body, then the
+    placement-ownership tag line (the MAC over the exact
+    rendered payload: open line + body + footer) and the
+    footer.  No source digest is on the wire; the closed
+    8-digit claim length bound is the fixed-width claim shape
+    (the typed invalid-transform refusal on a crossing,
+    unreachable under the accepted budgets)."""
     body = "\n\n".join(blocks)
-    payload = f"{_COMPILED_HEADER}\n{body}\n{_COMPILED_FOOTER}"
-    tag = _po_tag(key, namespace_key, placement, payload)
-    return f"{_COMPILED_HEADER}\n{body}\n{tag}\n{_COMPILED_FOOTER}"
+    if len(body) > 99_999_999:
+        raise _CompiledInjectionShapeError("region length")
+    open_line = (
+        _COMPILED_OPEN
+        + f"{len(body):08d}:"
+        + _po_claim_opaque(key, namespace_key, placement, len(body))
+    )
+    region_payload = f"{open_line}\n{body}\n{_COMPILED_FOOTER}"
+    tag = _po_tag(key, namespace_key, placement, region_payload)
+    return f"{open_line}\n{body}\n{tag}\n{_COMPILED_FOOTER}"
+
+
+#: The fixed character skeleton of the deterministic frame
+#: around the body (the fixed-width open line, the two frame
+#: newlines and the footer): the rendered payload of a frame is
+#: exactly ``body_chars + _COMPILED_FRAME_SKELETON_CHARS``
+#: characters, so the conservative UTF-8 work bound of one
+#: frame follows from the authenticated body length alone.
+_COMPILED_FRAME_SKELETON_CHARS = (
+    len(_COMPILED_OPEN)
+    + _COMPILED_CLAIM_LEN_DIGITS
+    + 1
+    + MAC_TAG_B64_LENGTH
+    + 2
+    + len(_COMPILED_FOOTER)
+)
+
+
+def _placement_work_cap(render_bytes: int) -> int:
+    """The closed total verification work cap (UTF-8 bytes) of
+    ONE ownership scan, DERIVED FROM THE ACTUAL CONFIGURED
+    COMPILED-RENDER BUDGET (order 022-g section 2): the emitted
+    region body is STRICTLY SMALLER than ``render_bytes``
+    UTF-8 bytes (``count_compiled_block`` checks the WHOLE
+    framed region against the configured compiled-block byte
+    limit, so the body plus the fixed framing fits that
+    ceiling), the scan's payload view is body + the fixed
+    framing skeleton, and each character encodes to at most 4
+    UTF-8 bytes -- so the cap is the conservative work bound
+    of ONE legitimately emitted frame.  An otherwise-valid
+    single emitted frame verifies under the cap by
+    construction (never refused by an older carrier-observation
+    constant), and a field whose admitted bodies carry more
+    than one legitimate frame's worth of verification work is
+    the fixed typed over-bound transform refusal (never
+    treated as having no owned span, never forwarded raw)."""
+    return 4 * (render_bytes + _COMPILED_FRAME_SKELETON_CHARS)
+
+
+class _PlacementOwnershipWorkExhausted(Exception):
+    """The closed placement-ownership verification work cap of
+    one scan (derived from the configured compiled-render
+    budget: the conservative work bound of ONE legitimately
+    emitted frame) is crossed: the placement field's admitted
+    candidate bodies (the deterministic frames whose fixed-
+    width claim authenticated in place) carry more than one
+    legitimate frame's worth of verification work.  The
+    governed transaction is the fixed typed over-bound
+    transform refusal -- the distinct typed transform refusal
+    of order 022-g section 2, never a silent no-ownership
+    prepend and never a raw forward."""
 
 
 def _owned_region_span(
-    text: str, *, placement: str, namespace_key: str, key: bytes
+    text: str, *, placement: str, namespace_key: str, key: bytes, work_cap: int
 ) -> tuple[int, int] | None:
     """The half-open span [start, end) of the FIRST rendered
-    region whose placement-ownership tag verifies for THIS
+    region whose deterministic frame verifies for THIS
     placement, THIS complete trusted namespace and THIS exact
     rendered payload (the positive application ownership of
-    order 022-e section 1, completed by order 022-f section 2):
-    the bounded left-to-right scan walks the headers in order,
-    and under each header it walks the CANDIDATE TAG LINES (a
-    single line starting with the versioned prefix, carrying the
-    closed canonical opaque and the closing bracket, on the line
-    immediately before a footer line); the body boundary is
-    proven by the AUTHENTICATING MAC over the exact rendered
-    payload -- never by a literal footer search -- so literal
-    delimiters anywhere in the rendered content (including a
-    literal closing delimiter inside a valid compiled block)
-    are data and cannot bound, split or duplicate the owned
-    span.  An unauthenticated candidate (a caller's literal
-    tag-like line, or a tag verifying under another trusted
-    namespace or placement) stays caller data, and a header
-    with no authenticating candidate never hides a later
-    header (the scan resumes past the failed header alone, so
-    the ownership span is independent of the literal
-    delimiters in the caller text as well).
-    ``end`` is EXACTLY the footer end: the entire suffix after
-    the footer (separator newlines and caller text alike) is
-    preserved byte-identical, so a legitimate transformed
-    replay stays the byte-identical fixed point whether or not
-    the caller had its own instructions/system content.
-    ``None`` when no header carries a verifying tag: a second
-    session's tag fails under this session's own
-    namespace-scoped MAC, and a caller's literal delimiters
-    carry no tag at all (or never verify)."""
+    order 022-e section 1, completed by order 022-f section 2
+    and bounded by order 022-g section 2):
+
+    * Discovery is ONE bounded left-to-right pass with a
+      monotonic non-overlapping cursor (the opening delimiter
+      carries a single bracket, so one occurrence cannot start
+      inside another).  A frame truncated at the end of the
+      input (claim, body, tag line or footer) is rejected
+      BEFORE any boundary byte is indexed and stays caller
+      data.
+    * At each opening delimiter the fixed-width claim (the
+      zero-padded body CHARACTER length, the colon and the
+      closed canonical opaque, directly after the delimiter) is
+      parsed and authenticated IN PLACE -- O(1) work, no body
+      access: the claim MAC under the distinct claim purpose of
+      the placement domain.  A failed claim (length, shape or
+      authentication under another trusted namespace or
+      placement) is caller data and the cursor continues.
+    * The ONE closing position is then located from the
+      authenticated length: the body is exactly the text
+      between the open line's newline and the newline at the
+      claimed end, the following line must be the shape-valid
+      fixed-length tag line and the line after it the exact
+      footer, and EVERY wire separator of the frame (after the
+      open line, after the body and after the tag line) is
+      verified to be the actual newline of the input -- the
+      digest is computed over the ACTUAL wire bytes of the
+      frame (open line, body, footer), never over a
+      reconstruction with inserted separators.  The exact body
+      is verified by the EXISTING placement-ownership tag (the
+      MAC over the complete rendered region payload).  Literal
+      delimiters anywhere in the rendered content are data and
+      cannot bound, split or duplicate the owned span.
+    * The total verification of ADMISSION candidate bodies
+      (each admitted candidate charged AFTER the fixed-size
+      claim and closing-shape validation and BEFORE any body
+      copy, at the conservative UTF-8 byte bound of its
+      rendered payload computed from the authenticated claim)
+      is bounded by the closed cap ``work_cap`` (derived from
+      the configured compiled-render budget: the work bound of
+      ONE legitimately emitted frame); crossing it raises
+      ``_PlacementOwnershipWorkExhausted`` (the distinct typed
+      over-bound transform refusal -- never a silent
+      no-ownership prepend, never a raw forward).  An ordinary
+      caller field without an authenticating frame costs only
+      the O(1) in-place claim checks, so any bounded caller
+      field with any literal delimiter density passes the
+      scan.
+    * A valid frame may follow ordinary caller text: the scan
+      starts at 0, and an unauthenticated opening delimiter
+      inside caller data is just caller data.
+    * ``end`` is EXACTLY the footer end: the entire suffix after
+      the footer (separator newlines and caller text alike) is
+      preserved byte-identical, so a legitimate transformed
+      replay stays the byte-identical fixed point whether or
+      not the caller had its own instructions/system content.
+
+    ``None`` when no frame verifies (a second session's frame
+    fails under this session's own namespace-scoped MAC, and a
+    caller's literal delimiters carry no authenticating claim
+    at all or never authenticate)."""
+    n = len(text)
+    open_len = len(_COMPILED_OPEN)
+    footer_len = len(_COMPILED_FOOTER)
+    claim_len = _COMPILED_CLAIM_LEN_DIGITS + 1 + MAC_TAG_B64_LENGTH
+    tag_line_len = len(_PO_TAG_PREFIX) + MAC_TAG_B64_LENGTH + 1
     search = 0
-    header_len = len(_COMPILED_HEADER)
+    work = 0
     while True:
-        header_start = text.find(_COMPILED_HEADER, search)
-        if header_start == -1:
-            return None
-        if header_start + header_len >= len(text) or text[header_start + header_len] != "\n":
-            search = header_start + header_len
+        p = text.find(_COMPILED_OPEN, search)
+        if p == -1:
+            break
+        search = p + open_len
+        claim_start = p + open_len
+        claim_end = claim_start + claim_len
+        if claim_end >= n:
             continue
-        body_start = header_start + header_len + 1
-        candidate = text.find("\n" + _PO_TAG_PREFIX, body_start)
-        while candidate != -1:
-            tag_start = candidate + 1
-            tag_end = text.find("\n", tag_start)
-            if tag_end == -1:
-                candidate = -1
-                continue
-            tag_line = text[tag_start:tag_end]
-            if tag_line.endswith("]") and text.startswith(_COMPILED_FOOTER, tag_end + 1):
-                opaque = tag_line[len(_PO_TAG_PREFIX) : -1]
-                if _po_tag_valid(opaque):
-                    body = text[body_start:candidate]
-                    region_payload = f"{_COMPILED_HEADER}\n{body}\n{_COMPILED_FOOTER}"
-                    expected = _po_tag(key, namespace_key, placement, region_payload)
-                    if hmac.compare_digest(tag_line.encode("ascii"), expected.encode("ascii")):
-                        return header_start, tag_end + 1 + len(_COMPILED_FOOTER)
-            candidate = text.find("\n" + _PO_TAG_PREFIX, tag_end)
-        search = header_start + header_len
+        length_str = text[claim_start : claim_start + _COMPILED_CLAIM_LEN_DIGITS]
+        if not all(c in _PO_CLAIM_LEN_CHARS for c in length_str):
+            continue
+        if text[claim_start + _COMPILED_CLAIM_LEN_DIGITS] != ":":
+            continue
+        opaque = text[claim_start + _COMPILED_CLAIM_LEN_DIGITS + 1 : claim_end]
+        if not _po_tag_valid(opaque):
+            continue
+        body_len = int(length_str)
+        # The claim authenticates IN PLACE, before any body
+        # walk: the fixed-width claim binds the length under
+        # the distinct claim purpose of the placement domain.
+        if not hmac.compare_digest(
+            opaque.encode("ascii"),
+            _po_claim_opaque(key, namespace_key, placement, body_len).encode("ascii"),
+        ):
+            continue
+        # The candidate is now ADMITTED (the claim
+        # authenticated in place).  The ONE closing position,
+        # located from the authenticated length: every wire
+        # separator of the frame is verified to be the actual
+        # newline of the input (never a canonical
+        # reconstruction), and the boundary positions reject
+        # equality with the end of the input BEFORE any
+        # boundary byte is indexed (an incomplete line stays
+        # ordinary data).
+        body_end = claim_end + 1 + body_len
+        if text[claim_end] != "\n":
+            continue
+        if body_end >= n or text[body_end] != "\n":
+            continue
+        tag_start = body_end + 1
+        tag_end = tag_start + tag_line_len
+        if tag_end >= n:
+            continue
+        if text[tag_end] != "\n":
+            continue
+        tag_line = text[tag_start:tag_end]
+        if not tag_line.startswith(_PO_TAG_PREFIX) or not tag_line.endswith("]"):
+            continue
+        tag_opaque = tag_line[len(_PO_TAG_PREFIX) : -1]
+        if not _po_tag_valid(tag_opaque):
+            continue
+        footer_start = tag_end + 1
+        if (
+            footer_start + footer_len > n
+            or text[footer_start : footer_start + footer_len] != _COMPILED_FOOTER
+        ):
+            continue
+        # The fixed-size claim and the closing-shape
+        # validation are complete.  The pre-copy work charge:
+        # the conservative UTF-8 byte bound (4 bytes per code
+        # point) of the candidate's rendered payload (open
+        # line + body + footer), computed from the
+        # authenticated claim BEFORE any body copy or encoded
+        # payload is constructed.  The charge upper-bounds the
+        # candidate's actual verification bytes, so the closed
+        # cap strictly bounds the scan's verification work.
+        work += 4 * (body_len + _COMPILED_FRAME_SKELETON_CHARS)
+        if work > work_cap:
+            raise _PlacementOwnershipWorkExhausted
+        # The exact body, verified by the EXISTING
+        # placement-ownership tag: the digest is over the
+        # ACTUAL wire bytes of the frame (open line, body and
+        # footer -- every separator above verified as the
+        # input's own newline).
+        region_payload = text[p : body_end + 1] + text[footer_start : footer_start + footer_len]
+        digest = hashlib.sha256(region_payload.encode("utf-8")).hexdigest()
+        if hmac.compare_digest(
+            tag_line.encode("ascii"),
+            _po_tag_from_digest(key, namespace_key, placement, digest).encode("ascii"),
+        ):
+            return p, footer_start + footer_len
+    return None
 
 
 def _replace_owned_region(
-    text: str, region: str, *, placement: str, namespace_key: str, key: bytes
+    text: str,
+    region: str,
+    *,
+    placement: str,
+    namespace_key: str,
+    key: bytes,
+    work_cap: int,
 ) -> str | None:
     """Replace the positively owned prior-rendered region in
-    place; ``None`` when no complete pair is owned by this
-    trusted session and placement (no pair with a verifying
-    tag -- every delimited span is caller data and the
-    placement falls to the prepend law)."""
-    span = _owned_region_span(text, placement=placement, namespace_key=namespace_key, key=key)
+    place; ``None`` when no deterministic frame is owned by
+    this trusted session and placement (no frame with an
+    authenticating claim and a verifying tag -- every
+    delimited span is caller data and the placement falls to
+    the prepend law).  A placement field whose admitted
+    candidate bodies exhaust the closed verification work
+    bound propagates
+    ``_PlacementOwnershipWorkExhausted`` (the fixed typed
+    over-bound transform refusal at the transaction
+    boundary)."""
+    span = _owned_region_span(
+        text, placement=placement, namespace_key=namespace_key, key=key, work_cap=work_cap
+    )
     if span is None:
         return None
     start, end = span
     return text[:start] + region + text[end:]
 
 
-def _place_region(text: str, region: str, *, placement: str, namespace_key: str, key: bytes) -> str:
+def _place_region(
+    text: str,
+    region: str,
+    *,
+    placement: str,
+    namespace_key: str,
+    key: bytes,
+    work_cap: int,
+) -> str:
     """The deterministic placement into ONE string field: the
     positively owned existing region is replaced in place (the
     current compiled working set exactly -- a version change or
@@ -847,7 +1082,12 @@ def _place_region(text: str, region: str, *, placement: str, namespace_key: str,
     and the caller's own text stays byte-identical data
     (including literal delimiter-like caller text)."""
     replaced = _replace_owned_region(
-        text, region, placement=placement, namespace_key=namespace_key, key=key
+        text,
+        region,
+        placement=placement,
+        namespace_key=namespace_key,
+        key=key,
+        work_cap=work_cap,
     )
     if replaced is not None:
         return replaced
@@ -861,6 +1101,7 @@ def inject_compiled_context(
     blocks: tuple[str, ...],
     namespace_key: str,
     key: bytes,
+    work_cap: int,
 ) -> dict[str, Any]:
     """The endpoint-specific stable compiled-context placement
     of the ACTUAL selected working set (order 022-d section 3;
@@ -909,6 +1150,7 @@ def inject_compiled_context(
                 placement=placement,
                 namespace_key=namespace_key,
                 key=key,
+                work_cap=work_cap,
             )
             if isinstance(existing, str)
             else region
@@ -933,6 +1175,7 @@ def inject_compiled_context(
                 placement=placement,
                 namespace_key=namespace_key,
                 key=key,
+                work_cap=work_cap,
             )
         else:
             copied["messages"] = [
@@ -1351,29 +1594,43 @@ def _envelope_structure(
 
 
 def _strip_owned_region(
-    payload: dict[str, Any], *, endpoint: str, namespace_key: str, key: bytes
+    payload: dict[str, Any],
+    *,
+    endpoint: str,
+    namespace_key: str,
+    key: bytes,
+    work_cap: int,
 ) -> dict[str, Any]:
-    """The counting view of the final payload with the ONE
-    verified prior rendered placement region removed from the
-    placement field: on a transformed replay the old region is
-    governance being replaced in place -- it is never ordinary
-    request text, so the remaining request is counted once
-    WITHOUT it (the new region is counted separately as the
-    actual final rendered governance; nothing is double-counted
-    and nothing is lost).  The final system frame (the caller's
-    own instructions/system content after the region, separator
-    bytes included) and every other field are retained
-    byte-identical.  An unverified delimiter-like span is
-    caller data: it is retained and counted as text (the
-    over-count is the fail-closed direction -- the request is
-    never under-counted).  The input is never mutated."""
+    """The counting view of the ACTUAL emitted final payload
+    (the final outgoing body after the stable compiled-context
+    placement; order 022-g section 1) with the ONE verified
+    placement-ownership region removed from the placement
+    field, and NOTHING else removed.  On a transformed replay
+    the old region is governance being replaced in place -- it
+    is never ordinary request text, so the remaining request is
+    counted once WITHOUT it (the new region is counted
+    separately as the actual final rendered governance; nothing
+    is double-counted and nothing is lost).  The complete
+    system frame and separators survive byte-identical: the
+    emitted frame keeps its own message slot in the counted
+    envelope (its remainder after the span -- the caller's own
+    instructions/system content and separator bytes, possibly
+    empty on a generated frame -- stays the ordinary counted
+    content of that message).  An unverified delimiter-like
+    span is caller data: it is retained and counted as text
+    (the over-count is the fail-closed direction -- the request
+    is never under-counted).  The input is never mutated."""
     placement = _po_placement(endpoint)
     if endpoint == "responses":
         instructions = payload.get("instructions")
         if not isinstance(instructions, str):
             return payload
         span = _owned_region_span(
-            instructions, placement=placement, namespace_key=namespace_key, key=key
+            instructions,
+            placement=placement,
+            namespace_key=namespace_key,
+            key=key,
+            work_cap=work_cap,
         )
         if span is None:
             return payload
@@ -1389,7 +1646,9 @@ def _strip_owned_region(
     ):
         return payload
     content = messages[0]["content"]
-    span = _owned_region_span(content, placement=placement, namespace_key=namespace_key, key=key)
+    span = _owned_region_span(
+        content, placement=placement, namespace_key=namespace_key, key=key, work_cap=work_cap
+    )
     if span is None:
         return payload
     start, end = span
@@ -1694,6 +1953,14 @@ async def prepare_v1_transaction(
         # READY outcome; fail closed rather than guess.
         return V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
     plan = runtime.budget_plan
+    # The closed ownership-scan work cap is DERIVED FROM THE
+    # ACTUAL CONFIGURED COMPILED-RENDER BUDGET (order 022-g
+    # section 2): count_compiled_block checks the WHOLE framed
+    # region against the configured compiled-block byte limit,
+    # so an otherwise-valid single emitted frame verifies
+    # under the cap by construction (never refused by an older
+    # carrier-observation constant).
+    work_cap = _placement_work_cap(plan.config.max_compiled_block_bytes)
     # The final-request budget gate runs BEFORE any compile work
     # (order 022-e section 2): the supported endpoint generation
     # field and the retained-image reserves are honored as-is, and
@@ -1757,27 +2024,49 @@ async def prepare_v1_transaction(
                     blocks=result_now.compiled_blocks,
                     namespace_key=namespace_key,
                     key=key,
+                    work_cap=work_cap,
                 )
             except _CompiledInjectionShapeError:
                 # The placement field has an unsupported shape:
                 # the typed 422 invalid-transform refusal (never
                 # a raw forward, never a guessed placement).
                 return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
-            # The REAL final accounting (order 022-e section 2):
-            # the remaining request (the region-free transformed
-            # payload: text, tools, request structure and
-            # retained images) counted ONCE, and the actual final
-            # rendered governance (framing, guides and metadata
-            # included) counted ONCE -- both with the real pinned
-            # tokenizer, under the accepted capacity / aggregate
-            # law.
-            rest = _count_final_rest(
-                _strip_owned_region(
-                    result_now.transformed_payload,
+            except _PlacementOwnershipWorkExhausted:
+                # The placement field's admitted candidate bodies
+                # exhausted the closed verification work cap:
+                # the fixed typed over-bound transform refusal
+                # (never a silent no-ownership prepend, never a
+                # raw forward).
+                return V1RequestRefusal(V1RequestReason.TRANSACTION_OVER_BOUND)
+            # The REAL final accounting (order 022-g section 1):
+            # the remaining request of the ACTUAL emitted payload
+            # (the final outgoing body after the stable placement:
+            # text, tools, request structure and retained images)
+            # counted ONCE, and the actual final rendered
+            # governance (framing, guides and metadata included)
+            # counted ONCE -- both with the real pinned tokenizer,
+            # under the accepted capacity / aggregate law.  The
+            # ordinary-content view keeps the complete system
+            # frame and its separators (the emitted frame
+            # occupies its own message slot; only the exact
+            # authenticated governance span is excluded from the
+            # ordinary count), so the first request and the
+            # replay of the exact emitted body count identically.
+            try:
+                count_view = _strip_owned_region(
+                    final_payload,
                     endpoint=endpoint,
                     namespace_key=namespace_key,
                     key=key,
-                ),
+                    work_cap=work_cap,
+                )
+            except _PlacementOwnershipWorkExhausted:
+                # The counting view's ownership scan exhausted
+                # the closed verification work bound: the same
+                # fixed typed over-bound transform refusal.
+                return V1RequestRefusal(V1RequestReason.TRANSACTION_OVER_BOUND)
+            rest = _count_final_rest(
+                count_view,
                 endpoint=endpoint,
                 plan=plan,
                 requested_max_tokens=req_gen,
