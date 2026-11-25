@@ -2179,6 +2179,26 @@ _SYNTHETIC_TAG = "[slaif-live:v1:SYNTHETIC]"
 _TAG_RE = re.compile(rb"\[slaif-(?:live|evidence):v1:[A-Za-z0-9_-]{43}\]")
 
 
+def _pressure_rules() -> tuple[BundleCompiledRule, ...]:
+    """The bounded synthetic compiler completion's bundle rules
+    (order 022-f section 3): sized with the pinned tokenizer so
+    the combined final blocks fit the C=20,480 aggregate while
+    the framed region (header + tag + footer) crosses it -- the
+    formatting-pressure whole-entry omission at the app
+    boundary."""
+    return tuple(
+        BundleCompiledRule(
+            rule_id=f"r{i:03d}",
+            strength="must",
+            statement=(
+                f"Observe the bounded synthetic rule {i:03d} for the synthetic member boundary."
+            ),
+            evidence="Bounded synthetic evidence.",
+        )
+        for i in range(157)
+    )
+
+
 class TestV1ApplicationClosure:
     """The ordered 022-d acceptance: marker-side cold refusal, the
     currentness/fence refusal family with zero main forward, and the
@@ -4799,3 +4819,388 @@ class TestV1WireClosure:
         assert captured_main[2].content == body_b
         assert len(captured_compile) == 2
         assert len(app.state.v1_sessions.sessions()) == 2
+
+    # -- 022-f section 1: the Chat effective generation field --------
+
+    async def test_chat_max_completion_tokens_precedence_refuses_over_limit(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The vLLM Chat protocol precedence at the app boundary
+        (the recorded 022-e section-2 residual): under
+        C=32,768, the established session's Chat request with
+        max_completion_tokens=40,000 (no max_tokens) is the fixed
+        typed 422 BEFORE any main forward or compile; a
+        non-null in-limit max_completion_tokens takes precedence
+        over an over-limit max_tokens (the gate runs on the
+        effective value) and BOTH fields stay on the wire as
+        sent; a malformed effective value is the same fixed typed
+        422.  The Responses max_output_tokens behavior is
+        preserved by the unchanged 022-e tests."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        root_text = TestV1ApplicationClosure._root_envelope_text("Follow the workspace protocol.\n")
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            bootstrap = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [root_item("Follow the workspace protocol.\n")],
+                },
+            )
+            assert bootstrap.status_code == 200
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 1
+            # The effective Chat field beyond the effective context:
+            # the fixed typed 422 before any main forward or compile.
+            response1 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "max_completion_tokens": 40_000,
+                    "messages": [{"role": "user", "content": root_text}],
+                },
+            )
+            assert response1.status_code == 422
+            error1 = response1.json()["error"]
+            assert error1["code"] == "v1_selection_refused"
+            assert error1["message"] == "governed v1 request refused"
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 1
+            # Precedence: the in-limit max_completion_tokens governs
+            # over the over-limit max_tokens (a max_tokens-only gate
+            # would refuse this request); both fields survive the
+            # wire byte/shape-identical.
+            response2 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "max_completion_tokens": 4096,
+                    "max_tokens": 40_000,
+                    "messages": [{"role": "user", "content": root_text}],
+                },
+            )
+            assert response2.status_code == 200
+            assert len(captured_main) == 2
+            assert len(captured_compile) == 1
+            out2 = json.loads(captured_main[1].content)
+            assert out2["max_completion_tokens"] == 4096
+            assert out2["max_tokens"] == 40_000
+            # The malformed effective value: the fixed typed 422
+            # (the value is never silently changed or dropped).
+            response3 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "max_completion_tokens": "4096",
+                    "messages": [{"role": "user", "content": root_text}],
+                },
+            )
+            assert response3.status_code == 422
+            assert response3.json()["error"]["code"] == "v1_selection_refused"
+            assert len(captured_main) == 2
+            assert len(captured_compile) == 1
+
+    async def test_chat_max_completion_tokens_null_fallback_honors_max_tokens(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The null-fallback half of the Chat effective-field law:
+        an explicit-null max_completion_tokens falls back to
+        max_tokens -- the in-limit fallback is honored (200, one
+        forward, both fields preserved with the explicit null
+        intact) and the over-limit fallback is the fixed typed 422
+        with zero main forward."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        root_text = TestV1ApplicationClosure._root_envelope_text("Follow the workspace protocol.\n")
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            bootstrap = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [root_item("Follow the workspace protocol.\n")],
+                },
+            )
+            assert bootstrap.status_code == 200
+            assert len(captured_main) == 1
+            # Explicit null + in-limit max_tokens: the fallback is
+            # honored and both fields stay on the wire as sent.
+            response1 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "max_completion_tokens": None,
+                    "max_tokens": 4096,
+                    "messages": [{"role": "user", "content": root_text}],
+                },
+            )
+            assert response1.status_code == 200
+            assert len(captured_main) == 2
+            out1 = json.loads(captured_main[1].content)
+            assert out1["max_completion_tokens"] is None
+            assert out1["max_tokens"] == 4096
+            # Explicit null + over-limit max_tokens: the fixed typed
+            # 422 with zero new main forward.
+            response2 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "max_completion_tokens": None,
+                    "max_tokens": 40_000,
+                    "messages": [{"role": "user", "content": root_text}],
+                },
+            )
+            assert response2.status_code == 422
+            assert response2.json()["error"]["code"] == "v1_selection_refused"
+            assert len(captured_main) == 2
+            assert len(captured_compile) == 1
+
+    # -- 022-f section 2: the ownership span over rendered content ----
+
+    async def test_rendered_literal_footer_keeps_one_region_and_fixed_replay(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """A bounded synthetic compiler completion renders a root
+        block carrying a LITERAL closing delimiter inside the
+        block text (rendered content, not caller text): the
+        initial round emits exactly ONE authenticated region, the
+        resend of the own transformed body replaces the verified
+        old region in place (byte-identical fixed point, no
+        duplicated region, zero recompile), and the Chat stable
+        placement shows the same law.  The authentication is the
+        single-pass validation of the actual authenticated body
+        (the verifying tag proves the body boundary; no new policy
+        or credential); ordinary caller text and full trailing
+        separators stay byte-identical."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+
+        def literal_footer_compiler(request: httpx.Request) -> httpx.Response:
+            captured_compile.append(request)
+            body = json.loads(request.content)
+            index = _index_for_demand(body["messages"][1]["content"], body["model"])
+            index = index.model_copy(
+                update={
+                    "rules": (
+                        BundleCompiledRule(
+                            rule_id="v1-literal-footer",
+                            strength="must",
+                            statement=(
+                                f"The synthetic block text carries the literal "
+                                f"wire sentinel {_FOOTER} mid-line."
+                            ),
+                            evidence="Bounded synthetic evidence.",
+                        ),
+                    ),
+                }
+            )
+            return httpx.Response(
+                200, content=_completion_bytes(serialize_compiled_index(index).decode("utf-8"))
+            )
+
+        app = create_app(
+            settings, httpx.MockTransport(self._handler(captured_main, literal_footer_compiler))
+        )
+        assert app.state.v1_runtime is not None
+        caller = "Caller note after the region.\n"
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round 1: the initial render carries the literal
+            # closing delimiter inside the compiled block: exactly
+            # one region (two footer occurrences: the literal data
+            # plus the real footer), one placement tag, the caller
+            # text preserved after the region.
+            response1 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "instructions": caller,
+                    "input": [root_item("Follow the workspace protocol.\n")],
+                },
+            )
+            assert response1.status_code == 200
+            body1 = captured_main[0].content
+            instructions1 = json.loads(body1)["instructions"]
+            assert instructions1.count(_FOOTER) == 2
+            assert body1.count(b"slaif-placement-ownership:v1:") == 1
+            region1 = instructions1[: instructions1.rindex(_FOOTER) + len(_FOOTER)]
+            assert instructions1 == region1 + "\n\n" + caller
+            assert _TAG_RE.search(body1) is not None
+            # Round 2: the resend of the own transformed body is
+            # the byte-identical fixed point (the verified old
+            # region replaced in place across its own literal
+            # footer -- one tag, not two; zero recompile).
+            response2 = await client.post(
+                "/v1/responses", content=body1, headers={"content-type": "application/json"}
+            )
+            assert response2.status_code == 200
+            assert captured_main[1].content == body1
+            assert captured_main[1].content.count(b"slaif-placement-ownership:v1:") == 1
+            assert len(captured_compile) == 1
+            # Rounds 3/4: the same law at the Chat stable placement
+            # (the region inserted at the front as a system message;
+            # the envelope user text stays data).
+            root_text = TestV1ApplicationClosure._root_envelope_text(
+                "Follow the workspace protocol.\n"
+            )
+            response3 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "messages": [{"role": "user", "content": root_text}],
+                },
+            )
+            assert response3.status_code == 200
+            body3 = captured_main[2].content
+            out3 = json.loads(body3)
+            system3 = out3["messages"][0]
+            assert system3["role"] == "system"
+            assert system3["content"].count(_FOOTER) == 2
+            assert out3["messages"][1] == {"role": "user", "content": root_text}
+            assert body3.count(b"slaif-placement-ownership:v1:") == 1
+            response4 = await client.post(
+                "/v1/chat/completions", content=body3, headers={"content-type": "application/json"}
+            )
+            assert response4.status_code == 200
+            assert captured_main[3].content == body3
+            assert len(captured_compile) == 1
+
+    # -- 022-f section 3: formatting-pressure whole-entry omission ---
+
+    async def test_formatting_pressure_omits_whole_optional_entry_and_replay_is_idempotent(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """At the ACTUAL entry point under C=20,480: the combined
+        final blocks of the root plus the 8-member bundle fit the
+        aggregate, but the FRAMED region (header + tag + footer)
+        crosses it -- the deterministic whole-entry OPTIONAL
+        omission runs at the app boundary (the bounded synthetic
+        compiler completion's bundle entry is omitted whole, the
+        required root governance preserved): the outgoing body
+        carries the framed root block only with no dangling
+        reference (the omitted bundle carrier earns the
+        non-resolving evidence marker, the root carrier the live
+        marker, and no omitted compiled content reaches the
+        wire), and the resend of the own transformed body
+        validates its own valid marker decision as the
+        byte-identical fixed point with zero recompile."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        cc = settings.context_cache
+        settings = settings.model_copy(
+            update={
+                "context_cache": cc.model_copy(
+                    update={
+                        "budget": BundleBudgetConfig(context_tokens=20_480),
+                        "route_contracts": {
+                            "text": ContextCacheRouteContract(
+                                model="qwen38-27b", context_tokens=20_480
+                            )
+                        },
+                    }
+                )
+            }
+        )
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+
+        def pressure_compiler(request: httpx.Request) -> httpx.Response:
+            captured_compile.append(request)
+            body = json.loads(request.content)
+            user = body["messages"][1]["content"]
+            index = _index_for_demand(user, body["model"])
+            entry_match = re.search(r"entry_class='([a-z_]+)'", user)
+            assert entry_match is not None
+            entry_class = entry_match.group(1)
+            if entry_class == "file_bundle_entry":
+                # The bounded synthetic bundle completion: sized so
+                # the combined final blocks fit the aggregate while
+                # the framed region crosses it (the formatting
+                # pressure of order 022-f section 3).
+                index = index.model_copy(update={"rules": _pressure_rules()})
+            return httpx.Response(
+                200, content=_completion_bytes(serialize_compiled_index(index).decode("utf-8"))
+            )
+
+        app = create_app(
+            settings, httpx.MockTransport(self._handler(captured_main, pressure_compiler))
+        )
+        assert app.state.v1_runtime is not None
+        root_text = (
+            "Read `A1.md`, `A2.md`, `A3.md`, `A4.md`, "
+            "`A5.md`, `A6.md`, `A7.md` and `A8.md` before changing code.\n"
+        )
+        members = "\n".join(f"Synthetic member A{i} content.\n" for i in range(1, 9))
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round 1: the bootstrap (the framed root block fits the
+            # aggregate alone).
+            response1 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": [root_item(root_text)]},
+            )
+            assert response1.status_code == 200
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 1
+            # Round 2: the 8-member bundle read.  The combined final
+            # blocks fit the aggregate (selection keeps both entries)
+            # but the framed region crosses it: the whole optional
+            # bundle entry is omitted at the app boundary and the
+            # coherent replacement/selection re-run forwards.
+            response2 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [
+                        root_item(root_text),
+                        exec_call(
+                            "c1",
+                            "cat A1.md A2.md A3.md A4.md A5.md A6.md A7.md A8.md",
+                        ),
+                        out_item("c1", frame(members)),
+                    ],
+                },
+            )
+            assert response2.status_code == 200
+            assert len(captured_main) == 2
+            assert len(captured_compile) == 2
+            body2 = captured_main[1].content
+            # Exactly one placement region (the framed root block
+            # only).
+            assert body2.count(b"slaif-placement-ownership:v1:") == 1
+            # No dangling reference: the root carrier is the sole
+            # live marker; the omitted bundle carrier earns the
+            # non-resolving evidence marker.
+            assert body2.count(b"[slaif-live:v1:") == 1
+            assert body2.count(b"[slaif-evidence:v1:") == 1
+            # The omitted compiled content and the original sources
+            # never reach the outgoing body.
+            instructions2 = json.loads(body2)["instructions"]
+            region2 = instructions2[: instructions2.rindex(_FOOTER) + len(_FOOTER)]
+            assert "Observe the bounded echo rule." in region2
+            assert b"Observe the bounded synthetic rule" not in body2
+            assert root_text.strip().encode() not in body2
+            assert b"Synthetic member A1 content." not in body2
+            # Round 3: the resend of the own transformed body
+            # validates its own valid marker decision (the live and
+            # evidence markers authenticate) and stays the
+            # byte-identical fixed point with zero recompile.
+            response3 = await client.post(
+                "/v1/responses", content=body2, headers={"content-type": "application/json"}
+            )
+            assert response3.status_code == 200
+            assert captured_main[2].content == body2
+            assert len(captured_compile) == 2

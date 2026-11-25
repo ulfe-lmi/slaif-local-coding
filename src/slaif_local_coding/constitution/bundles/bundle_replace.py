@@ -3541,10 +3541,20 @@ def _prepare_replace_plan(
     # Expectations (derived INDEPENDENT of the current raw
     # bytes): a current live tag for EVERY selected span (the
     # transformed replay is matched before the raw digest
-    # mismatch); an evidence tag for EVERY evidence-eligible span
-    # (no ready index needed); a stale live tag for every other
-    # span whose entry has a ready compiled index (the internal
-    # ``stale`` diagnostic keeps an old live reference refusing).
+    # mismatch) PLUS the span's own evidence tag (the
+    # app-boundary formatting-pressure omission is decided LATER,
+    # in the transaction stage's final budget gate: a selected
+    # OPTIONAL that the gate omits earns the non-resolving
+    # evidence marker in the outgoing body, so the resend of that
+    # own body must verify the marker decision the gate made --
+    # the replay validates its own valid marker decision -- before
+    # the deterministic re-run re-decides the same omission; the
+    # evidence scope carries no entry content key, so the
+    # expectation is decision-stable); an evidence tag for EVERY
+    # evidence-eligible span (no ready index needed); a stale
+    # live tag for every other span whose entry has a ready
+    # compiled index (the internal ``stale`` diagnostic keeps an
+    # old live reference refusing).
     tags: list[ExpectedTag] = []
     binding_of: dict[
         tuple[str, str, int, int, int, int, str],
@@ -3607,6 +3617,37 @@ def _prepare_replace_plan(
                 source_digest=span.source_digest,
             ),
             "live",
+        )
+        # The transaction stage's app-boundary budget gate may
+        # omit this selected OPTIONAL whole-entry after this plan
+        # runs (order 022-f section 3): the outgoing body then
+        # carries the span's NON-RESOLVING evidence marker, and
+        # the resend of that own body is the legitimate replay
+        # that must verify the marker decision the gate made
+        # (byte-identical fixed point: the deterministic re-run
+        # in the transaction stage re-decides the same omission
+        # and re-emits the same marker).  The evidence scope
+        # binds the exact occurrence, source digest and carrier
+        # association -- never a current entry key -- so this
+        # expectation is decision-stable; the adapter never
+        # issues an evidence marker for the governing root, so
+        # the root span earns no issuable match here.
+        _note(
+            span,
+            derive_evidence_tag(
+                key,
+                namespace_key=namespace_key,
+                original_role=span.role,
+                occurrence_identity=span.occurrence_identity,
+                endpoint=span.endpoint,
+                call_id=span.call_id,
+                call_position=span.call_position,
+                result_position=span.result_position,
+                piece_index=span.piece_index,
+                segment_index=span.segment_index,
+                source_digest=span.source_digest,
+            ),
+            "evidence",
         )
     for span in evidence_spans:
         _note(

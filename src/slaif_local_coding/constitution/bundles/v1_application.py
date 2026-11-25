@@ -48,10 +48,13 @@ request composes, in this fixed order,
    recovery original reads and reuse the retained successful
    publication of the current snapshot.
 5a. the final-request budget gate (order 022-e section 2): the
-    supported endpoint generation fields (Responses
-    ``max_output_tokens``; Chat ``max_tokens``) are honored as-is
-    (a malformed or context-exceeding value is the fixed typed
-    422 before any compile or main forward); after the pure
+    supported endpoint generation fields are honored as-is (a
+    malformed or context-exceeding value is the fixed typed 422
+    before any compile or main forward): Responses
+    ``max_output_tokens``; Chat the ACTUAL effective field under
+    the vLLM Chat protocol, a non-null ``max_completion_tokens``
+    taking precedence over ``max_tokens`` (order 022-f section
+    1); after the pure
     exact-span transaction and the endpoint-specific stable
     placement (whose prior rendered region is replacement-
     eligible ONLY under the verifying placement-ownership tag --
@@ -759,53 +762,65 @@ def _compiled_region(
 def _owned_region_span(
     text: str, *, placement: str, namespace_key: str, key: bytes
 ) -> tuple[int, int] | None:
-    """The half-open span [start, end) of the FIRST complete
-    header/footer pair that carries a placement-ownership tag
-    verifying for THIS placement, THIS complete trusted
-    namespace and THIS exact rendered payload (the positive
-    application ownership of order 022-e section 1): the
-    bounded left-to-right scan walks every complete pair, so
-    an unauthenticated delimiter-like caller pair BEFORE the
-    authentic region is caller data (preserved byte-identical,
-    never replacement-eligible) while the authentic region
-    after it is still recognized and replaced in place; a
-    failed pair never hides a later header inside its span
-    (an unmatched literal opening delimiter consumes the
-    authentic region's footer in its candidate pair and the
-    scan resumes past the failed header alone, so the
-    ownership span is independent of the literal
-    delimiters).
+    """The half-open span [start, end) of the FIRST rendered
+    region whose placement-ownership tag verifies for THIS
+    placement, THIS complete trusted namespace and THIS exact
+    rendered payload (the positive application ownership of
+    order 022-e section 1, completed by order 022-f section 2):
+    the bounded left-to-right scan walks the headers in order,
+    and under each header it walks the CANDIDATE TAG LINES (a
+    single line starting with the versioned prefix, carrying the
+    closed canonical opaque and the closing bracket, on the line
+    immediately before a footer line); the body boundary is
+    proven by the AUTHENTICATING MAC over the exact rendered
+    payload -- never by a literal footer search -- so literal
+    delimiters anywhere in the rendered content (including a
+    literal closing delimiter inside a valid compiled block)
+    are data and cannot bound, split or duplicate the owned
+    span.  An unauthenticated candidate (a caller's literal
+    tag-like line, or a tag verifying under another trusted
+    namespace or placement) stays caller data, and a header
+    with no authenticating candidate never hides a later
+    header (the scan resumes past the failed header alone, so
+    the ownership span is independent of the literal
+    delimiters in the caller text as well).
     ``end`` is EXACTLY the footer end: the entire suffix after
     the footer (separator newlines and caller text alike) is
     preserved byte-identical, so a legitimate transformed
     replay stays the byte-identical fixed point whether or not
     the caller had its own instructions/system content.
-    ``None`` when no pair carries a verifying tag: a second
+    ``None`` when no header carries a verifying tag: a second
     session's tag fails under this session's own
     namespace-scoped MAC, and a caller's literal delimiters
     carry no tag at all (or never verify)."""
     search = 0
+    header_len = len(_COMPILED_HEADER)
     while True:
         header_start = text.find(_COMPILED_HEADER, search)
         if header_start == -1:
             return None
-        footer_start = text.find(_COMPILED_FOOTER, header_start + len(_COMPILED_HEADER))
-        if footer_start == -1:
-            return None
-        end = footer_start + len(_COMPILED_FOOTER)
-        inner = text[header_start + len(_COMPILED_HEADER) : footer_start]
-        if inner.startswith("\n") and inner.endswith("\n") and len(inner) >= 2:
-            middle = inner[1:-1]
-            last_nl = middle.rfind("\n")
-            if last_nl != -1:
-                tag, body = middle[last_nl + 1 :], middle[:last_nl]
-                if tag.startswith(_PO_TAG_PREFIX) and tag.endswith("]"):
-                    if _po_tag_valid(tag[len(_PO_TAG_PREFIX) : -1]):
-                        region_payload = f"{_COMPILED_HEADER}\n{body}\n{_COMPILED_FOOTER}"
-                        expected = _po_tag(key, namespace_key, placement, region_payload)
-                        if hmac.compare_digest(tag.encode("ascii"), expected.encode("ascii")):
-                            return header_start, end
-        search = header_start + len(_COMPILED_HEADER)
+        if header_start + header_len >= len(text) or text[header_start + header_len] != "\n":
+            search = header_start + header_len
+            continue
+        body_start = header_start + header_len + 1
+        candidate = text.find("\n" + _PO_TAG_PREFIX, body_start)
+        while candidate != -1:
+            tag_start = candidate + 1
+            tag_end = text.find("\n", tag_start)
+            if tag_end == -1:
+                candidate = -1
+                continue
+            tag_line = text[tag_start:tag_end]
+            if tag_line.endswith("]") and text.startswith(_COMPILED_FOOTER, tag_end + 1):
+                opaque = tag_line[len(_PO_TAG_PREFIX) : -1]
+                if _po_tag_valid(opaque):
+                    body = text[body_start:candidate]
+                    region_payload = f"{_COMPILED_HEADER}\n{body}\n{_COMPILED_FOOTER}"
+                    expected = _po_tag(key, namespace_key, placement, region_payload)
+                    if hmac.compare_digest(tag_line.encode("ascii"), expected.encode("ascii")):
+                        return header_start, tag_end + 1 + len(_COMPILED_FOOTER)
+            candidate = text.find("\n" + _PO_TAG_PREFIX, tag_end)
+        search = header_start + header_len
 
 
 def _replace_owned_region(
@@ -982,13 +997,24 @@ def _serialize_payload(payload: dict[str, Any]) -> bytes:
 def _requested_generation(
     payload: dict[str, Any], endpoint: str, plan: BundleBudgetPlan
 ) -> int | None | V1RequestRefusal:
-    """The supported endpoint generation field (Responses
-    ``max_output_tokens``; Chat ``max_tokens``), honored as-is:
-    absent -> the plan's effective reserve; present -> a positive
-    integer within the effective context, else the fixed typed
-    422 (the budget invalid-transform family -- the value is
-    never silently changed or dropped)."""
-    value = payload.get("max_output_tokens" if endpoint == "responses" else "max_tokens")
+    """The supported endpoint generation fields, honored as-is:
+    Responses ``max_output_tokens``; Chat the ACTUAL effective
+    field under the vLLM Chat protocol -- a non-null
+    ``max_completion_tokens`` takes precedence over ``max_tokens``
+    (an absent or explicit-null ``max_completion_tokens`` falls
+    back to ``max_tokens``), so the typed 422 and capacity checks
+    run on the effective value (order 022-f section 1): absent ->
+    the plan's effective reserve; present -> a positive integer
+    within the effective context, else the fixed typed 422 (the
+    budget invalid-transform family -- the value is never silently
+    changed or dropped, and both Chat fields stay on the wire as
+    sent)."""
+    if endpoint == "responses":
+        value = payload.get("max_output_tokens")
+    else:
+        value = payload.get("max_completion_tokens")
+        if value is None:
+            value = payload.get("max_tokens")
     if value is None:
         return None
     if (
