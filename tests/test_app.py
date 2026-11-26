@@ -1,10 +1,13 @@
 import asyncio
 import contextlib
 import gzip
+import hashlib
 import json
 import logging
 import os
 import re
+import subprocess
+import sys
 from collections.abc import AsyncIterator, Callable, Coroutine, MutableMapping
 from pathlib import Path
 from typing import Any, cast
@@ -14,6 +17,7 @@ import pytest
 from starlette.requests import Request
 
 import slaif_local_coding.app as app_module
+import slaif_local_coding.constitution.bundles.v1_application as v1_application_module
 from slaif_local_coding.app import V1RuntimeUnavailableError, create_app
 from slaif_local_coding.config import (
     CacheConfig,
@@ -46,6 +50,7 @@ from slaif_local_coding.constitution.bundles.currentness_models import (
 from slaif_local_coding.constitution.bundles.observe import observe_request
 from slaif_local_coding.constitution.bundles.ram_state import RamStateOwnerRegistry
 from slaif_local_coding.constitution.bundles.ram_state_models import RamStateBounds
+from slaif_local_coding.constitution.bundles.recovery_resume import resume_session
 from slaif_local_coding.constitution.bundles.recovery_store import (
     RecoverySession,
     RecoveryStore,
@@ -8335,3 +8340,1294 @@ class TestV1ContentCurrentnessMatrix:
         # distinct marker bytes (the namespace is MAC-bound).
         assert body_a != body_b
         assert main_a[1].content != main_b[1].content
+
+
+# ---------------------------------------------------------------------------
+# 023-c: the remaining 023 negative-path/stress-test matrix cases at the
+# ACTUAL create_app entry point (recovery, resource bounds and
+# concurrency) plus the two bounded evidence-gap closures (C02
+# correlation, S01 shared store).  Bounded fake upstreams, trusted
+# synthetic identities and a protected test store; no live service,
+# no real client, no real credentials.
+# ---------------------------------------------------------------------------
+
+
+class TestV1RecoveryResourceConcurrency:
+    """The ordered 023-c acceptance: C03/M04 bounded actual
+    concurrency, M01/M02/O03 the real process-boundary restart over
+    the same protected store, M03/M05 the recovery/resource
+    negatives at the app boundary, and the C02/S01 evidence-gap
+    closures.  Every claimed case verifies the ACTUAL main forwarded
+    body and the separate compiler demands (or the typed refusal
+    with zero forward); the protected captures correlate the known
+    synthetic originals, selected entries and bytes."""
+
+    # -- shared fixtures -------------------------------------------------
+
+    @staticmethod
+    def _settings(
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        session: str = "local-session",
+        repository: str = "local-repository",
+        ram: RamStateBounds | None = None,
+    ) -> Settings:
+        """The closed v1 settings with the protected recovery root
+        prepared and the three synthetic protected environment
+        references set (explicit identity / RAM-override knobs)."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        if session != "local-session" or repository != "local-repository":
+            settings = settings.model_copy(
+                update={
+                    "constitution": settings.constitution.model_copy(
+                        update={
+                            "session": session,
+                            "repository": repository,
+                        }
+                    )
+                }
+            )
+        if ram is not None:
+            settings = settings.model_copy(
+                update={"context_cache": settings.context_cache.model_copy(update={"ram": ram})}
+            )
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        recovery_root.chmod(0o700)
+        return settings
+
+    @staticmethod
+    def _session(
+        app: Any,
+        settings: Settings,
+        *,
+        session: str = "local-session",
+        repository: str = "local-repository",
+    ) -> V1Session | None:
+        runtime = app.state.v1_runtime
+        assert runtime is not None
+        identity = RequestIdentity(
+            principal="local-principal",
+            session=session,
+            repository=repository,
+            route="text",
+        )
+        address = build_session_address(
+            runtime, identity, settings.routes[0], settings.context_cache.route_contracts["text"]
+        )
+        return cast("V1Session | None", app.state.v1_sessions.get(address))
+
+    @staticmethod
+    def _file_entries(app: Any, settings: Settings, **kwargs: Any) -> tuple[Any, ...]:
+        session = TestV1RecoveryResourceConcurrency._session(app, settings, **kwargs)
+        assert session is not None
+        snapshot = session.owner.snapshot
+        assert snapshot is not None
+        admission = snapshot.result.admission
+        assert admission is not None
+        return tuple(admission.entries)
+
+    @staticmethod
+    def _root_payload() -> dict[str, Any]:
+        return {
+            "model": "qwen38-27b",
+            "input": [root_item("Follow `docs/B.md` before acting.\n")],
+        }
+
+    @staticmethod
+    def _read_payload() -> dict[str, Any]:
+        return {
+            "model": "qwen38-27b",
+            "input": [
+                root_item("Follow `docs/B.md` before acting.\n"),
+                exec_call("c1", "cat docs/B.md"),
+                out_item("c1", frame("B body.\n")),
+            ],
+        }
+
+    @staticmethod
+    def _resp_issue(call_id: str, cmd: str) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": f"resp-{call_id}",
+                "status": "completed",
+                "output": (
+                    {
+                        "type": "function_call",
+                        "id": f"fc-{call_id}",
+                        "call_id": call_id,
+                        "name": "exec_command",
+                        "arguments": json.dumps({"cmd": cmd}),
+                    },
+                ),
+            },
+        )
+
+    @staticmethod
+    def _resp_plain(n: int) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": f"resp-r{n}",
+                "status": "completed",
+                "output": (
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "ok"}],
+                    },
+                ),
+            },
+        )
+
+    @staticmethod
+    def _make_app(
+        settings: Settings,
+        captured_main: list[httpx.Request],
+        captured_compile: list[httpx.Request],
+        recorders: list[Any] | None = None,
+        *,
+        issue_first: bool = True,
+    ) -> Any:
+        """The bounded fake-upstream app (ONE transport serving BOTH
+        the main forward and the direct tool-free compiler channel)."""
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if issue_first and n == 1:
+                return TestV1RecoveryResourceConcurrency._resp_issue("c1", "cat docs/B.md")
+            return TestV1RecoveryResourceConcurrency._resp_plain(n)
+
+        if recorders is not None:
+            app = create_app(
+                settings,
+                httpx.MockTransport(handler),
+                v1_stage_observer=recorders.append,
+            )
+        else:
+            app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        return app
+
+    @staticmethod
+    def _write_protected(path: Path, data: bytes) -> None:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+
+    # -- C03/M04: bounded actual concurrency -----------------------------
+
+    async def test_concurrent_identical_miss_single_flight_and_stable_state(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """C03/M04 (simultaneous identical misses) at the actual
+        app boundary: two concurrent requests over the SAME new
+        miss take ONE actual compiler dispatch (the leader) while
+        the second is the ACTUAL single-flight subscriber (the
+        closed ``joined`` work outcome -- the distinct shape the
+        closed four-way law keeps apart from the across-request RAM
+        reuse), both forward the identical transformed body, the
+        session keeps ONE live owner and the same-session
+        publication commits the protected generation exactly once."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        dispatch_gate = {"held": False}
+        recorders: list[Any] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                if not dispatch_gate["held"]:
+                    # Hold the ONE leader dispatch in flight so both
+                    # concurrent requests reach the work plane before
+                    # the result is published (the single-flight JOIN).
+                    dispatch_gate["held"] = True
+                    await asyncio.sleep(0.1)
+                return compiler_echo(request)
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n == 1:
+                return self._resp_issue("c1", "cat docs/B.md")
+            return self._resp_plain(n)
+
+        app = create_app(
+            settings,
+            httpx.MockTransport(handler),
+            v1_stage_observer=recorders.append,
+        )
+        assert app.state.v1_runtime is not None
+        runtime = app.state.v1_runtime
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # R1: the cold bootstrap (root compile, generation one,
+            # the read issued).
+            response1 = await client.post("/v1/responses", json=self._root_payload())
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1
+            # R2: two CONCURRENT identical requests over the new
+            # miss (the read completion).
+            response2a, response2b = await asyncio.gather(
+                client.post("/v1/responses", json=self._read_payload()),
+                client.post("/v1/responses", json=self._read_payload()),
+            )
+            assert response2a.status_code == 200
+            assert response2b.status_code == 200
+            body2a = captured_main[1].content
+            body2b = captured_main[2].content
+            assert body2a == body2b
+            assert body2a.count(b"[slaif-live:v") == 2
+            assert b"Follow `docs/B.md` before acting." not in body2a
+            assert b"B body." not in body2a
+            assert b"[slaif-compiled-context:v1:" in body2a
+            # EXACTLY-ONCE dispatch: one new compiler demand for the
+            # shared miss (the bootstrap demand is the first).
+            assert len(captured_compile) == 2
+            # ONE live owner for the namespace: a second acquire
+            # returns the SAME registered owner (no second
+            # allocation), and the session table holds one session.
+            session = self._session(app, settings)
+            assert session is not None
+            assert runtime.ram_registry.acquire(session.namespace) is session.owner
+            assert len(app.state.v1_sessions.sessions()) == 1
+            # Same-session publication: the protected generation
+            # committed EXACTLY ONCE for the concurrent round.
+            assert session.last_publish is not None
+            assert session.last_publish.generation == 3
+            assert session.last_publish_bound is not None
+            assert session.last_publish_bound[0] == 3
+            # The closed work outcomes of BOTH requests: the leader
+            # completes the new entry (ONE invocation); the follower
+            # is the ACTUAL single-flight subscriber (the closed
+            # ``joined`` outcome, zero invocations); the retained
+            # root entry is the RAM hit for both.
+            compilation: list[tuple[str, int]] = sorted(
+                (event.outcome, dict(event.details)["invocations"])
+                for recorder in recorders
+                for event in recorder.events
+                if event.stage.value == "compilation"
+            )
+            assert compilation == sorted(
+                [
+                    ("completed", 1),  # the R1 bootstrap root compile
+                    ("completed", 1),  # the leader file compile
+                    ("hit", 0),  # the leader root RAM hit
+                    ("hit", 0),  # the follower root RAM hit
+                    ("joined", 0),  # the follower single-flight join
+                ]
+            )
+            # The closed four-way law: neither request earns a
+            # reuse-class fact here (the leader dispatched work in
+            # this request; the follower is a distinct closed
+            # ``joined`` shape -- the across-request RAM reuse is
+            # earned only on a later HIT-only request).
+            reuse = [
+                event.outcome
+                for recorder in recorders
+                for event in recorder.events
+                if event.stage.value == "reuse_class"
+            ]
+            assert reuse == []
+        # The later ordinary request with the ORIGINAL source
+        # carriers present (the untransformed read payload resent)
+        # is the across-request RAM reuse: every represented entry
+        # is the closed HIT with no compile dispatch anywhere in
+        # the request (the distinct closed shape, zero new
+        # compile).
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response3 = await client.post("/v1/responses", json=self._read_payload())
+            assert response3.status_code == 200
+            assert captured_main[3].content == body2a
+            assert len(captured_compile) == 2
+            # The ordinary history reduction (the OWN transformed
+            # body resent, its sources absent from the incoming
+            # history) earns the separate closed source-absent
+            # reinjection fact on its own byte-identical fixed
+            # point.
+            response4 = await client.post(
+                "/v1/responses",
+                content=body2a,
+                headers={"content-type": "application/json"},
+            )
+            assert response4.status_code == 200
+            assert captured_main[4].content == body2a
+            assert len(captured_compile) == 2
+        reuse_later = [
+            event.outcome
+            for recorder in recorders
+            for event in recorder.events
+            if event.stage.value == "reuse_class"
+        ]
+        assert reuse_later == ["original_present_ram_reuse", "source_absent_injection"]
+
+    async def test_concurrent_cancellation_keeps_leader_and_other_session_survives(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """C03/M04 (cancellation and other-session survival) at the
+        actual app boundary: a concurrent follower cancelled while
+        the shared miss is compiling never cancels the leader's
+        live work (the dispatch completes and the session stays
+        fully usable with the retained entry, zero recompile);
+        another session survives while the affected session fails
+        (the typed checkpoint refusal with zero forward) and after
+        the affected session is explicitly closed."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        dispatch_gate = {"held": False}
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                if not dispatch_gate["held"]:
+                    dispatch_gate["held"] = True
+                    await asyncio.sleep(0.1)
+                return compiler_echo(request)
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n == 1:
+                return self._resp_issue("c1", "cat docs/B.md")
+            return self._resp_plain(n)
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post("/v1/responses", json=self._root_payload())
+            assert response1.status_code == 200
+            # Two concurrent identical-miss requests; the follower is
+            # cancelled while the leader's dispatch is in flight.
+            task_leader = asyncio.create_task(
+                client.post("/v1/responses", json=self._read_payload())
+            )
+            task_follower = asyncio.create_task(
+                client.post("/v1/responses", json=self._read_payload())
+            )
+            await asyncio.sleep(0.03)
+            task_follower.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task_follower
+            response_leader = await task_leader
+            assert response_leader.status_code == 200
+            # The leader's dispatch completed (not cancelled by the
+            # follower) and ONLY the leader forwarded this round.
+            assert len(captured_compile) == 2
+            assert len(captured_main) == 2
+            body2 = captured_main[1].content
+            assert body2.count(b"[slaif-live:v") == 2
+            # The affected session stays fully usable: the resend is
+            # the byte-identical fixed point with the RETAINED
+            # compiled entry (zero recompile).
+            response3 = await client.post(
+                "/v1/responses",
+                content=body2,
+                headers={"content-type": "application/json"},
+            )
+            assert response3.status_code == 200
+            assert captured_main[2].content == body2
+            assert len(captured_compile) == 2
+        # The OTHER session over the SAME protected store: the
+        # affected session fails (the injected durable fault
+        # window), then is explicitly closed, and the other
+        # session is undisturbed through both.
+        settings_a = self._settings(tmp_path, monkeypatch, session="canc-a")
+        settings_b = self._settings(tmp_path, monkeypatch, session="canc-b")
+        main_a: list[httpx.Request] = []
+        compile_a: list[httpx.Request] = []
+        main_b: list[httpx.Request] = []
+        compile_b: list[httpx.Request] = []
+        app_a = self._make_app(settings_a, main_a, compile_a)
+        app_b = self._make_app(settings_b, main_b, compile_b)
+        real_fsync = os.fsync
+        fault = {"on": False}
+
+        def faulty_fsync(fd: int) -> None:
+            if fault["on"]:
+                raise OSError(5, "I/O error")
+            real_fsync(fd)
+
+        monkeypatch.setattr(os, "fsync", faulty_fsync)
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_a), base_url="http://adapter.test"
+            ) as client_a,
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_b), base_url="http://adapter.test"
+            ) as client_b,
+        ):
+            response_a1 = await client_a.post("/v1/responses", json=self._root_payload())
+            assert response_a1.status_code == 200
+            response_b1 = await client_b.post("/v1/responses", json=self._root_payload())
+            assert response_b1.status_code == 200
+            # The affected session FAILS: the checkpoint fault is
+            # the fixed typed refusal with zero forward.
+            fault["on"] = True
+            response_a2 = await client_a.post("/v1/responses", json=self._read_payload())
+            assert response_a2.status_code == 503
+            assert response_a2.json()["error"]["code"] == "v1_publish_refused"
+            assert len(main_a) == 1
+            fault["on"] = False
+            # The other session SURVIVES the failure: its own round
+            # is the normal transform (its state undisturbed).
+            response_b2 = await client_b.post("/v1/responses", json=self._read_payload())
+            assert response_b2.status_code == 200
+            assert len(main_b) == 2
+            assert len(compile_b) == 2
+            assert main_b[1].content.count(b"[slaif-live:v") == 2
+            # The fault heals: the affected session recovers.
+            response_a3 = await client_a.post("/v1/responses", json=self._read_payload())
+            assert response_a3.status_code == 200
+            assert len(main_a) == 2
+        # The affected session is CLOSED (explicit teardown); the
+        # other session survives the close.
+        async with app_a.router.lifespan_context(app_a):
+            pass
+        session_b = self._session(app_b, settings_b, session="canc-b")
+        assert session_b is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_b), base_url="http://adapter.test"
+        ) as client_b:
+            response_b3 = await client_b.post(
+                "/v1/responses",
+                content=main_b[1].content,
+                headers={"content-type": "application/json"},
+            )
+            assert response_b3.status_code == 200
+            assert main_b[2].content == main_b[1].content
+            assert len(compile_b) == 2
+
+    # -- M01/M02/O03: the real process-boundary restart ------------------
+
+    async def test_restart_over_same_store_across_real_process_boundary(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """M01/M02/O03 at the actual app boundary over a REAL
+        process boundary: the bounded Python-only harness prepares
+        more than one persisted session in ONE process, then a
+        FRESH process resumes only the requested session from the
+        same protected store (distinct process IDs,
+        selected-address-only reads, the new epoch and the ACTUAL
+        rebuild -- the compiler demand for the persisted
+        dependency absent from the resuming request's own history --
+        while the previously dormant session stays byte-intact; the
+        normal hit and the source-absent reinjection stay separate
+        request facts)."""
+        settings = self._settings(tmp_path, monkeypatch, session="restart-s1")
+        store_root = settings.context_cache.recovery.root
+        assert store_root is not None
+        checkout_root = Path(__file__).resolve().parent.parent
+        harness = checkout_root / "tests" / "helpers" / "v1_restart_harness.py"
+        assert harness.is_file()
+        workdir = tmp_path / "harness-out"
+        workdir.mkdir(mode=0o700, exist_ok=True)
+
+        def run_harness(args: list[str]) -> dict[str, Any]:
+            result = subprocess.run(
+                [sys.executable, "-m", "tests.helpers.v1_restart_harness", *args],
+                cwd=checkout_root,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+            assert result.returncode == 0, f"harness failed: {result.stderr}"
+            facts = json.loads(Path(args[args.index("--out") + 1]).read_text(encoding="utf-8"))
+            assert isinstance(facts, dict)
+            return facts
+
+        # Process A: two persisted sessions prepared in ONE process.
+        facts_a = run_harness(
+            [
+                "prepare",
+                "--store",
+                str(store_root),
+                "--sessions",
+                "restart-s1,restart-s2",
+                "--out",
+                str(workdir / "prepare.json"),
+            ]
+        )
+        for name in ("restart-s1", "restart-s2"):
+            prepared = facts_a["sessions"][name]
+            assert prepared["generation"] == 3
+            assert prepared["main_forwards"] == 2
+            assert prepared["compiles"] == 2
+            assert prepared["resumed"] is False
+        # The snapshot of EVERY committed file (the dormant-session
+        # intactness proof across the fresh process).
+        file_snapshot: dict[str, bytes] = {}
+        for session_dir in sorted(store_root.iterdir()):
+            assert session_dir.is_dir()
+            for file in sorted(session_dir.iterdir()):
+                file_snapshot[f"{session_dir.name}/{file.name}"] = file.read_bytes()
+        assert len(file_snapshot) >= 4  # two sessions x (pointer + 2 checkpoints)
+        # Process B: the FRESH process resumes ONLY restart-s1.
+        facts_b = run_harness(
+            [
+                "resume",
+                "--store",
+                str(store_root),
+                "--session",
+                "restart-s1",
+                "--out",
+                str(workdir / "resume.json"),
+            ]
+        )
+        # Distinct process IDs: the ACTUAL process boundary.
+        assert facts_b["pid"] != facts_a["pid"]
+        # The selected-address-only read (count + address-match).
+        assert facts_b["loads"] >= 1
+        assert facts_b["all_loads_expected"] is True
+        # The new epoch and the ACTUAL rebuild: the resuming request
+        # carries NO read of the persisted dependency, yet the
+        # compiler demand for it is ACTUAL (root + file, in the
+        # admission order).
+        assert facts_b["resumed"] is True
+        assert facts_b["epoch"] == 2
+        assert facts_b["compiles"] == 2
+        assert facts_b["compile_demand_entry_classes"] == [
+            "root_entry",
+            "file_bundle_entry",
+        ]
+        assert facts_b["main_forwards"] == 2
+        # The emitted working set: the root carrier marker, the
+        # source-absent reinjection of BOTH compiled blocks (the
+        # recovered file included), no source on the wire.
+        assert facts_b["marker_count"] == 1
+        assert facts_b["compiled_block_count"] == 2
+        assert facts_b["region_present"] is True
+        assert facts_b["source_absent"] is True
+        # The restart rebuild and the later normal hit are SEPARATE
+        # request facts (the closed four-way distinction): the
+        # transformed-body resend is the source-absent reinjection
+        # shape, not the original-present RAM reuse (whose closed
+        # shape requires the source carrier present in the incoming
+        # history).
+        assert facts_b["reuse_r1"] == ["restart_rebuild_new_epoch"]
+        assert facts_b["reuse_r2"] == ["source_absent_injection"]
+        # The ordered zero-work claim made DIRECT: the recovery-
+        # content load and compiler counts are unchanged ACROSS the
+        # normal hit (zero recovery-source content reads, zero
+        # recompile), the byte-identical fixed point.
+        assert facts_b["loads_before_hit"] == facts_b["loads_after_hit"]
+        assert facts_b["compiles_before_hit"] == facts_b["compiles_after_hit"]
+        assert facts_b["fixed_point"] is True
+        # The committed generation after the resumed rebuild: the
+        # epoch-binding publication of the resume plus the rebuild
+        # request's own committed publication (the normal hit
+        # publishes nothing within the epoch).
+        assert facts_b["generation"] == 5
+        # The previously dormant session is still INTACT: its
+        # COMPLETE file map is unchanged across the fresh process
+        # (every file byte compared, including the pointer bytes;
+        # no additions, no deletions); only the resumed session's
+        # pointer advanced (the epoch binding + the retained
+        # publication of the first hit).
+        before_maps: dict[str, dict[str, bytes]] = {}
+        for key, data in file_snapshot.items():
+            directory, name = key.split("/", 1)
+            before_maps.setdefault(directory, {})[name] = data
+        pointer_by_dir: dict[str, int] = {}
+        current_maps: dict[str, dict[str, bytes]] = {}
+        for session_dir in sorted(store_root.iterdir()):
+            current_maps[session_dir.name] = {
+                file.name: file.read_bytes() for file in session_dir.iterdir()
+            }
+            pointer_doc = json.loads(current_maps[session_dir.name]["current.json"])
+            pointer_by_dir[session_dir.name] = pointer_doc["generation"]
+        assert sorted(pointer_by_dir.values()) == [3, 5]
+        for directory in sorted(current_maps):
+            if pointer_by_dir[directory] == 3:  # the dormant session
+                assert current_maps[directory] == before_maps[directory]
+
+    # -- M03: the recovery negatives at the app boundary ----------------
+
+    async def test_corrupt_torn_unsafe_foreign_record_refused_at_app_boundary(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """M03 at the actual app boundary: the CORRUPT, TORN,
+        unsafe-mode (foreign-class), foreign-RECORD (the record
+        does not bind the resuming session) and
+        CONFIGURATION-MISMATCH (the SAME address lineage under a
+        changed accepted compiler-policy configuration) recovery
+        cases are the fixed typed refusal with ZERO forward and NO
+        compile, the previously committed store state UNCHANGED
+        (the refusal is stable and never repairs, moves or rolls
+        back)."""
+        settings = self._settings(tmp_path, monkeypatch)
+        store_root = settings.context_cache.recovery.root
+        assert store_root is not None
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        app = self._make_app(settings, captured_main, captured_compile)
+        runtime = app.state.v1_runtime
+        identity = RequestIdentity(
+            principal="local-principal",
+            session="local-session",
+            repository="local-repository",
+            route="text",
+        )
+        address = build_session_address(
+            runtime, identity, settings.routes[0], settings.context_cache.route_contracts["text"]
+        )
+        session_dir = store_root / session_directory_name(address)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response = await client.post("/v1/responses", json=self._root_payload())
+            assert response.status_code == 200
+            response = await client.post("/v1/responses", json=self._read_payload())
+            assert response.status_code == 200
+        # The composed teardown releases the exclusive writer.
+        async with app.router.lifespan_context(app):
+            pass
+        checkpoint3 = session_dir / "checkpoint-3.json"
+        original_checkpoint = checkpoint3.read_bytes()
+        pointer_path = session_dir / "current.json"
+        original_pointer = pointer_path.read_bytes()
+
+        def fresh_resume_request() -> tuple[Any, httpx.AsyncClient]:
+            app2 = self._make_app(
+                settings,
+                captured_main,
+                captured_compile,
+                issue_first=False,
+            )
+            client = httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app2), base_url="http://adapter.test"
+            )
+            return app2, client
+
+        async def refuse() -> httpx.Response:
+            app2, client = fresh_resume_request()
+            try:
+                response = await client.post("/v1/responses", json=self._read_payload())
+            finally:
+                await client.aclose()
+            async with app2.router.lifespan_context(app2):
+                pass
+            return response
+
+        forwards_before = len(captured_main)
+        compiles_before = len(captured_compile)
+        # CORRUPT: a single flipped byte in the committed record.
+        corrupted = bytearray(original_checkpoint)
+        corrupted[len(corrupted) // 2] ^= 0x01
+        self._write_protected(checkpoint3, bytes(corrupted))
+        response = await refuse()
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "v1_resume_refused"
+        assert len(captured_main) == forwards_before  # zero forward
+        assert len(captured_compile) == compiles_before  # no compile
+        assert pointer_path.read_bytes() == original_pointer  # unchanged
+        # TORN: a truncated checkpoint (an interrupted publication).
+        self._write_protected(checkpoint3, original_checkpoint[: len(original_checkpoint) // 2])
+        response = await refuse()
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "v1_resume_refused"
+        assert len(captured_main) == forwards_before
+        assert len(captured_compile) == compiles_before
+        assert pointer_path.read_bytes() == original_pointer
+        # UNSAFE (the foreign class): the session directory is no
+        # longer the protected 0700 -- refuse, never repair.
+        self._write_protected(checkpoint3, original_checkpoint)
+        session_dir.chmod(0o755)
+        response = await refuse()
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "v1_resume_refused"
+        assert len(captured_main) == forwards_before
+        assert len(captured_compile) == compiles_before
+        assert (session_dir.stat().st_mode & 0o777) == 0o755
+        # FOREIGN RECORD: the SAME address carrying another
+        # session's validly committed record (the record does not
+        # bind the resuming session -- the config-identity
+        # mismatch).
+        session_dir.chmod(0o700)
+        settings_other = self._settings(tmp_path, monkeypatch, session="other-session")
+        main_other: list[httpx.Request] = []
+        compile_other: list[httpx.Request] = []
+        app_other = self._make_app(settings_other, main_other, compile_other)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_other), base_url="http://adapter.test"
+        ) as client:
+            response = await client.post("/v1/responses", json=self._root_payload())
+            assert response.status_code == 200
+        async with app_other.router.lifespan_context(app_other):
+            pass
+        other_runtime = app_other.state.v1_runtime
+        assert other_runtime is not None
+        other_identity = RequestIdentity(
+            principal="local-principal",
+            session="other-session",
+            repository="local-repository",
+            route="text",
+        )
+        other_address = build_session_address(
+            other_runtime,
+            other_identity,
+            settings_other.routes[0],
+            settings_other.context_cache.route_contracts["text"],
+        )
+        foreign_bytes = (
+            store_root / session_directory_name(other_address) / "checkpoint-1.json"
+        ).read_bytes()
+        self._write_protected(checkpoint3, foreign_bytes)
+        self._write_protected(
+            pointer_path,
+            json.dumps(
+                {
+                    "generation": 3,
+                    "file": "checkpoint-3.json",
+                    "file_digest": hashlib.sha256(foreign_bytes).hexdigest(),
+                    "record_bytes": len(foreign_bytes),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+            ).encode("utf-8"),
+        )
+        response = await refuse()
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "v1_resume_refused"
+        assert len(captured_main) == forwards_before  # zero forward
+        assert len(captured_compile) == compiles_before  # no compile
+        # The refusal is STABLE: the committed pointer is untouched
+        # by the refused resume (no repair, no rollback).
+        assert pointer_path.read_bytes() == json.dumps(
+            {
+                "generation": 3,
+                "file": "checkpoint-3.json",
+                "file_digest": hashlib.sha256(foreign_bytes).hexdigest(),
+                "record_bytes": len(foreign_bytes),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+        # The previously committed state stays loadable and
+        # unchanged under a DIRECT store read (the fault classes are
+        # the store's own closed limitations).
+        store = RecoveryStore(store_root)
+        direct = store.open_session(address)
+        try:
+            assert direct.load().limitation.value == "namespace_mismatch"
+        finally:
+            direct.close()
+        # CONFIGURATION MISMATCH (kept SEPARATE from the
+        # foreign-session case above): the SAME address lineage --
+        # the identical principal / session / repository / route /
+        # model identity -- under a CHANGED accepted compiler-
+        # policy configuration is a genuinely distinct session
+        # (the compiler-policy fingerprint is an address field,
+        # never a cross-namespace reuse).  The INTACT synthetic
+        # checkpoint of the original lineage, offered under the
+        # changed configuration's address, is the fixed typed
+        # refusal with zero forward, no compile and no store
+        # mutation on either directory.
+        assert settings.context_cache.compiler is not None
+        settings_changed = settings.model_copy(
+            update={
+                "context_cache": settings.context_cache.model_copy(
+                    update={
+                        "compiler": settings.context_cache.compiler.model_copy(
+                            update={"model_revision": "b" * 40}
+                        )
+                    }
+                )
+            }
+        )
+        app_changed = self._make_app(
+            settings_changed,
+            captured_main,
+            captured_compile,
+            issue_first=False,
+        )
+        changed_runtime = app_changed.state.v1_runtime
+        assert changed_runtime is not None
+        changed_address = build_session_address(
+            changed_runtime,
+            identity,
+            settings_changed.routes[0],
+            settings_changed.context_cache.route_contracts["text"],
+        )
+        # The changed compiler policy is a genuinely distinct
+        # address for the SAME lineage.
+        assert changed_address.config_fingerprint != address.config_fingerprint
+        changed_dir = store_root / session_directory_name(changed_address)
+        changed_dir.mkdir(mode=0o700)
+        changed_dir.chmod(0o700)
+        # Graft the INTACT synthetic checkpoint of the original
+        # lineage under the changed configuration's address (the
+        # record still binds the original lineage).
+        self._write_protected(changed_dir / "checkpoint-3.json", original_checkpoint)
+        changed_pointer_doc = json.dumps(
+            {
+                "generation": 3,
+                "file": "checkpoint-3.json",
+                "file_digest": hashlib.sha256(original_checkpoint).hexdigest(),
+                "record_bytes": len(original_checkpoint),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode("utf-8")
+        self._write_protected(changed_dir / "current.json", changed_pointer_doc)
+        # The pre-refusal byte state of the original directory
+        # (never opened by this case) and the durable record set
+        # of the changed directory.
+        original_before = {file.name: file.read_bytes() for file in session_dir.iterdir()}
+        changed_client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_changed), base_url="http://adapter.test"
+        )
+        try:
+            response = await changed_client.post("/v1/responses", json=self._read_payload())
+        finally:
+            await changed_client.aclose()
+        async with app_changed.router.lifespan_context(app_changed):
+            pass
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "v1_resume_refused"
+        assert len(captured_main) == forwards_before  # zero forward
+        assert len(captured_compile) == compiles_before  # no compile
+        # No repair, no rollback, no move: the original directory
+        # is byte-for-byte unchanged (every file, including the
+        # pointer), and the offered INTACT checkpoint stays
+        # exactly where it was (the store's writer lock is the
+        # only live-IO artifact of the refused open).
+        assert {file.name: file.read_bytes() for file in session_dir.iterdir()} == original_before
+        assert (changed_dir / "checkpoint-3.json").read_bytes() == original_checkpoint
+        assert (changed_dir / "current.json").read_bytes() == changed_pointer_doc
+        assert {file.name for file in changed_dir.iterdir()} == {
+            "checkpoint-3.json",
+            "current.json",
+            "writer.lock",
+        }
+
+    # -- M05: bounded RAM pressure and explicit teardown ----------------
+
+    async def test_ram_pressure_refused_typed_and_teardown_frees_without_eviction(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """M05 at the actual app boundary: with ONE app and ONE RAM
+        registry (the signed-identity fixture driving two distinct
+        sessions), the configured per-session ceiling is a FIXED
+        typed refusal with zero forward and zero new compile, the
+        committed protected generation and the durable record set
+        PRESERVED (no eviction, no disk spill, no governance loss,
+        no raw fallback); the ALREADY-RETAINED second session
+        survives the pressure undisturbed (its live snapshot is
+        unchanged and its own transformed body stays the
+        byte-identical fixed point across the refusal); the
+        refusal is stable; and the EXPLICIT teardown frees the
+        owned occupancy while both committed protected records
+        stay intact."""
+        settings = TestV1WireClosure._signed_settings(tmp_path, monkeypatch)
+        settings = settings.model_copy(
+            update={
+                "context_cache": settings.context_cache.model_copy(
+                    update={
+                        "ram": RamStateBounds(
+                            session_max_owned_bytes=2_097_152,
+                            process_max_owned_bytes=512 * 1024 * 1024,
+                        )
+                    }
+                )
+            }
+        )
+        store_root = settings.context_cache.recovery.root
+        assert store_root is not None
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(
+            settings,
+            httpx.MockTransport(TestV1WireClosure._handler(captured_main, compiler_echo)),
+            signed_identity_clock=lambda: _SIGNED_NOW,
+        )
+        runtime = app.state.v1_runtime
+        assert runtime is not None
+
+        def signed_address(session: str) -> Any:
+            identity = RequestIdentity(
+                principal="signed-principal",
+                session=session,
+                repository="signed-repository",
+                route="text",
+            )
+            return build_session_address(
+                runtime,
+                identity,
+                settings.routes[0],
+                settings.context_cache.route_contracts["text"],
+            )
+
+        address_a = signed_address("pressure-a")
+        address_b = signed_address("pressure-b")
+
+        def _dir_files(address: Any) -> list[str]:
+            return sorted(
+                path.name for path in (store_root / session_directory_name(address)).iterdir()
+            )
+
+        root_bytes = json.dumps(
+            {
+                "model": "qwen38-27b",
+                "input": [root_item("Follow `docs/B.md` before acting.\n")],
+            },
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode()
+        read_bytes = json.dumps(
+            {
+                "model": "qwen38-27b",
+                "input": [
+                    root_item("Follow `docs/B.md` before acting.\n"),
+                    exec_call("c1", "cat docs/B.md"),
+                    out_item("c1", frame("B body.\n")),
+                ],
+            },
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode()
+        nonces = iter(f"nonce-m05-{i:08d}" for i in range(1, 64))
+
+        async def post(session: str, body: bytes) -> httpx.Response:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+            ) as client:
+                headers = TestV1WireClosure._signed_headers(
+                    settings, body=body, nonce=next(nonces), session=session
+                )
+                return await client.post(
+                    "/v1/responses",
+                    content=body,
+                    headers={**headers, "content-type": "application/json"},
+                )
+
+        # BOTH sessions bootstrap on ONE app / ONE RAM registry:
+        # each session commits its own protected generation (the
+        # retained state the pressure must not disturb).
+        response_a1 = await post("pressure-a", root_bytes)
+        assert response_a1.status_code == 200
+        response_b1 = await post("pressure-b", root_bytes)
+        assert response_b1.status_code == 200
+        body_b = captured_main[1].content
+        assert len(captured_compile) == 2
+        session_a = app.state.v1_sessions.get(address_a)
+        session_b = app.state.v1_sessions.get(address_b)
+        assert session_a is not None and session_b is not None
+        assert session_a.last_publish is not None
+        assert session_b.last_publish is not None
+        committed_a_generation = session_a.last_publish.generation
+        committed_b_generation = session_b.last_publish.generation
+        a_files_before = _dir_files(address_a)
+        b_files_before = _dir_files(address_b)
+        b_owned_before = session_b.owner.owned_bytes
+        b_revision_before = session_b.owner.revision
+        # A's next transition crosses the configured ceiling: the
+        # FIXED typed refusal with zero forward and zero new
+        # compile, the committed protected generation and the
+        # durable record set PRESERVED (no eviction, no disk
+        # spill, no governance loss, no raw fallback).
+        response_a2 = await post("pressure-a", read_bytes)
+        assert response_a2.status_code == 503
+        assert response_a2.json()["error"]["code"] == "v1_publish_refused"
+        assert len(captured_main) == 2  # zero forward, no raw fallback
+        assert len(captured_compile) == 2  # no new compile
+        assert session_a.last_publish is not None
+        assert session_a.last_publish.generation == committed_a_generation
+        assert _dir_files(address_a) == a_files_before  # no disk spill
+        # The ALREADY-RETAINED session B survives the pressure:
+        # its live snapshot is unchanged and its own transformed
+        # body stays the byte-identical fixed point ACROSS A's
+        # refusal.
+        assert session_b.owner.owned_bytes == b_owned_before
+        assert session_b.owner.revision == b_revision_before
+        assert session_b.last_publish.generation == committed_b_generation
+        response_b2 = await post("pressure-b", body_b)
+        assert response_b2.status_code == 200
+        assert captured_main[2].content == body_b  # the fixed point
+        assert len(captured_compile) == 2  # zero recompile
+        assert _dir_files(address_b) == b_files_before  # no disk spill
+        # The refusal is STABLE (the same A request is refused
+        # again, still with zero forward and zero new compile).
+        response_a3 = await post("pressure-a", read_bytes)
+        assert response_a3.status_code == 503
+        assert response_a3.json()["error"]["code"] == "v1_publish_refused"
+        assert len(captured_main) == 3
+        assert len(captured_compile) == 2
+        assert session_a.last_publish is not None
+        assert session_a.last_publish.generation == committed_a_generation
+        assert _dir_files(address_a) == a_files_before
+        # The EXPLICIT teardown frees the owned session occupancy
+        # (no eviction churn: the pressure never evicted anything;
+        # the released bytes are the composed teardown's law -- the
+        # honest freed-byte semantics keep the retained registry
+        # shell and high-water table charge as process metadata,
+        # never as released session state).
+        proc_before = runtime.ram_registry.process_owned_bytes
+        owned_a = session_a.owner.owned_bytes
+        owned_b = session_b.owner.owned_bytes
+        namespace_a = session_a.namespace
+        namespace_b = session_b.namespace
+        async with app.router.lifespan_context(app):
+            pass
+        proc_after = runtime.ram_registry.process_owned_bytes
+        # Every retained session byte is released at the explicit
+        # teardown (nothing was evicted by the pressure; the bytes
+        # stayed intact until the composed teardown).
+        assert proc_before - proc_after >= owned_a + owned_b
+        # No live owner remains, and the retained residue is the
+        # structural process metadata (the registry shell and the
+        # high-water table charge), smaller than either session's
+        # occupancy: it cannot be retained session state.
+        assert runtime.ram_registry.get(namespace_a) is None
+        assert runtime.ram_registry.get(namespace_b) is None
+        assert proc_after < owned_a
+        assert proc_after < owned_b
+        # Both committed protected records stay INTACT (the normal
+        # path never needed them; the resume can).
+        store = RecoveryStore(store_root)
+        for address in (address_a, address_b):
+            direct = store.open_session(address)
+            try:
+                loaded = direct.load()
+                assert loaded.limitation.value == "ok"
+                assert loaded.record is not None
+            finally:
+                direct.close()
+
+    # -- C02: the repeated-operand correlation closure ------------------
+
+    async def test_c02_repeated_operand_correlates_to_one_represented_path(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """C02 (the bounded evidence-gap closure): the repeated
+        operand's ACTUAL observation correlates directly to its ONE
+        distinct represented path through the ACTUAL same-run
+        admission (the retained entry carries both operand
+        occurrences of the one normalized path, and the reverse
+        member index maps the entry to exactly that path -- the
+        repeated operands never inflate the distinct-path width and
+        the working set compiles the entry once)."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n == 1:
+                # The direct response issues the REPEATED-OPERAND
+                # read (the receipt is bound to this exact command).
+                return TestV1RecoveryResourceConcurrency._resp_issue(
+                    "c1", "cat docs/B.md docs/B.md"
+                )
+            return TestV1RecoveryResourceConcurrency._resp_plain(n)
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+
+        def repeated_payload() -> dict[str, Any]:
+            return {
+                "model": "qwen38-27b",
+                "input": [
+                    root_item("Follow `docs/B.md` before acting.\n"),
+                    exec_call("c1", "cat docs/B.md docs/B.md"),
+                    out_item("c1", frame("B body.\nB body.\n")),
+                ],
+            }
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post("/v1/responses", json=self._root_payload())
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1
+            response2 = await client.post("/v1/responses", json=repeated_payload())
+            assert response2.status_code == 200
+            assert len(captured_compile) == 2  # the entry compiles ONCE
+            session = self._session(app, settings)
+            assert session is not None
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            admission = snapshot.result.admission
+            assert admission is not None
+            entries = tuple(admission.entries)
+            assert len(entries) == 1
+            entry = entries[0]
+            # The repeated operand's ACTUAL observation: TWO member
+            # occurrences, ONE distinct normalized path.
+            occurrences = entry.key_record.member_occurrences
+            assert len(occurrences) == 2
+            assert occurrences == ("docs/B.md", "docs/B.md")
+            # The ACTUAL same-run admission reverse index: the
+            # entry's represented path is exactly that ONE distinct
+            # path (no invented second path for the duplicate
+            # coverage).
+            represented = sorted(
+                row.path
+                for row in admission.path_associations
+                if entry.content_key in row.content_keys
+            )
+            assert represented == ["docs/B.md"]
+            # The working set carries the single entry (the
+            # compiled block count of the emitted body).
+            body2 = captured_main[1].content
+            decoded = json.loads(body2)
+            assert str(decoded.get("instructions", "")).count("<slaif-compiled-block") == 2
+
+    # -- S01: the shared-store repository closure ------------------------
+
+    async def test_s01_distinct_repository_shared_store_address_scoped(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """S01 (the bounded evidence-gap closure): DISTINCT
+        repository identities with IDENTICAL principal/session and
+        fixture bytes across ONE protected test store keep
+        address-scoped reuse and earn no cross-repository recovery
+        or source delivery: each repository compiles its own
+        working set, the fresh lifecycle of ONE repository resumes
+        ONLY its own session address from the shared store (the
+        dormant repository's committed bytes stay intact), and the
+        transformed bodies are distinct (the namespace-bound
+        markers)."""
+        settings_a = self._settings(tmp_path, monkeypatch, repository="repo-alpha")
+        settings_b = self._settings(tmp_path, monkeypatch, repository="repo-beta")
+        store_root = settings_a.context_cache.recovery.root
+        assert store_root is not None
+        assert settings_b.context_cache.recovery.root == store_root  # ONE store
+        resume_attempts: list[tuple[str, str]] = []
+        real_resume = resume_session
+
+        def counting_resume(registry: Any, store: Any, address: Any) -> Any:
+            result = real_resume(registry, store, address)
+            resume_attempts.append((address.lineage_key, result.outcome.value))
+            return result
+
+        monkeypatch.setattr(v1_application_module, "resume_session", counting_resume)
+        main_a: list[httpx.Request] = []
+        compile_a: list[httpx.Request] = []
+        main_b: list[httpx.Request] = []
+        compile_b: list[httpx.Request] = []
+        app_a = self._make_app(settings_a, main_a, compile_a)
+        app_b = self._make_app(settings_b, main_b, compile_b)
+        runtime_a = app_a.state.v1_runtime
+        assert runtime_a is not None
+        address_a = build_session_address(
+            runtime_a,
+            RequestIdentity(
+                principal="local-principal",
+                session="local-session",
+                repository="repo-alpha",
+                route="text",
+            ),
+            settings_a.routes[0],
+            settings_a.context_cache.route_contracts["text"],
+        )
+        runtime_b = app_b.state.v1_runtime
+        assert runtime_b is not None
+        address_b = build_session_address(
+            runtime_b,
+            RequestIdentity(
+                principal="local-principal",
+                session="local-session",
+                repository="repo-beta",
+                route="text",
+            ),
+            settings_b.routes[0],
+            settings_b.context_cache.route_contracts["text"],
+        )
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_a), base_url="http://adapter.test"
+            ) as client_a,
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_b), base_url="http://adapter.test"
+            ) as client_b,
+        ):
+            for client in (client_a, client_b):
+                response = await client.post("/v1/responses", json=self._root_payload())
+                assert response.status_code == 200
+            for client in (client_a, client_b):
+                response = await client.post("/v1/responses", json=self._read_payload())
+                assert response.status_code == 200
+        # No cross-repository reuse: each repository compiled its
+        # own root and its own file (identical bytes never served
+        # from the other repository's entry).
+        assert len(compile_a) == 2
+        assert len(compile_b) == 2
+        body_a = main_a[1].content
+        body_b = main_b[1].content
+        assert body_a != body_b  # the namespace is MAC-bound
+        assert body_a.count(b"[slaif-live:v") == 2
+        assert body_b.count(b"[slaif-live:v") == 2
+        # The committed bytes of the dormant repository.
+        dormant_dir = store_root / session_directory_name(address_b)
+        dormant_bytes = {file.name: file.read_bytes() for file in sorted(dormant_dir.iterdir())}
+        # The first lifecycle releases alpha's exclusive store
+        # writer (the composed teardown) so the fresh lifecycle
+        # can own the session.
+        async with app_a.router.lifespan_context(app_a):
+            pass
+        # The FRESH lifecycle of repository alpha: it resumes ONLY
+        # its own session address from the shared store (the
+        # selected-address-only read), rebuilds its own working
+        # set, and keeps address-scoped reuse on the next request.
+        main_a2: list[httpx.Request] = []
+        compile_a2: list[httpx.Request] = []
+        app_a2 = self._make_app(settings_a, main_a2, compile_a2, issue_first=False)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_a2), base_url="http://adapter.test"
+        ) as client_a2:
+            response = await client_a2.post("/v1/responses", json=self._root_payload())
+            assert response.status_code == 200
+            session_a2 = self._session(app_a2, settings_a, repository="repo-alpha")
+            assert session_a2 is not None
+            assert session_a2.resumed is True
+            # The selected-address-only read: the ONLY successful
+            # resume is alpha's (beta's record is never resumed;
+            # the phase-one cold starts are the store's closed
+            # missing-record refusals).
+            resumed = [(key, outcome) for key, outcome in resume_attempts if outcome == "resumed"]
+            assert resumed == [(address_a.lineage_key, "resumed")]
+            attempts_after_first = len(resume_attempts)
+            # The ACTUAL rebuild of alpha's own working set.
+            assert len(compile_a2) == 2
+            assert main_a2[0].content.count(b"[slaif-live:v") == 1
+            # Address-scoped reuse: the later hit recompiles nothing
+            # and reads no recovery content.
+            response2 = await client_a2.post(
+                "/v1/responses",
+                content=main_a2[0].content,
+                headers={"content-type": "application/json"},
+            )
+            assert response2.status_code == 200
+            assert main_a2[1].content == main_a2[0].content
+            assert len(compile_a2) == 2
+            # The hit made NO further resume attempt (the in-RAM
+            # session served it; no recovery content was read).
+            assert len(resume_attempts) == attempts_after_first
+            assert [(key, outcome) for key, outcome in resume_attempts if outcome == "resumed"] == [
+                (address_a.lineage_key, "resumed")
+            ]
+        # The dormant repository's committed bytes are INTACT (no
+        # cross-repository recovery touched them).
+        for file in sorted(dormant_dir.iterdir()):
+            assert file.read_bytes() == dormant_bytes[file.name]
