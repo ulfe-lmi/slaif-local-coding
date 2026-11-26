@@ -9631,3 +9631,860 @@ class TestV1RecoveryResourceConcurrency:
         # cross-repository recovery touched them).
         for file in sorted(dormant_dir.iterdir()):
             assert file.read_bytes() == dormant_bytes[file.name]
+
+
+class TestV1BudgetAndForwardedBodyAcceptance:
+    """The ordered 023-d acceptance: the remaining application budget
+    evidence (B01/B03) and the direct forwarded-body preservation
+    evidence (R02) at the actual opted-in create_app entry point,
+    with the pinned tokenizer, the fake main provider and the
+    separate tool-free compiler. Every claimed case verifies the
+    ACTUAL main forwarded body and the separate compiler demands
+    (or the typed refusal with zero forward); the B02 final-wire
+    aggregate/omission and the B04 changed-config/no-incompatible-
+    reuse claims are reconciled against the existing named cases in
+    the ledger. These configured fake tests do not establish limits
+    of a live model; the actual-model/024 halves remain NOT RUN."""
+
+    # Byte-identical to the accepted pure-transaction native
+    # fixture (tests/test_bundle_replace.py): the Unicode/CRLF
+    # original read body and its exact pending/tail pieces.
+    A_NATIVE_PENDING = "Synthetic a content.\r\n"
+    A_NATIVE_TAIL = "ünïcode ✓ tail\r\n"
+    A_NATIVE = A_NATIVE_PENDING + A_NATIVE_TAIL
+    _WRAPPER = (
+        "Chunk ID: synthetic\nWall time: 0.0000 seconds\nProcess exited with code 0\nOutput:\n"
+    )
+    _BLOCK_RE = re.compile(
+        r"(<slaif-compiled-block render=\S+ entry=(entry-[0-9a-f]{16})>.*?</slaif-compiled-block>)",
+        re.DOTALL,
+    )
+
+    # -- shared fixtures -------------------------------------------------
+
+    @staticmethod
+    def _settings(
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        context_tokens: int = 32_768,
+        vision: bool = False,
+        max_source_bytes: int | None = None,
+    ) -> Settings:
+        """The closed v1 settings (the protected recovery root
+        prepared; the three synthetic protected environment
+        references set) at the requested configured context, with
+        the explicit vision contract or the bounded compiler
+        source-size policy where the case requires them."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        if vision:
+            budget = BundleBudgetConfig(
+                context_tokens=context_tokens,
+                vision_enabled=True,
+                per_image_reserve=1024,
+                max_retained_images=1,
+            )
+        else:
+            budget = BundleBudgetConfig(context_tokens=context_tokens)
+        compiler = settings.context_cache.compiler
+        if compiler is None:
+            raise AssertionError("the closed v1 settings always carry the compiler policy")
+        if max_source_bytes is not None:
+            compiler = compiler.model_copy(update={"max_source_bytes": max_source_bytes})
+        context_cache = settings.context_cache.model_copy(
+            update={
+                "budget": budget,
+                "compiler": compiler,
+                "route_contracts": {
+                    "text": ContextCacheRouteContract(
+                        model="qwen38-27b", context_tokens=context_tokens
+                    )
+                },
+            }
+        )
+        routes = settings.routes
+        if vision:
+            routes = [
+                RouteConfig(
+                    name="text",
+                    model="qwen38-27b",
+                    max_images_per_request=1,
+                    image_overflow_policy="retain_newest",
+                    observation_enabled=True,
+                    constitution_enabled=True,
+                )
+            ]
+        settings = settings.model_copy(update={"context_cache": context_cache, "routes": routes})
+        if vision:
+            settings = settings.model_copy(
+                update={
+                    "server": settings.server.model_copy(
+                        update={"request_body_max_bytes": 4_194_304}
+                    )
+                }
+            )
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        recovery_root.chmod(0o700)
+        return settings
+
+    @staticmethod
+    def _session(app: Any, settings: Settings) -> V1Session | None:
+        runtime = app.state.v1_runtime
+        assert runtime is not None
+        identity = RequestIdentity(
+            principal="local-principal",
+            session="local-session",
+            repository="local-repository",
+            route="text",
+        )
+        address = build_session_address(
+            runtime, identity, settings.routes[0], settings.context_cache.route_contracts["text"]
+        )
+        return cast("V1Session | None", app.state.v1_sessions.get(address))
+
+    @staticmethod
+    def _resp_issue(call_id: str, cmd: str) -> httpx.Response:
+        """The direct main-upstream response issuing ONE complete
+        exec_command read (the trusted issuance channel)."""
+        return httpx.Response(
+            200,
+            json={
+                "id": f"resp-{call_id}",
+                "status": "completed",
+                "output": (
+                    {
+                        "type": "function_call",
+                        "id": f"fc-{call_id}",
+                        "call_id": call_id,
+                        "name": "exec_command",
+                        "arguments": json.dumps({"cmd": cmd}),
+                    },
+                ),
+            },
+        )
+
+    @staticmethod
+    def _resp_plain(n: int) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": f"resp-r{n}",
+                "status": "completed",
+                "output": (
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "ok"}],
+                    },
+                ),
+            },
+        )
+
+    @staticmethod
+    def _chat_issue(call_id: str, cmd: str) -> httpx.Response:
+        """The direct main-upstream Chat response issuing ONE
+        complete exec_command read on the chat endpoint."""
+        return httpx.Response(
+            200,
+            json={
+                "id": f"chatcmpl-{call_id}",
+                "object": "chat.completion",
+                "model": "qwen38-27b",
+                "choices": (
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "tool_calls": (
+                                {
+                                    "id": call_id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": "exec_command",
+                                        "arguments": json.dumps({"cmd": cmd}),
+                                    },
+                                },
+                            ),
+                        },
+                        "finish_reason": "tool_calls",
+                    },
+                ),
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            },
+        )
+
+    @staticmethod
+    def _chat_plain() -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-plain",
+                "object": "chat.completion",
+                "model": "qwen38-27b",
+                "choices": (
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "done"},
+                        "finish_reason": "stop",
+                    },
+                ),
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2,
+                },
+            },
+        )
+
+    @staticmethod
+    def _truncated_completion_bytes(content: str) -> bytes:
+        """The canned chat completion envelope with the provider
+        truncation finish reason (the typed truncation-before-
+        validation case)."""
+        return json.dumps(
+            {
+                "id": "chatcmpl-023d",
+                "object": "chat.completion",
+                "model": "qwen38-27b",
+                "choices": (
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": content},
+                        "finish_reason": "length",
+                    },
+                ),
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            }
+        ).encode("utf-8")
+
+    @staticmethod
+    def _compile_demand_user(request: httpx.Request) -> str:
+        """The decoded user text of an ACTUAL compiler demand
+        (the exact decoded compiler input; the source comparison is
+        independent of JSON escaping in the request bytes)."""
+        return str(json.loads(request.content)["messages"][1]["content"])
+
+    @staticmethod
+    def _payload_texts(data: Any) -> list[str]:
+        """Every string value of a decoded JSON payload (the exact
+        decoded carrier text, independent of JSON escaping)."""
+        texts: list[str] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, str):
+                texts.append(value)
+            elif isinstance(value, list):
+                for item in value:
+                    walk(item)
+            elif isinstance(value, dict):
+                for item in value.values():
+                    walk(item)
+
+        walk(data)
+        return texts
+
+    @staticmethod
+    def _source_absent(payload: bytes, source: str) -> bool:
+        """The source-removal check: the exact decoded carrier text
+        of the decoded payload never contains the original source
+        string (a retained original is detected regardless of JSON
+        escaping in the serialized bytes)."""
+        return all(
+            source not in text
+            for text in TestV1BudgetAndForwardedBodyAcceptance._payload_texts(json.loads(payload))
+        )
+
+    @classmethod
+    def _blocks(cls, payload: bytes) -> list[tuple[str, str]]:
+        """The full rendered compiled blocks (tag-inclusive text and
+        their entry labels) in the decoded payload."""
+        blocks: list[tuple[str, str]] = []
+        for text in cls._payload_texts(json.loads(payload)):
+            blocks.extend(cls._BLOCK_RE.findall(text))
+        return blocks
+
+    # -- B01: both configured contexts, one- and two-file entries --------
+
+    async def test_b01_both_configured_contexts_measured_allowances_one_and_two_file(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """B01 app-boundary budget evidence: for BOTH approved
+        configured contexts (262,144 and 32,768), the pinned-
+        tokenizer plan's measured one- and two-file allowances
+        (8,192/16,384 and 1,024/2,048) are the ACTUAL working-set
+        bounds: the actual compiler demands carry the exact decoded
+        sources, every emitted compiled block counts within its
+        entry's allowance under the real tokenizer, the raw sources
+        are gone from the actual main body, and the transformed-round
+        fixed point holds with zero recompile."""
+        for context_tokens, one_file, two_files in (
+            (262_144, 8_192, 16_384),
+            (32_768, 1_024, 2_048),
+        ):
+            await self._run_b01_context(
+                monkeypatch,
+                tmp_path,
+                context_tokens=context_tokens,
+                one_file=one_file,
+                two_files=two_files,
+            )
+
+    async def _run_b01_context(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        *,
+        context_tokens: int,
+        one_file: int,
+        two_files: int,
+    ) -> None:
+        """One B01 configured-context round at the actual app
+        boundary (the per-round captures and handler are method
+        locals, never loop variables)."""
+        settings = self._settings(tmp_path, monkeypatch, context_tokens=context_tokens)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        main_rounds = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            n = main_rounds["n"]
+            main_rounds["n"] += 1
+            if n == 0:
+                return self._resp_issue("c1", "cat docs/C.md")
+            if n == 1:
+                return self._resp_issue("c2", "cat docs/A.md docs/B.md")
+            return self._resp_plain(n)
+
+        root_body = "Follow `docs/A.md`, `docs/B.md` and `docs/C.md` before acting.\n"
+        c_body = "C singleton body.\n"
+        a_body = "A bundle body line one.\nA bundle body line two.\n"
+        b_body = "B bundle body line one.\nB bundle body line two.\n"
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        plan = app.state.v1_runtime.budget_plan
+        # The measured plan at the configured context.
+        assert plan.slot == context_tokens // 32
+        assert plan.entry_allowance(1) == one_file
+        assert plan.entry_allowance(2) == two_files
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one: the root bootstrap issues c1 (ONE
+            # compile: the root entry).
+            response1 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+            )
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1
+            # Round two: c1 acquired (the C singleton); the
+            # direct response issues c2 (TWO compiles).
+            response2 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [
+                        root_item(root_body),
+                        exec_call("c1", "cat docs/C.md"),
+                        out_item("c1", frame(c_body)),
+                    ],
+                },
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 2
+            # Round three: c2 acquired (the two-file A|B bundle,
+            # the complete working set; THREE compiles).
+            response3 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [
+                        root_item(root_body),
+                        exec_call("c1", "cat docs/C.md"),
+                        out_item("c1", frame(c_body)),
+                        exec_call("c2", "cat docs/A.md docs/B.md"),
+                        out_item("c2", frame(a_body + b_body)),
+                    ],
+                },
+            )
+            assert response3.status_code == 200
+            assert len(captured_compile) == 3
+            round3_body = captured_main[2].content
+        # The ACTUAL compiler demands carried the exact decoded
+        # sources (the correlation is JSON-escaping independent).
+        demands = [self._compile_demand_user(request) for request in captured_compile]
+        assert root_body in demands[0]
+        assert c_body in demands[1]
+        assert (a_body + b_body) in demands[2]
+        # The actual main body: every raw source is gone.
+        for source in (root_body, c_body, a_body, b_body):
+            assert self._source_absent(round3_body, source)
+        # The ACTUAL admission working set: root plus the C
+        # singleton and the two-file A|B entry (widths 1, 1, 2).
+        session = self._session(app, settings)
+        assert session is not None
+        snapshot = session.owner.snapshot
+        assert snapshot is not None
+        admission = snapshot.result.admission
+        assert admission is not None
+        entries = (admission.root_entry, *admission.entries)
+        assert sorted(entry.width for entry in entries) == [1, 1, 2]
+        expected_labels = {f"entry-{entry.content_key[:16]}" for entry in entries}
+        found = self._blocks(round3_body)
+        assert len(found) == 3
+        assert {label for _, label in found} == expected_labels
+        width_by_label = {f"entry-{entry.content_key[:16]}": entry.width for entry in entries}
+        # Every emitted block counts within its entry's measured
+        # allowance under the real pinned tokenizer (the full
+        # tag-inclusive rendered text).
+        for block, label in found:
+            assert plan.tokenizer.count_tokens(block) <= plan.entry_allowance(width_by_label[label])
+        # The transformed-round fixed point: zero recompile.
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response4 = await client.post(
+                "/v1/responses",
+                content=round3_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response4.status_code == 200
+            assert captured_main[3].content == round3_body
+            assert len(captured_compile) == 3
+
+    # -- B03: oversized source, truncated compile (typed outcomes) -------
+
+    async def test_b03_oversized_source_refuses_typed_before_any_compile_attempt(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """B03 oversized-source outcome at the app boundary: the
+        configured max_source_bytes bound is refused inside the
+        compile attempt BEFORE any provider request -- the governed
+        transaction is the fixed typed 503 with zero main forward
+        and ZERO compiler provider requests (the oversized source
+        never becomes an entry; there is no silent truncation), the
+        bootstrap generation stays committed with its bound, and the
+        same-epoch repeat re-serves the SAME typed refusal with no
+        retry."""
+        settings = self._settings(tmp_path, monkeypatch, max_source_bytes=96)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        root_body = (
+            "Follow the workspace protocol before changing code in "
+            "this bounded synthetic repository.\n"
+            "Keep the negative-path fixture bytes exact.\n"
+        )
+        assert len(root_body.encode("utf-8")) == 133  # the bound is 96
+        root_payload = {"model": "qwen38-27b", "input": [root_item(root_body)]}
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post("/v1/responses", json=root_payload)
+            assert response1.status_code == 503
+            error1 = response1.json()["error"]
+            assert error1["code"] == "v1_compiler_refused"
+            assert error1["message"] == "governed v1 request refused"
+            assert len(captured_main) == 0  # zero main forward
+            assert len(captured_compile) == 0  # zero provider requests
+            # The bootstrap is committed (generation one) but the
+            # oversized source is never an entry.
+            session = self._session(app, settings)
+            assert session is not None
+            assert session.last_publish is not None
+            assert session.last_publish.generation == 1
+            assert session.last_publish_bound == (1, 1)
+            # The same-epoch repeat: the SAME typed refusal, no
+            # new invocation (no retry loophole).
+            response2 = await client.post("/v1/responses", json=root_payload)
+            assert response2.status_code == 503
+            assert response2.json()["error"]["code"] == "v1_compiler_refused"
+            assert len(captured_main) == 0
+            assert len(captured_compile) == 0
+
+    async def test_b03_truncated_compile_refuses_then_heals(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """B03 truncated-compile outcome at the app boundary: an
+        explicit provider truncation is typed BEFORE content
+        validation and is never an entry -- the governed transaction
+        is the fixed 503 with zero main forward and exactly ONE
+        compile attempt (the terminal work-plane failure is re-
+        served to the same-epoch repeat with the SAME typed refusal
+        and no retry loophole); the bootstrap remains committed at
+        generation one with its bound; and the recovery -- a FRESH
+        app runtime over the SAME recovery root in the SAME Python
+        process (the fresh owner resumes the durable generation in
+        a distinct epoch whose work plane carries no terminal; the
+        separate-process restart is the 023-c evidence) -- completes
+        the SAME request with exactly one successful compile, after
+        which the fixed point holds."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        compile_calls = {"n": 0}
+
+        def compiler(request: httpx.Request) -> httpx.Response:
+            compile_calls["n"] += 1
+            captured_compile.append(request)
+            if compile_calls["n"] == 1:
+                # The synthetic provider-truncated completion.
+                return httpx.Response(
+                    200, content=self._truncated_completion_bytes("partial synthetic")
+                )
+            return compiler_echo(request)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        root_body = "Follow the workspace protocol.\n"
+        root_payload = {"model": "qwen38-27b", "input": [root_item(root_body)]}
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post("/v1/responses", json=root_payload)
+            assert response1.status_code == 503
+            error1 = response1.json()["error"]
+            assert error1["code"] == "v1_compiler_refused"
+            assert error1["message"] == "governed v1 request refused"
+            assert len(captured_main) == 0  # zero main forward
+            assert len(captured_compile) == 1  # the truncated attempt
+            # The bootstrap is committed (generation one) but the
+            # truncated result is never an entry.
+            session = self._session(app, settings)
+            assert session is not None
+            assert session.last_publish is not None
+            assert session.last_publish.generation == 1
+            assert session.last_publish_bound == (1, 1)
+            # The same-epoch repeat: the terminal failure is
+            # re-served with the SAME typed refusal and no new
+            # invocation (no retry loophole).
+            response2 = await client.post("/v1/responses", json=root_payload)
+            assert response2.status_code == 503
+            assert response2.json()["error"]["code"] == "v1_compiler_refused"
+            assert len(captured_main) == 0
+            assert len(captured_compile) == 1
+        # Process exit: the composed teardown releases the exclusive
+        # writer so the restart can own the session.
+        async with app.router.lifespan_context(app):
+            pass
+        # Recovery: a fresh app runtime over the SAME recovery root
+        # in the same process (the fresh owner resumes the durable
+        # generation in a distinct epoch whose work plane carries no
+        # terminal).
+        settings_b = self._settings(tmp_path, monkeypatch)
+        captured_main_b: list[httpx.Request] = []
+        captured_compile_b: list[httpx.Request] = []
+        compiler_echo_b = _echo_compiler_handler(captured_compile_b)
+
+        def handler_b(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo_b(request)
+            assert request.url.path == "/v1/responses"
+            captured_main_b.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main_b)}"})
+
+        app_b = create_app(settings_b, httpx.MockTransport(handler_b))
+        assert app_b.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_b), base_url="http://adapter.test"
+        ) as client:
+            response3 = await client.post("/v1/responses", json=root_payload)
+            assert response3.status_code == 200
+            round3_body = captured_main_b[0].content
+            assert round3_body.count(b"[slaif-live:v") == 1
+            assert self._source_absent(round3_body, root_body)
+            assert len(captured_compile_b) == 1  # exactly one SUCCESSFUL compile
+            session_b = self._session(app_b, settings_b)
+            assert session_b is not None
+            assert session_b.last_publish is not None
+            # The resumed owner materializes its restored record
+            # set's generation in the distinct live epoch.
+            assert session_b.last_publish.generation == 3
+            assert session_b.last_publish_bound == (1, 2)
+            # The fixed point (RAM hit, no recompile).
+            response4 = await client.post(
+                "/v1/responses",
+                content=round3_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response4.status_code == 200
+            assert captured_main_b[1].content == round3_body
+            assert len(captured_compile_b) == 1
+
+    # -- R02: forwarded-body preservation on both endpoints --------------
+
+    async def test_r02_responses_unicode_crlf_tool_wrapper_image_and_items_preserved(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """R02 Responses forwarded-body evidence at the actual
+        opted-in app path: the acquired read carrier (the exact
+        Unicode/CRLF original inside its proven process wrapper) is
+        the ONLY source span edited (the raw original is gone, the
+        live marker is in, the wrapper prefix preserved); the root
+        carrier carries its own live marker; the compiled context
+        holds exactly the two entries; the retained image (the
+        explicit route behavior) and every other input item survive
+        dict-equal; the actual compiler demand carried the exact
+        decoded source; and the transformed-round replay is the
+        byte-identical fixed point with zero recompile."""
+        settings = self._settings(tmp_path, monkeypatch, vision=True)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        main_rounds = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            n = main_rounds["n"]
+            main_rounds["n"] += 1
+            if n == 0:
+                return self._resp_issue("c1", "cat docs/A.md")
+            return self._resp_plain(n)
+
+        root_body = "Follow `docs/A.md` before acting.\n"
+        image_item = {"type": "input_image", "image_url": "synthetic-image"}
+        extra_item = {"type": "input_text", "text": "Extra ordinary caller text.\n"}
+        exec_item = exec_call("c1", "cat docs/A.md")
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one: the root bootstrap with the retained image.
+            response1 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [root_item(root_body), image_item],
+                },
+            )
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1
+            # Round two: the c1 result is ACQUIRED.
+            response2 = await client.post(
+                "/v1/responses",
+                json={
+                    "model": "qwen38-27b",
+                    "input": [
+                        root_item(root_body),
+                        image_item,
+                        exec_item,
+                        out_item("c1", frame(self.A_NATIVE)),
+                        extra_item,
+                    ],
+                },
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 2
+            round2_body = captured_main[1].content
+        # The actual compiler demand carried the exact decoded
+        # source (Unicode and CRLF intact, JSON-escaping independent).
+        assert self.A_NATIVE in self._compile_demand_user(captured_compile[1])
+        # The actual main body: the raw originals are gone.
+        for source in (self.A_NATIVE, self.A_NATIVE_PENDING, self.A_NATIVE_TAIL, root_body):
+            assert self._source_absent(round2_body, source)
+        # The wrapper prefix is preserved on the retained carrier.
+        assert any(self._WRAPPER in text for text in self._payload_texts(json.loads(round2_body)))
+        # Exactly the two live markers (root + the acquired carrier);
+        # no evidence marker at this stage.
+        assert round2_body.count(b"[slaif-live:v") == 2
+        assert round2_body.count(b"[slaif-evidence:v") == 0
+        # The compiled context carries exactly the two entries.
+        assert len(self._blocks(round2_body)) == 2
+        # Every other item survives dict-equal.
+        decoded = json.loads(round2_body)
+        assert exec_item in decoded["input"]
+        assert image_item in decoded["input"]
+        assert extra_item in decoded["input"]
+        # The transformed-round fixed point: zero recompile.
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response3 = await client.post(
+                "/v1/responses",
+                content=round2_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response3.status_code == 200
+            assert captured_main[2].content == round2_body
+            assert len(captured_compile) == 2
+
+    async def test_r02_chat_unicode_crlf_tool_wrapper_and_image_preserved(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """R02 Chat forwarded-body evidence at the actual opted-in
+        app path: the Responses bootstrap establishes the root (the
+        root authority is Responses-only; the Chat user message stays
+        data), and the Chat rounds issue AND complete their own read
+        on the chat endpoint; the ONLY Chat source carrier edited is
+        the acquired tool result (the exact Unicode/CRLF original
+        inside its proven process wrapper: the raw original is gone,
+        the live marker is in, the wrapper prefix preserved); the
+        stable system placement carries both compiled entries; every
+        other message (the user root text, the assistant tool_calls,
+        the retained image message) survives dict-equal; the actual
+        compiler demand carried the exact decoded source; and the
+        transformed-round replay is the byte-identical fixed point
+        with zero recompile."""
+        settings = self._settings(tmp_path, monkeypatch, vision=True)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        next_issue = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                if request.headers["authorization"] == "Bearer test-only-compiler":
+                    return compiler_echo(request)
+                captured_main.append(request)
+                n = next_issue["n"]
+                next_issue["n"] += 1
+                if n == 0:
+                    return self._chat_issue("c1", "cat docs/A.md")
+                return self._chat_plain()
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return self._resp_plain(len(captured_main))
+
+        root_body = "Follow `docs/A.md` before acting.\n"
+        root_text = (
+            f"# AGENTS.md instructions for {WORKSPACE}\n\n"
+            f"<INSTRUCTIONS>\n{root_body}\n</INSTRUCTIONS>\n"
+        )
+        image_message = {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Chat follow-up with the retained image."},
+                {"type": "image_url", "image_url": {"url": "synthetic-chat-image"}},
+            ],
+        }
+        assistant_message = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                        "name": "exec_command",
+                        "arguments": json.dumps({"cmd": "cat docs/A.md"}),
+                    },
+                }
+            ],
+        }
+        tool_message = {"role": "tool", "tool_call_id": "c1", "content": frame(self.A_NATIVE)}
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one (Responses): the root-only bootstrap.
+            response1 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+            )
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1
+            # Round two (Chat): the user root text is DATA (the root
+            # authority is Responses-only); the direct response
+            # issues c1 on the chat endpoint.
+            response2 = await client.post(
+                "/v1/chat/completions",
+                json={"model": "qwen38-27b", "messages": [{"role": "user", "content": root_text}]},
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 1
+            # Round three (Chat): the c1 result is ACQUIRED.
+            response3 = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "qwen38-27b",
+                    "messages": [
+                        {"role": "user", "content": root_text},
+                        assistant_message,
+                        tool_message,
+                        image_message,
+                    ],
+                },
+            )
+            assert response3.status_code == 200
+            assert len(captured_compile) == 2
+            round3_body = captured_main[2].content
+        # The actual compiler demand carried the exact decoded
+        # source (Unicode and CRLF intact, JSON-escaping independent).
+        assert self.A_NATIVE in self._compile_demand_user(captured_compile[1])
+        # The actual main body: the raw originals are gone.
+        # (the envelope user message is DATA on the chat endpoint:
+        # the root authority is Responses-only, so the root source
+        # stays in that preserved message; only the acquired read
+        # carrier is edited)
+        for source in (self.A_NATIVE, self.A_NATIVE_PENDING, self.A_NATIVE_TAIL):
+            assert self._source_absent(round3_body, source)
+        # The wrapper prefix is preserved on the retained carrier.
+        assert any(self._WRAPPER in text for text in self._payload_texts(json.loads(round3_body)))
+        decoded = json.loads(round3_body)
+        messages = decoded["messages"]
+        # The stable Chat system placement carries both entries.
+        system = messages[0]
+        assert system["role"] == "system"
+        assert system["content"].startswith("[slaif-compiled-context:v1:")
+        assert system["content"].endswith("[/slaif-compiled-context:v1]")
+        assert len(self._blocks(round3_body)) == 2
+        # Every other message survives dict-equal (the tool carrier
+        # keeps its call ID; the Chat carrier has no name field).
+        assert messages[1] == {"role": "user", "content": root_text}
+        assert messages[2] == assistant_message
+        assert messages[3]["role"] == "tool"
+        assert messages[3]["tool_call_id"] == "c1"
+        assert messages[4] == image_message
+        # Only the acquired Chat carrier is edited (the root stays
+        # data on the chat endpoint): exactly one live marker.
+        assert round3_body.count(b"[slaif-live:v") == 1
+        assert round3_body.count(b"[slaif-evidence:v") == 0
+        # The transformed-round fixed point: zero recompile.
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response4 = await client.post(
+                "/v1/chat/completions",
+                content=round3_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response4.status_code == 200
+            assert captured_main[3].content == round3_body
+            assert len(captured_compile) == 2
