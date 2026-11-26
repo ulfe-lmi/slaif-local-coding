@@ -95,13 +95,36 @@ This exception is not a general permission to log or store bodies:
   automatic timed deletion. Where required by deployment, filesystem
   encryption is an explicit prerequisite, not an unimplemented guarantee.
 
-The 020-a protected per-session recovery store is implemented as an INERT
-component (contract [docs/CACHE-RECOVERY-CONTRACT.md](docs/CACHE-RECOVERY-CONTRACT.md);
-PENDING strategic review at its bounded inert component scope): it is not active
-in the adapter, no configuration key enables it, and no v1 profile is qualified.
-Until the v1 profile is implemented and qualified, no such store is active and
-the default prohibition applies unchanged in every active profile. Operational
-logs and metrics remain content-free in every profile.
+The 020-a protected per-session recovery store is implemented (contract
+[docs/CACHE-RECOVERY-CONTRACT.md](docs/CACHE-RECOVERY-CONTRACT.md)) and is
+active under the explicitly opted-in `dependency-bundles-v1` profile from
+022-c: the resumed and steady-state v1 owners commit
+through the accepted 020 owned/fenced admit/checkpoint
+path (no raw writer shortcut), and from the 022-d closure
+slice the cold bootstrap commits through the same
+fenced path as well (the 022-c cold path combined a
+direct admit with a separate checkpoint outside the
+adverse durable fence, corrected by 022-d; the safe
+cleanup of an acquired cold owner/writer runs on
+every prepublication failure), and a request newly relies on a protected
+generation only after the ACTUAL successful publication of the exact
+snapshot the edits rely on — the retained successful publish is bound to
+the exact snapshot/epoch it actually published, a faulted publication
+keeps the prior bound, and a newer undurable record set is refused (the
+fixed typed v1 refusal, no raw fallback forward). The store remains
+PENDING strategic review at its bounded scope, and the default
+prohibition applies unchanged in the legacy profile. The 022-c marker
+key is a distinct application-owned private key carried only as a
+PROTECTED ENVIRONMENT REFERENCE (`marker_key_env`): resolved once at v1
+runtime construction, held in process memory (repr-suppressed), never a
+gateway or service credential, and never persisted, logged or echoed.
+The 022-e stable compiled-context region carries a placement-ownership
+tag that reuses the SAME application-owned private key material under a
+separate MAC domain, bound to the complete trusted namespace, the
+endpoint-specific placement and the exact rendered region payload; the
+wire form is content-free (versioned kind plus fixed-length MAC) and no
+second credential is introduced.
+Operational logs and metrics remain content-free in every profile.
 
 ## Protected live-host resources
 

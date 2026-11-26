@@ -1043,3 +1043,113 @@ async def test_selection_request_overflow_typed(
     assert decision.working_set == ()
     assert decision.budget.request_content_tokens == capacity + 1
     assert decision.budget.request_capacity == capacity
+
+
+@pytest.mark.parametrize("mode", MODES)
+@pytest.mark.parametrize("endpoint", ENDPOINTS)
+async def test_selection_force_omitted_whole_entry_optional_only(
+    mode: AdmissionMode, endpoint: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The deterministic whole-entry OPTIONAL omission channel of
+    the application final-request budget gate (order 022-e
+    section 2): a named optional content key is omitted whole and
+    recorded as a BUDGET omission BEFORE the coverage and
+    aggregate law (the coherent replacement/selection re-run, so
+    an omitted carrier can only earn the non-resolving evidence
+    marker, never a dangling live reference); the decision is
+    deterministic; the root and every required binding-closure
+    entry are never force-omitted (a forced required key is the
+    fixed selection failure, not an omission)."""
+    ns, _state, t = _states(
+        ROOT_OPTIONAL,
+        (("a", A_BODY, "cat A.md"), ("b", B_BODY, "cat B.md")),
+        mode,
+        endpoint,
+        f"selection022e-force-{mode.value}-{endpoint}",
+    )
+    root_entry = t.admission.root_entry
+    entry_a = _entry_for(t, "A.md")
+    entry_b = _entry_for(t, "B.md")
+
+    tokenizer = get_bundle_tokenizer()
+    config = _config()
+    plan = BundleBudgetPlan(tokenizer, BundleBudgetConfig(context_tokens=262_144))
+    account = BundleCompilerAccount()
+
+    root_index = _root_index(
+        root_entry,
+        config,
+        tokenizer,
+        plan,
+        (_dep("A.md", "P1", 90, "immediate"), _dep("B.md", "P2", 50, "next_turn")),
+    )
+    index_a = _file_index(
+        entry_a,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="never-mutate-fixture",
+        statement="NEVER mutate the protected fixture.",
+        location="A.md",
+    )
+    index_b = _file_index(
+        entry_b,
+        (),
+        config,
+        tokenizer,
+        plan,
+        rule_id="always-log-mutation",
+        statement="ALWAYS log the mutation.",
+        location="B.md",
+    )
+    indices = await _compile_all(
+        config,
+        tokenizer,
+        plan,
+        account,
+        (
+            (root_entry, ("A.md", "B.md"), root_index),
+            (entry_a, (), index_a),
+            (entry_b, (), index_b),
+        ),
+        monkeypatch,
+    )
+
+    root = _ready(t, root_entry, indices[root_entry.content_key], ("A.md", "B.md"))
+    ready_a = _ready(t, entry_a, indices[entry_a.content_key], ())
+    ready_b = _ready(t, entry_b, indices[entry_b.content_key], ())
+
+    baseline = select_working_set(root, (ready_a, ready_b), plan)
+    assert baseline.outcome is SelectionOutcome.OK
+    assert [row.content_key for row in baseline.working_set] == [
+        root_entry.content_key,
+        entry_a.content_key,
+        entry_b.content_key,
+    ]
+    assert baseline.missing_bindings == ()
+
+    # The optional B is force-omitted whole, recorded as a BUDGET
+    # omission; the working set stays coherent (root + required A).
+    forced = select_working_set(
+        root, (ready_a, ready_b), plan, force_omitted=(entry_b.content_key,)
+    )
+    assert forced.outcome is SelectionOutcome.OK
+    assert [row.content_key for row in forced.working_set] == [
+        root_entry.content_key,
+        entry_a.content_key,
+    ]
+    omitted = [o for o in forced.omitted if o.content_key == entry_b.content_key]
+    assert len(omitted) == 1
+    assert omitted[0].reason is SelectionOmissionReason.BUDGET
+    assert omitted[0].covered_by is None
+    assert omitted[0].detail == "whole-entry budget omission"
+    # Deterministic: the same force set re-decides identically.
+    again = select_working_set(root, (ready_a, ready_b), plan, force_omitted=(entry_b.content_key,))
+    assert again.selection_key == forced.selection_key
+
+    # Required governance is never force-omitted.
+    with pytest.raises(ValueError, match="required governance is never force-omitted"):
+        select_working_set(root, (ready_a, ready_b), plan, force_omitted=(entry_a.content_key,))
+    with pytest.raises(ValueError, match="governing root row is never force-omitted"):
+        select_working_set(root, (ready_a, ready_b), plan, force_omitted=(root_entry.content_key,))

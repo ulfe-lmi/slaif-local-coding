@@ -6,10 +6,23 @@ import ipaddress
 import os
 import tomllib
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .constitution.bundles.bundle_budget import (
+    BUDGET_CONTEXT_MAX,
+    BUDGET_CONTEXT_MIN,
+    BundleBudgetConfig,
+)
+from .constitution.bundles.bundle_compiler import BundleCompilerConfig
+from .constitution.bundles.bundle_tokenizer import (
+    BUNDLE_TOKENIZER_RENDER_POLICY_VERSION,
+    PINNED_TOKENIZER_REVISION,
+    PINNED_TOKENIZER_UPSTREAM,
+)
+from .constitution.bundles.ram_state_models import RamStateBounds
 
 MAX_SERVICE_TOKEN_BYTES = 4096
 MIN_SIGNING_SECRET_BYTES = 32
@@ -367,6 +380,259 @@ class ConstitutionIntegrationConfig(BaseModel):
         return self
 
 
+# ---------------------------------------------------------------------------
+# 022-a: explicit cache profile selector and closed v1 configuration
+# ---------------------------------------------------------------------------
+
+#: Constitution fields common to both cache profiles (022-a): enablement and
+#: the validated identity source/labels. The route observation/constitution
+#: flags live on the route itself. Every other constitution field is a
+#: legacy byte-injection or selector policy.
+COMMON_CONSTITUTION_FIELDS: frozenset[str] = frozenset(
+    {"enabled", "identity_source", "principal", "session", "repository"}
+)
+
+V1_PROFILE = "dependency-bundles-v1"
+
+V1_LEGACY_CACHE_CONFLICT = (
+    "the dependency-bundles-v1 profile cannot be combined with an "
+    "explicitly supplied legacy filesystem cache policy"
+)
+V1_LEGACY_COMPILER_CONFLICT = (
+    "the dependency-bundles-v1 profile cannot be combined with an "
+    "explicitly supplied legacy compiler policy"
+)
+V1_LEGACY_REHYDRATION_CONFLICT = (
+    "the dependency-bundles-v1 profile cannot be combined with an "
+    "explicitly supplied legacy derived-rehydration policy"
+)
+V1_LEGACY_POLICY_CONFLICT = (
+    "the dependency-bundles-v1 profile cannot be combined with an "
+    "explicitly supplied legacy byte-injection or selector policy"
+)
+
+V1_ROUTE_CONTRACT_MISSING = "each governed v1 route requires an explicit route model contract"
+V1_ROUTE_CONTRACT_ORPHAN = "route model contracts may only declare governed v1 routes"
+V1_ROUTE_CONTRACT_MODEL_MISMATCH = "the route model contract must declare the route's model"
+V1_ROUTE_CONTRACT_CONTEXT_MISMATCH = (
+    "the route model contract must declare the configured effective context"
+)
+V1_CAPABILITY_NOT_PINNED = (
+    "the route model contract must declare the pinned tokenizer and render capability"
+)
+
+
+def _section_provided(value: object, default: BaseModel | None) -> bool:
+    """Whether an operator explicitly supplied one configuration section.
+
+    A raw block with no keys and a pure materialized default do not count;
+    an explicitly supplied value at its default still counts as supplied
+    (022-a migration law).
+    """
+    if value is None:
+        return False
+    if isinstance(value, dict):
+        return bool(value)
+    if isinstance(value, BaseModel):
+        if value.model_fields_set:
+            return True
+        return default is not None and value.model_dump() != default.model_dump()
+    return True
+
+
+def _constitution_legacy_conflict(value: object) -> str | None:
+    """Fixed conflict message for a supplied legacy constitution policy.
+
+    Returns None when only the common enablement/identity fields (or an
+    empty policy block) are supplied.
+    """
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        for key, sub in value.items():
+            if key == "rehydration":
+                if _section_provided(sub, RehydrationConfig()):
+                    return V1_LEGACY_REHYDRATION_CONFLICT
+                continue
+            if key not in COMMON_CONSTITUTION_FIELDS:
+                return V1_LEGACY_POLICY_CONFLICT
+        return None
+    if isinstance(value, ConstitutionIntegrationConfig):
+        # An explicitly supplied section counts as supplied even when every
+        # value equals its default (022-a migration law); a materialized
+        # default (nothing supplied) or an empty policy block does not.
+        if _section_provided(value.rehydration, RehydrationConfig()):
+            return V1_LEGACY_REHYDRATION_CONFLICT
+        for field in value.model_fields_set:
+            if field not in COMMON_CONSTITUTION_FIELDS and field != "rehydration":
+                return V1_LEGACY_POLICY_CONFLICT
+        return None
+    return V1_LEGACY_POLICY_CONFLICT
+
+
+class ContextCacheRouteContract(BaseModel):
+    """Explicit v1 model-contract declaration for one governed route (022-a).
+
+    Binds the route's declared model to the pinned tokenizer/render
+    capability and the configured effective context C. The tokenizer
+    capability is the closed pinned artifact declaration (the reference
+    upstream revision) and the render policy is the pinned bundle render
+    policy: any deviation from the pinned facts fails closed. Pure
+    configuration validation: no tokenizer loading, no store IO, no
+    upstream calls.
+    """
+
+    # Privacy law: validation errors never echo the raw validation input.
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    model: str = Field(min_length=1, max_length=128)
+    context_tokens: int = Field(ge=BUDGET_CONTEXT_MIN, le=BUDGET_CONTEXT_MAX)
+    tokenizer_upstream: str = Field(default=PINNED_TOKENIZER_UPSTREAM, min_length=1, max_length=256)
+    tokenizer_revision: str = Field(default=PINNED_TOKENIZER_REVISION, pattern=r"^[0-9a-f]{40}$")
+    render_policy_version: str = Field(
+        default=BUNDLE_TOKENIZER_RENDER_POLICY_VERSION, min_length=1, max_length=64
+    )
+
+    @model_validator(mode="after")
+    def pinned_capability(self) -> ContextCacheRouteContract:
+        if (
+            self.tokenizer_upstream != PINNED_TOKENIZER_UPSTREAM
+            or self.tokenizer_revision != PINNED_TOKENIZER_REVISION
+            or self.render_policy_version != BUNDLE_TOKENIZER_RENDER_POLICY_VERSION
+        ):
+            raise ValueError(V1_CAPABILITY_NOT_PINNED)
+        return self
+
+
+class ContextCacheRecoveryConfig(BaseModel):
+    """Explicit v1 protected per-session recovery opt-in (typed; no IO).
+
+    Configuration validation never opens, creates, enumerates or probes the
+    recovery store, never resolves a request workspace, never reads
+    credentials and never calls an upstream. The operator-prepared
+    directory, retention, deletion and encryption obligations are the
+    SECURITY.md protected-source-recovery contract.
+    """
+
+    # Privacy law: validation errors never echo the raw validation input,
+    # and the operator's private recovery root never appears in reprs.
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    enabled: bool = False
+    root: Path | None = Field(default=None, repr=False)
+
+    @model_validator(mode="after")
+    def bounded(self) -> ContextCacheRecoveryConfig:
+        if self.root is not None and (
+            not self.root.is_absolute() or any(part == ".." for part in self.root.parts)
+        ):
+            raise ValueError("v1 recovery root must be an absolute normalized path")
+        return self
+
+
+class ContextCacheConfig(BaseModel):
+    """Explicit cache profile selector and the closed v1 configuration.
+
+    Omission (or an explicit ``legacy``) keeps the existing legacy behavior.
+    ``dependency-bundles-v1`` is accepted only with its closed typed
+    configuration (021 budget/compiler, 019 RAM bounds, protected recovery
+    opt-in). The v1 runtime itself remains unavailable in this build:
+    ``create_app`` refuses a selected v1 profile at startup, and a settings
+    model or a refused app does not establish v1 readiness, source
+    replacement, native-format, streaming or recovery qualification.
+    """
+
+    # Privacy law: validation errors never echo the raw validation input.
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
+    profile: Literal["legacy", "dependency-bundles-v1"] = "legacy"
+    # The existing one-worker policy (019 RAM-state law): exactly one service
+    # worker and one live owner per session; multi-worker configuration is
+    # unsupported and fails closed. Strictly one worker: any other value is
+    # a configuration error. Strict integer type: booleans, floats (even
+    # whole-valued) and strings never coerce into the worker count.
+    workers: int = Field(default=1, ge=1, le=1, strict=True)
+    # Admission defaults to lean; greedy must be explicit (v1 only).
+    admission_mode: Literal["lean", "greedy"] = "lean"
+    budget: BundleBudgetConfig | None = None
+    compiler: BundleCompilerConfig | None = None
+    ram: RamStateBounds | None = None
+    recovery: ContextCacheRecoveryConfig = Field(default_factory=ContextCacheRecoveryConfig)
+    # Each governed route's explicit model-contract declaration (v1 only):
+    # the route name binds its declared model to the pinned tokenizer/render
+    # capability and the configured effective C (022-a).
+    route_contracts: dict[str, ContextCacheRouteContract] = Field(default_factory=dict)
+    # The distinct application-owned private marker key material (022-c):
+    # a PROTECTED ENVIRONMENT REFERENCE (the name of the environment
+    # variable holding the key bytes), never the key itself.  The value
+    # is resolved once at v1 runtime construction, stays in process
+    # memory (repr-suppressed) and never crosses Git, logs, refs,
+    # response fields, test captures or operational reprs.  It is never
+    # a gateway / service credential and never a public digest; the
+    # stable authenticated session binding is the MAC-bound trusted
+    # namespace key (stable across recovery).
+    marker_key_env: str | None = Field(
+        default=None,
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+        repr=False,
+    )
+
+    @model_validator(mode="after")
+    def profile_closure(self) -> ContextCacheConfig:
+        provided = self.model_fields_set
+        if self.profile == V1_PROFILE:
+            if "budget" not in provided or self.budget is None:
+                raise ValueError(
+                    "the dependency-bundles-v1 profile requires the "
+                    "explicit effective-context budget"
+                )
+            if "compiler" not in provided or self.compiler is None:
+                raise ValueError(
+                    "the dependency-bundles-v1 profile requires the "
+                    "explicit bounded compiler policy"
+                )
+            if "ram" not in provided or self.ram is None:
+                raise ValueError(
+                    "the dependency-bundles-v1 profile requires the explicit RAM ownership bounds"
+                )
+            if not self.recovery.enabled:
+                raise ValueError(
+                    "the dependency-bundles-v1 profile requires the "
+                    "explicit protected-recovery opt-in"
+                )
+            if self.recovery.root is None:
+                raise ValueError(
+                    "the dependency-bundles-v1 profile requires the configured recovery root"
+                )
+            if "marker_key_env" not in provided or self.marker_key_env is None:
+                raise ValueError(
+                    "the dependency-bundles-v1 profile requires the explicit "
+                    "application-owned marker key reference"
+                )
+            return self
+        for field in ("budget", "compiler", "ram"):
+            if field in provided and getattr(self, field) is not None:
+                raise ValueError(
+                    "the v1 context-cache settings require the dependency-bundles-v1 profile"
+                )
+        if "marker_key_env" in provided and self.marker_key_env is not None:
+            raise ValueError(
+                "the v1 context-cache settings require the dependency-bundles-v1 profile"
+            )
+        if "recovery" in provided and _section_provided(
+            self.recovery, ContextCacheRecoveryConfig()
+        ):
+            raise ValueError(
+                "the v1 context-cache settings require the dependency-bundles-v1 profile"
+            )
+        if "admission_mode" in provided and self.admission_mode != "lean":
+            raise ValueError(
+                "the v1 context-cache settings require the dependency-bundles-v1 profile"
+            )
+        if self.route_contracts:
+            raise ValueError(
+                "the v1 context-cache settings require the dependency-bundles-v1 profile"
+            )
+        return self
+
+
 class RouteConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -406,7 +672,9 @@ class ObservabilityConfig(BaseModel):
 
 
 class Settings(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Privacy law: validation errors never echo the raw validation input
+    # (private paths, credential environment names).
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
     server: ServerConfig
     gateway_ingress: GatewayIngressConfig = Field(default_factory=lambda: GatewayIngressConfig())
     upstream: UpstreamConfig
@@ -417,12 +685,73 @@ class Settings(BaseModel):
     constitution: ConstitutionIntegrationConfig = Field(
         default_factory=lambda: ConstitutionIntegrationConfig()
     )
+    context_cache: ContextCacheConfig = Field(default_factory=lambda: ContextCacheConfig())
     observability: ObservabilityConfig = Field(default_factory=lambda: ObservabilityConfig())
+
+    @model_validator(mode="before")
+    @classmethod
+    def v1_legacy_conflict_law(cls, data: Any) -> Any:
+        # 022-a migration law: under the selected v1 profile, an explicitly
+        # supplied legacy cache/TTL/LRU, derived-rehydration, compiler or
+        # byte-injection/selector policy is a configuration error, even at
+        # its default value. A materialized default or an empty policy block
+        # alone does not conflict.
+        if not isinstance(data, dict):
+            return data
+        context_cache = data.get("context_cache")
+        if isinstance(context_cache, ContextCacheConfig):
+            profile = context_cache.profile
+        elif isinstance(context_cache, dict):
+            profile = context_cache.get("profile", "legacy")
+        else:
+            profile = "legacy"
+        if profile != V1_PROFILE:
+            return data
+        if _section_provided(data.get("cache"), CacheConfig()):
+            raise ValueError(V1_LEGACY_CACHE_CONFLICT)
+        if _section_provided(data.get("compiler"), CompilerConfig()):
+            raise ValueError(V1_LEGACY_COMPILER_CONFLICT)
+        constitution_conflict = _constitution_legacy_conflict(data.get("constitution"))
+        if constitution_conflict is not None:
+            raise ValueError(constitution_conflict)
+        return data
+
+    @model_validator(mode="after")
+    def v1_route_contract_law(self) -> Settings:
+        # 022-a: each governed v1 route binds its declared model contract
+        # to the pinned tokenizer/render capability and the configured
+        # effective C through the explicit route model contract. Orphan
+        # contracts (unknown or non-governed routes) fail closed first:
+        # this law runs before the legacy integration law and the v1
+        # profile law so a misplaced contract is the reported failure.
+        if self.context_cache.profile != V1_PROFILE:
+            return self
+        contracts = self.context_cache.route_contracts
+        governed = {route.name for route in self.routes if route.constitution_enabled}
+        if set(contracts) != governed:
+            if any(name not in governed for name in contracts):
+                raise ValueError(V1_ROUTE_CONTRACT_ORPHAN)
+            raise ValueError(V1_ROUTE_CONTRACT_MISSING)
+        budget = self.context_cache.budget
+        if budget is not None:
+            for route in self.routes:
+                if not route.constitution_enabled:
+                    continue
+                contract = contracts[route.name]
+                if contract.model != route.model:
+                    raise ValueError(V1_ROUTE_CONTRACT_MODEL_MISMATCH)
+                if contract.context_tokens != budget.context_tokens:
+                    raise ValueError(V1_ROUTE_CONTRACT_CONTEXT_MISMATCH)
+        return self
 
     @model_validator(mode="after")
     def safe_integration(self) -> Settings:
+        v1 = self.context_cache.profile == V1_PROFILE
         if self.gateway_ingress.signed:
-            if not self.constitution.enabled or not self.compiler.enabled:
+            compiler_ready = (
+                self.context_cache.compiler is not None if v1 else self.compiler.enabled
+            )
+            if not self.constitution.enabled or not compiler_ready:
                 raise ValueError(
                     "signed identity ingress requires enabled compiler and constitution integration"
                 )
@@ -449,14 +778,22 @@ class Settings(BaseModel):
             raise ValueError(
                 "service bearer ingress requires complete enabled static constitution identity"
             )
-        if self.constitution.enabled and not self.compiler.enabled:
+        if not v1 and self.constitution.enabled and not self.compiler.enabled:
             raise ValueError("constitution integration requires direct compiler enablement")
-        if self.constitution.enabled and urlsplit(self.upstream.base_url).path.rstrip("/") != "/v1":
+        if (
+            not v1
+            and self.constitution.enabled
+            and (urlsplit(self.upstream.base_url).path.rstrip("/") != "/v1")
+        ):
             raise ValueError("constitution integration requires an upstream /v1 base path")
-        if self.constitution.enabled and (
-            self.compiler.schema_version != "constitution-index-v1"
-            or self.constitution.selector_schema_version != "working-set-v1"
-            or self.constitution.render_version != "constitution-render-v1"
+        if (
+            not v1
+            and self.constitution.enabled
+            and (
+                self.compiler.schema_version != "constitution-index-v1"
+                or self.constitution.selector_schema_version != "working-set-v1"
+                or self.constitution.render_version != "constitution-render-v1"
+            )
         ):
             raise ValueError("constitution integration requires supported schema versions")
         if self.constitution.enabled and not any(
@@ -470,6 +807,50 @@ class Settings(BaseModel):
                 raise ValueError(
                     "route constitution integration requires global enablement and observation"
                 )
+        return self
+
+    @model_validator(mode="after")
+    def v1_profile_law(self) -> Settings:
+        # 022-a: validate the explicit effective context and the existing
+        # 021 budget bounds against each enabled v1 route's declared
+        # model/vision contract. The same contract may serve compatible
+        # routes that explicitly share it; mixed vision declarations cannot.
+        if self.context_cache.profile != V1_PROFILE:
+            return self
+        budget = self.context_cache.budget
+        if budget is None:
+            return self  # the v1 closure above already refused
+        if not self.constitution.enabled:
+            raise ValueError(
+                "the dependency-bundles-v1 profile requires enabled constitution integration"
+            )
+        if not any(route.constitution_enabled for route in self.routes):
+            raise ValueError("the dependency-bundles-v1 profile requires an enabled route")
+        declared: bool | None = None
+        for route in self.routes:
+            if not route.constitution_enabled:
+                continue
+            if route.max_images_per_request is None:
+                # An image-passthrough route declares no enforced image
+                # limit and forwards images unchanged: it neither declares
+                # nor denies the vision contract and may use the explicitly
+                # declared v1 vision contract.
+                continue
+            route_vision = route.max_images_per_request >= 1
+            if declared is None:
+                declared = route_vision
+            elif route_vision != declared:
+                raise ValueError(
+                    "one v1 context contract cannot serve both vision and text-only routes"
+                )
+            if route_vision and budget.max_retained_images < route.max_images_per_request:
+                raise ValueError(
+                    "the v1 budget retained-image capacity cannot cover the route image limit"
+                )
+        if declared is not None and budget.vision_enabled != declared:
+            raise ValueError(
+                "the v1 budget vision contract does not match the enabled route image policy"
+            )
         return self
 
     @model_validator(mode="after")
@@ -491,7 +872,10 @@ class Settings(BaseModel):
         # C2 (order 010-a): the three Local-side secret roles must use
         # distinct environment names so one value can never silently fill
         # two roles (upstream credential, Gateway service credential,
-        # Gateway signing secret).
+        # Gateway signing secret). The v1 compiler credential is a
+        # protected reference to the same private upstream channel: it may
+        # share the private upstream environment name but must never take a
+        # Gateway credential's environment name (022-a).
         roles: dict[str, str] = {"upstream": self.upstream.api_key_env}
         if self.gateway_ingress.service_token_env is not None:
             roles["gateway_service"] = self.gateway_ingress.service_token_env
@@ -503,6 +887,12 @@ class Settings(BaseModel):
                 if name_a == name_b:
                     raise ValueError(
                         f"secret roles {label_a} and {label_b} cannot share one environment name"
+                    )
+        if self.context_cache.profile == V1_PROFILE and self.context_cache.compiler is not None:
+            for label in ("gateway_service", "gateway_signing"):
+                if label in roles and roles[label] == self.context_cache.compiler.api_key_env:
+                    raise ValueError(
+                        f"secret roles v1_compiler and {label} cannot share one environment name"
                     )
         return self
 
@@ -527,25 +917,42 @@ def load_settings(path: Path) -> Settings:
     """Load a TOML file and reject unknown or invalid configuration."""
     with path.open("rb") as stream:
         raw = tomllib.load(stream)
-    # Objective-003 modules validate bounded settings before app construction;
-    # cross-feature safety is enforced by Settings itself.
-    compiler_raw = raw.pop("compiler", {})
-    gateway_ingress_raw = raw.pop("gateway_ingress", {})
-    cache_raw = raw.pop("cache", {})
-    constitution_raw = raw.pop("constitution", {})
-    observability_raw = raw.pop("observability", {})
-    compiler_config = CompilerConfig.model_validate(compiler_raw)
-    gateway_ingress_config = GatewayIngressConfig.model_validate(gateway_ingress_raw)
-    cache_config = CacheConfig.model_validate(cache_raw)
-    constitution_config = ConstitutionIntegrationConfig.model_validate(constitution_raw)
-    observability_config = ObservabilityConfig.model_validate(observability_raw)
-    return Settings.model_validate(
-        {
-            **raw,
-            "gateway_ingress": gateway_ingress_config,
-            "compiler": compiler_config,
-            "cache": cache_config,
-            "constitution": constitution_config,
-            "observability": observability_config,
-        }
+    # 022-b migration-boundary law: under a selected v1 profile the legacy
+    # conflict-target sections (filesystem cache, legacy compiler,
+    # constitution byte-injection/selector and derived-rehydration policy)
+    # must not pass through standalone nested validation before the fixed
+    # migration refusal: a malformed explicitly supplied legacy field must
+    # reject at that intended boundary with its fixed message, never
+    # echoing its value. They are therefore handed to Settings raw, whose
+    # before-validator applies the closed conflict law first. The legacy
+    # profile keeps the existing standalone materialization (existing
+    # legacy loading is unchanged).
+    context_cache_raw = raw.get("context_cache")
+    v1_selected = (
+        isinstance(context_cache_raw, dict) and context_cache_raw.get("profile") == V1_PROFILE
     )
+    # Sections are materialized only when explicitly present so that a
+    # materialized default never counts as an operator-supplied setting
+    # (022-a migration law). Bounded section validation happens here;
+    # cross-feature safety is enforced by Settings itself.
+    explicit: dict[str, Any] = {}
+    if "gateway_ingress" in raw:
+        explicit["gateway_ingress"] = GatewayIngressConfig.model_validate(
+            raw.pop("gateway_ingress")
+        )
+    if "compiler" in raw:
+        if not v1_selected:
+            explicit["compiler"] = CompilerConfig.model_validate(raw.pop("compiler"))
+    if "cache" in raw:
+        if not v1_selected:
+            explicit["cache"] = CacheConfig.model_validate(raw.pop("cache"))
+    if "constitution" in raw:
+        if not v1_selected:
+            explicit["constitution"] = ConstitutionIntegrationConfig.model_validate(
+                raw.pop("constitution")
+            )
+    if "context_cache" in raw:
+        explicit["context_cache"] = ContextCacheConfig.model_validate(raw.pop("context_cache"))
+    if "observability" in raw:
+        explicit["observability"] = ObservabilityConfig.model_validate(raw.pop("observability"))
+    return Settings.model_validate({**raw, **explicit})
