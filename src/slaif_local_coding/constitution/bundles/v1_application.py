@@ -131,9 +131,10 @@ from .bundle_selection import (
 )
 from .causal_history_models import CAUSAL_ROOT_FACT
 from .client_paths import validate_workspace
-from .graph_models import CandidateStatus
+from .current_graph_models import ROOT_OWNER, CurrentGraphEdgeKind, CurrentGraphStatus
+from .graph_models import ROOT_FILENAME, CandidateStatus
 from .graph_observation import GraphRequest
-from .observation_models import ObservationReport, PathContext
+from .observation_models import ObservationReport, PathContext, PathForm, ReadOutcome
 from .ram_state import RamStateOwner
 from .ram_state_models import RamStateOutcome
 from .recovery_models import RecoverySessionAddress
@@ -159,9 +160,29 @@ from .root_region_lineage import (
 )
 from .root_region_lineage_models import make_root_region_lineage_namespace
 from .v1_runtime import V1Runtime
+from .v1_telemetry import V1ReuseClass, V1Stage, V1StageRecorder
 
 if TYPE_CHECKING:
     from ...config import ContextCacheRouteContract, RouteConfig
+
+#: The closed pure-transaction outcome -> telemetry outcome map
+#: (objective 023-a: the replacement stage records the ACTUAL
+#: typed outcome under the closed telemetry vocabulary; a new
+#: transaction outcome without a closed telemetry value is a
+#: construction error, never a silent drop).
+_REPLACEMENT_TELEMETRY_OUTCOMES: Mapping[ReplacementOutcome, str] = {
+    ReplacementOutcome.OK: "ok",
+    ReplacementOutcome.NO_REPLACEMENT: "no_replacement",
+    ReplacementOutcome.SELECTION_NOT_READY: "selection_not_ready",
+    ReplacementOutcome.GENERATION_NOT_DURABLE: "generation_not_durable",
+    ReplacementOutcome.CROSS_NAMESPACE: "cross_namespace",
+    ReplacementOutcome.SPAN_MISMATCH: "span_mismatch",
+    ReplacementOutcome.MARKER_INVALID: "marker_invalid",
+    ReplacementOutcome.ENTRY_UNRESOLVED: "entry_unresolved",
+    ReplacementOutcome.EDIT_CONFLICT: "edit_conflict",
+    ReplacementOutcome.OVER_BOUND: "over_bound",
+}
+
 
 #: The workspace path bound of the closed graph bounds (the actual
 #: configured ``max_path_bytes``; the observed scope label is
@@ -260,6 +281,18 @@ class V1Session:
     #: ``last_publish`` actually published (None while no
     #: successful publish is retained).
     last_publish_bound: tuple[int, int] | None = None
+    #: True when THIS process established the session by resuming
+    #: the persisted record (the restart fact the 023-a four-way
+    #: distinction needs: a rebuild in the new epoch is a restart
+    #: fact, never an ordinary hit).
+    resumed: bool = False
+    #: The content keys admitted in the RESTORED record set (the
+    #: persisted state this process resumed; closed digests kept
+    #: process-local).  A new-epoch compile of an entry whose
+    #: content key is in this set is work on the ACTUAL restored
+    #: state (the restart-rebuild fact); a compile of a genuinely
+    #: new entry is a first acquisition, never a rebuild.
+    restored_content_keys: tuple[str, ...] = ()
 
     def checkpoint(self) -> RecoveryPublishResult:
         """The protected generation: publish the owner's CURRENT
@@ -422,12 +455,14 @@ async def establish_v1_session(
     observation: Any,
     payload: dict[str, Any],
     endpoint: str,
+    telemetry: V1StageRecorder | None = None,
 ) -> V1Session | V1RequestRefusal | None:
     """Join / resume / cold-establish EXACTLY ONE owner for the
     trusted address.  Returns the live session, the fixed typed
     refusal, or ``None`` when the request carries NO legitimate
     scope (not a governed request: the caller forwards the
     payload unchanged with no v1 component touched)."""
+    established_started = V1StageRecorder.begin()
     existing = table.get(address)
     if existing is not None:
         # Steady state: the process-live owner by the ACTUAL
@@ -442,8 +477,12 @@ async def establish_v1_session(
                 # is the exit (no retry, no epoch reset, no
                 # revival; a restart of this session fails closed
                 # on the committed fence).
+                if telemetry is not None:
+                    telemetry.record(V1Stage.RECOVERY, "quarantined", established_started)
                 await _teardown_v1_session(table, address, existing)
                 return _cold_scope_refusal(V1RequestReason.TRANSACTION_CONFLICT)
+            if telemetry is not None:
+                telemetry.record(V1Stage.RECOVERY, "steady", established_started)
             return existing
         # A fenced / torn-down owner is replaced ONLY by an
         # explicit re-establishment (the table entry is stale).
@@ -451,14 +490,33 @@ async def establish_v1_session(
     resume = resume_session(runtime.ram_registry, runtime.recovery_store, address)
     if resume.outcome is RecoveryResumeOutcome.RESUMED:
         assert resume.owner is not None and resume.recovery is not None
+        # The RESTORED record set's admitted content keys (the
+        # restart-rebuild attribution basis of the 023-a four-way
+        # distinction): a negative restored T carries no admission
+        # parent, so the restored set is exactly empty.
+        restored_keys: tuple[str, ...] = ()
+        restored_snapshot = resume.owner.snapshot
+        if restored_snapshot is not None:
+            restored_admission = restored_snapshot.result.admission
+            if restored_admission is not None:
+                restored_keys = (
+                    restored_admission.root_entry.content_key,
+                    *(entry.content_key for entry in restored_admission.entries),
+                )
         session = V1Session(
             namespace=resume.owner.namespace,
             owner=resume.owner,
             session_owner=resume.recovery,
+            resumed=True,
+            restored_content_keys=restored_keys,
         )
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "resumed", established_started)
         table.put(address, session)
         return session
     if resume.outcome is RecoveryResumeOutcome.OWNER_ALREADY_LIVE:
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", established_started)
         return _cold_scope_refusal(V1RequestReason.SESSION_CONFLICT)
     if resume.outcome is RecoveryResumeOutcome.STORE_REFUSED:
         if (
@@ -467,8 +525,12 @@ async def establish_v1_session(
         ):
             pass  # COLD: no persisted record for this address
         else:
+            if telemetry is not None:
+                telemetry.record(V1Stage.RECOVERY, "refused", established_started)
             return _cold_scope_refusal(V1RequestReason.RESUME_REFUSED)
     else:
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", established_started)
         return _cold_scope_refusal(V1RequestReason.RESUME_REFUSED)
     # ---- COLD start: legitimate root evidence only -----------
     workspace = _evidenced_workspace(observation)
@@ -482,6 +544,8 @@ async def establish_v1_session(
     # allocation or checkpoint (ordinary non-source text stays
     # data).
     if cold_payload_has_marker_sources(payload, observation, max_text_chars=_V1_MAX_TEXT_CHARS):
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", established_started)
         return _cold_scope_refusal(V1RequestReason.TRANSACTION_CONFLICT)
     namespace = build_v1_namespace(runtime, identity, route, contract, address, workspace)
     owner = runtime.ram_registry.acquire(namespace)
@@ -493,12 +557,16 @@ async def establish_v1_session(
         # Safe cleanup of the ACQUIRED cold owner (no writer yet,
         # nothing admitted): the fenced epoch frees the
         # registration so a later request re-establishes cleanly.
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", established_started)
         owner.teardown(namespace)
         return _cold_scope_refusal(V1RequestReason.BOOTSTRAP_REFUSED)
     admission = derive_root_region_admission(transition.state, namespace)
     try:
         bare = runtime.recovery_store.open_session(address)
     except Exception:
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", established_started)
         owner.teardown(namespace)
         return _cold_scope_refusal(V1RequestReason.COLD_PUBLISH_REFUSED)
     session = V1Session(namespace=namespace, owner=owner)
@@ -532,6 +600,8 @@ async def establish_v1_session(
         # prepublication failure (the composed teardown keeps a
         # published fence durable: a restart of this session
         # fails closed on it).
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", established_started)
         await _teardown_v1_session(table, address, session)
         return _cold_scope_refusal(V1RequestReason.COLD_ADMIT_REFUSED)
     advance = fenced.advance
@@ -540,14 +610,28 @@ async def establish_v1_session(
         # not publish: the cold owner/writer is torn down on the
         # prepublication failure (no live owner with an undurable
         # record set; a later request re-establishes).
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", established_started)
         await _teardown_v1_session(table, address, session)
         return _cold_scope_refusal(V1RequestReason.COLD_PUBLISH_REFUSED)
     session.last_publish = advance
     snapshot = owner.snapshot
     if snapshot is None:
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", established_started)
         await _teardown_v1_session(table, address, session)
         return _cold_scope_refusal(V1RequestReason.COLD_PUBLISH_REFUSED)
     session.last_publish_bound = (snapshot.revision, snapshot.epoch)
+    assert advance.generation is not None
+    if telemetry is not None:
+        telemetry.record(
+            V1Stage.RECOVERY,
+            "cold",
+            established_started,
+            generation=advance.generation,
+            epoch=snapshot.epoch,
+            revision=snapshot.revision,
+        )
     table.put(address, session)
     return session
 
@@ -559,6 +643,7 @@ def advance_v1_session(
     payload: dict[str, Any],
     endpoint: str,
     observation: Any,
+    telemetry: V1StageRecorder | None = None,
 ) -> tuple[PreparedGenerationProof | None, V1RequestRefusal | None]:
     """Advance the retained state over THIS payload (the actual
     P/D region transition at the retained revision, the same-run
@@ -577,6 +662,12 @@ def advance_v1_session(
         # commits the first record set); fail closed.
         return None, V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
     context = PathContext(workspace=namespace.workspace)
+    advanced_started = V1StageRecorder.begin()
+    # The content-free content-acquisition facts of THIS payload's
+    # actual observation (handoff section 15 'Content acquisition'
+    # row): the owning stage records them on every acquisition
+    # outcome alike (the closed refusals included).
+    acquisition_facts = _acquisition_facts(observation)
     transition = observe_root_region_lineage(
         snapshot.state,
         namespace,
@@ -589,12 +680,42 @@ def advance_v1_session(
         # snapshot is the durable-generation handoff (a resumed
         # session materializes its restored record set's generation
         # here on its first hit).
+        if telemetry is not None:
+            telemetry.record(
+                V1Stage.ACQUISITION,
+                "replayed",
+                advanced_started,
+                revision=snapshot.revision,
+                **acquisition_facts,
+            )
         publish = _ensure_retained_publish(session)
         if isinstance(publish, V1RequestRefusal):
+            if telemetry is not None:
+                telemetry.record(V1Stage.RECOVERY, "refused", advanced_started)
             return None, publish
+        assert publish.generation is not None
+        if telemetry is not None:
+            telemetry.record(
+                V1Stage.RECOVERY,
+                "retained",
+                advanced_started,
+                generation=publish.generation,
+                epoch=snapshot.epoch,
+                revision=snapshot.revision,
+            )
         return PreparedGenerationProof(publish=publish, snapshot=snapshot), None
     if transition.outcome is not RootLineageOutcome.ACCEPTED:
+        if telemetry is not None:
+            telemetry.record(V1Stage.ACQUISITION, "refused", advanced_started, **acquisition_facts)
         return None, V1RequestRefusal(V1RequestReason.TRANSITION_REFUSED)
+    if telemetry is not None:
+        telemetry.record(
+            V1Stage.ACQUISITION,
+            "accepted",
+            advanced_started,
+            revision=snapshot.revision,
+            **acquisition_facts,
+        )
     admission = derive_root_region_admission(transition.state, namespace)
     session_owner = session.session_owner
     # Established sessions (cold establish / resume) always hold
@@ -618,6 +739,8 @@ def advance_v1_session(
         # committed generation stays valid and the request is the
         # fixed typed refusal (a quarantined owner exits at the
         # next request through the steady-state guard).
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", advanced_started)
         return None, V1RequestRefusal(V1RequestReason.TRANSITION_REFUSED)
     advance = fenced.advance
     if advance is None or advance.limitation is not RecoveryStoreLimitation.OK:
@@ -626,15 +749,29 @@ def advance_v1_session(
         # publication keeps it) and the newer undurable record
         # set is refused on replay, never forwarded under a stale
         # proof.
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", advanced_started)
         return None, V1RequestRefusal(V1RequestReason.PUBLISH_REFUSED)
     session.last_publish = advance
     new_snapshot = owner.snapshot
     if new_snapshot is None:
+        if telemetry is not None:
+            telemetry.record(V1Stage.RECOVERY, "refused", advanced_started)
         return None, V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
     # The retained successful pointer is bound to the exact
     # snapshot/epoch it actually published (the newer record set
     # is undurable until the bound moves over it).
     session.last_publish_bound = (new_snapshot.revision, new_snapshot.epoch)
+    assert advance.generation is not None
+    if telemetry is not None:
+        telemetry.record(
+            V1Stage.RECOVERY,
+            "published",
+            advanced_started,
+            generation=advance.generation,
+            epoch=new_snapshot.epoch,
+            revision=new_snapshot.revision,
+        )
     return PreparedGenerationProof(publish=advance, snapshot=new_snapshot), None
 
 
@@ -1702,31 +1839,52 @@ def _count_final_rest(
         return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
 
 
-def _root_candidate_paths(snapshot: Any, root_entry: Any) -> tuple[str, ...]:
+def _root_candidate_paths(snapshot: Any) -> tuple[str, ...]:
     """The deterministic root-scope resolved candidates of the
     SAME-run F graph (the exact candidate set the root index is
     compiled and re-fenced against); a missing / refused F result
     carries no candidates.  FILE entries compile with none (the
-    022-b transaction law)."""
+    022-b transaction law).
+
+    The 018-f current graph retains RESOLVED references as
+    version-owned ordinary edges and keeps only the candidates
+    that did NOT become an edge or a path-target certificate in
+    ``overlay.candidates``.  The selected root's supplier is the
+    graph's structural root: its node, its ordinary edges and its
+    retained non-edge candidates all carry the graph's fixed
+    ``ROOT_OWNER`` (never the admission entry's content key), and
+    the SAME-run F overlay is derived under the selected root.
+    The mandatory root-scope resolved candidate set is therefore
+    the union of the ROOT_OWNER ordinary edge targets (the root
+    itself excluded) and the ROOT_OWNER ACCEPTED non-edge
+    candidates with a resolved path: deduplicated and in the
+    stable canonical lexicographic path order (the compile key
+    binds the exact list order)."""
     r_result = snapshot.result.r_result
     if r_result is None:
         return ()
     f_result = r_result.f_result
     if f_result is None or f_result.overlay is None:
         return ()
-    seen: set[str] = set()
-    paths: list[str] = []
+    paths: set[str] = set()
+    for edge in f_result.overlay.edges:
+        if edge.kind is not CurrentGraphEdgeKind.ORDINARY:
+            continue
+        if edge.source != ROOT_FILENAME or edge.target == ROOT_FILENAME:
+            continue
+        if edge.owner != ROOT_OWNER:
+            continue
+        paths.add(edge.target)
     for record in f_result.overlay.candidates:
-        if record.owner != root_entry.content_key:
+        if record.owner != ROOT_OWNER:
             continue
         if record.candidate.status is not CandidateStatus.ACCEPTED:
             continue
         resolved = record.candidate.resolved_path
-        if resolved is None or resolved in seen:
+        if resolved is None or resolved == ROOT_FILENAME:
             continue
-        seen.add(resolved)
-        paths.append(resolved)
-    return tuple(paths)
+        paths.add(resolved)
+    return tuple(sorted(paths))
 
 
 def _transaction_refusal(outcome: ReplacementOutcome) -> V1RequestRefusal:
@@ -1742,31 +1900,75 @@ def _transaction_refusal(outcome: ReplacementOutcome) -> V1RequestRefusal:
     return V1RequestRefusal(V1RequestReason.TRANSACTION_CONFLICT)
 
 
+@dataclass(frozen=True, slots=True)
+class _CompileRunFacts:
+    """The closed per-run compile facts of ONE
+    ``_compile_and_select`` run (objective 023-a attribution
+    basis, kept process-local): the summed ACTUAL dispatch count
+    of this run and the ACTUAL closed work outcome per admitted
+    content key.  Only the DERIVED closed request-scope fact
+    (the four-way reuse class) crosses the telemetry boundary;
+    the content keys stay digests in this process."""
+
+    dispatches: int
+    outcomes: Mapping[str, BundleCompileWorkOutcome]
+
+
 async def _compile_and_select(
     session: V1Session,
     runtime: V1Runtime,
     snapshot: Any,
-) -> tuple[tuple[SelectionReadyEntry, ...], BundleSelectionDecision] | V1RequestRefusal:
+    telemetry: V1StageRecorder | None = None,
+) -> (
+    tuple[tuple[SelectionReadyEntry, ...], BundleSelectionDecision, _CompileRunFacts]
+    | V1RequestRefusal
+):
     """The shared compile-and-select law of the transaction stage
     and the replay pre-check: compile the ACTUAL current admitted
     entries through the RAM work plane (the configured-policy
     fingerprint fence, single-flight, once per unchanged epoch; the
     internal compiler POST is direct and tool-free) and run the
-    ACTUAL tokenizer budgets with required-first selection."""
+    ACTUAL tokenizer budgets with required-first selection.
+
+    The returned third component is the ACTUAL closed facts of
+    this run (objective 023-a): the summed compiler dispatch
+    count (a follower join or a RAM hit dispatches zero) and the
+    closed work outcome per admitted content key -- the basis of
+    the four-way distinction at the owning transaction stage (an
+    across-request RAM hit, a single-flight join and a first
+    compile are distinct closed outcomes, never one count)."""
     admission = snapshot.result.admission
     ready: list[SelectionReadyEntry] = []
+    dispatches = 0
+    restored_dispatched = False
+    run_outcomes: dict[str, BundleCompileWorkOutcome] = {}
     for entry in (admission.root_entry, *admission.entries):
         candidate_paths = (
-            _root_candidate_paths(snapshot, entry)
-            if entry.entry_class is EntryClass.ROOT_ENTRY
-            else ()
+            _root_candidate_paths(snapshot) if entry.entry_class is EntryClass.ROOT_ENTRY else ()
         )
+        entry_started = V1StageRecorder.begin()
         work = await runtime.compile_work.resolve_entry(
             session.namespace,
             entry,
             candidate_paths=candidate_paths,
             plan=runtime.budget_plan,
         )
+        if telemetry is not None:
+            telemetry.record(
+                V1Stage.COMPILATION,
+                work.outcome.value,
+                entry_started,
+                invocations=work.invocations,
+                entries=1,
+            )
+        dispatches += work.invocations
+        run_outcomes[entry.content_key] = work.outcome
+        if work.invocations > 0 and entry.content_key in session.restored_content_keys:
+            # The ACTUAL new-epoch work of THIS request ran on an
+            # entry of the restored record set: the closed
+            # restart-rebuild attribution (objective 023-a).  A
+            # genuinely new entry is never attributed this way.
+            restored_dispatched = True
         if work.outcome is BundleCompileWorkOutcome.POLICY_STALE:
             return V1RequestRefusal(V1RequestReason.POLICY_STALE)
         if (
@@ -1799,11 +2001,22 @@ async def _compile_and_select(
                 ),
             )
         )
+    if telemetry is not None:
+        # The owning-stage request-scope attribution (the replay
+        # pre-check run and the transaction run share the recorder:
+        # work dispatched anywhere in the request is THIS
+        # request's work -- it prevents a cross-request reuse fact
+        # and carries the closed restored-state fact).
+        telemetry.note_compile_dispatch(dispatched=dispatches, restored=restored_dispatched)
     root_ready, *file_readys = ready
     decision = select_working_set(root_ready, tuple(file_readys), runtime.budget_plan)
     if decision.outcome is not SelectionOutcome.OK:
         return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
-    return tuple(ready), decision
+    return (
+        tuple(ready),
+        decision,
+        _CompileRunFacts(dispatches=dispatches, outcomes=dict(run_outcomes)),
+    )
 
 
 def _ensure_retained_publish(
@@ -1840,6 +2053,91 @@ def _ensure_retained_publish(
     return publish
 
 
+def _acquisition_facts(observation: ObservationReport) -> dict[str, int]:
+    """The content-free content-acquisition facts of THIS payload's
+    ACTUAL observation (handoff section 15 'Content acquisition'
+    row, objective 023-a): the closed outcome partition of the
+    paired read observations (complete / partial-or-truncated-or-
+    missing / unsupported-or-nonzero), the complete-observation
+    member and character counts (the exact observed source regions
+    of the complete reads), and the absolute-path normalization
+    outcome (the absolute-form members and the ones normalized
+    under the evidenced workspace).  Bounded integer counts only:
+    no path, no content, no identifier crosses this boundary."""
+    reads_complete = 0
+    reads_partial = 0
+    reads_unsupported = 0
+    members_observed = 0
+    chars_observed = 0
+    paths_absolute = 0
+    paths_normalized = 0
+    for read in observation.reads:
+        if read.outcome is ReadOutcome.COMPLETE:
+            reads_complete += 1
+            members_observed += read.distinct_member_count or 0
+            if read.content_span is not None:
+                chars_observed += read.content_span.end - read.content_span.start
+        elif read.outcome in (
+            ReadOutcome.PARTIAL,
+            ReadOutcome.TRUNCATED,
+            ReadOutcome.MISSING_BODY,
+        ):
+            reads_partial += 1
+        else:
+            reads_unsupported += 1
+        for member in read.requested_members:
+            if member.form is PathForm.ABSOLUTE:
+                paths_absolute += 1
+                if member.normalized is not None:
+                    paths_normalized += 1
+    return {
+        "reads_complete": reads_complete,
+        "reads_partial": reads_partial,
+        "reads_unsupported": reads_unsupported,
+        "members_observed": members_observed,
+        "chars_observed": chars_observed,
+        "paths_absolute": paths_absolute,
+        "paths_normalized": paths_normalized,
+    }
+
+
+def _graph_facts(admission: Any) -> dict[str, int] | None:
+    """The content-free current-graph facts of the ACTUAL returned
+    same-run R/F result (handoff section 15 'Graph' row, objective
+    023-a): the node and edge counts with the closed honest
+    availability partition (known-or-empty / discovered-unacquired
+    / blocked-conflict-or-ambiguity) and the retained
+    unresolved-origin candidate count, derived from the ACTUAL
+    returned typed result (never inferred).  ``None`` when the
+    returned admission carries no graph (the owning stage then
+    records no graph event rather than invent one)."""
+    f_result = admission.r_result.f_result
+    graph = f_result.overlay if f_result is not None else None
+    if graph is None:
+        return None
+    nodes_known = 0
+    nodes_missing = 0
+    nodes_unresolved = 0
+    for node in graph.nodes:
+        if node.status in (
+            CurrentGraphStatus.CURRENT_KNOWN,
+            CurrentGraphStatus.CURRENT_EMPTY,
+        ):
+            nodes_known += 1
+        elif node.status is CurrentGraphStatus.DISCOVERED_UNACQUIRED:
+            nodes_missing += 1
+        else:
+            nodes_unresolved += 1
+    return {
+        "nodes": len(graph.nodes),
+        "edges": len(graph.edges),
+        "nodes_known": nodes_known,
+        "nodes_missing": nodes_missing,
+        "nodes_unresolved": nodes_unresolved,
+        "candidates": len(graph.candidates),
+    }
+
+
 async def prepare_replay_shadow(
     session: V1Session,
     runtime: V1Runtime,
@@ -1847,6 +2145,7 @@ async def prepare_replay_shadow(
     payload: dict[str, Any],
     endpoint: str,
     observation: ObservationReport,
+    telemetry: V1StageRecorder | None = None,
 ) -> tuple[dict[str, Any] | None, V1RequestRefusal | None]:
     """Detect and authenticate marker-shaped source replays BEFORE
     any raw state acquisition (order 022-c section 1/2: the marker
@@ -1875,10 +2174,10 @@ async def prepare_replay_shadow(
     snapshot = session.owner.snapshot
     if snapshot is None:
         return None, V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
-    compiled = await _compile_and_select(session, runtime, snapshot)
+    compiled = await _compile_and_select(session, runtime, snapshot, telemetry=telemetry)
     if isinstance(compiled, V1RequestRefusal):
         return None, compiled
-    ready, decision = compiled
+    ready, decision, _run_facts = compiled
     roots = observation.roots.roots
     result = unsplice_replayed_markers(
         payload,
@@ -1905,6 +2204,7 @@ async def prepare_v1_transaction(
     endpoint: str,
     observation: ObservationReport,
     proof: PreparedGenerationProof,
+    telemetry: V1StageRecorder | None = None,
 ) -> V1TransactionResult | V1RequestRefusal:
     """The governed transaction stage over the prepared generation.
 
@@ -1929,6 +2229,7 @@ async def prepare_v1_transaction(
         # snapshot by identity; a drifted handoff is a commit-level
         # refusal, never a guess.
         return V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
+    transaction_started = V1StageRecorder.begin()
     t = snapshot.result
     if t.outcome is not RootRegionAdmissionOutcome.READY:
         # The ACTUAL same-run T outcome classifies the governed
@@ -1945,13 +2246,41 @@ async def prepare_v1_transaction(
             RootRegionAdmissionOutcome.ROOT_CURRENTNESS_UNPROVEN,
             RootRegionAdmissionOutcome.ROOT_AUTHORITY_CONFLICT,
         ):
+            if telemetry is not None:
+                telemetry.record(
+                    V1Stage.ADMISSION, "root_currentness_unproven", transaction_started
+                )
             return V1RequestRefusal(V1RequestReason.TRANSACTION_CONFLICT)
+        if telemetry is not None:
+            telemetry.record(V1Stage.ADMISSION, "refused", transaction_started)
         return V1RequestRefusal(V1RequestReason.ADMISSION_REFUSED)
     admission = t.admission
     if admission is None:
         # Unreachable: the admission parent is present exactly on a
         # READY outcome; fail closed rather than guess.
+        if telemetry is not None:
+            telemetry.record(V1Stage.ADMISSION, "refused", transaction_started)
         return V1RequestRefusal(V1RequestReason.COMMIT_REFUSED)
+    if telemetry is not None:
+        # The ACTUAL same-run T admission facts (the chapter-15
+        # graph/admission facts carried through the typed result):
+        # the admitted entry count (root + file) and the reverse
+        # member-index width.
+        telemetry.record(
+            V1Stage.ADMISSION,
+            "ready",
+            transaction_started,
+            entries=1 + len(admission.entries),
+            members=len(admission.path_associations),
+        )
+        # The ACTUAL returned same-run graph facts (the handoff
+        # section 15 'Graph' row): the closed current-graph counts
+        # of the actual R/F result the admission carries (the
+        # owning stage records them exactly when the returned
+        # admission carries the actual graph, never inferred).
+        graph_facts = _graph_facts(admission)
+        if graph_facts is not None:
+            telemetry.record(V1Stage.GRAPH, "ready", transaction_started, **graph_facts)
     plan = runtime.budget_plan
     # The closed ownership-scan work cap is DERIVED FROM THE
     # ACTUAL CONFIGURED COMPILED-RENDER BUDGET (order 022-g
@@ -1977,10 +2306,10 @@ async def prepare_v1_transaction(
     capacity = _final_generation_capacity(plan, req_gen, images)
     if isinstance(capacity, V1RequestRefusal):
         return capacity
-    compiled = await _compile_and_select(session, runtime, snapshot)
+    compiled = await _compile_and_select(session, runtime, snapshot, telemetry=telemetry)
     if isinstance(compiled, V1RequestRefusal):
         return compiled
-    ready, decision = compiled
+    ready, decision, run_facts = compiled
     roots = observation.roots.roots
     namespace_key = snapshot.namespace.lineage_key
     key = runtime.marker_key
@@ -2010,8 +2339,18 @@ async def prepare_v1_transaction(
             # set is reinjected without original source); the
             # region carries its placement-ownership tag (order
             # 022-e section 1).
+            # The ACTUAL final injected text (the 021 selection
+            # law) is the EXACT combined text the aggregate
+            # decision counted: the selected compiled blocks in
+            # actual injection order plus the EMITTED
+            # missing-binding guidance lines as final extras --
+            # a missing P1 binding's read guidance is forwarded
+            # with the compiled content, never suppressed.
+            final_blocks = result_now.compiled_blocks + tuple(
+                missing.guidance for missing in decision_now.missing_bindings
+            )
             region = _compiled_region(
-                result_now.compiled_blocks,
+                final_blocks,
                 placement=placement,
                 namespace_key=namespace_key,
                 key=key,
@@ -2021,7 +2360,7 @@ async def prepare_v1_transaction(
                 final_payload = inject_compiled_context(
                     result_now.transformed_payload,
                     endpoint=endpoint,
-                    blocks=result_now.compiled_blocks,
+                    blocks=final_blocks,
                     namespace_key=namespace_key,
                     key=key,
                     work_cap=work_cap,
@@ -2116,6 +2455,88 @@ async def prepare_v1_transaction(
             )
             if result_now.outcome is not ReplacementOutcome.OK:
                 return _transaction_refusal(result_now.outcome)
+        if telemetry is not None:
+            # The committed replacement: the ACTUAL typed outcome
+            # and the content-free edit/marker counts.
+            telemetry.record(
+                V1Stage.REPLACEMENT,
+                _REPLACEMENT_TELEMETRY_OUTCOMES[result_now.outcome],
+                transaction_started,
+                edits=result_now.edits_committed,
+                markers_emitted=result_now.markers_emitted,
+                markers_replayed=result_now.markers_replayed,
+                entries=len(result_now.selected_content_keys),
+            )
+            # The compiled injection at the endpoint-specific
+            # stable placement: the ACTUAL final-envelope
+            # measurements of the emitted body (the real
+            # pinned-tokenizer count of the actual final rendered
+            # governance -- framing, guides and metadata included,
+            # after the final authenticated frame -- and of the
+            # remaining ordinary request after the stable
+            # placement; the selection budget record's
+            # pre-placement estimates are the selection decision's
+            # own, never reported as transmitted measurements).
+            telemetry.record(
+                V1Stage.INJECTION,
+                "compiled" if result_now.edits_committed > 0 else "source_absent",
+                transaction_started,
+                working_set_entries=len(decision_now.working_set),
+                omitted_entries=len(decision_now.omitted),
+                governance_tokens=governance,
+                aggregate_limit=decision_now.budget.aggregate_limit,
+                request_tokens=rest,
+            )
+            # The four-way cache distinction (handoff section 15):
+            # the closed facts this ACTUAL request earned, bound
+            # to the request-scope compile attribution (the replay
+            # pre-check run and the transaction run alike).
+            request_dispatches, restored_dispatched = telemetry.request_compile_attribution
+            # Original-present RAM reuse is the closed fact of an
+            # ACTUAL across-request RAM hit: every represented
+            # (committed) entry must have been served from
+            # retained RAM by the committing transaction run (the
+            # closed ``hit`` outcome of the fixed compiler
+            # vocabulary), with no compile work dispatched
+            # ANYWHERE in this request (the replay pre-check run
+            # included).  A single-flight follower (the closed
+            # ``joined`` outcome) and work completed elsewhere in
+            # the same request (a pre-check dispatch) are
+            # distinct closed shapes and earn no reuse fact; the
+            # Compilation stage records that actual work.
+            represented_all_hits = bool(result_now.selected_content_keys) and all(
+                run_facts.outcomes.get(key) is BundleCompileWorkOutcome.HIT
+                for key in result_now.selected_content_keys
+            )
+            if result_now.edits_committed > 0:
+                if request_dispatches == 0 and represented_all_hits:
+                    telemetry.record(
+                        V1Stage.REUSE_CLASS,
+                        V1ReuseClass.ORIGINAL_PRESENT_RAM_REUSE.value,
+                        transaction_started,
+                    )
+            else:
+                # Compiled-context injection with that source
+                # absent from the incoming history (the ordinary
+                # application history reduction earns exactly this
+                # fact; genuine client compaction stays unearned).
+                telemetry.record(
+                    V1Stage.REUSE_CLASS,
+                    V1ReuseClass.SOURCE_ABSENT_INJECTION.value,
+                    transaction_started,
+                )
+            if session.resumed and restored_dispatched:
+                # Rebuilding RAM after process restart: THIS
+                # process resumed the persisted session and this
+                # request performed the new-epoch compile of an
+                # entry of the ACTUAL restored record set (a
+                # genuinely new entry after the restart is a first
+                # acquisition, never a rebuild).
+                telemetry.record(
+                    V1Stage.REUSE_CLASS,
+                    V1ReuseClass.RESTART_REBUILD_NEW_EPOCH.value,
+                    transaction_started,
+                )
         return V1TransactionResult(
             outcome=result_now.outcome,
             body=_serialize_payload(final_payload),
@@ -2147,6 +2568,19 @@ async def prepare_v1_transaction(
         )
         if isinstance(rest, V1RequestRefusal):
             return rest
+        if telemetry is not None:
+            telemetry.record(
+                V1Stage.REPLACEMENT,
+                _REPLACEMENT_TELEMETRY_OUTCOMES[result.outcome],
+                transaction_started,
+                edits=0,
+                markers_emitted=0,
+                markers_replayed=0,
+                entries=len(result.selected_content_keys),
+            )
+            # No working entry was selected: no compiled injection
+            # was earned; the request forwards unchanged.
+            telemetry.record(V1Stage.INJECTION, "none", transaction_started)
         return V1TransactionResult(
             outcome=result.outcome,
             body=_serialize_payload(payload),
@@ -2158,6 +2592,12 @@ async def prepare_v1_transaction(
                 file_edits=(),
                 root_observed=bool(roots),
             ),
+        )
+    if telemetry is not None:
+        telemetry.record(
+            V1Stage.REPLACEMENT,
+            _REPLACEMENT_TELEMETRY_OUTCOMES[result.outcome],
+            transaction_started,
         )
     return _transaction_refusal(result.outcome)
 
@@ -2177,6 +2617,7 @@ _V1_ISSUANCE_MAX_ARGUMENT_BYTES = 262_144
 _V1_ISSUANCE_MAX_FRAME_BYTES = 1_048_576
 _V1_ISSUANCE_MAX_EVENTS = 8_192
 _V1_ISSUANCE_MAX_CHAT_TOOL_CALLS = 128
+_V1_ISSUANCE_MAX_USAGE_TOKENS = 2_147_483_647
 _V1_ISSUANCE_JSON_MAX_DEPTH = 32
 
 
@@ -2300,13 +2741,13 @@ def _bounded_event_object(body: bytes) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _responses_complete_calls(body: bytes) -> tuple[V1IssuedCallShape, ...]:
+def _responses_complete_calls_event(event: dict[str, Any]) -> tuple[V1IssuedCallShape, ...]:
     """The COMPLETE supported function calls of ONE final
-    Responses object: a non-``completed`` status is truncated /
-    incomplete evidence (no issuance), and a call item is complete
-    only with a bounded closed string binding."""
-    event = _bounded_event_object(body)
-    if event is None or event.get("status") != "completed":
+    Responses object (over the ONE bounded decoded event): a
+    non-``completed`` status is truncated / incomplete evidence (no
+    issuance), and a call item is complete only with a bounded
+    closed string binding."""
+    if event.get("status") != "completed":
         return ()
     output = event.get("output")
     if not isinstance(output, list):
@@ -2324,14 +2765,12 @@ def _responses_complete_calls(body: bytes) -> tuple[V1IssuedCallShape, ...]:
     return tuple(calls)
 
 
-def _chat_complete_calls(body: bytes) -> tuple[V1IssuedCallShape, ...]:
-    """The COMPLETE supported tool calls of ONE final Chat object:
-    a ``length`` finish reason is explicit truncation (no
-    issuance), and a call is complete only with a bounded closed
-    string binding on the final message."""
-    event = _bounded_event_object(body)
-    if event is None:
-        return ()
+def _chat_complete_calls_event(event: dict[str, Any]) -> tuple[V1IssuedCallShape, ...]:
+    """The COMPLETE supported tool calls of ONE final Chat object
+    (over the ONE bounded decoded event): a ``length`` finish
+    reason is explicit truncation (no issuance), and a call is
+    complete only with a bounded closed string binding on the final
+    message."""
     choices = event.get("choices")
     if not isinstance(choices, list):
         return ()
@@ -2408,20 +2847,45 @@ class V1IssuanceContext:
     )
     _events: int = field(default=0, repr=False, compare=False)
     _disabled: bool = field(default=False, repr=False, compare=False)
+    #: The ACTUAL provider (backend) usage of the direct main
+    #: response (objective 023-a): the closed token counts of the
+    #: response's own ``usage`` object -- the backend ledger,
+    #: independent of any client-reported cumulative usage.  No
+    #: usage object present stays ``None`` (never estimated).
+    _usage_input: int | None = field(default=None, repr=False, compare=False)
+    _usage_output: int | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def usage_tokens(self) -> tuple[int, int] | None:
+        """The ACTUAL provider usage (input, output tokens) of
+        the observed response, or ``None`` when the response
+        carried no usage object."""
+        if self._usage_input is None or self._usage_output is None:
+            return None
+        return (self._usage_input, self._usage_output)
 
     # -- the response boundary hooks ------------------------------
 
     def observe_nonstream(self, body: bytes) -> None:
         """The nonstreaming actual direct response: the COMPLETE
         supported tool calls of the final object (both endpoints)
-        are registered; a malformed or non-completed object earns
-        no issuance (the response is still passed through)."""
+        are registered; the ACTUAL provider usage of the final
+        object is retained.  Both use the ONE existing bounded
+        response decode (nesting-bounded strict object, shared with
+        the call extraction); a malformed object earns no issuance
+        and no usage, and an unsupported usage (non-integer, missing
+        or beyond the finite counter range) emits no usage sample --
+        the response is still passed through unchanged."""
         if self._disabled:
             return
+        event = _bounded_event_object(body)
+        if event is None:
+            return
+        self._observe_usage(event.get("usage"))
         calls = (
-            _responses_complete_calls(body)
+            _responses_complete_calls_event(event)
             if self.endpoint == "responses"
-            else _chat_complete_calls(body)
+            else _chat_complete_calls_event(event)
         )
         for call in calls:
             self._register(call)
@@ -2445,6 +2909,42 @@ class V1IssuanceContext:
                 return
 
     # -- the bounded frame / event assembly -----------------------
+
+    @staticmethod
+    def _usage_counts(usage: Any, *, input_key: str, output_key: str) -> tuple[int, int] | None:
+        """The closed provider-usage extraction: integer token
+        counts within the finite counter range only (a non-integer,
+        missing, negative or out-of-range field is ignored, never
+        estimated, and no usage sample is emitted)."""
+        if not isinstance(usage, dict):
+            return None
+        input_tokens = usage.get(input_key)
+        output_tokens = usage.get(output_key)
+        if (
+            isinstance(input_tokens, int)
+            and not isinstance(input_tokens, bool)
+            and 0 <= input_tokens <= _V1_ISSUANCE_MAX_USAGE_TOKENS
+            and isinstance(output_tokens, int)
+            and not isinstance(output_tokens, bool)
+            and 0 <= output_tokens <= _V1_ISSUANCE_MAX_USAGE_TOKENS
+        ):
+            return (input_tokens, output_tokens)
+        return None
+
+    def _observe_usage(self, usage: Any) -> None:
+        """Retain ONE ACTUAL provider usage object (the first
+        complete one observed wins; a later one never rewrites it).
+        The key names differ per endpoint family (Responses
+        input/output, Chat prompt/completion)."""
+        if self._usage_input is not None:
+            return
+        counts = self._usage_counts(
+            usage,
+            input_key="input_tokens" if self.endpoint == "responses" else "prompt_tokens",
+            output_key="output_tokens" if self.endpoint == "responses" else "completion_tokens",
+        )
+        if counts is not None:
+            self._usage_input, self._usage_output = counts
 
     def _disable(self) -> None:
         """The narrow typed limitation: a bound crossing stops the
@@ -2572,11 +3072,18 @@ class V1IssuanceContext:
                     call.arguments = arguments
                 self._register(V1IssuedCallShape(call.call_id, call.tool_name, call.arguments))
         elif kind in ("response.completed", "response.failed", "response.incomplete"):
+            response = event.get("response")
+            if isinstance(response, dict):
+                self._observe_usage(response.get("usage"))
             self._finish_stream()
 
     # -- the Chat SSE assembly --------------------------------------
 
     def _handle_chat_event(self, event: dict[str, Any]) -> None:
+        # The ACTUAL provider usage of the direct response (the
+        # final chunk carries it under the endpoint's include-
+        # usage law; absent stays None, never estimated).
+        self._observe_usage(event.get("usage"))
         choices = event.get("choices")
         if not isinstance(choices, list):
             return
