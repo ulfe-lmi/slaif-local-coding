@@ -42,6 +42,11 @@ from .constitution.bundles.v1_runtime import (
 # Explicit re-export of the fixed typed v1 startup failure (the 022-a
 # public entry-point surface; the definition lives with the component).
 from .constitution.bundles.v1_runtime import V1RuntimeUnavailableError as V1RuntimeUnavailableError
+from .constitution.bundles.v1_telemetry import (
+    V1Stage,
+    V1StageEvent,
+    V1StageRecorder,
+)
 from .constitution.cache import CachePolicy, RequestIdentity
 from .constitution.compiler import CompilerSettings
 from .constitution.models import IncompleteReason, ObservationResult, TrustClass
@@ -241,7 +246,15 @@ def create_app(
     settings: Settings,
     transport: httpx.AsyncBaseTransport | None = None,
     signed_identity_clock: Callable[[], float] | None = None,
+    v1_stage_observer: Callable[[V1StageRecorder], None] | None = None,
 ) -> FastAPI:
+    # 023-a: the explicit test-only stage observer (content-free):
+    # it receives each governed request's owning-stage recorder
+    # (closed stage/outcome facts and bounded counts only).  It is
+    # constructor-injected, default-off, carries no HTTP surface,
+    # and never sees a raw byte (the protected synthetic evidence
+    # is assembled by the test harness from its own fake-upstream
+    # and compiler captures plus these content-free facts).
     v1_runtime: V1Runtime | None = None
     if settings.context_cache.profile == V1_PROFILE:
         # 022-c: the runnable v1 profile.  The closed construction order
@@ -397,6 +410,161 @@ def create_app(
         ["route", "outcome", "reason"],
         registry=registry,
     )
+    # 023-a: the governed v1 stage telemetry (fixed stage/outcome
+    # enums, low-cardinality content-free labels; the backend
+    # provider usage ledger is independent of any client-reported
+    # cumulative usage, and the internal compiler dispatch is
+    # metered apart from the main upstream).
+    v1_stage_total = Counter(
+        "slaif_v1_stage_total",
+        "Governed v1 stage outcomes at the owning stage",
+        ["route", "stage", "outcome"],
+        registry=registry,
+    )
+    v1_stage_duration = Histogram(
+        "slaif_v1_stage_duration_seconds",
+        "Governed v1 stage durations at the owning stage",
+        ["route", "stage", "outcome"],
+        registry=registry,
+    )
+    v1_refusals = Counter(
+        "slaif_v1_refusals_total",
+        "Closed governed v1 refusals at the owning stage",
+        ["route", "reason"],
+        registry=registry,
+    )
+    v1_compiler_dispatch = Counter(
+        "slaif_v1_compiler_dispatch_total",
+        "Actual internal compiler dispatches (the direct tool-free channel)",
+        ["route"],
+        registry=registry,
+    )
+    v1_replacement_edits = Counter(
+        "slaif_v1_replacement_edits_total",
+        "Committed v1 source edits",
+        ["route"],
+        registry=registry,
+    )
+    v1_markers = Counter(
+        "slaif_v1_markers_total",
+        "Committed v1 source markers",
+        ["route", "kind"],
+        registry=registry,
+    )
+    v1_reuse_class = Counter(
+        "slaif_v1_reuse_class_total",
+        "Closed four-way v1 cache distinction facts",
+        ["route", "reuse_class"],
+        registry=registry,
+    )
+    v1_main_forward = Counter(
+        "slaif_v1_main_forward_total",
+        "Actual governed v1 main upstream forwards",
+        ["route"],
+        registry=registry,
+    )
+    v1_provider_usage = Counter(
+        "slaif_v1_provider_usage_tokens_total",
+        "Backend provider usage of the direct main response",
+        ["route", "kind"],
+        registry=registry,
+    )
+    # The content-free owning-stage measurement families (objective
+    # 023-a, handoff section 15): the closed acquisition / graph /
+    # admission counts are published under fixed kind labels (the
+    # closed detail names -- revision / epoch evidence stays out of
+    # metric labels), and the actual final-envelope injection token
+    # measurements are published as histogram samples (the value is
+    # the sample, never a label); the configured aggregate limit is
+    # the fixed per-route gauge.
+    v1_acquisition_facts = Counter(
+        "slaif_v1_acquisition_facts_total",
+        "Content-free content-acquisition facts at the owning stage",
+        ["route", "kind"],
+        registry=registry,
+    )
+    v1_graph_facts = Counter(
+        "slaif_v1_graph_facts_total",
+        "Content-free current-graph facts at the owning stage",
+        ["route", "kind"],
+        registry=registry,
+    )
+    v1_admission_facts = Counter(
+        "slaif_v1_admission_facts_total",
+        "Content-free admission facts at the owning stage",
+        ["route", "kind"],
+        registry=registry,
+    )
+    v1_injection_tokens = Histogram(
+        "slaif_v1_injection_tokens",
+        "Actual final-envelope injection token measurements at the owning stage",
+        ["route", "kind"],
+        registry=registry,
+    )
+    v1_injection_aggregate_limit = Gauge(
+        "slaif_v1_injection_aggregate_limit_tokens",
+        "Configured aggregate injection limit of the governed route",
+        ["route"],
+        registry=registry,
+    )
+    # The configured aggregate limit of each governed v1 route
+    # (the fixed budget fact the actual final-injection token
+    # measurements are bounded by): set once at construction from
+    # the ACTUAL budget plan, content-free.
+    if v1_runtime is not None:
+        for _governed_route in v1_runtime.governed_routes:
+            v1_injection_aggregate_limit.labels(_governed_route).set(
+                float(v1_runtime.budget_plan.aggregate)
+            )
+
+    def _v1_emit(route_name: str, event: V1StageEvent) -> None:
+        """The owning-stage metric emit: the closed stage/outcome
+        pair and the bounded numeric details the stage exposed
+        (no content, no identifiers, no digests, no paths)."""
+        v1_stage_total.labels(route_name, event.stage.value, event.outcome).inc()
+        if event.duration > 0.0:
+            v1_stage_duration.labels(route_name, event.stage.value, event.outcome).observe(
+                event.duration
+            )
+        if event.stage is V1Stage.COMPILATION:
+            for name, value in event.details:
+                if name == "invocations":
+                    # The ACTUAL internal compiler dispatch count
+                    # (independent of the main upstream ledger).
+                    v1_compiler_dispatch.labels(route_name).inc(value)
+        elif event.stage is V1Stage.ACQUISITION:
+            # The content-free acquisition facts under their
+            # closed detail names (the revision stays a detail
+            # value, never a metric label).
+            for name, value in event.details:
+                if name != "revision":
+                    v1_acquisition_facts.labels(route_name, name).inc(value)
+        elif event.stage is V1Stage.GRAPH:
+            for name, value in event.details:
+                v1_graph_facts.labels(route_name, name).inc(value)
+        elif event.stage is V1Stage.ADMISSION:
+            for name, value in event.details:
+                v1_admission_facts.labels(route_name, name).inc(value)
+        elif event.stage is V1Stage.INJECTION:
+            # The actual final-envelope token measurements are
+            # histogram samples (bounded counts; the configured
+            # aggregate limit itself is the fixed per-route gauge,
+            # never a per-request sample).
+            for name, value in event.details:
+                if name == "governance_tokens":
+                    v1_injection_tokens.labels(route_name, "governance").observe(value)
+                elif name == "request_tokens":
+                    v1_injection_tokens.labels(route_name, "request").observe(value)
+        elif event.stage is V1Stage.REPLACEMENT:
+            for name, value in event.details:
+                if name == "edits":
+                    v1_replacement_edits.labels(route_name).inc(value)
+                elif name == "markers_emitted":
+                    v1_markers.labels(route_name, "emitted").inc(value)
+                elif name == "markers_replayed":
+                    v1_markers.labels(route_name, "replayed").inc(value)
+        elif event.stage is V1Stage.REUSE_CLASS:
+            v1_reuse_class.labels(route_name, event.outcome).inc()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -579,6 +747,7 @@ def create_app(
             return local_error(413, "request body exceeds configured limit", "request_too_large")
 
         v1_issuance: V1IssuanceContext | None = None
+        v1_recorder: V1StageRecorder | None = None
         verified_identity = None
         if settings.gateway_ingress.signed:
             assert replay_protector is not None
@@ -723,6 +892,44 @@ def create_app(
                             repository=settings.constitution.repository,
                         )
                     address = build_session_address(v1_runtime, v1_identity, route, contract)
+                    # 023-a: the per-request owning-stage recorder
+                    # (content-free; emitted to the private metrics
+                    # at each owning stage, handed to the explicit
+                    # test-only stage observer when enabled).
+                    v1_recorder = V1StageRecorder(
+                        route=route.name,
+                        endpoint=v1_endpoint,
+                        emit=lambda event: _v1_emit(route.name, event),
+                    )
+                    if v1_stage_observer is not None:
+                        v1_stage_observer(v1_recorder)
+                    v1_recognition_started = V1StageRecorder.begin()
+                    v1_observation = observe_request(payload, endpoint=v1_endpoint)
+                    # The recognition stage counts the ACTUAL
+                    # observed root occurrences (fixed evidence
+                    # classes, closed outcomes; never a request
+                    # field or a response code).
+                    root_occurrences = [
+                        occurrence
+                        for occurrence in v1_observation.roots.occurrences
+                        if occurrence.kind.value == "root"
+                    ]
+                    root_ok = sum(
+                        1 for occurrence in root_occurrences if occurrence.status.value == "ok"
+                    )
+                    if root_ok > 0:
+                        recognition_outcome = "root"
+                    elif root_occurrences:
+                        recognition_outcome = "root_rejected"
+                    else:
+                        recognition_outcome = "rootless"
+                    v1_recorder.record(
+                        V1Stage.RECOGNITION,
+                        recognition_outcome,
+                        v1_recognition_started,
+                        root_occurrences=len(root_occurrences),
+                        root_ok=root_ok,
+                    )
                     established = await establish_v1_session(
                         v1_runtime,
                         v1_sessions,
@@ -730,11 +937,13 @@ def create_app(
                         identity=v1_identity,
                         route=route,
                         contract=contract,
-                        observation=observe_request(payload, endpoint=v1_endpoint),
+                        observation=v1_observation,
                         payload=payload,
                         endpoint=v1_endpoint,
+                        telemetry=v1_recorder,
                     )
                     if isinstance(established, V1RequestRefusal):
+                        v1_refusals.labels(route.name, established.reason.value).inc()
                         return local_error(
                             established.status_code,
                             "governed v1 request refused",
@@ -762,8 +971,10 @@ def create_app(
                             payload=payload,
                             endpoint=v1_endpoint,
                             observation=scoped_observation,
+                            telemetry=v1_recorder,
                         )
                         if precheck_refusal is not None:
+                            v1_refusals.labels(route.name, precheck_refusal.reason.value).inc()
                             return local_error(
                                 precheck_refusal.status_code,
                                 "governed v1 request refused",
@@ -776,8 +987,10 @@ def create_app(
                             payload=shadow,
                             endpoint=v1_endpoint,
                             observation=scoped_observation,
+                            telemetry=v1_recorder,
                         )
                         if advance_refusal is not None:
+                            v1_refusals.labels(route.name, advance_refusal.reason.value).inc()
                             return local_error(
                                 advance_refusal.status_code,
                                 "governed v1 request refused",
@@ -791,8 +1004,10 @@ def create_app(
                             endpoint=v1_endpoint,
                             observation=scoped_observation,
                             proof=proof,
+                            telemetry=v1_recorder,
                         )
                         if isinstance(transaction, V1RequestRefusal):
+                            v1_refusals.labels(route.name, transaction.reason.value).inc()
                             return local_error(
                                 transaction.status_code,
                                 "governed v1 request refused",
@@ -925,14 +1140,53 @@ def create_app(
         upstream_request = client.build_request(
             request.method, target, headers=headers, content=body
         )
+        v1_main_send_started = V1StageRecorder.begin()
         try:
             upstream = await client.send(upstream_request, stream=True)
+        except asyncio.CancelledError:
+            if v1_issuance is not None:
+                # Cancellation while waiting for headers: the ONE
+                # main send was issued at the call boundary (the
+                # actual forward fact, elapsed from the pre-send
+                # timestamp) and the closed cancellation outcome
+                # is kept distinct; the cancellation propagates
+                # unchanged.
+                assert v1_recorder is not None
+                v1_main_forward.labels(route_name).inc()
+                v1_recorder.record(V1Stage.MAIN_UPSTREAM, "forwarded", v1_main_send_started)
+                v1_recorder.record(V1Stage.MAIN_UPSTREAM, "cancelled", V1StageRecorder.begin())
+            raise
         except httpx.TimeoutException:
             upstream_failures.labels("timeout").inc()
+            if v1_issuance is not None:
+                # The ONE main send was issued at the call boundary
+                # and then timed out: the actual forward fact
+                # (elapsed from the pre-send timestamp) with the
+                # closed transport outcome kept distinct.
+                assert v1_recorder is not None
+                v1_main_forward.labels(route_name).inc()
+                v1_recorder.record(V1Stage.MAIN_UPSTREAM, "forwarded", v1_main_send_started)
+                v1_recorder.record(V1Stage.MAIN_UPSTREAM, "timeout", V1StageRecorder.begin())
             return local_error(503, "upstream timed out", "upstream_timeout")
         except httpx.HTTPError:
             upstream_failures.labels("connection").inc()
+            if v1_issuance is not None:
+                assert v1_recorder is not None
+                v1_main_forward.labels(route_name).inc()
+                v1_recorder.record(V1Stage.MAIN_UPSTREAM, "forwarded", v1_main_send_started)
+                v1_recorder.record(
+                    V1Stage.MAIN_UPSTREAM, "connection_error", V1StageRecorder.begin()
+                )
             return local_error(502, "upstream request failed", "upstream_error")
+        if v1_issuance is not None:
+            assert v1_recorder is not None
+            # The ACTUAL main forward: the ONE send the adapter
+            # issued at the call boundary (elapsed from the
+            # pre-send timestamp to the provider's header answer),
+            # distinct from the v1 preparation stages, which
+            # already ran and are counted at their owning stages.
+            v1_main_forward.labels(route_name).inc()
+            v1_recorder.record(V1Stage.MAIN_UPSTREAM, "forwarded", v1_main_send_started)
 
         response_connection_tokens = _connection_tokens(upstream.headers)
         response_headers = {
@@ -975,6 +1229,13 @@ def create_app(
                 status_class(upstream.status_code),
                 http_reason.value,
             ).inc()
+            if v1_issuance is not None:
+                # Provider acceptance is distinct from transport
+                # errors: the provider answered and REFUSED.
+                assert v1_recorder is not None
+                v1_recorder.record(
+                    V1Stage.MAIN_UPSTREAM, "provider_rejected", V1StageRecorder.begin()
+                )
             await upstream.aclose()
             return JSONResponse(
                 status_code=upstream.status_code,
@@ -987,6 +1248,14 @@ def create_app(
                 },
                 headers=error_headers,
             )
+
+        if v1_issuance is not None and 200 <= upstream.status_code < 300:
+            # The provider ACCEPTED the committed forward (an
+            # actual 2xx header answer); a non-2xx response earns
+            # no acceptance, and a later cancellation is a
+            # distinct closed outcome of the same stage.
+            assert v1_recorder is not None
+            v1_recorder.record(V1Stage.MAIN_UPSTREAM, "provider_accepted", V1StageRecorder.begin())
 
         if stream:
             issuance = (
@@ -1003,12 +1272,26 @@ def create_app(
                         yield chunk
                 except asyncio.CancelledError:
                     upstream_failures.labels("disconnect").inc()
+                    if issuance is not None:
+                        # The stream was cancelled mid-forward: the
+                        # closed cancellation outcome (the provider
+                        # acceptance above stays a distinct fact).
+                        assert v1_recorder is not None
+                        v1_recorder.record(
+                            V1Stage.MAIN_UPSTREAM, "cancelled", V1StageRecorder.begin()
+                        )
                     raise
                 finally:
                     await upstream.aclose()
                     stream_duration.labels(endpoint, route_name, str(upstream.status_code)).observe(
                         time.monotonic() - started
                     )
+                    if issuance is not None and issuance.usage_tokens is not None:
+                        # The ACTUAL backend provider usage of the
+                        # direct main response (the independent
+                        # backend ledger, closed token counts only).
+                        v1_provider_usage.labels(route_name, "input").inc(issuance.usage_tokens[0])
+                        v1_provider_usage.labels(route_name, "output").inc(issuance.usage_tokens[1])
 
             return StreamingResponse(
                 chunks(), status_code=upstream.status_code, headers=response_headers
@@ -1018,6 +1301,11 @@ def create_app(
                 content = upstream.content
                 if len(content) > settings.server.response_body_max_bytes:
                     upstream_failures.labels("response_too_large").inc()
+                    if v1_issuance is not None:
+                        assert v1_recorder is not None
+                        v1_recorder.record(
+                            V1Stage.MAIN_UPSTREAM, "response_too_large", V1StageRecorder.begin()
+                        )
                     return local_error(
                         502,
                         "upstream response exceeds configured limit",
@@ -1030,6 +1318,13 @@ def create_app(
                     size += len(chunk)
                     if size > settings.server.response_body_max_bytes:
                         upstream_failures.labels("response_too_large").inc()
+                        if v1_issuance is not None:
+                            assert v1_recorder is not None
+                            v1_recorder.record(
+                                V1Stage.MAIN_UPSTREAM,
+                                "response_too_large",
+                                V1StageRecorder.begin(),
+                            )
                         return local_error(
                             502,
                             "upstream response exceeds configured limit",
@@ -1039,11 +1334,22 @@ def create_app(
                 content = b"".join(response_chunks)
         except httpx.HTTPError:
             upstream_failures.labels("response_read").inc()
+            if v1_issuance is not None:
+                assert v1_recorder is not None
+                v1_recorder.record(
+                    V1Stage.MAIN_UPSTREAM, "response_read_error", V1StageRecorder.begin()
+                )
             return local_error(502, "upstream response failed", "upstream_error")
         finally:
             await upstream.aclose()
         if v1_issuance is not None and 200 <= upstream.status_code < 400:
             v1_issuance.observe_nonstream(content)
+            if v1_issuance.usage_tokens is not None:
+                # The ACTUAL backend provider usage of the direct
+                # main response (the independent backend ledger,
+                # closed token counts only).
+                v1_provider_usage.labels(route_name, "input").inc(v1_issuance.usage_tokens[0])
+                v1_provider_usage.labels(route_name, "output").inc(v1_issuance.usage_tokens[1])
         return Response(content, status_code=upstream.status_code, headers=response_headers)
 
     return app

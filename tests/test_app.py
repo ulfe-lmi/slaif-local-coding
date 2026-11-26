@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import gzip
 import json
 import logging
@@ -38,9 +39,11 @@ from slaif_local_coding.constitution.bundles.bundle_tokenizer import (
     BundleTokenizer,
 )
 from slaif_local_coding.constitution.bundles.causal_history_models import CAUSAL_ROOT_FACT
+from slaif_local_coding.constitution.bundles.observe import observe_request
 from slaif_local_coding.constitution.bundles.ram_state import RamStateOwnerRegistry
 from slaif_local_coding.constitution.bundles.ram_state_models import RamStateBounds
 from slaif_local_coding.constitution.bundles.recovery_store import (
+    RecoverySession,
     RecoveryStore,
     session_directory_name,
 )
@@ -57,6 +60,12 @@ from slaif_local_coding.constitution.bundles.v1_application import (
     build_session_address,
 )
 from slaif_local_coding.constitution.bundles.v1_runtime import V1Runtime, V1RuntimeReason
+from slaif_local_coding.constitution.bundles.v1_telemetry import (
+    V1_STAGE_OUTCOMES,
+    V1ReuseClass,
+    V1Stage,
+    V1StageRecorder,
+)
 from slaif_local_coding.constitution.cache import RequestIdentity
 from slaif_local_coding.gateway_identity import canonical_identity_bytes, expected_signature
 from tests.helpers.transport_observer import DirectTransportObserver
@@ -5541,3 +5550,1116 @@ class TestV1WireClosure:
             assert error["message"] == "governed v1 request refused"
             assert len(captured_main) == 1
             assert len(captured_compile) == 1
+
+
+# ---------------------------------------------------------------------------
+# 023-a: the governed v1 stage telemetry at the actual create_app entry
+# point (handoff section 15): the owning-stage content-free stage facts
+# over the actual fake main upstream and the separate fake compiler
+# channel, the closed four-way cache distinction, the send-boundary main
+# forward classification, the provider usage ledger, the refusal and
+# cancellation stages, and the protected synthetic stage evidence.
+# ---------------------------------------------------------------------------
+
+_STAGE_EVIDENCE_ROOT = Path(
+    "/home/janezp/codex-supervision/slaif-local-coding/work-artifacts/oap-023a-work/evidence"
+)
+
+
+def _write_protected_stage_evidence(session_id: str, artifact: dict[str, object]) -> Path:
+    """The TEST HARNESS's protected synthetic evidence writer (order
+    023-a section 3, handoff section 15): the approved protected test
+    artifact under this round's private artifact directory (directory
+    0700, file 0600, O_EXCL temp, atomic publication, fsynced file and
+    directory).  The runtime owns no raw-content persistence surface --
+    the artifact is assembled here from the harness's own
+    fake-upstream / compiler captures plus the recorder's content-free
+    stage facts."""
+    session_dir = _STAGE_EVIDENCE_ROOT / session_id
+    session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(session_dir, 0o700)
+    final = session_dir / "stage-telemetry.json"
+    tmp = session_dir / f".stage-telemetry.{os.getpid()}.tmp"
+    payload = json.dumps(artifact, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, final)
+        dir_fd = os.open(session_dir, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
+    return final
+
+
+#: The closed content-acquisition facts of the root + read ``c1``
+#: fixture under the evidenced workspace (the exact synthetic raw
+#: round-1 payload: one complete read of ``c1.md``, eight observed
+#: source characters, no absolute-form members).
+_ACQ_ROOT_READ = {
+    "revision": 1,
+    "reads_complete": 1,
+    "reads_partial": 0,
+    "reads_unsupported": 0,
+    "members_observed": 1,
+    "chars_observed": 8,
+    "paths_absolute": 0,
+    "paths_normalized": 0,
+}
+
+#: The closed content-acquisition facts of the TRANSFORMED resend:
+#: its ``c1`` tool result is the emitted live marker inside the same
+#: synthetic execution wrapper, which the read grammar observes as a
+#: COMPLETE read of the exact marker content (the deterministic marker
+#: length under the fixed test key, one member, no absolute-form
+#: members).
+_ACQ_ROOT_READ_MARKER = {
+    "revision": 1,
+    "reads_complete": 1,
+    "reads_partial": 0,
+    "reads_unsupported": 0,
+    "members_observed": 1,
+    "chars_observed": 59,
+    "paths_absolute": 0,
+    "paths_normalized": 0,
+}
+
+#: The closed content-acquisition facts of the root-only fixture
+#: (no read observation at all).
+_ACQ_ROOT_ONLY = {
+    "revision": 1,
+    "reads_complete": 0,
+    "reads_partial": 0,
+    "reads_unsupported": 0,
+    "members_observed": 0,
+    "chars_observed": 0,
+    "paths_absolute": 0,
+    "paths_normalized": 0,
+}
+
+#: The closed current-graph facts of the root + ``c1`` committed
+#: round (the root node and the c1 node, both honestly
+#: current-known, the one ordinary root edge, no candidates).
+_GRAPH_ROOT_READ = {
+    "nodes": 2,
+    "edges": 1,
+    "nodes_known": 2,
+    "nodes_missing": 0,
+    "nodes_unresolved": 0,
+    "candidates": 0,
+}
+
+#: The closed current-graph facts of the root-only committed round
+#: (the single root node, no edges, no candidates).
+_GRAPH_ROOT_ONLY = {
+    "nodes": 1,
+    "edges": 0,
+    "nodes_known": 1,
+    "nodes_missing": 0,
+    "nodes_unresolved": 0,
+    "candidates": 0,
+}
+
+
+class TestV1StageTelemetry:
+    """The ordered 023-a acceptance at the actual create_app entry
+    point: the owning-stage content-free stage facts (recognition,
+    acquisition, admission, compilation, replacement, injection,
+    recovery, main_upstream and the closed reuse class), the actual
+    fake main / compiler call counts, the restart-rebuild distinction
+    with zero recovery content reads on the ordinary hit, the refusal
+    and cancellation stages, the provider usage ledger, the content-
+    free metric labels and the protected synthetic stage evidence
+    (synthetic identity and fixture sources; no real secrets, no live
+    upstream)."""
+
+    @staticmethod
+    def _facts(recorder: V1StageRecorder) -> list[tuple[str, str, dict[str, int]]]:
+        return [(e.stage.value, e.outcome, dict(e.details)) for e in recorder.events]
+
+    @staticmethod
+    def _assert_facts(
+        recorder: V1StageRecorder,
+        expected: list[tuple[str, str, dict[str, int] | None]],
+    ) -> None:
+        facts = TestV1StageTelemetry._facts(recorder)
+        assert len(facts) == len(expected), (facts, expected)
+        for (stage, outcome, details), (exp_stage, exp_outcome, exp_details) in zip(
+            facts, expected, strict=True
+        ):
+            assert stage == exp_stage, (facts, expected)
+            assert outcome == exp_outcome, (facts, expected)
+            if exp_details is not None:
+                assert details == exp_details, (facts, expected)
+
+    @staticmethod
+    def _counter(metrics_text: str, name: str, **labels: str) -> float:
+        """The exact value of ONE closed (name, label) metric line."""
+        prefix = name + "{"
+        total = 0.0
+        found = False
+        for line in metrics_text.splitlines():
+            if not line.startswith(prefix):
+                continue
+            head, _, value = line.rpartition(" ")
+            body = head[len(prefix) :].rstrip("}")
+            if dict(re.findall(r'(\w+)="([^"]*)"', body)) != labels:
+                continue
+            total += float(value)
+            found = True
+        assert found, f"missing metric line {name} {labels}"
+        return total
+
+    @staticmethod
+    def _injection_details(
+        recorder: V1StageRecorder,
+    ) -> tuple[dict[str, int], ...]:
+        return tuple(dict(e.details) for e in recorder.events if e.stage is V1Stage.INJECTION)
+
+    async def test_main_flow_stage_events_and_metrics(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The complete owned-stage fact path over one cold session:
+        the raw root + read round earns the first compilation (two
+        dispatches, two committed edits, the emitted live markers and
+        the actual final-envelope injection measurements) with no
+        reuse fact; the RAW resend re-applies the edits from retained
+        RAM (two hits, zero dispatches) and earns exactly the closed
+        original-present reuse fact at the byte-identical fixed
+        point; the TRANSFORMED resend replays its own verified
+        markers (the marker candidate triggers the pre-check compile
+        run, the transaction run replays, zero edits committed) and
+        earns the closed source-absent injection fact -- the
+        byte-identical fixed point both ways -- with the closed
+        counters and the actual forwarded bodies agreeing."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `c1.md` before acting.\n"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        recorders: list[V1StageRecorder] = []
+        app = create_app(settings, httpx.MockTransport(handler), v1_stage_observer=recorders.append)
+        assert app.state.v1_runtime is not None
+        round1_payload = {
+            "model": "qwen38-27b",
+            "input": [
+                root_item(root_body),
+                exec_call("c1", "cat c1.md"),
+                out_item("c1", frame("A body.\n")),
+            ],
+        }
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post("/v1/responses", json=round1_payload)
+            assert response1.status_code == 200
+            round1_body = captured_main[0].content
+            assert round1_body.count(b"[slaif-live:v") == 2
+            assert b"A body." not in round1_body
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 2
+            self._assert_facts(
+                recorders[0],
+                [
+                    ("recognition", "root", {"root_occurrences": 1, "root_ok": 1}),
+                    ("recovery", "cold", {"generation": 1, "epoch": 1, "revision": 1}),
+                    ("acquisition", "replayed", _ACQ_ROOT_READ),
+                    ("recovery", "retained", {"generation": 1, "epoch": 1, "revision": 1}),
+                    ("admission", "ready", {"entries": 2, "members": 2}),
+                    ("graph", "ready", _GRAPH_ROOT_READ),
+                    ("compilation", "completed", {"invocations": 1, "entries": 1}),
+                    ("compilation", "completed", {"invocations": 1, "entries": 1}),
+                    (
+                        "replacement",
+                        "ok",
+                        {
+                            "edits": 2,
+                            "markers_emitted": 2,
+                            "markers_replayed": 0,
+                            "entries": 2,
+                        },
+                    ),
+                    ("injection", "compiled", None),
+                    ("main_upstream", "forwarded", None),
+                    ("main_upstream", "provider_accepted", None),
+                ],
+            )
+            injection1 = self._injection_details(recorders[0])
+            assert len(injection1) == 1
+            assert injection1[0]["working_set_entries"] == 2
+            assert injection1[0]["omitted_entries"] == 0
+            assert injection1[0]["aggregate_limit"] == 8192
+            assert injection1[0]["governance_tokens"] > 0
+            assert injection1[0]["request_tokens"] > 0
+
+            # The RAW resend: the original source is still present in
+            # the incoming history and the entries are served from
+            # retained RAM -- the closed original-present reuse fact.
+            response2 = await client.post("/v1/responses", json=round1_payload)
+            assert response2.status_code == 200
+            assert captured_main[1].content == round1_body  # the fixed point
+            assert len(captured_compile) == 2  # zero recompiles
+            self._assert_facts(
+                recorders[1],
+                [
+                    ("recognition", "root", {"root_occurrences": 1, "root_ok": 1}),
+                    ("recovery", "steady", {}),
+                    ("acquisition", "replayed", _ACQ_ROOT_READ),
+                    ("recovery", "retained", {"generation": 1, "epoch": 1, "revision": 1}),
+                    ("admission", "ready", {"entries": 2, "members": 2}),
+                    ("graph", "ready", _GRAPH_ROOT_READ),
+                    ("compilation", "hit", {"invocations": 0, "entries": 1}),
+                    ("compilation", "hit", {"invocations": 0, "entries": 1}),
+                    (
+                        "replacement",
+                        "ok",
+                        {
+                            "edits": 2,
+                            "markers_emitted": 2,
+                            "markers_replayed": 0,
+                            "entries": 2,
+                        },
+                    ),
+                    ("injection", "compiled", None),
+                    ("reuse_class", "original_present_ram_reuse", {}),
+                    ("main_upstream", "forwarded", None),
+                    ("main_upstream", "provider_accepted", None),
+                ],
+            )
+            # The byte-stable fixed point: the actual final-envelope
+            # measurements are identical on the resend.
+            assert self._injection_details(recorders[1]) == injection1
+
+            # The TRANSFORMED resend: its own verified markers are
+            # replayed (the marker candidate triggers the pre-check
+            # compile run), zero edits are committed, and the closed
+            # source-absent injection fact is earned.
+            response3 = await client.post(
+                "/v1/responses",
+                content=round1_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response3.status_code == 200
+            assert captured_main[2].content == round1_body  # the fixed point
+            assert len(captured_compile) == 2
+            self._assert_facts(
+                recorders[2],
+                [
+                    ("recognition", "root", {"root_occurrences": 1, "root_ok": 1}),
+                    ("recovery", "steady", {}),
+                    ("compilation", "hit", {"invocations": 0, "entries": 1}),
+                    ("compilation", "hit", {"invocations": 0, "entries": 1}),
+                    ("acquisition", "replayed", _ACQ_ROOT_READ_MARKER),
+                    ("recovery", "retained", {"generation": 1, "epoch": 1, "revision": 1}),
+                    ("admission", "ready", {"entries": 2, "members": 2}),
+                    ("graph", "ready", _GRAPH_ROOT_READ),
+                    ("compilation", "hit", {"invocations": 0, "entries": 1}),
+                    ("compilation", "hit", {"invocations": 0, "entries": 1}),
+                    (
+                        "replacement",
+                        "ok",
+                        {
+                            "edits": 0,
+                            "markers_emitted": 0,
+                            "markers_replayed": 2,
+                            "entries": 2,
+                        },
+                    ),
+                    ("injection", "source_absent", None),
+                    ("reuse_class", "source_absent_injection", {}),
+                    ("main_upstream", "forwarded", None),
+                    ("main_upstream", "provider_accepted", None),
+                ],
+            )
+            assert self._injection_details(recorders[2]) == injection1
+
+            metrics_text = (await client.get("/metrics")).text
+            for stage, outcome, count in (
+                ("recognition", "root", 3),
+                ("recovery", "cold", 1),
+                ("recovery", "steady", 2),
+                ("recovery", "retained", 3),
+                ("acquisition", "replayed", 3),
+                ("admission", "ready", 3),
+                ("graph", "ready", 3),
+                ("compilation", "completed", 2),
+                ("compilation", "hit", 6),
+                ("replacement", "ok", 3),
+                ("injection", "compiled", 2),
+                ("injection", "source_absent", 1),
+                ("main_upstream", "forwarded", 3),
+                ("main_upstream", "provider_accepted", 3),
+                ("reuse_class", "original_present_ram_reuse", 1),
+                ("reuse_class", "source_absent_injection", 1),
+            ):
+                assert self._counter(
+                    metrics_text,
+                    "slaif_v1_stage_total",
+                    route="text",
+                    stage=stage,
+                    outcome=outcome,
+                ) == float(count)
+            # The stage duration histogram observed the closed pairs.
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_stage_duration_seconds_count",
+                    route="text",
+                    stage="recognition",
+                    outcome="root",
+                )
+                >= 1.0
+            )
+            # The internal compiler dispatch is metered apart from the
+            # main upstream; the committed edits and the closed marker
+            # kinds agree with the owning-stage replacement facts.
+            assert (
+                self._counter(metrics_text, "slaif_v1_compiler_dispatch_total", route="text") == 2.0
+            )
+            assert (
+                self._counter(metrics_text, "slaif_v1_replacement_edits_total", route="text") == 4.0
+            )
+            assert (
+                self._counter(metrics_text, "slaif_v1_markers_total", route="text", kind="emitted")
+                == 4.0
+            )
+            assert (
+                self._counter(metrics_text, "slaif_v1_markers_total", route="text", kind="replayed")
+                == 2.0
+            )
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_reuse_class_total",
+                    route="text",
+                    reuse_class="original_present_ram_reuse",
+                )
+                == 1.0
+            )
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_reuse_class_total",
+                    route="text",
+                    reuse_class="source_absent_injection",
+                )
+                == 1.0
+            )
+            assert self._counter(metrics_text, "slaif_v1_main_forward_total", route="text") == 3.0
+            # The content-free owning-stage fact families (fixed kind
+            # labels; the revision stays a detail value, never a label):
+            # every round observed the complete c1 read (the two raw
+            # rounds the eight source characters, the transformed round
+            # the deterministic 59-character emitted marker), and every
+            # round the actual same-run graph (two current-known nodes,
+            # one ordinary edge) and the two-entry admission.
+            for kind, expected in (
+                ("reads_complete", 3.0),
+                ("reads_partial", 0.0),
+                ("reads_unsupported", 0.0),
+                ("members_observed", 3.0),
+                ("chars_observed", 75.0),
+                ("paths_absolute", 0.0),
+                ("paths_normalized", 0.0),
+            ):
+                assert (
+                    self._counter(
+                        metrics_text,
+                        "slaif_v1_acquisition_facts_total",
+                        route="text",
+                        kind=kind,
+                    )
+                    == expected
+                )
+            for kind, expected in (
+                ("nodes", 6.0),
+                ("edges", 3.0),
+                ("nodes_known", 6.0),
+                ("nodes_missing", 0.0),
+                ("nodes_unresolved", 0.0),
+                ("candidates", 0.0),
+            ):
+                assert (
+                    self._counter(
+                        metrics_text, "slaif_v1_graph_facts_total", route="text", kind=kind
+                    )
+                    == expected
+                )
+            for kind, expected in (("entries", 6.0), ("members", 6.0)):
+                assert (
+                    self._counter(
+                        metrics_text,
+                        "slaif_v1_admission_facts_total",
+                        route="text",
+                        kind=kind,
+                    )
+                    == expected
+                )
+            # The actual final-envelope token measurements: the histogram
+            # sample count and sum agree with the recorded injection
+            # details of the three rounds, and the configured aggregate
+            # limit is the fixed per-route gauge.
+            all_injection = [d for rec in recorders for d in self._injection_details(rec)]
+            assert len(all_injection) == 3
+            governance_sum = float(sum(d["governance_tokens"] for d in all_injection))
+            request_sum = float(sum(d["request_tokens"] for d in all_injection))
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_injection_tokens_count",
+                    route="text",
+                    kind="governance",
+                )
+                == 3.0
+            )
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_injection_tokens_sum",
+                    route="text",
+                    kind="governance",
+                )
+                == governance_sum
+            )
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_injection_tokens_count",
+                    route="text",
+                    kind="request",
+                )
+                == 3.0
+            )
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_injection_tokens_sum",
+                    route="text",
+                    kind="request",
+                )
+                == request_sum
+            )
+            assert (
+                self._counter(
+                    metrics_text, "slaif_v1_injection_aggregate_limit_tokens", route="text"
+                )
+                == 8192.0
+            )
+
+    async def test_restart_rebuild_new_epoch_and_zero_recovery_reads(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The restart distinction of the closed four-way cache
+        facts: the fresh process over the SAME recovery root resumes
+        the durable generation in a distinct epoch, the new-epoch
+        compile of the ACTUAL restored record set earns exactly the
+        closed restart-rebuild fact (never an ordinary RAM reuse
+        fact -- the dispatch count and the restored-state attribution
+        both prevent it), and the later ordinary RAW hit of the same
+        session earns the closed original-present reuse fact with
+        ZERO recovery content reads (the protected records are read
+        only by the resume, never by normal RAM hits)."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        recorders: list[V1StageRecorder] = []
+        app = create_app(settings, httpx.MockTransport(handler), v1_stage_observer=recorders.append)
+        assert app.state.v1_runtime is not None
+        root_payload = {
+            "model": "qwen38-27b",
+            "input": [root_item("Follow the workspace protocol.\n")],
+        }
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post("/v1/responses", json=root_payload)
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1
+        self._assert_facts(
+            recorders[0],
+            [
+                ("recognition", "root", {"root_occurrences": 1, "root_ok": 1}),
+                ("recovery", "cold", {"generation": 1, "epoch": 1, "revision": 1}),
+                ("acquisition", "replayed", _ACQ_ROOT_ONLY),
+                ("recovery", "retained", {"generation": 1, "epoch": 1, "revision": 1}),
+                ("admission", "ready", {"entries": 1, "members": 1}),
+                ("graph", "ready", _GRAPH_ROOT_ONLY),
+                ("compilation", "completed", {"invocations": 1, "entries": 1}),
+                (
+                    "replacement",
+                    "ok",
+                    {
+                        "edits": 1,
+                        "markers_emitted": 1,
+                        "markers_replayed": 0,
+                        "entries": 1,
+                    },
+                ),
+                ("injection", "compiled", None),
+                ("main_upstream", "forwarded", None),
+                ("main_upstream", "provider_accepted", None),
+            ],
+        )
+        # Process exit: the composed teardown releases the exclusive
+        # writer so the restart can own the session.
+        async with app.router.lifespan_context(app):
+            pass
+        # The recovery-content read counter of the fresh process
+        # (the store is read only by an authenticated resume).
+        loads = {"n": 0}
+        real_load = RecoverySession.load
+
+        def counting_load(self: RecoverySession, *args: Any, **kwargs: Any) -> Any:
+            loads["n"] += 1
+            return real_load(self, *args, **kwargs)
+
+        monkeypatch.setattr(RecoverySession, "load", counting_load)
+        settings_b = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        recorders_b: list[V1StageRecorder] = []
+        app_b = create_app(
+            settings_b,
+            httpx.MockTransport(handler),
+            v1_stage_observer=recorders_b.append,
+        )
+        loads_before_resume = loads["n"]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_b), base_url="http://adapter.test"
+        ) as client:
+            response3 = await client.post("/v1/responses", json=root_payload)
+            assert response3.status_code == 200
+            # The legitimate resume reads the protected record.
+            assert loads["n"] - loads_before_resume >= 1
+        self._assert_facts(
+            recorders_b[0],
+            [
+                ("recognition", "root", {"root_occurrences": 1, "root_ok": 1}),
+                ("recovery", "resumed", {}),
+                ("acquisition", "replayed", _ACQ_ROOT_ONLY),
+                ("recovery", "retained", {"generation": 3, "epoch": 2, "revision": 1}),
+                ("admission", "ready", {"entries": 1, "members": 1}),
+                ("graph", "ready", _GRAPH_ROOT_ONLY),
+                ("compilation", "completed", {"invocations": 1, "entries": 1}),
+                (
+                    "replacement",
+                    "ok",
+                    {
+                        "edits": 1,
+                        "markers_emitted": 1,
+                        "markers_replayed": 0,
+                        "entries": 1,
+                    },
+                ),
+                ("injection", "compiled", None),
+                ("reuse_class", "restart_rebuild_new_epoch", {}),
+                ("main_upstream", "forwarded", None),
+                ("main_upstream", "provider_accepted", None),
+            ],
+        )
+        session_b = TestV1ApplicationClosure._session(app_b, settings_b)
+        assert session_b is not None
+        assert session_b.resumed is True
+        assert len(session_b.restored_content_keys) == 1
+        assert session_b.last_publish is not None
+        assert session_b.last_publish.generation == 3
+        assert session_b.last_publish_bound == (1, 2)
+        # The restart-rebuild fact is the ONLY reuse fact of the
+        # resumed round (the new-epoch dispatch prevents the
+        # original-present fact).
+        reuse_round1 = [e.outcome for e in recorders_b[0].events if e.stage is V1Stage.REUSE_CLASS]
+        assert reuse_round1 == ["restart_rebuild_new_epoch"]
+        # The ordinary RAW hit of the resumed session: zero recovery
+        # content reads, the retained RAM hit, and the closed
+        # original-present reuse fact.
+        loads_before_hit = loads["n"]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_b), base_url="http://adapter.test"
+        ) as client:
+            response4 = await client.post("/v1/responses", json=root_payload)
+            assert response4.status_code == 200
+        assert loads["n"] == loads_before_hit  # zero recovery content reads
+        assert len(captured_compile) == 2  # one compile per process only
+        self._assert_facts(
+            recorders_b[1],
+            [
+                ("recognition", "root", {"root_occurrences": 1, "root_ok": 1}),
+                ("recovery", "steady", {}),
+                ("acquisition", "replayed", _ACQ_ROOT_ONLY),
+                ("recovery", "retained", {"generation": 3, "epoch": 2, "revision": 1}),
+                ("admission", "ready", {"entries": 1, "members": 1}),
+                ("graph", "ready", _GRAPH_ROOT_ONLY),
+                ("compilation", "hit", {"invocations": 0, "entries": 1}),
+                (
+                    "replacement",
+                    "ok",
+                    {
+                        "edits": 1,
+                        "markers_emitted": 1,
+                        "markers_replayed": 0,
+                        "entries": 1,
+                    },
+                ),
+                ("injection", "compiled", None),
+                ("reuse_class", "original_present_ram_reuse", {}),
+                ("main_upstream", "forwarded", None),
+                ("main_upstream", "provider_accepted", None),
+            ],
+        )
+
+    async def test_cold_marker_refusal_stages_and_metrics(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The COLD synthetic marker gate at the app boundary: the
+        synthetic non-authoritative tag inside the first root
+        envelope of a fresh trusted address is the fixed typed 409
+        marker-side refusal BEFORE any acquisition, owner allocation,
+        checkpoint or forward (the owning stages record exactly
+        recognition and the closed recovery refusal; zero main
+        forward, zero compile); the later legitimate bootstrap of
+        the same address succeeds and earns the actual forward."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        recorders: list[V1StageRecorder] = []
+        app = create_app(settings, httpx.MockTransport(handler), v1_stage_observer=recorders.append)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            payload1 = {
+                "model": "qwen38-27b",
+                "input": [root_item(f"Follow the workspace protocol.\n{_SYNTHETIC_TAG}\n")],
+            }
+            response1 = await client.post("/v1/responses", json=payload1)
+            assert response1.status_code == 409
+            assert response1.json()["error"]["code"] == "v1_transaction_conflict"
+            assert len(captured_main) == 0  # zero main forward
+            assert len(captured_compile) == 0  # zero compile
+            self._assert_facts(
+                recorders[0],
+                [
+                    ("recognition", "root", {"root_occurrences": 1, "root_ok": 1}),
+                    ("recovery", "refused", {}),
+                ],
+            )
+            # The legitimate bootstrap of the same address succeeds.
+            payload2 = {
+                "model": "qwen38-27b",
+                "input": [root_item("Follow the workspace protocol.\n")],
+            }
+            response2 = await client.post("/v1/responses", json=payload2)
+            assert response2.status_code == 200
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 1
+            metrics_text = (await client.get("/metrics")).text
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_refusals_total",
+                    route="text",
+                    reason="transaction_conflict",
+                )
+                == 1.0
+            )
+            assert self._counter(metrics_text, "slaif_v1_main_forward_total", route="text") == 1.0
+            assert (
+                self._counter(metrics_text, "slaif_v1_compiler_dispatch_total", route="text") == 1.0
+            )
+
+    async def test_stream_disconnect_cancellation_stages(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The S02 cancellation contract over the stage telemetry:
+        the cold bootstrap commits before the stream; the client
+        disconnect after the first forwarded chunk cancels the owned
+        upstream work, and the closed main_upstream sequence is
+        exactly forwarded / provider_accepted / cancelled (the
+        send-boundary forward fact and the provider acceptance stay
+        distinct from the closed cancellation outcome) with the
+        actual forwarded and compiler call counts of ONE each."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        first_sent = asyncio.Event()
+        release_never = asyncio.Event()
+
+        class Stream(httpx.AsyncByteStream):
+            closed = False
+
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                yield b"data: one\n\n"
+                await release_never.wait()
+
+            async def aclose(self) -> None:
+                self.closed = True
+
+        stream = Stream()
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=stream)
+
+        recorders: list[V1StageRecorder] = []
+        app = create_app(settings, httpx.MockTransport(handler), v1_stage_observer=recorders.append)
+        assert app.state.v1_runtime is not None
+        body = json.dumps(
+            {
+                "model": "qwen38-27b",
+                "input": [root_item("Follow the workspace protocol.\n")],
+                "stream": True,
+            },
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ).encode()
+        received = False
+
+        async def receive() -> dict[str, Any]:
+            nonlocal received
+            if not received:
+                received = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            await first_sent.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: MutableMapping[str, Any]) -> None:
+            if message["type"] == "http.response.body" and message.get("body"):
+                first_sent.set()
+
+        scope: dict[str, Any] = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/v1/responses",
+            "raw_path": b"/v1/responses",
+            "query_string": b"",
+            "headers": [(b"content-type", b"application/json")],
+            "client": ("127.0.0.1", 1),
+            "server": ("127.0.0.1", 18031),
+        }
+        await app(scope, receive, send)
+        assert first_sent.is_set()
+        assert stream.closed
+        # The cold stream bootstrap earned the owned stages; the main
+        # upstream closed sequence is forwarded / accepted / cancelled.
+        main_events = [e.outcome for e in recorders[0].events if e.stage is V1Stage.MAIN_UPSTREAM]
+        assert main_events == ["forwarded", "provider_accepted", "cancelled"]
+        self._assert_facts(
+            recorders[0],
+            [
+                ("recognition", "root", {"root_occurrences": 1, "root_ok": 1}),
+                ("recovery", "cold", {"generation": 1, "epoch": 1, "revision": 1}),
+                ("acquisition", "replayed", _ACQ_ROOT_ONLY),
+                ("recovery", "retained", {"generation": 1, "epoch": 1, "revision": 1}),
+                ("admission", "ready", {"entries": 1, "members": 1}),
+                ("graph", "ready", _GRAPH_ROOT_ONLY),
+                ("compilation", "completed", {"invocations": 1, "entries": 1}),
+                (
+                    "replacement",
+                    "ok",
+                    {
+                        "edits": 1,
+                        "markers_emitted": 1,
+                        "markers_replayed": 0,
+                        "entries": 1,
+                    },
+                ),
+                ("injection", "compiled", None),
+                ("main_upstream", "forwarded", None),
+                ("main_upstream", "provider_accepted", None),
+                ("main_upstream", "cancelled", None),
+            ],
+        )
+        assert len(captured_compile) == 1  # the actual compiler call count
+
+    async def test_provider_usage_ledger(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The independent backend provider usage ledger: the ACTUAL
+        provider usage of the direct nonstream main response (the
+        Responses input/output token fields) is retained as the
+        closed token counts on the private ledger -- distinct from
+        any client-reported cumulative usage and from the internal
+        compiler channel's own usage, which never touches this
+        counter."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            return httpx.Response(
+                200,
+                json={
+                    "id": "resp-usage",
+                    "status": "completed",
+                    "usage": {"input_tokens": 11, "output_tokens": 7},
+                },
+            )
+
+        recorders: list[V1StageRecorder] = []
+        app = create_app(settings, httpx.MockTransport(handler), v1_stage_observer=recorders.append)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            payload = {
+                "model": "qwen38-27b",
+                "input": [root_item("Follow the workspace protocol.\n")],
+            }
+            response = await client.post("/v1/responses", json=payload)
+            assert response.status_code == 200
+            main_events = [
+                e.outcome for e in recorders[0].events if e.stage is V1Stage.MAIN_UPSTREAM
+            ]
+            assert main_events == ["forwarded", "provider_accepted"]
+            metrics_text = (await client.get("/metrics")).text
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_provider_usage_tokens_total",
+                    route="text",
+                    kind="input",
+                )
+                == 11.0
+            )
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_provider_usage_tokens_total",
+                    route="text",
+                    kind="output",
+                )
+                == 7.0
+            )
+
+    async def test_metric_labels_stay_content_free(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The content-free label law at the actual entry point:
+        after a round carrying distinctive synthetic text, the
+        private /metrics surface carries no source text, no private
+        identity values, no workspace path, no marker key material
+        and no unearned closed reuse value -- only the fixed enums
+        and the bounded counts cross the boundary (the genuine
+        client-compaction value stays closed and unearned: this
+        round has no real client compaction event, so no code path
+        records it)."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `c1.md` before acting.\n"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        recorders: list[V1StageRecorder] = []
+        app = create_app(settings, httpx.MockTransport(handler), v1_stage_observer=recorders.append)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            payload = {
+                "model": "qwen38-27b",
+                "input": [
+                    root_item(root_body),
+                    exec_call("c1", "cat c1.md"),
+                    out_item("c1", frame("A body.\n")),
+                ],
+            }
+            response = await client.post("/v1/responses", json=payload)
+            assert response.status_code == 200
+            metrics_text = (await client.get("/metrics")).text
+        # No source text, private identity, workspace or key material.
+        assert "A body" not in metrics_text
+        assert root_body not in metrics_text
+        assert WORKSPACE not in metrics_text
+        assert "local-principal" not in metrics_text
+        assert "local-session" not in metrics_text
+        assert "0123456789abcdef" not in metrics_text
+        # The unearned closed value is absent from the closed
+        # reuse-class vocabulary itself (no code path records it).
+        assert V1ReuseClass.CLIENT_COMPACTION.value not in V1_STAGE_OUTCOMES[V1Stage.REUSE_CLASS]
+        assert "client_compaction" not in metrics_text
+
+    async def test_protected_synthetic_stage_evidence(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The protected synthetic stage evidence (handoff section
+        15): the TEST HARNESS correlates the recorded content-free
+        stage facts with the ACTUAL known-synthetic input/output
+        bodies, compiler requests/responses, the recognized root
+        spans and the token counts in the protected test artifact
+        under this round's private artifact directory (directory
+        0700, file 0600) -- distinguishing the recorded stages from
+        the actual transmitted bodies; no raw production corpus, no
+        public evidence API and no source-bearing default logging."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        captured_compile_responses: list[bytes] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `c1.md` before acting.\n"
+
+        def compiler(request: httpx.Request) -> httpx.Response:
+            response = compiler_echo(request)
+            captured_compile_responses.append(response.content)
+            return response
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler(request)
+            assert request.url.path == "/v1/responses"
+            captured_main.append(request)
+            return httpx.Response(200, json={"id": f"resp-r{len(captured_main)}"})
+
+        recorders: list[V1StageRecorder] = []
+        app = create_app(settings, httpx.MockTransport(handler), v1_stage_observer=recorders.append)
+        round1_payload = {
+            "model": "qwen38-27b",
+            "input": [
+                root_item(root_body),
+                exec_call("c1", "cat c1.md"),
+                out_item("c1", frame("A body.\n")),
+            ],
+        }
+        round1_raw = json.dumps(
+            round1_payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        ).encode("utf-8")
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response1 = await client.post(
+                "/v1/responses",
+                content=round1_raw,
+                headers={"content-type": "application/json"},
+            )
+            assert response1.status_code == 200
+            round1_body = captured_main[0].content
+            # The RAW resend (the original-present fixed point).
+            response2 = await client.post(
+                "/v1/responses",
+                content=round1_raw,
+                headers={"content-type": "application/json"},
+            )
+            assert response2.status_code == 200
+            assert captured_main[1].content == round1_body
+        # The recognized root spans of the ACTUAL observed payload
+        # (the pure 017 observation over the same fixture).
+        report = observe_request(round1_payload, endpoint="responses")
+        root_occurrence = next(
+            occurrence
+            for occurrence in report.roots.occurrences
+            if occurrence.kind.value == "root" and occurrence.status.value == "ok"
+        )
+        assert root_occurrence.content_span is not None
+        assert root_occurrence.envelope_span is not None
+        envelope_text = root_item(root_body)["content"][0]["text"]
+        content_slice = envelope_text[
+            root_occurrence.content_span.start : root_occurrence.content_span.end
+        ]
+        assert root_body in content_slice
+        assert (
+            root_occurrence.envelope_span.start
+            <= root_occurrence.content_span.start
+            < root_occurrence.content_span.end
+            <= root_occurrence.envelope_span.end
+            <= len(envelope_text)
+        )
+        # The selected content keys of the committed snapshot
+        # (protected evidence correlation only; closed digests never
+        # cross the telemetry boundary).
+        session = TestV1ApplicationClosure._session(app, settings)
+        assert session is not None
+        snapshot = session.owner.snapshot
+        assert snapshot is not None
+        admission = snapshot.result.admission
+        assert admission is not None
+        selected_keys = [
+            admission.root_entry.content_key,
+            *(entry.content_key for entry in admission.entries),
+        ]
+        assert len(selected_keys) == 2
+        injection_round1 = self._injection_details(recorders[0])[0]
+        artifact: dict[str, object] = {
+            "endpoint": "responses",
+            "incoming_payload_round1": round1_raw.hex(),
+            "incoming_payload_round2": round1_raw.hex(),
+            "forwarded_main_bodies": [request.content.hex() for request in captured_main],
+            "compiler_requests": [request.content.hex() for request in captured_compile],
+            "compiler_responses": [content.hex() for content in captured_compile_responses],
+            "stage_events": {
+                "round1": [
+                    [e.stage.value, e.outcome, dict(e.details)] for e in recorders[0].events
+                ],
+                "round2": [
+                    [e.stage.value, e.outcome, dict(e.details)] for e in recorders[1].events
+                ],
+            },
+            "root_spans": {
+                "content_start": root_occurrence.content_span.start,
+                "content_end": root_occurrence.content_span.end,
+                "envelope_start": root_occurrence.envelope_span.start,
+                "envelope_end": root_occurrence.envelope_span.end,
+            },
+            "injection_token_facts": dict(injection_round1),
+            "selected_content_keys": selected_keys,
+        }
+        evidence_path = _write_protected_stage_evidence("023-a-stage-telemetry", artifact)
+        assert os.stat(evidence_path).st_mode & 0o777 == 0o600
+        assert os.stat(evidence_path.parent).st_mode & 0o777 == 0o700
+        stored = json.loads(evidence_path.read_bytes())
+        # The recorded stages correlate with the ACTUAL transmitted
+        # bodies (the harness capture, not a runtime log).
+        assert stored["forwarded_main_bodies"] == [
+            request.content.hex() for request in captured_main
+        ]
+        assert stored["forwarded_main_bodies"][0] == round1_body.hex()
+        # The stage facts in the artifact are the recorder's
+        # content-free facts (no body bytes appear in them).
+        serialized_events = json.dumps(stored["stage_events"])
+        assert b"A body." not in serialized_events.encode("utf-8")
+        assert round1_body.hex() not in serialized_events
+        # The token facts agree with the recorded injection stage.
+        assert stored["injection_token_facts"] == dict(injection_round1)
+        assert stored["injection_token_facts"]["governance_tokens"] > 0
+        assert stored["injection_token_facts"]["request_tokens"] > 0

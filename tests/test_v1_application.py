@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
 from slaif_local_coding.config import (
     ContextCacheRouteContract,
@@ -37,6 +38,8 @@ from slaif_local_coding.constitution.bundles.bundle_budget import (
 )
 from slaif_local_coding.constitution.bundles.bundle_compile_work import (
     BundleCompileWork,
+    BundleCompileWorkOutcome,
+    BundleCompileWorkResult,
 )
 from slaif_local_coding.constitution.bundles.bundle_compiler import (
     BUNDLE_COMPILER_PROMPT_POLICY_VERSION,
@@ -68,6 +71,12 @@ from slaif_local_coding.constitution.bundles.recovery_store import (
     RecoveryStore,
     RecoveryStoreLimitation,
 )
+from slaif_local_coding.constitution.bundles.root_region_admission_models import (
+    RootRegionAdmissionEntry,
+)
+from slaif_local_coding.constitution.bundles.root_region_lineage_models import (
+    RootRegionLineageNamespace,
+)
 from slaif_local_coding.constitution.bundles.v1_application import (
     V1IssuanceContext,
     V1RequestReason,
@@ -81,6 +90,12 @@ from slaif_local_coding.constitution.bundles.v1_application import (
     prepare_v1_transaction,
 )
 from slaif_local_coding.constitution.bundles.v1_runtime import V1Runtime
+from slaif_local_coding.constitution.bundles.v1_telemetry import (
+    V1_STAGE_OUTCOMES,
+    V1ReuseClass,
+    V1Stage,
+    V1StageRecorder,
+)
 from slaif_local_coding.constitution.cache import RequestIdentity
 from tests.test_causal_history import (
     WORKSPACE,
@@ -681,6 +696,138 @@ async def test_round_one_transforms_and_round_two_is_the_fixed_point(tmp_path: P
     assert tx2.edits_committed == 0
     assert tx2.markers_replayed == 1
     assert tx2.body == round1_body
+
+
+async def test_reuse_class_is_bound_to_the_closed_across_request_hit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The four-way reuse fact at the owning transaction stage
+    (objective 023-a) is bound to the closed compiler outcome
+    labels, not to the zero-dispatch count alone: the same
+    committed replacement with no compile work dispatched anywhere
+    in the request earns original-present RAM reuse ONLY when the
+    committing run served EVERY represented entry from retained
+    RAM (the closed ``hit`` label of an actual across-request
+    hit); the single-flight follower label (``joined``) carries
+    the same zero-dispatch shape and earns no reuse fact, and the
+    first compile (dispatched work) earns no reuse fact either.
+    The actual single-flight join semantics are proven in the
+    019-b work-plane suite; this test drives the owning stage
+    with the closed labels."""
+    captured: list[httpx.Request] = []
+    runtime = _runtime(tmp_path, captured=captured)
+    table = V1SessionTable()
+    identity, route, contract = _identity(), _route(), _contract()
+    address = build_session_address(runtime, identity, route, contract)
+    bootstrap = _root_payload()
+    session = await establish_v1_session(
+        runtime,
+        table,
+        address=address,
+        identity=identity,
+        route=route,
+        contract=contract,
+        observation=observe_request(bootstrap, endpoint="responses"),
+        payload=bootstrap,
+        endpoint="responses",
+    )
+    assert session is not None and not isinstance(session, V1RequestRefusal)
+    payload2 = _root_payload(("c1", "A body.\n"))
+    context = PathContext(workspace=WORKSPACE)
+    obs = observe_request(payload2, context=context, endpoint="responses")
+    shadow, pre = await prepare_replay_shadow(
+        session, runtime, payload=payload2, endpoint="responses", observation=obs
+    )
+    assert pre is None and shadow is payload2
+    proof, refusal = advance_v1_session(
+        session, runtime, payload=shadow, endpoint="responses", observation=obs
+    )
+    assert refusal is None and proof is not None
+    # -- arm 1: the FIRST compile dispatches; no reuse fact --------
+    recorder1 = V1StageRecorder(route="text", endpoint="responses")
+    tx1 = await prepare_v1_transaction(
+        session,
+        runtime,
+        payload=payload2,
+        endpoint="responses",
+        observation=obs,
+        proof=proof,
+        telemetry=recorder1,
+    )
+    assert not isinstance(tx1, V1RequestRefusal)
+    assert tx1.outcome is ReplacementOutcome.OK
+    assert tx1.edits_committed == 1 and len(captured) == 1
+    assert [e for e in recorder1.events if e.stage is V1Stage.REUSE_CLASS] == []
+    # -- arm 2: the raw resend is the ACTUAL across-request hit ----
+    obs2 = observe_request(payload2, context=context, endpoint="responses")
+    shadow2, pre2 = await prepare_replay_shadow(
+        session, runtime, payload=payload2, endpoint="responses", observation=obs2
+    )
+    assert pre2 is None and shadow2 is payload2
+    proof2, refusal2 = advance_v1_session(
+        session, runtime, payload=shadow2, endpoint="responses", observation=obs2
+    )
+    assert refusal2 is None and proof2 is not None
+    recorder2 = V1StageRecorder(route="text", endpoint="responses")
+    tx2 = await prepare_v1_transaction(
+        session,
+        runtime,
+        payload=payload2,
+        endpoint="responses",
+        observation=obs2,
+        proof=proof2,
+        telemetry=recorder2,
+    )
+    assert not isinstance(tx2, V1RequestRefusal)
+    assert tx2.outcome is ReplacementOutcome.OK
+    assert tx2.edits_committed == 1
+    assert len(captured) == 1  # zero new dispatch anywhere in the request
+    reuse2 = [e for e in recorder2.events if e.stage is V1Stage.REUSE_CLASS]
+    assert [e.outcome for e in reuse2] == [V1ReuseClass.ORIGINAL_PRESENT_RAM_REUSE.value]
+
+    # -- arm 3: the closed follower label earns no reuse fact ------
+    real_resolve = BundleCompileWork.resolve_entry
+
+    async def _follower_resolve(
+        self: BundleCompileWork,
+        namespace: RootRegionLineageNamespace,
+        entry: RootRegionAdmissionEntry,
+        *,
+        candidate_paths: tuple[str, ...],
+        plan: BundleBudgetPlan,
+    ) -> BundleCompileWorkResult:
+        result = await real_resolve(
+            self, namespace, entry, candidate_paths=candidate_paths, plan=plan
+        )
+        return result.model_copy(update={"outcome": BundleCompileWorkOutcome.JOINED})
+
+    monkeypatch.setattr(BundleCompileWork, "resolve_entry", _follower_resolve)
+    obs3 = observe_request(payload2, context=context, endpoint="responses")
+    shadow3, pre3 = await prepare_replay_shadow(
+        session, runtime, payload=payload2, endpoint="responses", observation=obs3
+    )
+    assert pre3 is None and shadow3 is payload2
+    proof3, refusal3 = advance_v1_session(
+        session, runtime, payload=shadow3, endpoint="responses", observation=obs3
+    )
+    assert refusal3 is None and proof3 is not None
+    recorder3 = V1StageRecorder(route="text", endpoint="responses")
+    tx3 = await prepare_v1_transaction(
+        session,
+        runtime,
+        payload=payload2,
+        endpoint="responses",
+        observation=obs3,
+        proof=proof3,
+        telemetry=recorder3,
+    )
+    assert not isinstance(tx3, V1RequestRefusal)
+    assert tx3.outcome is ReplacementOutcome.OK
+    assert tx3.edits_committed == 1 and len(captured) == 1
+    assert [e for e in recorder3.events if e.stage is V1Stage.REUSE_CLASS] == []
+    # The closed vocabulary never records the unearned value.
+    assert V1ReuseClass.CLIENT_COMPACTION.value not in V1_STAGE_OUTCOMES[V1Stage.REUSE_CLASS]
 
 
 async def test_pre_forward_compiler_refusal_is_typed_and_retries_nothing(
