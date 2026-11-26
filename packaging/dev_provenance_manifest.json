@@ -3,14 +3,14 @@
     "sdist": {
       "entry_count": 315,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "eb37577c77c4db5d7c8f4c8d2b6eddde59baf7d8fe982e99df06ccc497e43cfd",
-      "size_bytes": 6237865
+      "sha256": "6651bae58bc544c62add7773fd013935d59adc77e65c5891c80ffeaf424f0542",
+      "size_bytes": 6238818
     },
     "wheel": {
       "entry_count": 90,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "0fcf131931ec2906e178d06d3a736b3fa1cabb003c5e8d6021949e06ba37eca5",
-      "size_bytes": 4488250
+      "sha256": "a39b42615b51e9588a3b39aa0fe9e2ce69b008b9158692774d9237326b833b74",
+      "size_bytes": 4488384
     }
   },
   "frozen_publication": {
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "016-b",
-  "qualification_label": "development-source-12cf017bdadc2fb424a399c99ed4fd628cf63896; not a release candidate; not released",
+  "qualification_label": "development-source-f57c57c0036f3237c928f5108ca244fb544a8725; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "12cf017bdadc2fb424a399c99ed4fd628cf63896",
+  "source_commit": "f57c57c0036f3237c928f5108ca244fb544a8725",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -159,7 +159,7 @@
     "src/slaif_local_coding/constitution/bundles/tokenizer_assets/tokenizer.json": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
     "src/slaif_local_coding/constitution/bundles/tokenizer_assets/tokenizer_config.json": "207c03c41a06a9c3b0cc527d8a56115159c1eac6b59a4ffae85b646e773d074e",
     "src/slaif_local_coding/constitution/bundles/tool_results.py": "742394bb969adfe45a91d66dd0ef456c56edc4085c7863ee73c086a63dce6d5d",
-    "src/slaif_local_coding/constitution/bundles/v1_application.py": "cd2f540f21023632abc88e0806449af2a289ce8b292257e8f9142eab6ebd423f",
+    "src/slaif_local_coding/constitution/bundles/v1_application.py": "178ee4be451b3b5deb64751b0e9e72447e47b96de2cdc9fdedd82789e7926cb5",
     "src/slaif_local_coding/constitution/bundles/v1_runtime.py": "09546c7aaa975a78301f6cc26c171928b01213090e878a6f14f11c75b4298f26",
     "src/slaif_local_coding/constitution/bundles/v1_telemetry.py": "e49dcce5ff6e317577c3753819afd95e4da98f305bf14b66e115f6cbd3162e20",
     "src/slaif_local_coding/constitution/cache.py": "3836255390244ef1bd9a223319216ddbb34e87ba447600eb0da546a7fbec09cc",
@@ -241,7 +241,7 @@
     "tests/helpers/transport_observer.py": "5cf3bd88845a6598a773593136a144f62dd93b890a697b3702181db134e3fa4f",
     "tests/helpers/vision_e2e_support.py": "fc8dda69925151c634bbbd87860a8310dc8f737f186792bc42284e4c5e06fc32",
     "tests/test_acceptance_harness.py": "eb19dc893b15288aa8fcb5d61bf685b280a04ff14a8043742368e12f9adf7e8b",
-    "tests/test_app.py": "1d82f9b8e8c9bf2437a7b3bdffe269877832dd2b6411dd0d0048d1153e6e38c8",
+    "tests/test_app.py": "17e07d08e91d771d259b0564c2f879ac7436d458511c9a338fdf25eed18735e4",
     "tests/test_boot_contract.py": "df2add7e565981c2ab7937209b1ce7954aec5f787974faad5bd8ff43f70240b6",
     "tests/test_bundle_admission.py": "d4f9f9433504761551dc4f1131977648e4151dfca35b0e4d818c019080c09044",
     "tests/test_bundle_admission_vectors.py": "abdfef92859321d94f69828355b5201d21bb0934644266b9c6fff638c4099e5f",
