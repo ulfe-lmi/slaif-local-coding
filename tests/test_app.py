@@ -5561,21 +5561,22 @@ class TestV1WireClosure:
 # cancellation stages, and the protected synthetic stage evidence.
 # ---------------------------------------------------------------------------
 
-_STAGE_EVIDENCE_ROOT = Path(
-    "/home/janezp/codex-supervision/slaif-local-coding/work-artifacts/oap-023a-work/evidence"
-)
 
-
-def _write_protected_stage_evidence(session_id: str, artifact: dict[str, object]) -> Path:
+def _write_protected_stage_evidence(
+    evidence_root: Path, session_id: str, artifact: dict[str, object]
+) -> Path:
     """The TEST HARNESS's protected synthetic evidence writer (order
     023-a section 3, handoff section 15): the approved protected test
-    artifact under this round's private artifact directory (directory
-    0700, file 0600, O_EXCL temp, atomic publication, fsynced file and
+    artifact under the caller-supplied evidence root (directory 0700,
+    file 0600, O_EXCL temp, atomic publication, fsynced file and
     directory).  The runtime owns no raw-content persistence surface --
     the artifact is assembled here from the harness's own
     fake-upstream / compiler captures plus the recorder's content-free
-    stage facts."""
-    session_dir = _STAGE_EVIDENCE_ROOT / session_id
+    stage facts.  The ordinary suite uses the test's own pytest
+    ``tmp_path`` root (no host path; CI-safe); the ordered durable
+    synthetic example is produced by a separate single-case run that
+    supplies a fresh private project-contained root."""
+    session_dir = evidence_root / session_id
     session_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(session_dir, 0o700)
     final = session_dir / "stage-telemetry.json"
@@ -6415,23 +6416,41 @@ class TestV1StageTelemetry:
         closed token counts on the private ledger -- distinct from
         any client-reported cumulative usage and from the internal
         compiler channel's own usage, which never touches this
-        counter."""
+        counter.  An UNSUPPORTED usage (a token count beyond the
+        finite counter range, or a non-dict usage object) is left
+        in the response unchanged and emits no usage sample."""
         settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
         captured_compile: list[httpx.Request] = []
         compiler_echo = _echo_compiler_handler(captured_compile)
+        # ONE bounded decoded event per nonstream response: r1
+        # carries a beyond-range input count, r2 the valid usage,
+        # r3 a non-dict usage object.
+        response_bodies: list[dict[str, object]] = [
+            {
+                "id": "resp-usage-1",
+                "status": "completed",
+                "usage": {"input_tokens": 2**31, "output_tokens": 7},
+            },
+            {
+                "id": "resp-usage-2",
+                "status": "completed",
+                "usage": {"input_tokens": 11, "output_tokens": 7},
+            },
+            {
+                "id": "resp-usage-3",
+                "status": "completed",
+                "usage": "not-a-usage-object",
+            },
+        ]
+        served: list[dict[str, object]] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.path == "/v1/chat/completions":
                 return compiler_echo(request)
             assert request.url.path == "/v1/responses"
-            return httpx.Response(
-                200,
-                json={
-                    "id": "resp-usage",
-                    "status": "completed",
-                    "usage": {"input_tokens": 11, "output_tokens": 7},
-                },
-            )
+            body = response_bodies[len(served)]
+            served.append(body)
+            return httpx.Response(200, json=body)
 
         recorders: list[V1StageRecorder] = []
         app = create_app(settings, httpx.MockTransport(handler), v1_stage_observer=recorders.append)
@@ -6442,12 +6461,52 @@ class TestV1StageTelemetry:
                 "model": "qwen38-27b",
                 "input": [root_item("Follow the workspace protocol.\n")],
             }
-            response = await client.post("/v1/responses", json=payload)
-            assert response.status_code == 200
+            # r1: the beyond-range usage earns no sample and the
+            # response passes through unchanged (the adapter never
+            # rewrites the provider's usage field).
+            response1 = await client.post("/v1/responses", json=payload)
+            assert response1.status_code == 200
+            assert response1.json() == response_bodies[0]
             main_events = [
                 e.outcome for e in recorders[0].events if e.stage is V1Stage.MAIN_UPSTREAM
             ]
             assert main_events == ["forwarded", "provider_accepted"]
+            # The beyond-range usage earned no sample: the counter
+            # has no sample lines in /metrics (only the registered
+            # HELP/TYPE header, no value line, until its first
+            # increment).
+            metrics_text = (await client.get("/metrics")).text
+            assert "slaif_v1_provider_usage_tokens_total{" not in metrics_text
+            # r2: the valid usage of the transformed resend is the
+            # ACTUAL backend ledger sample.
+            response2 = await client.post("/v1/responses", json=payload)
+            assert response2.status_code == 200
+            assert response2.json() == response_bodies[1]
+            metrics_text = (await client.get("/metrics")).text
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_provider_usage_tokens_total",
+                    route="text",
+                    kind="input",
+                )
+                == 11.0
+            )
+            assert (
+                self._counter(
+                    metrics_text,
+                    "slaif_v1_provider_usage_tokens_total",
+                    route="text",
+                    kind="output",
+                )
+                == 7.0
+            )
+            # r3: the non-dict usage object is unsupported -- the
+            # response stays unchanged and no further sample is
+            # emitted (the first complete usage still stands).
+            response3 = await client.post("/v1/responses", json=payload)
+            assert response3.status_code == 200
+            assert response3.json() == response_bodies[2]
             metrics_text = (await client.get("/metrics")).text
             assert (
                 self._counter(
@@ -6529,10 +6588,14 @@ class TestV1StageTelemetry:
         stage facts with the ACTUAL known-synthetic input/output
         bodies, compiler requests/responses, the recognized root
         spans and the token counts in the protected test artifact
-        under this round's private artifact directory (directory
-        0700, file 0600) -- distinguishing the recorded stages from
-        the actual transmitted bodies; no raw production corpus, no
-        public evidence API and no source-bearing default logging."""
+        under the caller-supplied evidence root (directory 0700,
+        file 0600; the ordinary suite uses the test's own pytest
+        tmp_path root, and the ordered durable synthetic example is
+        produced by a separate single-case run with a fresh private
+        project-contained root) -- distinguishing the recorded stages
+        from the actual transmitted bodies; no raw production corpus,
+        no public evidence API and no source-bearing default
+        logging."""
         settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
         captured_main: list[httpx.Request] = []
         captured_compile: list[httpx.Request] = []
@@ -6644,7 +6707,11 @@ class TestV1StageTelemetry:
             "injection_token_facts": dict(injection_round1),
             "selected_content_keys": selected_keys,
         }
-        evidence_path = _write_protected_stage_evidence("023-a-stage-telemetry", artifact)
+        durable_root = os.environ.get("SLAIF_023A_STAGE_EVIDENCE_ROOT", "").strip()
+        evidence_root = Path(durable_root) if durable_root else tmp_path / "stage-evidence"
+        evidence_path = _write_protected_stage_evidence(
+            evidence_root, "023-a-stage-telemetry", artifact
+        )
         assert os.stat(evidence_path).st_mode & 0o777 == 0o600
         assert os.stat(evidence_path.parent).st_mode & 0o777 == 0o700
         stored = json.loads(evidence_path.read_bytes())

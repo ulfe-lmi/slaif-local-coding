@@ -2588,6 +2588,7 @@ _V1_ISSUANCE_MAX_ARGUMENT_BYTES = 262_144
 _V1_ISSUANCE_MAX_FRAME_BYTES = 1_048_576
 _V1_ISSUANCE_MAX_EVENTS = 8_192
 _V1_ISSUANCE_MAX_CHAT_TOOL_CALLS = 128
+_V1_ISSUANCE_MAX_USAGE_TOKENS = 2_147_483_647
 _V1_ISSUANCE_JSON_MAX_DEPTH = 32
 
 
@@ -2711,13 +2712,13 @@ def _bounded_event_object(body: bytes) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _responses_complete_calls(body: bytes) -> tuple[V1IssuedCallShape, ...]:
+def _responses_complete_calls_event(event: dict[str, Any]) -> tuple[V1IssuedCallShape, ...]:
     """The COMPLETE supported function calls of ONE final
-    Responses object: a non-``completed`` status is truncated /
-    incomplete evidence (no issuance), and a call item is complete
-    only with a bounded closed string binding."""
-    event = _bounded_event_object(body)
-    if event is None or event.get("status") != "completed":
+    Responses object (over the ONE bounded decoded event): a
+    non-``completed`` status is truncated / incomplete evidence (no
+    issuance), and a call item is complete only with a bounded
+    closed string binding."""
+    if event.get("status") != "completed":
         return ()
     output = event.get("output")
     if not isinstance(output, list):
@@ -2735,14 +2736,12 @@ def _responses_complete_calls(body: bytes) -> tuple[V1IssuedCallShape, ...]:
     return tuple(calls)
 
 
-def _chat_complete_calls(body: bytes) -> tuple[V1IssuedCallShape, ...]:
-    """The COMPLETE supported tool calls of ONE final Chat object:
-    a ``length`` finish reason is explicit truncation (no
-    issuance), and a call is complete only with a bounded closed
-    string binding on the final message."""
-    event = _bounded_event_object(body)
-    if event is None:
-        return ()
+def _chat_complete_calls_event(event: dict[str, Any]) -> tuple[V1IssuedCallShape, ...]:
+    """The COMPLETE supported tool calls of ONE final Chat object
+    (over the ONE bounded decoded event): a ``length`` finish
+    reason is explicit truncation (no issuance), and a call is
+    complete only with a bounded closed string binding on the final
+    message."""
     choices = event.get("choices")
     if not isinstance(choices, list):
         return ()
@@ -2842,21 +2841,22 @@ class V1IssuanceContext:
         """The nonstreaming actual direct response: the COMPLETE
         supported tool calls of the final object (both endpoints)
         are registered; the ACTUAL provider usage of the final
-        object is retained (bounded parse; a malformed or
-        non-completed object earns no issuance -- the response is
-        still passed through)."""
+        object is retained.  Both use the ONE existing bounded
+        response decode (nesting-bounded strict object, shared with
+        the call extraction); a malformed object earns no issuance
+        and no usage, and an unsupported usage (non-integer, missing
+        or beyond the finite counter range) emits no usage sample --
+        the response is still passed through unchanged."""
         if self._disabled:
             return
-        try:
-            event = json.loads(body)
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
-            event = None
-        if isinstance(event, dict):
-            self._observe_usage(event.get("usage"))
+        event = _bounded_event_object(body)
+        if event is None:
+            return
+        self._observe_usage(event.get("usage"))
         calls = (
-            _responses_complete_calls(body)
+            _responses_complete_calls_event(event)
             if self.endpoint == "responses"
-            else _chat_complete_calls(body)
+            else _chat_complete_calls_event(event)
         )
         for call in calls:
             self._register(call)
@@ -2883,9 +2883,10 @@ class V1IssuanceContext:
 
     @staticmethod
     def _usage_counts(usage: Any, *, input_key: str, output_key: str) -> tuple[int, int] | None:
-        """The closed provider-usage extraction: bounded integer
-        token counts only (a non-integer or missing field is
-        ignored, never estimated)."""
+        """The closed provider-usage extraction: integer token
+        counts within the finite counter range only (a non-integer,
+        missing, negative or out-of-range field is ignored, never
+        estimated, and no usage sample is emitted)."""
         if not isinstance(usage, dict):
             return None
         input_tokens = usage.get(input_key)
@@ -2893,10 +2894,10 @@ class V1IssuanceContext:
         if (
             isinstance(input_tokens, int)
             and not isinstance(input_tokens, bool)
-            and input_tokens >= 0
+            and 0 <= input_tokens <= _V1_ISSUANCE_MAX_USAGE_TOKENS
             and isinstance(output_tokens, int)
             and not isinstance(output_tokens, bool)
-            and output_tokens >= 0
+            and 0 <= output_tokens <= _V1_ISSUANCE_MAX_USAGE_TOKENS
         ):
             return (input_tokens, output_tokens)
         return None
