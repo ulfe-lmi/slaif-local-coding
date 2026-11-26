@@ -430,7 +430,12 @@ unresolvable marker key reference. A settings model or a refused
 app does not establish v1 readiness, source replacement,
 native-format, streaming or recovery qualification beyond the
 bounded 022-c fake-upstream application scope; the later 023-024
-stages remain unearned. Legacy remains usable through its existing
+stages remain unearned. The 024-a preparation slice adds a closed
+opt-in v1 qualification probe (`scripts/v1_actual_model_probe.py`):
+serial, loopback-only, bound to the exact development artifact and
+opted-in v1 settings, with FAKE PEERS ONLY (no live inference, no
+Codex/model-client startup); the first real invocation requires a
+separate exact order. Legacy remains usable through its existing
 entry points.
 
 ### The `[context_cache]` keys
