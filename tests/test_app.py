@@ -39,6 +39,10 @@ from slaif_local_coding.constitution.bundles.bundle_tokenizer import (
     BundleTokenizer,
 )
 from slaif_local_coding.constitution.bundles.causal_history_models import CAUSAL_ROOT_FACT
+from slaif_local_coding.constitution.bundles.currentness_models import (
+    CurrentnessReason,
+    CurrentnessStatus,
+)
 from slaif_local_coding.constitution.bundles.observe import observe_request
 from slaif_local_coding.constitution.bundles.ram_state import RamStateOwnerRegistry
 from slaif_local_coding.constitution.bundles.ram_state_models import RamStateBounds
@@ -2205,7 +2209,7 @@ def _pressure_rules() -> tuple[BundleCompiledRule, ...]:
             ),
             evidence="Bounded synthetic evidence.",
         )
-        for i in range(157)
+        for i in range(145)
     )
 
 
@@ -6730,3 +6734,1604 @@ class TestV1StageTelemetry:
         assert stored["injection_token_facts"] == dict(injection_round1)
         assert stored["injection_token_facts"]["governance_tokens"] > 0
         assert stored["injection_token_facts"]["request_tokens"] > 0
+
+
+# ---------------------------------------------------------------------------
+# 023-b: the v1 application content, currentness and authority
+# (negative-path/stress-test matrix) round over the ACTUAL create_app
+# entry point (the full-app fake-main plus the separate tool-free
+# compiler fixtures; synthetic identities and environment names; no
+# real secrets, no live upstream, no client-filesystem acquisition).
+# ---------------------------------------------------------------------------
+
+
+class TestV1ContentCurrentnessMatrix:
+    """The ordered 023-b acceptance: the G/C/D/S/O content,
+    currentness and authority cases at the actual app boundary.
+    Every claimed case verifies the ACTUAL main forwarded body and
+    the separate compiler inputs/results (or the typed refusal with
+    zero forward); the protected test captures correlate the known
+    synthetic originals, selected entries, edits and bytes; telemetry
+    alone never establishes removal or delivery."""
+
+    # -- shared fixtures -------------------------------------------------
+
+    @staticmethod
+    def _settings(
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        admission: str = "lean",
+        repository: str = "local-repository",
+    ) -> Settings:
+        """The closed v1 settings (the protected recovery root
+        prepared; the three synthetic protected environment
+        references set) with an explicit admission mode."""
+        monkeypatch.setenv("TEST_V1_MARKER_KEY", "0123456789abcdef0123456789abcdef")
+        monkeypatch.setenv("TEST_V1_COMPILER_KEY", "test-only-compiler")
+        monkeypatch.setenv("TEST_V1_UPSTREAM_KEY", "test-only-upstream")
+        settings = _v1_settings(tmp_path)
+        context_cache = settings.context_cache
+        if admission != "lean" or repository != "local-repository":
+            update: dict[str, Any] = {}
+            if admission != "lean":
+                update["admission_mode"] = admission
+            context_cache = context_cache.model_copy(update=update)
+            settings = settings.model_copy(update={"context_cache": context_cache})
+        if repository != "local-repository":
+            settings = settings.model_copy(
+                update={
+                    "constitution": settings.constitution.model_copy(
+                        update={"repository": repository}
+                    )
+                }
+            )
+        recovery_root = settings.context_cache.recovery.root
+        assert recovery_root is not None
+        recovery_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        recovery_root.chmod(0o700)
+        return settings
+
+    @staticmethod
+    def _session(
+        app: Any,
+        settings: Settings,
+        *,
+        principal: str = "local-principal",
+        session: str = "local-session",
+        repository: str = "local-repository",
+    ) -> V1Session | None:
+        runtime = app.state.v1_runtime
+        assert runtime is not None
+        identity = RequestIdentity(
+            principal=principal, session=session, repository=repository, route="text"
+        )
+        address = build_session_address(
+            runtime, identity, settings.routes[0], settings.context_cache.route_contracts["text"]
+        )
+        return cast("V1Session | None", app.state.v1_sessions.get(address))
+
+    @staticmethod
+    def _graph(app: Any, settings: Settings) -> Any:
+        """The ACTUAL same-run F current graph of the session's
+        current retained snapshot (the G/C state evidence)."""
+        session = TestV1ContentCurrentnessMatrix._session(app, settings)
+        assert session is not None
+        snapshot = session.owner.snapshot
+        assert snapshot is not None
+        r_result = snapshot.result.r_result
+        assert r_result is not None
+        f_result = r_result.f_result
+        assert f_result is not None
+        overlay = f_result.overlay
+        assert overlay is not None
+        return overlay
+
+    @staticmethod
+    def _entries(app: Any, settings: Settings) -> tuple[Any, ...]:
+        """The ACTUAL S admission file entries of the current
+        retained snapshot (the C entry-identity evidence)."""
+        session = TestV1ContentCurrentnessMatrix._session(app, settings)
+        assert session is not None
+        snapshot = session.owner.snapshot
+        assert snapshot is not None
+        admission = snapshot.result.admission
+        assert admission is not None
+        return tuple(admission.entries)
+
+    @staticmethod
+    def _resp_issue(call_id: str, cmd: str) -> httpx.Response:
+        """The direct main-upstream response issuing ONE complete
+        exec_command read (the trusted issuance channel)."""
+        return httpx.Response(
+            200,
+            json={
+                "id": f"resp-{call_id}",
+                "status": "completed",
+                "output": (
+                    {
+                        "type": "function_call",
+                        "id": f"fc-{call_id}",
+                        "call_id": call_id,
+                        "name": "exec_command",
+                        "arguments": json.dumps({"cmd": cmd}),
+                    },
+                ),
+            },
+        )
+
+    @staticmethod
+    def _resp_plain(n: int) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": f"resp-r{n}",
+                "status": "completed",
+                "output": (
+                    {
+                        "type": "message",
+                        "content": [{"type": "output_text", "text": "ok"}],
+                    },
+                ),
+            },
+        )
+
+    @staticmethod
+    def _compile_demand_user(request: httpx.Request) -> str:
+        """The decoded user text of an ACTUAL compiler demand
+        (the exact decoded compiler input; the source comparison is
+        independent of JSON escaping in the request bytes)."""
+        return str(json.loads(request.content)["messages"][1]["content"])
+
+    @staticmethod
+    def _compile_demand_candidates(request: httpx.Request) -> list[str]:
+        """The decoded deterministic candidate paths of an ACTUAL
+        compiler demand (the exact JSON list in the demand's
+        ``<deterministic_candidates>`` block)."""
+        user = TestV1ContentCurrentnessMatrix._compile_demand_user(request)
+        block = user.split("<deterministic_candidates>\n", 1)[1]
+        block = block.split("\n</deterministic_candidates>", 1)[0]
+        return [item["path"] for item in json.loads(block)]
+
+    @staticmethod
+    def _payload_texts(data: Any) -> list[str]:
+        """Every string value of a decoded JSON payload (the exact
+        decoded carrier text, independent of JSON escaping)."""
+        texts: list[str] = []
+
+        def walk(value: Any) -> None:
+            if isinstance(value, str):
+                texts.append(value)
+            elif isinstance(value, list):
+                for item in value:
+                    walk(item)
+            elif isinstance(value, dict):
+                for item in value.values():
+                    walk(item)
+
+        walk(data)
+        return texts
+
+    @staticmethod
+    def _source_absent(payload: bytes, source: str) -> bool:
+        """The source-removal check: the exact decoded carrier text
+        of the decoded payload never contains the original source
+        string (a retained original is detected regardless of JSON
+        escaping in the serialized bytes)."""
+        return all(
+            source not in text
+            for text in TestV1ContentCurrentnessMatrix._payload_texts(json.loads(payload))
+        )
+
+    # -- G01/G02: recursive closure, repeated links and the cycle -------
+
+    async def test_g01_recursive_nested_repeated_and_cycle_closure(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """G01 (+ the nested referring-directory half of G02) at the
+        actual app boundary: the legitimate root references
+        ``docs/A.md`` TWICE (the repeated link); the nested ``A.md``
+        references ``B.md`` twice (resolved against the REFERRING
+        document's directory: ``docs/B.md``); ``B.md`` references
+        ``A.md`` (the cycle) and ``C.md``; ``C.md`` ends the chain.
+        The issued fake reads complete one per round; the ACTUAL
+        same-run current graph reaches the fixed point with the
+        repeated edges deduplicated (four distinct edges, the cycle
+        included) and the three files CURRENT_KNOWN; the single
+        outgoing body carries the root LIVE marker plus one LIVE
+        marker per acquired carrier, no raw source, and the four
+        distinct rendered compiled blocks; the compiler channel saw
+        the separate root/file demands with the ACTUAL source
+        content; the resend is the byte-identical fixed point with
+        zero recompile."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `docs/A.md` and `docs/A.md` before acting.\n"
+        a_body = "See `B.md` and `B.md` for details.\n"
+        b_body = "Back to `A.md` and `C.md` for the loop.\n"
+        c_body = "Ends the loop.\n"
+        issues = {
+            1: ("c1", "cat docs/A.md"),
+            2: ("c2", "cat docs/B.md"),
+            3: ("c3", "cat docs/C.md"),
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n in issues:
+                call_id, cmd = issues[n]
+                return self._resp_issue(call_id, cmd)
+            return self._resp_plain(n)
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one: the root-only bootstrap; the direct response
+            # issues the first read (the trusted issuance commit).
+            response1 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+            )
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1  # the admitted root entry
+            # The raw root source is removed from the outgoing body
+            # (decoded carrier text, independent of JSON escaping).
+            assert TestV1ContentCurrentnessMatrix._source_absent(
+                captured_main[0].content, root_body
+            )
+            assert captured_main[0].content.count(b"[slaif-live:v") == 1
+            # The separate root compiler demand carries the ACTUAL
+            # root source content, exact decoded text including the
+            # trailing newline (the O02 compiler-input evidence).
+            assert root_body in TestV1ContentCurrentnessMatrix._compile_demand_user(
+                captured_compile[0]
+            )
+            # The SAME-run F graph's resolved root references are
+            # the root's mandatory deterministic candidates (the
+            # repeated link deduplicated to ONE path).
+            assert TestV1ContentCurrentnessMatrix._compile_demand_candidates(
+                captured_compile[0]
+            ) == ["docs/A.md"]
+            # Round two: the nested docs/A.md completes (the repeated
+            # reference to B.md is in its source); the direct
+            # response issues the next read.
+            history = [
+                root_item(root_body),
+                exec_call("c1", "cat docs/A.md"),
+                out_item("c1", frame(a_body)),
+            ]
+            response2 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 2  # + the acquired A entry
+            assert TestV1ContentCurrentnessMatrix._source_absent(captured_main[1].content, a_body)
+            # The nested referring directory was resolved: the graph
+            # edge targets docs/B.md, not a top-level B.md.
+            edges2 = {(e.source, e.target) for e in self._graph(app, settings).edges}
+            assert ("docs/A.md", "docs/B.md") in edges2
+            assert not any(target == "B.md" for _source, target in edges2)
+            # Round three: docs/B.md completes (it closes the cycle
+            # back to A.md and references C.md); the next read issues.
+            history += [
+                exec_call("c2", "cat docs/B.md"),
+                out_item("c2", frame(b_body)),
+            ]
+            response3 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response3.status_code == 200
+            assert len(captured_compile) == 3  # + the acquired B entry
+            assert TestV1ContentCurrentnessMatrix._source_absent(captured_main[2].content, b_body)
+            # Round four: docs/C.md completes; the cycle edge B -> A
+            # exists in the ACTUAL same-run graph (termination at the
+            # fixed point, no re-derivation loop).
+            history += [
+                exec_call("c3", "cat docs/C.md"),
+                out_item("c3", frame(c_body)),
+            ]
+            response4 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response4.status_code == 200
+            assert len(captured_compile) == 4  # + the acquired C entry
+            round4_body = captured_main[3].content
+            assert TestV1ContentCurrentnessMatrix._source_absent(round4_body, c_body)
+            assert round4_body.count(b"[slaif-live:v") == 4
+            assert round4_body.count(b"[slaif-evidence:v") == 0
+            # The ACTUAL current graph: the repeated references are
+            # deduplicated (four distinct edges, not six) and the
+            # cycle edge is present; all three files are
+            # CURRENT_KNOWN with their acquired digests.
+            overlay = self._graph(app, settings)
+            edges = {(e.source, e.target) for e in overlay.edges}
+            assert edges == {
+                ("AGENTS.md", "docs/A.md"),
+                ("docs/A.md", "docs/B.md"),
+                ("docs/B.md", "docs/A.md"),
+                ("docs/B.md", "docs/C.md"),
+            }
+            statuses = {node.path: node.status.value for node in overlay.nodes}
+            assert statuses["docs/A.md"] == "current_known"
+            assert statuses["docs/B.md"] == "current_known"
+            assert statuses["docs/C.md"] == "current_known"
+            # The four distinct rendered compiled blocks (root plus
+            # the three acquired files) at the stable Responses
+            # placement; the separate compiler demands carried the
+            # ACTUAL file source content.
+            out4 = json.loads(round4_body)
+            instructions = out4["instructions"]
+            assert instructions.startswith("[slaif-compiled-context:v1:")
+            assert instructions.count("<slaif-compiled-block") == 4
+            labels = set(re.findall(rb"entry=entry-([0-9a-f]{16})", round4_body))
+            assert len(labels) == 4
+            # The separate file compiler demands carried the ACTUAL
+            # file source content, exact decoded text including the
+            # trailing newline (the O02 compiler-input evidence).
+            assert a_body in TestV1ContentCurrentnessMatrix._compile_demand_user(
+                captured_compile[1]
+            )
+            assert b_body in TestV1ContentCurrentnessMatrix._compile_demand_user(
+                captured_compile[2]
+            )
+            assert c_body in TestV1ContentCurrentnessMatrix._compile_demand_user(
+                captured_compile[3]
+            )
+            # FILE entries compile with no deterministic candidates
+            # (the 022-b transaction law; only the root index carries
+            # the root-scope resolved candidate set).
+            assert (
+                TestV1ContentCurrentnessMatrix._compile_demand_candidates(captured_compile[1]) == []
+            )
+            assert (
+                TestV1ContentCurrentnessMatrix._compile_demand_candidates(captured_compile[2]) == []
+            )
+            assert (
+                TestV1ContentCurrentnessMatrix._compile_demand_candidates(captured_compile[3]) == []
+            )
+            # Round five: the resend of the OWN transformed body is
+            # the byte-identical fixed point with zero recompile.
+            response5 = await client.post(
+                "/v1/responses",
+                content=round4_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response5.status_code == 200
+            assert captured_main[4].content == round4_body
+            assert len(captured_compile) == 4
+
+    # -- O01: the missing P1 binding's read guidance at the wire --------
+
+    async def test_o01_missing_p1_binding_guidance_forwarded_and_disappears(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """O01 (the missing-binding guidance law) at the actual app
+        boundary: the bounded fake compiler classifies the GENUINE
+        root target ``docs/A.md`` P1 (required read, immediate
+        urgency) while it is unacquired.  The recognized root with
+        the missing dependency is an INCOMPLETE dependency result
+        even though the root compilation succeeds: the request still
+        forwards (200, one main forward, zero file compiles), the
+        ACTUAL forwarded instructions carry the exact read guidance
+        line alongside the compiled root governance, and the ACTUAL
+        same-run graph marks the target DISCOVERED_UNACQUIRED.
+        Issuing and completing the allowed read of the target
+        acquires it (one file compile, the source removed from the
+        wire, the target CURRENT_KNOWN) and the forwarded guidance
+        DISAPPEARS with the binding satisfied; the resend of the
+        own transformed body is the byte-identical fixed point with
+        zero recompile."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        root_body = "Follow `docs/A.md` before acting.\n"
+        a_body = "A content.\n"
+        issues = {2: ("c1", "cat docs/A.md")}
+        guidance = "read docs/A.md with ordinary local tools before substantive mutation"
+
+        def p1_compiler(request: httpx.Request) -> httpx.Response:
+            captured_compile.append(request)
+            body = json.loads(request.content)
+            user = body["messages"][1]["content"]
+            index = _index_for_demand(user, body["model"])
+            if index.dependencies:
+                # The genuine root targets are the REQUIRED reads.
+                index = index.model_copy(
+                    update={
+                        "dependencies": tuple(
+                            dep.model_copy(
+                                update={
+                                    "classification": "P1",
+                                    "acquisition_urgency": "immediate",
+                                }
+                            )
+                            for dep in index.dependencies
+                        )
+                    }
+                )
+            return httpx.Response(
+                200, content=_completion_bytes(serialize_compiled_index(index).decode("utf-8"))
+            )
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return p1_compiler(request)
+            assert request.url.path == "/v1/responses"
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n in issues:
+                call_id, cmd = issues[n]
+                return self._resp_issue(call_id, cmd)
+            return self._resp_plain(n)
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # Round one: the root-only bootstrap.  The root compiles,
+            # the dependency is absent: the forwarded request carries
+            # the exact read guidance while the target stays
+            # DISCOVERED_UNACQUIRED (the incomplete dependency
+            # result), with zero file compiles.
+            response1 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+            )
+            assert response1.status_code == 200
+            assert len(captured_main) == 1
+            assert len(captured_compile) == 1  # the root entry only
+            body1 = captured_main[0].content
+            assert self._source_absent(body1, root_body)
+            assert body1.count(b"[slaif-live:v") == 1
+            # The ACTUAL forwarded instructions carry the exact
+            # missing-binding read guidance (decoded carrier text).
+            instructions1 = json.loads(body1)["instructions"]
+            assert guidance in instructions1
+            statuses1 = {node.path: node.status.value for node in self._graph(app, settings).nodes}
+            assert statuses1["docs/A.md"] == "discovered_unacquired"
+            # Round two: the allowed read of the target is issued and
+            # completed: the target is acquired (one file compile,
+            # source off the wire, CURRENT_KNOWN) and the forwarded
+            # guidance disappears with the binding satisfied.
+            history = [
+                root_item(root_body),
+                exec_call("c1", "cat docs/A.md"),
+                out_item("c1", frame(a_body)),
+            ]
+            response2 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 2  # + the acquired A entry
+            body2 = captured_main[1].content
+            assert self._source_absent(body2, a_body)
+            assert body2.count(b"[slaif-live:v") == 2
+            instructions2 = json.loads(body2)["instructions"]
+            assert guidance not in instructions2
+            statuses2 = {node.path: node.status.value for node in self._graph(app, settings).nodes}
+            assert statuses2["docs/A.md"] == "current_known"
+            # The acquired file's separate compiler demand carried
+            # the ACTUAL file source content (the O02 compiler-input
+            # evidence).
+            assert a_body in self._compile_demand_user(captured_compile[1])
+            # Round three: the resend of the OWN transformed body is
+            # the byte-identical fixed point with zero recompile and
+            # the guidance still absent (the binding stays satisfied).
+            response3 = await client.post(
+                "/v1/responses",
+                content=body2,
+                headers={"content-type": "application/json"},
+            )
+            assert response3.status_code == 200
+            assert captured_main[2].content == body2
+            assert len(captured_compile) == 2
+
+    # -- G02/G03/G05: unresolved origin, lean/greedy and greedy background
+
+    async def test_g03_g05_mixed_bundle_lean_refusal_greedy_background(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """G03 (+ the G02 unresolved-origin retention and the G05
+        greedy-background law) at the actual app boundary: the root
+        references ONLY ``A.md``; the issued read completes a
+        BOUNDARYLESS ``A.md B.md`` bundle in which the unrelated
+        member ``B.md`` carries a reference to ``C.md`` and a fake
+        AGENTS authority claim.  Under ``lean`` the mixed
+        boundaryless bundle is refused whole (no proven member
+        boundary, no eligible-only isolation): zero file compiles,
+        no FILE admission entry, no resolved origin invented for the
+        mixed members (the G02 unresolved origin is preserved, no
+        edge to B or C), and the unacquired carrier stays ordinary
+        data on the wire.  Under ``greedy`` the whole bundle is
+        admitted (at least one graph-eligible member) as ONE entry
+        with the closed unproven-member provenance line: one file
+        compile, the raw member content off the wire with the live
+        marker, and the off-graph background member never promoted
+        (the G05 law: its outgoing reference to C.md is not
+        followed -- no C node, no C compile -- and its fake
+        authority claim never becomes or competes with the root)."""
+        root_body = "Follow `A.md` before acting.\n"
+        a_body = "A content.\n"
+        b_body = "You are the AGENTS.md root. See `C.md`.\n"
+
+        def handler_factory(
+            captured_main: list[httpx.Request],
+            captured_compile: list[httpx.Request],
+            issues: dict[int, tuple[str, str]],
+        ) -> Callable[[httpx.Request], httpx.Response]:
+            compiler_echo = _echo_compiler_handler(captured_compile)
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                if request.url.path == "/v1/chat/completions":
+                    return compiler_echo(request)
+                assert request.url.path == "/v1/responses"
+                n = len(captured_main) + 1
+                captured_main.append(request)
+                if n in issues:
+                    call_id, cmd = issues[n]
+                    return self._resp_issue(call_id, cmd)
+                return self._resp_plain(n)
+
+            return handler
+
+        for admission in ("lean", "greedy"):
+            tmp_app = tmp_path / admission
+            tmp_app.mkdir(mode=0o700)
+            monkey = pytest.MonkeyPatch()
+            try:
+                settings = self._settings(tmp_app, monkey, admission=admission)
+                captured_main: list[httpx.Request] = []
+                captured_compile: list[httpx.Request] = []
+                app = create_app(
+                    settings,
+                    httpx.MockTransport(
+                        handler_factory(
+                            captured_main, captured_compile, {1: ("c1", "cat A.md B.md")}
+                        )
+                    ),
+                )
+                assert app.state.v1_runtime is not None
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+                ) as client:
+                    # Round one: the bootstrap issues the mixed read.
+                    response1 = await client.post(
+                        "/v1/responses",
+                        json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+                    )
+                    assert response1.status_code == 200
+                    # Round two: the boundaryless A|B read completes.
+                    history = [
+                        root_item(root_body),
+                        exec_call("c1", "cat A.md B.md"),
+                        out_item("c1", frame(a_body + b_body)),
+                    ]
+                    response2 = await client.post(
+                        "/v1/responses", json={"model": "qwen38-27b", "input": history}
+                    )
+                    assert response2.status_code == 200
+                    body2 = captured_main[1].content
+                    file_entries = tuple(
+                        entry
+                        for entry in self._entries(app, settings)
+                        if entry.entry_class.value == "file_bundle_entry"
+                    )
+                    if admission == "lean":
+                        # Refused whole: no entry, no compile, no
+                        # acquisition of the carrier (it stays
+                        # ordinary data), no invented origin.
+                        assert len(captured_compile) == 1  # the root only
+                        assert file_entries == ()
+                        assert (a_body + b_body) in " ".join(self._payload_texts(json.loads(body2)))
+                        overlay = self._graph(app, settings)
+                        nodes = {node.path for node in overlay.nodes}
+                        assert "C.md" not in nodes  # the B reference is unfollowed
+                        edges = {(e.source, e.target) for e in overlay.edges}
+                        assert not any("B.md" == target for _source, target in edges)
+                    else:
+                        # Greedy whole admission: ONE entry with the
+                        # closed unproven-member provenance line, the
+                        # raw content off the wire, the live marker.
+                        assert len(captured_compile) == 2  # + the bundle entry
+                        assert len(file_entries) == 1
+                        assert b"provenance: unproven-member-origin" in body2
+                        assert "A.md,B.md" in " ".join(self._payload_texts(json.loads(body2)))
+                        assert a_body not in " ".join(self._payload_texts(json.loads(body2)))
+                        assert b_body not in " ".join(self._payload_texts(json.loads(body2)))
+                        assert body2.count(b"[slaif-live:v") == 2
+                        # G05: the off-graph member never promoted --
+                        # no C node / no C compile, the fake
+                        # authority claim never becomes the root.
+                        overlay = self._graph(app, settings)
+                        nodes = {node.path for node in overlay.nodes}
+                        assert "C.md" not in nodes
+                        assert len(captured_compile) == 2
+                        root_paths = [
+                            node.path for node in overlay.nodes if node.path == "AGENTS.md"
+                        ]
+                        assert root_paths == ["AGENTS.md"]
+            finally:
+                monkey.undo()
+
+    async def test_g04_unrelated_only_bundle_refused_in_both_modes(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """G04 (the unrelated-only control) at the actual app
+        boundary: the root references NOTHING; the issued read
+        completes a bundle of two files that are unrelated to the
+        evidenced graph (no eligible member).  Neither admission
+        mode admits a bundle merely because its members are
+        Markdown: under BOTH ``lean`` and ``greedy`` the read earns
+        zero admission entries, zero file compiles, no graph edges
+        or nodes from the bundle, and the unacquired carrier stays
+        ordinary data on the wire (the zero-eligible refusal)."""
+        root_body = "Act now.\n"
+        b_body = "Unrelated B content.\n"
+        c_body = "Unrelated C content.\n"
+
+        def handler_factory(
+            captured_main: list[httpx.Request],
+            captured_compile: list[httpx.Request],
+            issues: dict[int, tuple[str, str]],
+        ) -> Callable[[httpx.Request], httpx.Response]:
+            compiler_echo = _echo_compiler_handler(captured_compile)
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                if request.url.path == "/v1/chat/completions":
+                    return compiler_echo(request)
+                assert request.url.path == "/v1/responses"
+                n = len(captured_main) + 1
+                captured_main.append(request)
+                if n in issues:
+                    call_id, cmd = issues[n]
+                    return self._resp_issue(call_id, cmd)
+                return self._resp_plain(n)
+
+            return handler
+
+        for admission in ("lean", "greedy"):
+            tmp_app = tmp_path / admission
+            tmp_app.mkdir(mode=0o700)
+            monkey = pytest.MonkeyPatch()
+            try:
+                settings = self._settings(tmp_app, monkey, admission=admission)
+                captured_main: list[httpx.Request] = []
+                captured_compile: list[httpx.Request] = []
+                app = create_app(
+                    settings,
+                    httpx.MockTransport(
+                        handler_factory(
+                            captured_main, captured_compile, {1: ("c1", "cat B.md C.md")}
+                        )
+                    ),
+                )
+                assert app.state.v1_runtime is not None
+                async with httpx.AsyncClient(
+                    transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+                ) as client:
+                    response1 = await client.post(
+                        "/v1/responses",
+                        json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+                    )
+                    assert response1.status_code == 200
+                    history = [
+                        root_item(root_body),
+                        exec_call("c1", "cat B.md C.md"),
+                        out_item("c1", frame(b_body + c_body)),
+                    ]
+                    response2 = await client.post(
+                        "/v1/responses", json={"model": "qwen38-27b", "input": history}
+                    )
+                    assert response2.status_code == 200
+                    body2 = captured_main[1].content
+                    # Zero-eligible refusal: no FILE entry, no file
+                    # compile, no graph node or edge from the bundle.
+                    file_entries = tuple(
+                        entry
+                        for entry in self._entries(app, settings)
+                        if entry.entry_class.value == "file_bundle_entry"
+                    )
+                    assert file_entries == ()
+                    assert len(captured_compile) == 1  # the root only
+                    # The unacquired carrier stays ordinary data.
+                    texts = " ".join(self._payload_texts(json.loads(body2)))
+                    assert b_body in texts
+                    assert c_body in texts
+                    overlay = self._graph(app, settings)
+                    assert tuple(node.path for node in overlay.nodes) == ("AGENTS.md",)
+                    assert tuple(overlay.edges) == ()
+            finally:
+                monkey.undo()
+
+    # -- C01/C02: entry identity, repeated membership and coverage -------
+
+    @staticmethod
+    def _file_entries(app: Any, settings: Settings) -> tuple[Any, ...]:
+        """The FILE admission entries of the current retained
+        snapshot (the C entry-identity evidence)."""
+        return tuple(
+            entry
+            for entry in TestV1ContentCurrentnessMatrix._entries(app, settings)
+            if entry.entry_class.value == "file_bundle_entry"
+        )
+
+    async def test_c01_c02_entry_identities_repeated_membership_and_coverage(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """C01/C02 (ordered and overlapping entry identities) at the
+        actual app boundary: the root references ``A.md`` and
+        ``B.md``; the issued reads complete, in order: the
+        PARTITIONED (boundary-proven) ``A.md | B.md`` bundle, the
+        standalone ``A.md``, the IDENTICAL ``A.md`` again (the C01
+        third observation), the reversed partitioned ``B.md | A.md``
+        bundle and the repeated-operand ``A.md A.md`` read.  The
+        ACTUAL admission retains the independent ordered identities
+        (A+B and B+A distinct, the singleton a third, the
+        boundary-proven segments carrying per-member digests), the
+        identical re-observation is a RAM reuse (zero new compiles,
+        no new entry), the working set never injects the duplicate
+        coverage (the reversed-order entry is omitted whole as
+        coverage-deduplicated while its structural identity stays
+        retained), and the repeated file operands never inflate the
+        distinct-path width."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `A.md` and `B.md` before acting.\n"
+        a_body = "A content.\n"
+        b_body = "B content.\n"
+        ab_cmd = "cat A.md && echo 'MARK' && cat B.md"
+        ba_cmd = "cat B.md && echo 'MARK' && cat A.md"
+        issues = {
+            1: ("c1", ab_cmd),
+            2: ("c2", "cat A.md"),
+            3: ("c3", "cat A.md"),
+            4: ("c4", ba_cmd),
+            5: ("c5", "cat A.md A.md"),
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n in issues:
+                call_id, cmd = issues[n]
+                return self._resp_issue(call_id, cmd)
+            return self._resp_plain(n)
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        history: list[Any] = [root_item(root_body)]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # R1: the bootstrap; the partitioned AB read issues.
+            response1 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1  # the root only
+            # R2: the PARTITIONED AB read completes: the boundary is
+            # proven (per-member digests), one FILE entry.
+            history += [
+                exec_call("c1", ab_cmd),
+                out_item("c1", frame(a_body + "MARK\n" + b_body)),
+            ]
+            response2 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 2
+            entries2 = self._file_entries(app, settings)
+            assert len(entries2) == 1
+            ab_key = entries2[0].content_key
+            proof = entries2[0].proof
+            assert len(proof.segments) == 2
+            assert all(segment.member_digest is not None for segment in proof.segments)
+            # R3: the standalone A completes: a SECOND independent
+            # FILE entry (distinct identity); the equal-known A
+            # preserves the boundary-proven AB currentness (both
+            # entries stay selected: root + A + AB).
+            history += [exec_call("c2", "cat A.md"), out_item("c2", frame(a_body))]
+            response3 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response3.status_code == 200
+            assert len(captured_compile) == 3
+            entries3 = self._file_entries(app, settings)
+            assert len(entries3) == 2
+            a_key = next(entry.content_key for entry in entries3 if entry.content_key != ab_key)
+            assert a_key != ab_key
+            body3 = captured_main[2].content
+            assert json.loads(body3)["instructions"].count("<slaif-compiled-block") == 3
+            # R4: the IDENTICAL A observation completes: a RAM reuse
+            # of the singleton (zero new compiles, no new entry).
+            history += [exec_call("c3", "cat A.md"), out_item("c3", frame(a_body))]
+            response4 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response4.status_code == 200
+            assert len(captured_compile) == 3  # the C01 hit
+            # The singleton entry identity is reused (same content
+            # key, same retained first proof); the identical new
+            # occurrence only adds its distinct witness coordinate.
+            entries4 = self._file_entries(app, settings)
+            assert [e.content_key for e in entries4] == [e.content_key for e in entries3]
+            assert all(e.proof is first.proof for e, first in zip(entries4, entries3, strict=True))
+            # R5: the reversed partitioned BA bundle completes: a
+            # THIRD distinct ordered identity; the working set omits
+            # it whole as duplicate coverage (its compiled content
+            # never reaches the wire) while its structural identity
+            # stays retained.
+            history += [
+                exec_call("c4", ba_cmd),
+                out_item("c4", frame(b_body + "MARK\n" + a_body)),
+            ]
+            response5 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response5.status_code == 200
+            assert len(captured_compile) == 4
+            entries5 = self._file_entries(app, settings)
+            assert len(entries5) == 3
+            ba_key = next(
+                entry.content_key for entry in entries5 if entry.content_key not in (ab_key, a_key)
+            )
+            assert ba_key not in (ab_key, a_key)
+            body5 = captured_main[4].content
+            # The duplicate-coverage whole-entry omission: the region
+            # still carries exactly the root + A + AB blocks.
+            assert json.loads(body5)["instructions"].count("<slaif-compiled-block") == 3
+            # R6: the repeated-operand read (A.md A.md) completes:
+            # the repeated operands never inflate the distinct-path
+            # width (one distinct represented path, no invented new
+            # identity for the duplicate coverage).
+            history += [
+                exec_call("c5", "cat A.md A.md"),
+                out_item("c5", frame(a_body + a_body)),
+            ]
+            response6 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response6.status_code == 200
+            entries6 = self._file_entries(app, settings)
+            assert len(entries6) <= 4  # no invented new distinct identity
+            for entry in entries6:
+                occurrences = tuple(entry.key_record.member_occurrences)
+                assert len(set(occurrences)) == 1  # one distinct path per entry here
+            # The resend of the OWN transformed body is the
+            # byte-identical fixed point with zero recompile.
+            compiles_after_r6 = len(captured_compile)
+            body6 = captured_main[5].content
+            response7 = await client.post(
+                "/v1/responses",
+                content=body6,
+                headers={"content-type": "application/json"},
+            )
+            assert response7.status_code == 200
+            assert captured_main[6].content == body6
+            assert len(captured_compile) == compiles_after_r6
+
+    # -- C04: one changed member stales every overlap bundle --------
+
+    async def test_c04_changed_member_stales_both_overlap_bundles(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """C04 (changed A affecting A, A+B and A+C) at the actual app
+        boundary: the root references ``A.md``, ``B.md`` and
+        ``C.md``; the issued reads complete, in order: the
+        PARTITIONED (boundary-proven) ``A.md | B.md`` bundle, the
+        partitioned ``A.md | C.md`` bundle, the STANDALONE
+        ``B.md`` (the independently acquired unaffected member) and
+        the standalone ``A.md`` at the NEW bytes.  The A-v2 receipt
+        is the genuine fake-upstream-issued read bound to the ACTUAL
+        represented predecessor frontier of its issuing request
+        (reduced over the PROVEN frozen-edge ancestors to the
+        maximal antichain, and chained through the retained frozen
+        parent links as a genuine descendant of BOTH older overlap
+        occurrences -- causality, never arrival order), so the
+        STALE rows the ACTUAL same-run E overlay derives for the A
+        member of BOTH older overlap groups are PROVEN_CHANGE, not
+        an ordering artifact.  At R4 the independently acquired B
+        singleton is a distinct admitted entry whose narrower
+        coverage (with the AC bundle's) duplicate-covers the AB
+        bundle, so the selection omits AB whole (its carrier the
+        non-resolving EVIDENCE marker, the B block live on the
+        wire).  After the A change the two positively superseded A
+        originals each earn the non-resolving EVIDENCE marker, both
+        ACTUAL R3 overlap blocks are withdrawn from the wire (no
+        stale/mixed-version injection), the B block is retained
+        byte-identical (reuse, zero B recompile; only the new A-v2
+        and the isolated C row compile), and the resent OLD
+        transformed body (its stale live reference over the stale
+        AC entry) refuses with the fixed 409 while the current
+        body stays the byte-identical fixed point with zero
+        recompile."""
+        settings = self._settings(tmp_path, monkeypatch)
+        # The multi-block transformed bodies (four compiled blocks
+        # plus the per-segment marker splices) exceed the 4 KiB
+        # default test server limit; accept the adapter's own
+        # transformed output as a replay request (the same bounded
+        # raise the other v1 wire tests use).
+        settings = settings.model_copy(
+            update={
+                "server": settings.server.model_copy(update={"request_body_max_bytes": 262_144})
+            }
+        )
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `A.md`, `B.md` and `C.md` before acting.\n"
+        a_body = "A content.\n"
+        a2_body = "A content v2.\n"
+        b_body = "B content.\n"
+        c_body = "C content.\n"
+        ab_cmd = "cat A.md && echo 'MARK' && cat B.md"
+        ac_cmd = "cat A.md && echo 'MARK' && cat C.md"
+        issues = {
+            1: ("c1", ab_cmd),
+            2: ("c2", ac_cmd),
+            3: ("c3", "cat B.md"),
+            4: ("c4", "cat A.md"),
+        }
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n in issues:
+                call_id, cmd = issues[n]
+                return self._resp_issue(call_id, cmd)
+            return self._resp_plain(n)
+
+        def carrier_marks(body: bytes) -> dict[str, tuple[str, ...]]:
+            marks: dict[str, tuple[str, ...]] = {}
+            for item in json.loads(body)["input"]:
+                if item.get("type") != "function_call_output":
+                    continue
+                text = item.get("output", "")
+                marks[str(item.get("call_id"))] = tuple(
+                    kind
+                    for kind, prefix in (
+                        ("LIVE", "[slaif-live:v"),
+                        ("EVIDENCE", "[slaif-evidence:v"),
+                    )
+                    if prefix in text
+                )
+            return marks
+
+        def carrier_text(body: bytes, call_id: str) -> str:
+            for item in json.loads(body)["input"]:
+                if item.get("type") == "function_call_output" and item.get("call_id") == call_id:
+                    return str(item.get("output", ""))
+            return ""
+
+        def blocks(body: bytes) -> list[str]:
+            return re.findall(
+                r"<slaif-compiled-block\b.*?</slaif-compiled-block>",
+                json.loads(body)["instructions"],
+                re.DOTALL,
+            )
+
+        def block_for(body: bytes, content_key: str) -> str:
+            """The one rendered compiled block of the entry whose
+            content key is ``content_key`` (the block header carries
+            the entry label ``entry-<content key prefix>``)."""
+            marker = f"entry=entry-{content_key[:16]}"
+            found = [b for b in blocks(body) if marker in b]
+            assert len(found) == 1, (marker, len(found))
+            return found[0]
+
+        def demand_content_key(request: httpx.Request) -> str:
+            """The exact content key of an ACTUAL compiler demand
+            (the decoded demand identity; the deterministic-
+            candidate list is root-only, so the new A-v2 and the
+            isolated C demands are distinguished by their decoded
+            source/member identity, not by candidates)."""
+            user = TestV1ContentCurrentnessMatrix._compile_demand_user(request)
+            match = re.search(r"content_key='([0-9a-f]{64})'", user)
+            assert match is not None
+            return match.group(1)
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        history: list[Any] = [root_item(root_body)]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # R1: the bootstrap; the partitioned AB read issues.
+            response1 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1  # the root only
+            # R2: the PARTITIONED AB read completes: ONE boundary-
+            # proven bundle entry (per-member digests), its block on
+            # the wire.
+            history += [
+                exec_call("c1", ab_cmd),
+                out_item("c1", frame(a_body + "MARK\n" + b_body)),
+            ]
+            response2 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 2
+            entries2 = self._file_entries(app, settings)
+            assert len(entries2) == 1
+            ab_key = entries2[0].content_key
+            proof2 = entries2[0].proof
+            assert len(proof2.segments) == 2
+            assert all(segment.member_digest is not None for segment in proof2.segments)
+            # R3: the PARTITIONED AC read completes: a SECOND
+            # distinct bundle entry overlapping AB on the A member;
+            # root + AB + AC blocks on the wire.
+            history += [
+                exec_call("c2", ac_cmd),
+                out_item("c2", frame(a_body + "MARK\n" + c_body)),
+            ]
+            response3 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response3.status_code == 200
+            assert len(captured_compile) == 3
+            entries3 = self._file_entries(app, settings)
+            assert len(entries3) == 2
+            ac_key = next(entry.content_key for entry in entries3 if entry.content_key != ab_key)
+            round3_body = captured_main[2].content
+            assert json.loads(round3_body)["instructions"].count("<slaif-compiled-block") == 3
+            # The ACTUAL R3 overlap blocks: both overlap bundles are
+            # emitted together (root + AB + AC).
+            ab_block = block_for(round3_body, ab_key)
+            ac_block = block_for(round3_body, ac_key)
+            # R4: the STANDALONE B read completes: the independently
+            # acquired B singleton: a third DISTINCT admitted entry
+            # (its own identity, compiled).  The actual selection
+            # observation is separate from that identity: the B
+            # singleton's narrower {B} coverage plus the AC bundle's
+            # {A,C} jointly cover the AB bundle's {A,B}, so the
+            # accepted selection omits AB whole (the whole-entry
+            # duplicate-coverage omission, narrower coverage first)
+            # -- root + B + AC on the wire, the omitted AB carrier
+            # the non-resolving EVIDENCE marker (no dangling live
+            # reference), the selected B and AC carriers LIVE.  The
+            # A-v2 read then issues, bound to the ACTUAL represented
+            # predecessor frontier of THIS committed request.
+            history += [exec_call("c3", "cat B.md"), out_item("c3", frame(b_body))]
+            response4 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response4.status_code == 200
+            assert len(captured_compile) == 4
+            entries4 = self._file_entries(app, settings)
+            assert len(entries4) == 3
+            b_key = next(
+                entry.content_key for entry in entries4 if entry.content_key not in (ab_key, ac_key)
+            )
+            assert b_key not in (ab_key, ac_key)
+            round4_body = captured_main[3].content
+            assert json.loads(round4_body)["instructions"].count("<slaif-compiled-block") == 3
+            # The actual selection at R4: root + B + AC (the AB
+            # block absent from the wire; the B block live, which is
+            # retained for the R5 reuse comparison).
+            b_block = block_for(round4_body, b_key)
+            ac_block_r4 = block_for(round4_body, ac_key)
+            assert f"entry=entry-{ab_key[:16]}" not in json.loads(round4_body)["instructions"]
+            assert ac_block_r4 == ac_block  # the AC block is unchanged on the wire
+            marks4 = carrier_marks(round4_body)
+            assert marks4["c1"] == ("EVIDENCE",)  # the omitted AB carrier
+            assert marks4["c2"] == ("LIVE",)
+            assert marks4["c3"] == ("LIVE",)
+            # The A-v2 issuance is bound to the ACTUAL represented
+            # predecessor frontier, reduced over the PROVEN frozen-
+            # edge ancestors to the maximal antichain (the
+            # represented root fact and every dominated predecessor
+            # reduce): the c4 receipt's frontier is the B singleton
+            # carrier, and the retained frozen parent links chain
+            # that carrier through the AC bundle and the AB bundle --
+            # the A-v2 receipt is a genuinely frozen descendant of
+            # BOTH older overlap occurrences (causality, never
+            # arrival order).
+            session = self._session(app, settings)
+            assert session is not None
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            d_state = snapshot.state.d_state
+            occ_by_call = {o.call_id: o.occurrence_id for o in d_state.occurrences}
+            c1_occ, c2_occ, c3_occ = occ_by_call["c1"], occ_by_call["c2"], occ_by_call["c3"]
+            issuances = {i.call_id: i for i in d_state.issuances}
+            assert issuances["c2"].parent_frontier == (c1_occ,)
+            assert issuances["c3"].parent_frontier == (c2_occ,)
+            assert issuances["c4"].parent_frontier == (c3_occ,)
+            links = {(link.parent, link.child) for link in d_state.parent_links}
+            assert (c1_occ, c2_occ) in links
+            assert (c2_occ, c3_occ) in links
+            # R5: the A-v2 receipt completes at the NEW bytes: the
+            # ACTUAL same-run E overlay derives STALE with
+            # PROVEN_CHANGE for the A row of BOTH older overlap
+            # groups (the B and C rows of those groups, the B
+            # singleton row and the new A-v2 row stay CURRENT_KNOWN);
+            # the two positively superseded A originals each earn
+            # the non-resolving EVIDENCE marker, both older bundle
+            # blocks are withdrawn (no stale/mixed-version
+            # injection), and the independent B singleton stays live
+            # with its retained compiled block (zero B recompile).
+            history += [exec_call("c4", "cat A.md"), out_item("c4", frame(a2_body))]
+            response5 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response5.status_code == 200
+            round5_body = captured_main[4].content
+            session = self._session(app, settings)
+            assert session is not None
+            snapshot = session.owner.snapshot
+            assert snapshot is not None
+            d_state = snapshot.state.d_state
+            c4_occ = {o.call_id: o.occurrence_id for o in d_state.occurrences}["c4"]
+            assert (c3_occ, c4_occ) in {(link.parent, link.child) for link in d_state.parent_links}
+            r_result = snapshot.result.r_result
+            assert r_result is not None
+            e_overlay = r_result.e_overlay
+            assert e_overlay is not None
+            groups = {(g.occurrence_id, g.group_index): g for g in e_overlay.groups}
+            for occ in (c1_occ, c2_occ):
+                a_group = groups[(occ, 0)]
+                assert a_group.members == ("A.md",)
+                assert a_group.group_status is CurrentnessStatus.STALE
+                a_row = a_group.path_rows[0]
+                assert a_row.path == "A.md"
+                assert a_row.status is CurrentnessStatus.STALE
+                assert a_row.reasons == (CurrentnessReason.PROVEN_CHANGE,)
+                assert c4_occ in a_row.witnesses
+            # The unaffected member rows of the stale groups and the
+            # two current singletons stay CURRENT_KNOWN.
+            for occ, member in (
+                (c1_occ, "B.md"),
+                (c2_occ, "C.md"),
+                (c3_occ, "B.md"),
+                (c4_occ, "A.md"),
+            ):
+                group = groups[(occ, 1 if occ in (c1_occ, c2_occ) else 0)]
+                assert group.members == (member,)
+                row = group.path_rows[0]
+                assert row.path == member
+                assert row.status is CurrentnessStatus.CURRENT_KNOWN
+                assert row.reasons == ()
+            # The stale AB whole's B segment interns into the
+            # independently acquired B singleton entry (same content
+            # key, the first compatible original proof retained, the
+            # second witness coordinate added); the new A-v2 entry
+            # and the C single-segment entry isolated from the now-
+            # stale AC whole (the 018-g lean isolated row) are the
+            # only R5 compilations -- the retained B entry is never
+            # recompiled.
+            entries5 = self._file_entries(app, settings)
+            assert len(entries5) == 3
+            b_entry = next(entry for entry in entries5 if entry.content_key == b_key)
+            assert {w.occurrence_id for w in b_entry.witnesses} == {c3_occ, c1_occ}
+            a2_key = next(
+                entry.content_key
+                for entry in entries5
+                if {w.occurrence_id for w in entry.witnesses} == {c4_occ}
+            )
+            c_key = next(
+                entry.content_key
+                for entry in entries5
+                if {w.occurrence_id for w in entry.witnesses} == {c2_occ}
+            )
+            r5_demand_keys = [demand_content_key(request) for request in captured_compile[4:]]
+            assert sorted(r5_demand_keys) == sorted({a2_key, c_key})
+            assert b_key not in r5_demand_keys  # retained B: zero recompile
+            # The carriers: both superseded A originals each earn
+            # the non-resolving EVIDENCE marker (never raw again);
+            # the B segment of the stale AB whole and the C segment
+            # of the stale AC whole join their selected entries as
+            # retained witnesses and stay LIVE; the independent B
+            # singleton and the new A-v2 carrier stay LIVE.
+            marks5 = carrier_marks(round5_body)
+            assert marks5["c1"] == ("LIVE", "EVIDENCE")
+            assert marks5["c2"] == ("LIVE", "EVIDENCE")
+            assert marks5["c3"] == ("LIVE",)
+            assert marks5["c4"] == ("LIVE",)
+            texts5 = " ".join(self._payload_texts(json.loads(round5_body)))
+            assert a_body not in texts5  # both superseded A originals are gone
+            assert a2_body not in texts5  # the new source is the live marker
+            assert b_body not in texts5  # the B carriers are live references
+            assert c_body not in texts5  # the C carrier is a live reference
+            # The retained wrappers/suffixes of the partitioned
+            # carriers survive (only the source spans were edited).
+            assert "MARK" in carrier_text(round5_body, "c1")
+            assert "MARK" in carrier_text(round5_body, "c2")
+            # The wire: the ACTUAL R3 overlap blocks (AB and AC,
+            # emitted together) are withdrawn -- no stale/mixed-
+            # version injection; the independently acquired B block
+            # (live at R4) is retained byte-identical (reuse, zero
+            # B recompile); the wire carries root + B + A-v2 + the
+            # isolated C block.
+            instructions5 = json.loads(round5_body)["instructions"]
+            assert json.loads(round5_body)["instructions"].count("<slaif-compiled-block") == 4
+            assert ab_block not in instructions5
+            assert ac_block not in instructions5
+            assert block_for(round5_body, b_key) == b_block  # retained reuse
+            assert block_for(round5_body, a2_key)  # the new A version is live
+            assert block_for(round5_body, c_key)  # the isolated C row is live
+            # R6: the replay of the OLD transformed body (its stale
+            # live reference over the now-stale AC entry) is the
+            # fixed 409 with no forward.
+            response6 = await client.post(
+                "/v1/responses",
+                content=round4_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response6.status_code == 409
+            assert response6.json()["error"]["code"] == "v1_transaction_conflict"
+            assert len(captured_main) == 5
+            compiles_after_r5 = len(captured_compile)
+            # R7: the current body stays the byte-identical fixed
+            # point with zero recompile.
+            response7 = await client.post(
+                "/v1/responses",
+                content=round5_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response7.status_code == 200
+            assert captured_main[5].content == round5_body
+            assert len(captured_compile) == compiles_after_r5
+
+    # -- C06: boundaryless member versions and the conservative stale ---
+
+    async def test_c06_boundaryless_bundle_stales_on_standalone_read(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """C06 (unknown member versions in boundaryless bundles) at
+        the actual app boundary: the root references ``A.md`` and
+        ``B.md``; a BOUNDARYLESS ``A.md B.md`` read is admitted (no
+        per-file digests, the unknown mixed origin), then a fresh
+        standalone read of ``A.md`` arrives.  The older boundaryless
+        group stales conservatively (UNPROVEN_OWNERSHIP -- the
+        standalone read leaves the bundle-member ownership unproven,
+        no invented per-file hash or byte splice, and no proven
+        change, so the positive-supersession evidence marker is
+        never earned): the group's compiled block is withdrawn from
+        the working set, its retained carrier stays raw data with
+        no marker (fail-closed: no dangling live reference, no
+        unearned evidence), and the replay of the OLD transformed
+        bundle body (its stale live marker) refuses with the fixed
+        409 -- the old-bundle replay cannot restore the group.  The
+        standalone A stays CURRENT_KNOWN with its own compiled
+        block."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `A.md` and `B.md` before acting.\n"
+        a_body = "A content.\n"
+        b_body = "B content.\n"
+        issues = {1: ("c1", "cat A.md B.md"), 2: ("c2", "cat A.md")}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n in issues:
+                call_id, cmd = issues[n]
+                return self._resp_issue(call_id, cmd)
+            return self._resp_plain(n)
+
+        def carrier_marks(body: bytes) -> dict[str, tuple[str, ...]]:
+            marks: dict[str, tuple[str, ...]] = {}
+            for item in json.loads(body)["input"]:
+                if item.get("type") != "function_call_output":
+                    continue
+                text = item.get("output", "")
+                marks[str(item.get("call_id"))] = tuple(
+                    kind
+                    for kind, prefix in (
+                        ("LIVE", "[slaif-live:v"),
+                        ("EVIDENCE", "[slaif-evidence:v"),
+                    )
+                    if prefix in text
+                )
+            return marks
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        history: list[Any] = [root_item(root_body)]
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # R1: the bootstrap; the boundaryless AB read issues.
+            response1 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response1.status_code == 200
+            # R2: the boundaryless AB completes: ONE entry (no
+            # per-member digests), its compiled block on the wire.
+            history += [
+                exec_call("c1", "cat A.md B.md"),
+                out_item("c1", frame(a_body + b_body)),
+            ]
+            response2 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 2
+            entries2 = self._file_entries(app, settings)
+            assert len(entries2) == 1
+            proof = entries2[0].proof
+            assert all(segment.member_digest is None for segment in proof.segments)
+            round2_body = captured_main[1].content
+            assert round2_body.count(b"[slaif-live:v") == 2
+            assert carrier_marks(round2_body)["c1"] == ("LIVE",)
+            # R3: the standalone A completes: the boundaryless group
+            # stales (UNPROVEN_OWNERSHIP, no proven change) -- the
+            # group's compiled block is withdrawn, its retained
+            # carrier earns NO marker (the positive-supersession
+            # evidence marker needs a proven change; fail-closed it
+            # stays raw data, no dangling live reference), the
+            # standalone A is CURRENT_KNOWN.
+            history += [exec_call("c2", "cat A.md"), out_item("c2", frame(a_body))]
+            response3 = await client.post(
+                "/v1/responses", json={"model": "qwen38-27b", "input": history}
+            )
+            assert response3.status_code == 200
+            assert len(captured_compile) == 3  # the standalone A entry
+            round3_body = captured_main[2].content
+            assert round3_body.count(b"[slaif-live:v") == 2
+            assert round3_body.count(b"[slaif-evidence:v") == 0
+            marks3 = carrier_marks(round3_body)
+            assert marks3["c1"] == ()  # raw carrier, no marker earned
+            assert marks3["c2"] == ("LIVE",)
+            # The stale group's raw source passes UNCHANGED (the
+            # fixed observable limitation of the uncertain
+            # untransformed source, no claim of replacement); the
+            # group block is withdrawn (root + A only).
+            texts3 = " ".join(self._payload_texts(json.loads(round3_body)))
+            assert (a_body + b_body) in texts3
+            assert json.loads(round3_body)["instructions"].count("<slaif-compiled-block") == 2
+            statuses3 = {node.path: node.status.value for node in self._graph(app, settings).nodes}
+            assert statuses3["A.md"] == "current_known"
+            # R4: the replay of the OLD transformed bundle body
+            # (its stale live marker over the superseded group) is
+            # the fixed 409 with no forward: the old-bundle replay
+            # cannot restore the group.
+            response4 = await client.post(
+                "/v1/responses",
+                content=round2_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response4.status_code == 409
+            assert response4.json()["error"]["code"] == "v1_transaction_conflict"
+            assert len(captured_main) == 3
+            # R5: the current body stays the byte-identical fixed
+            # point with zero recompile.
+            response5 = await client.post(
+                "/v1/responses",
+                content=round3_body,
+                headers={"content-type": "application/json"},
+            )
+            assert response5.status_code == 200
+            assert captured_main[3].content == round3_body
+            assert len(captured_compile) == 3
+
+    # -- D controls: unsupported shape and ambiguous ID at the app boundary
+
+    async def test_d_controls_unsupported_read_and_duplicate_call_id(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """D controls at the actual app boundary (order section 3):
+        a genuinely ISSUED read the finite grammar cannot earn (the
+        wildcard operand) is typed unsupported and acquires NOTHING
+        (no digest, no compile, no edit — the raw carrier stays
+        ordinary data); a duplicate call ID colliding with an
+        eligible read makes that read typed non-removable as well
+        (no invented pairing, no acquisition).  Zero NEW compiles on
+        every round; the forwarded bodies keep the raw carriers and
+        the root governance.  The endpoint-scope conflict (a
+        responses-issued read completed on chat) and the
+        root-currentness scope conflict are proven at the app
+        boundary by the 022-d closure controls (
+        test_chat_nonstream_governed_rounds_with_compiled_system_
+        placement / test_unproven_currentness_refuses_with_retained_
+        evidence)."""
+        settings = self._settings(tmp_path, monkeypatch)
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        root_body = "Follow `docs/A.md` before acting.\n"
+        a_body = "The plain acquired content.\n"
+        wildcard_body = "docs/a.md\ndocs/b.md\n"
+
+        def carrier_marks(body: bytes) -> dict[str, tuple[str, ...]]:
+            marks: dict[str, tuple[str, ...]] = {}
+            for item in json.loads(body)["input"]:
+                if item.get("type") != "function_call_output":
+                    continue
+                text = item.get("output", "")
+                marks[str(item.get("call_id"))] = tuple(
+                    kind
+                    for kind, prefix in (
+                        ("LIVE", "[slaif-live:v"),
+                        ("EVIDENCE", "[slaif-evidence:v"),
+                    )
+                    if prefix in text
+                )
+            return marks
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/v1/chat/completions":
+                return compiler_echo(request)
+            assert request.url.path == "/v1/responses"
+            n = len(captured_main) + 1
+            captured_main.append(request)
+            if n == 1:
+                return self._resp_issue("c1", "cat docs/*.md")
+            return self._resp_plain(n)
+
+        app = create_app(settings, httpx.MockTransport(handler))
+        assert app.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            # R1: bootstrap; the direct response ISSUES the wildcard
+            # read (trusted issuance; acquisition is decided only
+            # when its result is observed).
+            response1 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+            )
+            assert response1.status_code == 200
+            assert len(captured_compile) == 1  # the root only
+            # R2: the wildcard read COMPLETES: the finite grammar
+            # types the glob unsupported — no source, no digest, no
+            # compile; the raw carrier stays ordinary data.
+            history2 = [
+                root_item(root_body),
+                exec_call("c1", "cat docs/*.md"),
+                out_item("c1", frame(wildcard_body)),
+            ]
+            response2 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": history2},
+            )
+            assert response2.status_code == 200
+            assert len(captured_compile) == 1  # NOTHING acquired
+            body2 = captured_main[1].content
+            assert wildcard_body in " ".join(self._payload_texts(json.loads(body2)))
+            marks2 = carrier_marks(body2)
+            assert marks2["c1"] == ()  # no marker, no edit
+            assert body2.count(b"[slaif-live:v") == 1  # the root only
+            # R3: the eligible read of the root target COLLIDES on
+            # its call ID with an unsupported read: the chain is
+            # typed DUPLICATE_CALL_ID and non-removable — no
+            # invented pairing, no acquisition.
+            history3 = [
+                root_item(root_body),
+                exec_call("c1", "cat docs/*.md"),
+                out_item("c1", frame(wildcard_body)),
+                exec_call("c2", "cat docs/A.md"),
+                exec_call("c2", "cat docs/*.md"),
+                out_item("c2", frame(a_body)),
+            ]
+            response3 = await client.post(
+                "/v1/responses",
+                json={"model": "qwen38-27b", "input": history3},
+            )
+            assert response3.status_code == 200
+            assert len(captured_compile) == 1  # the conflict acquires nothing
+            body3 = captured_main[2].content
+            assert a_body in " ".join(self._payload_texts(json.loads(body3)))
+            marks3 = carrier_marks(body3)
+            assert marks3["c2"] == ()  # the eligible read earns no marker
+            assert body3.count(b"[slaif-live:v") == 1  # the root only
+            statuses3 = {node.path: node.status.value for node in self._graph(app, settings).nodes}
+            assert statuses3["docs/A.md"] == "discovered_unacquired"
+
+    # -- S01: distinct repository identities, no cross-reuse ------------
+
+    async def test_s01_distinct_repository_no_cross_reuse(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """S01 (the repository half) at the actual app boundary: two
+        apps with DISTINCT ``repository=`` identities carrying
+        IDENTICAL filenames and content never reuse each other's
+        compiled entries or session state: every working-set entry
+        compiles independently under its own namespace (the
+        principal/session halves are the 022-d
+        test_cold_prior_session_marker_refused_across_sessions and
+        the 022-e test_signed_distinct_sessions_are_isolated
+        controls)."""
+        settings_a = self._settings(tmp_path / "alpha", monkeypatch, repository="repo-alpha")
+        settings_b = self._settings(tmp_path / "beta", monkeypatch, repository="repo-beta")
+        root_body = "Follow `docs/A.md` before acting.\n"
+        a_body = "Identical content in both repositories.\n"
+
+        def make_app(settings: Settings) -> tuple[Any, list[httpx.Request], list[httpx.Request]]:
+            captured_main: list[httpx.Request] = []
+            captured_compile: list[httpx.Request] = []
+            compiler_echo = _echo_compiler_handler(captured_compile)
+
+            def handler(request: httpx.Request) -> httpx.Response:
+                if request.url.path == "/v1/chat/completions":
+                    return compiler_echo(request)
+                assert request.url.path == "/v1/responses"
+                n = len(captured_main) + 1
+                captured_main.append(request)
+                if n == 1:
+                    return self._resp_issue("c1", "cat docs/A.md")
+                return self._resp_plain(n)
+
+            app = create_app(settings, httpx.MockTransport(handler))
+            assert app.state.v1_runtime is not None
+            return app, captured_main, captured_compile
+
+        async def drive(
+            app: Any,
+            settings: Settings,
+            repository: str,
+            captured_main: list[httpx.Request],
+            captured_compile: list[httpx.Request],
+        ) -> bytes:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+            ) as client:
+                response1 = await client.post(
+                    "/v1/responses",
+                    json={"model": "qwen38-27b", "input": [root_item(root_body)]},
+                )
+                assert response1.status_code == 200
+                assert len(captured_compile) == 1  # the root, THIS namespace
+                history2 = [
+                    root_item(root_body),
+                    exec_call("c1", "cat docs/A.md"),
+                    out_item("c1", frame(a_body)),
+                ]
+                response2 = await client.post(
+                    "/v1/responses",
+                    json={"model": "qwen38-27b", "input": history2},
+                )
+                assert response2.status_code == 200
+                assert len(captured_compile) == 2  # + the file, THIS namespace
+                body2 = captured_main[1].content
+                assert self._source_absent(body2, root_body)
+                assert self._source_absent(body2, a_body)
+                assert body2.count(b"[slaif-live:v") == 2
+                # The session's namespace binds its own repository.
+                session = self._session(app, settings, repository=repository)
+                assert session is not None
+                snapshot = session.owner.snapshot
+                assert snapshot is not None
+                assert snapshot.namespace.repository == repository
+            return body2
+
+        app_a, main_a, compile_a = make_app(settings_a)
+        app_b, main_b, compile_b = make_app(settings_b)
+        body_a = await drive(app_a, settings_a, "repo-alpha", main_a, compile_a)
+        body_b = await drive(app_b, settings_b, "repo-beta", main_b, compile_b)
+        # No cross-repository reuse: each repository compiled its own
+        # root and its own file entry — byte-identical content in the
+        # other repository's app is never served from its entry (a
+        # reused entry would show fewer compiler demands here).
+        assert len(compile_a) == 2
+        assert len(compile_b) == 2
+        # Each app's transformed body carries markers under its own
+        # namespace scope: identical content, distinct repository,
+        # distinct marker bytes (the namespace is MAC-bound).
+        assert body_a != body_b
+        assert main_a[1].content != main_b[1].content

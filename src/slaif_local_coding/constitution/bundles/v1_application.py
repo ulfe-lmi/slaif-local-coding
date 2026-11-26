@@ -131,8 +131,8 @@ from .bundle_selection import (
 )
 from .causal_history_models import CAUSAL_ROOT_FACT
 from .client_paths import validate_workspace
-from .current_graph_models import CurrentGraphStatus
-from .graph_models import CandidateStatus
+from .current_graph_models import ROOT_OWNER, CurrentGraphEdgeKind, CurrentGraphStatus
+from .graph_models import ROOT_FILENAME, CandidateStatus
 from .graph_observation import GraphRequest
 from .observation_models import ObservationReport, PathContext, PathForm, ReadOutcome
 from .ram_state import RamStateOwner
@@ -1839,31 +1839,52 @@ def _count_final_rest(
         return V1RequestRefusal(V1RequestReason.SELECTION_REFUSED)
 
 
-def _root_candidate_paths(snapshot: Any, root_entry: Any) -> tuple[str, ...]:
+def _root_candidate_paths(snapshot: Any) -> tuple[str, ...]:
     """The deterministic root-scope resolved candidates of the
     SAME-run F graph (the exact candidate set the root index is
     compiled and re-fenced against); a missing / refused F result
     carries no candidates.  FILE entries compile with none (the
-    022-b transaction law)."""
+    022-b transaction law).
+
+    The 018-f current graph retains RESOLVED references as
+    version-owned ordinary edges and keeps only the candidates
+    that did NOT become an edge or a path-target certificate in
+    ``overlay.candidates``.  The selected root's supplier is the
+    graph's structural root: its node, its ordinary edges and its
+    retained non-edge candidates all carry the graph's fixed
+    ``ROOT_OWNER`` (never the admission entry's content key), and
+    the SAME-run F overlay is derived under the selected root.
+    The mandatory root-scope resolved candidate set is therefore
+    the union of the ROOT_OWNER ordinary edge targets (the root
+    itself excluded) and the ROOT_OWNER ACCEPTED non-edge
+    candidates with a resolved path: deduplicated and in the
+    stable canonical lexicographic path order (the compile key
+    binds the exact list order)."""
     r_result = snapshot.result.r_result
     if r_result is None:
         return ()
     f_result = r_result.f_result
     if f_result is None or f_result.overlay is None:
         return ()
-    seen: set[str] = set()
-    paths: list[str] = []
+    paths: set[str] = set()
+    for edge in f_result.overlay.edges:
+        if edge.kind is not CurrentGraphEdgeKind.ORDINARY:
+            continue
+        if edge.source != ROOT_FILENAME or edge.target == ROOT_FILENAME:
+            continue
+        if edge.owner != ROOT_OWNER:
+            continue
+        paths.add(edge.target)
     for record in f_result.overlay.candidates:
-        if record.owner != root_entry.content_key:
+        if record.owner != ROOT_OWNER:
             continue
         if record.candidate.status is not CandidateStatus.ACCEPTED:
             continue
         resolved = record.candidate.resolved_path
-        if resolved is None or resolved in seen:
+        if resolved is None or resolved == ROOT_FILENAME:
             continue
-        seen.add(resolved)
-        paths.append(resolved)
-    return tuple(paths)
+        paths.add(resolved)
+    return tuple(sorted(paths))
 
 
 def _transaction_refusal(outcome: ReplacementOutcome) -> V1RequestRefusal:
@@ -1923,9 +1944,7 @@ async def _compile_and_select(
     run_outcomes: dict[str, BundleCompileWorkOutcome] = {}
     for entry in (admission.root_entry, *admission.entries):
         candidate_paths = (
-            _root_candidate_paths(snapshot, entry)
-            if entry.entry_class is EntryClass.ROOT_ENTRY
-            else ()
+            _root_candidate_paths(snapshot) if entry.entry_class is EntryClass.ROOT_ENTRY else ()
         )
         entry_started = V1StageRecorder.begin()
         work = await runtime.compile_work.resolve_entry(
@@ -2320,8 +2339,18 @@ async def prepare_v1_transaction(
             # set is reinjected without original source); the
             # region carries its placement-ownership tag (order
             # 022-e section 1).
+            # The ACTUAL final injected text (the 021 selection
+            # law) is the EXACT combined text the aggregate
+            # decision counted: the selected compiled blocks in
+            # actual injection order plus the EMITTED
+            # missing-binding guidance lines as final extras --
+            # a missing P1 binding's read guidance is forwarded
+            # with the compiled content, never suppressed.
+            final_blocks = result_now.compiled_blocks + tuple(
+                missing.guidance for missing in decision_now.missing_bindings
+            )
             region = _compiled_region(
-                result_now.compiled_blocks,
+                final_blocks,
                 placement=placement,
                 namespace_key=namespace_key,
                 key=key,
@@ -2331,7 +2360,7 @@ async def prepare_v1_transaction(
                 final_payload = inject_compiled_context(
                     result_now.transformed_payload,
                     endpoint=endpoint,
-                    blocks=result_now.compiled_blocks,
+                    blocks=final_blocks,
                     namespace_key=namespace_key,
                     key=key,
                     work_cap=work_cap,

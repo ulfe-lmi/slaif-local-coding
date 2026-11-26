@@ -2723,6 +2723,105 @@ def join_retained_proof(
                     history_bounds=snapshot.namespace.history_bounds,
                 )
             )
+    # Refusal-side coverage for recognized INACTIVE source carriers
+    # (023-b C06): a retained-D nonroot occurrence whose (occurrence,
+    # segment) coordinates NEITHER the admission join above NOR the
+    # positive-supersession phase joins — the unproven boundaryless
+    # group, staled by currentness UNPROVEN_OWNERSHIP without any
+    # proven supersession, so no EVIDENCE splice is earned — is still
+    # a recognized source carrier when the current payload presents
+    # its call/result.  The currentness contract (section 5) makes
+    # such a group earn NEITHER an evidence marker NOR an unsplice:
+    # its ordinary raw text stays data when no marker is present,
+    # but a marker in its source region is a stale reference the
+    # replay gate must catch BEFORE the transition's raw
+    # acquisition — the fixed marker-side refusal (the existing
+    # typed refusal family), never a transition-conflict fallback.
+    # The check scans the source region only: wrapper and ordinary
+    # text outside [start, end) stay data, and the transition's own
+    # refusal mapping is untouched.
+    # Granularity is the (occurrence, segment) coordinate, exactly
+    # like the positive-supersession phase: a span earned by ONE
+    # segment of a multi-segment proof exempts only that coordinate
+    # (a partially handled read never exempts its other source
+    # segments).  The existing current-result index is reused first:
+    # a segment with NO accepted current carrier at all (genuinely
+    # absent from the payload) keeps its raw text as ordinary data
+    # and needs no re-join.
+    if payload_has_marker_candidates(payload):
+        joined_coords = {(s.occurrence_identity, s.segment_index) for s in spans}
+        for occurrence_id, owner in owners.items():
+            proof = owner.proof
+            for segment_index in range(len(proof.segments)):
+                if (occurrence_id, segment_index) in joined_coords:
+                    continue
+                segment = proof.segments[segment_index]
+                # Reuse the existing current-result index: count the
+                # segment's sub-span pieces exactly as the shared
+                # join does and test each for an accepted current
+                # observation before any re-join work.
+                overlapping = 0
+                malformed = False
+                has_current_carrier = False
+                for piece_index, sub in enumerate(segment.piece_spans):
+                    if sub is None:
+                        continue
+                    overlapping += 1
+                    if piece_index >= len(proof.pieces):
+                        malformed = True
+                        continue
+                    if (
+                        _current_piece_carriers(
+                            proof, proof.pieces[piece_index], index, bridge_by_call
+                        )
+                        is not None
+                    ):
+                        has_current_carrier = True
+                        break
+                if not malformed and overlapping > 0 and not has_current_carrier:
+                    # Every piece carrier is genuinely absent from the
+                    # current payload (compaction): the shared join
+                    # would earn ZERO edits, so the segment's raw text
+                    # stays ordinary data (no edit, no refusal here).
+                    # A malformed retained coordinate (a sub-span with
+                    # no owning piece) falls through to the shared
+                    # join, whose closed refusal law applies unchanged.
+                    continue
+                try:
+                    inactive_spans = _join_segment_spans(
+                        payload,
+                        proof,
+                        segment_index,
+                        max_text_chars=max_text_chars,
+                        content_key=segment.digest,
+                        entry_class_value=EntryClass.FILE_BUNDLE_ENTRY.value,
+                        role=_TOOL_RESULT_ROLE,
+                        occurrence_identity=occurrence_id,
+                        root_digest=None,
+                        index=index,
+                        bridge_by_call=bridge_by_call,
+                        results_by_call=results_by_call,
+                        history_bounds=snapshot.namespace.history_bounds,
+                        historical=True,
+                    )
+                except _ReplaceRefusal:
+                    # The retained segment does not re-prove in the
+                    # current payload (a carrier-layer refusal): its
+                    # raw text stays ordinary data (no edit, no
+                    # refusal here).
+                    continue
+                for span in inactive_spans:
+                    try:
+                        slot = lookup_tool_result_carrier(
+                            payload,
+                            span.endpoint,
+                            span.location,
+                            max_text_chars=max_text_chars,
+                        )
+                    except _ReplaceRefusal:
+                        continue
+                    if find_markers(slot.text[span.start : span.end]):
+                        raise _refuse(CarrierDetail.MARKER_INVALID)
     return tuple(spans)
 
 
