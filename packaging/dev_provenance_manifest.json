@@ -3,14 +3,14 @@
     "sdist": {
       "entry_count": 317,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "0a7b084badea65751693cb6e83f2779bd97a9f0bb0c16419be5211307c5cd2fa",
-      "size_bytes": 6290645
+      "sha256": "80811eef23927b90293123da4fc1dbaec25653d7ab493bf61232333b0e37453c",
+      "size_bytes": 6295950
     },
     "wheel": {
       "entry_count": 90,
       "name": "slaif_local_coding-0.1.0-py3-none-any.whl",
-      "sha256": "e82f5ab8b7fa7833e7fbb5734c7612f81f149d2e6a4aae1e53275004437536d3",
-      "size_bytes": 4490190
+      "sha256": "0a02f93b5f9bacaf0f3e86186265884fafdab5a8a999d0ef89d2fa92b48a3c4c",
+      "size_bytes": 4490994
     }
   },
   "frozen_publication": {
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "016-b",
-  "qualification_label": "development-source-e3d7bf238fc2bffe95ed4ff50e26577ef06cb59b; not a release candidate; not released",
+  "qualification_label": "development-source-7d2e7de09c9107d82b9329eb8ac86926112c1e5d; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "e3d7bf238fc2bffe95ed4ff50e26577ef06cb59b",
+  "source_commit": "7d2e7de09c9107d82b9329eb8ac86926112c1e5d",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -159,7 +159,7 @@
     "src/slaif_local_coding/constitution/bundles/tokenizer_assets/tokenizer.json": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
     "src/slaif_local_coding/constitution/bundles/tokenizer_assets/tokenizer_config.json": "207c03c41a06a9c3b0cc527d8a56115159c1eac6b59a4ffae85b646e773d074e",
     "src/slaif_local_coding/constitution/bundles/tool_results.py": "742394bb969adfe45a91d66dd0ef456c56edc4085c7863ee73c086a63dce6d5d",
-    "src/slaif_local_coding/constitution/bundles/v1_application.py": "e7f0243e9dffaa70bd82489560efa00097d46cafe5a4890de89aa1d00dbdfaa4",
+    "src/slaif_local_coding/constitution/bundles/v1_application.py": "cce44856724389666e5f136a7aa3af177f718cb69921e1753b9c0555f7b6b862",
     "src/slaif_local_coding/constitution/bundles/v1_runtime.py": "09546c7aaa975a78301f6cc26c171928b01213090e878a6f14f11c75b4298f26",
     "src/slaif_local_coding/constitution/bundles/v1_telemetry.py": "e49dcce5ff6e317577c3753819afd95e4da98f305bf14b66e115f6cbd3162e20",
     "src/slaif_local_coding/constitution/cache.py": "3836255390244ef1bd9a223319216ddbb34e87ba447600eb0da546a7fbec09cc",
@@ -242,7 +242,7 @@
     "tests/helpers/v1_restart_harness.py": "0c4f35222cbae6d3db9459a14d48b90d5cdc58eed8f41a9d31898df80f247d9f",
     "tests/helpers/vision_e2e_support.py": "fc8dda69925151c634bbbd87860a8310dc8f737f186792bc42284e4c5e06fc32",
     "tests/test_acceptance_harness.py": "eb19dc893b15288aa8fcb5d61bf685b280a04ff14a8043742368e12f9adf7e8b",
-    "tests/test_app.py": "b789f729373c0dcf299c70fb335f70e98e234a63672e1d6fb154d60cc7915c50",
+    "tests/test_app.py": "d7209fb8c05d119f1e63f35bd9133a9ce0a3f126092867f75f52ba143c4e1e29",
     "tests/test_boot_contract.py": "df2add7e565981c2ab7937209b1ce7954aec5f787974faad5bd8ff43f70240b6",
     "tests/test_bundle_admission.py": "d4f9f9433504761551dc4f1131977648e4151dfca35b0e4d818c019080c09044",
     "tests/test_bundle_admission_vectors.py": "abdfef92859321d94f69828355b5201d21bb0934644266b9c6fff638c4099e5f",
@@ -347,7 +347,7 @@
     "tests/test_topology_qualification.py": "1ac4f8b0ba978d87f1142aaa69baf7608a80f547ffbfff3a2c9c4f8a30e6d993",
     "tests/test_transport_observer.py": "b14b16cf85e73d5c9587615d0ebef860c3235c688df73df4b432d3dbc25781e3",
     "tests/test_upstream_diagnostics.py": "70de08255fee023e6df47327a5a7ef32f23383483ca9f6150975c7b105719476",
-    "tests/test_v1_application.py": "d142816f4e85fab42606e1d6005eb4c24ecd2ab00ae7f9dba8384a704ce142f2",
+    "tests/test_v1_application.py": "b9fd480ea98957187e9fc8f4347a4d5bd19e8fe2c8fc816165bd9f901e4503cd",
     "tests/test_v1_probe.py": "f67ece7a55513c0ab4be0aab274ebec1c9be253e0a3f5aa66948de8e7c9ff122",
     "tests/test_vision_e2e.py": "d014caa2e45e9064553d7bf12bb9af9a93c00216f5750e108a80ca2b2a9652db",
     "tests/test_working_set.py": "f08206df303343d9f4ee969eb6bca85baacbbbdcceac213c43d471962e2fec22",
