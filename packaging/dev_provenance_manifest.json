@@ -3,8 +3,8 @@
     "sdist": {
       "entry_count": 317,
       "name": "slaif_local_coding-0.1.0.tar.gz",
-      "sha256": "80811eef23927b90293123da4fc1dbaec25653d7ab493bf61232333b0e37453c",
-      "size_bytes": 6295950
+      "sha256": "94e2200a669343efd62353adbcc9e8fd325dc61cdc2667059dcd3297f4f51e7d",
+      "size_bytes": 6297593
     },
     "wheel": {
       "entry_count": 90,
@@ -22,7 +22,7 @@
     "wheel_sha256": "eb241dda2e079b29190868108c488edaf98261c84119bfd405070dea98b546b9"
   },
   "objective": "016-b",
-  "qualification_label": "development-source-7d2e7de09c9107d82b9329eb8ac86926112c1e5d; not a release candidate; not released",
+  "qualification_label": "development-source-b63767031283d1012544565474d1f70ce6102bbb; not a release candidate; not released",
   "release": false,
   "repository": "ulfe-lmi/slaif-local-coding",
   "schema": "slaif-dev-provenance-v1",
@@ -31,7 +31,7 @@
     "packaging/dev_provenance_manifest.json",
     "packaging/dev_provenance_manifest.schema.json"
   ],
-  "source_commit": "7d2e7de09c9107d82b9329eb8ac86926112c1e5d",
+  "source_commit": "b63767031283d1012544565474d1f70ce6102bbb",
   "source_inputs": {
     ".dockerignore": "b82e057eebcae9bc37bdc6700a2f0fa5bd4542e5df7ef9009aebfa481dbed482",
     ".github/workflows/ci.yml": "f65f8de611245590f88ec40102a240ff5cb9e0825aa52fe7221b11d484dc2480",
@@ -62,7 +62,7 @@
     "docs/CACHE-RAM-STATE-CONTRACT.md": "472a951b4231aec5c5a5904befc701c3ade0369c9e019336d155b8b5427eabda",
     "docs/CACHE-RAM-WORK-CONTRACT.md": "4be65773cc377ba1aa6f157d5d69b262704645a0df4e7a3f2c253ecf0a3763fb",
     "docs/CACHE-RECOVERY-CONTRACT.md": "98f4f406b83e472ca61e5afedaeb9e599138f9beb4b2c232e12a7052a760a581",
-    "docs/CACHE-REWORK-LEDGER.md": "30e9044c0de3a9954d1cd09fc51bf4dc7b78258cc3db9af8e0bbc42cc1adb6bc",
+    "docs/CACHE-REWORK-LEDGER.md": "39322760e478819ea9925c887f702808c203b80271fcd3add2382975339a0334",
     "docs/CACHE-REWORK.md": "410df5c0b8f90b05220adc32c8e673b143c0cf1fa3da02270d91ac453c886abd",
     "docs/CACHE-ROOT-LINEAGE-CONTRACT.md": "544d1b91ed721a39de9925ae051d17856855cb7fb4f0dabd90cc4c1792e4e83c",
     "docs/CACHE-ROOT-REGION-ADMISSION-CONTRACT.md": "b1576735010bbf1c896228094598223c437cdc4cf0b2ab2820f32ed62f2a8673",
