@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from slaif_local_coding.config import (
     ContextCacheRouteContract,
@@ -33,8 +34,14 @@ from slaif_local_coding.constitution.bundles.bundle_admission_models import (
     EntryClass,
 )
 from slaif_local_coding.constitution.bundles.bundle_budget import (
+    ENVELOPE_TOOL_REMINDER_BOUND_TOKENS,
+    ENVELOPE_TOOLS_PREFIX_BOUND_TOKENS,
+    ENVELOPE_TOOLS_SUFFIX_BOUND_TOKENS,
+    BudgetToolSpec,
     BundleBudgetConfig,
+    BundleBudgetError,
     BundleBudgetPlan,
+    BundleBudgetReason,
 )
 from slaif_local_coding.constitution.bundles.bundle_compile_work import (
     BundleCompileWork,
@@ -83,6 +90,8 @@ from slaif_local_coding.constitution.bundles.v1_application import (
     V1RequestRefusal,
     V1Session,
     V1SessionTable,
+    _envelope_structure,
+    _envelope_tools,
     advance_v1_session,
     build_session_address,
     establish_v1_session,
@@ -1783,3 +1792,365 @@ async def test_resumed_session_materializes_publish_and_replays_the_fixed_point(
     assert tx2.edits_committed == 0
     assert tx2.markers_replayed == 1
     assert tx2.body == round1_body
+
+
+# ------------------------------------------------------------------
+# 024-j: genuine Responses function namespaces in the counted view
+# ------------------------------------------------------------------
+
+
+def _flat_tool(name: str) -> dict[str, Any]:
+    """One flat Responses function declaration (synthetic)."""
+    return {
+        "type": "function",
+        "name": name,
+        "description": f"flat {name}",
+        "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
+    }
+
+
+def _namespace_tool(name: str, *members: str) -> dict[str, Any]:
+    """One standard Responses function namespace (synthetic)."""
+    return {
+        "type": "namespace",
+        "name": name,
+        "tools": [
+            {
+                "type": "function",
+                "name": member,
+                "description": f"{name} {member}",
+                "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
+            }
+            for member in members
+        ],
+    }
+
+
+def _observed_shape_tools() -> list[dict[str, Any]]:
+    """The closed observed 0.164.0 seed shape (synthetic names):
+    ten flat functions and two standard namespaces holding five
+    and three function declarations, all with object parameters
+    (the private closed shape records; never raw client content)."""
+    return (
+        [_flat_tool(f"flat{i}") for i in range(7)]
+        + [_namespace_tool("alpha", "a1", "a2", "a3", "a4", "a5")]
+        + [_namespace_tool("beta", "b1", "b2", "b3")]
+        + [_flat_tool("flat7"), _flat_tool("flat8"), _flat_tool("flat9")]
+    )
+
+
+def test_responses_namespace_tools_project_in_declaration_order() -> None:
+    """The observed seed shape is the countable Responses shape:
+    the projected specs keep the declaration order, each supported
+    namespace function expands to the effective ``namespace__name``
+    (the pinned vLLM serving semantics), and each declaration's
+    description and parameters survive verbatim while the flat
+    entries keep the existing behavior."""
+    tools = _observed_shape_tools()
+    specs = _envelope_tools({"tools": tools}, "responses")
+    assert specs is not None
+    assert [spec.name for spec in specs] == [
+        "flat0",
+        "flat1",
+        "flat2",
+        "flat3",
+        "flat4",
+        "flat5",
+        "flat6",
+        "alpha__a1",
+        "alpha__a2",
+        "alpha__a3",
+        "alpha__a4",
+        "alpha__a5",
+        "beta__b1",
+        "beta__b2",
+        "beta__b3",
+        "flat7",
+        "flat8",
+        "flat9",
+    ]
+    inner_a1 = tools[7]["tools"][0]
+    assert specs[7].description == inner_a1["description"]
+    assert specs[7].parameters == inner_a1["parameters"]
+    flat0 = tools[0]
+    assert specs[0] == BudgetToolSpec(
+        name=flat0["name"],
+        description=flat0["description"],
+        parameters=flat0["parameters"],
+    )
+
+
+def test_namespace_tools_are_counted_as_their_flattened_specs() -> None:
+    """The accepted budget counts the flattened projection: the
+    tool preamble of the observed 10 + 5 + 3 shape equals the
+    closed-form preamble of its eighteen effective flat specs
+    (real pinned tokenizer, the pinned serialized form)."""
+    specs = _envelope_tools({"tools": _observed_shape_tools()}, "responses")
+    assert specs is not None
+    assert len(specs) == 18
+    plan = BundleBudgetPlan(get_bundle_tokenizer(), BundleBudgetConfig(context_tokens=32_768))
+    expected = (
+        ENVELOPE_TOOLS_PREFIX_BOUND_TOKENS
+        + ENVELOPE_TOOLS_SUFFIX_BOUND_TOKENS
+        + ENVELOPE_TOOL_REMINDER_BOUND_TOKENS
+    )
+    for spec in specs:
+        expected += 1  # the pinned per-tool newline separator
+        serialized = json.dumps(
+            {
+                "type": "function",
+                "function": {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters": spec.parameters,
+                },
+            },
+            ensure_ascii=False,
+        )
+        expected += plan.tokenizer.count_tokens(serialized)
+    assert plan.count_tool_preamble(specs, enable_thinking=False) == expected
+
+
+def test_flattened_tool_count_honors_max_tools_bound() -> None:
+    """The existing ``max_tools`` item bound applies to the
+    flattened effective function count: seventeen effective
+    functions fit, the eighteenth crosses the bound (the wire
+    carries twelve entries, so the bound is on the projection,
+    not the entry count)."""
+    specs = _envelope_tools({"tools": _observed_shape_tools()}, "responses")
+    assert specs is not None
+    assert len(specs) == 18
+    plan = BundleBudgetPlan(
+        get_bundle_tokenizer(),
+        BundleBudgetConfig(context_tokens=32_768, max_tools=17),
+    )
+    plan.count_tool_preamble(specs[:17], enable_thinking=False)
+    with pytest.raises(BundleBudgetError) as excinfo:
+        plan.count_tool_preamble(specs, enable_thinking=False)
+    assert excinfo.value.reason is BundleBudgetReason.ITEM_LIMIT_EXCEEDED
+    assert excinfo.value.detail == "tools"
+
+
+def test_empty_namespace_contributes_no_effective_tools() -> None:
+    """An empty namespace is a known shape: it contributes no
+    effective functions (the pinned vLLM expansion of nothing is
+    nothing), and the flat entries around it keep their order."""
+    tools = [_flat_tool("flat0"), _namespace_tool("alpha"), _flat_tool("flat1")]
+    specs = _envelope_tools({"tools": tools}, "responses")
+    assert specs is not None
+    assert [spec.name for spec in specs] == ["flat0", "flat1"]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "payload"),
+    [
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "namespace", "name": "alpha"}]},
+            id="namespace-missing-tools",
+        ),
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "namespace", "name": "alpha", "tools": "a1"}]},
+            id="namespace-tools-not-a-list",
+        ),
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "namespace", "tools": []}]},
+            id="namespace-missing-name",
+        ),
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "namespace", "name": "", "tools": []}]},
+            id="namespace-empty-name",
+        ),
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "namespace", "name": 1, "tools": []}]},
+            id="namespace-nonstring-name",
+        ),
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "namespace", "name": "alpha", "tools": ["a1"]}]},
+            id="inner-not-a-dict",
+        ),
+        pytest.param(
+            "responses",
+            {
+                "tools": [
+                    {
+                        "type": "namespace",
+                        "name": "alpha",
+                        "tools": [{"type": "code_interpreter"}],
+                    }
+                ]
+            },
+            id="inner-unsupported-type",
+        ),
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "namespace", "name": "alpha", "tools": [{}]}]},
+            id="inner-missing-type",
+        ),
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "namespace", "name": "alpha", "tools": [{"type": "function"}]}]},
+            id="inner-missing-name",
+        ),
+        pytest.param(
+            "responses",
+            {
+                "tools": [
+                    {
+                        "type": "namespace",
+                        "name": "alpha",
+                        "tools": [{"type": "function", "name": ""}],
+                    }
+                ]
+            },
+            id="inner-empty-name",
+        ),
+        pytest.param(
+            "responses",
+            {
+                "tools": [
+                    {
+                        "type": "namespace",
+                        "name": "alpha",
+                        "tools": [{"type": "function", "name": "a1", "description": 1}],
+                    }
+                ]
+            },
+            id="inner-nonstring-description",
+        ),
+        pytest.param(
+            "responses",
+            {
+                "tools": [
+                    {
+                        "type": "namespace",
+                        "name": "alpha",
+                        "tools": [{"type": "function", "name": "a1", "parameters": []}],
+                    }
+                ]
+            },
+            id="inner-nonobject-parameters",
+        ),
+        pytest.param(
+            "chat",
+            {"tools": [_namespace_tool("alpha", "a1")]},
+            id="namespace-on-chat-endpoint",
+        ),
+        pytest.param(
+            "responses",
+            {"tools": [{"type": "code_interpreter"}]},
+            id="top-level-unsupported-type-still-refused",
+        ),
+    ],
+)
+def test_unsupported_namespace_shapes_are_uncountable(
+    endpoint: str, payload: dict[str, Any]
+) -> None:
+    """Every malformed or unsupported namespace shape is
+    uncountable (the fail-closed typed 422 at the app boundary,
+    never a guessed or dropped count); unsupported nested types
+    and unsupported top-level tool types stay refused."""
+    assert _envelope_tools(payload, endpoint) is None
+
+
+def test_namespaced_function_call_history_is_counted() -> None:
+    """The namespaced function-call history identity: the
+    standard wire shape carries the bare function name plus the
+    optional ``namespace`` field; the counted identity is the
+    effective ``namespace__name`` (the same identity the pinned
+    vLLM serving path uses for namespaced history) while the
+    forwarded wire keeps the actual name and namespace fields
+    (the accounting projection never rewrites the request), and
+    the paired ``function_call_output`` is counted as tool
+    result text."""
+    payload = {
+        "input": [
+            root_item("Follow the workspace protocol.\n"),
+            {
+                "type": "function_call",
+                "call_id": "call-ns-1",
+                "name": "a1",
+                "namespace": "alpha",
+                "arguments": json.dumps({"q": "one"}),
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call-ns-1",
+                "output": "ok",
+            },
+        ],
+        "tools": [_namespace_tool("alpha", "a1", "a2")],
+    }
+    structure = _envelope_structure(payload, "responses")
+    assert structure is not None
+    messages, tools, calls = structure
+    assert [spec.name for spec in tools] == ["alpha__a1", "alpha__a2"]
+    # the counted call identity is the effective namespaced name:
+    assert [call.name for call in calls] == ["alpha__a1"]
+    assert calls[0].arguments == (("q", "one"),)
+    tool_messages = [message for message in messages if message.role == "tool"]
+    assert [message.content for message in tool_messages] == ["ok"]
+
+
+def test_function_call_namespace_follows_the_truthy_prefix_rule() -> None:
+    """The optional namespace prefixes only when truthy (the
+    pinned vLLM history rule): an absent, null or explicitly
+    empty namespace keeps the flat name, a non-empty namespace
+    is the effective ``namespace__name``, and a non-string
+    non-null namespace is the typed invalid shape (uncountable,
+    never a guess)."""
+
+    def _call(**call_fields: Any) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            "type": "function_call",
+            "call_id": "call-ns-1",
+            "name": "a1",
+            "arguments": json.dumps({"q": "one"}),
+        }
+        item.update(call_fields)
+        return item
+
+    base_input = [root_item("Follow the workspace protocol.\n")]
+    tools = [_namespace_tool("alpha", "a1", "a2")]
+    # absent / null / explicitly empty: the flat name:
+    for namespace_field in ({}, {"namespace": None}, {"namespace": ""}):
+        payload = {
+            "input": [*base_input, _call(**namespace_field)],
+            "tools": tools,
+        }
+        structure = _envelope_structure(payload, "responses")
+        assert structure is not None
+        _messages, _tools, calls = structure
+        assert [call.name for call in calls] == ["a1"]
+    # the truthy namespace: the effective namespaced name:
+    payload = {"input": [*base_input, _call(namespace="alpha")], "tools": tools}
+    structure = _envelope_structure(payload, "responses")
+    assert structure is not None
+    _messages, _tools, calls = structure
+    assert [call.name for call in calls] == ["alpha__a1"]
+    # a non-string non-null namespace: the typed invalid shape:
+    payload = {"input": [*base_input, _call(namespace=1)], "tools": tools}
+    assert _envelope_structure(payload, "responses") is None
+
+
+def test_oversized_effective_namespace_name_is_the_closed_refusal() -> None:
+    """An over-bound effective name crosses the accepted budget
+    model's own closed name bound (the same fixed refusal the
+    app maps to the typed 422; the flat path behaves identically
+    for its own over-bound names)."""
+    payload = {
+        "tools": [
+            {
+                "type": "namespace",
+                "name": "n" * 250,
+                "tools": [{"type": "function", "name": "f" * 20}],
+            }
+        ]
+    }
+    with pytest.raises(ValidationError):
+        _envelope_tools(payload, "responses")

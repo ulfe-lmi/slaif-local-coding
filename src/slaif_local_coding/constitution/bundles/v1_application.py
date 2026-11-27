@@ -1461,12 +1461,26 @@ def _budget_tool_call(name: str, arguments: str) -> BudgetToolCall | None:
     return BudgetToolCall(name=name, arguments=tuple(pairs))
 
 
-def _envelope_tools(payload: dict[str, Any]) -> tuple[BudgetToolSpec, ...] | None:
+def _envelope_tools(payload: dict[str, Any], endpoint: str) -> tuple[BudgetToolSpec, ...] | None:
     """The closed ``tools`` mapping: Responses carries the flat
     function spec (``type`` / ``name`` / ``description`` /
-    ``parameters``) while Chat carries the same spec nested
-    under ``function``; any other shape is uncountable (the
-    fail-closed typed 422, never a guess)."""
+    ``parameters``) and the standard function namespace (``type``
+    ``namespace`` with its ``name`` and its ``tools`` list of
+    flat function declarations); Chat carries the flat spec
+    nested under ``function``; any other shape is uncountable
+    (the fail-closed typed 422, never a guess).
+
+    The counted view mirrors the pinned vLLM serving semantics
+    (vLLM 0.32.0 ``vllm/tool_parsers/utils.py``
+    ``get_function_tools``): each supported namespace function
+    expands in declaration order to the effective
+    ``namespace__name`` while keeping the function description
+    and parameters, and the same effective name is the
+    namespaced function-call history identity (vLLM
+    ``vllm/entrypoints/openai/responses/utils.py``).  This is
+    the accounting projection only: the forwarded wire keeps
+    the actual standard declarations, namespace fields, calls
+    and results unchanged."""
     tools_field = payload.get("tools")
     if tools_field is None:
         return ()
@@ -1474,7 +1488,44 @@ def _envelope_tools(payload: dict[str, Any]) -> tuple[BudgetToolSpec, ...] | Non
         return None
     tools: list[BudgetToolSpec] = []
     for tool in tools_field:
-        if not isinstance(tool, dict) or tool.get("type") != "function":
+        if not isinstance(tool, dict):
+            return None
+        tool_type = tool.get("type")
+        if tool_type == "namespace":
+            # The standard Responses function namespace: the
+            # supported inner declaration is the flat function
+            # spec; unsupported nested types stay outside this
+            # correction (the fail-closed typed 422, never a
+            # guess).  Namespaces are not a supported Chat wire
+            # shape.
+            if endpoint != "responses":
+                return None
+            ns_name = tool.get("name")
+            ns_tools = tool.get("tools")
+            if not isinstance(ns_name, str) or not ns_name or not isinstance(ns_tools, list):
+                return None
+            for inner in ns_tools:
+                if not isinstance(inner, dict) or inner.get("type") != "function":
+                    return None
+                name = inner.get("name")
+                description = inner.get("description", "")
+                parameters = inner.get("parameters", {})
+                if (
+                    not isinstance(name, str)
+                    or not name
+                    or not isinstance(description, str)
+                    or not isinstance(parameters, dict)
+                ):
+                    return None
+                tools.append(
+                    BudgetToolSpec(
+                        name=f"{ns_name}__{name}",
+                        description=description,
+                        parameters=parameters,
+                    )
+                )
+            continue
+        if tool_type != "function":
             return None
         spec = tool
         if "function" in tool:
@@ -1600,6 +1651,26 @@ def _envelope_structure(
                     )
                     if not isinstance(name, str) or not isinstance(arguments, str):
                         return None
+                    # The optional namespace of the standard
+                    # namespaced function call: the pinned
+                    # vLLM history rule prefixes only when it
+                    # is truthy, so an absent, null or
+                    # explicitly empty namespace keeps the flat
+                    # name and a non-empty namespace is the
+                    # effective ``namespace__name`` (the same
+                    # identity the pinned vLLM serving path
+                    # uses for namespaced function-call
+                    # history); a non-string non-null namespace
+                    # is uncountable (the fail-closed typed
+                    # 422, never a guess).  The forwarded wire
+                    # keeps the actual name and namespace
+                    # fields unchanged.
+                    if kind == "function_call":
+                        namespace = item.get("namespace")
+                        if namespace is not None and not isinstance(namespace, str):
+                            return None
+                        if namespace:
+                            name = f"{namespace}__{name}"
                     call = _budget_tool_call(name, arguments)
                     if call is None:
                         return None
@@ -1724,7 +1795,7 @@ def _envelope_structure(
                         calls.append(call)
             else:
                 messages.append(BudgetMessage(role=role, content=text))
-    tools = _envelope_tools(payload)
+    tools = _envelope_tools(payload, endpoint)
     if tools is None:
         return None
     return tuple(messages), tools, tuple(calls)
