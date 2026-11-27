@@ -2054,7 +2054,23 @@ the bare content parts as plain user text,
 the bare retained image part as a capacity
 consumer — any other shape the fixed
 typed 422, an explicit null instructions
-carrying none) plus the actual final
+carrying none; Corrected in 024-j: the
+standard Responses function namespace
+tool counts through the pinned Qwen/vLLM
+projection — each supported namespace
+function expands in declaration order to
+`namespace__name` with its description and
+parameters kept, and the optional
+function-call `namespace` prefixes the
+counted name only when truthy (absent,
+null or empty string stay flat; a
+non-string non-null value the fixed typed
+422) — an accounting projection only, the
+forwarded wire keeping the actual standard
+declarations, namespace fields, calls and
+results, while a Chat namespace or any
+unsupported nested type keeps the fixed
+typed 422) plus the actual final
 rendered governance (framing, guides and
 metadata) counted once against the
 aggregate, the fixed typed 422 before any

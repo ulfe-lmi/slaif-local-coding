@@ -4591,6 +4591,188 @@ class TestV1WireClosure:
             assert len(captured_main) == 0
             assert len(captured_compile) == 1
 
+    # -- 024-j: genuine Responses function namespaces -------------
+
+    @staticmethod
+    def _observed_namespace_tools() -> list[dict[str, Any]]:
+        """The closed observed 0.164.0 seed shape (synthetic
+        names): ten flat functions and two standard namespaces
+        holding five and three function declarations, all with
+        object parameters (the private closed shape records;
+        never raw client content)."""
+        tools: list[dict[str, Any]] = []
+        for i in range(7):
+            tools.append(
+                {
+                    "type": "function",
+                    "name": f"flat{i}",
+                    "description": f"flat {i}",
+                    "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
+                }
+            )
+        for ns, count in (("alpha", 5), ("beta", 3)):
+            tools.append(
+                {
+                    "type": "namespace",
+                    "name": ns,
+                    "tools": [
+                        {
+                            "type": "function",
+                            "name": f"{ns}{j}",
+                            "description": f"{ns} {j}",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {"q": {"type": "string"}},
+                            },
+                        }
+                        for j in range(count)
+                    ],
+                }
+            )
+        for i in range(7, 10):
+            tools.append(
+                {
+                    "type": "function",
+                    "name": f"flat{i}",
+                    "description": f"flat {i}",
+                    "parameters": {"type": "object", "properties": {"q": {"type": "string"}}},
+                }
+            )
+        return tools
+
+    async def test_responses_namespace_tools_forward_preserved_and_counted(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The demonstrated 0.164.0 seed shape is the countable
+        governed Responses request: 200 with exactly one main
+        forward and one compiler demand, the standard namespace
+        declarations and the namespaced function-call history
+        preserved on the outbound wire (the accounting projection
+        never rewrites the request), and the governed transform
+        applied to the root carrier (raw source gone, one live
+        marker in)."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        settings = settings.model_copy(
+            update={
+                "server": settings.server.model_copy(update={"request_body_max_bytes": 4_194_304})
+            }
+        )
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        tools = self._observed_namespace_tools()
+        body = {
+            "model": "qwen38-27b",
+            "input": [
+                root_item("Follow the workspace protocol.\n"),
+                {
+                    "type": "function_call",
+                    "call_id": "call-ns-1",
+                    "name": "alpha0",
+                    "namespace": "alpha",
+                    "arguments": json.dumps({"q": "one"}),
+                },
+                {
+                    "type": "function_call_output",
+                    "call_id": "call-ns-1",
+                    "output": "ok",
+                },
+            ],
+            "tools": tools,
+        }
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            response = await client.post("/v1/responses", json=body)
+        assert response.status_code == 200
+        assert len(captured_main) == 1
+        assert len(captured_compile) == 1
+        outbound = json.loads(captured_main[0].content)
+        # the standard outbound namespace structure is preserved:
+        assert outbound["tools"] == tools
+        # the namespaced call history keeps its ids, the bare
+        # name and the namespace field (the wire is unchanged):
+        call_items = [item for item in outbound["input"] if item.get("type") == "function_call"]
+        assert [item["call_id"] for item in call_items] == ["call-ns-1"]
+        assert [item["name"] for item in call_items] == ["alpha0"]
+        assert [item["namespace"] for item in call_items] == ["alpha"]
+        output_items = [
+            item for item in outbound["input"] if item.get("type") == "function_call_output"
+        ]
+        assert [item["call_id"] for item in output_items] == ["call-ns-1"]
+        # the governed transform ran on the root carrier:
+        raw = captured_main[0].content
+        assert raw.count(b"[slaif-live:v") == 1
+        assert b"Follow the workspace protocol." not in raw
+
+    async def test_flattened_namespace_tools_over_max_tools_refuse(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """The ``max_tools`` bound applies to the flattened
+        effective function count: the same observed twelve-entry
+        shape (eighteen effective functions) is the fixed typed
+        422 before any main forward with the bound at seventeen
+        (the working set still compiles; nothing is forwarded),
+        while the same shape at the bound of eighteen is admitted
+        with one main forward."""
+        settings = TestV1ApplicationClosure._setup(monkeypatch, tmp_path)
+        settings = settings.model_copy(
+            update={
+                "server": settings.server.model_copy(update={"request_body_max_bytes": 4_194_304}),
+                "context_cache": settings.context_cache.model_copy(
+                    update={"budget": BundleBudgetConfig(context_tokens=32_768, max_tools=17)}
+                ),
+            }
+        )
+        captured_main: list[httpx.Request] = []
+        captured_compile: list[httpx.Request] = []
+        compiler_echo = _echo_compiler_handler(captured_compile)
+        app = create_app(settings, httpx.MockTransport(self._handler(captured_main, compiler_echo)))
+        assert app.state.v1_runtime is not None
+        body = {
+            "model": "qwen38-27b",
+            "input": [root_item("Follow the workspace protocol.\n")],
+            "tools": self._observed_namespace_tools(),
+        }
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://adapter.test"
+        ) as client:
+            refused = await client.post("/v1/responses", json=body)
+        assert refused.status_code == 422
+        assert refused.json()["error"]["code"] == "v1_selection_refused"
+        assert len(captured_main) == 0
+        assert len(captured_compile) == 1
+
+        # the same shape at the bound itself is admitted (a fresh
+        # store root: a distinct session, never a resumed state):
+        second = tmp_path / "second"
+        settings18 = TestV1ApplicationClosure._setup(monkeypatch, second)
+        budget18 = BundleBudgetConfig(context_tokens=32_768, max_tools=18)
+        server18 = settings18.server.model_copy(update={"request_body_max_bytes": 4_194_304})
+        settings18 = settings18.model_copy(
+            update={
+                "server": server18,
+                "context_cache": settings18.context_cache.model_copy(update={"budget": budget18}),
+            }
+        )
+        captured_main18: list[httpx.Request] = []
+        captured_compile18: list[httpx.Request] = []
+        compiler_echo18 = _echo_compiler_handler(captured_compile18)
+        app18 = create_app(
+            settings18,
+            httpx.MockTransport(self._handler(captured_main18, compiler_echo18)),
+        )
+        assert app18.state.v1_runtime is not None
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app18), base_url="http://adapter.test"
+        ) as client:
+            admitted = await client.post("/v1/responses", json=body)
+        assert admitted.status_code == 200
+        assert len(captured_main18) == 1
+        assert len(captured_compile18) == 1
+
     async def test_vision_reserve_counts_the_retained_image_once(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:

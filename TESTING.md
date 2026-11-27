@@ -99,6 +99,13 @@ layers, per the ledger's owning stage, are:
 - bounded actual-model and genuine-Codex qualification with synthetic
   tasks, serial bounded requests and complete teardown.
 
+The 024-a preparation slice (`scripts/v1_actual_model_probe.py`,
+`tests/test_v1_probe.py`, the `tests/test_live.py` opt-in live gate)
+is prepared at its bounded software-only scope (closed loopback
+candidate on 18031, exact development artifact, fake peers only);
+the actual-model, genuine-client and genuine-compaction criteria
+remain `NOT RUN` and unearned.
+
 Stage 017 (tracked in the stage ledger) has landed the D01-D08 observation
 slices of the first item as the inert pure observation package
 `src/slaif_local_coding/constitution/bundles/` (never active in the adapter;

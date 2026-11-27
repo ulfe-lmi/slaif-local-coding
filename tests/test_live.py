@@ -4,6 +4,12 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import socket
+import stat
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -351,3 +357,114 @@ async def test_live_constitution_compiler_and_cache(tmp_path: Any) -> None:
     metrics = generate_latest(compiler.registry).decode()
     assert "slaif_constitution_cache_hits_total 1.0" in metrics
     assert "SYNTHETIC" not in metrics and "PROCEDURE" not in metrics
+
+
+class TestLiveV1Qualification:
+    """The opt-in real-invocation layer of the 024-a v1 probe.
+
+    Runs the closed opt-in probe executable as a subprocess: a fresh
+    candidate from the exact wheel artifact on the closed 18031 port
+    plus the probe-owned fake peer on 18032 (FAKE PEERS ONLY — no
+    real model, no live inference, no Codex/model-client startup).
+    The probe generates its own synthetic credentials; the test sets
+    no key environment references.  Skipped honestly when the wheel
+    references or uv are unavailable.
+    """
+
+    PROBE = "scripts/v1_actual_model_probe.py"
+
+    @staticmethod
+    def _skip_if_unavailable() -> tuple[str, str]:
+        wheel = os.environ.get("SLAIF_V1_PROBE_WHEEL", "")
+        sha = os.environ.get("SLAIF_V1_PROBE_WHEEL_SHA256", "")
+        if not wheel or not sha or not Path(wheel).is_file():
+            pytest.skip("SLAIF_V1_PROBE_WHEEL(/SHA256) references unavailable")
+        if shutil.which("uv") is None:
+            pytest.skip("uv is not available")
+        return wheel, sha
+
+    def test_probe_run_completes_with_content_free_facts(self, tmp_path: Path) -> None:
+        wheel, sha = self._skip_if_unavailable()
+        work_root = tmp_path / "probe"
+        repo_root = Path(__file__).resolve().parents[1]
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                self.PROBE,
+                "--confirm",
+                "--work-root",
+                str(work_root),
+                "--wheel",
+                wheel,
+                "--wheel-sha256",
+                sha,
+                "--declared-model",
+                "qwen38-27b",
+            ],
+            cwd=str(repo_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = proc.communicate(timeout=900)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, 9)  # SIGKILL the probe session
+            except OSError:
+                proc.kill()
+            proc.communicate()
+            pytest.fail("the bounded probe run exceeded its 900s bound")
+        assert proc.returncode == 0, f"rc={proc.returncode} stderr={stderr[:400]}"
+
+        # Exactly ONE stdout JSON line: the complete status and the
+        # bounded content-free facts.
+        lines = [line for line in stdout.splitlines() if line.strip()]
+        assert len(lines) == 1
+        record = json.loads(lines[0])
+        assert record["status"] == "complete"
+        facts = record["facts"]
+        assert facts["schema"] == "v1-probe-facts-v1"
+        assert facts["model_contract_ok"] is True
+        assert len(facts["rounds"]) == 7
+        assert all(status == 200 for _, status in facts["rounds"])
+        assert facts["main_forward_count"] == 7
+        assert facts["compiler_call_count"] == 2
+        assert facts["r2_live_markers"] == 2
+        assert facts["r2_compiled_blocks"] == 2
+        assert facts["r3_fixed_point"] is True
+        assert facts["r7_fixed_point"] is True
+        assert facts["r5_completed"] is True
+        assert facts["r6_cancelled"] is True
+        assert facts["deadline_ok"] is True
+
+        # Content-free: no fixture source text crosses the boundary.
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("v1_probe_live", repo_root / self.PROBE)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["v1_probe_live"] = module
+        spec.loader.exec_module(module)
+        for forbidden in (module.ROOT_BODY, module.A_BODY, module.READ_CMD):
+            assert forbidden not in stdout
+
+        # The protected facts retention: exactly one fresh run
+        # directory (0700) with the 0600 facts file.
+        run_dirs = sorted(work_root.glob("v1-run-*"))
+        assert len(run_dirs) == 1
+        assert stat.S_IMODE(run_dirs[0].stat().st_mode) == 0o700
+        facts_files = list(run_dirs[0].glob("v1-probe-facts-*.json"))
+        assert len(facts_files) == 1
+        assert stat.S_IMODE(facts_files[0].stat().st_mode) == 0o600
+        assert json.loads(facts_files[0].read_text())["run_id"] == facts["run_id"]
+
+        # Cleanup: both closed ports refused, the run lock released.
+        for port in (18031, 18032):
+            check = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                assert check.connect_ex(("127.0.0.1", port)) != 0
+            finally:
+                check.close()
+        assert not (work_root / "v1-probe.lock").exists()
